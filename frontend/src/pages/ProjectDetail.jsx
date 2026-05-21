@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { 
   Building2, LogOut, ArrowLeft, ArrowRight, Plus, Edit, Trash2, Save, X,
-  DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock,
+  DollarSign, FileText, TrendingUp, TrendingDown, Wallet, MinusCircle, CheckCircle2, Clock,
   AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer, Download, Folder,
   ArrowDownRight, ArrowUpRight, RefreshCw, Eye, Layers, Users, Package, HardHat, CreditCard,
   GitBranch, Lock, Snowflake, Mail, MapPin, ChevronDown, Copy, ExternalLink
@@ -376,6 +376,209 @@ function ProjectCostAllocation({ projectId, api }) {
 }
 
 
+function ProjectCashflowTab({ projectId, isAdmin }) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [locked, setLocked] = useState(true);
+  const [direct, setDirect] = useState(85);
+  const [indirect, setIndirect] = useState(15);
+  const [retro, setRetro] = useState(false);
+  const [pw, setPw] = useState({ open: false, password: '', verifying: false });
+
+  const load = async () => {
+    try {
+      const r = await axios.get(`${API}/cashflow/summary?project_id=${projectId}`);
+      setData(r.data);
+      const split = r.data?.effective_split || { direct_pct: 85, indirect_pct: 15 };
+      setDirect(split.direct_pct);
+      setIndirect(split.indirect_pct);
+    } catch { /* silent */ }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [projectId]);
+
+  const save = async () => {
+    if (Math.abs(Number(direct) + Number(indirect) - 100) > 0.01) { toast.error('Direct + Indirect must sum to 100'); return; }
+    setBusy(true);
+    try {
+      const r = await axios.put(`${API}/cashflow/config/projects/${projectId}`, { direct_pct: Number(direct), indirect_pct: Number(indirect), apply_retroactively: !!retro });
+      toast.success(`Saved${r.data.retroactive_rows_updated ? ` · ${r.data.retroactive_rows_updated} past rows updated` : ''}`);
+      setLocked(true); setRetro(false);
+      load();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+    setBusy(false);
+  };
+
+  const revert = async () => {
+    if (!window.confirm('Revert this project to the global split?')) return;
+    setBusy(true);
+    try {
+      await axios.delete(`${API}/cashflow/config/projects/${projectId}`);
+      toast.success('Reverted to global');
+      setLocked(true); setRetro(false);
+      load();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+    setBusy(false);
+  };
+
+  const submitUnlock = async () => {
+    if (!pw.password) { toast.error('Enter your password'); return; }
+    setPw(p => ({ ...p, verifying: true }));
+    try {
+      await axios.post(`${API}/auth/verify-password`, { password: pw.password });
+      setLocked(false);
+      setPw({ open: false, password: '', verifying: false });
+      toast.success('Unlocked — you can now edit allocation');
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Incorrect password');
+      setPw(p => ({ ...p, verifying: false }));
+    }
+  };
+
+  if (!data) return <p className="text-xs text-gray-400 py-4 text-center">Loading…</p>;
+  const fmtINR = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+  const net = (data.direct_balance || 0) + (data.indirect_balance || 0);
+
+  return (
+    <div className="space-y-4">
+      {/* 3 Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {/* Card 01 — Project Cashflow Overview */}
+        <Card className="bg-gradient-to-br from-violet-50 to-violet-100/40 border-violet-200">
+          <CardContent className="p-4 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase text-violet-700">Cashflow Overview</span>
+              {net >= 0 ? <TrendingUp className="h-4 w-4 text-violet-600" /> : <TrendingDown className="h-4 w-4 text-rose-600" />}
+            </div>
+            <div className="flex items-center justify-between border-b border-violet-200/60 pb-1.5">
+              <span className="text-[11px] text-violet-700/80">Total Income</span>
+              <span className="text-sm font-bold text-emerald-700">{fmtINR(data.income_total)}</span>
+            </div>
+            <div className="flex items-center justify-between border-b border-violet-200/60 pb-1.5">
+              <span className="text-[11px] text-violet-700/80">Total Expense (D+I)</span>
+              <span className="text-sm font-bold text-rose-600">{fmtINR(data.expense_total)}</span>
+            </div>
+            <div className="flex items-center justify-between pt-0.5">
+              <span className="text-[12px] font-semibold text-violet-900">Balance</span>
+              <span className={`text-lg font-extrabold ${net >= 0 ? 'text-violet-800' : 'text-rose-800'}`}>{fmtINR(net)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 02 — Direct */}
+        <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100/40 border-emerald-200">
+          <CardContent className="p-4 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase text-emerald-700">Direct Cost Allocation</span>
+              <Badge className="bg-emerald-200 text-emerald-800 text-[10px]">{data.effective_split?.direct_pct}%</Badge>
+            </div>
+            <div className="flex items-center justify-between border-b border-emerald-200/60 pb-1.5">
+              <span className="text-[11px] text-emerald-700/80">Total Direct Allocation</span>
+              <span className="text-sm font-bold text-emerald-700">{fmtINR(data.direct_in)}</span>
+            </div>
+            <div className="flex items-center justify-between border-b border-emerald-200/60 pb-1.5">
+              <span className="text-[11px] text-emerald-700/80">Expense (Direct)</span>
+              <span className="text-sm font-bold text-rose-600">{fmtINR(data.direct_out)}</span>
+            </div>
+            <div className="flex items-center justify-between pt-0.5">
+              <span className="text-[12px] font-semibold text-emerald-900">Balance</span>
+              <span className="text-lg font-extrabold text-emerald-800">{fmtINR(data.direct_balance)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 03 — Indirect */}
+        <Card className="bg-gradient-to-br from-sky-50 to-sky-100/40 border-sky-200">
+          <CardContent className="p-4 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase text-sky-700">Indirect Cost Allocation</span>
+              <Badge className="bg-sky-200 text-sky-800 text-[10px]">{data.effective_split?.indirect_pct}%</Badge>
+            </div>
+            <div className="flex items-center justify-between border-b border-sky-200/60 pb-1.5">
+              <span className="text-[11px] text-sky-700/80">Total Indirect Allocation</span>
+              <span className="text-sm font-bold text-sky-700">{fmtINR(data.indirect_in)}</span>
+            </div>
+            <div className="flex items-center justify-between border-b border-sky-200/60 pb-1.5">
+              <span className="text-[11px] text-sky-700/80">Expense (Indirect)</span>
+              <span className="text-sm font-bold text-rose-600">{fmtINR(data.indirect_out)}</span>
+            </div>
+            <div className="flex items-center justify-between pt-0.5">
+              <span className="text-[12px] font-semibold text-sky-900">Balance</span>
+              <span className="text-lg font-extrabold text-sky-800">{fmtINR(data.indirect_balance)}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Allocation Editor (Super Admin) */}
+      {isAdmin && (
+        <Card className="border-indigo-200">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+              <div>
+                <p className="text-[11px] uppercase font-semibold text-indigo-700 flex items-center gap-1">
+                  Allocation Editor
+                  {data.has_override ? <Badge variant="outline" className="text-[9px] border-indigo-300 text-indigo-700">Project Override</Badge> : <Badge variant="outline" className="text-[9px] border-gray-300 text-gray-500">Using Global Default</Badge>}
+                </p>
+                <p className="text-xs text-gray-500">Adjust Direct / Indirect split for this project.</p>
+              </div>
+              {locked && (
+                <Button variant="outline" className="border-indigo-300 text-indigo-700 hover:bg-indigo-50" onClick={() => setPw({ open: true, password: '', verifying: false })} data-testid="proj-cf-edit-btn">
+                  <Lock className="h-4 w-4 mr-1" /> Edit (Password Required)
+                </Button>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-3 max-w-md">
+              <div>
+                <Label className="text-xs">Direct %</Label>
+                <Input type="number" min={0} max={100} step={0.5} value={direct} onChange={(e) => { setDirect(e.target.value); setIndirect(Math.max(0, 100 - Number(e.target.value))); }} disabled={locked} data-testid="proj-cf-direct" />
+              </div>
+              <div>
+                <Label className="text-xs">Indirect %</Label>
+                <Input type="number" min={0} max={100} step={0.5} value={indirect} onChange={(e) => { setIndirect(e.target.value); setDirect(Math.max(0, 100 - Number(e.target.value))); }} disabled={locked} data-testid="proj-cf-indirect" />
+              </div>
+            </div>
+            {!locked && (
+              <>
+                <label className="flex items-center gap-2 mt-3 text-xs">
+                  <input type="checkbox" checked={retro} onChange={(e) => setRetro(e.target.checked)} data-testid="proj-cf-retro" />
+                  Recompute past income with the new split
+                </label>
+                <div className="flex items-center gap-2 mt-3">
+                  <Button onClick={save} disabled={busy} className="bg-indigo-600 hover:bg-indigo-700" data-testid="proj-cf-save"><Save className="h-4 w-4 mr-1" /> Save</Button>
+                  <Button variant="outline" onClick={() => { setLocked(true); load(); }} data-testid="proj-cf-cancel">Cancel</Button>
+                  {data.has_override && (
+                    <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={revert} disabled={busy} data-testid="proj-cf-revert"><Trash2 className="h-4 w-4 mr-1" /> Revert to Global</Button>
+                  )}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Dialog open={pw.open} onOpenChange={(o) => !o && !pw.verifying && setPw({ open: false, password: '', verifying: false })}>
+        <DialogContent className="max-w-sm" data-testid="proj-cf-pw-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Lock className="h-5 w-5 text-indigo-600" /> Enter Password to Edit</DialogTitle>
+            <DialogDescription>Editing this project's cost allocation is restricted. Re-enter your password to unlock.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Label className="text-xs">Your password</Label>
+            <Input type="password" autoFocus value={pw.password} onChange={(e) => setPw(p => ({ ...p, password: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') submitUnlock(); }} placeholder="••••••••" data-testid="proj-cf-pw-input" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPw({ open: false, password: '', verifying: false })} disabled={pw.verifying}>Cancel</Button>
+            <Button onClick={submitUnlock} disabled={pw.verifying || !pw.password} className="bg-indigo-600 hover:bg-indigo-700" data-testid="proj-cf-pw-submit">
+              {pw.verifying ? 'Verifying…' : 'Unlock'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+
 function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency, getPaymentStatusBadge, openCollectDialog }) {
   const [incomeData, setIncomeData] = useState(null);
   const [expenseData, setExpenseData] = useState(null);
@@ -413,10 +616,6 @@ function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency
 
   return (
     <div className="space-y-6">
-      {/* Cashflow Engine — per-project allocation (Super Admin) */}
-      {user?.role === 'super_admin' && (
-        <ProjectCostAllocation projectId={projectId} api={API} />
-      )}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h3 className="text-base sm:text-lg font-bold">Payment Summary</h3>
@@ -499,12 +698,15 @@ function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency
         <Card data-testid="income-expense-section">
           <CardHeader className="pb-0 pt-3 px-4 border-b">
             <Tabs value={financeTab} onValueChange={setFinanceTab}>
-              <TabsList className="grid grid-cols-2 w-full max-w-xs">
+              <TabsList className="grid grid-cols-3 w-full max-w-md">
                 <TabsTrigger value="income" className="gap-1.5 data-[state=active]:bg-green-100 data-[state=active]:text-green-800" data-testid="project-income-tab">
                   <ArrowDownRight className="h-3.5 w-3.5" /> Income ({incomeEntries.length})
                 </TabsTrigger>
                 <TabsTrigger value="expense" className="gap-1.5 data-[state=active]:bg-red-100 data-[state=active]:text-red-800" data-testid="project-expense-tab">
                   <ArrowUpRight className="h-3.5 w-3.5" /> Expense
+                </TabsTrigger>
+                <TabsTrigger value="cashflow" className="gap-1.5 data-[state=active]:bg-indigo-100 data-[state=active]:text-indigo-800" data-testid="project-cashflow-tab">
+                  <Wallet className="h-3.5 w-3.5" /> Cashflow Engine
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -512,6 +714,10 @@ function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency
           <CardContent className="p-0">
             {loadingFinance ? (
               <div className="flex justify-center py-8"><RefreshCw className="h-5 w-5 animate-spin text-amber-600" /></div>
+            ) : financeTab === 'cashflow' ? (
+              <div className="p-4">
+                <ProjectCashflowTab projectId={projectId} isAdmin={['super_admin'].includes(user?.role)} />
+              </div>
             ) : financeTab === 'income' ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs" data-testid="project-income-table">
