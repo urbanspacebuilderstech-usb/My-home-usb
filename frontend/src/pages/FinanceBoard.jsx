@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { AppHeader } from '../components/AppHeader';
-import { LineChart, BarChart3, CalendarClock, FolderKanban, Banknote } from 'lucide-react';
+import { LineChart, BarChart3, CalendarClock, FolderKanban, Banknote, Wallet } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -15,6 +17,7 @@ const TABS = [
   { value: 'labour',    label: 'Labour Payments',  icon: Banknote,      src: '/labour-payments?embedded=1' },
   { value: 'projects',  label: 'Project Wise',     icon: FolderKanban,  src: '/accounts-board?tab=projects&embedded=1&navRole=accountant' },
   { value: 'projection', label: 'Projection',      icon: LineChart,     src: null },
+  { value: 'cashflow',   label: 'Cashflow Engine',  icon: Wallet,        src: '/cashflow-engine?embedded=1' },
 ];
 
 export default function FinanceBoard() {
@@ -29,7 +32,13 @@ export default function FinanceBoard() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col" data-testid="finance-board">
-      <AppHeader user={user} />
+      <AppHeader user={user} headerActions={
+        <Link to="/cashflow-engine">
+          <Button size="sm" variant="outline" className="h-9 border-indigo-300 text-indigo-700 hover:bg-indigo-50" data-testid="finance-cashflow-engine-btn">
+            <Wallet className="h-4 w-4 mr-1.5" /> Cashflow Engine
+          </Button>
+        </Link>
+      } />
 
       <Tabs value={active} onValueChange={setActive} className="flex-1 flex flex-col">
         <div className="bg-white border-b px-4 lg:px-6">
