@@ -328,12 +328,20 @@ function ProjectCostAllocation({ projectId, api }) {
   };
 
   if (!data) return null;
+  const hasOverride = data.has_override === true || (data.effective_split && data.effective_split.direct_pct !== undefined && Boolean(data.has_override));
   return (
     <Card className="mb-4 border-indigo-200 bg-indigo-50/40" data-testid="project-cost-allocation-card">
       <CardContent className="p-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <p className="text-[11px] uppercase font-semibold text-indigo-700">Cost Allocation (Cashflow Engine)</p>
+            <p className="text-[11px] uppercase font-semibold text-indigo-700 flex items-center gap-1">
+              Cost Allocation (Cashflow Engine)
+              {data.has_override ? (
+                <Badge variant="outline" className="text-[9px] border-indigo-300 text-indigo-700">Project Override</Badge>
+              ) : (
+                <Badge variant="outline" className="text-[9px] border-gray-300 text-gray-500">Global Default</Badge>
+              )}
+            </p>
             <p className="text-xs text-gray-600">Direct {data.direct_in?.toLocaleString('en-IN')} in · {data.direct_out?.toLocaleString('en-IN')} out · Indirect {data.indirect_in?.toLocaleString('en-IN')} in · {data.indirect_out?.toLocaleString('en-IN')} out</p>
           </div>
           {!editing ? (
@@ -405,6 +413,10 @@ function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency
 
   return (
     <div className="space-y-6">
+      {/* Cashflow Engine — per-project allocation (Super Admin) */}
+      {user?.role === 'super_admin' && (
+        <ProjectCostAllocation projectId={projectId} api={API} />
+      )}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h3 className="text-base sm:text-lg font-bold">Payment Summary</h3>

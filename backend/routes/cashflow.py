@@ -325,6 +325,8 @@ async def get_summary(project_id: Optional[str] = None, user: User = Depends(get
         "net": round((direct_in - direct_out) + (indirect_in - indirect_out), 2),
         "per_project": per_project,
         "effective_split": await _get_effective_split(project_id) if project_id else await _get_global_split(),
+        "has_override": bool(await db.cashflow_config.find_one({"_id": f"project:{project_id}"}, {"_id": 1})) if project_id else False,
+        "global_split": await _get_global_split(),
     }
 
 
