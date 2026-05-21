@@ -658,6 +658,169 @@ async def reject_income(income_id: str, reason: str = "", user: User = Depends(g
     return {"message": "Income rejected and returned for correction"}
 
 
+class IncomeResubmitRequest(BaseModel):
+    project_id: Optional[str] = None
+    project_name: Optional[str] = None
+    category: Optional[str] = None
+    sub_category: Optional[str] = None
+    amount: Optional[float] = None
+    payment_mode: Optional[str] = None
+    payment_reference: Optional[str] = None
+    payment_date: Optional[str] = None
+    stage: Optional[str] = None
+    description: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+@router.post("/income/{income_id}/resubmit")
+async def resubmit_rejected_income(income_id: str, data: IncomeResubmitRequest, user: User = Depends(get_current_user)):
+    """Originator (CRE/Sales/Admin) fixes a rejected income entry and resubmits for approval.
+
+    The full record stays in db.income (so audit history is preserved). Status flips
+    from 'rejected' back to 'pending_approval' and the rejection metadata is cleared,
+    but we keep `last_rejection_reason` + `last_rejected_at` for traceability.
+    """
+    inc = await db.income.find_one({"income_id": income_id}, {"_id": 0})
+    if not inc:
+        raise HTTPException(status_code=404, detail="Income entry not found")
+    if inc.get("status") != "rejected":
+        raise HTTPException(status_code=400, detail=f"Only rejected entries can be resubmitted (current status={inc.get('status')})")
+    # Allow originator OR admin/CRE/Sales roles to resubmit
+    allowed = (inc.get("created_by") == user.user_id) or (user.role in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.SALES, UserRole.ACCOUNTANT])
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Only the originator (or Admin/CRE/Sales) can resubmit this entry")
+
+    update: Dict[str, Any] = {
+        "status": "pending_approval",
+        "last_rejection_reason": inc.get("rejection_reason"),
+        "last_rejected_by_name": inc.get("rejected_by_name"),
+        "last_rejected_at": inc.get("rejected_at"),
+        "resubmitted_by": user.user_id,
+        "resubmitted_by_name": user.name,
+        "resubmitted_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # Clear current rejection so the row shows up cleanly in the approval queue
+    unset = {"rejection_reason": "", "rejected_by": "", "rejected_by_name": "", "rejected_at": ""}
+
+    payload = data.model_dump(exclude_none=True) if hasattr(data, "model_dump") else data.dict(exclude_none=True)
+    for k, v in payload.items():
+        update[k] = v
+
+    await db.income.update_one({"income_id": income_id}, {"$set": update, "$unset": unset})
+    await create_audit_log(user.user_id, "resubmit", "income", income_id, {"fields_changed": list(payload.keys())})
+
+    # Notify the accountant who rejected (if any), or all accountants
+    try:
+        rejector_id = inc.get("rejected_by")
+        if rejector_id:
+            await create_notification(rejector_id, f"Income ₹{inc.get('amount', 0):,.0f} resubmitted by {user.name} — please review.")
+    except Exception:
+        pass
+
+    return {"message": "Income resubmitted for approval"}
+
+
+class ExpenseRejectRequest(BaseModel):
+    reason: str
+
+
+@router.post("/expenses/{expense_id}/reject")
+async def reject_expense(expense_id: str, data: ExpenseRejectRequest, user: User = Depends(get_current_user)):
+    """Accountant rejects a recorded expense; sends it back to the originator."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant/Admin can reject expenses")
+    exp = await db.recorded_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not exp:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    if exp.get("status") == "rejected":
+        raise HTTPException(status_code=400, detail="Already rejected")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.recorded_expenses.update_one(
+        {"expense_id": expense_id},
+        {"$set": {
+            "status": "rejected",
+            "rejected_by": user.user_id,
+            "rejected_by_name": user.name,
+            "rejected_at": now,
+            "rejection_reason": data.reason or "Rejected without remarks",
+        }}
+    )
+    if exp.get("created_by"):
+        try:
+            await create_notification(
+                exp["created_by"],
+                f"Expense ₹{exp.get('amount', 0):,.0f} for {exp.get('project_name', 'project')} was rejected. Reason: {data.reason or 'No remarks'}"
+            )
+        except Exception:
+            pass
+    await create_audit_log(user.user_id, "reject", "expense", expense_id, {"reason": data.reason})
+    return {"message": "Expense rejected and returned to originator"}
+
+
+class ExpenseResubmitRequest(BaseModel):
+    project_id: Optional[str] = None
+    project_name: Optional[str] = None
+    category: Optional[str] = None
+    vendor_name: Optional[str] = None
+    amount: Optional[float] = None
+    payment_mode: Optional[str] = None
+    payment_reference: Optional[str] = None
+    date: Optional[str] = None
+    description: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+@router.post("/expenses/{expense_id}/resubmit")
+async def resubmit_rejected_expense(expense_id: str, data: ExpenseResubmitRequest, user: User = Depends(get_current_user)):
+    """Originator fixes a rejected expense and resubmits for approval (status -> pending_approval)."""
+    exp = await db.recorded_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not exp:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    if exp.get("status") != "rejected":
+        raise HTTPException(status_code=400, detail=f"Only rejected entries can be resubmitted (current status={exp.get('status')})")
+    allowed = (exp.get("created_by") == user.user_id) or (user.role in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT])
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Only the originator (or Admin/Accountant) can resubmit this expense")
+
+    update: Dict[str, Any] = {
+        "status": "pending_approval",
+        "last_rejection_reason": exp.get("rejection_reason"),
+        "last_rejected_by_name": exp.get("rejected_by_name"),
+        "last_rejected_at": exp.get("rejected_at"),
+        "resubmitted_by": user.user_id,
+        "resubmitted_by_name": user.name,
+        "resubmitted_at": datetime.now(timezone.utc).isoformat(),
+    }
+    unset = {"rejection_reason": "", "rejected_by": "", "rejected_by_name": "", "rejected_at": ""}
+    payload = data.model_dump(exclude_none=True) if hasattr(data, "model_dump") else data.dict(exclude_none=True)
+    for k, v in payload.items():
+        update[k] = v
+    await db.recorded_expenses.update_one({"expense_id": expense_id}, {"$set": update, "$unset": unset})
+    await create_audit_log(user.user_id, "resubmit", "expense", expense_id, {"fields_changed": list(payload.keys())})
+    return {"message": "Expense resubmitted for approval"}
+
+
+@router.get("/income/rejected/mine")
+async def get_my_rejected_income(user: User = Depends(get_current_user)):
+    """Income entries the current user originated that the Accountant rejected."""
+    q = {"status": "rejected"}
+    # Show all rejected for admin/accountant; others see only their own
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        q["created_by"] = user.user_id
+    rows = await db.income.find(q, {"_id": 0}).sort("rejected_at", -1).to_list(200)
+    return rows
+
+
+@router.get("/expenses/rejected/mine")
+async def get_my_rejected_expenses(user: User = Depends(get_current_user)):
+    """Recorded expenses the current user originated that the Accountant rejected."""
+    q = {"status": "rejected"}
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        q["created_by"] = user.user_id
+    rows = await db.recorded_expenses.find(q, {"_id": 0}).sort("rejected_at", -1).to_list(200)
+    return rows
+
+
 class IncomeReviewRequest(BaseModel):
     verification_mode: str  # cash, cheque, bank, dt
     denomination: Optional[Dict[str, int]] = None  # for cash: {"2000": 1, "500": 4, ...}

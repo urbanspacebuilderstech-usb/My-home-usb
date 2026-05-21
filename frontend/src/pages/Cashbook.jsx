@@ -37,20 +37,29 @@ export default function Cashbook() {
     project_id: '', category: 'other', description: '', amount: '',
     payment_method: 'cash', vendor_name: '', remarks: ''
   });
+  // Reject → Resubmit flow state
+  const [rejectedIncome, setRejectedIncome] = useState([]);
+  const [rejectedExpense, setRejectedExpense] = useState([]);
+  const [fixDialog, setFixDialog] = useState({ open: false, type: null, entry: null, form: {} });
+  const [fixBusy, setFixBusy] = useState(false);
 
   useEffect(() => { fetchData(); }, []);
 
   const fetchData = async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true);
-      const [userRes, cbRes, notifsRes] = await Promise.all([
+      const [userRes, cbRes, notifsRes, rejIncRes, rejExpRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/cashbook`).catch(() => ({ data: null })),
         axios.get(`${API}/notifications`).catch(() => ({ data: [] })),
+        axios.get(`${API}/income/rejected/mine`).catch(() => ({ data: [] })),
+        axios.get(`${API}/expenses/rejected/mine`).catch(() => ({ data: [] })),
       ]);
       setUser(userRes.data);
       setData(cbRes.data);
       setUnreadNotifs((notifsRes.data || []).filter(n => !n.read).length);
+      setRejectedIncome(rejIncRes.data || []);
+      setRejectedExpense(rejExpRes.data || []);
     } catch (error) {
       if (error.response?.status === 401) window.location.href = '/login';
     } finally {
@@ -187,6 +196,41 @@ export default function Cashbook() {
           </Card>
         </div>
 
+        {/* Rejected Items Banner — visible only when there are items awaiting fix */}
+        {(rejectedIncome.length > 0 || rejectedExpense.length > 0) && (
+          <Card className="mb-4 border-red-300 bg-red-50/60" data-testid="rejected-banner">
+            <CardContent className="p-3">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="text-sm font-bold text-red-700 flex items-center gap-1.5">
+                  ⚠ Rejected — Action Required
+                  <Badge className="bg-red-200 text-red-800 text-[10px]">{rejectedIncome.length + rejectedExpense.length}</Badge>
+                </p>
+                <p className="text-[10px] text-red-700/70">These entries are NOT counted in your balance. Fix the highlighted fields and resubmit for approval.</p>
+              </div>
+              <div className="space-y-1.5">
+                {rejectedIncome.map(r => (
+                  <div key={r.income_id} className="rounded-md bg-white/80 border border-red-200 p-2 flex items-center justify-between gap-2" data-testid={`rejected-income-${r.income_id}`}>
+                    <div className="min-w-0 text-xs">
+                      <p className="font-semibold text-red-800 truncate">Income · {r.project_name || '—'} · ₹{Number(r.amount || 0).toLocaleString('en-IN')} <span className="text-gray-500 font-normal">({r.payment_mode})</span></p>
+                      <p className="text-[11px] text-red-600 truncate">Reason: {r.rejection_reason || '—'} {r.rejected_by_name && <span className="text-gray-500">(by {r.rejected_by_name})</span>}</p>
+                    </div>
+                    <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700 shrink-0" onClick={() => setFixDialog({ open: true, type: 'income', entry: r, form: { ...r } })} data-testid={`fix-income-${r.income_id}`}>Fix &amp; Resubmit</Button>
+                  </div>
+                ))}
+                {rejectedExpense.map(r => (
+                  <div key={r.expense_id} className="rounded-md bg-white/80 border border-red-200 p-2 flex items-center justify-between gap-2" data-testid={`rejected-expense-${r.expense_id}`}>
+                    <div className="min-w-0 text-xs">
+                      <p className="font-semibold text-red-800 truncate">Expense · {r.project_name || '—'} · ₹{Number(r.amount || 0).toLocaleString('en-IN')} <span className="text-gray-500 font-normal">({r.category})</span></p>
+                      <p className="text-[11px] text-red-600 truncate">Reason: {r.rejection_reason || '—'} {r.rejected_by_name && <span className="text-gray-500">(by {r.rejected_by_name})</span>}</p>
+                    </div>
+                    <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700 shrink-0" onClick={() => setFixDialog({ open: true, type: 'expense', entry: r, form: { ...r } })} data-testid={`fix-expense-${r.expense_id}`}>Fix &amp; Resubmit</Button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="flex items-center justify-between mb-3">
@@ -283,6 +327,96 @@ export default function Cashbook() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Fix & Resubmit Dialog */}
+      <Dialog open={fixDialog.open} onOpenChange={(o) => !o && !fixBusy && setFixDialog({ open: false, type: null, entry: null, form: {} })}>
+        <DialogContent className="max-w-md" data-testid="fix-resubmit-dialog">
+          <DialogHeader>
+            <DialogTitle>Fix &amp; Resubmit · {fixDialog.type === 'income' ? 'Income' : 'Expense'}</DialogTitle>
+          </DialogHeader>
+          {fixDialog.entry && (
+            <div className="space-y-3 py-2">
+              <div className="rounded-md bg-red-50 border border-red-200 p-2 text-[12px] text-red-700">
+                <span className="font-semibold">Rejection reason:</span> {fixDialog.entry.rejection_reason || '—'}
+                {fixDialog.entry.rejected_by_name && <span className="block text-red-600 mt-0.5">— {fixDialog.entry.rejected_by_name}</span>}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Amount (₹)</Label>
+                  <NumericInput value={fixDialog.form.amount || ''} onChange={(e) => setFixDialog(d => ({ ...d, form: { ...d.form, amount: e.target.value } }))} data-testid="fix-amount" />
+                </div>
+                <div>
+                  <Label className="text-xs">Payment Mode</Label>
+                  <Select value={fixDialog.form.payment_mode || ''} onValueChange={(v) => setFixDialog(d => ({ ...d, form: { ...d.form, payment_mode: v } }))}>
+                    <SelectTrigger data-testid="fix-mode"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="savings_account">HDFC SAVINGS</SelectItem>
+                      <SelectItem value="current_account">HDFC CURRENT</SelectItem>
+                      <SelectItem value="direct_transfer">CASH D/T</SelectItem>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="cheque">Cheque</SelectItem>
+                      <SelectItem value="escrow">Escrow</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Reference (Cheque No / NEFT Ref / Escrow ID)</Label>
+                <Input value={fixDialog.form.payment_reference || ''} onChange={(e) => setFixDialog(d => ({ ...d, form: { ...d.form, payment_reference: e.target.value } }))} data-testid="fix-reference" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">{fixDialog.type === 'income' ? 'Payment Date' : 'Date'}</Label>
+                  <Input type="date" value={(fixDialog.type === 'income' ? fixDialog.form.payment_date : fixDialog.form.date) || ''} onChange={(e) => setFixDialog(d => ({ ...d, form: { ...d.form, [fixDialog.type === 'income' ? 'payment_date' : 'date']: e.target.value } }))} data-testid="fix-date" />
+                </div>
+                <div>
+                  <Label className="text-xs">Project</Label>
+                  <Select value={fixDialog.form.project_id || ''} onValueChange={(v) => { const p = projects.find(x => x.project_id === v); setFixDialog(d => ({ ...d, form: { ...d.form, project_id: v, project_name: p?.name || d.form.project_name } })); }}>
+                    <SelectTrigger data-testid="fix-project"><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectContent>{projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Remarks</Label>
+                <Input value={(fixDialog.form.description || fixDialog.form.remarks) || ''} onChange={(e) => setFixDialog(d => ({ ...d, form: { ...d.form, [fixDialog.type === 'income' ? 'description' : 'remarks']: e.target.value } }))} data-testid="fix-remarks" />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFixDialog({ open: false, type: null, entry: null, form: {} })} disabled={fixBusy}>Cancel</Button>
+            <Button className="bg-amber-600 hover:bg-amber-700" disabled={fixBusy} data-testid="fix-resubmit-btn"
+              onClick={async () => {
+                if (!fixDialog.entry) return;
+                setFixBusy(true);
+                try {
+                  const isInc = fixDialog.type === 'income';
+                  const id = isInc ? fixDialog.entry.income_id : fixDialog.entry.expense_id;
+                  const url = isInc ? `${API}/income/${id}/resubmit` : `${API}/expenses/${id}/resubmit`;
+                  const allowed = isInc
+                    ? ['project_id','project_name','category','sub_category','amount','payment_mode','payment_reference','payment_date','stage','description','remarks']
+                    : ['project_id','project_name','category','vendor_name','amount','payment_mode','payment_reference','date','description','remarks'];
+                  const payload = {};
+                  for (const k of allowed) {
+                    if (fixDialog.form[k] !== undefined && fixDialog.form[k] !== null && fixDialog.form[k] !== '') {
+                      payload[k] = k === 'amount' ? Number(fixDialog.form[k]) : fixDialog.form[k];
+                    }
+                  }
+                  await axios.post(url, payload);
+                  toast.success('Resubmitted — sent back to Accountant for review');
+                  setFixDialog({ open: false, type: null, entry: null, form: {} });
+                  fetchData(false);
+                } catch (e) {
+                  toast.error(e.response?.data?.detail || 'Failed to resubmit');
+                } finally { setFixBusy(false); }
+              }}
+            >
+              {fixBusy ? 'Resubmitting…' : 'Resubmit for Approval'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <MobileBottomNav user={user} />
     </div>
   );
