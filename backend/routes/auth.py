@@ -821,6 +821,22 @@ class TwoFactorSetupRequest(BaseModel):
     password: str
 
 
+class PasswordVerifyRequest(BaseModel):
+    password: str
+
+
+@router.post("/auth/verify-password")
+async def verify_password_endpoint(data: PasswordVerifyRequest, user: User = Depends(get_current_user)):
+    """Lightweight password re-check used to gate sensitive UI actions (e.g. edit cashflow allocation)."""
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+    stored_hash = user_doc.get("password_hash")
+    if not stored_hash or not verify_password(data.password, stored_hash):
+        raise HTTPException(status_code=401, detail="Incorrect password")
+    return {"verified": True}
+
+
 @router.post("/auth/2fa/setup")
 async def setup_2fa(data: TwoFactorSetupRequest, user: User = Depends(get_current_user)):
     """Step 1: Verify password and generate TOTP secret + QR code"""

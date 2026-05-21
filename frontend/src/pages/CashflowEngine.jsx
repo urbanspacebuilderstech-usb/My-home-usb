@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { ArrowLeft, RefreshCw, Save, Trash2, Wallet, TrendingUp, TrendingDown, ArrowDownLeft, ArrowUpRight, BarChart3, Settings as SettingsIcon } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Save, Trash2, Wallet, TrendingUp, TrendingDown, ArrowDownLeft, ArrowUpRight, BarChart3, Settings as SettingsIcon, Lock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -26,6 +26,9 @@ export default function CashflowEngine() {
   const [overrideDialog, setOverrideDialog] = useState({ open: false, project: null, direct_pct: 85, indirect_pct: 15, apply_retroactively: false });
   const [globalEdit, setGlobalEdit] = useState({ direct_pct: 85, indirect_pct: 15 });
   const [projectsList, setProjectsList] = useState([]);
+  // Lock state: global split is locked once saved; admin must enter password to re-edit.
+  const [globalLocked, setGlobalLocked] = useState(true);
+  const [pwDialog, setPwDialog] = useState({ open: false, password: '', verifying: false });
 
   const fetchAll = async () => {
     setLoading(true);
@@ -69,6 +72,7 @@ export default function CashflowEngine() {
         indirect_pct: Number(globalEdit.indirect_pct),
       });
       toast.success('Global split updated');
+      setGlobalLocked(true);
       fetchAll();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
     setBusy(false);
@@ -115,6 +119,20 @@ export default function CashflowEngine() {
       fetchAll();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
     setBusy(false);
+  };
+
+  const submitPasswordUnlock = async () => {
+    if (!pwDialog.password) { toast.error('Enter your password'); return; }
+    setPwDialog(d => ({ ...d, verifying: true }));
+    try {
+      await axios.post(`${API}/auth/verify-password`, { password: pwDialog.password });
+      setGlobalLocked(false);
+      setPwDialog({ open: false, password: '', verifying: false });
+      toast.success('Unlocked — you can now edit the global split');
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Incorrect password');
+      setPwDialog(d => ({ ...d, verifying: false }));
+    }
   };
 
   const overrideMap = useMemo(() => {
@@ -382,17 +400,32 @@ export default function CashflowEngine() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <Label className="text-xs">Direct %</Label>
-                      <Input type="number" min={0} max={100} step={0.5} value={globalEdit.direct_pct} onChange={(e) => setGlobalEdit(g => ({ ...g, direct_pct: e.target.value, indirect_pct: Math.max(0, 100 - Number(e.target.value)) }))} data-testid="cf-global-direct" disabled={!isAdmin} />
+                      <Input type="number" min={0} max={100} step={0.5} value={globalEdit.direct_pct} onChange={(e) => setGlobalEdit(g => ({ ...g, direct_pct: e.target.value, indirect_pct: Math.max(0, 100 - Number(e.target.value)) }))} data-testid="cf-global-direct" disabled={!isAdmin || globalLocked} />
                     </div>
                     <div>
                       <Label className="text-xs">Indirect %</Label>
-                      <Input type="number" min={0} max={100} step={0.5} value={globalEdit.indirect_pct} onChange={(e) => setGlobalEdit(g => ({ ...g, indirect_pct: e.target.value, direct_pct: Math.max(0, 100 - Number(e.target.value)) }))} data-testid="cf-global-indirect" disabled={!isAdmin} />
+                      <Input type="number" min={0} max={100} step={0.5} value={globalEdit.indirect_pct} onChange={(e) => setGlobalEdit(g => ({ ...g, indirect_pct: e.target.value, direct_pct: Math.max(0, 100 - Number(e.target.value)) }))} data-testid="cf-global-indirect" disabled={!isAdmin || globalLocked} />
                     </div>
                   </div>
-                  {isAdmin ? (
-                    <Button onClick={saveGlobal} disabled={busy} className="bg-indigo-600 hover:bg-indigo-700" data-testid="cf-global-save"><Save className="h-4 w-4 mr-1" /> Save Global</Button>
-                  ) : (
+                  {!isAdmin ? (
                     <p className="text-[11px] text-gray-500 italic">Only Super Admin can modify the global split.</p>
+                  ) : globalLocked ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        onClick={() => setPwDialog({ open: true, password: '', verifying: false })}
+                        variant="outline"
+                        className="border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                        data-testid="cf-global-edit"
+                      >
+                        <Lock className="h-4 w-4 mr-1" /> Edit (Password Required)
+                      </Button>
+                      <span className="text-[11px] text-gray-500">Locked — re-enter your password to modify.</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Button onClick={saveGlobal} disabled={busy} className="bg-indigo-600 hover:bg-indigo-700" data-testid="cf-global-save"><Save className="h-4 w-4 mr-1" /> Save Global</Button>
+                      <Button variant="outline" onClick={() => { setGlobalEdit({ direct_pct: config.global.direct_pct, indirect_pct: config.global.indirect_pct }); setGlobalLocked(true); }} data-testid="cf-global-cancel">Cancel</Button>
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -460,6 +493,34 @@ export default function CashflowEngine() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Password unlock dialog — required before editing the Global Split */}
+      <Dialog open={pwDialog.open} onOpenChange={(o) => !o && !pwDialog.verifying && setPwDialog({ open: false, password: '', verifying: false })}>
+        <DialogContent className="max-w-sm" data-testid="cf-pw-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Lock className="h-5 w-5 text-indigo-600" /> Enter Password to Edit</DialogTitle>
+            <DialogDescription>Editing the Global Cost Allocation is restricted. Please re-enter your password to unlock.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Label className="text-xs">Your password</Label>
+            <Input
+              type="password"
+              autoFocus
+              value={pwDialog.password}
+              onChange={(e) => setPwDialog(d => ({ ...d, password: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === 'Enter') submitPasswordUnlock(); }}
+              placeholder="••••••••"
+              data-testid="cf-pw-input"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPwDialog({ open: false, password: '', verifying: false })} disabled={pwDialog.verifying}>Cancel</Button>
+            <Button onClick={submitPasswordUnlock} disabled={pwDialog.verifying || !pwDialog.password} className="bg-indigo-600 hover:bg-indigo-700" data-testid="cf-pw-submit">
+              {pwDialog.verifying ? 'Verifying…' : 'Unlock'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Override Dialog */}
       <Dialog open={overrideDialog.open} onOpenChange={(o) => !o && setOverrideDialog({ open: false, project: null, direct_pct: 85, indirect_pct: 15, apply_retroactively: false })}>
