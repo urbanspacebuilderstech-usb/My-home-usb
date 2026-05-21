@@ -5871,23 +5871,13 @@ export default function ProjectDetail() {
 
             {/* ==================== PAYMENT SUMMARY TAB ==================== */}
             <TabsContent value="payment-summary" className="p-3 sm:p-6">
-              {/* Inner sub-tabs: Summary totals | Cheques (Cheques was a top-level
-                  tab before — moved here per user request to keep the project
-                  header less cluttered). */}
-              <Tabs defaultValue="summary" className="w-full">
+              <Tabs defaultValue="cashflow" className="w-full">
                 <TabsList className="mb-4" data-testid="payment-summary-subtabs">
-                  <TabsTrigger value="summary" data-testid="ps-subtab-summary">Summary</TabsTrigger>
-                  <TabsTrigger value="cheques" data-testid="ps-subtab-cheques">Cheques</TabsTrigger>
+                  <TabsTrigger value="cashflow" data-testid="ps-subtab-cashflow"><Wallet className="h-4 w-4 mr-1.5" />Cashflow Engine</TabsTrigger>
+                  <TabsTrigger value="cheques" data-testid="ps-subtab-cheques"><CreditCard className="h-4 w-4 mr-1.5" />Cheques</TabsTrigger>
                 </TabsList>
-                <TabsContent value="summary">
-                  <PaymentSummarySection
-                    user={user}
-                    projectId={projectId}
-                    paymentSummary={paymentSummary}
-                    formatCurrency={formatCurrency}
-                    getPaymentStatusBadge={getPaymentStatusBadge}
-                    openCollectDialog={openCollectDialog}
-                  />
+                <TabsContent value="cashflow">
+                  <ProjectCashflowTab projectId={projectId} isAdmin={['super_admin'].includes(user?.role)} />
                 </TabsContent>
                 <TabsContent value="cheques">
                   {projectId && <ChequeListView scope="project" projectId={projectId} userRole={user?.role} />}
