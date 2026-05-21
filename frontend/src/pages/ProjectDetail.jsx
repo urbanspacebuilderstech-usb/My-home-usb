@@ -4132,10 +4132,6 @@ export default function ProjectDetail() {
             </TabsContent>
             {/* ==================== PAYMENTS TAB ==================== */}
             <TabsContent value="payments" className="p-6">
-              {/* Cost Allocation override (Super Admin only) */}
-              {user?.role === 'super_admin' && (
-                <ProjectCostAllocation projectId={projectId} api={API} />
-              )}
               {/* Balance Payment Info — 4 cards calculated from Payment Schedule rows only */}
               {(() => {
                 const totalValue = payment_stages.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
