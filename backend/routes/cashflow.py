@@ -128,6 +128,24 @@ async def allocate_expense(expense_id: str, project_id: Optional[str], amount: f
     return row
 
 
+async def reverse_allocation(source_id: str, kind: Optional[str] = None) -> int:
+    """Remove cashflow ledger rows for a given source (income_id or expense_id).
+
+    Called when an Approved entry is rejected post-approval (i.e. sent for
+    correction) — the cashflow_ledger row is deleted so the Direct/Indirect
+    pool snapshots, project totals, and engine summary stop counting that
+    amount immediately. Re-approval will re-insert via allocate_income /
+    allocate_expense as usual.
+
+    Returns the number of rows removed.
+    """
+    query: Dict[str, Any] = {"source_id": source_id}
+    if kind:
+        query["kind"] = kind
+    res = await db.cashflow_ledger.delete_many(query)
+    return res.deleted_count
+
+
 # ===================== ENDPOINTS — CONFIG =====================
 @router.get("/cashflow/config")
 async def get_config(user: User = Depends(get_current_user)):

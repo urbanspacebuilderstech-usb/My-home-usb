@@ -16,6 +16,8 @@ import { CashbookDateFilter, filterByDateRange } from '../components/CashbookDat
 import ChequeListView from '../components/ChequeListView';
 import PayApprovalDialog from '../components/PayApprovalDialog';
 import DTSelectToPayDialog from '../components/DTSelectToPayDialog';
+import { StatusPill, pillState } from '../components/StatusPill';
+import { CorrectionDialog } from '../components/CorrectionDialog';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
@@ -412,6 +414,10 @@ function PettyCashManagement({ onBack }) {
   const [pendingRequests, setPendingRequests] = useState([]);
   // Petrol Allowance
   const [petrolRequests, setPetrolRequests] = useState([]);
+  // Correction Engine state — Accountant view
+  const [correctionPC, setCorrectionPC] = useState(null);        // post-approval send-for-correction (Accountant raises)
+  const [correctionReason, setCorrectionReason] = useState('');
+  const [viewCorrectionPC, setViewCorrectionPC] = useState(null); // read-only view of rejected/under-correction row
 
   useEffect(() => {
     (async () => {
@@ -543,12 +549,11 @@ function PettyCashManagement({ onBack }) {
                     <td className="px-3 py-2 font-medium">{pc.purpose || '-'}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{pc.project_name || '-'}</td>
                     <td className="px-3 py-2 text-center">
-                      <Badge className={
-                        pc.status === 'issued' ? 'bg-green-100 text-green-700' :
-                        pc.status === 'requested' ? 'bg-amber-100 text-amber-700' :
-                        pc.status === 'settled' ? 'bg-blue-100 text-blue-700' :
-                        'bg-gray-100 text-gray-700'
-                      }>{pc.status}</Badge>
+                      <StatusPill
+                        status={pc.status}
+                        data-testid={`acc-pc-status-${pc.petty_cash_id}`}
+                        onClick={['accountant_rejected','under_correction'].includes(pc.status) ? () => setViewCorrectionPC(pc) : undefined}
+                      />
                     </td>
                     <td className="px-3 py-2 text-right"><MaskedValue value={pc.amount_requested} /></td>
                     <td className="px-3 py-2 text-right text-green-700 font-semibold"><MaskedValue value={pc.amount_issued} className="text-green-700" /></td>
@@ -558,6 +563,30 @@ function PettyCashManagement({ onBack }) {
                         <Button size="sm" className="h-6 text-[10px] bg-green-600 hover:bg-green-700"
                           onClick={() => { setIssuePC(pc); setIssueAmount(pc.amount_requested?.toString() || ''); setIssueDialog(true); }}>
                           Issue
+                        </Button>
+                      )}
+                      {pillState(pc.status) === 'approved' && (
+                        <Button size="sm" variant="outline" className="h-6 text-[10px] text-orange-600 border-orange-300 hover:bg-orange-50 ml-1"
+                          data-testid={`acc-pc-correct-${pc.petty_cash_id}`}
+                          onClick={() => setCorrectionPC(pc)}>
+                          Send for Correction
+                        </Button>
+                      )}
+                      {pillState(pc.status) === 'awaiting' && pc.status !== 'requested' && (
+                        <Button size="sm" variant="outline" className="h-6 text-[10px] text-red-600 border-red-300 hover:bg-red-50 ml-1"
+                          data-testid={`acc-pc-reject-${pc.petty_cash_id}`}
+                          onClick={async () => {
+                            const reason = window.prompt('Reason for rejecting this petty cash request?');
+                            if (!reason || !reason.trim()) return;
+                            try {
+                              await axios.patch(`${API}/accountant/petty-cash/${pc.petty_cash_id}/reject`, { reason: reason.trim() });
+                              toast.success('Petty cash rejected. SE will be notified to correct & resubmit.');
+                              fetchSECashbook(pc.requested_by || (seCashbook?.site_engineer?.user_id));
+                            } catch (e) {
+                              toast.error(e?.response?.data?.detail || 'Reject failed');
+                            }
+                          }}>
+                          Reject
                         </Button>
                       )}
                     </td>
@@ -819,6 +848,73 @@ function PettyCashManagement({ onBack }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Correction Engine — Petty Cash. Accountant raises a "Send for Correction" on
+          an already-approved/issued row. The reason is required; the linked
+          recorded_expenses row + cashflow_ledger entries are reversed server-side. */}
+      <Dialog open={!!correctionPC} onOpenChange={(v) => { if (!v) { setCorrectionPC(null); setCorrectionReason(''); } }}>
+        <DialogContent className="max-w-md" data-testid="acc-pc-correction-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-sm flex items-center gap-2">
+              <span className="text-orange-600">🔄</span>
+              Send Approved Petty Cash for Correction
+            </DialogTitle>
+          </DialogHeader>
+          {correctionPC && (
+            <div className="space-y-3">
+              <Card className="bg-orange-50 border-orange-200">
+                <CardContent className="p-3 text-xs space-y-1">
+                  <p><span className="text-gray-500">SE:</span> <span className="font-semibold">{correctionPC.requested_by_name}</span></p>
+                  <p><span className="text-gray-500">Purpose:</span> {correctionPC.purpose}</p>
+                  <p><span className="text-gray-500">Amount Issued:</span> <span className="font-bold text-orange-700">₹{(correctionPC.amount_issued || correctionPC.amount_requested || 0).toLocaleString('en-IN')}</span></p>
+                  <p className="text-[11px] text-orange-700 italic mt-1">⚠ This amount will be removed from Cashbook + Cashflow Engine until the SE corrects and resubmits.</p>
+                </CardContent>
+              </Card>
+              <div>
+                <Label className="text-xs">Reason for Correction *</Label>
+                <Textarea
+                  className="text-xs"
+                  rows={3}
+                  value={correctionReason}
+                  onChange={(e) => setCorrectionReason(e.target.value)}
+                  placeholder="e.g., Wrong project tagged / amount mismatch / missing receipt..."
+                  data-testid="acc-pc-correction-reason"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => { setCorrectionPC(null); setCorrectionReason(''); }}>Cancel</Button>
+            <Button
+              size="sm"
+              className="bg-orange-600 hover:bg-orange-700"
+              data-testid="acc-pc-correction-confirm"
+              onClick={async () => {
+                if (!correctionReason.trim()) { toast.error('Correction reason is required'); return; }
+                try {
+                  await axios.post(`${API}/accountant/petty-cash/${correctionPC.petty_cash_id}/send-for-correction`, { reason: correctionReason.trim() });
+                  toast.success('Sent for correction. Cashflow entries reversed.');
+                  setCorrectionPC(null); setCorrectionReason('');
+                  fetchSECashbook(correctionPC.requested_by || (seCashbook?.site_engineer?.user_id));
+                } catch (e) {
+                  toast.error(e?.response?.data?.detail || 'Send for correction failed');
+                }
+              }}
+            >Send for Correction</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Read-only view of rejected / under-correction rows (accountant clicks pill) */}
+      <CorrectionDialog
+        open={!!viewCorrectionPC}
+        onClose={() => setViewCorrectionPC(null)}
+        entityType="Petty Cash"
+        doc={viewCorrectionPC}
+        resubmitUrl=""
+        editableFields={[]}
+        canEdit={false}
+      />
     </div>
   );
 }

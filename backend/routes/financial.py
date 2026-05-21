@@ -67,12 +67,19 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
         {"status": None},
     ]}
 
+    # Expense status filter — exclude rejected / under-correction rows. Once
+    # the accountant pulls back an Approved expense for correction the ledger
+    # entry is reversed AND the recorded_expenses row's status flips to
+    # `under_correction`, so it should disappear from every cashbook total
+    # until re-approved.
+    EXCLUDED_EXPENSE_STATUSES = ["under_correction", "rejected", "accountant_rejected", "accounts_rejected"]
+
     (incomes, recorded_exps, labour_exps, material_reqs, petty_cash_list, projects_list, suspense_txns, petty_requests, suspense_entries, vendor_credits_v2, credit_ledger_v1, labour_open_exps) = await asyncio.gather(
         db.income.find(income_status_filter, {"_id": 0}).sort("created_at", -1).to_list(5000),
-        db.recorded_expenses.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000),
+        db.recorded_expenses.find({"status": {"$nin": EXCLUDED_EXPENSE_STATUSES}}, {"_id": 0}).sort("created_at", -1).to_list(5000),
         db.labour_expenses.find({"status": "accounts_approved"}, {"_id": 0}).sort("created_at", -1).to_list(5000),
-        db.material_requests.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000),
-        db.petty_cash.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000),
+        db.material_requests.find({"status": {"$nin": EXCLUDED_EXPENSE_STATUSES}}, {"_id": 0}).sort("created_at", -1).to_list(5000),
+        db.petty_cash.find({"status": {"$nin": EXCLUDED_EXPENSE_STATUSES}}, {"_id": 0}).sort("created_at", -1).to_list(5000),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1, "status": 1}).to_list(1000),
         db.suspense_transactions.find({}, {"_id": 0}).to_list(5000),
         db.petty_cash_requests.find({}, {"_id": 0}).to_list(2000),
@@ -988,7 +995,13 @@ async def get_cashbook(
         raise HTTPException(status_code=403, detail="Access denied")
     
     income_q = {"status": {"$in": ["approved", "verified"]}} if not project_id else {"status": {"$in": ["approved", "verified"]}, "project_id": project_id}
-    expense_q = {} if not project_id else {"project_id": project_id}
+    # Exclude rejected / under-correction expense rows from cashbook + totals.
+    # The correction engine flips these statuses when an approved row is
+    # pulled back; the row should vanish from cashbook until re-approved.
+    EXCLUDED_EXPENSE_STATUSES = ["under_correction", "rejected", "accountant_rejected", "accounts_rejected"]
+    expense_q = {"status": {"$nin": EXCLUDED_EXPENSE_STATUSES}}
+    if project_id:
+        expense_q["project_id"] = project_id
     
     (incomes, recorded_exps, labour_exps, material_reqs, projects_list) = await asyncio.gather(
         db.income.find(income_q, {"_id": 0}).sort("created_at", -1).to_list(2000),

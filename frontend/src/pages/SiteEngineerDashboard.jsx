@@ -20,6 +20,8 @@ import { ArrowDownRight, ArrowUpRight, RefreshCw, Eye, Trash2, Boxes, Ruler } fr
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import { AppHeader } from '../components/AppHeader';
+import { StatusPill, pillState } from '../components/StatusPill';
+import { CorrectionDialog } from '../components/CorrectionDialog';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -280,6 +282,7 @@ export default function SiteEngineerDashboard() {
   
   // Petty Cash states
   const [pettyCashList, setPettyCashList] = useState([]);
+  const [correctionPC, setCorrectionPC] = useState(null);
   // Filter for the Petty Cash list — set by clicking the Pending Req / Waiting Approval tiles.
   // 'all' shows everything; 'pending' = requested (awaiting PM); 'waiting' = pm_approved/accountant_processing.
   const [pcStatusFilter, setPcStatusFilter] = useState('all');
@@ -1361,9 +1364,13 @@ export default function SiteEngineerDashboard() {
                         <CardContent className="p-3">
                           <div className="flex justify-between items-start mb-2">
                             <div>
-                              <div className="flex items-center gap-2 mb-0.5">
+                              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                                 <h4 className="font-semibold text-sm">{pc.project_name}</h4>
-                                {getPettyCashStatusBadge(pc.status)}
+                                <StatusPill
+                                  status={pc.status}
+                                  data-testid={`pc-status-${pc.petty_cash_id}`}
+                                  onClick={['accountant_rejected','under_correction'].includes(pc.status) ? () => setCorrectionPC(pc) : undefined}
+                                />
                               </div>
                               <p className="text-xs text-gray-500">{pc.purpose}</p>
                               <p className="text-[10px] text-gray-400 mt-0.5">{new Date(pc.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
@@ -1372,6 +1379,23 @@ export default function SiteEngineerDashboard() {
                               <p className="text-base font-bold text-green-600">₹{(pc.amount_issued || pc.amount_requested).toLocaleString('en-IN')}</p>
                             </div>
                           </div>
+
+                          {/* Red banner — accountant rejection or post-approval correction */}
+                          {['accountant_rejected','under_correction'].includes(pc.status) && (
+                            <div className="mb-2 p-2 rounded bg-red-50 border-2 border-red-300 cursor-pointer hover:bg-red-100 transition" onClick={() => setCorrectionPC(pc)} data-testid={`pc-correction-banner-${pc.petty_cash_id}`}>
+                              <p className="text-xs font-bold text-red-800">
+                                {pc.status === 'under_correction'
+                                  ? '🔄 Approved entry sent back — Correction required'
+                                  : '⚠ Rejected by Accountant — Re-enter Required'}
+                              </p>
+                              <p className="text-[11px] text-red-700 mt-0.5">
+                                <span className="font-semibold">Reason:</span> {pc.rejection_reason || pc.correction_reason || 'No reason given'}
+                              </p>
+                              <p className="text-[10px] text-red-600 mt-0.5 italic">
+                                Click to view details, edit, and resubmit for accountant approval.
+                              </p>
+                            </div>
+                          )}
                           {/* Status timeline */}
                           <div className="flex items-center gap-1 text-[10px] mt-2 flex-wrap">
                             <span className={`px-1.5 py-0.5 rounded ${pc.status !== 'rejected' && pc.status !== 'pm_rejected' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>Requested</span>
@@ -2534,6 +2558,27 @@ function SiteVisitsSection({ user }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Correction Engine — Petty Cash: handles accountant_rejected + under_correction */}
+      <CorrectionDialog
+        open={!!correctionPC}
+        onClose={() => setCorrectionPC(null)}
+        entityType="Petty Cash"
+        doc={correctionPC}
+        resubmitUrl={correctionPC ? `${API}/petty-cash/${correctionPC.petty_cash_id}/resubmit` : ''}
+        editableFields={[
+          { key: 'amount_requested', label: 'Amount Requested (₹)', type: 'number', required: true },
+          { key: 'purpose', label: 'Purpose', type: 'text', full: true },
+          { key: 'remarks', label: 'Remarks / Correction Notes', type: 'textarea', full: true },
+        ]}
+        canEdit={true}
+        onAfterResubmit={async () => {
+          try {
+            const res = await axios.get(`${API}/site-engineer/petty-cash`);
+            setPettyCashList(res.data || []);
+          } catch (e) { /* noop */ }
+        }}
+      />
     </div>
   );
 }

@@ -29,6 +29,7 @@ from core.database import db, fs
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
 from core.models import *
 from security import InputValidator
+from routes.correction_engine import apply_rejection, apply_resubmit, apply_send_for_correction
 
 logger = logging.getLogger(__name__)
 
@@ -2286,6 +2287,22 @@ async def issue_petty_cash(petty_cash_id: str, data: PettyCashIssueInput, user: 
         "created_at": now,
     })
 
+    # Cashflow Engine allocation — petty cash drains the direct pool. Keyed on
+    # petty_cash_id so the correction-engine reverse_allocation() can roll it
+    # back cleanly if the accountant later sends this row for correction.
+    try:
+        from routes.cashflow import allocate_expense
+        await allocate_expense(
+            expense_id=petty_cash_id,
+            project_id=pc.get("project_id"),
+            amount=float(data.amount),
+            category="petty_cash",
+            project_name=pc.get("project_name", ""),
+            source="petty_cash",
+        )
+    except Exception as e:
+        logger.warning(f"cashflow allocate_expense failed for petty_cash {petty_cash_id}: {e}")
+
     # Notify site engineer
     await create_notification(pc["requested_by"], f"Petty cash issued: ₹{data.amount:,.0f}")
 
@@ -2346,29 +2363,67 @@ async def settle_petty_cash(petty_cash_id: str, user: User = Depends(get_current
 
 
 @router.patch("/accountant/petty-cash/{petty_cash_id}/reject")
-async def reject_petty_cash(petty_cash_id: str, reason: str = "", user: User = Depends(get_current_user)):
-    """Accountant rejects petty cash request"""
-    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only Accountant can reject petty cash")
-    
-    petty_cash = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
-    if not petty_cash:
-        raise HTTPException(status_code=404, detail="Petty cash not found")
-    
-    await db.petty_cash.update_one(
+async def reject_petty_cash(petty_cash_id: str, payload: Dict[str, Any] = None, reason: str = "", user: User = Depends(get_current_user)):
+    """Accountant rejects petty cash request.
+
+    Routes through the shared correction engine so the row gets a uniform
+    `accountant_rejected` status, structured `correction_history`, and a
+    notification to the original requester. The legacy `?reason=` query param
+    is preserved for back-compat with older callers; the new flow prefers a
+    JSON body {"reason": "..."}.
+    """
+    body_reason = (payload or {}).get("reason") if isinstance(payload, dict) else None
+    final_reason = body_reason or reason or ""
+    return await apply_rejection("petty_cash", petty_cash_id, final_reason, user)
+
+
+class PettyCashResubmitInput(BaseModel):
+    amount_requested: Optional[float] = None
+    purpose: Optional[str] = None
+    remarks: Optional[str] = None
+    project_id: Optional[str] = None
+
+
+@router.post("/petty-cash/{petty_cash_id}/resubmit")
+async def resubmit_petty_cash(petty_cash_id: str, data: PettyCashResubmitInput, user: User = Depends(get_current_user)):
+    """Original requester (SE / PM / Asst PM / Super Admin) edits and resubmits
+    a rejected or under-correction petty cash request. Status flips back to
+    `awaiting_accountant` and the accountant gets notified.
+    """
+    return await apply_resubmit(
+        "petty_cash",
+        petty_cash_id,
+        data.dict(exclude_unset=True, exclude_none=True),
+        user,
+    )
+
+
+class PettyCashCorrectionInput(BaseModel):
+    reason: str
+
+
+@router.post("/accountant/petty-cash/{petty_cash_id}/send-for-correction")
+async def send_petty_cash_for_correction(petty_cash_id: str, data: PettyCashCorrectionInput, user: User = Depends(get_current_user)):
+    """Accountant pulls back an Approved/Issued petty cash row for correction.
+
+    Reverses any cashflow_ledger entries tied to this petty_cash_id so the
+    amount disappears from Cashbook / Cashflow Engine totals immediately,
+    then notifies the original requester to edit + resubmit.
+    """
+    result = await apply_send_for_correction("petty_cash", petty_cash_id, data.reason, user)
+    # Also hide the linked recorded_expenses row from the cashbook by flipping
+    # its status to `under_correction`. Keyed on petty_cash_id (set when the
+    # expense was inserted during /issue).
+    await db.recorded_expenses.update_many(
         {"petty_cash_id": petty_cash_id},
         {"$set": {
-            "status": "rejected",
-            "rejected_by": user.user_id,
-            "rejected_reason": reason,
-            "rejected_at": datetime.now(timezone.utc).isoformat()
+            "status": "under_correction",
+            "correction_reason": data.reason,
+            "correction_requested_by_name": user.name,
+            "correction_requested_at": datetime.now(timezone.utc).isoformat(),
         }}
     )
-    
-    # Notify site engineer
-    await create_notification(petty_cash["requested_by"], f"Petty cash rejected: {reason or 'No reason provided'}")
-    
-    return {"message": "Petty cash rejected"}
+    return result
 
 
 
