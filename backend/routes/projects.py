@@ -2799,7 +2799,19 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     income_records = await db.income.find(
         {"project_id": project_id}, {"_id": 0}
     ).sort("created_at", -1).to_list(100)
-    
+
+    # APPROVED-only income for ALL totals shown anywhere financial (cashbook +
+    # cashflow + project header). Rejected / under_correction / pending entries
+    # must NEVER inflate the project's Total Income card or the Receivable
+    # calculation. The income_records list still returns every row so the UI
+    # can show the rejection/correction banner on the per-row view.
+    EXCLUDED_INCOME_STATUSES = ["rejected", "accountant_rejected", "under_correction", "pending_approval"]
+    approved_income_total = sum(
+        float(i.get("amount", 0) or 0)
+        for i in income_records
+        if (i.get("status") or "approved") not in EXCLUDED_INCOME_STATUSES
+    )
+
     # Advance payment details (from project)
     advance_amount = project.get("advance_amount", 0) or 0
     advance_payment = {
@@ -2808,13 +2820,23 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
         "mode": project.get("advance_payment_mode"),
         "status": "received" if advance_amount > 0 else "pending"
     }
-    
+
     # Calculate totals - include advance payment in total_received
     total_scheduled = sum(s.get("amount", 0) for s in payment_stages)
     stages_received = sum(s.get("amount_received", 0) for s in payment_stages)
-    
-    # Total received includes advance payment + stages received
-    total_received = advance_amount + stages_received
+
+    # SINGLE SOURCE OF TRUTH for Total Income shown on the project header:
+    # sum of APPROVED income rows. We deliberately do NOT add advance_amount or
+    # payment_stages.amount_received separately because both are mirrored into
+    # db.income at collection-time (CRE convert-deal + accountant verify both
+    # insert an income row), and if the Accountant rejects/deletes the income,
+    # the income row's status (or absence) is the only authoritative signal.
+    # If db.income has zero approved rows we fall back to the legacy
+    # advance + stages sum so existing projects don't show ₹0.
+    if approved_income_total > 0:
+        total_received = approved_income_total
+    else:
+        total_received = advance_amount + stages_received
     
     # Project value from scopes
     project_value = project.get("total_value", 0) or 0
@@ -2831,8 +2853,14 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     # Total project value = scope total + additions − deductions
     total_project_value = max(0, (scope_total or project_value) + additions_total - deductions_total)
 
-    # Project-wide expenses (used by the redesigned strip)
-    project_expenses_list = await db.recorded_expenses.find({"project_id": project_id}, {"_id": 0, "amount": 1}).to_list(2000)
+    # Project-wide expenses (used by the redesigned strip) — APPROVED only.
+    # Exclude rejected / under_correction so the strip stops counting amounts
+    # the Accountant has pulled back.
+    EXCLUDED_EXPENSE_STATUSES = ["rejected", "accountant_rejected", "accounts_rejected", "under_correction"]
+    project_expenses_list = await db.recorded_expenses.find(
+        {"project_id": project_id, "status": {"$nin": EXCLUDED_EXPENSE_STATUSES}},
+        {"_id": 0, "amount": 1}
+    ).to_list(2000)
     total_expense = sum(e.get("amount", 0) for e in project_expenses_list)
     
     # Balance = Total Project Value - Total Received

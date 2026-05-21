@@ -434,27 +434,75 @@ async def update_income_entry(income_id: str, update_data: IncomeUpdate, user: U
 
 @router.delete("/income/{income_id}")
 async def delete_income_entry(income_id: str, user: User = Depends(get_current_user)):
-    """Delete an income entry and update project payment received"""
+    """Delete an income entry and roll back all linked project finance state.
+
+    Side-effects (so the Project Payment Summary, Cashflow Engine, and
+    Cashbook totals stay consistent the moment the row is deleted):
+      1. Reverse the cashflow_ledger split entry tied to this income_id
+         (removes Direct + Indirect allocations).
+      2. Roll back any payment_stages.amount_received that was credited
+         from this income (matched by amount + project + stage hint).
+      3. Roll back project.advance_amount if this income was tagged as
+         category='advance' / stage='advance_payment'.
+      4. Keep the legacy project.income_project counter in sync.
+    """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    
+
     existing = await db.income.find_one({"income_id": income_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Income entry not found")
-    
-    # Update project's income_project field
-    project = await db.projects.find_one({"project_id": existing["project_id"]}, {"_id": 0})
-    if project:
-        current_income = project.get("income_project", 0)
-        await db.projects.update_one(
-            {"project_id": existing["project_id"]},
-            {"$set": {"income_project": max(0, current_income - existing.get("amount", 0))}}
-        )
-    
+
+    amount = float(existing.get("amount", 0) or 0)
+    project_id = existing.get("project_id")
+
+    # 1. Reverse cashflow_ledger split entry
+    try:
+        from routes.cashflow import reverse_allocation
+        await reverse_allocation(income_id, kind="income")
+    except Exception as e:
+        import logging; logging.getLogger(__name__).warning(f"cashflow reverse_allocation failed for income {income_id}: {e}")
+
+    # 2-4. Roll back project + payment_stage state
+    if project_id:
+        project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+        if project:
+            update_ops: Dict[str, Any] = {}
+
+            # 2. Payment stage rollback. If this income credits a specific
+            # payment_stage (linked via payment_stage_id or matching amount),
+            # decrement its amount_received and flip status back to 'pending'.
+            stage_id = existing.get("payment_stage_id")
+            if stage_id:
+                stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0, "amount_received": 1, "amount": 1})
+                if stage:
+                    new_received = max(0, float(stage.get("amount_received", 0) or 0) - amount)
+                    new_status = "paid" if new_received >= float(stage.get("amount", 0) or 0) and new_received > 0 else ("partial" if new_received > 0 else "pending")
+                    await db.payment_stages.update_one(
+                        {"stage_id": stage_id},
+                        {"$set": {"amount_received": new_received, "status": new_status}}
+                    )
+
+            # 3. Advance-amount rollback (for income rows that recorded the
+            # lead's onboarding advance).
+            category = (existing.get("category") or "").lower()
+            stage_label = (existing.get("stage") or "").lower()
+            if category in ("advance", "advance_payment") or "advance" in stage_label:
+                cur_advance = float(project.get("advance_amount", 0) or 0)
+                update_ops["advance_amount"] = max(0, cur_advance - amount)
+
+            # 4. Legacy income_project counter
+            cur_income_project = float(project.get("income_project", 0) or 0)
+            update_ops["income_project"] = max(0, cur_income_project - amount)
+            update_ops["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+            if update_ops:
+                await db.projects.update_one({"project_id": project_id}, {"$set": update_ops})
+
     await db.income.delete_one({"income_id": income_id})
-    await create_audit_log(user.user_id, "delete", "income", income_id, {"amount": existing.get("amount", 0)})
-    
-    return {"message": "Income entry deleted"}
+    await create_audit_log(user.user_id, "delete", "income", income_id, {"amount": amount, "rollback": True})
+
+    return {"message": "Income entry deleted and project totals rolled back"}
 
 
 @router.delete("/cashbook/expense/{expense_type}/{record_id}")
@@ -626,30 +674,74 @@ async def approve_income(income_id: str, user: User = Depends(get_current_user))
 
 @router.post("/approvals/income/{income_id}/reject")
 async def reject_income(income_id: str, reason: str = "", user: User = Depends(get_current_user)):
-    """Reject an income entry — sets status='rejected' with reason so it returns to CRE for re-submission."""
+    """Reject an income entry — sets status='rejected' so it returns to CRE for re-submission.
+
+    Accepts BOTH pre-approval rows (status='pending_approval') and
+    already-approved rows (status='approved'/'verified'). For approved rows we
+    additionally REVERSE the cashflow_ledger split + payment_stage rollback so
+    the amount disappears from Cashbook, Cashflow Engine, project Total Income,
+    and Receivable balance the moment the Accountant rejects it.
+    """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Only Accountant/Admin can reject income")
 
-    # Look up the income (any unprocessed state) so we know who created it.
-    inc = await db.income.find_one({"income_id": income_id}, {"_id": 0, "status": 1, "created_by": 1, "amount": 1, "project_name": 1})
+    inc = await db.income.find_one({"income_id": income_id}, {"_id": 0})
     if not inc:
         raise HTTPException(status_code=404, detail="Income entry not found")
-    if inc.get("status") not in ("pending_approval", None, ""):
-        raise HTTPException(status_code=400, detail=f"Income entry already processed (status={inc.get('status')})")
+    prev_status = (inc.get("status") or "pending_approval")
+    if prev_status in ("rejected", "under_correction"):
+        raise HTTPException(status_code=400, detail=f"Income already in {prev_status} state")
 
+    was_approved = prev_status in ("approved", "verified", "accountant_verified")
+
+    update_set = {
+        "status": "rejected",
+        "prev_approved_status": prev_status if was_approved else None,
+        "rejected_by": user.user_id,
+        "rejected_by_name": user.name,
+        "rejected_at": datetime.now(timezone.utc).isoformat(),
+        "rejection_reason": reason or "Rejected without remarks",
+    }
     result = await db.income.find_one_and_update(
         {"income_id": income_id},
-        {"$set": {
-            "status": "rejected",
-            "rejected_by": user.user_id,
-            "rejected_by_name": user.name,
-            "rejected_at": datetime.now(timezone.utc).isoformat(),
-            "rejection_reason": reason or "Rejected without remarks",
-        }},
-        return_document=False
+        {"$set": update_set},
+        return_document=False,
     )
     if not result:
         raise HTTPException(status_code=404, detail="Income entry not found or already processed")
+
+    # Post-approval reversal: cashflow ledger + payment_stage rollback so the
+    # amount stops counting everywhere (Cashbook totals, Cashflow Engine
+    # Direct/Indirect pools, Project header Total Income, Receivable).
+    if was_approved:
+        amount = float(inc.get("amount", 0) or 0)
+        project_id = inc.get("project_id")
+        try:
+            from routes.cashflow import reverse_allocation
+            await reverse_allocation(income_id, kind="income")
+        except Exception as e:
+            import logging; logging.getLogger(__name__).warning(f"cashflow reverse_allocation failed for income {income_id}: {e}")
+
+        if project_id:
+            # Roll back payment_stage credit if this income was linked to one.
+            stage_id = inc.get("payment_stage_id")
+            if stage_id:
+                stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0, "amount_received": 1, "amount": 1})
+                if stage:
+                    new_received = max(0, float(stage.get("amount_received", 0) or 0) - amount)
+                    new_status = "partial" if new_received > 0 else "pending"
+                    await db.payment_stages.update_one(
+                        {"stage_id": stage_id},
+                        {"$set": {"amount_received": new_received, "status": new_status}}
+                    )
+            # Advance amount rollback if applicable.
+            category = (inc.get("category") or "").lower()
+            stage_label = (inc.get("stage") or "").lower()
+            if category in ("advance", "advance_payment") or "advance" in stage_label:
+                project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "advance_amount": 1})
+                if project:
+                    cur = float(project.get("advance_amount", 0) or 0)
+                    await db.projects.update_one({"project_id": project_id}, {"$set": {"advance_amount": max(0, cur - amount)}})
 
     # Notify the originator (CRE/Sales who collected it) so they can fix and resubmit.
     if inc.get("created_by"):
@@ -661,8 +753,11 @@ async def reject_income(income_id: str, reason: str = "", user: User = Depends(g
         except Exception:
             pass
 
-    await create_audit_log(user.user_id, "reject", "income", income_id, {"reason": reason})
-    return {"message": "Income rejected and returned for correction"}
+    await create_audit_log(user.user_id, "reject", "income", income_id, {"reason": reason, "was_approved": was_approved})
+    return {
+        "message": "Income rejected. Cashbook & cashflow rolled back." if was_approved else "Income rejected and returned for correction",
+        "was_approved_before_reject": was_approved,
+    }
 
 
 class IncomeResubmitRequest(BaseModel):
