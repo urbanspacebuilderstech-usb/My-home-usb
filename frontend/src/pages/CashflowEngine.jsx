@@ -156,34 +156,60 @@ export default function CashflowEngine() {
         {/* Summary Strip */}
         {summary && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" data-testid="cf-summary-strip">
-            <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100/40 border-emerald-200">
+            {/* Card 01 — TOTAL INCOME (overall money in & out highlighted) */}
+            <Card className="bg-gradient-to-br from-violet-50 to-violet-100/40 border-violet-200">
               <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[11px] font-semibold uppercase text-emerald-700">Direct Pool</span>
-                  <Badge className="bg-emerald-200 text-emerald-800 text-[10px]">{summary.effective_split?.direct_pct}%</Badge>
-                </div>
-                <p className="text-2xl font-bold text-emerald-800">{fmt(summary.direct_balance)}</p>
-                <p className="text-[10px] text-emerald-700 mt-0.5">In {fmt(summary.direct_in)} · Out {fmt(summary.direct_out)}</p>
-              </CardContent>
-            </Card>
-            <Card className="bg-gradient-to-br from-sky-50 to-sky-100/40 border-sky-200">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[11px] font-semibold uppercase text-sky-700">Indirect Pool</span>
-                  <Badge className="bg-sky-200 text-sky-800 text-[10px]">{summary.effective_split?.indirect_pct}%</Badge>
-                </div>
-                <p className="text-2xl font-bold text-sky-800">{fmt(summary.indirect_balance)}</p>
-                <p className="text-[10px] text-sky-700 mt-0.5">In {fmt(summary.indirect_in)} · Out {fmt(summary.indirect_out)}</p>
-              </CardContent>
-            </Card>
-            <Card className={`${summary.net >= 0 ? 'bg-gradient-to-br from-violet-50 to-violet-100/40 border-violet-200' : 'bg-gradient-to-br from-rose-50 to-rose-100/40 border-rose-200'}`}>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[11px] font-semibold uppercase text-gray-700">Net Cash Position</span>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-semibold uppercase text-violet-700">Total Income</span>
                   {summary.net >= 0 ? <TrendingUp className="h-4 w-4 text-violet-600" /> : <TrendingDown className="h-4 w-4 text-rose-600" />}
                 </div>
                 <p className={`text-2xl font-bold ${summary.net >= 0 ? 'text-violet-800' : 'text-rose-800'}`}>{fmt(summary.net)}</p>
-                <p className="text-[10px] text-gray-600 mt-0.5">Income {fmt(summary.income_total)} − Expense {fmt(summary.expense_total)}</p>
+                <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-semibold" data-testid="cf-total-in">
+                    <ArrowDownLeft className="h-3 w-3" /> In {fmt(summary.income_total)}
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-semibold" data-testid="cf-total-out">
+                    <ArrowUpRight className="h-3 w-3" /> Out {fmt(summary.expense_total)}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Card 02 — TOTAL DIRECT */}
+            <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100/40 border-emerald-200">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-semibold uppercase text-emerald-700">Total Direct</span>
+                  <Badge className="bg-emerald-200 text-emerald-800 text-[10px]">{summary.effective_split?.direct_pct}%</Badge>
+                </div>
+                <p className="text-2xl font-bold text-emerald-800">{fmt(summary.direct_balance)}</p>
+                <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-200/70 text-emerald-900 text-[10px] font-semibold" data-testid="cf-direct-in">
+                    <ArrowDownLeft className="h-3 w-3" /> In {fmt(summary.direct_in)}
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-semibold" data-testid="cf-direct-out">
+                    <ArrowUpRight className="h-3 w-3" /> Out {fmt(summary.direct_out)}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Card 03 — TOTAL INDIRECT */}
+            <Card className="bg-gradient-to-br from-sky-50 to-sky-100/40 border-sky-200">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-semibold uppercase text-sky-700">Total Indirect</span>
+                  <Badge className="bg-sky-200 text-sky-800 text-[10px]">{summary.effective_split?.indirect_pct}%</Badge>
+                </div>
+                <p className="text-2xl font-bold text-sky-800">{fmt(summary.indirect_balance)}</p>
+                <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-200/70 text-sky-900 text-[10px] font-semibold" data-testid="cf-indirect-in">
+                    <ArrowDownLeft className="h-3 w-3" /> In {fmt(summary.indirect_in)}
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-semibold" data-testid="cf-indirect-out">
+                    <ArrowUpRight className="h-3 w-3" /> Out {fmt(summary.indirect_out)}
+                  </span>
+                </div>
               </CardContent>
             </Card>
           </div>
