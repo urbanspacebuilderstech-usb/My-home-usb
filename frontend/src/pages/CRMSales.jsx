@@ -1748,6 +1748,15 @@ export default function CRMSales() {
                           </Badge>
                         )}
                         
+                        {/* Rejected-by-Accountant banner — visible on Sales side after bounce-back to Deal Close */}
+                        {lead.onboarding_status === 'accountant_rejected' && lead.advance_payment?.rejection_reason && (
+                          <div className="mt-2 p-2 rounded bg-red-50 border border-red-300 text-xs" data-testid={`adv-rejected-card-${lead.lead_id}`}>
+                            <p className="text-red-800 font-bold">⚠ Advance Rejected — Re-enter Required</p>
+                            <p className="text-red-700 text-[11px] mt-0.5"><span className="font-semibold">Reason:</span> {lead.advance_payment.rejection_reason}</p>
+                            <p className="text-red-600 text-[10px] mt-0.5">Open this lead → click "Deal Close" again to enter the corrected advance. It will go back to the Accountant for re-approval.</p>
+                          </div>
+                        )}
+
                         {/* Payment summary for Payment Collect / Accountant Approval stages */}
                         {isLocked && lead.advance_payment && (
                           <div className="mt-2 p-2 rounded bg-amber-50 border border-amber-200 text-xs">
@@ -1758,22 +1767,44 @@ export default function CRMSales() {
                               )}
                             </div>
                             {lead.current_stage_id === 'stg_accountant_approval' && ['accountant', 'super_admin'].includes(user?.role) && !lead.advance_payment.verified_at && (
-                              <button
-                                data-testid={`verify-payment-${lead.lead_id}`}
-                                className="mt-2 w-full py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-medium transition"
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-                                  try {
-                                    await axios.post(`${API}/crm/leads/${lead.lead_id}/accountant-verify`);
-                                    toast.success('Payment verified! Lead moved to Project Onboarded.');
-                                    fetchLeads();
-                                  } catch (err) {
-                                    toast.error(err.response?.data?.detail || 'Verification failed');
-                                  }
-                                }}
-                              >
-                                Verify Payment
-                              </button>
+                              <div className="grid grid-cols-2 gap-1 mt-2">
+                                <button
+                                  data-testid={`verify-payment-${lead.lead_id}`}
+                                  className="py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-medium transition"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    try {
+                                      await axios.post(`${API}/crm/leads/${lead.lead_id}/accountant-verify`);
+                                      toast.success('Payment verified! Lead moved to Project Onboarded.');
+                                      fetchLeads();
+                                    } catch (err) {
+                                      toast.error(err.response?.data?.detail || 'Verification failed');
+                                    }
+                                  }}
+                                >Verify</button>
+                                <button
+                                  data-testid={`reject-payment-${lead.lead_id}`}
+                                  className="py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const reason = window.prompt('Reason for rejecting this advance? (will be sent to Sales)');
+                                    if (!reason || !reason.trim()) return;
+                                    try {
+                                      await axios.post(`${API}/crm/leads/${lead.lead_id}/accountant-reject`, { reason: reason.trim() });
+                                      toast.success('Advance rejected. Sales will be notified to re-enter.');
+                                      fetchLeads();
+                                    } catch (err) {
+                                      toast.error(err.response?.data?.detail || 'Rejection failed');
+                                    }
+                                  }}
+                                >Reject</button>
+                              </div>
+                            )}
+                            {/* Sales-side visible rejection banner */}
+                            {lead.onboarding_status === 'accountant_rejected' && lead.advance_payment?.rejection_reason && (
+                              <div className="mt-2 p-1.5 rounded bg-red-100 border border-red-300 text-[11px] text-red-800" data-testid={`adv-rejected-banner-${lead.lead_id}`}>
+                                <span className="font-bold">⚠ Rejected by {lead.advance_payment.rejected_by_name || 'Accountant'}:</span> {lead.advance_payment.rejection_reason}
+                              </div>
                             )}
                           </div>
                         )}

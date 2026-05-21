@@ -1575,6 +1575,93 @@ async def accountant_verify(lead_id: str, user: User = Depends(get_current_user)
     return {"message": "Advance payment verified by accountant"}
 
 
+class AccountantRejectLeadAdvance(BaseModel):
+    reason: str
+
+
+@router.post("/crm/leads/{lead_id}/accountant-reject")
+async def accountant_reject_lead_advance(lead_id: str, data: AccountantRejectLeadAdvance, user: User = Depends(get_current_user)):
+    """Accountant rejects the lead's advance payment — sends it back to Sales for correction.
+
+    The lead jumps back to Deal Close stage (so Sales can re-enter the advance) and a
+    visible rejection marker is stored on `advance_payment.rejection_reason`. The
+    originating Sales/CRE user receives a notification. The income row (if any) is
+    flipped to `rejected` so it stops counting in cashbook totals."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Accountant access required")
+
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if lead.get("onboarding_status") != "accountant_pending" and lead.get("current_stage_id") != "stg_accountant_approval":
+        raise HTTPException(status_code=400, detail="Not pending accountant verification")
+    if not (data.reason or "").strip():
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+
+    now = datetime.now(timezone.utc)
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
+    rejector_name = user_doc.get("name", "Accountant") if user_doc else "Accountant"
+
+    # Bounce the lead back to the Deal Close stage so Sales can re-enter the advance.
+    stage_back = "stg_deal_close"
+    lead_stage_history = lead.get("stage_history", [])
+    lead_stage_history.append({
+        "stage_id": stage_back,
+        "from_stage_id": lead.get("current_stage_id"),
+        "moved_at": now.isoformat(),
+        "moved_by": user.user_id,
+        "action": "accountant_rejected",
+        "reason": data.reason,
+    })
+
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "onboarding_status": "accountant_rejected",
+            "current_stage_id": stage_back,
+            "stage_history": lead_stage_history,
+            "advance_payment.rejection_reason": data.reason,
+            "advance_payment.rejected_by": user.user_id,
+            "advance_payment.rejected_by_name": rejector_name,
+            "advance_payment.rejected_at": now.isoformat(),
+            "updated_at": now,
+        }}
+    )
+
+    # Mark the linked income row as rejected so cashbook stops counting it
+    try:
+        income_id = (lead.get("advance_payment") or {}).get("income_id")
+        if income_id:
+            await db.income.update_one(
+                {"income_id": income_id},
+                {"$set": {
+                    "status": "rejected",
+                    "rejection_reason": data.reason,
+                    "rejected_by": user.user_id,
+                    "rejected_by_name": rejector_name,
+                    "rejected_at": now.isoformat(),
+                }}
+            )
+    except Exception:
+        pass
+
+    # Notify the Sales/CRE user who collected the advance + assigned user
+    assigned_to = lead.get("assigned_to")
+    if assigned_to:
+        await db.notifications.insert_one({
+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "user_id": assigned_to,
+            "title": "Advance Rejected by Accountant",
+            "message": f"Advance for '{lead.get('name','—')}' rejected by {rejector_name}. Reason: {data.reason}",
+            "type": "advance_rejected",
+            "reference_id": lead_id,
+            "is_read": False,
+            "created_at": now,
+        })
+
+    return {"message": "Advance rejected and lead returned to Sales for correction", "status": "accountant_rejected"}
+
+
 class MoveToPlanning(BaseModel):
     project_description: str
 
