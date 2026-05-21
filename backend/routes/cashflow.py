@@ -329,14 +329,26 @@ async def full_recompute(user: User = Depends(get_current_user)):
 
     await db.cashflow_ledger.delete_many({})
 
-    # Replay approved income
+    # Cache project names so replay rows show real names in summary
+    project_name_map: Dict[str, str] = {}
+    async for p in db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1, "client_name": 1}):
+        pid = p.get("project_id")
+        if pid:
+            project_name_map[pid] = p.get("name") or p.get("client_name") or ""
+
+    # Replay every non-rejected income (matches whatever the cashbook treats as legit income)
     income_count = 0
-    async for inc in db.income.find({"status": {"$in": ["approved", "verified", "received"]}}, {"_id": 0, "income_id": 1, "project_id": 1, "amount": 1, "project_name": 1}):
+    async for inc in db.income.find(
+        {"status": {"$nin": ["rejected", "pending_approval", "deleted", "cancelled", "void"]}},
+        {"_id": 0, "income_id": 1, "project_id": 1, "amount": 1, "project_name": 1}
+    ):
         try:
             amt = float(inc.get("amount") or 0)
             if amt <= 0:
                 continue
-            await allocate_income(inc["income_id"], inc.get("project_id"), amt, inc.get("project_name", ""), source="income_replay")
+            pid = inc.get("project_id")
+            pname = inc.get("project_name") or project_name_map.get(pid, "")
+            await allocate_income(inc["income_id"], pid, amt, pname, source="income_replay")
             income_count += 1
         except Exception:
             continue
@@ -348,7 +360,9 @@ async def full_recompute(user: User = Depends(get_current_user)):
             amt = float(exp.get("amount") or 0)
             if amt <= 0:
                 continue
-            await allocate_expense(exp["expense_id"], exp.get("project_id"), amt, exp.get("category", ""), exp.get("project_name", ""), source="expense_replay")
+            pid = exp.get("project_id")
+            pname = exp.get("project_name") or project_name_map.get(pid, "")
+            await allocate_expense(exp["expense_id"], pid, amt, exp.get("category", ""), pname, source="expense_replay")
             expense_count += 1
         except Exception:
             continue
