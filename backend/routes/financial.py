@@ -547,52 +547,87 @@ async def delete_cashbook_expense(expense_type: str, record_id: str, user: User 
 # ==================== UNIFIED APPROVALS ENDPOINT ====================
 
 @router.get("/approvals/unified")
-async def get_unified_approvals(user: User = Depends(get_current_user)):
-    """Get all pending approvals in one call - income and expense"""
+async def get_unified_approvals(
+    status_filter: str = "pending",
+    user: User = Depends(get_current_user)
+):
+    """Approvals queue. Supports status_filter to show approved / rejected /
+    under_correction rows alongside pending ones so the Accountant can audit
+    and pull back already-approved entries.
+
+    status_filter values:
+      - 'pending'   (default)  → only items awaiting approval
+      - 'approved'             → approved-and-not-yet-corrected rows
+      - 'rejected'             → rejected rows (CRE/Sales must re-collect)
+      - 'under_correction'     → was approved, now pulled back for correction
+      - 'all'                  → everything
+    """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Access denied")
-    
-    # Parallel fetch all pending items
-    (pending_income, pending_materials, pending_labour, pending_vendor,
-     projects_list) = await asyncio.gather(
-        db.income.find({"status": "pending_approval"}, {"_id": 0}).sort("created_at", -1).to_list(500),
-        db.material_expenses.find(
-            {"status": {"$in": ["requested", "planning_approved", "procurement_priced", "pending_accounts_approval"]}},
-            {"_id": 0}
-        ).sort("created_at", -1).to_list(500),
-        db.labour_expenses.find(
-            {"status": {"$in": ["requested", "planning_approved", "pending_accounts_approval"]}},
-            {"_id": 0}
-        ).sort("created_at", -1).to_list(500),
-        db.vendor_service_expenses.find(
-            {"status": {"$in": ["requested", "planning_approved", "pending_accounts_approval"]}},
-            {"_id": 0}
-        ).sort("created_at", -1).to_list(500),
+
+    sf = (status_filter or "pending").lower()
+
+    # Status sets per filter — incomes and expenses use slightly different
+    # vocabularies, so we keep two maps.
+    if sf == "pending":
+        income_statuses = ["pending_approval"]
+        material_statuses = ["requested", "planning_approved", "procurement_priced", "pending_accounts_approval"]
+        labour_statuses = ["requested", "planning_approved", "pending_accounts_approval"]
+        vendor_statuses = ["requested", "planning_approved", "pending_accounts_approval"]
+    elif sf == "approved":
+        income_statuses = ["approved", "verified", "accountant_verified"]
+        material_statuses = ["accounts_approved", "issued", "settled", "completed"]
+        labour_statuses = ["accounts_approved", "settled", "completed"]
+        vendor_statuses = ["accounts_approved", "settled", "completed"]
+    elif sf == "rejected":
+        income_statuses = ["rejected", "accountant_rejected", "accounts_rejected"]
+        material_statuses = ["rejected", "accountant_rejected", "accounts_rejected"]
+        labour_statuses = ["rejected", "accountant_rejected", "accounts_rejected"]
+        vendor_statuses = ["rejected", "accountant_rejected", "accounts_rejected"]
+    elif sf == "under_correction":
+        income_statuses = ["under_correction"]
+        material_statuses = ["under_correction"]
+        labour_statuses = ["under_correction"]
+        vendor_statuses = ["under_correction"]
+    else:  # 'all'
+        income_statuses = None  # None = no status filter
+        material_statuses = None
+        labour_statuses = None
+        vendor_statuses = None
+
+    def _q(statuses):
+        return {} if statuses is None else {"status": {"$in": statuses}}
+
+    # Parallel fetch
+    (incomes, materials, labour, vendor, projects_list) = await asyncio.gather(
+        db.income.find(_q(income_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
+        db.material_expenses.find(_q(material_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
+        db.labour_expenses.find(_q(labour_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
+        db.vendor_service_expenses.find(_q(vendor_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000),
     )
-    
+
     project_map = {p["project_id"]: p["name"] for p in projects_list}
-    
-    # Enrich with project names
-    for item in pending_income:
+    for item in incomes:
         item["project_name"] = project_map.get(item.get("project_id"), "Unknown")
-    for item in pending_materials + pending_labour + pending_vendor:
+    for item in materials + labour + vendor:
         item["project_name"] = project_map.get(item.get("project_id"), "Unknown")
-    
+
     return {
-        "income": pending_income,
-        "materials": pending_materials,
-        "labour": pending_labour,
-        "vendor": pending_vendor,
+        "status_filter": sf,
+        "income": incomes,
+        "materials": materials,
+        "labour": labour,
+        "vendor": vendor,
         "summary": {
-            "income_count": len(pending_income),
-            "income_total": sum(i.get("amount", 0) for i in pending_income),
-            "material_count": len(pending_materials),
-            "material_total": sum(m.get("estimated_cost", 0) or m.get("final_amount", 0) for m in pending_materials),
-            "labour_count": len(pending_labour),
-            "labour_total": sum(l.get("total_amount", 0) for l in pending_labour),
-            "vendor_count": len(pending_vendor),
-            "vendor_total": sum(v.get("amount", 0) for v in pending_vendor),
+            "income_count": len(incomes),
+            "income_total": sum(i.get("amount", 0) for i in incomes),
+            "material_count": len(materials),
+            "material_total": sum(m.get("estimated_cost", 0) or m.get("final_amount", 0) for m in materials),
+            "labour_count": len(labour),
+            "labour_total": sum(l.get("total_amount", 0) for l in labour),
+            "vendor_count": len(vendor),
+            "vendor_total": sum(v.get("amount", 0) for v in vendor),
         }
     }
 
@@ -670,6 +705,176 @@ async def approve_income(income_id: str, user: User = Depends(get_current_user))
         import logging; logging.getLogger(__name__).warning(f"Cashflow allocation skipped: {e}")
 
     return {"message": "Income approved successfully"}
+
+
+@router.post("/approvals/income/{income_id}/send-for-correction")
+async def send_income_for_correction(income_id: str, payload: Dict[str, Any] = None, reason: str = "", user: User = Depends(get_current_user)):
+    """Accountant pulls back an Approved income for correction.
+
+    Status flips to `under_correction`. Cashflow ledger is reversed and the
+    project's payment_stage / advance_amount counters are rolled back so the
+    amount disappears from Cashbook + Cashflow Engine + Project header
+    immediately. The original collector (CRE/Sales) gets notified to edit and
+    resubmit.
+
+    Body: { "reason": "..." }  OR  ?reason=... (query param for back-compat)
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant/Admin can send for correction")
+
+    body_reason = (payload or {}).get("reason") if isinstance(payload, dict) else None
+    final_reason = (body_reason or reason or "").strip()
+    if not final_reason:
+        raise HTTPException(status_code=400, detail="Correction reason is required")
+
+    inc = await db.income.find_one({"income_id": income_id}, {"_id": 0})
+    if not inc:
+        raise HTTPException(status_code=404, detail="Income not found")
+    prev = (inc.get("status") or "").lower()
+    if prev not in ("approved", "verified", "accountant_verified"):
+        raise HTTPException(status_code=400, detail=f"Can only send approved income for correction (current: '{prev}')")
+
+    now = datetime.now(timezone.utc).isoformat()
+    history = inc.get("correction_history", [])
+    history.append({
+        "action": "sent_for_correction",
+        "by": user.user_id,
+        "by_name": user.name,
+        "at": now,
+        "reason": final_reason,
+        "extra": {"prev_status": prev},
+    })
+
+    await db.income.update_one(
+        {"income_id": income_id},
+        {"$set": {
+            "status": "under_correction",
+            "prev_approved_status": prev,
+            "correction_requested_by": user.user_id,
+            "correction_requested_by_name": user.name,
+            "correction_requested_at": now,
+            "correction_reason": final_reason,
+            "correction_history": history,
+            "updated_at": now,
+        }}
+    )
+
+    # Reverse cashflow ledger split
+    try:
+        from routes.cashflow import reverse_allocation
+        await reverse_allocation(income_id, kind="income")
+    except Exception as e:
+        import logging; logging.getLogger(__name__).warning(f"cashflow reverse_allocation failed for income {income_id}: {e}")
+
+    # Roll back payment_stage / advance counters
+    amount = float(inc.get("amount", 0) or 0)
+    project_id = inc.get("project_id")
+    if project_id:
+        stage_id = inc.get("payment_stage_id")
+        if stage_id:
+            stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0, "amount_received": 1, "amount": 1})
+            if stage:
+                new_received = max(0, float(stage.get("amount_received", 0) or 0) - amount)
+                new_status = "partial" if new_received > 0 else "pending"
+                await db.payment_stages.update_one(
+                    {"stage_id": stage_id},
+                    {"$set": {"amount_received": new_received, "status": new_status}}
+                )
+        category = (inc.get("category") or "").lower()
+        stage_label = (inc.get("stage") or "").lower()
+        if category in ("advance", "advance_payment") or "advance" in stage_label:
+            project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "advance_amount": 1, "income_project": 1})
+            if project:
+                cur_adv = float(project.get("advance_amount", 0) or 0)
+                cur_ip = float(project.get("income_project", 0) or 0)
+                await db.projects.update_one(
+                    {"project_id": project_id},
+                    {"$set": {"advance_amount": max(0, cur_adv - amount), "income_project": max(0, cur_ip - amount)}}
+                )
+
+    # Notify the original collector
+    if inc.get("collected_by") or inc.get("created_by"):
+        try:
+            await create_notification(
+                inc.get("collected_by") or inc.get("created_by"),
+                f"Approved income ₹{amount:,.0f} for {inc.get('project_name', 'project')} was sent back for correction. Reason: {final_reason}. The amount has been removed from Cashbook until you correct & resubmit."
+            )
+        except Exception:
+            pass
+
+    await create_audit_log(user.user_id, "send_for_correction", "income", income_id, {"reason": final_reason, "prev_status": prev, "amount": amount})
+    return {"message": "Approved income sent back for correction. Cashbook & cashflow rolled back.", "status": "under_correction"}
+
+
+@router.post("/approvals/income/{income_id}/resubmit")
+async def resubmit_income(income_id: str, payload: Dict[str, Any], user: User = Depends(get_current_user)):
+    """Original collector (CRE/Sales) edits and resubmits a rejected or
+    under_correction income. Whitelisted editable fields:
+      amount, payment_mode, payment_reference, payment_date, remarks,
+      description, transaction_id, cheque_details, stage, category.
+    Status flips back to `pending_approval` so it lands in the queue again.
+    """
+    inc = await db.income.find_one({"income_id": income_id}, {"_id": 0})
+    if not inc:
+        raise HTTPException(status_code=404, detail="Income not found")
+    cur = (inc.get("status") or "").lower()
+    if cur not in ("rejected", "accountant_rejected", "accounts_rejected", "under_correction"):
+        raise HTTPException(status_code=400, detail=f"Cannot resubmit from status '{cur}'")
+
+    if user.role not in [UserRole.SUPER_ADMIN]:
+        owner = inc.get("collected_by") or inc.get("created_by")
+        if owner and owner != user.user_id:
+            raise HTTPException(status_code=403, detail="Only the original collector can resubmit this income")
+
+    EDITABLE = {"amount", "payment_mode", "payment_reference", "payment_date",
+                "remarks", "description", "transaction_id", "cheque_details",
+                "stage", "category", "sub_category"}
+    edits = {k: v for k, v in (payload or {}).items() if k in EDITABLE and v is not None}
+    if not edits:
+        raise HTTPException(status_code=400, detail="At least one editable field must be provided")
+
+    now = datetime.now(timezone.utc).isoformat()
+    history = inc.get("correction_history", [])
+    history.append({
+        "action": "resubmitted",
+        "by": user.user_id,
+        "by_name": user.name,
+        "at": now,
+        "extra": {"edited_fields": list(edits.keys())},
+    })
+
+    await db.income.update_one(
+        {"income_id": income_id},
+        {
+            "$set": {
+                **edits,
+                "status": "pending_approval",
+                "resubmitted_by": user.user_id,
+                "resubmitted_by_name": user.name,
+                "resubmitted_at": now,
+                "correction_history": history,
+                "updated_at": now,
+            },
+            "$unset": {
+                "rejection_reason": "",
+                "rejected_by": "",
+                "rejected_by_name": "",
+                "rejected_at": "",
+                "correction_reason": "",
+            }
+        }
+    )
+
+    # Notify all accountants
+    accountants = await db.users.find({"role": UserRole.ACCOUNTANT, "is_active": True}, {"_id": 0, "user_id": 1}).to_list(20)
+    for a in accountants:
+        try:
+            await create_notification(a["user_id"], f"Income ₹{(edits.get('amount') or inc.get('amount', 0)):,.0f} for {inc.get('project_name', 'project')} was edited and resubmitted by {user.name}.")
+        except Exception:
+            pass
+
+    await create_audit_log(user.user_id, "resubmit", "income", income_id, {"edited_fields": list(edits.keys())})
+    return {"message": "Income resubmitted for accountant approval", "status": "pending_approval"}
 
 
 @router.post("/approvals/income/{income_id}/reject")

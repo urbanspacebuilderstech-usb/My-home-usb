@@ -3142,12 +3142,19 @@ function ApprovalsTab() {
     dt_id: '',
     notes: ''
   });
+  // Status filter — pending / approved / rejected / under_correction / all
+  const [statusFilter, setStatusFilter] = useState('pending');
+  // Send-for-correction modal state (post-approval pullback by accountant)
+  const [correctionIncome, setCorrectionIncome] = useState(null);
+  const [correctionIncomeReason, setCorrectionIncomeReason] = useState('');
+  // Read-only correction view (for rejected/under-correction rows)
+  const [viewCorrectionIncome, setViewCorrectionIncome] = useState(null);
 
   const fetchApprovals = useCallback(async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true);
       const [unifiedRes, woRes] = await Promise.all([
-        axios.get(`${API}/approvals/unified`),
+        axios.get(`${API}/approvals/unified`, { params: { status_filter: statusFilter } }),
         axios.get(`${API}/accountant/labour-payments?status=pending`).catch(() => ({ data: { requests: [] } })),
       ]);
       setData(unifiedRes.data);
@@ -3157,7 +3164,7 @@ function ApprovalsTab() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [statusFilter]);
 
   useEffect(() => { fetchApprovals(); }, [fetchApprovals]);
 
@@ -3379,7 +3386,7 @@ function ApprovalsTab() {
 
   return (
     <div className="space-y-4" data-testid="approvals-tab">
-      {/* Unified Date / Month / Year Filter */}
+      {/* Unified Date / Month / Year Filter + Status filter chips */}
       <Card>
         <CardContent className="p-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -3391,6 +3398,36 @@ function ApprovalsTab() {
               testIdPrefix="approvals"
               accent="amber"
             />
+            <div className="flex items-center gap-1 ml-auto flex-wrap" data-testid="approvals-status-filter">
+              <span className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mr-1">Status:</span>
+              {[
+                { v: 'pending', label: 'Pending', cls: 'amber' },
+                { v: 'approved', label: 'Approved', cls: 'emerald' },
+                { v: 'rejected', label: 'Rejected', cls: 'red' },
+                { v: 'under_correction', label: 'Under Correction', cls: 'orange' },
+                { v: 'all', label: 'All', cls: 'gray' },
+              ].map(opt => {
+                const active = statusFilter === opt.v;
+                const accentCls = {
+                  amber: active ? 'bg-amber-600 text-white border-amber-600' : 'border-amber-300 text-amber-700 hover:bg-amber-50',
+                  emerald: active ? 'bg-emerald-600 text-white border-emerald-600' : 'border-emerald-300 text-emerald-700 hover:bg-emerald-50',
+                  red: active ? 'bg-red-600 text-white border-red-600' : 'border-red-300 text-red-700 hover:bg-red-50',
+                  orange: active ? 'bg-orange-600 text-white border-orange-600' : 'border-orange-300 text-orange-700 hover:bg-orange-50',
+                  gray: active ? 'bg-gray-700 text-white border-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50',
+                }[opt.cls];
+                return (
+                  <button
+                    key={opt.v}
+                    type="button"
+                    onClick={() => setStatusFilter(opt.v)}
+                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-full border transition ${accentCls}`}
+                    data-testid={`approvals-filter-${opt.v}`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -3490,7 +3527,7 @@ function ApprovalsTab() {
         <TabsContent value="income">
           {filteredIncome.length === 0 ? (
             <Card><CardContent className="py-10 text-center text-gray-400">
-              <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-300" />No pending income approvals
+              <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-300" />No income rows in this filter
             </CardContent></Card>
           ) : (
             <Card>
@@ -3510,31 +3547,60 @@ function ApprovalsTab() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredIncome.map((inc, i) => (
-                        <tr key={inc.income_id} className="border-b hover:bg-gray-50" data-testid={`approval-income-row-${inc.income_id}`}>
-                          <td className="px-3 py-2 text-gray-400">{i + 1}</td>
-                          <td className="px-3 py-2 whitespace-nowrap">{new Date(inc.created_at).toLocaleDateString('en-IN')}</td>
-                          <td className="px-3 py-2 font-medium">{inc.project_name || 'N/A'}</td>
-                          <td className="px-3 py-2">{inc.stage || inc.remarks || inc.description || 'Payment'}</td>
-                          <td className="px-3 py-2">
-                            <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(inc.payment_mode)]}`}>
-                              {MODE_LABELS[classifyMode(inc.payment_mode)] || inc.payment_mode || 'Cash'}
-                            </Badge>
-                          </td>
-                          <td className="px-3 py-2 text-right font-bold text-green-700"><MaskedValue value={inc.amount} className="text-green-700" /></td>
-                          <td className="px-3 py-2 text-center">
-                            <Badge className="bg-amber-100 text-amber-700">{inc.status?.replace(/_/g, ' ')}</Badge>
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            <Button size="sm" className="h-6 text-[10px] bg-amber-600 hover:bg-amber-700 gap-1 px-3"
-                              disabled={processing === inc.income_id}
-                              onClick={() => openReviewDialog(inc)}
-                              data-testid={`review-income-btn-${inc.income_id}`}>
-                              {processing === inc.income_id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ClipboardCheck className="h-3 w-3" />} Review
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
+                      {filteredIncome.map((inc, i) => {
+                        const st = (inc.status || '').toLowerCase();
+                        const isPending = st === 'pending_approval' || st === 'pending';
+                        const isApproved = ['approved', 'verified', 'accountant_verified'].includes(st);
+                        const isRejected = ['rejected', 'accountant_rejected', 'accounts_rejected'].includes(st);
+                        const isCorrection = st === 'under_correction';
+                        return (
+                          <tr key={inc.income_id} className={`border-b hover:bg-gray-50 ${isCorrection ? 'bg-orange-50/40' : isRejected ? 'bg-red-50/40' : ''}`} data-testid={`approval-income-row-${inc.income_id}`}>
+                            <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">{new Date(inc.created_at).toLocaleDateString('en-IN')}</td>
+                            <td className="px-3 py-2 font-medium">{inc.project_name || 'N/A'}</td>
+                            <td className="px-3 py-2">{inc.stage || inc.remarks || inc.description || 'Payment'}</td>
+                            <td className="px-3 py-2">
+                              <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(inc.payment_mode)]}`}>
+                                {MODE_LABELS[classifyMode(inc.payment_mode)] || inc.payment_mode || 'Cash'}
+                              </Badge>
+                            </td>
+                            <td className="px-3 py-2 text-right font-bold text-green-700"><MaskedValue value={inc.amount} className="text-green-700" /></td>
+                            <td className="px-3 py-2 text-center">
+                              <StatusPill
+                                status={inc.status}
+                                data-testid={`approval-income-status-${inc.income_id}`}
+                                onClick={(isRejected || isCorrection) ? () => setViewCorrectionIncome(inc) : undefined}
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <div className="flex gap-1 justify-center flex-wrap">
+                                {isPending && (
+                                  <Button size="sm" className="h-6 text-[10px] bg-amber-600 hover:bg-amber-700 gap-1 px-3"
+                                    disabled={processing === inc.income_id}
+                                    onClick={() => openReviewDialog(inc)}
+                                    data-testid={`review-income-btn-${inc.income_id}`}>
+                                    {processing === inc.income_id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ClipboardCheck className="h-3 w-3" />} Review
+                                  </Button>
+                                )}
+                                {isApproved && (
+                                  <Button size="sm" variant="outline" className="h-6 text-[10px] text-orange-600 border-orange-300 hover:bg-orange-50 gap-1"
+                                    onClick={() => { setCorrectionIncome(inc); setCorrectionIncomeReason(''); }}
+                                    data-testid={`income-correction-btn-${inc.income_id}`}>
+                                    🔄 Send for Correction
+                                  </Button>
+                                )}
+                                {(isRejected || isCorrection) && (
+                                  <Button size="sm" variant="outline" className="h-6 text-[10px] text-red-600 border-red-300 hover:bg-red-50 gap-1"
+                                    onClick={() => setViewCorrectionIncome(inc)}
+                                    data-testid={`income-view-correction-btn-${inc.income_id}`}>
+                                    View / Edit
+                                  </Button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -3619,6 +3685,76 @@ function ApprovalsTab() {
         reqType={payDialog.reqType}
         requestId={payDialog.requestId}
         onPaid={() => fetchApprovals(false)}
+      />
+
+      {/* Send-for-Correction dialog — Accountant pulls back an APPROVED income.
+          Reverses cashflow_ledger + payment_stage + advance_amount, then prompts
+          the original collector to edit + resubmit via the CorrectionDialog. */}
+      <Dialog open={!!correctionIncome} onOpenChange={(v) => { if (!v) { setCorrectionIncome(null); setCorrectionIncomeReason(''); } }}>
+        <DialogContent className="max-w-md" data-testid="income-correction-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-sm flex items-center gap-2 text-orange-700">
+              <span>🔄</span> Send Approved Income for Correction
+            </DialogTitle>
+          </DialogHeader>
+          {correctionIncome && (
+            <div className="space-y-3">
+              <Card className="bg-orange-50 border-orange-200">
+                <CardContent className="p-3 text-xs space-y-1">
+                  <p><span className="text-gray-500">Project:</span> <span className="font-semibold">{correctionIncome.project_name}</span></p>
+                  <p><span className="text-gray-500">Collected by:</span> {correctionIncome.collected_by_name || correctionIncome.created_by_name}</p>
+                  <p><span className="text-gray-500">Description:</span> {correctionIncome.description || correctionIncome.stage}</p>
+                  <p><span className="text-gray-500">Amount:</span> <span className="font-bold text-orange-700">₹{(correctionIncome.amount || 0).toLocaleString('en-IN')}</span></p>
+                  <p className="text-[11px] text-orange-700 italic mt-1">⚠ This amount will be removed from Cashbook, Cashflow Engine and the project's Total Income card until corrected and re-approved.</p>
+                </CardContent>
+              </Card>
+              <div>
+                <Label className="text-xs">Reason for Correction *</Label>
+                <Textarea
+                  className="text-xs"
+                  rows={3}
+                  value={correctionIncomeReason}
+                  onChange={(e) => setCorrectionIncomeReason(e.target.value)}
+                  placeholder="e.g., Wrong project tagged / amount mismatch / wrong payment mode..."
+                  data-testid="income-correction-reason"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => { setCorrectionIncome(null); setCorrectionIncomeReason(''); }}>Cancel</Button>
+            <Button
+              size="sm"
+              className="bg-orange-600 hover:bg-orange-700"
+              data-testid="income-correction-confirm"
+              onClick={async () => {
+                if (!correctionIncomeReason.trim()) { toast.error('Correction reason is required'); return; }
+                try {
+                  await axios.post(`${API}/approvals/income/${correctionIncome.income_id}/send-for-correction`, { reason: correctionIncomeReason.trim() });
+                  toast.success('Approved income sent back for correction. Totals rolled back.');
+                  setCorrectionIncome(null); setCorrectionIncomeReason('');
+                  fetchApprovals(false);
+                } catch (e) {
+                  toast.error(e?.response?.data?.detail || 'Send for correction failed');
+                }
+              }}
+            >Send for Correction</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Read-only view of rejected / under-correction income rows.
+          The original collector (different login) sees an editable version on
+          their dashboard via the same CorrectionDialog. Accountant view here
+          is read-only since the Accountant can't edit someone else's income. */}
+      <CorrectionDialog
+        open={!!viewCorrectionIncome}
+        onClose={() => setViewCorrectionIncome(null)}
+        entityType="Income"
+        doc={viewCorrectionIncome}
+        resubmitUrl=""
+        editableFields={[]}
+        canEdit={false}
       />
 
       {/* Income Review Dialog */}
