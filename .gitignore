@@ -3491,3 +3491,4 @@ credentials.json
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/604.pack
+frontend/node_modules/.cache/default-development/606.pack
