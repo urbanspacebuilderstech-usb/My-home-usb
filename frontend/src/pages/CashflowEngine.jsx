@@ -160,7 +160,7 @@ export default function CashflowEngine() {
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[11px] font-semibold uppercase text-emerald-700">Direct Pool</span>
-                  <ArrowDownLeft className="h-4 w-4 text-emerald-600" />
+                  <Badge className="bg-emerald-200 text-emerald-800 text-[10px]">{summary.effective_split?.direct_pct}%</Badge>
                 </div>
                 <p className="text-2xl font-bold text-emerald-800">{fmt(summary.direct_balance)}</p>
                 <p className="text-[10px] text-emerald-700 mt-0.5">In {fmt(summary.direct_in)} · Out {fmt(summary.direct_out)}</p>
@@ -170,7 +170,7 @@ export default function CashflowEngine() {
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[11px] font-semibold uppercase text-sky-700">Indirect Pool</span>
-                  <ArrowDownLeft className="h-4 w-4 text-sky-600" />
+                  <Badge className="bg-sky-200 text-sky-800 text-[10px]">{summary.effective_split?.indirect_pct}%</Badge>
                 </div>
                 <p className="text-2xl font-bold text-sky-800">{fmt(summary.indirect_balance)}</p>
                 <p className="text-[10px] text-sky-700 mt-0.5">In {fmt(summary.indirect_in)} · Out {fmt(summary.indirect_out)}</p>
@@ -208,6 +208,7 @@ export default function CashflowEngine() {
                     <thead className="bg-gray-50 border-y text-[11px] uppercase text-gray-500">
                       <tr>
                         <th className="px-4 py-2 text-left">Project</th>
+                        <th className="px-4 py-2 text-center">Split</th>
                         <th className="px-4 py-2 text-right">Direct In</th>
                         <th className="px-4 py-2 text-right">Direct Out</th>
                         <th className="px-4 py-2 text-right">Direct Bal</th>
@@ -219,11 +220,19 @@ export default function CashflowEngine() {
                     </thead>
                     <tbody className="divide-y">
                       {(summary?.per_project || []).length === 0 ? (
-                        <tr><td colSpan="8" className="p-6 text-center text-gray-400">No allocations yet — approve income or run "Recompute From Source".</td></tr>
+                        <tr><td colSpan="9" className="p-6 text-center text-gray-400">No allocations yet — approve income or run "Recompute From Source".</td></tr>
                       ) : (summary.per_project.map(p => (
                         <tr key={p.project_id} className="hover:bg-gray-50" data-testid={`cf-summary-row-${p.project_id}`}>
                           <td className="px-4 py-2.5">
                             <Link to={`/projects/${p.project_id}`} className="text-indigo-600 hover:underline font-medium">{p.project_name || '— Unassigned —'}</Link>
+                          </td>
+                          <td className="px-4 py-2.5 text-center whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1">
+                              <Badge className="bg-emerald-100 text-emerald-700 text-[10px]">{p.effective_split?.direct_pct ?? summary.effective_split?.direct_pct}%</Badge>
+                              <span className="text-gray-400 text-[10px]">/</span>
+                              <Badge className="bg-sky-100 text-sky-700 text-[10px]">{p.effective_split?.indirect_pct ?? summary.effective_split?.indirect_pct}%</Badge>
+                              {p.has_override && <Badge variant="outline" className="text-[9px] border-indigo-300 text-indigo-700 ml-1">Override</Badge>}
+                            </span>
                           </td>
                           <td className="px-4 py-2.5 text-right text-emerald-700">{fmt(p.direct_in)}</td>
                           <td className="px-4 py-2.5 text-right text-rose-600">{fmt(p.direct_out)}</td>
@@ -245,6 +254,10 @@ export default function CashflowEngine() {
           <TabsContent value="income">
             <Card>
               <CardContent className="p-0">
+                <div className="px-4 py-2 bg-gray-50 border-b flex items-center justify-between text-xs text-gray-600">
+                  <span>Every approved income row is split using the snapshot below (or the project override at the time).</span>
+                  <span className="flex items-center gap-1">Current global split: <Badge className="bg-emerald-100 text-emerald-700 text-[10px]">{summary?.effective_split?.direct_pct}%</Badge> <span>/</span> <Badge className="bg-sky-100 text-sky-700 text-[10px]">{summary?.effective_split?.indirect_pct}%</Badge></span>
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 border-y text-[11px] uppercase text-gray-500">
@@ -287,6 +300,10 @@ export default function CashflowEngine() {
           <TabsContent value="expense">
             <Card>
               <CardContent className="p-0">
+                <div className="px-4 py-2 bg-gray-50 border-b flex items-center justify-between text-xs text-gray-600">
+                  <span>Direct-pool categories (material, labour, vendor) drain Direct · Overhead categories drain Indirect.</span>
+                  <span className="flex items-center gap-1">Current split: <Badge className="bg-emerald-100 text-emerald-700 text-[10px]">{summary?.effective_split?.direct_pct}%</Badge> <span>/</span> <Badge className="bg-sky-100 text-sky-700 text-[10px]">{summary?.effective_split?.indirect_pct}%</Badge></span>
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 border-y text-[11px] uppercase text-gray-500">

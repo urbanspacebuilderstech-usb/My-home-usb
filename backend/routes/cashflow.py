@@ -301,6 +301,15 @@ async def get_summary(project_id: Optional[str] = None, user: User = Depends(get
             v["direct_balance"] = round(v["direct_in"] - v["direct_out"], 2)
             v["indirect_balance"] = round(v["indirect_in"] - v["indirect_out"], 2)
             v["net"] = round(v["direct_balance"] + v["indirect_balance"], 2)
+            # Attach effective split + override flag so the UI can show "85% / 15% (Override)" per row
+            if v["project_id"] and v["project_id"] != "_unassigned_":
+                split = await _get_effective_split(v["project_id"])
+                override = await db.cashflow_config.find_one({"_id": f"project:{v['project_id']}"}, {"_id": 1})
+                v["effective_split"] = split
+                v["has_override"] = bool(override)
+            else:
+                v["effective_split"] = await _get_global_split()
+                v["has_override"] = False
             per_project.append(v)
         per_project.sort(key=lambda x: -(x["net"] or 0))
 
