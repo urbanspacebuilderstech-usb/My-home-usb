@@ -13,6 +13,18 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 19, 2026 — Sales Lead Advance Rejection Loop + Accountant CRM Access
+- **Backend** (`/app/backend/routes/crm.py`):
+  - **Bug fix** (root cause of the "rejection banner doesn't show" report): `POST /api/crm/leads/{lead_id}/accountant-reject` was setting `current_stage_id = "stg_deal_close"` which is not a real `lead_stages` entry (real stage_id is `stg_payment_collect`). Rejected leads were landing in a phantom kanban column and silently disappearing. Now bounces back to `stg_payment_collect`.
+  - `POST /api/crm/leads/{lead_id}/send-to-accountant` now also moves `current_stage_id` to `stg_accountant_approval` (was only flipping `onboarding_status`). This populates the "Accountant Approval" kanban column and gates the per-card Verify/Reject buttons correctly.
+  - Accountant role now allowed on `/crm/sales/dashboard`, `/crm/sales/leads`, `/crm/sales-overview` (read-only access so they can view the kanban from the Sales board).
+- **Frontend**:
+  - `/app/frontend/src/components/Sidebar.jsx` — added `accountant` to roles for `/crm-sales`.
+  - `/app/frontend/src/components/AppHeader.jsx` — accountant top-nav now includes "Sales CRM" link.
+- **Tests**: New backend pytest `/app/backend/tests/test_lead_advance_reject_resubmit.py` covers the full Sales → Send → Reject (with reason) → Sales re-collect → Re-send → Accountant verify loop. testing_agent_v3_fork iterations 154 + 155 confirmed both backend (100%) and frontend (100%) success.
+
+
+
 ### Session — Feb 15, 2026 — DLR + DPR Unified + SE Logout Enforcement
 - **Backend** (`/app/backend/routes/projects.py`):
   - Extended `DLRCreate` model with mandatory `stage_id`, `stage_name`, `work_summary` fields. Empty values rejected with 400 + clear error message.
