@@ -279,6 +279,95 @@ function HindranceBadge({ stage }) {
 
 
 
+function ProjectCostAllocation({ projectId, api }) {
+  const [data, setData] = useState(null);
+  const [direct, setDirect] = useState(85);
+  const [indirect, setIndirect] = useState(15);
+  const [retro, setRetro] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+
+  const load = async () => {
+    try {
+      const r = await axios.get(`${api}/cashflow/summary?project_id=${projectId}`);
+      setData(r.data);
+      const split = r.data?.effective_split || { direct_pct: 85, indirect_pct: 15 };
+      setDirect(split.direct_pct);
+      setIndirect(split.indirect_pct);
+    } catch { /* silent */ }
+  };
+  useEffect(() => { load(); }, [projectId]);
+
+  const save = async () => {
+    if (Math.abs(Number(direct) + Number(indirect) - 100) > 0.01) {
+      toast.error('Direct + Indirect must sum to 100');
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await axios.put(`${api}/cashflow/config/projects/${projectId}`, {
+        direct_pct: Number(direct), indirect_pct: Number(indirect), apply_retroactively: !!retro,
+      });
+      toast.success(`Saved${r.data.retroactive_rows_updated ? ` · ${r.data.retroactive_rows_updated} past rows updated` : ''}`);
+      setEditing(false);
+      load();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+    setBusy(false);
+  };
+
+  const removeOverride = async () => {
+    if (!window.confirm('Revert this project to the global split?')) return;
+    setBusy(true);
+    try {
+      await axios.delete(`${api}/cashflow/config/projects/${projectId}`);
+      toast.success('Reverted to global');
+      setRetro(false);
+      load();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+    setBusy(false);
+  };
+
+  if (!data) return null;
+  return (
+    <Card className="mb-4 border-indigo-200 bg-indigo-50/40" data-testid="project-cost-allocation-card">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <p className="text-[11px] uppercase font-semibold text-indigo-700">Cost Allocation (Cashflow Engine)</p>
+            <p className="text-xs text-gray-600">Direct {data.direct_in?.toLocaleString('en-IN')} in · {data.direct_out?.toLocaleString('en-IN')} out · Indirect {data.indirect_in?.toLocaleString('en-IN')} in · {data.indirect_out?.toLocaleString('en-IN')} out</p>
+          </div>
+          {!editing ? (
+            <div className="flex items-center gap-2">
+              <Badge className="bg-emerald-100 text-emerald-700">Direct {data.effective_split.direct_pct}%</Badge>
+              <Badge className="bg-sky-100 text-sky-700">Indirect {data.effective_split.indirect_pct}%</Badge>
+              <Button size="sm" variant="outline" onClick={() => setEditing(true)} data-testid="cf-proj-edit">Edit</Button>
+            </div>
+          ) : (
+            <div className="flex items-end gap-2 flex-wrap">
+              <div>
+                <Label className="text-[10px]">Direct %</Label>
+                <Input type="number" min={0} max={100} step={0.5} value={direct} onChange={(e) => { setDirect(e.target.value); setIndirect(Math.max(0, 100 - Number(e.target.value))); }} className="h-8 w-24 text-sm" data-testid="cf-proj-direct" />
+              </div>
+              <div>
+                <Label className="text-[10px]">Indirect %</Label>
+                <Input type="number" min={0} max={100} step={0.5} value={indirect} onChange={(e) => { setIndirect(e.target.value); setDirect(Math.max(0, 100 - Number(e.target.value))); }} className="h-8 w-24 text-sm" data-testid="cf-proj-indirect" />
+              </div>
+              <label className="flex items-center gap-1 text-[11px] mb-0.5">
+                <input type="checkbox" checked={retro} onChange={(e) => setRetro(e.target.checked)} data-testid="cf-proj-retro" />
+                Recompute past
+              </label>
+              <Button size="sm" onClick={save} disabled={busy} className="bg-indigo-600 hover:bg-indigo-700" data-testid="cf-proj-save">{busy ? 'Saving…' : 'Save'}</Button>
+              <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
+              <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={removeOverride} disabled={busy}>Revert</Button>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+
 function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency, getPaymentStatusBadge, openCollectDialog }) {
   const [incomeData, setIncomeData] = useState(null);
   const [expenseData, setExpenseData] = useState(null);
@@ -4031,6 +4120,10 @@ export default function ProjectDetail() {
             </TabsContent>
             {/* ==================== PAYMENTS TAB ==================== */}
             <TabsContent value="payments" className="p-6">
+              {/* Cost Allocation override (Super Admin only) */}
+              {user?.role === 'super_admin' && (
+                <ProjectCostAllocation projectId={projectId} api={API} />
+              )}
               {/* Balance Payment Info — 4 cards calculated from Payment Schedule rows only */}
               {(() => {
                 const totalValue = payment_stages.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);

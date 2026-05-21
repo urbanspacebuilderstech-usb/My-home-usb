@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -4198,11 +4198,26 @@ export default function AccountsBoard() {
     )
   ) : null;
 
+  // Cashflow Engine quick-link for Accountant/SuperAdmin
+  const cashflowLinkButton = (
+    <Link to="/cashflow-engine">
+      <Button size="sm" variant="outline" className="h-9 px-3 border-indigo-300 text-indigo-700 hover:bg-indigo-50" data-testid="accounts-cashflow-engine-link">
+        <Wallet className="h-4 w-4 mr-1.5" /> Cashflow Engine
+      </Button>
+    </Link>
+  );
+  const combinedHeaderActions = (
+    <div className="flex items-center gap-2">
+      {cashflowLinkButton}
+      {maskToggleButton}
+    </div>
+  );
+
   return (
     <MaskContext.Provider value={user?.role || 'accountant'}>
     <UnmaskContext.Provider value={globalUnmasked}>
     <div className="min-h-screen bg-gray-50 pb-20 md:pb-4" data-testid="accounts-board">
-      <AppHeader user={user} headerActions={maskToggleButton} />
+      <AppHeader user={user} headerActions={combinedHeaderActions} />
       <main className="max-w-[1400px] mx-auto px-3 md:px-6 pt-3 pb-4">
         <Tabs value={mainTab} onValueChange={setMainTab}>
           <TabsContent value="cashbook">

@@ -4274,6 +4274,19 @@ async def approve_labour_advance(request_id: str, data: LabourAdvanceApprovalBod
             "created_by": user.user_id,
             "created_at": now_iso,
         })
+        # Cashflow Engine: drain Direct pool for this labour advance
+        try:
+            from routes.cashflow import allocate_expense as _cf_allocate_expense
+            await _cf_allocate_expense(
+                expense_id=request_id,
+                project_id=req.get("project_id"),
+                amount=float(req["amount"]),
+                category="labour_advance",
+                project_name=req.get("project_name", ""),
+                source="labour_advance_approved",
+            )
+        except Exception as e:
+            import logging; logging.getLogger(__name__).warning(f"Cashflow expense alloc skipped: {e}")
         # Auto-close the WO stage if cumulative approved advances >= stage amount
         await _maybe_auto_close_wo_stage(req["project_id"], req["work_order_id"], req["stage_id"], user)
         await create_notification(req["requested_by"], f"Labour advance ₹{req['amount']:,.0f} for {req['stage_name']} has been fully approved")

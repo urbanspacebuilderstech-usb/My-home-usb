@@ -48,6 +48,7 @@ import ProjectFinance from '@/pages/ProjectFinance';
 import FinanceBoard from '@/pages/FinanceBoard';
 import LabourPaymentsPage from '@/pages/LabourPaymentsPage';
 import Cashbook from '@/pages/Cashbook';
+import CashflowEngine from '@/pages/CashflowEngine';
 import HRPortal from '@/pages/HRPortal';
 import ChequeManagement from '@/pages/ChequeManagement';
 import PaymentProcessing from '@/pages/PaymentProcessing';
@@ -161,6 +162,7 @@ function AppRouter() {
       <Route path="/planning-board" element={<ProtectedRoute><PlanningBoard /></ProtectedRoute>} />
       <Route path="/accounts-board" element={<ProtectedRoute><AccountsBoard /></ProtectedRoute>} />
       <Route path="/accountant-module" element={<ProtectedRoute><Cashbook /></ProtectedRoute>} />
+      <Route path="/cashflow-engine" element={<ProtectedRoute><CashflowEngine /></ProtectedRoute>} />
       <Route path="/accountant-dashboard" element={<ProtectedRoute><ProjectFinance /></ProtectedRoute>} />
       <Route path="/finance-board" element={<ProtectedRoute><FinanceBoard /></ProtectedRoute>} />
       <Route path="/labour-payments" element={<ProtectedRoute><LabourPaymentsPage /></ProtectedRoute>} />

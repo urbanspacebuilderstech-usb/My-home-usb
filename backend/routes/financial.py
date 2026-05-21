@@ -597,6 +597,23 @@ async def approve_income(income_id: str, user: User = Depends(get_current_user))
                 )
     
     await create_audit_log(user.user_id, "approve", "income", income_id, {"action": "approved"})
+
+    # Cashflow Engine: split this income into Direct/Indirect pools per project/global config
+    try:
+        from routes.cashflow import allocate_income as _cf_allocate_income
+        inc_doc = await db.income.find_one({"income_id": income_id}, {"_id": 0, "amount": 1, "project_id": 1, "project_name": 1})
+        if inc_doc and float(inc_doc.get("amount") or 0) > 0:
+            await _cf_allocate_income(
+                income_id=income_id,
+                project_id=inc_doc.get("project_id"),
+                amount=float(inc_doc.get("amount") or 0),
+                project_name=inc_doc.get("project_name", ""),
+                source="income_approved",
+            )
+    except Exception as e:
+        # Never fail the approval if cashflow side-effect errors
+        import logging; logging.getLogger(__name__).warning(f"Cashflow allocation skipped: {e}")
+
     return {"message": "Income approved successfully"}
 
 
