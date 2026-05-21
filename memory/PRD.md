@@ -13,6 +13,28 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 19, 2026 — Unified Correction Engine (Phase 1: Petty Cash)
+- **Backend** (`/app/backend/routes/correction_engine.py` — NEW):
+  - Shared 3-helper engine: `apply_rejection`, `apply_resubmit`, `apply_send_for_correction`. Unified status vocabulary `awaiting_accountant / accountant_rejected / approved / under_correction` + `correction_history[]` audit trail.
+  - `EXCLUDED_FROM_TOTALS = ['accountant_rejected','rejected','accounts_rejected','under_correction']` — single source of truth for cashbook/cashflow exclusion.
+- **Backend** (`/app/backend/routes/cashflow.py`):
+  - NEW `reverse_allocation(source_id, kind)` helper — deletes cashflow_ledger rows for a given source so post-approval correction can roll back Direct/Indirect splits instantly.
+- **Backend** (`/app/backend/routes/site_ops.py`):
+  - `PATCH /accountant/petty-cash/{id}/reject` now routes through the engine, accepts JSON `{reason}`, sets `accountant_rejected` + history.
+  - NEW `POST /petty-cash/{id}/resubmit` — original SE/PM/Asst PM (or Super Admin) edits fields & flips status back to `awaiting_accountant`.
+  - NEW `POST /accountant/petty-cash/{id}/send-for-correction` — accountant pulls back an Approved/Issued row → status `under_correction`, cashflow_ledger reversed, linked recorded_expenses also flipped to `under_correction`.
+  - `/accountant/petty-cash/{id}/issue` now also writes a cashflow_ledger row keyed on petty_cash_id (so the reversal works).
+  - GET `/accountant/petty-cash` default queue now includes `awaiting_accountant` so resubmitted rows return.
+- **Backend** (`/app/backend/routes/financial.py`):
+  - `/cashbook` and `/accountant-overview` expense queries exclude EXCLUDED_EXPENSE_STATUSES across `recorded_expenses`, `material_requests`, `petty_cash`.
+- **Frontend** (`/app/frontend/src/components/StatusPill.jsx` — NEW): 4-state pill mapping ~16 legacy backend statuses onto Awaiting / Rejected / Approved / Under Correction visual states.
+- **Frontend** (`/app/frontend/src/components/CorrectionDialog.jsx` — NEW): Shared AlertDialog with rejection-reason banner, editable field config, history timeline.
+- **Frontend** (`/app/frontend/src/pages/SiteEngineerDashboard.jsx`): Petty cash card now shows StatusPill + red "⚠ Rejected — Re-enter Required" / "🔄 Sent Back for Correction" banner → click → CorrectionDialog with editable amount/purpose/remarks.
+- **Frontend** (`/app/frontend/src/pages/AccountsBoard.jsx`): Primary "PM-Approved & Resubmitted" queue table now shows both pm_approved AND awaiting_accountant rows; every row has Process Payment + Reject buttons. SE drill-down rows show StatusPill + Send-for-Correction (on approved rows) + Reject (on any awaiting row) + view-only CorrectionDialog.
+- **Tests**: New pytest `/app/backend/tests/test_correction_engine_petty_cash.py` covers the full loop: pm_approved → reject → resubmit → issue (cashflow row created) → send-for-correction (cashflow row reversed) → resubmit → re-approval ready. testing_agent_v3_fork iterations 156 + 157 both PASS — backend 100% / frontend 100%.
+
+
+
 ### Session — Feb 19, 2026 — Sales Lead Advance Rejection Loop + Accountant CRM Access
 - **Backend** (`/app/backend/routes/crm.py`):
   - **Bug fix** (root cause of the "rejection banner doesn't show" report): `POST /api/crm/leads/{lead_id}/accountant-reject` was setting `current_stage_id = "stg_deal_close"` which is not a real `lead_stages` entry (real stage_id is `stg_payment_collect`). Rejected leads were landing in a phantom kanban column and silently disappearing. Now bounces back to `stg_payment_collect`.
