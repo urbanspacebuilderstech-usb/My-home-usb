@@ -1603,7 +1603,11 @@ async def accountant_reject_lead_advance(lead_id: str, data: AccountantRejectLea
     rejector_name = user_doc.get("name", "Accountant") if user_doc else "Accountant"
 
     # Bounce the lead back to the Deal Close stage so Sales can re-enter the advance.
-    stage_back = "stg_deal_close"
+    # NOTE: the actual stage_id for "Deal Close" in the lead_stages collection is
+    # `stg_payment_collect` (display name "Deal Close"). Using anything else causes
+    # the lead to vanish from every kanban column. The accountant-verify endpoint
+    # mirrors this naming.
+    stage_back = "stg_payment_collect"
     lead_stage_history = lead.get("stage_history", [])
     lead_stage_history.append({
         "stage_id": stage_back,

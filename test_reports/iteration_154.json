@@ -1,0 +1,50 @@
+{
+  "summary": "Verified the Sales Lead Advance Rejection bug fix. Backend pytest (test_lead_advance_reject_resubmit.py) passes 1/1 — accountant-reject now correctly sets current_stage_id back to 'stg_payment_collect'. Frontend kanban banner with data-testid 'adv-rejected-card-{lead_id}' renders correctly with the rejection reason and rejected_by_name. However, while UI-testing the Accountant flow, a related gap surfaced: the 'Accountant Approval' kanban column is always empty because /send-to-accountant does NOT change current_stage_id (it stays at stg_payment_collect). Consequently the in-card Verify/Reject buttons (verify-payment-/reject-payment-{lead_id}) are NEVER rendered, since their guard is `current_stage_id === 'stg_accountant_approval'`. Accountant role is also redirected to /accounts-board and the 'Marketing Board' nav link is hidden, so the accountant cannot reach /crm-sales through normal navigation.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/crm/leads/{lead_id}/send-to-accountant", "issue": "Does not update current_stage_id to 'stg_accountant_approval'. The lead's onboarding_status flips to 'accountant_pending' but stage stays at 'stg_payment_collect'. This causes the 'Accountant Approval' kanban column to always show 0 leads and the per-card Verify/Reject buttons to never appear."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CRMSales.jsx Verify/Reject buttons (lines 1769-1801)", "issue": "Buttons are gated on `lead.current_stage_id === 'stg_accountant_approval'`, but the backend never moves the lead into that stage on send-to-accountant. As a result Accountant cannot trigger Verify/Reject from the kanban card and must use a different surface.", "selector": "[data-testid=\"reject-payment-{lead_id}\"]", "priority": "MEDIUM"},
+      {"component": "App nav (Accountant role)", "issue": "Accountant user is auto-redirected to /accounts-board after login and the 'Marketing Board' nav group is not visible for the accountant role, so the Accountant cannot reach /crm-sales to act on advance-payment reviews from the kanban.", "selector": "nav", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "what_works": [
+    "POST /api/crm/leads/{lead_id}/accountant-reject returns 200, sets onboarding_status='accountant_rejected', advance_payment.rejection_reason populated, and current_stage_id back to 'stg_payment_collect' (one-line fix verified).",
+    "Sales kanban at /crm-sales renders the red banner with data-testid 'adv-rejected-card-{lead_id}' showing '⚠ Advance Rejected — Re-enter Required' plus rejection reason and the inner 'Rejected by {accountant_name}' chip with data-testid 'adv-rejected-banner-{lead_id}'.",
+    "Re-collect-advance clears advance_payment.rejection_reason and flips onboarding_status to 'advance_collected'.",
+    "Re-send-to-accountant followed by /accountant-verify moves lead to stg_project_onboarded with onboarding_status='accountant_verified'.",
+    "pytest /app/backend/tests/test_lead_advance_reject_resubmit.py passes 1 passed in ~25s."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_lead_advance_reject_resubmit.py",
+    "/app/test_reports/pytest/iter154_reject_resubmit.xml",
+    "/app/test_reports/seed_rejected_lead.py",
+    "/app/test_reports/seed_pending_lead.py",
+    "/app/test_reports/kanban_with_banner.png",
+    "/app/test_reports/admin_kanban_pending.png",
+    "/app/test_reports/accountant_kanban.png"
+  ],
+  "action_items": [
+    "Decide on Accountant Approval kanban column: either (a) make /send-to-accountant also set current_stage_id='stg_accountant_approval' so the column populates and Verify/Reject buttons render, or (b) change CRMSales.jsx grouping + button guard to be based on onboarding_status ('accountant_pending') instead of current_stage_id so the existing flow continues to work without a stage change. Currently the column is permanently empty.",
+    "If the Accountant is expected to act on advance reviews via the Sales kanban, expose a nav entry to /crm-sales for the accountant role (today the role is redirected to /accounts-board and 'Marketing Board' is hidden), OR provide an Accountant-side review surface that calls /accountant-verify and /accountant-reject."
+  ],
+  "critical_code_review_comments": [
+    "/app/backend/routes/crm.py send-to-accountant (1470-1504) only updates onboarding_status, no stage change — inconsistent with the kanban model that treats current_stage_id as the source of truth for column placement.",
+    "/app/frontend/src/pages/CRMSales.jsx is 3744 lines (>700 threshold) — should be split into smaller modules.",
+    "Inline window.prompt for rejection reason (line 1790) is fine for an MVP but is not accessible / not stylable; consider replacing with the existing Dialog/AlertDialog pattern used elsewhere in the app."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "70%"},
+  "test_credentials": "admin@constructionos.com / Demo@1234 (super admin), accountant@constructionos.com / Demo@1234. sales@constructionos.com does not exist in seed — fixture falls back to admin.",
+  "seed_data_creation": "Two test leads were seeded via /app/test_reports/seed_rejected_lead.py and seed_pending_lead.py to drive the UI in 'accountant_rejected' and 'accountant_pending' states. Both leads (lead_8b41cf71e1d4, lead_e71045328b46) were deleted from MongoDB after testing.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The original bug — Sales kanban banner not showing after accountant rejection — IS FIXED and verified end-to-end in both pytest and Playwright. The next testing agent should focus on the related gap around /send-to-accountant + the Accountant Approval kanban column if the main agent decides to address it.",
+  "rca of the issue": "Root cause was a one-line typo in /app/backend/routes/crm.py accountant-reject endpoint: set current_stage_id='stg_deal_close' which is not a valid stage_id. Real Deal Close stage is 'stg_payment_collect'. Because the frontend kanban groups by current_stage_id, the rejected lead landed in a phantom column and the banner never rendered on the visible board. Fix is correct and verified."
+}
