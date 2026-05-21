@@ -125,11 +125,13 @@ def test_reject_resubmit_loop(admin, accountant, sales):
     r = sales.post(f"{BASE}/api/crm/leads/{lead_id}/send-to-accountant")
     assert r.status_code == 200, f"send-to-accountant failed: {r.status_code} {r.text}"
 
-    # Verify status
+    # Verify status — after our send-to-accountant fix the lead also moves into
+    # the Accountant Approval column so the per-card Verify/Reject buttons render.
     r = sales.get(f"{BASE}/api/crm/leads/{lead_id}")
     assert r.status_code == 200, r.text
     lead = r.json()
     assert lead.get("onboarding_status") == "accountant_pending", lead.get("onboarding_status")
+    assert lead.get("current_stage_id") == "stg_accountant_approval", lead.get("current_stage_id")
 
     # 5. Accountant REJECTS.
     reject_reason = "Amount mismatch — collected via UPI but cheque expected"

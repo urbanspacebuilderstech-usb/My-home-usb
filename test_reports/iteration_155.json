@@ -1,0 +1,41 @@
+{
+  "summary": "Re-verified Sales Lead Advance Rejection flow end-to-end after iteration 154 fixes. All four review items pass: (a) /send-to-accountant now sets current_stage_id='stg_accountant_approval' — kanban 'Accountant Approval' column populates and per-card Verify/Reject buttons render; (b) Accountant role can navigate to /crm-sales via the AppHeader top-nav 'Sales CRM' link; (c) /crm-sales loads for accountant without 403; (d) backend pytest test_lead_advance_reject_resubmit.py still passes 1/1 (~27s).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/crm-sales (Accountant role)", "issues": ["Default landing view is List for accountant; Verify/Reject buttons only render in Kanban view. Accountant must manually switch to Kanban to see verify-payment-/reject-payment-{lead_id}. Consider defaulting accountant to Kanban or surfacing per-row Verify/Reject in List view too."]}
+    ]
+  },
+  "what_works": [
+    "POST /api/crm/leads/{lead_id}/send-to-accountant now updates current_stage_id to 'stg_accountant_approval' and onboarding_status to 'accountant_pending'.",
+    "Accountant login → AppHeader shows 'Sales CRM' top-nav entry; clicking lands on /crm-sales successfully (no 403).",
+    "/crm-sales Kanban view: 'Accountant Approval' column renders with count=1 and the seeded lead card displays both data-testid 'verify-payment-{lead_id}' and 'reject-payment-{lead_id}' buttons.",
+    "Click Reject → window.prompt 'Reason for rejecting this advance? (will be sent to Sales)' → POST /api/crm/leads/{lead_id}/accountant-reject returns 200.",
+    "After reject: lead bounces back to stg_payment_collect (Deal Close column count goes 1→2 for admin, Accountant Approval drops to 0), and the red banner with data-testid 'adv-rejected-card-{lead_id}' renders on the lead card with the exact rejection reason text and the post-reject instruction.",
+    "Backend pytest /app/backend/tests/test_lead_advance_reject_resubmit.py: 1 passed in 26.91s (asserts entire reject → re-collect → re-send → verify cycle, including current_stage_id='stg_accountant_approval' after send-to-accountant)."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_lead_advance_reject_resubmit.py",
+    "/app/test_reports/pytest/iter155_reject_resubmit.xml",
+    "/app/test_reports/seed_pending_lead.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "/app/frontend/src/pages/CRMSales.jsx remains at >3700 lines (>700 threshold) — still recommended to be split into smaller modules. Not blocking but ongoing tech debt.",
+    "window.prompt is still used to collect the rejection reason. Functional but non-accessible / not stylable; consider migrating to the existing Dialog/AlertDialog pattern.",
+    "Accountant landing on /accounts-board after login is fine, but the accountant has no quick visual indicator (badge/notification count) on the 'Sales CRM' top-nav link when leads are waiting in 'Accountant Approval'. Adding a count badge would improve discoverability."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@constructionos.com / Demo@1234 (super admin), accountant@constructionos.com / Demo@1234. sales@constructionos.com seed user does not exist; pytest fixture falls back to admin.",
+  "seed_data_creation": "Seeded one lead 'AccountantPendingTest c04f59' (lead_5d4f43a28e62) via /app/test_reports/seed_pending_lead.py into 'accountant_pending' state for the UI Reject test. Lead was deleted from MongoDB after testing.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All gaps from iteration 154 are resolved. Accountant now has full Sales CRM access, the Accountant Approval column populates correctly, and per-card Verify/Reject buttons appear (in Kanban view). Backend pytest covers the entire loop. Minor UX nit: accountant must switch to Kanban view to see Verify/Reject buttons (default is List).",
+  "rca of the issue": "Previous iteration confirmed the rejection banner fix at the data layer but identified two gaps: (1) send-to-accountant did not move current_stage_id, leaving 'Accountant Approval' column empty and gating Verify/Reject buttons; (2) accountant nav had no link to /crm-sales. Iteration 155 fixes verified: backend now sets current_stage_id='stg_accountant_approval' on send-to-accountant; AppHeader/Sidebar config now includes 'accountant' role for /crm-sales; CRMSales/dashboard/leads/overview endpoints accept UserRole.ACCOUNTANT. End-to-end UI + pytest validation pass."
+}

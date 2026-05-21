@@ -21,7 +21,7 @@ export default function Sidebar({ open, onClose, user }) {
     { name: 'GM Command Center', icon: Shield, path: '/gm-dashboard', roles: ['super_admin', 'general_manager'] },
     { name: 'CRE Board', icon: UserCog, path: '/cre-board', roles: ['super_admin', 'cre'] },
     { name: 'CRM Pre-Sales', icon: UserCheck, path: '/crm-pre-sales', roles: ['super_admin', 'pre_sales', 'cre'] },
-    { name: 'CRM Sales', icon: Target, path: '/crm-sales', roles: ['super_admin', 'sales', 'cre'] },
+    { name: 'CRM Sales', icon: Target, path: '/crm-sales', roles: ['super_admin', 'sales', 'cre', 'accountant'] },
     { name: 'RE Projects', icon: Calculator, path: '/crm/re-projects', roles: ['super_admin', 'planning', 'general_manager', 'sales'] },
     { name: 'Projects', icon: FolderKanban, path: '/projects', roles: ['super_admin', 'project_manager', 'planning', 'cre', 'general_manager'] },
     { name: 'Add Project', icon: FolderPlus, path: '/admin/add-project', roles: ['super_admin', 'planning', 'sales'] },

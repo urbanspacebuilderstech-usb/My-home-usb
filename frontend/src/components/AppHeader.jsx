@@ -20,6 +20,7 @@ const ROLE_NAV = {
   accountant: [
     { label: 'Cashbook', path: '/accounts-board?tab=cashbook' },
     { label: 'Approvals', path: '/accounts-board?tab=approvals' },
+    { label: 'Sales CRM', path: '/crm-sales' },
     { label: 'Expense', path: '/accounts-board?tab=cashbook&sub=expense' },
     { label: 'Cheque Management', path: '/accounts-board?tab=cheques' },
     { label: 'Suspense A/c', path: '/suspense-account' },

@@ -1480,10 +1480,25 @@ async def send_to_accountant(lead_id: str, user: User = Depends(get_current_user
         raise HTTPException(status_code=400, detail="Advance must be collected first")
     
     now = datetime.now(timezone.utc)
+    # Move the lead into the dedicated "Accountant Approval" kanban column so
+    # the Accountant can spot it on the Sales board and the per-card
+    # Verify/Reject buttons (gated on this stage_id) render. The
+    # accountant-verify / accountant-reject endpoints already understand this
+    # stage and the bounce-back lands at stg_payment_collect.
+    stage_history = lead.get("stage_history", [])
+    stage_history.append({
+        "stage_id": "stg_accountant_approval",
+        "from_stage_id": lead.get("current_stage_id"),
+        "moved_at": now.isoformat(),
+        "moved_by": user.user_id,
+        "action": "sent_to_accountant",
+    })
     await db.leads.update_one(
         {"lead_id": lead_id},
         {"$set": {
             "onboarding_status": "accountant_pending",
+            "current_stage_id": "stg_accountant_approval",
+            "stage_history": stage_history,
             "updated_at": now
         }}
     )
@@ -1802,7 +1817,7 @@ async def move_to_planning(lead_id: str, data: MoveToPlanning, user: User = Depe
 @router.get("/crm/sales-overview")
 async def get_sales_overview(user: User = Depends(get_current_user)):
     """Get sales overview stats including deal closed count and advance collected"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, "sales", "cre"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, "sales", "cre", UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Count deals at Deal Close (payment_collect) or later stages
@@ -2398,9 +2413,9 @@ async def close_follow_up_by_index(lead_id: str, index: int, data: FollowUpClose
 
 @router.get("/crm/sales/dashboard")
 async def get_sales_dashboard(user: User = Depends(get_current_user)):
-    """Get Sales dashboard with stage counts"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
-        raise HTTPException(status_code=403, detail="Sales access required")
+    """Get Sales dashboard with stage counts. Accountant has read-only access."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Sales/Accountant access required")
 
     stages = await get_default_sales_stages()
 
@@ -2454,9 +2469,13 @@ async def get_sales_leads(
     followup_date: Optional[str] = None,
     user: User = Depends(get_current_user)
 ):
-    """Get Sales leads with filters - filtered by assigned user for non-admins"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
-        raise HTTPException(status_code=403, detail="Sales access required")
+    """Get Sales leads with filters - filtered by assigned user for non-admins.
+
+    Accountants are also allowed read-access so they can see leads parked at
+    'Accountant Approval' and act on the in-card Verify/Reject buttons.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Sales/Accountant access required")
     
     # Auto-move leads with due follow-ups to the Follow-up stage
     # IMPORTANT: only kick the lead back to followup if it's still in an EARLY pipeline stage.
