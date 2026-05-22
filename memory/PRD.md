@@ -13,6 +13,14 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 22, 2026 — Project Detail Payment Schedule CRE/Accountant Rejection Display
+- **Frontend** (`/app/frontend/src/pages/ProjectDetail.jsx`):
+  - Per-project Payment Schedule table now renders a dedicated red detail `<tr>` under each `cre_rejected` / `accountant_rejected` stage showing the rejection reason, rejector name and timestamp.
+  - New "Edit & Resubmit" action (`data-testid="planning-resubmit-${stage_id}"`) replaces the previous `window.prompt()` flow with a Shadcn `Dialog` (`ps-resubmit-dialog`) for amount + remarks. On submit calls `POST /api/payment-stages/{id}/planning-resubmit` (CRE rejected) or `PATCH /api/payment-stages/{id}` (accountant rejected).
+  - `fetchData(false)` is now awaited so the UI refreshes the row state before the dialog closes (fixes stale CRE Rejected badge).
+- **Tests**: New pytest `/app/backend/tests/test_payment_stage_cre_reject_resubmit.py` (8/8 PASS). `testing_agent_v3_fork` iterations 158 + 159 — backend 100% / frontend 100%.
+
+
 ### Session — Feb 19, 2026 — Unified Correction Engine (Phase 1: Petty Cash)
 - **Backend** (`/app/backend/routes/correction_engine.py` — NEW):
   - Shared 3-helper engine: `apply_rejection`, `apply_resubmit`, `apply_send_for_correction`. Unified status vocabulary `awaiting_accountant / accountant_rejected / approved / under_correction` + `correction_history[]` audit trail.
