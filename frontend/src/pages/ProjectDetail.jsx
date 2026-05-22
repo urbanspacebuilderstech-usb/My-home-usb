@@ -5537,26 +5537,24 @@ export default function ProjectDetail() {
                           </SortableTableRow>
                           {(isCRERejected || isAccRejected) && (
                             <tr className="bg-red-50/50" data-testid={`reject-detail-row-${stage.stage_id}`}>
-                              <td colSpan={99} className="px-4 py-2 border-t border-red-200">
-                                <div className="flex items-start justify-between gap-3 flex-wrap">
-                                  <div className="text-xs flex-1 min-w-[260px]">
-                                    <p className="text-red-800 font-bold">
-                                      {isCRERejected ? '🔴 Rejected by CRE' : '🔴 Rejected by Accountant'}:{' '}
-                                      <span className="font-medium">
-                                        {(isCRERejected ? stage.cre_rejection_reason : stage.accountant_rejection_reason) || 'No reason given'}
-                                      </span>
-                                    </p>
-                                    <p className="text-[11px] text-red-600 mt-0.5 italic">
-                                      by {(isCRERejected ? stage.cre_rejected_by_name : stage.accountant_rejected_by_name) || 'Unknown'}
+                              <td colSpan={99} className="px-4 py-1.5 border-t border-red-200">
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                  <p className="text-xs text-red-800 flex-1 min-w-[260px] truncate">
+                                    <span className="font-bold">{isCRERejected ? '🔴 Rejected by CRE:' : '🔴 Rejected by Accountant:'}</span>{' '}
+                                    <span className="font-medium">
+                                      {(isCRERejected ? stage.cre_rejection_reason : stage.accountant_rejection_reason) || 'No reason given'}
+                                    </span>
+                                    <span className="text-[11px] text-red-600 italic ml-2">
+                                      — by {(isCRERejected ? stage.cre_rejected_by_name : stage.accountant_rejected_by_name) || 'Unknown'}
                                       {(isCRERejected ? stage.cre_rejected_at : stage.accountant_rejected_at) && (
-                                        <> on {new Date(isCRERejected ? stage.cre_rejected_at : stage.accountant_rejected_at).toLocaleString('en-IN')}</>
+                                        <> on {new Date(isCRERejected ? stage.cre_rejected_at : stage.accountant_rejected_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</>
                                       )}
-                                    </p>
-                                  </div>
+                                    </span>
+                                  </p>
                                   {canManage && (
                                     <Button
                                       size="sm"
-                                      className="h-7 text-xs bg-blue-600 hover:bg-blue-700"
+                                      className="h-7 text-xs bg-blue-600 hover:bg-blue-700 shrink-0"
                                       data-testid={`planning-resubmit-${stage.stage_id}`}
                                       onClick={() => setPsResubmitDialog({
                                         open: true,
