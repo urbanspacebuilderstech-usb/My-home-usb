@@ -47,6 +47,7 @@ import {
   UserCheck,
   Users,
   Smartphone,
+  AlertCircle,
   ArrowUpDown
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
@@ -1522,6 +1523,25 @@ export default function CRMSales() {
                             {lead.custom_fields?.sqft && (
                               <p className="text-[10px] text-gray-500">{lead.custom_fields.sqft} sqft</p>
                             )}
+                            {/* Sales-side rejection banner (List view).
+                                Shows whenever the Accountant has rejected the advance
+                                — either directly via the lead reject endpoint OR
+                                indirectly via the income reject endpoint (both set
+                                the same lead.onboarding_status). */}
+                            {lead.onboarding_status === 'accountant_rejected' && (lead.advance_payment?.rejection_reason || lead.rejection_reason) && (
+                              <div
+                                className="mt-1 px-1.5 py-1 rounded bg-red-50 border border-red-300 text-[10px] text-red-800 font-semibold"
+                                data-testid={`adv-rejected-list-${lead.lead_id}`}
+                              >
+                                <span className="font-bold">⚠ Advance Rejected — Re-enter:</span>{' '}
+                                <span className="font-normal">{lead.advance_payment?.rejection_reason || lead.rejection_reason}</span>
+                                {(lead.advance_payment?.rejected_by_name || lead.rejected_by_name) && (
+                                  <span className="block text-[9px] text-red-600 mt-0.5 font-normal italic">
+                                    by {lead.advance_payment?.rejected_by_name || lead.rejected_by_name}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -1779,11 +1799,16 @@ export default function CRMSales() {
                         )}
                         
                         {/* Rejected-by-Accountant banner — visible on Sales side after bounce-back to Deal Close */}
-                        {lead.onboarding_status === 'accountant_rejected' && lead.advance_payment?.rejection_reason && (
-                          <div className="mt-2 p-2 rounded bg-red-50 border border-red-300 text-xs" data-testid={`adv-rejected-card-${lead.lead_id}`}>
+                        {/* Kanban-side visible rejection banner */}
+                        {lead.onboarding_status === 'accountant_rejected' && (lead.advance_payment?.rejection_reason || lead.rejection_reason) && (
+                          <div className="mt-2 p-2 rounded bg-red-50 border-2 border-red-300 text-xs" data-testid={`adv-rejected-card-${lead.lead_id}`}>
                             <p className="text-red-800 font-bold">⚠ Advance Rejected — Re-enter Required</p>
-                            <p className="text-red-700 text-[11px] mt-0.5"><span className="font-semibold">Reason:</span> {lead.advance_payment.rejection_reason}</p>
-                            <p className="text-red-600 text-[10px] mt-0.5">Open this lead → click "Deal Close" again to enter the corrected advance. It will go back to the Accountant for re-approval.</p>
+                            <p className="text-red-700 mt-0.5">
+                              <span className="font-semibold">Reason:</span> {lead.advance_payment?.rejection_reason || lead.rejection_reason}
+                            </p>
+                            {(lead.advance_payment?.rejected_by_name || lead.rejected_by_name) && (
+                              <p className="text-[10px] text-red-600 mt-0.5 italic">by {lead.advance_payment?.rejected_by_name || lead.rejected_by_name}</p>
+                            )}
                           </div>
                         )}
 
@@ -1831,9 +1856,9 @@ export default function CRMSales() {
                               </div>
                             )}
                             {/* Sales-side visible rejection banner */}
-                            {lead.onboarding_status === 'accountant_rejected' && lead.advance_payment?.rejection_reason && (
+                            {lead.onboarding_status === 'accountant_rejected' && (lead.advance_payment?.rejection_reason || lead.rejection_reason) && (
                               <div className="mt-2 p-1.5 rounded bg-red-100 border border-red-300 text-[11px] text-red-800" data-testid={`adv-rejected-banner-${lead.lead_id}`}>
-                                <span className="font-bold">⚠ Rejected by {lead.advance_payment.rejected_by_name || 'Accountant'}:</span> {lead.advance_payment.rejection_reason}
+                                <span className="font-bold">⚠ Rejected by {lead.advance_payment?.rejected_by_name || lead.rejected_by_name || 'Accountant'}:</span> {lead.advance_payment?.rejection_reason || lead.rejection_reason}
                               </div>
                             )}
                           </div>
@@ -2222,6 +2247,33 @@ export default function CRMSales() {
                   
                   {['stg_payment_collect', 'stg_accountant_approval'].includes(selectedLead.current_stage_id) && (
                     <div className="border-t pt-3">
+                      {/* Red banner — accountant rejected the advance.
+                          Rendered ABOVE the amber stage hint so the user sees
+                          the rejection reason first thing on opening the lead. */}
+                      {selectedLead.onboarding_status === 'accountant_rejected' && (selectedLead.advance_payment?.rejection_reason || selectedLead.rejection_reason) && (
+                        <div
+                          className="mb-3 rounded-lg border-2 border-red-300 bg-red-50 p-3 text-sm"
+                          data-testid={`adv-rejected-detail-${selectedLead.lead_id}`}
+                        >
+                          <p className="font-bold text-red-800 flex items-center gap-1">
+                            <AlertCircle className="h-4 w-4" /> Advance Rejected — Re-enter Required
+                          </p>
+                          <p className="text-red-700 mt-1">
+                            <span className="font-semibold">Reason:</span> {selectedLead.advance_payment?.rejection_reason || selectedLead.rejection_reason}
+                          </p>
+                          {(selectedLead.advance_payment?.rejected_by_name || selectedLead.rejected_by_name) && (
+                            <p className="text-xs text-red-600 mt-1 italic">
+                              Rejected by {selectedLead.advance_payment?.rejected_by_name || selectedLead.rejected_by_name}
+                              {selectedLead.advance_payment?.rejected_at && (
+                                <> on {new Date(selectedLead.advance_payment.rejected_at).toLocaleString('en-IN')}</>
+                              )}
+                            </p>
+                          )}
+                          <p className="text-xs text-red-600 mt-2 font-semibold">
+                            Re-collect the advance below. The amount will be sent back to the Accountant for approval automatically.
+                          </p>
+                        </div>
+                      )}
                       <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
                         {selectedLead.current_stage_id === 'stg_payment_collect' && 'This lead is in Payment Collect stage. It will move automatically after advance is collected.'}
                         {selectedLead.current_stage_id === 'stg_accountant_approval' && 'Waiting for Accountant verification. Lead will move to Project Onboarded automatically after approval.'}
