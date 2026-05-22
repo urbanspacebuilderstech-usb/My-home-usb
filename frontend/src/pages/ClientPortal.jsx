@@ -1,11 +1,30 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { 
-  Building2, LogOut, Home, DollarSign, Image, FileText, Clock, 
-  Printer, ChevronLeft, CheckCircle2, Circle, ArrowRight,
-  Wallet, TrendingUp, Package, MapPin, Calendar, CalendarCheck,
-  User, Receipt, Layers, IndianRupee, TrendingDown, AlertCircle
+import {
+  Building2,
+  LogOut,
+  Home,
+  IndianRupee,
+  Image,
+  FileText,
+  Clock,
+  Printer,
+  ChevronLeft,
+  CheckCircle2,
+  Circle,
+  ArrowRight,
+  Wallet,
+  TrendingUp,
+  Package,
+  MapPin,
+  Calendar,
+  CalendarCheck,
+  User,
+  Receipt,
+  Layers,
+  TrendingDown,
+  AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -349,7 +368,7 @@ export default function ClientPortal() {
           <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
-                <DollarSign className="h-4 w-4" /> Balance Due
+                <IndianRupee className="h-4 w-4" /> Balance Due
               </CardTitle>
             </CardHeader>
             <CardContent>

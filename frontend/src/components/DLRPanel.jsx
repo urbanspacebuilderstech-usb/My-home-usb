@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Calendar, Users, Trash2, ClipboardList, IndianRupee, Clock, Plus } from 'lucide-react';
+import {
+  Calendar,
+  Users,
+  Trash2,
+  ClipboardList,
+  IndianRupee,
+  Clock,
+  Plus
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';

@@ -11,10 +11,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { 
-  FileText, LogOut, Plus, CheckCircle, Clock, AlertTriangle, Edit,
-  Building2, Calendar, DollarSign, ArrowLeft, RefreshCw, Search,
-  XCircle, AlertCircle, Bell, Landmark
+import {
+  FileText,
+  LogOut,
+  Plus,
+  CheckCircle,
+  Clock,
+  AlertTriangle,
+  Edit,
+  Building2,
+  Calendar,
+  IndianRupee,
+  ArrowLeft,
+  RefreshCw,
+  Search,
+  XCircle,
+  AlertCircle,
+  Bell,
+  Landmark
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';

@@ -1,6 +1,20 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Building2, LogOut, TrendingUp, TrendingDown, DollarSign, Wallet, PiggyBank, Receipt, ChevronRight, Edit2, Save, X, Plus } from 'lucide-react';
+import {
+  Building2,
+  LogOut,
+  TrendingUp,
+  TrendingDown,
+  IndianRupee,
+  Wallet,
+  PiggyBank,
+  Receipt,
+  ChevronRight,
+  Edit2,
+  Save,
+  X,
+  Plus
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -137,7 +151,7 @@ export default function FinancialOverview() {
           <Card className="bg-gradient-to-br from-gray-700 to-gray-800 text-white border-0 shadow-lg">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-blue-100 flex items-center gap-2">
-                <DollarSign className="h-4 w-4" />
+                <IndianRupee className="h-4 w-4" />
                 Total Project Value
               </CardTitle>
             </CardHeader>

@@ -13,11 +13,41 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { MultiPaymentInput } from '../components/MultiPaymentInput';
 import { NumericInput } from '../components/NumericInput';
 import CreateProspectUserDialog from '../components/CreateProspectUserDialog';
-import { 
-  Target, LogOut, Search, Phone, PhoneOff, Mail, MapPin, ArrowRight, RefreshCw, Plus, X,
-  GripVertical, Eye, FileText, CheckCircle, XCircle, Clock, TrendingUp,
-  Building2, Calculator, Download, LayoutGrid, List, Settings, Edit, Calendar, Send,
-  MessageSquare, GitBranch, DollarSign, UserCheck, Users, Smartphone, ArrowUpDown
+import {
+  Target,
+  LogOut,
+  Search,
+  Phone,
+  PhoneOff,
+  Mail,
+  MapPin,
+  ArrowRight,
+  RefreshCw,
+  Plus,
+  X,
+  GripVertical,
+  Eye,
+  FileText,
+  CheckCircle,
+  XCircle,
+  Clock,
+  TrendingUp,
+  Building2,
+  Calculator,
+  Download,
+  LayoutGrid,
+  List,
+  Settings,
+  Edit,
+  Calendar,
+  Send,
+  MessageSquare,
+  GitBranch,
+  IndianRupee,
+  UserCheck,
+  Users,
+  Smartphone,
+  ArrowUpDown
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
@@ -3081,7 +3111,7 @@ export default function CRMSales() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-purple-600" />
+              <IndianRupee className="h-5 w-5 text-purple-600" />
               Advance Payment Collection
             </DialogTitle>
             <DialogDescription>
@@ -3141,7 +3171,7 @@ export default function CRMSales() {
               className="bg-purple-600 hover:bg-purple-700"
               data-testid="submit-advance-btn"
             >
-              <DollarSign className="h-4 w-4 mr-1" />
+              <IndianRupee className="h-4 w-4 mr-1" />
               Collect Advance
             </Button>
           </DialogFooter>
@@ -3614,7 +3644,7 @@ export default function CRMSales() {
                 </div>
               </div>
               <div className="border-2 border-green-200 rounded-lg p-4 bg-green-50">
-                <h4 className="font-semibold text-green-800 mb-3 flex items-center gap-2"><DollarSign className="h-4 w-4" />Advance Payment</h4>
+                <h4 className="font-semibold text-green-800 mb-3 flex items-center gap-2"><IndianRupee className="h-4 w-4" />Advance Payment</h4>
                 <div className="mb-3">
                   <Label className="text-green-700">Total Advance Amount *</Label>
                   <div className="relative mt-1"><span className="absolute left-3 top-2.5 text-gray-500">₹</span><NumericInput placeholder="Amount" value={convertAdvanceAmount} onChange={(e) => {

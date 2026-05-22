@@ -1,10 +1,24 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { 
-  Building2, LogOut, ArrowLeft, Plus, Edit, Trash2, Save, X, 
-  DollarSign, FileText, Calendar, TrendingUp, Wallet, Receipt,
-  CheckCircle2, Clock, AlertCircle
+import {
+  Building2,
+  LogOut,
+  ArrowLeft,
+  Plus,
+  Edit,
+  Trash2,
+  Save,
+  X,
+  IndianRupee,
+  FileText,
+  Calendar,
+  TrendingUp,
+  Wallet,
+  Receipt,
+  CheckCircle2,
+  Clock,
+  AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -226,7 +240,7 @@ export default function ComprehensiveProjectView() {
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <DollarSign className="h-3 w-3" />Project Value
+                <IndianRupee className="h-3 w-3" />Project Value
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -331,7 +345,7 @@ export default function ComprehensiveProjectView() {
                 <Card className="border-2 border-blue-100">
                   <CardHeader className="bg-amber-50 border-b">
                     <CardTitle className="text-lg flex items-center gap-2">
-                      <DollarSign className="h-5 w-5 text-amber-600" />
+                      <IndianRupee className="h-5 w-5 text-amber-600" />
                       Project Value Summary
                     </CardTitle>
                   </CardHeader>

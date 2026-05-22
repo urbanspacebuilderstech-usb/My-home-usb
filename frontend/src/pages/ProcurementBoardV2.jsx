@@ -11,11 +11,34 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Textarea } from '../components/ui/textarea';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { 
-  Building2, LogOut, Package, Truck, Clock, CheckCircle, XCircle, 
-  DollarSign, Plus, Trash2, Check, AlertCircle, Eye, FileText,
-  ArrowRight, CreditCard, TrendingUp, Send, MapPin, Phone, User,
-  Wallet, Building, Receipt, BarChart3, Users, Edit
+import {
+  Building2,
+  LogOut,
+  Package,
+  Truck,
+  Clock,
+  CheckCircle,
+  XCircle,
+  IndianRupee,
+  Plus,
+  Trash2,
+  Check,
+  AlertCircle,
+  Eye,
+  FileText,
+  ArrowRight,
+  CreditCard,
+  TrendingUp,
+  Send,
+  MapPin,
+  Phone,
+  User,
+  Wallet,
+  Building,
+  Receipt,
+  BarChart3,
+  Users,
+  Edit
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -814,7 +837,7 @@ export default function ProcurementBoardV2() {
               <h3 className="text-lg font-bold mb-4">Vendor Selection & Pricing</h3>
               {requests.filter(r => r.status === 'vendor_selected' || r.status === 'waiting_payment' || r.status === 'accounts_rejected').length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
-                  <DollarSign className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                  <IndianRupee className="h-12 w-12 mx-auto mb-4 text-gray-300" />
                   <p>No items in pricing stage</p>
                 </div>
               ) : (

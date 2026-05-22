@@ -1,6 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { CheckCircle, XCircle, DollarSign, Package, Users, Truck, Clock, AlertTriangle, ClipboardCheck, RefreshCw } from 'lucide-react';
+import {
+  CheckCircle,
+  XCircle,
+  IndianRupee,
+  Package,
+  Users,
+  Truck,
+  Clock,
+  AlertTriangle,
+  ClipboardCheck,
+  RefreshCw
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -207,7 +218,7 @@ export default function ApprovalQueue() {
           <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setActiveTab('income')} data-testid="summary-income">
             <CardContent className="p-3 sm:p-4">
               <div className="flex items-center gap-2 mb-1">
-                <DollarSign className="h-4 w-4 text-green-500" />
+                <IndianRupee className="h-4 w-4 text-green-500" />
                 <span className="text-xs font-semibold text-gray-500">Income</span>
               </div>
               <p className="text-lg font-bold text-gray-800">{s.income_count || 0}</p>

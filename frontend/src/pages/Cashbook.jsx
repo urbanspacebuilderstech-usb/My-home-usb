@@ -1,6 +1,16 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { DollarSign, TrendingDown, Wallet, Plus, CreditCard, Banknote, Building2, Smartphone, Filter } from 'lucide-react';
+import {
+  IndianRupee,
+  TrendingDown,
+  Wallet,
+  Plus,
+  CreditCard,
+  Banknote,
+  Building2,
+  Smartphone,
+  Filter
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -162,7 +172,7 @@ export default function Cashbook() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
           <Card data-testid="cb-total-income" className="border-l-4 border-l-green-500">
             <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 mb-1"><DollarSign className="h-4 w-4 text-green-500" /><span className="text-xs font-semibold text-gray-500">Total Income</span></div>
+              <div className="flex items-center gap-2 mb-1"><IndianRupee className="h-4 w-4 text-green-500" /><span className="text-xs font-semibold text-gray-500">Total Income</span></div>
               <p className="text-lg font-extrabold text-green-700">{fmt(summary.total_income)}</p>
             </CardContent>
           </Card>

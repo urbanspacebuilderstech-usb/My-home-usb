@@ -1,8 +1,17 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { 
-  Plus, TrendingUp, DollarSign, Wallet, FileText, Eye, 
-  Landmark, BookOpen, CreditCard, Banknote, Receipt
+import {
+  Plus,
+  TrendingUp,
+  IndianRupee,
+  Wallet,
+  FileText,
+  Eye,
+  Landmark,
+  BookOpen,
+  CreditCard,
+  Banknote,
+  Receipt
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -182,7 +191,7 @@ export default function Dashboard() {
           <Card data-testid="card-project-value" className="border-l-4 border-l-amber-500">
             <CardHeader className="pb-2 pt-4 px-4">
               <CardTitle className="text-sm font-semibold text-gray-500 flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-amber-500" /> Project Value
+                <IndianRupee className="h-4 w-4 text-amber-500" /> Project Value
               </CardTitle>
             </CardHeader>
             <CardContent className="px-4 pb-4 space-y-2">

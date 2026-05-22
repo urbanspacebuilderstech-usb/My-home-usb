@@ -10,10 +10,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Textarea } from '../components/ui/textarea';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { 
-  Shield, LogOut, DollarSign, CheckCircle, Clock, AlertTriangle,
-  ArrowLeft, RefreshCw, Send, Lock, Key, CreditCard, Banknote,
-  Landmark, Building2
+import {
+  Shield,
+  LogOut,
+  IndianRupee,
+  CheckCircle,
+  Clock,
+  AlertTriangle,
+  ArrowLeft,
+  RefreshCw,
+  Send,
+  Lock,
+  Key,
+  CreditCard,
+  Banknote,
+  Landmark,
+  Building2
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -255,7 +267,7 @@ export default function PaymentProcessing() {
           
           <Card className="bg-gradient-to-br from-violet-500 to-purple-600 text-white">
             <CardContent className="p-4">
-              <DollarSign className="h-6 w-6 mb-2 opacity-80" />
+              <IndianRupee className="h-6 w-6 mb-2 opacity-80" />
               <p className="text-2xl font-bold">{formatCurrency(completedRequests.reduce((sum, r) => sum + (r.amount || 0), 0))}</p>
               <p className="text-sm text-violet-100">Total Processed</p>
             </CardContent>
@@ -338,7 +350,7 @@ export default function PaymentProcessing() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-emerald-600" />
+              <IndianRupee className="h-5 w-5 text-emerald-600" />
               Initiate New Payment
             </DialogTitle>
             <DialogDescription>

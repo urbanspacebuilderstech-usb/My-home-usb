@@ -1,4 +1,25 @@
-import { Building2, LayoutDashboard, FolderKanban, ClipboardList, CheckSquare, ShoppingCart, Camera, DollarSign, Users, Bell, LogOut, X, Calculator, Briefcase, FileText, Target, UserCheck, Shield, UserCog, FolderPlus } from 'lucide-react';
+import {
+  Building2,
+  LayoutDashboard,
+  FolderKanban,
+  ClipboardList,
+  CheckSquare,
+  ShoppingCart,
+  Camera,
+  IndianRupee,
+  Users,
+  Bell,
+  LogOut,
+  X,
+  Calculator,
+  Briefcase,
+  FileText,
+  Target,
+  UserCheck,
+  Shield,
+  UserCog,
+  FolderPlus
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import axios from 'axios';
 import { toast } from 'sonner';
@@ -31,7 +52,7 @@ export default function Sidebar({ open, onClose, user }) {
     { name: 'Procurement', icon: ShoppingCart, path: '/procurement', roles: ['super_admin', 'procurement'] },
     { name: 'Site Receipt', icon: Camera, path: '/site-receipt', roles: ['site_engineer'] },
     { name: 'Accounts Board', icon: Calculator, path: '/accounts-board', roles: ['accountant'] },
-    { name: 'Expenses', icon: DollarSign, path: '/expenses', roles: ['super_admin', 'accountant'] },
+    { name: 'Expenses', icon: IndianRupee, path: '/expenses', roles: ['super_admin', 'accountant'] },
     { name: 'HR Portal', icon: Briefcase, path: '/hr-portal', roles: ['super_admin', 'accountant'] },
     { name: 'Users', icon: Users, path: '/users', roles: ['super_admin'] },
     { name: 'Notifications', icon: Bell, path: '/notifications', roles: ['all'] },

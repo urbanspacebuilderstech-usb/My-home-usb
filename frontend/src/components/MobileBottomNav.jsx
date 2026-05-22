@@ -1,9 +1,26 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { 
-  LayoutDashboard, FolderKanban, Bell, User, 
-  Camera, ShoppingCart, CheckSquare, DollarSign, Shield,
-  Home, CreditCard, Menu, HardHat, Calculator, Target,
-  Landmark, TrendingUp, Settings, Users, X, LogOut
+import {
+  LayoutDashboard,
+  FolderKanban,
+  Bell,
+  User,
+  Camera,
+  ShoppingCart,
+  CheckSquare,
+  IndianRupee,
+  Shield,
+  Home,
+  CreditCard,
+  Menu,
+  HardHat,
+  Calculator,
+  Target,
+  Landmark,
+  TrendingUp,
+  Settings,
+  Users,
+  X,
+  LogOut
 } from 'lucide-react';
 import { useState } from 'react';
 import axios from 'axios';
@@ -33,7 +50,7 @@ const OTHER_ROLES = {
   accountant: [
     { label: 'Dashboard', icon: Landmark, path: '/accounts-board' },
     { label: 'Approvals', icon: CheckSquare, path: '/approvals' },
-    { label: 'HR', icon: DollarSign, path: '/hr-portal' },
+    { label: 'HR', icon: IndianRupee, path: '/hr-portal' },
     { label: 'More', icon: Menu, action: 'more' },
   ],
   general_manager: [

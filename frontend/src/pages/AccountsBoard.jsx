@@ -21,12 +21,46 @@ import { CorrectionDialog } from '../components/CorrectionDialog';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
-  Wallet, DollarSign, Building2, Eye, FileText, ArrowUpRight, ArrowDownRight,
-  TrendingUp, Banknote, Landmark, PiggyBank, CircleDollarSign, RefreshCw,
-  Filter, Printer, ChevronDown, ChevronUp, X, Plus, Calendar, Search,
-  CreditCard, CheckCircle, Clock, AlertTriangle, Edit, XCircle, Bell,
-  AlertCircle, BookOpen, ArrowLeft, BarChart3, ClipboardCheck, ThumbsUp, ThumbsDown, EyeOff,
-  Lock, PieChart, Truck, Check, Trash2
+  Wallet,
+  IndianRupee,
+  Building2,
+  Eye,
+  FileText,
+  ArrowUpRight,
+  ArrowDownRight,
+  TrendingUp,
+  Banknote,
+  Landmark,
+  PiggyBank,
+  RefreshCw,
+  Filter,
+  Printer,
+  ChevronDown,
+  ChevronUp,
+  X,
+  Plus,
+  Calendar,
+  Search,
+  CreditCard,
+  CheckCircle,
+  Clock,
+  AlertTriangle,
+  Edit,
+  XCircle,
+  Bell,
+  AlertCircle,
+  BookOpen,
+  ArrowLeft,
+  BarChart3,
+  ClipboardCheck,
+  ThumbsUp,
+  ThumbsDown,
+  EyeOff,
+  Lock,
+  PieChart,
+  Truck,
+  Check,
+  Trash2
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -45,7 +79,7 @@ const MODE_LABELS = {
 };
 const MODE_ICONS = {
   cash: Banknote, current_account: Landmark, savings_account: PiggyBank,
-  cheque: FileText, petty_cash: Wallet, miscellaneous: CircleDollarSign,
+  cheque: FileText, petty_cash: Wallet, miscellaneous: IndianRupee,
   direct_transfer: ArrowUpRight, suspense_account: RefreshCw
 };
 const MODE_COLORS = {
@@ -1621,12 +1655,12 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
     other: allExpenseEntries.filter(e => !['material', 'labour', 'petty_cash'].includes(e.expense_type)).reduce((s, e) => s + (e.amount || 0), 0),
   };
   const EXP_CATEGORIES = [
-    { key: 'overall', label: 'Overall Expense', icon: DollarSign, color: 'bg-red-50 text-red-700 border-red-200' },
+    { key: 'overall', label: 'Overall Expense', icon: IndianRupee, color: 'bg-red-50 text-red-700 border-red-200' },
     { key: 'material', label: 'Material', icon: Building2, color: 'bg-blue-50 text-blue-700 border-blue-200' },
     { key: 'labour', label: 'Labour', icon: Wallet, color: 'bg-purple-50 text-purple-700 border-purple-200' },
     { key: 'petty_cash', label: 'Petty Cash', icon: Banknote, color: 'bg-amber-50 text-amber-700 border-amber-200' },
     { key: 'suspense', label: 'Suspense', icon: RefreshCw, color: 'bg-orange-50 text-orange-700 border-orange-200' },
-    { key: 'other', label: 'Other', icon: CircleDollarSign, color: 'bg-gray-50 text-gray-700 border-gray-200' },
+    { key: 'other', label: 'Other', icon: IndianRupee, color: 'bg-gray-50 text-gray-700 border-gray-200' },
   ];
 
   const filteredExpenses = allExpenseEntries.filter(e => {
@@ -1904,7 +1938,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
               const totalNet = (inc.total || 0) - (exp.total || 0);
               return (
                 <div className="rounded-lg p-1.5 sm:p-2 text-center text-white col-span-3 sm:col-span-1" style={{ backgroundColor: '#15803d' }}>
-                  <DollarSign className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5" />
+                  <IndianRupee className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5" />
                   <p className="text-[9px] sm:text-[10px] font-medium">Total</p>
                   <p className="text-[10px] sm:text-xs font-bold text-white">
                     <MaskedValue
@@ -1950,7 +1984,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
       <Card className="border-l-4 border-l-red-500" style={{ backgroundColor: '#fee2e2' }}>
         <CardHeader className="pb-2 pt-3 px-4">
           <CardTitle className="text-sm font-semibold flex items-center gap-2" style={{ color: '#b91c1c' }}>
-            <DollarSign className="h-4 w-4" style={{ color: '#b91c1c' }} /> Expense Breakdown
+            <IndianRupee className="h-4 w-4" style={{ color: '#b91c1c' }} /> Expense Breakdown
           </CardTitle>
         </CardHeader>
         <CardContent className="px-3 sm:px-4 pb-3">
@@ -3446,7 +3480,7 @@ function ApprovalsTab() {
         <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-green-500" onClick={() => setActiveTab('income')} data-testid="approvals-income-card">
           <CardContent className="p-2 sm:p-3">
             <div className="flex items-center gap-2 mb-0.5">
-              <DollarSign className="h-3.5 w-3.5 text-green-500" />
+              <IndianRupee className="h-3.5 w-3.5 text-green-500" />
               <span className="text-[10px] sm:text-xs font-semibold text-gray-500">Income</span>
             </div>
             <p className="text-lg sm:text-xl font-bold text-green-700">{fSummary.income_count}</p>

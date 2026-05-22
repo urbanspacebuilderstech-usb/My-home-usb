@@ -1,8 +1,19 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { 
-  Building2, LogOut, Plus, Trash2, Filter, Calendar, DollarSign,
-  Banknote, CreditCard, Wallet, PiggyBank, ArrowUpCircle, Download
+import {
+  Building2,
+  LogOut,
+  Plus,
+  Trash2,
+  Filter,
+  Calendar,
+  IndianRupee,
+  Banknote,
+  CreditCard,
+  Wallet,
+  PiggyBank,
+  ArrowUpCircle,
+  Download
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -181,7 +192,7 @@ export default function Income({ embedded = false }) {
       case 'bank_transfer': return <ArrowUpCircle className="h-4 w-4 text-purple-600" />;
       case 'escrow': return <Wallet className="h-4 w-4 text-orange-600" />;
       case 'petty_cash': return <PiggyBank className="h-4 w-4 text-cyan-600" />;
-      default: return <DollarSign className="h-4 w-4" />;
+      default: return <IndianRupee className="h-4 w-4" />;
     }
   };
 
@@ -353,7 +364,7 @@ export default function Income({ embedded = false }) {
           <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <DollarSign className="h-3 w-3" />Total Income
+                <IndianRupee className="h-3 w-3" />Total Income
               </CardTitle>
             </CardHeader>
             <CardContent>

@@ -15,10 +15,37 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
-  Building2, Plus, FileText, Clock, CheckCircle, Send,
-  MapPin, Package, Eye, Users, ArrowRight, Filter, Calendar, DollarSign,
-  Phone, Mail, Upload, Bell, CreditCard, Search, AlertCircle, CheckCircle2, Target,
-  Receipt, Banknote, ClipboardList, Copy, RefreshCw, MessageSquare, X, KeyRound
+  Building2,
+  Plus,
+  FileText,
+  Clock,
+  CheckCircle,
+  Send,
+  MapPin,
+  Package,
+  Eye,
+  Users,
+  ArrowRight,
+  Filter,
+  Calendar,
+  IndianRupee,
+  Phone,
+  Mail,
+  Upload,
+  Bell,
+  CreditCard,
+  Search,
+  AlertCircle,
+  CheckCircle2,
+  Target,
+  Receipt,
+  Banknote,
+  ClipboardList,
+  Copy,
+  RefreshCw,
+  MessageSquare,
+  X,
+  KeyRound
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -1051,7 +1078,7 @@ export default function CREBoard() {
                                           onClick={() => openCollectDialog({ ...e, stage_id: e.stage_id })}
                                           data-testid={`ps-collect-${e.entry_id || e.stage_id}`}
                                         >
-                                          <DollarSign className="h-3.5 w-3.5 mr-1" /> Collect
+                                          <IndianRupee className="h-3.5 w-3.5 mr-1" /> Collect
                                         </Button>
                                       )}
                                     </td>
@@ -1306,7 +1333,7 @@ export default function CREBoard() {
       <Dialog open={collectDialog} onOpenChange={setCollectDialog}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><DollarSign className="h-5 w-5 text-green-600" />Collect Payment</DialogTitle>
+            <DialogTitle className="flex items-center gap-2"><IndianRupee className="h-5 w-5 text-green-600" />Collect Payment</DialogTitle>
             <DialogDescription>{selectedPaymentStage?.project_name} - {selectedPaymentStage?.stage_name}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

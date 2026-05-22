@@ -11,11 +11,35 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { 
-  Calculator, LogOut, Package, Users, Wallet, DollarSign, 
-  CreditCard, CheckCircle, Clock, Eye, Building2, AlertCircle, X, FileText,
-  ArrowLeft, RefreshCw, Plus, Truck, Briefcase, TrendingUp, TrendingDown,
-  Receipt, CheckCircle2, XCircle, Search, Filter, Coins, HelpCircle
+import {
+  Calculator,
+  LogOut,
+  Package,
+  Users,
+  Wallet,
+  IndianRupee,
+  CreditCard,
+  CheckCircle,
+  Clock,
+  Eye,
+  Building2,
+  AlertCircle,
+  X,
+  FileText,
+  ArrowLeft,
+  RefreshCw,
+  Plus,
+  Truck,
+  Briefcase,
+  TrendingUp,
+  TrendingDown,
+  Receipt,
+  CheckCircle2,
+  XCircle,
+  Search,
+  Filter,
+  Coins,
+  HelpCircle
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { NumericInput } from '../components/NumericInput';
@@ -474,7 +498,7 @@ export default function AccountantModule() {
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 p-4 border-b bg-gray-50">
                   <Card className={`cursor-pointer ${requestFilter === 'cre' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setRequestFilter('cre')}>
                     <CardContent className="p-3 text-center">
-                      <DollarSign className="h-5 w-5 mx-auto text-amber-600" />
+                      <IndianRupee className="h-5 w-5 mx-auto text-amber-600" />
                       <p className="text-lg font-bold">{counts.cre}</p>
                       <p className="text-xs text-gray-600">CRE Advance</p>
                     </CardContent>
@@ -513,7 +537,7 @@ export default function AccountantModule() {
                 {(requestFilter === 'all' || requestFilter === 'cre') && creRequests.filter(r => r.status === 'pending_payment').length > 0 && (
                   <div className="p-4 border-b">
                     <h3 className="text-sm font-semibold text-amber-700 mb-3 flex items-center gap-2">
-                      <DollarSign className="h-4 w-4" /> CRE Advance Payment Verification
+                      <IndianRupee className="h-4 w-4" /> CRE Advance Payment Verification
                     </h3>
                     <div className="space-y-3">
                       {creRequests.filter(r => r.status === 'pending_payment').map(req => (

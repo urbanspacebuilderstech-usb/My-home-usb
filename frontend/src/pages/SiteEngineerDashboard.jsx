@@ -1,9 +1,29 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { 
-  Building2, LogOut, HardHat, MapPin, Package, Users, ChevronRight,
-  Clock, Menu, X, ClipboardList, DollarSign, CheckCircle, Play, AlertCircle, Truck,
-  Wallet, Plus, Receipt, Send, Video, MessageCircle, ArrowLeft
+import {
+  Building2,
+  LogOut,
+  HardHat,
+  MapPin,
+  Package,
+  Users,
+  ChevronRight,
+  Clock,
+  Menu,
+  X,
+  ClipboardList,
+  IndianRupee,
+  CheckCircle,
+  Play,
+  AlertCircle,
+  Truck,
+  Wallet,
+  Plus,
+  Receipt,
+  Send,
+  Video,
+  MessageCircle,
+  ArrowLeft
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,7 +36,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { Label } from '@/components/ui/label';
-import { ArrowDownRight, ArrowUpRight, RefreshCw, Eye, Trash2, Boxes, Ruler } from 'lucide-react';
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  RefreshCw,
+  Eye,
+  Trash2,
+  Boxes,
+  Ruler
+} from 'lucide-react';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import { AppHeader } from '../components/AppHeader';
@@ -1250,7 +1278,7 @@ export default function SiteEngineerDashboard() {
                                 <div className="flex gap-2 flex-wrap">
                                   {balance > 0 && (
                                     <Button size="sm" onClick={() => openPaymentRequest(wo, stage)} className="gap-1 bg-orange-600 hover:bg-orange-700 h-7 text-xs" data-testid={`req-pay-${stage.stage_id}`}>
-                                      <DollarSign className="h-3 w-3" /> Request Payment
+                                      <IndianRupee className="h-3 w-3" /> Request Payment
                                     </Button>
                                   )}
                                   <Button size="sm" variant="outline" onClick={() => { setFinishStageTarget({ workOrder: wo, stage }); setFinishStageRemarks(''); setFinishStageDialog(true); }}
@@ -1431,7 +1459,7 @@ export default function SiteEngineerDashboard() {
               {/* INCOME HISTORY */}
               <TabsContent value="income_history">
                 {incomeHistory.length === 0 ? (
-                  <div className="text-center py-8 text-gray-400"><DollarSign className="h-10 w-10 mx-auto mb-2 opacity-40" /><p className="text-sm">No income history yet</p></div>
+                  <div className="text-center py-8 text-gray-400"><IndianRupee className="h-10 w-10 mx-auto mb-2 opacity-40" /><p className="text-sm">No income history yet</p></div>
                 ) : (
                   <div className="overflow-x-auto border rounded-lg">
                     <table className="w-full text-sm" data-testid="income-history-table">
@@ -1846,7 +1874,7 @@ export default function SiteEngineerDashboard() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setPaymentDialog(false)}>Cancel</Button>
             <Button onClick={handleRequestPayment} className="bg-orange-600 hover:bg-orange-700" data-testid="payment-submit-btn">
-              <DollarSign className="h-4 w-4 mr-1" /> Submit Request
+              <IndianRupee className="h-4 w-4 mr-1" /> Submit Request
             </Button>
           </DialogFooter>
         </DialogContent>

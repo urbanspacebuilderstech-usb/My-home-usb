@@ -1,12 +1,50 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import { 
-  Building2, LogOut, ArrowLeft, ArrowRight, Plus, Edit, Trash2, Save, X,
-  DollarSign, FileText, TrendingUp, TrendingDown, Wallet, MinusCircle, CheckCircle2, Clock,
-  AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer, Download, Folder,
-  ArrowDownRight, ArrowUpRight, RefreshCw, Eye, Layers, Users, Package, HardHat, CreditCard,
-  GitBranch, Lock, Snowflake, Mail, MapPin, ChevronDown, Copy, ExternalLink
+import {
+  Building2,
+  LogOut,
+  ArrowLeft,
+  ArrowRight,
+  Plus,
+  Edit,
+  Trash2,
+  Save,
+  X,
+  IndianRupee,
+  FileText,
+  TrendingUp,
+  TrendingDown,
+  Wallet,
+  MinusCircle,
+  CheckCircle2,
+  Clock,
+  AlertTriangle,
+  Check,
+  XCircle,
+  ShieldCheck,
+  Send,
+  Upload,
+  Printer,
+  Download,
+  Folder,
+  ArrowDownRight,
+  ArrowUpRight,
+  RefreshCw,
+  Eye,
+  Layers,
+  Users,
+  Package,
+  HardHat,
+  CreditCard,
+  GitBranch,
+  Lock,
+  Snowflake,
+  Mail,
+  MapPin,
+  ChevronDown,
+  Copy,
+  ExternalLink
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8143,7 +8181,7 @@ export default function ProjectDetail() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-green-600" />
+              <IndianRupee className="h-5 w-5 text-green-600" />
               Collect Payment
             </DialogTitle>
             <DialogDescription>

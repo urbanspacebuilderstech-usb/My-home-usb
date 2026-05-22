@@ -11,10 +11,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Textarea } from '../components/ui/textarea';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { 
-  Building2, LogOut, Package, Truck, Clock, CheckCircle, XCircle, 
-  DollarSign, Plus, Trash2, Check, AlertCircle, History, Eye,
-  ArrowRight, CreditCard, TrendingUp
+import {
+  Building2,
+  LogOut,
+  Package,
+  Truck,
+  Clock,
+  CheckCircle,
+  XCircle,
+  IndianRupee,
+  Plus,
+  Trash2,
+  Check,
+  AlertCircle,
+  History,
+  Eye,
+  ArrowRight,
+  CreditCard,
+  TrendingUp
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -307,7 +321,7 @@ export default function ProcurementDashboard() {
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 cursor-pointer active:bg-amber-50" onClick={() => handleTabChange('pricing_in_progress')}>
             <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
               <CardTitle className="text-xs sm:text-sm font-medium text-gray-600 flex items-center gap-1">
-                <DollarSign className="h-3 w-3 sm:h-4 sm:w-4" />Pricing
+                <IndianRupee className="h-3 w-3 sm:h-4 sm:w-4" />Pricing
               </CardTitle>
             </CardHeader>
             <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
@@ -454,7 +468,7 @@ export default function ProcurementDashboard() {
                           className="w-full gap-2 bg-purple-600 hover:bg-purple-700"
                           onClick={() => handleStartPricing(req)}
                         >
-                          <DollarSign className="h-4 w-4" />
+                          <IndianRupee className="h-4 w-4" />
                           {activeTab === 'pending' ? 'Add Pricing' : 'Continue Pricing'}
                         </Button>
                       )}
@@ -513,7 +527,7 @@ export default function ProcurementDashboard() {
                                 className="gap-1 bg-purple-600 hover:bg-purple-700"
                                 onClick={() => handleStartPricing(req)}
                               >
-                                <DollarSign className="h-3 w-3" />
+                                <IndianRupee className="h-3 w-3" />
                                 {activeTab === 'pending' ? 'Add Pricing' : 'Continue'}
                               </Button>
                             )}

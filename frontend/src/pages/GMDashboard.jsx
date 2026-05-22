@@ -17,10 +17,33 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '../components/ui/select';
 import {
-  LayoutDashboard, Building2, ClipboardCheck, Calculator, Users, Package,
-  HardHat, DollarSign, CheckCircle, XCircle, Clock, AlertTriangle, Eye,
-  ArrowRight, LogOut, FileText, TrendingUp, BarChart3, Shield, Briefcase, Download,
-  Edit2, Plus, Trash2, Save, AlertCircle, Wallet
+  LayoutDashboard,
+  Building2,
+  ClipboardCheck,
+  Calculator,
+  Users,
+  Package,
+  HardHat,
+  IndianRupee,
+  CheckCircle,
+  XCircle,
+  Clock,
+  AlertTriangle,
+  Eye,
+  ArrowRight,
+  LogOut,
+  FileText,
+  TrendingUp,
+  BarChart3,
+  Shield,
+  Briefcase,
+  Download,
+  Edit2,
+  Plus,
+  Trash2,
+  Save,
+  AlertCircle,
+  Wallet
 } from 'lucide-react';
 import { generateREPDF } from '../utils/pdfGenerator';
 import PlanningBoard from './PlanningBoard';
@@ -969,7 +992,7 @@ const GMDashboard = () => {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <DollarSign className="h-5 w-5 text-emerald-600" />
+                  <IndianRupee className="h-5 w-5 text-emerald-600" />
                   Suspense Account Entries
                 </CardTitle>
                 <CardDescription>Pending suspense entries requiring approval</CardDescription>

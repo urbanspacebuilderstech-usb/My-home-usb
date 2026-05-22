@@ -1,8 +1,22 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { 
-  Building2, LogOut, Plus, Trash2, CheckCircle, XCircle, Clock, DollarSign,
-  Package, Users, Briefcase, Filter, Eye, CreditCard, ArrowRight, AlertCircle
+import {
+  Building2,
+  LogOut,
+  Plus,
+  Trash2,
+  CheckCircle,
+  XCircle,
+  Clock,
+  IndianRupee,
+  Package,
+  Users,
+  Briefcase,
+  Filter,
+  Eye,
+  CreditCard,
+  ArrowRight,
+  AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -355,7 +369,7 @@ export default function ExpenseManagement() {
           <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200">
             <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
               <CardTitle className="text-xs sm:text-sm font-medium text-gray-600 flex items-center gap-1">
-                <DollarSign className="h-3 w-3" />Total
+                <IndianRupee className="h-3 w-3" />Total
               </CardTitle>
             </CardHeader>
             <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
@@ -609,7 +623,7 @@ export default function ExpenseManagement() {
                               {/* Procurement Pricing */}
                               {canApproveAsProcurement && exp.status === 'planning_approved' && (
                                 <Button size="sm" variant="outline" onClick={() => { setSelectedExpense(exp); setPricingDialog(true); }}>
-                                  <DollarSign className="h-4 w-4 mr-1" />Price
+                                  <IndianRupee className="h-4 w-4 mr-1" />Price
                                 </Button>
                               )}
                               {/* Accounts Approval */}

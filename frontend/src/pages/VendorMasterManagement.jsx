@@ -13,7 +13,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Textarea } from '../components/ui/textarea';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { Plus, Search, Building2, Phone, Mail, MapPin, Edit, Trash2, X, ChevronRight, IndianRupee, Package, FileText, CreditCard, Eye } from 'lucide-react';
+import {
+  Plus,
+  Search,
+  Building2,
+  Phone,
+  Mail,
+  MapPin,
+  Edit,
+  Trash2,
+  X,
+  ChevronRight,
+  IndianRupee,
+  Package,
+  FileText,
+  CreditCard,
+  Eye
+} from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const PAYMENT_CYCLES = [

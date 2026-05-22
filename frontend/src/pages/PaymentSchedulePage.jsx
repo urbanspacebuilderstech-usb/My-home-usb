@@ -5,7 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { ArrowRight, IndianRupee, RefreshCw, Calendar } from 'lucide-react';
+import {
+  ArrowRight,
+  IndianRupee,
+  RefreshCw,
+  Calendar
+} from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useNavigate } from 'react-router-dom';
 

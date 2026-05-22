@@ -11,9 +11,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { 
-  ClipboardList, ArrowLeft, Plus, Users, Package, Truck, X,
-  CheckCircle, Clock, DollarSign, Play, AlertCircle
+import {
+  ClipboardList,
+  ArrowLeft,
+  Plus,
+  Users,
+  Package,
+  Truck,
+  X,
+  CheckCircle,
+  Clock,
+  IndianRupee,
+  Play,
+  AlertCircle
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { NumericInput } from '../components/NumericInput';

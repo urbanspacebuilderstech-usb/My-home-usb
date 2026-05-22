@@ -11,11 +11,33 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { 
-  Wallet, LogOut, DollarSign, TrendingUp, TrendingDown, Building2, Users,
-  CreditCard, Banknote, Landmark, CheckCircle, AlertTriangle, Clock,
-  FileText, Briefcase, Calculator, PieChart, ArrowUpRight, ArrowDownRight,
-  Receipt, Coins, Send, Shield, Eye, Plus, RefreshCw
+import {
+  Wallet,
+  LogOut,
+  IndianRupee,
+  TrendingUp,
+  TrendingDown,
+  Building2,
+  Users,
+  CreditCard,
+  Banknote,
+  Landmark,
+  CheckCircle,
+  AlertTriangle,
+  Clock,
+  FileText,
+  Briefcase,
+  Calculator,
+  PieChart,
+  ArrowUpRight,
+  ArrowDownRight,
+  Receipt,
+  Coins,
+  Send,
+  Shield,
+  Eye,
+  Plus,
+  RefreshCw
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 
@@ -433,7 +455,7 @@ export default function AccountantDashboard() {
             onClick={() => window.location.href = '/income'}
             data-testid="quick-income-btn"
           >
-            <DollarSign className="h-6 w-6" />
+            <IndianRupee className="h-6 w-6" />
             <span>Record Income</span>
           </Button>
           
