@@ -1,0 +1,25 @@
+{
+  "summary": "Re-tested stale-UI bug after Edit & Resubmit in ProjectDetail PS Resubmit Dialog (iteration_158 follow-up). Fix delta: `fetchData(false)` -> `await fetchData(false)` at ProjectDetail.jsx line 8474. RESULT: PASS — UI now updates without a hard refresh.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_payment_stage_cre_reject_resubmit.py",
+    "/app/test_reports/seed_cre_rejected.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ProjectDetail.jsx still 8652 lines — well past the 700-line guideline. Recommend splitting per-tab in a follow-up refactor (not blocking)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@constructionos.com / Demo@1234, planning@constructionos.com / Demo@1234",
+  "seed_data_creation": "Seeded fresh project TESTproj_f73c21ab + stage ps_8c25e5e7de98 via /app/test_reports/seed_cre_rejected.py (admin POST project -> POST payment-stage -> planning PATCH /request -> admin POST /cre-reject). Verified BEFORE submit: CRE Rejected badge=1, red detail row 'Amount mismatch with client agreement - please correct'=1, Edit & Resubmit button present. Cleaned up after run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Stale-UI bug from iteration_158 is now FIXED. Verified end-to-end as Planning user via Playwright: opened cre_rejected stage row, clicked Edit & Resubmit, dialog opened, filled amount=85000 + remarks='Corrected after BOQ revision', clicked submit (data-testid ps-resubmit-submit). WITHOUT any page refresh: CRE Rejected badge count went from 1 -> 0, red rejection detail row count went from 1 -> 0, Status flipped to 'Requested', amount in row updated to ₹85,000, Edit & Resubmit button gone. Toast 'Resubmitted. CRE has been notified.' shown. Backend re-fetch confirmed workflow_status='requested', cre_rejection_reason cleared, amount=85000, remarks set, resubmitted_by_name='Amit Patel'. No regressions detected.",
+  "rca of the issue": "Root cause (now resolved): The submit handler at ProjectDetail.jsx:8454 called `fetchData(false)` without awaiting. The dialog state was reset synchronously and the optimistic toast fired, but the React state holding paymentStages was not yet refreshed when the row re-rendered, so the cre_rejected badge + red detail row persisted. Fix: change to `await fetchData(false)` so the dialog/submit promise resolves only after the GET /api/projects/{id}/payment-stages refetch has updated React state. Verified visually in two screenshots (before_resubmit.png and after_resubmit.png) — the row transitions from red CRE Rejected to orange Requested immediately after the dialog closes."
+}

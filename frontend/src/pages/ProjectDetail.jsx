@@ -8471,7 +8471,7 @@ export default function ProjectDetail() {
                   }
                   toast.success('Resubmitted. CRE has been notified.');
                   setPsResubmitDialog({ open: false, stage: null, mode: null, amount: '', remarks: '', submitting: false });
-                  fetchData(false);
+                  await fetchData(false);
                 } catch (err) {
                   toast.error(err.response?.data?.detail || 'Resubmit failed');
                   setPsResubmitDialog((d) => ({ ...d, submitting: false }));
