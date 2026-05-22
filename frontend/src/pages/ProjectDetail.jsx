@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import {
@@ -1019,6 +1019,8 @@ export default function ProjectDetail() {
   const [deleteProjectDialog, setDeleteProjectDialog] = useState(false);
   // Req Payment dialog (asks for expected month/date before requesting)
   const [reqPayDialog, setReqPayDialog] = useState({ open: false, stage: null, date: '', submitting: false });
+  // Planning Resubmit dialog for CRE/Accountant rejected payment stages
+  const [psResubmitDialog, setPsResubmitDialog] = useState({ open: false, stage: null, mode: null, amount: '', remarks: '', submitting: false });
   // Payment Schedule month/year filter (filters by expected_payment_date)
   const [psMonthFilter, setPsMonthFilter] = useState(''); // '' = all, format 'YYYY-MM'
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
@@ -5294,8 +5296,8 @@ export default function ProjectDetail() {
                         const isVirtual = stage._virtual || stage.stage_id === '__virtual_advance__';
                         const canDrag = canManage && !psMonthFilter && !isVirtual;
                         return (
+                          <React.Fragment key={stage.stage_id}>
                           <SortableTableRow
-                            key={stage.stage_id}
                             id={stage.stage_id}
                             className={`hover:bg-gray-50 ${isPaid ? 'bg-green-50' : ''} ${selectedPaymentIds.includes(stage.stage_id) ? 'bg-blue-50' : ''}`}
                           >
@@ -5533,6 +5535,46 @@ export default function ProjectDetail() {
                               </>
                             )}
                           </SortableTableRow>
+                          {(isCRERejected || isAccRejected) && (
+                            <tr className="bg-red-50/50" data-testid={`reject-detail-row-${stage.stage_id}`}>
+                              <td colSpan={99} className="px-4 py-2 border-t border-red-200">
+                                <div className="flex items-start justify-between gap-3 flex-wrap">
+                                  <div className="text-xs flex-1 min-w-[260px]">
+                                    <p className="text-red-800 font-bold">
+                                      {isCRERejected ? '🔴 Rejected by CRE' : '🔴 Rejected by Accountant'}:{' '}
+                                      <span className="font-medium">
+                                        {(isCRERejected ? stage.cre_rejection_reason : stage.accountant_rejection_reason) || 'No reason given'}
+                                      </span>
+                                    </p>
+                                    <p className="text-[11px] text-red-600 mt-0.5 italic">
+                                      by {(isCRERejected ? stage.cre_rejected_by_name : stage.accountant_rejected_by_name) || 'Unknown'}
+                                      {(isCRERejected ? stage.cre_rejected_at : stage.accountant_rejected_at) && (
+                                        <> on {new Date(isCRERejected ? stage.cre_rejected_at : stage.accountant_rejected_at).toLocaleString('en-IN')}</>
+                                      )}
+                                    </p>
+                                  </div>
+                                  {canManage && (
+                                    <Button
+                                      size="sm"
+                                      className="h-7 text-xs bg-blue-600 hover:bg-blue-700"
+                                      data-testid={`planning-resubmit-${stage.stage_id}`}
+                                      onClick={() => setPsResubmitDialog({
+                                        open: true,
+                                        stage,
+                                        mode: isCRERejected ? 'cre' : 'accountant',
+                                        amount: String(stage.amount || ''),
+                                        remarks: '',
+                                        submitting: false,
+                                      })}
+                                    >
+                                      <RefreshCw className="h-3 w-3 mr-1" /> Edit & Resubmit
+                                    </Button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
                         );
                       });
                     })()}
@@ -8337,6 +8379,107 @@ export default function ProjectDetail() {
               data-testid="req-pay-submit"
             >
               <Send className="h-4 w-4 mr-1" /> Req
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Schedule Resubmit Dialog — Planning corrects amount/remarks
+          and resubmits a CRE-rejected stage back to CRE for collection. */}
+      <Dialog
+        open={psResubmitDialog.open}
+        onOpenChange={(o) => !o && !psResubmitDialog.submitting && setPsResubmitDialog({ open: false, stage: null, mode: null, amount: '', remarks: '', submitting: false })}
+      >
+        <DialogContent className="max-w-md" data-testid="ps-resubmit-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 text-blue-600" />
+              {psResubmitDialog.mode === 'cre' ? 'Resubmit to CRE' : 'Re-request Payment'}
+            </DialogTitle>
+            <DialogDescription>
+              {psResubmitDialog.mode === 'cre'
+                ? 'Correct the amount (if needed) and resubmit. CRE will be notified to collect again.'
+                : 'Update the amount and the stage will be re-requested for CRE collection.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-md border bg-red-50 px-3 py-2.5 text-sm">
+              <p className="text-xs text-red-700 font-semibold mb-1">
+                {psResubmitDialog.mode === 'cre' ? '🔴 Rejected by CRE' : '🔴 Rejected by Accountant'}
+              </p>
+              <p className="text-xs text-red-800">
+                {(psResubmitDialog.mode === 'cre'
+                  ? psResubmitDialog.stage?.cre_rejection_reason
+                  : psResubmitDialog.stage?.accountant_rejection_reason) || 'No reason given'}
+              </p>
+            </div>
+            <div>
+              <Label className="text-xs">Stage</Label>
+              <p className="font-medium text-sm">{psResubmitDialog.stage?.stage_name}</p>
+            </div>
+            <div>
+              <Label className="text-xs">Corrected Amount (₹)</Label>
+              <NumericInput
+                value={psResubmitDialog.amount}
+                onChange={(e) => setPsResubmitDialog((d) => ({ ...d, amount: e.target.value }))}
+                placeholder="0"
+                className="mt-1"
+                data-testid="ps-resubmit-amount"
+              />
+              <p className="text-[11px] text-gray-500 mt-1">Original: ₹{(psResubmitDialog.stage?.amount || 0).toLocaleString('en-IN')}</p>
+            </div>
+            <div>
+              <Label className="text-xs">Remarks (optional)</Label>
+              <Textarea
+                value={psResubmitDialog.remarks}
+                onChange={(e) => setPsResubmitDialog((d) => ({ ...d, remarks: e.target.value }))}
+                rows={2}
+                placeholder="What was corrected?"
+                className="mt-1 text-sm"
+                data-testid="ps-resubmit-remarks"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPsResubmitDialog({ open: false, stage: null, mode: null, amount: '', remarks: '', submitting: false })}
+              disabled={psResubmitDialog.submitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-blue-600 hover:bg-blue-700"
+              data-testid="ps-resubmit-submit"
+              onClick={async () => {
+                const stage = psResubmitDialog.stage;
+                if (!stage) return;
+                setPsResubmitDialog((d) => ({ ...d, submitting: true }));
+                try {
+                  const body = {};
+                  const parsedAmt = parseFloat(psResubmitDialog.amount);
+                  if (!isNaN(parsedAmt) && parsedAmt > 0) body.amount = parsedAmt;
+                  if (psResubmitDialog.remarks) body.remarks = psResubmitDialog.remarks;
+                  if (psResubmitDialog.mode === 'cre') {
+                    await axios.post(`${API}/payment-stages/${stage.stage_id}/planning-resubmit`, body);
+                  } else {
+                    // Accountant-rejected — stage is already at workflow_status='requested'.
+                    // Update amount if Planning corrected it. CRE re-collects via existing flow.
+                    if (body.amount) {
+                      await axios.patch(`${API}/payment-stages/${stage.stage_id}`, { amount: body.amount });
+                    }
+                  }
+                  toast.success('Resubmitted. CRE has been notified.');
+                  setPsResubmitDialog({ open: false, stage: null, mode: null, amount: '', remarks: '', submitting: false });
+                  fetchData(false);
+                } catch (err) {
+                  toast.error(err.response?.data?.detail || 'Resubmit failed');
+                  setPsResubmitDialog((d) => ({ ...d, submitting: false }));
+                }
+              }}
+              disabled={psResubmitDialog.submitting}
+            >
+              <RefreshCw className="h-4 w-4 mr-1" /> Resubmit
             </Button>
           </DialogFooter>
         </DialogContent>

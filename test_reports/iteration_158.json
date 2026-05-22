@@ -1,0 +1,30 @@
+{
+  "summary": "Tested full CRE-reject -> Planning-resubmit loop in ProjectDetail Payment Schedule. Backend pytest (8/8 PASS) confirms cre-reject sets workflow_status='cre_rejected' and populates cre_rejection_reason/by_name/at; planning-resubmit flips to 'requested', clears all cre_rejection_* keys, persists new amount + remarks, stamps resubmitted_by_name/at. Frontend Playwright as Planning user confirms: red CRE Rejected badge in Status column, red detail row with reason + rejector + timestamp, Edit & Resubmit button opens Shadcn Dialog (ps-resubmit-dialog) with amount + remarks fields, submit calls /payment-stages/{id}/planning-resubmit and shows success toast. Backend re-fetched after UI submit confirmed amount=90000, remarks set, cre_rejection_reason=null, workflow_status='requested'. No window.prompt() used.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "PS Resubmit dialog post-submit refresh", "issue": "After clicking Resubmit, success toast shows but the row in the payment schedule still shows the red CRE Rejected badge + red detail row until the page is hard-refreshed. Backend state is correct (workflow_status='requested', cre_rejection_reason cleared). Stale frontend state only.", "affected_selectors": ["planning-resubmit-${stage_id}", "ps-resubmit-submit"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_payment_stage_cre_reject_resubmit.py",
+    "/app/test_reports/pytest/payment_stage_cre_reject.xml"
+  ],
+  "action_items": [
+    "Investigate fetchData(false) in ProjectDetail.jsx PS Resubmit submit handler (line 8474). After successful POST /payment-stages/{id}/planning-resubmit, row still shows CRE Rejected badge until full reload. Suggested fix: optimistically update the stage in local state, or ensure fetchData re-reads /api/projects/{project_id}/payment-stages."
+  ],
+  "critical_code_review_comments": [
+    "ProjectDetail.jsx is 8652 lines — well past the 700-line guideline. New PS Resubmit Dialog (8388-8486) and rejection detail tr (5540-5575) are clean and use proper data-testids, but file urgently needs splitting per-tab.",
+    "Backend cre-reject correctly validates state transitions (only from 'requested') and rejects empty/whitespace reasons with 400. planning-resubmit correctly $unsets cre_rejection_* fields. Both endpoints write workflow_history audit entries and notify the other side."
+  ],
+  "updated_files": ["/app/backend/tests/test_payment_stage_cre_reject_resubmit.py"],
+  "success_rate": {"backend": "100%", "frontend": "95%"},
+  "test_credentials": "admin@constructionos.com / Demo@1234, planning@constructionos.com / Demo@1234",
+  "seed_data_creation": "Created and cleaned up project SEEDproj_bf85a0bb + stage ps_fd2eee32781b.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend flow fully verified by pytest test_payment_stage_cre_reject_resubmit.py (8/8). Only outstanding item: stale UI after successful resubmit. To reproduce: seed cre_rejected stage, login as planning, click Edit & Resubmit, submit dialog. Toast appears but row keeps showing CRE Rejected badge. Check ProjectDetail.jsx fetchData(false) at line 8474.",
+  "rca of the issue": "Badge logic: stage.workflow_status === 'cre_rejected' OR (!!stage.cre_rejection_reason && workflow_status !== 'requested' && workflow_status !== 'collected'). Backend correctly $unsets cre_rejection_reason and flips workflow_status to 'requested'. If fetchData(false) does not refetch /api/projects/{project_id}/payment-stages (or returns cached data), local paymentStages state retains the old document. Fix: optimistic local update, or guarantee /payment-stages refetch."
+}
