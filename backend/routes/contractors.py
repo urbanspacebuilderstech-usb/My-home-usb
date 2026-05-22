@@ -104,7 +104,7 @@ async def get_contractors(
 
 @router.post("/contractors")
 async def create_contractor(data: ContractorCreate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROCUREMENT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROCUREMENT]:
         raise HTTPException(status_code=403, detail="Permission denied")
     now = datetime.now(timezone.utc).isoformat()
     contractor = {
@@ -130,7 +130,7 @@ async def get_contractor(contractor_id: str, user: User = Depends(get_current_us
 
 @router.patch("/contractors/{contractor_id}")
 async def update_contractor(contractor_id: str, data: ContractorUpdate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROCUREMENT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROCUREMENT]:
         raise HTTPException(status_code=403, detail="Permission denied")
     update = {k: v for k, v in data.model_dump().items() if v is not None}
     update["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -142,7 +142,7 @@ async def update_contractor(contractor_id: str, data: ContractorUpdate, user: Us
 
 @router.delete("/contractors/{contractor_id}")
 async def delete_contractor(contractor_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     await db.contractors.update_one(
         {"contractor_id": contractor_id},
@@ -208,7 +208,7 @@ async def get_labour_work_orders(
 
 @router.post("/labour-work-orders")
 async def create_labour_work_order(data: dict, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     now = datetime.now(timezone.utc).isoformat()
@@ -258,7 +258,7 @@ async def create_labour_work_order(data: dict, user: User = Depends(get_current_
 
 @router.patch("/labour-work-orders/{wo_id}")
 async def update_labour_work_order(wo_id: str, data: dict, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER]:
         raise HTTPException(status_code=403, detail="Permission denied")
     update = {"updated_at": datetime.now(timezone.utc).isoformat()}
     for field in ["description", "total_amount", "status", "payment_stages"]:
@@ -347,7 +347,7 @@ async def request_stage_payment(wo_id: str, stage_id: str, data: dict, user: Use
 @router.patch("/labour-work-orders/{wo_id}/stages/{stage_id}/review")
 async def review_stage_payment(wo_id: str, stage_id: str, data: dict, user: User = Depends(get_current_user)):
     """Multi-step approval: Procurement approves → Planning approves → Accountant releases payment"""
-    allowed_roles = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROCUREMENT, UserRole.ACCOUNTANT]
+    allowed_roles = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROCUREMENT, UserRole.ACCOUNTANT]
     if user.role not in allowed_roles:
         raise HTTPException(status_code=403, detail="Permission denied")
 

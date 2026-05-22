@@ -202,6 +202,7 @@ function getRoleRedirect(role) {
     general_manager: '/gm-dashboard',
     accountant: '/accounts-board',
     planning: '/planning-board',
+    planning_person: '/planning-board',
     procurement: '/procurement-board-v2',
     cre: '/cre-board',
     project_manager: '/pm-dashboard',
@@ -311,7 +312,8 @@ function ProtectedRoute({ children }) {
     if (user?.role) {
       const roleLabels = {
         super_admin: 'Super Admin', general_manager: 'General Manager', cre: 'CRE',
-        accountant: 'Accountant', project_manager: 'Project Manager', planning: 'Planning',
+        accountant: 'Accountant', project_manager: 'Project Manager', planning: 'Planning Head',
+        planning_person: 'Planning Person',
         procurement: 'Procurement', site_engineer: 'Site Engineer', sr_site_engineer: 'Sr. Site Engineer',
         pre_sales: 'Pre Sales', sales: 'Sales', architect: 'Architect',
         marketing_head: 'Marketing Head', client: 'Client', vendor: 'Vendor',

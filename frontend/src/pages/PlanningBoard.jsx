@@ -275,6 +275,9 @@ export default function PlanningBoard({ embedded = false }) {
   const [projectDateFilter, setProjectDateFilter] = useState({ type: 'all', date: '', dateFrom: '', dateTo: '', month: '', year: '' });
   // Counts shown on every sub-tab badge regardless of which tab is active
   const [subTabCounts, setSubTabCounts] = useState({ new: 0, active: 0, delivered: 0, archived: 0 });
+  // Planning Persons (managed by Planning Head)
+  const [planningPersons, setPlanningPersons] = useState([]);
+  const [planningPersonFilter, setPlanningPersonFilter] = useState('all'); // 'all' | 'unassigned' | user_id
 
   // Requests (site engineer + payment)
   const [pendingRequests, setPendingRequests] = useState([]);
@@ -368,25 +371,30 @@ export default function PlanningBoard({ embedded = false }) {
     try {
       if (showLoader) setLoading(true);
       const userRes = await axios.get(`${API}/auth/me`);
-      if (!['planning', 'super_admin', 'general_manager'].includes(userRes.data.role)) {
+      if (!['planning', 'planning_person', 'super_admin', 'general_manager'].includes(userRes.data.role)) {
         toast.error('Access denied'); window.location.href = '/dashboard'; return;
       }
       setUser(userRes.data);
 
-      const [dashRes, projRes, payReqRes, matReqRes, labReqRes, newCRERes, reProjRes] = await Promise.allSettled([
+      const [dashRes, projRes, payReqRes, matReqRes, labReqRes, newCRERes, reProjRes, ppRes] = await Promise.allSettled([
         axios.get(`${API}/planning/stage-dashboard`),
         axios.get(`${API}/planning/projects-by-stage`),
         axios.get(`${API}/work-orders/payment-requests`),
         axios.get(`${API}/material-requests?status=requested`),
         axios.get(`${API}/labour-expenses?status=requested`),
         axios.get(`${API}/planning/projects?status=new`),
-        axios.get(`${API}/crm/re-projects`).catch(() => ({ data: [] }))
+        axios.get(`${API}/crm/re-projects`).catch(() => ({ data: [] })),
+        axios.get(`${API}/hr/users?role=planning_person`).catch(() => ({ data: [] })),
       ]);
 
       if (dashRes.status === 'fulfilled') setStages(dashRes.value.data.stages || []);
       if (projRes.status === 'fulfilled') setProjects(projRes.value.data || []);
       if (payReqRes.status === 'fulfilled') setPaymentRequests(payReqRes.value.data || []);
       if (newCRERes.status === 'fulfilled') setNewProjectsFromCRE(newCRERes.value.data || []);
+      if (ppRes.status === 'fulfilled') {
+        const list = Array.isArray(ppRes.value.data) ? ppRes.value.data : (ppRes.value.data?.users || []);
+        setPlanningPersons(list.filter(u => u.is_active !== false && u.role === 'planning_person'));
+      }
       const reData = reProjRes.status === 'fulfilled' ? (reProjRes.value?.data || []) : [];
       setReNewCount(reData.filter(p => p.status === 're_requested').length);
 
@@ -427,8 +435,21 @@ export default function PlanningBoard({ embedded = false }) {
 
   // Fetch projects by planning lifecycle sub-tab with date filters
   const subTabFetchRef = React.useRef(0);
-  const fetchSubTabProjects = async (status, filter) => {
-    const myFetchId = ++subTabFetchRef.current;
+  // Planning Head — assign / unassign Planning Person to a project
+  const handleAssignPlanningPerson = async (projectId, planningPersonId) => {
+    try {
+      await axios.post(`${API}/projects/${projectId}/assign-planning-person`, {
+        planning_person_id: planningPersonId || null,
+      });
+      const pp = planningPersons.find(u => u.user_id === planningPersonId);
+      toast.success(planningPersonId ? `Assigned to ${pp?.name || 'Planning Person'}` : 'Planning Person unassigned');
+      fetchSubTabProjects(projectSubTab, projectDateFilter, planningPersonFilter);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to assign Planning Person');
+    }
+  };
+
+  const fetchSubTabProjects = async (status, filter, ppFilter = planningPersonFilter) => {    const myFetchId = ++subTabFetchRef.current;
     setSubTabLoading(true);
     try {
       const params = new URLSearchParams({ planning_status: status });
@@ -444,6 +465,7 @@ export default function PlanningBoard({ embedded = false }) {
       } else if (filter.type === 'year' && filter.year) {
         params.append('year', filter.year);
       }
+      if (ppFilter && ppFilter !== 'all') params.append('planning_person_id', ppFilter);
       const res = await axios.get(`${API}/planning/projects-filtered?${params.toString()}`);
       // Ignore stale responses — only the latest fetch is allowed to write to state
       if (myFetchId !== subTabFetchRef.current) return;
@@ -495,6 +517,7 @@ export default function PlanningBoard({ embedded = false }) {
   };
 
   useEffect(() => { if (dashSubTab === 'all_projects') fetchSubTabProjects(projectSubTab, projectDateFilter); }, [projectSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (dashSubTab === 'all_projects') fetchSubTabProjects(projectSubTab, projectDateFilter, planningPersonFilter); }, [planningPersonFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleProjectSubTabChange = (tab) => {
     setProjectSubTab(tab);
@@ -1304,6 +1327,30 @@ export default function PlanningBoard({ embedded = false }) {
                     <Input placeholder="Search..." value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} className="pl-8 h-8 w-48 text-sm" data-testid="project-search" />
                   </div>
                 </div>
+
+                {/* Planning Person filter (Planning Head only) */}
+                {user?.role !== 'planning_person' && (
+                  <div className="flex items-center gap-2 mt-2 flex-wrap" data-testid="planning-person-filter-bar">
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Planning Team:</span>
+                    <Select value={planningPersonFilter} onValueChange={setPlanningPersonFilter}>
+                      <SelectTrigger className="h-8 w-60 text-xs" data-testid="planning-person-filter">
+                        <SelectValue placeholder="All Planning Persons" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Planning Persons</SelectItem>
+                        <SelectItem value="unassigned">— Unassigned —</SelectItem>
+                        {planningPersons.map(pp => (
+                          <SelectItem key={pp.user_id} value={pp.user_id}>{pp.name || pp.email}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {planningPersonFilter !== 'all' && (
+                      <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setPlanningPersonFilter('all')} data-testid="clear-planning-person-filter">
+                        <X className="h-3 w-3 mr-1" />Clear
+                      </Button>
+                    )}
+                  </div>
+                )}
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
@@ -1315,6 +1362,9 @@ export default function PlanningBoard({ embedded = false }) {
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Stage</th>
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                        {projectSubTab !== 'archived' && (
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Planning Team</th>
+                        )}
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                       </tr>
                     </thead>
@@ -1328,6 +1378,9 @@ export default function PlanningBoard({ embedded = false }) {
                             <td className="px-4 py-3"><div className="h-5 w-20 bg-gray-200 rounded mx-auto" /></td>
                             <td className="px-4 py-3"><div className="h-5 w-16 bg-gray-200 rounded mx-auto" /></td>
                             <td className="px-4 py-3"><div className="h-3 w-16 bg-gray-200 rounded" /></td>
+                            {projectSubTab !== 'archived' && (
+                              <td className="px-4 py-3"><div className="h-3 w-24 bg-gray-200 rounded" /></td>
+                            )}
                             <td className="px-4 py-3"><div className="h-7 w-24 bg-gray-200 rounded mx-auto" /></td>
                           </tr>
                         ))
@@ -1338,7 +1391,7 @@ export default function PlanningBoard({ embedded = false }) {
                             (p.client_name || '').toLowerCase().includes(projectSearch.toLowerCase())
                           );
                           if (filtered.length === 0) return (
-                            <tr><td colSpan="6" className="p-8 text-center text-gray-400">
+                            <tr><td colSpan={projectSubTab === 'archived' ? 6 : 7} className="p-8 text-center text-gray-400">
                               {projectSubTab === 'new' ? 'No new projects from CRE' : projectSubTab === 'active' ? 'No active construction projects' : projectSubTab === 'archived' ? 'No archived projects' : 'No delivered projects'}
                             </td></tr>
                           );
@@ -1358,6 +1411,38 @@ export default function PlanningBoard({ embedded = false }) {
                                  projectSubTab === 'archived' && p.archived_at ? new Date(p.archived_at).toLocaleDateString('en-IN') :
                                  p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN') : '-'}
                               </td>
+                              {projectSubTab !== 'archived' && (
+                                <td className="px-4 py-2.5">
+                                  {user?.role === 'planning_person' ? (
+                                    <span className="text-xs font-medium text-gray-700">{p.assigned_planning_person_name || '—'}</span>
+                                  ) : (
+                                    <Select
+                                      value={p.assigned_planning_person_id || ''}
+                                      onValueChange={(val) => handleAssignPlanningPerson(p.project_id, val === '__unassign__' ? '' : val)}
+                                    >
+                                      <SelectTrigger className={`h-8 w-44 text-xs ${p.assigned_planning_person_id ? 'border-indigo-200 bg-indigo-50' : 'border-dashed text-gray-500'}`} data-testid={`assign-pp-${p.project_id}`}>
+                                        <SelectValue placeholder="+ Assign">
+                                          {p.assigned_planning_person_name || '+ Assign'}
+                                        </SelectValue>
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {planningPersons.length === 0 ? (
+                                          <div className="px-3 py-2 text-xs text-gray-400">No Planning Persons yet — create via HR Portal</div>
+                                        ) : (
+                                          <>
+                                            {p.assigned_planning_person_id && (
+                                              <SelectItem value="__unassign__" data-testid={`unassign-pp-${p.project_id}`}>— Unassign —</SelectItem>
+                                            )}
+                                            {planningPersons.map(pp => (
+                                              <SelectItem key={pp.user_id} value={pp.user_id}>{pp.name || pp.email}</SelectItem>
+                                            ))}
+                                          </>
+                                        )}
+                                      </SelectContent>
+                                    </Select>
+                                  )}
+                                </td>
+                              )}
                               <td className="px-4 py-2.5">
                                 <div className="flex justify-center gap-1">
                                   <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => window.location.href = `/projects/${p.project_id}`}>

@@ -36,11 +36,11 @@ router = APIRouter()
 
 
 @router.get("/projects")
-async def get_projects(include_deleted: bool = False, user: User = Depends(get_current_user)):
+async def get_projects(include_deleted: bool = False, planning_person_id: Optional[str] = None, user: User = Depends(get_current_user)):
     # IDOR Fix: Role-based project filtering
     full_access_roles = [
         UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
-        UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PROCUREMENT, UserRole.CRE
+        UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROCUREMENT, UserRole.CRE
     ]
     # Soft-deleted filter (only Super Admin can opt-in to see them)
     deleted_filter = {} if (include_deleted and user.role == UserRole.SUPER_ADMIN) else \
@@ -55,8 +55,18 @@ async def get_projects(include_deleted: bool = False, user: User = Depends(get_c
             ]},
             {"_id": 0}
         ).to_list(1000)
+    elif user.role == UserRole.PLANNING_PERSON:
+        # Planning Person only sees projects assigned to them by the Planning Head
+        projects = await db.projects.find(
+            {"$and": [{"assigned_planning_person_id": user.user_id}, deleted_filter]},
+            {"_id": 0}
+        ).to_list(1000)
     elif user.role in full_access_roles:
-        projects = await db.projects.find(deleted_filter, {"_id": 0}).to_list(1000)
+        # Planning Head & full-access roles can additionally narrow by planning_person_id query param
+        base_filter = dict(deleted_filter)
+        if planning_person_id:
+            base_filter["assigned_planning_person_id"] = planning_person_id
+        projects = await db.projects.find(base_filter, {"_id": 0}).to_list(1000)
     else:
         projects = await db.projects.find(deleted_filter, {"_id": 0}).to_list(1000)
     
@@ -162,6 +172,10 @@ async def get_project(project_id: str, user: User = Depends(get_current_user)):
             }, {"_id": 0, "assignment_id": 1})
             if not assigned:
                 raise HTTPException(status_code=403, detail="Permission denied")
+    # PLANNING_PERSON — only projects assigned to them by Planning Head
+    if user.role == UserRole.PLANNING_PERSON:
+        if project_doc.get("assigned_planning_person_id") != user.user_id:
+            raise HTTPException(status_code=403, detail="Permission denied — project not assigned to you")
 
     if isinstance(project_doc.get("start_date"), str):
         project_doc["start_date"] = datetime.fromisoformat(project_doc["start_date"])
@@ -171,6 +185,64 @@ async def get_project(project_id: str, user: User = Depends(get_current_user)):
         project_doc["created_at"] = datetime.fromisoformat(project_doc["created_at"])
     
     return project_doc
+
+
+@router.post("/projects/{project_id}/assign-planning-person")
+async def assign_planning_person(
+    project_id: str,
+    body: Dict[str, Any] = Body(...),
+    user: User = Depends(get_current_user),
+):
+    """Planning Head assigns a Planning Person to a project.
+
+    Body: { "planning_person_id": "user_xxx" }  — pass null/empty to unassign.
+    """
+    if user.role not in (UserRole.PLANNING, UserRole.SUPER_ADMIN):
+        raise HTTPException(status_code=403, detail="Only Planning Head can assign Planning Person")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    pp_id = (body or {}).get("planning_person_id")
+    set_fields: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    unset_fields: Dict[str, Any] = {}
+
+    if not pp_id:
+        # Unassign
+        unset_fields = {"assigned_planning_person_id": "", "assigned_planning_person_name": "", "assigned_planning_person_at": ""}
+        await db.projects.update_one({"project_id": project_id}, {"$set": set_fields, "$unset": unset_fields})
+        await create_audit_log(user.user_id, "unassign_planning_person", "project", project_id, {"project_name": project.get("name")})
+        return {"message": "Planning Person unassigned", "assigned_planning_person_id": None}
+
+    pp_user = await db.users.find_one({"user_id": pp_id, "role": UserRole.PLANNING_PERSON.value, "is_active": True}, {"_id": 0, "user_id": 1, "name": 1})
+    if not pp_user:
+        raise HTTPException(status_code=404, detail="Planning Person not found or inactive")
+
+    set_fields["assigned_planning_person_id"] = pp_user["user_id"]
+    set_fields["assigned_planning_person_name"] = pp_user.get("name") or ""
+    set_fields["assigned_planning_person_at"] = datetime.now(timezone.utc).isoformat()
+    set_fields["assigned_planning_person_by"] = user.user_id
+    set_fields["assigned_planning_person_by_name"] = user.name
+
+    await db.projects.update_one({"project_id": project_id}, {"$set": set_fields})
+    try:
+        await create_notification(
+            pp_user["user_id"],
+            f"You have been assigned to project: {project.get('name')}",
+        )
+    except Exception:
+        pass
+    await create_audit_log(user.user_id, "assign_planning_person", "project", project_id, {
+        "project_name": project.get("name"),
+        "planning_person_id": pp_user["user_id"],
+        "planning_person_name": pp_user.get("name"),
+    })
+    return {
+        "message": "Planning Person assigned",
+        "assigned_planning_person_id": pp_user["user_id"],
+        "assigned_planning_person_name": pp_user.get("name"),
+    }
 
 
 @router.get("/boq/{project_id}")
@@ -345,7 +417,7 @@ async def reject_work_order(work_order_id: str, reason: str, user: User = Depend
 async def get_vendors(user: User = Depends(get_current_user)):
     # RBAC: Restrict vendor list to management/procurement roles
     vendor_access = [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PROCUREMENT,
-                     UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER, UserRole.CRE]
+                     UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER, UserRole.CRE]
     if user.role not in vendor_access:
         raise HTTPException(status_code=403, detail="Access denied")
     vendors = await db.vendors.find({}, {"_id": 0}).to_list(1000)
@@ -1030,7 +1102,7 @@ async def get_project_commitments(project_id: str, user: User = Depends(get_curr
 
 @router.post("/project-commitments")
 async def create_project_commitment(commitment_input: ProjectCommitmentCreate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     total_cost = commitment_input.quantity * commitment_input.unit_rate
@@ -1057,7 +1129,7 @@ async def create_project_commitment(commitment_input: ProjectCommitmentCreate, u
 
 @router.delete("/project-commitments/{commitment_id}")
 async def delete_project_commitment(commitment_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     await db.project_commitments.delete_one({"commitment_id": commitment_id})
@@ -1436,7 +1508,7 @@ class ProjectUpdate(BaseModel):
 
 @router.patch("/projects/{project_id}")
 async def update_project(project_id: str, update_data: ProjectUpdate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
@@ -1468,7 +1540,7 @@ async def delete_project(project_id: str, hard: bool = False, user: User = Depen
       - REJECTED if the project has ANY financial records (income / expenses / payments)
       - This protects accounting/audit history
     """
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only Super Admin or Planning can delete projects")
 
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
@@ -1693,7 +1765,7 @@ async def archive_project(project_id: str, data: dict = Body(default={}), user: 
 @router.post("/projects/{project_id}/unarchive")
 async def unarchive_project(project_id: str, user: User = Depends(get_current_user)):
     """Restore an archived project back to its previous tab."""
-    archive_roles = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER,
+    archive_roles = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER,
                      UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]
     if user.role not in archive_roles:
         raise HTTPException(status_code=403, detail="You don't have permission to unarchive projects")
@@ -1731,7 +1803,7 @@ async def get_project_package_materials(project_id: str, user: User = Depends(ge
 @router.put("/projects/{project_id}/package-materials")
 async def save_project_package_materials(project_id: str, payload: PackageMaterialsPayload, user: User = Depends(get_current_user)):
     """Save/update project's package materials list"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     mats = [{"name": m.name, "brand": m.brand or ""} for m in payload.materials]
     await db.projects.update_one({"project_id": project_id}, {"$set": {"package_materials": mats}})
@@ -1749,7 +1821,7 @@ class BOQUpdate(BaseModel):
 
 @router.patch("/boq/{boq_id}")
 async def update_boq_item(boq_id: str, update_data: BOQUpdate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only Planning can update BOQ")
     
     # Check if BOQ is locked
@@ -1772,7 +1844,7 @@ async def update_boq_item(boq_id: str, update_data: BOQUpdate, user: User = Depe
 
 @router.delete("/boq/{boq_id}")
 async def delete_boq_item(boq_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only Planning can delete BOQ")
     
     boq_item = await db.boq_items.find_one({"boq_id": boq_id}, {"_id": 0})
@@ -2196,7 +2268,7 @@ async def create_payment_stage(stage_input: PaymentStageCreate, user: User = Dep
 
 @router.patch("/payment-stages/{stage_id}")
 async def update_payment_stage(stage_id: str, update_data: PaymentStageUpdate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
@@ -2230,7 +2302,7 @@ async def update_payment_stage(stage_id: str, update_data: PaymentStageUpdate, u
 
 @router.delete("/payment-stages/{stage_id}")
 async def delete_payment_stage(stage_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     await db.payment_stages.delete_one({"stage_id": stage_id})
@@ -2262,7 +2334,7 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
     the one we just created from the income), proportionally scaled to fill
     the remaining (100 − %).
     """
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
@@ -2474,7 +2546,7 @@ async def request_payment(stage_id: str, body: Optional[PaymentRequestBody] = No
     """Planning/PM requests payment from CRE - updates workflow_status to 'requested'.
 
     Optionally accepts an expected_payment_date so CRE can prioritize / filter by month."""
-    if user.role not in [UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning / PM / GM can request payments")
     
     stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
@@ -2543,7 +2615,7 @@ async def request_payment(stage_id: str, body: Optional[PaymentRequestBody] = No
 @router.post("/projects/{project_id}/payment-schedule/generate")
 async def generate_payment_schedule(project_id: str, user: User = Depends(get_current_user)):
     """Planning team generates payment schedule from template based on project value (minus advance)"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can create payment schedule")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
@@ -2611,7 +2683,7 @@ async def generate_payment_schedule(project_id: str, user: User = Depends(get_cu
 @router.post("/projects/{project_id}/payment-schedule/submit")
 async def submit_payment_schedule(project_id: str, user: User = Depends(get_current_user)):
     """Submit all draft payment stages for collection - makes them visible to CRO"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning/PM can submit payment schedule")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
@@ -2855,7 +2927,7 @@ async def cre_reject_payment_request(stage_id: str, data: CRERejectStageInput, u
             pass
     # Also notify all Planning users so the team sees the rejection on the
     # collective board (the original requester might be on leave).
-    planning_users = await db.users.find({"role": UserRole.PLANNING, "is_active": True}, {"_id": 0, "user_id": 1}).to_list(20)
+    planning_users = await db.users.find({"role": {"$in": [UserRole.PLANNING, UserRole.PLANNING_PERSON]}, "is_active": True}, {"_id": 0, "user_id": 1}).to_list(20)
     for pu in planning_users:
         if pu["user_id"] == stage.get("requested_by"):
             continue
@@ -2888,7 +2960,7 @@ async def planning_resubmit_payment_request(stage_id: str, data: PlanningResubmi
     expected_payment_date, remarks. CRE rejection markers are cleared so
     the red banner disappears on the next refresh.
     """
-    if user.role not in [UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning / PM can resubmit a rejected payment request")
     stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
     if not stage:
@@ -3066,7 +3138,7 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
 @router.get("/payment-schedule/due-payments")
 async def get_due_payments(user: User = Depends(get_current_user)):
     """Get all payment stages that are due or overdue - for CRE dashboard"""
-    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     today = datetime.now(timezone.utc).isoformat()
@@ -3145,7 +3217,7 @@ async def create_additional_cost(cost_input: AdditionalCostCreate, user: User = 
 
 @router.patch("/additional-costs/{cost_id}")
 async def update_additional_cost(cost_id: str, update_data: AdditionalCostUpdate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
@@ -3157,7 +3229,7 @@ async def update_additional_cost(cost_id: str, update_data: AdditionalCostUpdate
 
 @router.delete("/additional-costs/{cost_id}")
 async def delete_additional_cost(cost_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     await db.additional_costs.delete_one({"cost_id": cost_id})
@@ -3169,7 +3241,7 @@ async def delete_additional_cost(cost_id: str, user: User = Depends(get_current_
 async def request_additional_payment(cost_id: str, request: Request, user: User = Depends(get_current_user)):
     """Request payment for additional work - notifies CRE and creates a payment_stages row
     so the request shows up in the project's Payment Schedule (filterable by month)."""
-    if user.role not in [UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning/PM can request payments")
     
     # Optional body: { expected_payment_date: "YYYY-MM-DD" }
@@ -3464,7 +3536,7 @@ async def get_scope_items(project_id: str, user: User = Depends(get_current_user
 
 @router.post("/scope-items")
 async def create_scope_item(item_input: ScopeItemCreate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     total_amount = item_input.quantity * item_input.unit_rate
@@ -3489,7 +3561,7 @@ async def create_scope_item(item_input: ScopeItemCreate, user: User = Depends(ge
 
 @router.patch("/scope-items/{scope_id}")
 async def update_scope_item(scope_id: str, update_data: ScopeItemUpdate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     # Get existing item for recalculation
@@ -3511,7 +3583,7 @@ async def update_scope_item(scope_id: str, update_data: ScopeItemUpdate, user: U
 
 @router.delete("/scope-items/{scope_id}")
 async def delete_scope_item(scope_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     await db.scope_items.delete_one({"scope_id": scope_id})
@@ -3523,7 +3595,7 @@ async def delete_scope_item(scope_id: str, user: User = Depends(get_current_user
 @router.post("/scope-items/reorder")
 async def reorder_scope_items(request: Request, user: User = Depends(get_current_user)):
     """Reorder scope items by updating their sort_order field"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     body = await request.json()
     ordered_ids = body.get("scope_ids", [])
@@ -3537,7 +3609,7 @@ async def reorder_scope_items(request: Request, user: User = Depends(get_current
 @router.post("/additional-costs/reorder")
 async def reorder_additional_costs(request: Request, user: User = Depends(get_current_user)):
     """Reorder additional cost items"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     body = await request.json()
     ordered_ids = body.get("cost_ids", [])
@@ -3551,7 +3623,7 @@ async def reorder_additional_costs(request: Request, user: User = Depends(get_cu
 @router.post("/deductions/reorder")
 async def reorder_deductions(request: Request, user: User = Depends(get_current_user)):
     """Reorder deduction items"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     body = await request.json()
     ordered_ids = body.get("deduction_ids", [])
@@ -3565,7 +3637,7 @@ async def reorder_deductions(request: Request, user: User = Depends(get_current_
 @router.post("/payment-stages/reorder")
 async def reorder_payment_stages(request: Request, user: User = Depends(get_current_user)):
     """Reorder client-side payment stages (Payment Schedule)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
     body = await request.json()
     ordered_ids = body.get("stage_ids", [])
@@ -3610,7 +3682,7 @@ async def get_deductions(project_id: str, user: User = Depends(get_current_user)
 
 @router.post("/deductions")
 async def create_deduction(deduction_input: DeductionCreate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     deduction = DeductionItem(
@@ -3633,7 +3705,7 @@ async def create_deduction(deduction_input: DeductionCreate, user: User = Depend
 
 @router.patch("/deductions/{deduction_id}")
 async def update_deduction(deduction_id: str, update_data: DeductionUpdate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
@@ -3645,7 +3717,7 @@ async def update_deduction(deduction_id: str, update_data: DeductionUpdate, user
 
 @router.delete("/deductions/{deduction_id}")
 async def delete_deduction(deduction_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     await db.deductions.delete_one({"deduction_id": deduction_id})
@@ -3715,7 +3787,7 @@ async def create_bulk_scope_items(
     user: User = Depends(get_current_user)
 ):
     """Create multiple scope items at once (pending verification)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     created_items = []
@@ -3751,7 +3823,7 @@ async def create_bulk_payment_stages(
     user: User = Depends(get_current_user)
 ):
     """Create multiple payment stages at once (pending verification)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     # Get project for total value
@@ -3811,7 +3883,7 @@ async def create_bulk_additions(
     user: User = Depends(get_current_user)
 ):
     """Create multiple additions at once (pending verification)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     created_items = []
@@ -3846,7 +3918,7 @@ async def create_bulk_deductions(
     user: User = Depends(get_current_user)
 ):
     """Create multiple deductions at once (pending verification)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     created_items = []
@@ -3885,7 +3957,7 @@ class VerifyRequest(BaseModel):
 async def verify_scope_items(data: VerifyRequest, user: User = Depends(get_current_user)):
     """Verify scope items - requires typing VERIFY"""
     # RBAC: Only CRE, Accountant, Planning, Admin can verify
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only CRE, Accountant, Planning, or Admin can verify items")
     if data.verification_code != "VERIFY":
         raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
@@ -3907,7 +3979,7 @@ async def verify_scope_items(data: VerifyRequest, user: User = Depends(get_curre
 @router.post("/payment-stages/verify")
 async def verify_payment_stages(data: VerifyRequest, user: User = Depends(get_current_user)):
     """Verify payment stages - requires typing VERIFY"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only CRE, Accountant, Planning, or Admin can verify items")
     if data.verification_code != "VERIFY":
         raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
@@ -3929,7 +4001,7 @@ async def verify_payment_stages(data: VerifyRequest, user: User = Depends(get_cu
 @router.post("/additional-costs/verify")
 async def verify_additions(data: VerifyRequest, user: User = Depends(get_current_user)):
     """Verify additions - requires typing VERIFY"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only CRE, Accountant, Planning, or Admin can verify items")
     if data.verification_code != "VERIFY":
         raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
@@ -3951,7 +4023,7 @@ async def verify_additions(data: VerifyRequest, user: User = Depends(get_current
 @router.post("/deductions/verify")
 async def verify_deductions(data: VerifyRequest, user: User = Depends(get_current_user)):
     """Verify deductions - requires typing VERIFY"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only CRE, Accountant, Planning, or Admin can verify items")
     if data.verification_code != "VERIFY":
         raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
@@ -4113,7 +4185,7 @@ async def get_project_stages(project_id: str, user: User = Depends(get_current_u
 @router.post("/projects/{project_id}/project-stages/reorder")
 async def reorder_project_stages(project_id: str, request: Request, user: User = Depends(get_current_user)):
     """Reorder project construction stages"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     body = await request.json()
     stage_ids = body.get("stage_ids", [])
@@ -4403,7 +4475,7 @@ async def update_project_team(project_id: str, request: Request, user: User = De
     • Deactivates the previous user's assignment for that role on the project.
     • Sends an in-app notification to the newly-assigned user.
     """
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROJECT_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning/Admin can assign team")
     
     project = await db.projects.find_one({"project_id": project_id})
@@ -4664,7 +4736,7 @@ async def get_project_work_order(project_id: str, work_order_id: str, user: User
 @router.post("/projects/{project_id}/work-orders")
 async def create_project_work_order(project_id: str, data: WorkOrderCreate, user: User = Depends(get_current_user)):
     """Create a new work order with scope, stages, and additional work"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.CRE]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.CRE]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "project_id": 1, "name": 1})
@@ -4750,7 +4822,7 @@ async def create_project_work_order(project_id: str, data: WorkOrderCreate, user
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}")
 async def update_project_work_order(project_id: str, work_order_id: str, data: WorkOrderCreate, user: User = Depends(get_current_user)):
     """Update a work order"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.CRE]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.CRE]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     scope_total = sum((s.quantity or 0) * (s.unit_rate or 0) for s in data.scope_items)
@@ -4813,7 +4885,7 @@ async def update_project_work_order(project_id: str, work_order_id: str, data: W
 @router.delete("/projects/{project_id}/work-orders/{work_order_id}")
 async def delete_project_work_order(project_id: str, work_order_id: str, user: User = Depends(get_current_user)):
     """Soft delete a work order"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     result = await db.project_work_orders.update_one(
         {"work_order_id": work_order_id, "project_id": project_id},
@@ -5003,7 +5075,7 @@ async def planning_labour_stage_requests(status: str = "new", user: User = Depen
       - 'forwarded'→ planning_approved (already forwarded to Accountant)
       - 'all'      → every non-finalised request
     """
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     target_statuses = {
@@ -5112,7 +5184,7 @@ async def _get_contractor_suspense_balance(contractor_id: str) -> float:
 @router.get("/contractors/{contractor_id}/suspense")
 async def get_contractor_suspense(contractor_id: str, user: User = Depends(get_current_user)):
     """Returns suspense balance + ledger for a contractor."""
-    if user.role not in [UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER]:
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER]:
         raise HTTPException(status_code=403, detail="Permission denied")
     balance = await _get_contractor_suspense_balance(contractor_id)
     # SE only gets the balance, not the ledger
@@ -5131,7 +5203,7 @@ async def accountant_labour_payments(status: str = "pending", user: User = Depen
       - pending → planning_approved (awaiting accountant action)
       - released → approved (already paid)
     """
-    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     target_statuses = {"pending": ["planning_approved"], "released": ["approved"]}.get(status, ["planning_approved"])
@@ -5388,7 +5460,7 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
 @router.get("/labour-contractor-payments/summary")
 async def labour_contractor_payment_summary(user: User = Depends(get_current_user)):
     """Cross-project payment summary per contractor — accountant/planning/super-admin only."""
-    if user.role not in [UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     work_orders = await db.project_work_orders.find({"is_active": {"$ne": False}}, {"_id": 0}).to_list(2000)
@@ -5433,7 +5505,7 @@ async def labour_contractor_payment_summary(user: User = Depends(get_current_use
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/open")
 async def wo_open_stage(project_id: str, work_order_id: str, stage_id: str, user: User = Depends(get_current_user)):
     """Planning opens a stage so Site Engineer can request payment for it."""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can open stages")
 
     wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
@@ -5494,7 +5566,7 @@ async def _mirror_stage_open_state(project_id: str, stage_name: str, is_open: bo
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/lock")
 async def wo_lock_stage(project_id: str, work_order_id: str, stage_id: str, user: User = Depends(get_current_user)):
     """Planning locks a previously-opened stage so it disappears from SE view."""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can lock stages")
 
     wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
@@ -5586,7 +5658,7 @@ async def wo_request_stage_open(project_id: str, work_order_id: str, stage_id: s
 @router.get("/planning/stage-open-requests")
 async def planning_stage_open_requests(user: User = Depends(get_current_user)):
     """Planning queue of stages that Site Engineers want opened."""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     work_orders = await db.project_work_orders.find(
@@ -5625,7 +5697,7 @@ async def planning_stage_open_requests(user: User = Depends(get_current_user)):
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/approve")
 async def wo_approve_stage(project_id: str, work_order_id: str, stage_id: str, data: dict, user: User = Depends(get_current_user)):
     """4-level approval for a specific payment request within a stage: SE Request -> PM Approve -> Planning Approve -> Accountant Process"""
-    allowed = [UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]
+    allowed = [UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail="Permission denied")
     
@@ -5838,7 +5910,7 @@ class FreezeReassignRequest(BaseModel):
 @router.post("/projects/{project_id}/work-orders/{work_order_id}/freeze/send-otp")
 async def wo_freeze_send_otp(project_id: str, work_order_id: str, user: User = Depends(get_current_user)):
     """Send OTP to current Planning user's email to authorize freeze"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can freeze work orders")
 
     wo = await db.project_work_orders.find_one(
@@ -5908,7 +5980,7 @@ async def wo_freeze_send_otp(project_id: str, work_order_id: str, user: User = D
 @router.post("/projects/{project_id}/work-orders/{work_order_id}/freeze/verify-otp")
 async def wo_freeze_verify_otp(project_id: str, work_order_id: str, data: dict, user: User = Depends(get_current_user)):
     """Verify OTP for freeze authorization"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     otp_code = data.get("otp", "")
@@ -5936,7 +6008,7 @@ async def wo_freeze_verify_otp(project_id: str, work_order_id: str, data: dict, 
 @router.post("/projects/{project_id}/work-orders/{work_order_id}/freeze/reassign")
 async def wo_freeze_and_reassign(project_id: str, work_order_id: str, data: FreezeReassignRequest, user: User = Depends(get_current_user)):
     """Freeze current WO and create new WO with balance stages for new contractor"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     # Verify OTP again
@@ -6241,7 +6313,7 @@ class PaymentTemplateInput(BaseModel):
 @router.get("/payment-schedule-templates")
 async def list_payment_schedule_templates(user: User = Depends(get_current_user)):
     """List all saved Payment Schedule templates."""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
     docs = await db.payment_schedule_templates.find({}, {"_id": 0}).sort("created_at", 1).to_list(100)
     return docs
@@ -6249,7 +6321,7 @@ async def list_payment_schedule_templates(user: User = Depends(get_current_user)
 
 @router.post("/payment-schedule-templates")
 async def create_payment_schedule_template(data: PaymentTemplateInput, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only Super Admin / Planning can create templates")
     if not data.template_name.strip():
         raise HTTPException(status_code=400, detail="Template name is required")
@@ -6270,7 +6342,7 @@ async def create_payment_schedule_template(data: PaymentTemplateInput, user: Use
 
 @router.patch("/payment-schedule-templates/{template_id}")
 async def update_payment_schedule_template(template_id: str, data: PaymentTemplateInput, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only Super Admin / Planning can update templates")
     existing = await db.payment_schedule_templates.find_one({"template_id": template_id}, {"_id": 0})
     if not existing:
@@ -6289,7 +6361,7 @@ async def update_payment_schedule_template(template_id: str, data: PaymentTempla
 
 @router.delete("/payment-schedule-templates/{template_id}")
 async def delete_payment_schedule_template(template_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only Super Admin / Planning can delete templates")
     res = await db.payment_schedule_templates.delete_one({"template_id": template_id})
     if res.deleted_count == 0:
@@ -6308,7 +6380,7 @@ async def apply_payment_template_to_project(project_id: str, data: ApplyTemplate
     mode='replace' deletes all existing pending payment_stages first.
     mode='append'  keeps existing rows and validates total ≤ 100%.
     """
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     tpl = await db.payment_schedule_templates.find_one({"template_id": data.template_id}, {"_id": 0})

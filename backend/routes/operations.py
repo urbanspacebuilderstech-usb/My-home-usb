@@ -763,7 +763,7 @@ async def send_project_to_planning(project_id: str, user: User = Depends(get_cur
 @router.patch("/cre/projects/{project_id}/move-to-drawing")
 async def move_project_to_drawing(project_id: str, user: User = Depends(get_current_user)):
     """Move project from Planning to Drawing stage after scopes and payments are set"""
-    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only CRE, Planning or Admin can move projects to drawing")
     
     project = await db.projects.find_one({"project_id": project_id})
@@ -1291,7 +1291,7 @@ async def create_project_request_re(project_input: dict, user: User = Depends(ge
 @router.get("/planning/dashboard")
 async def get_planning_dashboard(user: User = Depends(get_current_user)):
     """Get planning department dashboard"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
     
     # Count by status - include 'planning' status (from CRM RE conversion)
@@ -1317,7 +1317,7 @@ async def get_planning_dashboard(user: User = Depends(get_current_user)):
 @router.get("/planning/projects")
 async def get_planning_projects(status: Optional[str] = None, user: User = Depends(get_current_user)):
     """Get projects for planning board"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
     
     query = {}
@@ -1351,7 +1351,7 @@ async def get_planning_projects(status: Optional[str] = None, user: User = Depen
 @router.patch("/planning/projects/{project_id}/submit-for-approval")
 async def planning_submit_for_approval(project_id: str, user: User = Depends(get_current_user)):
     """Planning submits project for GM/Admin approval"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can submit for approval")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
@@ -1392,7 +1392,7 @@ async def planning_submit_for_approval(project_id: str, user: User = Depends(get
 @router.patch("/planning/projects/{project_id}/planning-status")
 async def update_planning_status(project_id: str, request: Request, user: User = Depends(get_current_user)):
     """Move project between planning lifecycle: new -> active -> delivered"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can update planning status")
 
     body = await request.json()
@@ -1425,10 +1425,11 @@ async def get_planning_projects_filtered(
     date_to: Optional[str] = None,
     month: Optional[int] = None,
     year: Optional[int] = None,
+    planning_person_id: Optional[str] = None,
     user: User = Depends(get_current_user)
 ):
     """Get projects filtered by planning lifecycle status and date"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
 
     query = {}
@@ -1494,6 +1495,22 @@ async def get_planning_projects_filtered(
     elif year and not month:
         query[date_field] = {"$gte": f"{year}-01-01T00:00:00", "$lt": f"{year + 1}-01-01T00:00:00"}
 
+    # Planning Person scoping & filter
+    if user.role == UserRole.PLANNING_PERSON:
+        # Hard scope — Planning Person only sees their own assigned projects
+        query["assigned_planning_person_id"] = user.user_id
+    elif planning_person_id:
+        # Planning Head / Super Admin can slice by a specific Planning Person.
+        # Special value "unassigned" returns projects with no assignee yet.
+        if planning_person_id == "unassigned":
+            query["$and"] = (query.get("$and") or []) + [{"$or": [
+                {"assigned_planning_person_id": {"$exists": False}},
+                {"assigned_planning_person_id": None},
+                {"assigned_planning_person_id": ""},
+            ]}]
+        else:
+            query["assigned_planning_person_id"] = planning_person_id
+
     logger.info(f"Final query: {query}")
     projects = await db.projects.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
     logger.info(f"Found {len(projects)} projects")
@@ -1505,7 +1522,7 @@ async def get_planning_projects_filtered(
 @router.get("/planning/stage-dashboard")
 async def get_planning_stage_dashboard(user: User = Depends(get_current_user)):
     """Get planning dashboard with project stages - Tab view like CRE Board"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning / GM can access this")
     
     # Count projects by construction stage (only working/active projects)
@@ -1542,7 +1559,7 @@ async def get_planning_stage_dashboard(user: User = Depends(get_current_user)):
 @router.get("/planning/projects-by-stage")
 async def get_projects_by_stage(stage: Optional[str] = None, user: User = Depends(get_current_user)):
     """Get projects filtered by construction stage"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning / GM can access this")
     
     query = {"status": {"$in": ["planning", "in_planning", "planning_review", "planning_approved", "active", "gm_approved", "awaiting_approval", "working"]}}
@@ -1557,7 +1574,7 @@ async def get_projects_by_stage(stage: Optional[str] = None, user: User = Depend
 @router.patch("/planning/projects/{project_id}/update-stage")
 async def update_project_stage(project_id: str, stage: str, user: User = Depends(get_current_user)):
     """Update project construction stage - Planning/PM can move projects through stages"""
-    if user.role not in [UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning or PM can update project stage")
     
     # Validate stage
@@ -1608,7 +1625,7 @@ async def update_project_stage(project_id: str, stage: str, user: User = Depends
 @router.get("/planning/projects/{project_id}/stage-history")
 async def get_project_stage_history(project_id: str, user: User = Depends(get_current_user)):
     """Get project stage change history"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
@@ -1627,7 +1644,7 @@ async def get_project_stage_history(project_id: str, user: User = Depends(get_cu
 @router.get("/planning/payment-schedule-overview")
 async def get_payment_schedule_overview(user: User = Depends(get_current_user)):
     """Get all payment schedule stages across all projects for planning dashboard"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Get all payment stages
@@ -1686,7 +1703,7 @@ async def get_monthly_schedule(
     user: User = Depends(get_current_user)
 ):
     """Get monthly payment schedule with auto-carryover from previous months"""
-    allowed = [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]
+    allowed = [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail="Access denied")
     
@@ -1863,7 +1880,7 @@ async def get_available_stages_for_schedule(
     user: User = Depends(get_current_user)
 ):
     """Get payment stages not yet added to this month's schedule"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can manage schedules")
     
     existing = await db.monthly_schedule_entries.find(
@@ -1900,7 +1917,7 @@ async def get_available_stages_for_schedule(
 @router.post("/planning/monthly-schedule/add-stages")
 async def add_stages_to_monthly_schedule(body: dict, user: User = Depends(get_current_user)):
     """Add payment stages to a monthly schedule"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can manage schedules")
     
     month, year, stage_ids = body.get("month"), body.get("year"), body.get("stage_ids", [])
@@ -1938,7 +1955,7 @@ async def add_stages_to_monthly_schedule(body: dict, user: User = Depends(get_cu
 @router.delete("/planning/monthly-schedule/{entry_id}")
 async def remove_schedule_entry(entry_id: str, user: User = Depends(get_current_user)):
     """Remove a stage from the monthly schedule"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can manage schedules")
     result = await db.monthly_schedule_entries.delete_one({"entry_id": entry_id})
     if result.deleted_count == 0:
@@ -1949,7 +1966,7 @@ async def remove_schedule_entry(entry_id: str, user: User = Depends(get_current_
 @router.patch("/planning/monthly-schedule/{entry_id}/request-payment")
 async def request_payment_for_schedule_entry(entry_id: str, user: User = Depends(get_current_user)):
     """Planning requests payment for a scheduled stage — sends to CRE"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can request payments")
     
     entry = await db.monthly_schedule_entries.find_one({"entry_id": entry_id}, {"_id": 0})
@@ -1980,7 +1997,7 @@ async def request_payment_for_schedule_entry(entry_id: str, user: User = Depends
 @router.get("/planning/monthly-schedule/months-list")
 async def get_schedule_months_list(user: User = Depends(get_current_user)):
     """Get list of months that have schedule entries"""
-    allowed = [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]
+    allowed = [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail="Access denied")
     pipeline = [
@@ -2153,7 +2170,7 @@ async def get_project_materials(project_id: str, user: User = Depends(get_curren
 @router.post("/projects/{project_id}/materials")
 async def add_project_material(project_id: str, material_input: ProjectMaterialInput, user: User = Depends(get_current_user)):
     """Add a new material specification to project (Planning only, before approval)"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can add materials")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
@@ -2185,7 +2202,7 @@ async def add_project_material(project_id: str, material_input: ProjectMaterialI
 @router.patch("/projects/{project_id}/materials/{material_id}")
 async def update_project_material(project_id: str, material_id: str, material_input: ProjectMaterialInput, user: User = Depends(get_current_user)):
     """Update material specification (Planning only, before approval)"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can update materials")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
@@ -2221,7 +2238,7 @@ async def update_project_material(project_id: str, material_id: str, material_in
 @router.delete("/projects/{project_id}/materials/{material_id}")
 async def delete_project_material(project_id: str, material_id: str, user: User = Depends(get_current_user)):
     """Delete material specification (Planning only, before approval)"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can delete materials")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
@@ -2241,7 +2258,7 @@ async def delete_project_material(project_id: str, material_id: str, user: User 
 @router.post("/projects/{project_id}/request-material-unlock")
 async def request_material_unlock(project_id: str, reason: str, user: User = Depends(get_current_user)):
     """Request to unlock material brands (requires re-approval)"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can request unlock")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
@@ -2580,7 +2597,7 @@ async def get_work_orders(
     user: User = Depends(get_current_user)
 ):
     """Get work orders with filters"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.SITE_ENGINEER, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SITE_ENGINEER, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     query = {}
@@ -2605,7 +2622,7 @@ async def get_work_orders(
 @router.get("/work-orders/payment-requests")
 async def get_work_order_payment_requests_v2(user: User = Depends(get_current_user)):
     """Get all payment requests for Planning to review - placed before parameterized route"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning/GM can view payment requests")
     
     # Find work orders with payment_requested stages
@@ -2651,7 +2668,7 @@ async def get_work_order(work_order_id: str, user: User = Depends(get_current_us
 @router.post("/work-orders/labour")
 async def create_labour_work_order(wo_input: LabourWorkOrderInput, user: User = Depends(get_current_user)):
     """Create a labour work order (Planning only)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning can create work orders")
     
     # Get project details
@@ -2731,7 +2748,7 @@ async def create_labour_work_order(wo_input: LabourWorkOrderInput, user: User = 
 @router.post("/work-orders/material")
 async def create_material_work_order(wo_input: MaterialWorkOrderInput, user: User = Depends(get_current_user)):
     """Create a material work order (Planning only)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning can create work orders")
     
     # Get project details
@@ -2800,7 +2817,7 @@ async def create_material_work_order(wo_input: MaterialWorkOrderInput, user: Use
 @router.patch("/work-orders/{work_order_id}/assign")
 async def assign_work_order(work_order_id: str, site_engineer_id: str, user: User = Depends(get_current_user)):
     """Assign work order to site engineer"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning can assign work orders")
     
     # Get site engineer details
@@ -2917,7 +2934,7 @@ async def request_stage_payment(work_order_id: str, stage_id: str, remarks: Opti
 @router.patch("/work-orders/{work_order_id}/stages/{stage_id}/approve-payment")
 async def approve_stage_payment(work_order_id: str, stage_id: str, user: User = Depends(get_current_user)):
     """Planning approves stage payment"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning can approve payments")
     
     wo = await db.work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
@@ -2961,7 +2978,7 @@ async def approve_stage_payment(work_order_id: str, stage_id: str, user: User = 
 @router.patch("/work-orders/{work_order_id}/stages/{stage_id}/reject-payment")
 async def reject_stage_payment(work_order_id: str, stage_id: str, reason: str, user: User = Depends(get_current_user)):
     """Planning rejects stage payment"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning can reject payments")
     
     wo = await db.work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
@@ -4174,12 +4191,23 @@ async def get_staff_documents(staff_id: str, user: User = Depends(get_current_us
 # ==================== HR ROLES & CREDENTIALS ENDPOINTS ====================
 
 @router.get("/hr/users")
-async def get_all_users_for_hr(user: User = Depends(get_current_user)):
-    """Get all users with their roles and credentials info"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.HR]:
-        raise HTTPException(status_code=403, detail="Only Super Admin and HR can view user credentials")
-    
-    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("name", 1).to_list(500)
+async def get_all_users_for_hr(role: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get all users with their roles and credentials info.
+
+    Planning Head can also list Planning Persons (read-only) via `?role=planning_person`
+    so the Assign Planning Person dropdown can show the team list.
+    """
+    is_planning_head = user.role == UserRole.PLANNING
+    is_hr_or_admin = user.role in [UserRole.SUPER_ADMIN, UserRole.HR]
+    if not is_hr_or_admin:
+        # Planning Head — restricted to listing planning_person only
+        if not (is_planning_head and role == "planning_person"):
+            raise HTTPException(status_code=403, detail="Only Super Admin and HR can view user credentials")
+
+    query: Dict[str, Any] = {}
+    if role:
+        query["role"] = role
+    users = await db.users.find(query, {"_id": 0, "password_hash": 0}).sort("name", 1).to_list(500)
     
     # Batch fetch all staff records with linked_user_id in one query
     all_staff = await db.staff.find(
@@ -5923,7 +5951,7 @@ async def admin_quick_create_project(data: QuickCreateProjectInput, user: User =
     Lead (Pre-Sales) → marks as booked/converted → Project → seeds Stages from template.
     Useful for backfilling legacy projects or fast-tracking VIP deals.
     """
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.SALES]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SALES]:
         raise HTTPException(status_code=403, detail="Only Super Admin, Planning or Sales can use this")
 
     if not data.name.strip() or not data.project_name.strip():

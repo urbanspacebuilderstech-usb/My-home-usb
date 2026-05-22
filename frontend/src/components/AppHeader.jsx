@@ -48,6 +48,10 @@ const ROLE_NAV = {
     { label: 'Contractors', path: '/contractor-management' },
     { label: 'BOQ', path: '/planning-board?tab=boq' },
   ],
+  planning_person: [
+    { label: 'Planning Board', path: '/planning-board' },
+    { label: 'My Projects', path: '/projects' },
+  ],
   procurement: [
     { label: 'Procurement', path: '/procurement-board-v2' },
     { label: 'Projects', path: '/projects' },
@@ -141,6 +145,14 @@ function getModuleKey(pathname, role) {
   if (pathname.startsWith('/boq/')) return '/planning-board';
   return null;
 }
+
+// Friendly display label for the role badge (top-left + profile dropdown).
+// Falls back to `role.replace('_', ' ')` for any role not mapped here.
+const ROLE_LABEL_MAP = {
+  planning: 'Planning Head',
+  planning_person: 'Planning Person',
+};
+const roleLabel = (r) => (r ? (ROLE_LABEL_MAP[r] || r.replace(/_/g, ' ')) : '…');
 
 export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange, headerActions, hideNav = false }) {
   const navigate = useNavigate();
@@ -262,7 +274,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
             <div className="leading-tight">
               <span className="font-bold text-base text-gray-900 block">My Home USB</span>
               <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600">
-                {role ? role.replace(/_/g, ' ') : '…'}
+                {roleLabel(role)}
               </span>
             </div>
           </div>
@@ -317,7 +329,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
             <div className="hidden lg:flex items-center gap-2 pl-2 border-l border-gray-200">
               <div className="text-right leading-tight">
                 <p className="text-sm font-semibold text-gray-900" data-testid="header-username">{effectiveUser?.name || ''}</p>
-                <p className="text-[10px] uppercase tracking-wide text-gray-400">{role ? role.replace(/_/g, ' ') : ''}</p>
+                <p className="text-[10px] uppercase tracking-wide text-gray-400">{roleLabel(role)}</p>
               </div>
               <Button variant="ghost" size="icon" onClick={handleLogout} className="h-9 w-9 text-gray-400 hover:text-red-500" data-testid="header-logout">
                 <LogOut className="h-4 w-4" />

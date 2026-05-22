@@ -2172,7 +2172,7 @@ async def get_jr_engineers(user: User = Depends(get_current_user)):
 @router.post("/crm/leads/{lead_id}/complete-site-visit")
 async def complete_site_visit(lead_id: str, user: User = Depends(get_current_user)):
     """Mark site visit as done - Jr. Engineer or Sr. Engineer can complete"""
-    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only Engineers can mark visit done")
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
@@ -3081,7 +3081,7 @@ async def get_re_projects(
     user: User = Depends(get_current_user)
 ):
     """Get all RE projects"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.CRE, "sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.CRE, "sales"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     query = {}
@@ -3096,7 +3096,7 @@ async def get_re_projects(
 @router.get("/crm/re-projects/search")
 async def search_re_projects(q: str, user: User = Depends(get_current_user)):
     """Search RE projects by RE number (USB-RE0001) or project name"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, "sales", "cre"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, "sales", "cre"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     query = {"$or": [
@@ -3111,7 +3111,7 @@ async def search_re_projects(q: str, user: User = Depends(get_current_user)):
 @router.get("/crm/re-projects/by-number/{re_number}")
 async def get_re_revisions(re_number: str, user: User = Depends(get_current_user)):
     """Get all revisions for an RE number"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, "sales", "cre"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, "sales", "cre"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     projects = await db.re_projects.find(
@@ -3146,7 +3146,7 @@ async def delete_re_project(re_project_id: str, force: bool = False, user: User 
     must pass `?force=true` to confirm cascading deletion of the linked Project
     and its dependent records.
     """
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Super Admin, Planning or GM can delete RE projects")
 
     project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
@@ -3205,7 +3205,7 @@ class REProjectUpdate(BaseModel):
 @router.patch("/crm/re-projects/{re_project_id}")
 async def update_re_project(re_project_id: str, data: REProjectUpdate, user: User = Depends(get_current_user)):
     """Update RE project (Planning, GM, or Super Admin)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Planning or GM access required")
     
     project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
@@ -3304,7 +3304,7 @@ async def update_re_project(re_project_id: str, data: REProjectUpdate, user: Use
 @router.get("/crm/re-projects/{re_project_id}/change-logs")
 async def get_re_change_logs(re_project_id: str, user: User = Depends(get_current_user)):
     """Get change logs for an RE project"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     logs = await db.re_change_logs.find(
@@ -3317,7 +3317,7 @@ async def get_re_change_logs(re_project_id: str, user: User = Depends(get_curren
 @router.post("/crm/re-projects/{re_project_id}/submit-for-approval")
 async def submit_re_for_approval(re_project_id: str, user: User = Depends(get_current_user)):
     """Submit RE project for GM approval"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Planning access required")
     
     project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
@@ -3725,7 +3725,7 @@ async def re_client_revision(lead_id: str, data: SalesRevisionReq = SalesRevisio
 @router.post("/crm/re-projects/{re_project_id}/create-revision")
 async def create_re_revision(re_project_id: str, user: User = Depends(get_current_user)):
     """Planning creates a new revision (RE1, RE2...) by duplicating the current RE"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Planning access required")
     
     project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
@@ -3805,7 +3805,7 @@ async def create_re_revision(re_project_id: str, user: User = Depends(get_curren
 @router.get("/crm/planning/re-dashboard")
 async def get_planning_re_dashboard(user: User = Depends(get_current_user)):
     """Get Planning Department RE dashboard"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Planning access required")
     
     # Get RE project counts by status
@@ -6148,7 +6148,7 @@ async def upload_re_attachment(
     user: User = Depends(get_current_user),
 ):
     """Upload a file attachment to an RE project (per-revision). Allowed roles: Planning, GM, Sales, CRE, Super Admin."""
-    allowed = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER, "sales", "cre"]
+    allowed = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER, "sales", "cre"]
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail="Access denied")
     project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
@@ -6211,7 +6211,7 @@ async def download_re_attachment(file_id: str, request: Request):
 
 @router.delete("/crm/re-projects/{re_project_id}/attachments/{file_id}")
 async def delete_re_attachment(re_project_id: str, file_id: str, user: User = Depends(get_current_user)):
-    allowed = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER, "sales", "cre"]
+    allowed = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER, "sales", "cre"]
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail="Access denied")
     project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})

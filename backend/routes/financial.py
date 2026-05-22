@@ -2108,7 +2108,7 @@ async def create_material_expense(expense_input: MaterialExpenseCreate, user: Us
 @router.patch("/expenses/material/{expense_id}/planning-approval")
 async def planning_approve_material(expense_id: str, action: ApprovalAction, user: User = Depends(get_current_user)):
     """Planning department approval for material expense"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning department can approve")
     
     expense = await db.material_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
@@ -2338,7 +2338,7 @@ async def create_labour_expense(expense_input: LabourExpenseCreate, user: User =
 @router.patch("/expenses/labour/{expense_id}/planning-approval")
 async def planning_approve_labour(expense_id: str, action: ApprovalAction, user: User = Depends(get_current_user)):
     """Planning approval for labour expense"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can approve")
     
     expense = await db.labour_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
@@ -2482,7 +2482,7 @@ async def create_vendor_service_expense(expense_input: VendorServiceExpenseCreat
 @router.patch("/expenses/vendor-service/{expense_id}/planning-approval")
 async def planning_approve_vendor_service(expense_id: str, action: ApprovalAction, user: User = Depends(get_current_user)):
     """Planning approval for vendor/service expense"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can approve")
     
     expense = await db.vendor_service_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
@@ -2917,7 +2917,7 @@ async def create_material(
     user: User = Depends(get_current_user)
 ):
     """Create a new material (Planning, Procurement, Super Admin only)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROCUREMENT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROCUREMENT]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     # Check for duplicate name
@@ -2954,7 +2954,7 @@ async def update_material(
     user: User = Depends(get_current_user)
 ):
     """Update a material"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROCUREMENT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROCUREMENT]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     material = await db.materials.find_one({"material_id": material_id}, {"_id": 0})
@@ -2973,7 +2973,7 @@ async def update_material(
 @router.delete("/materials/{material_id}")
 async def delete_material(material_id: str, user: User = Depends(get_current_user)):
     """Soft delete a material (set is_active to false)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     material = await db.materials.find_one({"material_id": material_id}, {"_id": 0})
@@ -3043,7 +3043,7 @@ async def get_vendor_master_list(
     # IDOR Fix: Only procurement/management roles can access vendor master
     vendor_access_roles = [
         UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PROCUREMENT,
-        UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER
+        UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER
     ]
     if user.role not in vendor_access_roles:
         raise HTTPException(status_code=403, detail="Access denied to vendor data")
@@ -3066,7 +3066,7 @@ async def get_vendor_master(vendor_id: str, user: User = Depends(get_current_use
     # IDOR Fix: Only procurement/management roles can access vendor details
     vendor_access_roles = [
         UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PROCUREMENT,
-        UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER
+        UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER
     ]
     if user.role not in vendor_access_roles:
         raise HTTPException(status_code=403, detail="Access denied to vendor data")
@@ -3082,7 +3082,7 @@ async def create_vendor_master(
     user: User = Depends(get_current_user)
 ):
     """Create a new vendor in master (Procurement, Planning, Super Admin)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     vendor = VendorMaster(
@@ -3126,7 +3126,7 @@ async def update_vendor_master(
     user: User = Depends(get_current_user)
 ):
     """Update a vendor in master"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
@@ -3145,7 +3145,7 @@ async def update_vendor_master(
 @router.delete("/vendor-master/{vendor_id}")
 async def delete_vendor_master(vendor_id: str, user: User = Depends(get_current_user)):
     """Soft delete a vendor (set is_active to false)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
@@ -3257,7 +3257,7 @@ async def get_project_vendor_assignments(project_id: str, user: User = Depends(g
 @router.post("/projects/{project_id}/vendor-assignments")
 async def assign_vendor_to_project(project_id: str, data: dict, user: User = Depends(get_current_user)):
     """Assign a vendor to a project for a specific material category"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROCUREMENT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROCUREMENT]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "project_id": 1, "name": 1})
@@ -3316,7 +3316,7 @@ async def assign_vendor_to_project(project_id: str, data: dict, user: User = Dep
 @router.delete("/projects/{project_id}/vendor-assignments/{category}")
 async def remove_vendor_assignment(project_id: str, category: str, user: User = Depends(get_current_user)):
     """Remove a vendor assignment from a project"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROCUREMENT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROCUREMENT]:
         raise HTTPException(status_code=403, detail="Permission denied")
     result = await db.project_vendor_assignments.delete_one({"project_id": project_id, "category": category})
     if result.deleted_count == 0:
@@ -3334,7 +3334,7 @@ async def get_purchase_orders(
     user: User = Depends(get_current_user)
 ):
     """Get purchase orders with filters"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROCUREMENT, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROCUREMENT, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Access denied")
     query = {}
     if project_id:
@@ -3350,7 +3350,7 @@ async def get_purchase_orders(
 @router.post("/purchase-orders")
 async def create_purchase_order(data: dict, user: User = Depends(get_current_user)):
     """Create a purchase order (usually auto-created from approved material request)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     now = datetime.now(timezone.utc).isoformat()
     po = {
@@ -3378,7 +3378,7 @@ async def create_purchase_order(data: dict, user: User = Depends(get_current_use
 @router.patch("/purchase-orders/{po_id}/status")
 async def update_purchase_order_status(po_id: str, data: dict, user: User = Depends(get_current_user)):
     """Update purchase order status"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     po = await db.purchase_orders.find_one({"po_id": po_id})
     if not po:
@@ -3478,7 +3478,7 @@ async def delete_user(user_id: str, current_user: User = Depends(get_current_use
 @router.get("/users/by-role/{role}")
 async def get_users_by_role(role: str, current_user: User = Depends(get_current_user)):
     """Get users by role"""
-    if current_user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROJECT_MANAGER]:
+    if current_user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     users = await db.users.find({"role": role, "is_active": {"$ne": False}}, {"_id": 0, "password_hash": 0}).to_list(1000)

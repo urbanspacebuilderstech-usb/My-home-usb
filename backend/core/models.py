@@ -17,6 +17,7 @@ class UserRole(str, Enum):
     ASSOCIATE_PM = "associate_pm"  # Associate Project Manager
     SR_SITE_ENGINEER = "sr_site_engineer"  # Senior Site Engineer
     PLANNING = "planning"
+    PLANNING_PERSON = "planning_person"  # Planning team member assigned to specific projects by Planning Head
     PROCUREMENT = "procurement"
     SITE_ENGINEER = "site_engineer"
     VENDOR = "vendor"

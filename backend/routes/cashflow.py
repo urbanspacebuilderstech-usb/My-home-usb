@@ -150,7 +150,7 @@ async def reverse_allocation(source_id: str, kind: Optional[str] = None) -> int:
 @router.get("/cashflow/config")
 async def get_config(user: User = Depends(get_current_user)):
     """Global split + all per-project overrides."""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     glob = await _get_global_split()
     overrides_cursor = db.cashflow_config.find({"_id": {"$regex": "^project:"}}, {"_id": 1, "direct_pct": 1, "indirect_pct": 1, "updated_by_name": 1, "updated_at": 1})
@@ -247,7 +247,7 @@ async def get_ledger(
     limit: int = 500,
     user: User = Depends(get_current_user)
 ):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     q: Dict[str, Any] = {}
     if kind in ("income", "expense"):
@@ -265,7 +265,7 @@ async def get_ledger(
 @router.get("/cashflow/summary")
 async def get_summary(project_id: Optional[str] = None, user: User = Depends(get_current_user)):
     """Direct pool balance, Indirect pool balance, Net cash position — globally or per project."""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     match: Dict[str, Any] = {}

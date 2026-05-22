@@ -92,7 +92,7 @@ async def _notify(user_id: str, title: str, message: str, kind: str, ref_id: str
 # ──────────────────────────────────────────────────────────────────────────────
 async def _submit_fe_to_gm(project_id: str, user: User) -> dict:
     """Shared core logic for Planning submitting the FE to GM."""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can submit Final Estimate")
 
     project = await _get_project_or_404(project_id)

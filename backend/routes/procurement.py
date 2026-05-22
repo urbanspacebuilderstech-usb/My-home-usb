@@ -139,7 +139,7 @@ class NewVendorInput(BaseModel):
 @router.get("/procurement/dashboard")
 async def get_procurement_dashboard(user: User = Depends(get_current_user)):
     """Get procurement dashboard metrics"""
-    allowed = [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER]
+    allowed = [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER]
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail="Access denied")
     
@@ -215,7 +215,7 @@ async def get_procurement_requests(
     user: User = Depends(get_current_user)
 ):
     """Get material requests by status for procurement board"""
-    view_roles = [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.SR_SITE_ENGINEER, UserRole.SITE_ENGINEER]
+    view_roles = [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT, UserRole.SR_SITE_ENGINEER, UserRole.SITE_ENGINEER]
     if user.role not in view_roles:
         raise HTTPException(status_code=403, detail="Access denied")
     
@@ -1564,7 +1564,7 @@ async def get_vendors_master(
     """Get all vendors from vendor master"""
     # RBAC: Restrict to procurement/management roles
     vendor_roles = [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PROCUREMENT,
-                    UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]
+                    UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]
     if user.role not in vendor_roles:
         raise HTTPException(status_code=403, detail="Access denied to vendor data")
     query = {"is_active": is_active}
@@ -1581,7 +1581,7 @@ async def get_vendors_master(
 async def get_vendor_detail(vendor_id: str, user: User = Depends(get_current_user)):
     """Get single vendor details"""
     vendor_roles = [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PROCUREMENT,
-                    UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]
+                    UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]
     if user.role not in vendor_roles:
         raise HTTPException(status_code=403, detail="Access denied to vendor data")
     vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
@@ -1847,7 +1847,7 @@ async def get_package(package_id: str, user: User = Depends(get_current_user)):
 @router.post("/packages")
 async def create_package(package_input: PackageCreateInput, user: User = Depends(get_current_user)):
     """Create a new package"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     # Auto-generate code if not provided
@@ -1924,7 +1924,7 @@ async def create_package(package_input: PackageCreateInput, user: User = Depends
 @router.patch("/packages/{package_id}")
 async def update_package(package_id: str, package_input: PackageCreateInput, user: User = Depends(get_current_user)):
     """Update a package"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     existing = await db.packages.find_one({"package_id": package_id})
@@ -1990,7 +1990,7 @@ async def update_package(package_id: str, package_input: PackageCreateInput, use
 @router.delete("/packages/{package_id}")
 async def delete_package(package_id: str, user: User = Depends(get_current_user)):
     """Soft delete a package"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     result = await db.packages.update_one(
@@ -2025,7 +2025,7 @@ class LabourContractorInput(BaseModel):
 @router.get("/labour-contractors")
 async def get_labour_contractors(user: User = Depends(get_current_user)):
     """Get all active labour contractors"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     contractors = await db.labour_contractors.find({"is_active": True}, {"_id": 0}).to_list(100)
@@ -2035,7 +2035,7 @@ async def get_labour_contractors(user: User = Depends(get_current_user)):
 @router.post("/labour-contractors")
 async def create_labour_contractor(contractor_input: LabourContractorInput, user: User = Depends(get_current_user)):
     """Create a new labour contractor (Planning only)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only Planning can create labour contractors")
     
     if not (contractor_input.name or "").strip():
@@ -2071,7 +2071,7 @@ async def create_labour_contractor(contractor_input: LabourContractorInput, user
 @router.patch("/labour-contractors/{contractor_id}")
 async def update_labour_contractor(contractor_id: str, contractor_input: LabourContractorInput, user: User = Depends(get_current_user)):
     """Update a labour contractor (partial update — only fields supplied are touched)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only Planning can update labour contractors")
 
     update_data = contractor_input.model_dump(exclude_unset=True)
@@ -2101,7 +2101,7 @@ async def get_contractor_payment_summary(contractor_id: str, user: User = Depend
       • payment_requests: { raised_count, raised_amount, collected_count, collected_amount, pending_count, pending_amount }
       • projects: list of {project_id, project_name, wo_count, total_amount, paid_amount, pending_amount}
     """
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     contractor = await db.labour_contractors.find_one({"contractor_id": contractor_id}, {"_id": 0})
@@ -2186,7 +2186,7 @@ async def get_contractor_payment_summary(contractor_id: str, user: User = Depend
 @router.delete("/labour-contractors/{contractor_id}")
 async def delete_labour_contractor(contractor_id: str, user: User = Depends(get_current_user)):
     """Soft delete a labour contractor"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only Planning can delete labour contractors")
     
     result = await db.labour_contractors.update_one(
@@ -2212,7 +2212,7 @@ class ContractorTypeInput(BaseModel):
 
 @router.get("/contractor-types")
 async def list_contractor_types(user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER, UserRole.SITE_ENGINEER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER, UserRole.SITE_ENGINEER]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     types = await db.contractor_types.find({"is_active": True}, {"_id": 0}).sort("name", 1).to_list(500)
@@ -2230,7 +2230,7 @@ async def list_contractor_types(user: User = Depends(get_current_user)):
 
 @router.post("/contractor-types")
 async def create_contractor_type(body: ContractorTypeInput, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only Planning can create contractor types")
 
     name = (body.name or "").strip()
@@ -2256,7 +2256,7 @@ async def create_contractor_type(body: ContractorTypeInput, user: User = Depends
 
 @router.patch("/contractor-types/{type_id}")
 async def update_contractor_type(type_id: str, body: ContractorTypeInput, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only Planning can update contractor types")
 
     existing = await db.contractor_types.find_one({"type_id": type_id, "is_active": True}, {"_id": 0})
@@ -2288,7 +2288,7 @@ async def update_contractor_type(type_id: str, body: ContractorTypeInput, user: 
 
 @router.delete("/contractor-types/{type_id}")
 async def delete_contractor_type(type_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Only Planning can delete contractor types")
 
     existing = await db.contractor_types.find_one({"type_id": type_id, "is_active": True}, {"_id": 0})
@@ -2310,7 +2310,7 @@ async def delete_contractor_type(type_id: str, user: User = Depends(get_current_
 @router.get("/contractor-types/{type_id}/contractors")
 async def list_contractors_by_type(type_id: str, user: User = Depends(get_current_user)):
     """List all active labour contractors that include this type in their work_types."""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER, UserRole.SITE_ENGINEER, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER, UserRole.SITE_ENGINEER, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     ctype = await db.contractor_types.find_one({"type_id": type_id, "is_active": True}, {"_id": 0})
@@ -2345,7 +2345,7 @@ async def procurement_simple_queue(
     - rejected  → procurement-rejected requests
     - all       → everything except finalised (accounts_approved/completed/closed)
     """
-    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROJECT_MANAGER]:
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     status_map = {
@@ -2612,7 +2612,7 @@ async def procurement_simple_planning_approve(request_id: str, data: dict, user:
       post_delivery  → in_transit (no upfront)
                        → SE marks delivered → pending_accounts_approval (full)
     """
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning / Super Admin can approve")
 
     req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
@@ -2674,7 +2674,7 @@ async def procurement_simple_planning_approve(request_id: str, data: dict, user:
 
 @router.patch("/procurement-simple/material-requests/{request_id}/planning-reject")
 async def procurement_simple_planning_reject(request_id: str, data: dict, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can reject")
     req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
     if not req:
@@ -2702,7 +2702,7 @@ async def procurement_simple_planning_revision(request_id: str, data: dict, user
     `procurement_revision` so Procurement can see + edit + resend without
     creating a brand-new request.
     """
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can request revision")
     req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
     if not req:
@@ -2991,7 +2991,7 @@ async def procurement_simple_credit_ledger(
     Statuses follow the 3-step settlement chain:
     pending → pending_planning_approval → pending_accountant_approval → paid
     """
-    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING]:
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     q = {}
     if status == "overdue":
@@ -3053,7 +3053,7 @@ async def planning_credit_approve(
     user: User = Depends(get_current_user),
 ):
     """Step 2 — Planning approves the settlement request, forwarding it to Accountant."""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning or Super Admin")
     entry = await db.vendor_credit_ledger.find_one({"ledger_id": ledger_id}, {"_id": 0})
     if not entry:
@@ -3087,7 +3087,7 @@ async def planning_credit_reject(
     user: User = Depends(get_current_user),
 ):
     """Planning rejects the settlement request, returning it to pending."""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning or Super Admin")
     reason = (data.get("reason") or "").strip()
     if not reason:
