@@ -2732,6 +2732,16 @@ async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInpu
             }
             await db.income.insert_one(income_record)
             income_id = income_record["income_id"]
+            # Persist the stage link on the income so accountant-reject can
+            # roll the stage back + notify Planning + CRE.
+            await db.income.update_one(
+                {"income_id": income_id},
+                {"$set": {
+                    "payment_stage_id": stage_id,
+                    "planning_user_id": stage.get("requested_by"),
+                    "planning_user_name": stage.get("requested_by_name"),
+                }}
+            )
             
             # Save cheque records if payment mode is cheque
             if entry_mode == "cheque" and entry_cheques:
@@ -2773,6 +2783,161 @@ async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInpu
         "total_received": new_received,
         "balance": stage_amount - new_received
     }
+
+
+class CRERejectStageInput(BaseModel):
+    reason: str
+
+
+@router.post("/payment-stages/{stage_id}/cre-reject")
+async def cre_reject_payment_request(stage_id: str, data: CRERejectStageInput, user: User = Depends(get_current_user)):
+    """CRE rejects a Planning Payment-request before collecting.
+
+    Use case: Planning marks a payment stage as 'requested' so it appears in
+    the CRE Collect Payment queue. The CRE opens the popup, sees the request
+    is wrong (amount mismatch, wrong stage, client not ready, etc.) and
+    rejects it with a reason instead of collecting.
+
+    Effect:
+      * stage.workflow_status -> 'cre_rejected'
+      * stage gets cre_rejection_reason + rejected_by_name + rejected_at
+      * The original Planning requester gets a notification with the reason.
+      * Planning Payment Schedule tab will show the stage with a red banner
+        so Planning can correct (e.g. update amount) and re-submit.
+    """
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can reject Planning payment requests")
+    if not (data.reason or "").strip():
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+
+    stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
+    if not stage:
+        raise HTTPException(status_code=404, detail="Payment stage not found")
+    if stage.get("workflow_status") != "requested":
+        raise HTTPException(status_code=400, detail=f"Cannot CRE-reject from workflow_status '{stage.get('workflow_status')}'")
+
+    now = datetime.now(timezone.utc)
+    history = stage.get("workflow_history", [])
+    history.append({
+        "action": "cre_rejected",
+        "by": user.user_id,
+        "by_name": user.name,
+        "reason": data.reason.strip(),
+        "from_status": stage.get("workflow_status"),
+        "at": now.isoformat(),
+    })
+
+    await db.payment_stages.update_one(
+        {"stage_id": stage_id},
+        {"$set": {
+            "workflow_status": "cre_rejected",
+            "cre_rejection_reason": data.reason.strip(),
+            "cre_rejected_by": user.user_id,
+            "cre_rejected_by_name": user.name,
+            "cre_rejected_at": now.isoformat(),
+            "workflow_history": history,
+            "updated_at": now.isoformat(),
+        }}
+    )
+
+    # Notify the Planning user who originally requested this stage so the
+    # red banner + correct flow shows up on /planning-board → Payment Schedule.
+    project = await db.projects.find_one({"project_id": stage.get("project_id")}, {"_id": 0, "name": 1})
+    project_name = project.get("name") if project else "Project"
+    stage_name = stage.get("stage_name") or stage.get("stage_label") or "stage"
+    if stage.get("requested_by"):
+        try:
+            await create_notification(
+                stage["requested_by"],
+                f"CRE rejected the payment request for {project_name} - {stage_name}. Reason: {data.reason.strip()}. Please correct and resubmit from the Planning Payment Schedule tab."
+            )
+        except Exception:
+            pass
+    # Also notify all Planning users so the team sees the rejection on the
+    # collective board (the original requester might be on leave).
+    planning_users = await db.users.find({"role": UserRole.PLANNING, "is_active": True}, {"_id": 0, "user_id": 1}).to_list(20)
+    for pu in planning_users:
+        if pu["user_id"] == stage.get("requested_by"):
+            continue
+        try:
+            await create_notification(
+                pu["user_id"],
+                f"CRE rejected a payment request for {project_name} - {stage_name}. Reason: {data.reason.strip()}."
+            )
+        except Exception:
+            pass
+
+    await create_audit_log(user.user_id, "cre_reject", "payment_stage", stage_id, {"reason": data.reason.strip()})
+    return {
+        "message": "Payment request rejected and sent back to Planning",
+        "workflow_status": "cre_rejected",
+    }
+
+
+class PlanningResubmitStageInput(BaseModel):
+    amount: Optional[float] = None
+    expected_payment_date: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+@router.post("/payment-stages/{stage_id}/planning-resubmit")
+async def planning_resubmit_payment_request(stage_id: str, data: PlanningResubmitStageInput, user: User = Depends(get_current_user)):
+    """Planning edits + resubmits a CRE-rejected payment stage.
+
+    Status flow: cre_rejected -> requested. Editable fields = amount,
+    expected_payment_date, remarks. CRE rejection markers are cleared so
+    the red banner disappears on the next refresh.
+    """
+    if user.role not in [UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning / PM can resubmit a rejected payment request")
+    stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
+    if not stage:
+        raise HTTPException(status_code=404, detail="Payment stage not found")
+    if stage.get("workflow_status") != "cre_rejected":
+        raise HTTPException(status_code=400, detail=f"Cannot resubmit from workflow_status '{stage.get('workflow_status')}'")
+
+    now = datetime.now(timezone.utc)
+    updates: Dict[str, Any] = {"workflow_status": "requested", "updated_at": now.isoformat()}
+    if data.amount is not None:
+        updates["amount"] = float(data.amount)
+    if data.expected_payment_date:
+        updates["expected_payment_date"] = data.expected_payment_date
+    if data.remarks is not None:
+        updates["remarks"] = data.remarks
+    updates["resubmitted_by"] = user.user_id
+    updates["resubmitted_by_name"] = user.name
+    updates["resubmitted_at"] = now.isoformat()
+    history = stage.get("workflow_history", [])
+    history.append({
+        "action": "planning_resubmitted",
+        "by": user.user_id,
+        "by_name": user.name,
+        "from_status": "cre_rejected",
+        "at": now.isoformat(),
+    })
+    updates["workflow_history"] = history
+
+    await db.payment_stages.update_one(
+        {"stage_id": stage_id},
+        {"$set": updates,
+         "$unset": {"cre_rejection_reason": "", "cre_rejected_by": "", "cre_rejected_by_name": "", "cre_rejected_at": ""}},
+    )
+
+    # Notify CRE users that the corrected request is back in their queue.
+    cre_users = await db.users.find({"role": UserRole.CRE, "is_active": True}, {"_id": 0, "user_id": 1}).to_list(20)
+    project = await db.projects.find_one({"project_id": stage.get("project_id")}, {"_id": 0, "name": 1})
+    project_name = project.get("name") if project else "Project"
+    stage_name = stage.get("stage_name") or stage.get("stage_label") or "stage"
+    for u in cre_users:
+        try:
+            await create_notification(
+                u["user_id"],
+                f"Planning resubmitted the payment request for {project_name} - {stage_name}. Please collect."
+            )
+        except Exception:
+            pass
+
+    return {"message": "Resubmitted to CRE for collection", "workflow_status": "requested"}
 
 
 @router.get("/projects/{project_id}/payment-summary")

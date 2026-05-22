@@ -37,6 +37,7 @@ import {
   Search,
   AlertCircle,
   CheckCircle2,
+  XCircle,
   Target,
   Receipt,
   Banknote,
@@ -480,6 +481,22 @@ export default function CREBoard() {
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to collect payment');
+    }
+  };
+
+  const handleRejectPaymentRequest = async () => {
+    if (!selectedPaymentStage) return;
+    const reason = window.prompt('Reason for rejecting this payment request? (will be sent to Planning so they can correct & resubmit)');
+    if (!reason || !reason.trim()) return;
+    try {
+      await axios.post(`${API}/payment-stages/${selectedPaymentStage.stage_id}/cre-reject`, { reason: reason.trim() });
+      toast.success('Rejected. Planning has been notified.');
+      setCollectDialog(false);
+      setCollectForm({ amount: '', remarks: '' });
+      setCollectPaymentEntries([{ amount: '', payment_mode: 'bank_transfer', reference: '', cheque_details: [] }]);
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to reject request');
     }
   };
 
@@ -1350,9 +1367,19 @@ export default function CREBoard() {
             />
             <div><Label>Remarks</Label><Input value={collectForm.remarks} onChange={(e) => setCollectForm({ ...collectForm, remarks: e.target.value })} placeholder="Optional" className="mt-1" /></div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-2">
             <Button variant="outline" onClick={() => setCollectDialog(false)}>Cancel</Button>
-            <Button onClick={handleCollectPayment} className="bg-green-600 hover:bg-green-700"><CheckCircle2 className="h-4 w-4 mr-2" />Confirm</Button>
+            <Button
+              variant="outline"
+              onClick={handleRejectPaymentRequest}
+              className="text-red-600 border-red-300 hover:bg-red-50"
+              data-testid="cre-collect-reject-btn"
+            >
+              <XCircle className="h-4 w-4 mr-2" />Reject Request
+            </Button>
+            <Button onClick={handleCollectPayment} className="bg-green-600 hover:bg-green-700" data-testid="cre-collect-confirm-btn">
+              <CheckCircle2 className="h-4 w-4 mr-2" />Confirm
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

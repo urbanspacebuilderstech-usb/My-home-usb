@@ -26,6 +26,7 @@ import {
   Plus,
   Search,
   Trash2,
+  RefreshCw,
   Edit,
   Truck,
   EyeOff,
@@ -1536,7 +1537,13 @@ export default function PlanningBoard({ embedded = false }) {
                                 paid:      { label: 'Collected',               cls: 'bg-green-100 text-green-700' },
                                 collected: { label: 'Collected',               cls: 'bg-green-100 text-green-700' },
                               };
-                              const cfg = hasPendingApproval
+                              const isCRERejected = e.workflow_status === 'cre_rejected' || (e.cre_rejection_reason && e.workflow_status !== 'requested' && e.workflow_status !== 'collected');
+                              const isAccRejected = !!e.accountant_rejection_reason && e.workflow_status === 'requested';
+                              const cfg = isCRERejected
+                                ? { label: '🔴 CRE Rejected — Edit & Resubmit', cls: 'bg-red-100 text-red-700 border-red-300' }
+                                : isAccRejected
+                                ? { label: '🔴 Accountant Rejected — Re-collect', cls: 'bg-red-100 text-red-700 border-red-300' }
+                                : hasPendingApproval
                                 ? { label: 'Pending Accountant Approval', cls: 'bg-orange-100 text-orange-700' }
                                 : e.workflow_status === 'requested' && !isFullyCollected
                                 ? { label: 'Requested — Awaiting CRE / Accountant', cls: 'bg-blue-100 text-blue-700' }
@@ -1544,7 +1551,8 @@ export default function PlanningBoard({ embedded = false }) {
                               const releaseDate = (e.expected_payment_date || '').slice(0, 10);
                               const isCollected = isFullyCollected;
                               return (
-                                <tr key={e.entry_id} className="hover:bg-gray-50" data-testid={`schedule-row-${e.entry_id}`}>
+                                <React.Fragment key={e.entry_id}>
+                                <tr className="hover:bg-gray-50" data-testid={`schedule-row-${e.entry_id}`}>
                                   <td className="px-4 py-2.5"><p className="font-medium text-sm">{e.project_name}</p></td>
                                   <td className="px-4 py-2.5 text-sm">{e.stage_name}</td>
                                   <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(e.amount)}</td>
@@ -1581,6 +1589,61 @@ export default function PlanningBoard({ embedded = false }) {
                                   <td className="px-4 py-2.5 text-center"><Badge variant="outline" className={`text-xs ${cfg.cls}`}>{cfg.label}</Badge></td>
                                   <td className="px-4 py-2.5 text-center"><Button size="sm" variant="ghost" className="h-7 text-xs text-red-500" onClick={() => handleRemoveScheduleEntry(e.entry_id)} data-testid={`remove-entry-${e.entry_id}`}><Trash2 className="h-3 w-3" /></Button></td>
                                 </tr>
+                                {/* Rejection-detail row — shown ONLY when the stage was rejected by CRE
+                                    or by Accountant. Lets Planning correct the amount/date and resubmit
+                                    without leaving the page. */}
+                                {(isCRERejected || isAccRejected) && (
+                                  <tr className="bg-red-50/50" data-testid={`reject-row-${e.stage_id}`}>
+                                    <td colSpan={8} className="px-4 py-2 border-t border-red-200">
+                                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                                        <div className="text-xs flex-1 min-w-[260px]">
+                                          <p className="text-red-800 font-bold">
+                                            {isCRERejected ? '🔴 Rejected by CRE' : '🔴 Rejected by Accountant'}:{' '}
+                                            <span className="font-medium">
+                                              {(isCRERejected ? e.cre_rejection_reason : e.accountant_rejection_reason) || 'No reason given'}
+                                            </span>
+                                          </p>
+                                          <p className="text-[11px] text-red-600 mt-0.5 italic">
+                                            by {(isCRERejected ? e.cre_rejected_by_name : e.accountant_rejected_by_name) || 'Unknown'}
+                                            {(isCRERejected ? e.cre_rejected_at : e.accountant_rejected_at) && (
+                                              <> on {new Date(isCRERejected ? e.cre_rejected_at : e.accountant_rejected_at).toLocaleString('en-IN')}</>
+                                            )}
+                                          </p>
+                                        </div>
+                                        <Button
+                                          size="sm"
+                                          className="h-7 text-xs bg-blue-600 hover:bg-blue-700"
+                                          data-testid={`planning-resubmit-${e.stage_id}`}
+                                          onClick={async () => {
+                                            const newAmt = window.prompt(`Current amount: ₹${(e.amount || 0).toLocaleString('en-IN')}. Enter corrected amount (leave blank to keep same):`, '');
+                                            const remarks = window.prompt('Remarks for the resubmission?', '');
+                                            try {
+                                              const body = {};
+                                              if (newAmt && !isNaN(parseFloat(newAmt))) body.amount = parseFloat(newAmt);
+                                              if (remarks) body.remarks = remarks;
+                                              if (isCRERejected) {
+                                                await axios.post(`${API}/payment-stages/${e.stage_id}/planning-resubmit`, body);
+                                              } else {
+                                                // Accountant rejected — stage is already back at workflow_status='requested',
+                                                // CRE just needs to re-collect. Use the standard re-request flow.
+                                                if (body.amount) {
+                                                  await axios.patch(`${API}/payment-stages/${e.stage_id}/request`, { amount: body.amount });
+                                                }
+                                              }
+                                              toast.success('Resubmitted. CRE has been notified.');
+                                              fetchMonthlyScheduleFor(scheduleMonth, scheduleYear);
+                                            } catch (err) {
+                                              toast.error(err.response?.data?.detail || 'Resubmit failed');
+                                            }
+                                          }}
+                                        >
+                                          <RefreshCw className="h-3 w-3 mr-1" /> Edit & Resubmit
+                                        </Button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                                </React.Fragment>
                               );
                             })}
                           </tbody>
