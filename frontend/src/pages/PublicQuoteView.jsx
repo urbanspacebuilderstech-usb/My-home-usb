@@ -212,7 +212,7 @@ function QuoteView({ data }) {
             return (
               <Card className="bg-amber-50 border-amber-200" data-testid="quote-inclusions-card">
                 <CardContent className="p-3">
-                  <p className="text-[11px] font-semibold text-amber-700 uppercase mb-2">What's Included</p>
+                  <p className="text-[11px] font-semibold text-amber-700 uppercase mb-2">Planning Notes</p>
                   <ul className="space-y-1.5 text-xs text-amber-800">
                     {lines.map((line, i) => (
                       <li key={i} className="flex items-start gap-1.5">
