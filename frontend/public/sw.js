@@ -1,82 +1,41 @@
-// Service Worker — myhomeusb
-// Strategy:
-//   • index.html / navigations → ALWAYS network (so users get latest chunk hashes after deploy)
-//   • Hashed static assets (.js / .css with content-hash in filename) → cache-first (safe; URL changes on deploy)
-//   • API requests → never intercepted (let app handle auth, errors, retries)
-const CACHE_NAME = 'myhomeusb-v4';
+// Service Worker — KILL SWITCH
+// =============================
+// Why this file exists as a kill-switch:
+//   Earlier versions of myhomeusb shipped a fetch-intercepting SW that, on
+//   network failure, returned a literal "Offline" string. When users in the
+//   office hit a network block, the SW would serve that bare "Offline" text
+//   instead of letting the browser show its own (recoverable) error page —
+//   and because SWs are sticky, the page stayed broken even AFTER the network
+//   came back. This was a self-inflicted denial-of-service.
+//
+// What this file does now:
+//   1. Skips the install / waiting phase immediately.
+//   2. On activate it: (a) deletes every cache it owns, (b) unregisters
+//      itself, (c) reloads every open tab so the page fetches normally
+//      from the network instead of from the dead SW.
+//   3. Has NO fetch handler — so requests go straight to the network /
+//      browser cache. The browser's own network-error UI (which the user
+//      can refresh / debug) is used instead of a custom "Offline" string.
+//
+// Result: any laptop that ever installed the bad SW will, on next visit,
+// silently clean itself up and never get the "Offline" page again.
 
-// Install - take over immediately
-self.addEventListener('install', (event) => {
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
-// Activate - clean ALL old caches (any name) and claim clients now
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
-      ))
-      .then(() => self.clients.claim())
-  );
-});
-
-// Helper: detect content-hashed assets (CRA produces /static/js/main.HASH.js etc.)
-function isHashedStaticAsset(url) {
-  return /\/static\/(js|css|media)\//.test(url);
-}
-
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-
-  // Never intercept non-GET or API
-  if (request.method !== 'GET' || request.url.includes('/api/')) return;
-
-  const url = new URL(request.url);
-
-  // Always-fresh: HTML navigations + index.html + sw.js + manifest
-  const isNavigation = request.mode === 'navigate' || request.destination === 'document';
-  const isFreshAlways = isNavigation
-    || url.pathname === '/'
-    || url.pathname === '/index.html'
-    || url.pathname === '/manifest.json'
-    || url.pathname === '/sw.js';
-
-  if (isFreshAlways) {
-    event.respondWith(
-      fetch(request, { cache: 'no-store' })
-        .catch(() => caches.match('/index.html').then((c) => c || new Response('Offline', { status: 503 })))
-    );
-    return;
-  }
-
-  // Hashed static assets: cache-first, then network
-  if (isHashedStaticAsset(url.pathname)) {
-    event.respondWith(
-      caches.match(request).then((cached) => {
-        if (cached) return cached;
-        return fetch(request).then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          }
-          return response;
-        });
-      })
-    );
-    return;
-  }
-
-  // Everything else: network-first with cache fallback
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        if (response.ok) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-        }
-        return response;
-      })
-      .catch(() => caches.match(request).then((cached) => cached || new Response('Offline', { status: 503 })))
-  );
+  event.waitUntil((async () => {
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    } catch (e) { /* noop */ }
+    try {
+      await self.registration.unregister();
+    } catch (e) { /* noop */ }
+    try {
+      const clients = await self.clients.matchAll({ type: 'window' });
+      clients.forEach((client) => { try { client.navigate(client.url); } catch (e) {} });
+    } catch (e) { /* noop */ }
+  })());
 });

@@ -134,9 +134,35 @@
             });
         </script>
         <script>
+          // Service Worker cleanup. The kill-switch SW at /sw.js will run
+          // once, unregister itself, and clear all caches — preventing the
+          // "Offline" lockout caused by the previous SW. We deliberately
+          // re-register here so any client that's already on a stale page
+          // still triggers the kill-switch on their next refresh.
           if ('serviceWorker' in navigator) {
-            window.addEventListener('load', function() {
-              navigator.serviceWorker.register('/sw.js').catch(function() {});
+            window.addEventListener('load', function () {
+              navigator.serviceWorker.register('/sw.js').catch(function () {});
+              // Defensive: explicitly unregister any straggler SWs even if
+              // the kill-switch failed (e.g. old browser, weird cache state).
+              if (navigator.serviceWorker.getRegistrations) {
+                navigator.serviceWorker.getRegistrations()
+                  .then(function (regs) {
+                    regs.forEach(function (r) {
+                      if (r.active && r.active.scriptURL.indexOf('/sw.js') > -1) {
+                        // The kill-switch SW handles cache deletion on activate.
+                        // We unregister here as well so the next page load is SW-free.
+                        r.unregister().catch(function () {});
+                      }
+                    });
+                  })
+                  .catch(function () {});
+                // Wipe the Cache Storage too, in case the legacy SW seeded it.
+                if (window.caches && caches.keys) {
+                  caches.keys().then(function (keys) {
+                    keys.forEach(function (k) { caches.delete(k).catch(function () {}); });
+                  }).catch(function () {});
+                }
+              }
             });
           }
         </script>
