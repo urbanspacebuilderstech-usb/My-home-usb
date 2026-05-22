@@ -161,6 +161,8 @@ export default function CREBoard() {
   const [selectedProject, setSelectedProject] = useState(null);
   const [collectDialog, setCollectDialog] = useState(false);
   const [selectedPaymentStage, setSelectedPaymentStage] = useState(null);
+  const [creRejectDialog, setCreRejectDialog] = useState(false);
+  const [creRejectReason, setCreRejectReason] = useState('');
   const [collectForm, setCollectForm] = useState({ amount: '', remarks: '' });
   const [collectPaymentEntries, setCollectPaymentEntries] = useState([{ amount: '', payment_mode: 'bank_transfer', reference: '', cheque_details: [] }]);
 
@@ -486,12 +488,16 @@ export default function CREBoard() {
 
   const handleRejectPaymentRequest = async () => {
     if (!selectedPaymentStage) return;
-    const reason = window.prompt('Reason for rejecting this payment request? (will be sent to Planning so they can correct & resubmit)');
-    if (!reason || !reason.trim()) return;
+    if (!creRejectReason.trim()) {
+      toast.error('Rejection reason is required');
+      return;
+    }
     try {
-      await axios.post(`${API}/payment-stages/${selectedPaymentStage.stage_id}/cre-reject`, { reason: reason.trim() });
+      await axios.post(`${API}/payment-stages/${selectedPaymentStage.stage_id}/cre-reject`, { reason: creRejectReason.trim() });
       toast.success('Rejected. Planning has been notified.');
+      setCreRejectDialog(false);
       setCollectDialog(false);
+      setCreRejectReason('');
       setCollectForm({ amount: '', remarks: '' });
       setCollectPaymentEntries([{ amount: '', payment_mode: 'bank_transfer', reference: '', cheque_details: [] }]);
       fetchData(false);
@@ -1371,7 +1377,7 @@ export default function CREBoard() {
             <Button variant="outline" onClick={() => setCollectDialog(false)}>Cancel</Button>
             <Button
               variant="outline"
-              onClick={handleRejectPaymentRequest}
+              onClick={() => { setCreRejectReason(''); setCreRejectDialog(true); }}
               className="text-red-600 border-red-300 hover:bg-red-50"
               data-testid="cre-collect-reject-btn"
             >
@@ -1381,6 +1387,50 @@ export default function CREBoard() {
               <CheckCircle2 className="h-4 w-4 mr-2" />Confirm
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ==================== CRE REJECT REQUEST DIALOG ====================
+          Mirrors the Accountant's "Reject Income" UI so the CRE flow feels
+          consistent across the board. */}
+      <Dialog open={creRejectDialog} onOpenChange={(o) => { setCreRejectDialog(o); if (!o) setCreRejectReason(''); }}>
+        <DialogContent className="max-w-md" data-testid="cre-reject-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <XCircle className="h-5 w-5" /> Reject Payment Request
+            </DialogTitle>
+            <DialogDescription>
+              The Planning user will be notified to correct and resubmit this request.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedPaymentStage && (
+            <Card className="bg-red-50 border-red-200">
+              <CardContent className="p-3 text-xs space-y-1">
+                <p><span className="text-gray-500">Project:</span> <span className="font-semibold">{selectedPaymentStage.project_name}</span></p>
+                <p><span className="text-gray-500">Stage:</span> <span className="font-semibold">{selectedPaymentStage.stage_name || selectedPaymentStage.stage_label}</span></p>
+                <p><span className="text-gray-500">Requested Amount:</span> <span className="font-bold text-red-700">₹{(selectedPaymentStage.amount || 0).toLocaleString('en-IN')}</span></p>
+              </CardContent>
+            </Card>
+          )}
+          <div>
+            <Label className="text-sm">Reason for rejection *</Label>
+            <Textarea
+              className="mt-1 text-sm"
+              rows={4}
+              value={creRejectReason}
+              onChange={(e) => setCreRejectReason(e.target.value)}
+              placeholder="Enter rejection reason..."
+              data-testid="cre-reject-reason"
+            />
+          </div>
+          <Button
+            onClick={handleRejectPaymentRequest}
+            disabled={!creRejectReason.trim()}
+            className="w-full bg-red-500 hover:bg-red-600 text-white disabled:opacity-50"
+            data-testid="cre-reject-confirm-btn"
+          >
+            Confirm Reject
+          </Button>
         </DialogContent>
       </Dialog>
 

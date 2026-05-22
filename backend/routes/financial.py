@@ -966,61 +966,69 @@ async def reject_income(income_id: str, reason: str = "", user: User = Depends(g
     inc_category = (inc.get("category") or "").lower()
     payment_stage_id = inc.get("payment_stage_id")
     if inc_category == "payment_collection" and payment_stage_id:
-        try:
-            stage = await db.payment_stages.find_one({"stage_id": payment_stage_id}, {"_id": 0})
-            if stage:
-                # Roll the stage back to 'requested' so CRE Collect Payment
-                # queue picks it up again. Subtract the rejected amount from
-                # amount_received so the schedule stays accurate.
-                amt = float(inc.get("amount", 0) or 0)
-                new_received = max(0, float(stage.get("amount_received", 0) or 0) - amt)
-                new_status = "paid" if new_received >= float(stage.get("amount", 0) or 0) and new_received > 0 else ("partial" if new_received > 0 else "pending")
-                await db.payment_stages.update_one(
-                    {"stage_id": payment_stage_id},
-                    {"$set": {
-                        "amount_received": new_received,
-                        "status": new_status,
-                        "workflow_status": "requested",
-                        "accountant_rejection_reason": reason or "Rejected by Accountant",
-                        "accountant_rejected_at": datetime.now(timezone.utc).isoformat(),
-                        "accountant_rejected_by_name": user.name,
-                    }}
-                )
-                # Notify Planning (the requester) + all Planning users.
-                project_name = inc.get("project_name") or "Project"
-                stage_name = stage.get("stage_name") or stage.get("stage_label") or "stage"
-                if stage.get("requested_by"):
-                    try:
-                        await create_notification(
-                            stage["requested_by"],
-                            f"Accountant rejected the payment for {project_name} - {stage_name}. Reason: {reason or 'No remarks'}. The stage has been returned to the CRE queue."
-                        )
-                    except Exception:
-                        pass
-                planning_users = await db.users.find({"role": "planning", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(20)
-                for pu in planning_users:
-                    if pu["user_id"] == stage.get("requested_by"):
-                        continue
-                    try:
-                        await create_notification(
-                            pu["user_id"],
-                            f"Accountant rejected a payment for {project_name} - {stage_name}. Reason: {reason or 'No remarks'}."
-                        )
-                    except Exception:
-                        pass
-                # Notify all CRE users so the row reappears in their collect queue.
-                cre_users = await db.users.find({"role": "cre", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(20)
-                for u in cre_users:
-                    try:
-                        await create_notification(
-                            u["user_id"],
-                            f"Accountant rejected payment ₹{amt:,.0f} for {project_name} - {stage_name}. Please re-collect."
-                        )
-                    except Exception:
-                        pass
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"payment_stage rollback failed for income {income_id}: {e}")
+        import logging as _logging
+        _log = _logging.getLogger(__name__)
+        stage = await db.payment_stages.find_one({"stage_id": payment_stage_id}, {"_id": 0})
+        if stage:
+            amt = float(inc.get("amount", 0) or 0)
+            new_received = max(0, float(stage.get("amount_received", 0) or 0) - amt)
+            new_status = "paid" if new_received >= float(stage.get("amount", 0) or 0) and new_received > 0 else ("partial" if new_received > 0 else "pending")
+            await db.payment_stages.update_one(
+                {"stage_id": payment_stage_id},
+                {"$set": {
+                    "amount_received": new_received,
+                    "status": new_status,
+                    "workflow_status": "requested",
+                    "accountant_rejection_reason": reason or "Rejected by Accountant",
+                    "accountant_rejected_at": datetime.now(timezone.utc).isoformat(),
+                    "accountant_rejected_by_name": user.name,
+                }}
+            )
+            project_name = inc.get("project_name") or "Project"
+            stage_name = stage.get("stage_name") or stage.get("stage_label") or "stage"
+            notif_count = 0
+
+            # Notify the Planning user who raised the request (priority recipient).
+            requester = stage.get("requested_by") or inc.get("planning_user_id")
+            if requester:
+                try:
+                    await create_notification(
+                        requester,
+                        f"Accountant rejected the payment for {project_name} - {stage_name}. Reason: {reason or 'No remarks'}. The stage has been returned to the CRE queue."
+                    )
+                    notif_count += 1
+                except Exception as e:
+                    _log.error(f"notify requester failed: {e}", exc_info=True)
+
+            # Notify all CRE users so the row reappears in their collect queue.
+            cre_users = await db.users.find({"role": "cre", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(50)
+            for u in cre_users:
+                try:
+                    await create_notification(
+                        u["user_id"],
+                        f"Accountant rejected payment ₹{amt:,.0f} for {project_name} - {stage_name}. Please re-collect."
+                    )
+                    notif_count += 1
+                except Exception as e:
+                    _log.error(f"notify cre {u['user_id']} failed: {e}", exc_info=True)
+
+            # Notify all Planning users (besides the original requester).
+            planning_users = await db.users.find({"role": "planning", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(50)
+            for pu in planning_users:
+                if pu["user_id"] == requester:
+                    continue
+                try:
+                    await create_notification(
+                        pu["user_id"],
+                        f"Accountant rejected a payment for {project_name} - {stage_name}. Reason: {reason or 'No remarks'}."
+                    )
+                    notif_count += 1
+                except Exception as e:
+                    _log.error(f"notify planning {pu['user_id']} failed: {e}", exc_info=True)
+
+            _log.info(f"income reject: notified {notif_count} users for income={income_id} stage={payment_stage_id}")
+        else:
+            _log.warning(f"income reject: payment_stage_id={payment_stage_id} not found for income={income_id}")
 
     # If this income originated from a Sales Lead advance (lead_id is set), bounce
     # the lead back to Deal Close + flip its onboarding_status to
