@@ -5272,10 +5272,16 @@ export default function ProjectDetail() {
                         const isPaid = balance <= 0;
                         const isRequested = stage.workflow_status === 'requested' || stage.workflow_status === 'pending_collection';
                         const isPartial = stage.amount_received > 0 && balance > 0;
-                        
+                        const isCRERejected = stage.workflow_status === 'cre_rejected' || (!!stage.cre_rejection_reason && stage.workflow_status !== 'requested' && stage.workflow_status !== 'collected');
+                        const isAccRejected = !!stage.accountant_rejection_reason && stage.workflow_status === 'requested' && (stage.amount_received || 0) === 0;
+
                         // Determine status badge
                         let statusBadge;
-                        if (isPaid) {
+                        if (isCRERejected) {
+                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-300">🔴 CRE Rejected</span>;
+                        } else if (isAccRejected) {
+                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-300">🔴 Accountant Rejected</span>;
+                        } else if (isPaid) {
                           statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Collected</span>;
                         } else if (isPartial) {
                           statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Partially Collected</span>;
