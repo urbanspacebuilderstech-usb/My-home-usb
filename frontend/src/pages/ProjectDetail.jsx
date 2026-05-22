@@ -5280,9 +5280,9 @@ export default function ProjectDetail() {
                         // Determine status badge
                         let statusBadge;
                         if (isCRERejected) {
-                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-300">🔴 CRE Rejected</span>;
+                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">🔴 CRE Rejected</span>;
                         } else if (isAccRejected) {
-                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-300">🔴 Accountant Rejected</span>;
+                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">🔴 Accountant Rejected</span>;
                         } else if (isPaid) {
                           statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Collected</span>;
                         } else if (isPartial) {
