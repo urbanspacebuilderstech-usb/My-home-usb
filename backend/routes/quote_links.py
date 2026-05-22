@@ -198,8 +198,10 @@ async def public_get_quote(token: str):
     re_project = await db.re_projects.find_one({"re_project_id": link["re_project_id"]}, {"_id": 0})
     if not re_project:
         raise HTTPException(status_code=404, detail="Quote details not found")
-    # CLIENT-FACING: never expose internal rejection notes / GM critique
-    for k in ("gm_rejection_reason", "rejection_history", "internal_notes", "planning_notes"):
+    # CLIENT-FACING: never expose internal rejection notes / GM critique.
+    # planning_notes IS exposed deliberately — they're the inclusions list that
+    # Planning curates for the client (replaces the hardcoded "What's Included").
+    for k in ("gm_rejection_reason", "rejection_history", "internal_notes"):
         re_project.pop(k, None)
     sales_person = {
         "name": link.get("sales_user_name"),

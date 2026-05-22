@@ -195,26 +195,36 @@ function QuoteView({ data }) {
             </Card>
           )}
 
-          <Card className="bg-amber-50 border-amber-200">
-            <CardContent className="p-3">
-              <p className="text-[11px] font-semibold text-amber-700 uppercase mb-2">What's Included</p>
-              <ul className="space-y-1.5 text-xs text-amber-800">
-                {[
-                  'Approved drawings & structural plans',
-                  'Quality materials with brand options',
-                  'Skilled labour managed end-to-end',
-                  `On-time handover within ${months || 'agreed'} months`,
-                  'Dedicated CRE & site engineer assigned',
-                  'Real-time project tracking via mobile updates',
-                ].map((line, i) => (
-                  <li key={i} className="flex items-start gap-1.5">
-                    <CheckCircle className="h-3 w-3 text-amber-600 mt-0.5 shrink-0" />
-                    <span>{line}</span>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
+          {/* Planning Notes — what's-included for this specific RE.
+              Planning enters one bullet per line in /planning-board → Edit RE.
+              We split on newlines, strip blanks, and render as a bullet list.
+              If Planning hasn't entered any notes yet we hide the card entirely
+              (no hardcoded fallback — the client should only see what Planning
+              has explicitly approved). */}
+          {(() => {
+            const notes = (re.planning_notes || '').toString().trim();
+            if (!notes) return null;
+            const lines = notes
+              .split(/\r?\n/)
+              .map((l) => l.trim())
+              .filter(Boolean);
+            if (lines.length === 0) return null;
+            return (
+              <Card className="bg-amber-50 border-amber-200" data-testid="quote-inclusions-card">
+                <CardContent className="p-3">
+                  <p className="text-[11px] font-semibold text-amber-700 uppercase mb-2">What's Included</p>
+                  <ul className="space-y-1.5 text-xs text-amber-800">
+                    {lines.map((line, i) => (
+                      <li key={i} className="flex items-start gap-1.5">
+                        <CheckCircle className="h-3 w-3 text-amber-600 mt-0.5 shrink-0" />
+                        <span>{line}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           {data?.approved_at && (
             <p className="text-[11px] text-center text-gray-400">✓ Approved by management on {new Date(data.approved_at).toLocaleDateString('en-IN')}</p>
