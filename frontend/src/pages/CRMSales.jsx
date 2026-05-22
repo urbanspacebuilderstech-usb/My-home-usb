@@ -814,6 +814,33 @@ export default function CRMSales() {
     if (Math.abs(totalPayEntries - parseFloat(convertAdvanceAmount)) > 1) { toast.error(`Payment entries (₹${totalPayEntries.toLocaleString('en-IN')}) must equal advance amount (₹${parseFloat(convertAdvanceAmount).toLocaleString('en-IN')})`); return; }
     if (!convertAccountantConfirmed) { toast.error('Please confirm accountant verification'); return; }
     try {
+      // If the lead has already been converted once and the Accountant rejected
+      // the advance, the project + RE project already exist. We must NOT call
+      // convert-deal again (it would 400 with "RE Project not in a dealable
+      // state"). Instead route through the dedicated resubmit-advance endpoint
+      // which inserts a fresh income row + bounces the lead to Accountant
+      // Approval without recreating the project.
+      const isResubmit = convertDeal.onboarding_status === 'accountant_rejected'
+        && (convertDeal.project_id || convertDeal.re_project_id);
+
+      if (isResubmit) {
+        await axios.post(`${API}/crm/leads/${convertDeal.lead_id}/resubmit-advance`, {
+          advance_amount: parseFloat(convertAdvanceAmount),
+          payment_entries: convertPaymentEntries.map(e => ({
+            amount: parseFloat(e.amount) || 0,
+            payment_mode: e.payment_mode,
+            reference: e.reference || '',
+            payment_date: e.payment_date || new Date().toISOString().split('T')[0],
+            cheque_details: e.payment_mode === 'cheque' ? e.cheque_details : null,
+          })),
+          remarks: '',
+        });
+        toast.success('Advance resubmitted! Sent to Accountant for verification.');
+        setConvertDealDialog(false);
+        fetchData(false);
+        return;
+      }
+
       const endpoint = convertDeal.re_project_id
         ? `${API}/cre/convert-re-project/${convertDeal.re_project_id}`
         : `${API}/cre/convert-deal/${convertDeal.lead_id}`;

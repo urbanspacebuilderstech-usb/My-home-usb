@@ -8,6 +8,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 import uuid
+import secrets
 import asyncio
 import logging
 
@@ -1588,6 +1589,153 @@ async def accountant_verify(lead_id: str, user: User = Depends(get_current_user)
         await db.notifications.insert_one(notif)
     
     return {"message": "Advance payment verified by accountant"}
+
+
+class ResubmitAdvanceEntry(BaseModel):
+    amount: float
+    payment_mode: str
+    reference: Optional[str] = ""
+    payment_date: Optional[str] = None
+    cheque_details: Optional[Dict[str, Any]] = None
+
+
+class ResubmitAdvanceRequest(BaseModel):
+    advance_amount: float
+    payment_entries: List[ResubmitAdvanceEntry]
+    remarks: Optional[str] = ""
+
+
+@router.post("/crm/leads/{lead_id}/resubmit-advance")
+async def resubmit_lead_advance(lead_id: str, data: ResubmitAdvanceRequest, user: User = Depends(get_current_user)):
+    """Sales/CRE re-enters the advance on a lead whose first attempt was rejected
+    by the Accountant.
+
+    Distinct from convert-deal: the project ALREADY exists (created during the
+    original deal close). This endpoint just inserts a fresh income row tied to
+    that project + lead, clears the lead's rejection markers, and bounces the
+    lead back into the Accountant Approval kanban column. The previously
+    rejected income row stays in `status: rejected` for audit history.
+    """
+    if user.role not in [UserRole.CRE, UserRole.SALES, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Sales or CRE can resubmit advance")
+
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if lead.get("onboarding_status") != "accountant_rejected":
+        raise HTTPException(status_code=400, detail=f"Lead not in 'accountant_rejected' state (current: '{lead.get('onboarding_status')}')")
+
+    # Find the linked project — set on the lead at convert-deal time.
+    project_id = lead.get("project_id")
+    if not project_id and lead.get("re_project_id"):
+        proj = await db.projects.find_one({"re_project_id": lead["re_project_id"]}, {"_id": 0, "project_id": 1, "name": 1})
+        if proj:
+            project_id = proj["project_id"]
+
+    if not project_id:
+        raise HTTPException(status_code=400, detail="No project linked to this lead — use Deal Close (convert) instead of resubmit")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "project_id": 1, "name": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Linked project not found")
+
+    if not data.payment_entries:
+        raise HTTPException(status_code=400, detail="At least one payment entry is required")
+    total_entered = sum(float(e.amount or 0) for e in data.payment_entries)
+    if abs(total_entered - float(data.advance_amount)) > 1:
+        raise HTTPException(status_code=400, detail="Payment entries must sum to the advance amount")
+
+    now = datetime.now(timezone.utc)
+
+    # 1. Insert a new income row for each payment entry (or one composite row).
+    primary_mode = data.payment_entries[0].payment_mode if data.payment_entries else "cash"
+    primary_ref = data.payment_entries[0].reference if data.payment_entries else ""
+    income_id = f"inc_{secrets.token_hex(6)}"
+    await db.income.insert_one({
+        "income_id": income_id,
+        "project_id": project_id,
+        "project_name": project["name"],
+        "lead_id": lead_id,
+        "category": "advance_payment",
+        "sub_category": "Resubmitted Advance",
+        "amount": float(data.advance_amount),
+        "payment_mode": primary_mode,
+        "payment_reference": primary_ref,
+        "payment_date": (data.payment_entries[0].payment_date or now.date().isoformat()) if data.payment_entries else now.date().isoformat(),
+        "stage": "Advance Payment",
+        "description": f"Resubmitted advance after rejection - {lead.get('name')}",
+        "collected_by": user.user_id,
+        "collected_by_name": user.name,
+        "created_by": user.user_id,
+        "status": "pending_approval",
+        "source": "resubmit",
+        "payment_entries": [e.dict() for e in data.payment_entries],
+        "remarks": data.remarks or "",
+        "created_at": now.isoformat(),
+    })
+
+    # 2. Update the lead — clear rejection markers, bounce to Accountant Approval.
+    advance_doc = {
+        "advance_amount": float(data.advance_amount),
+        "payment_entries": [e.dict() for e in data.payment_entries],
+        "collected_by": user.user_id,
+        "collected_by_name": user.name,
+        "collected_at": now.isoformat(),
+        "income_id": income_id,
+        "remarks": data.remarks or "",
+    }
+    stage_history = lead.get("stage_history", [])
+    stage_history.append({
+        "stage_id": "stg_accountant_approval",
+        "from_stage_id": lead.get("current_stage_id"),
+        "moved_at": now.isoformat(),
+        "moved_by": user.user_id,
+        "action": "advance_resubmitted",
+        "amount": float(data.advance_amount),
+    })
+
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {
+            "$set": {
+                "advance_payment": advance_doc,
+                "onboarding_status": "accountant_pending",
+                "current_stage_id": "stg_accountant_approval",
+                "stage_history": stage_history,
+                "updated_at": now,
+            },
+            "$unset": {
+                "rejection_reason": "",
+                "rejected_by": "",
+                "rejected_by_name": "",
+                "rejected_at": "",
+            },
+        },
+    )
+
+    # 3. Notify accountants.
+    accountants = await db.users.find({"role": UserRole.ACCOUNTANT, "is_active": True}, {"_id": 0, "user_id": 1}).to_list(20)
+    for a in accountants:
+        try:
+            await db.notifications.insert_one({
+                "notification_id": f"notif_{datetime.now(timezone.utc).timestamp()}_{a['user_id']}",
+                "user_id": a["user_id"],
+                "title": "Advance Resubmitted",
+                "message": f"{user.name} resubmitted advance ₹{data.advance_amount:,.0f} for {lead.get('name')} after rejection. Please verify.",
+                "type": "advance_resubmitted",
+                "reference_id": lead_id,
+                "is_read": False,
+                "created_at": now,
+            })
+        except Exception:
+            pass
+
+    return {
+        "message": "Advance resubmitted for accountant approval",
+        "income_id": income_id,
+        "project_id": project_id,
+        "onboarding_status": "accountant_pending",
+    }
 
 
 class AccountantRejectLeadAdvance(BaseModel):
