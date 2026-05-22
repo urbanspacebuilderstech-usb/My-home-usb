@@ -600,6 +600,12 @@ async def convert_re_project_to_project(
                 "income_id": income_id,
                 "project_id": project_id,
                 "project_name": project_name,
+                # Persist the originating lead so the income-reject endpoint
+                # can bounce the lead back to Deal Close + set the red
+                # rejection banner. Without this link the income reject was
+                # invisible to the Sales user.
+                "lead_id": re_project.get("lead_id"),
+                "re_project_id": re_project_id,
                 "category": "advance_payment",
                 "sub_category": f"Advance - {entry_mode.replace('_', ' ').title()}",
                 "amount": entry_amount,

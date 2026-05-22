@@ -958,10 +958,60 @@ async def reject_income(income_id: str, reason: str = "", user: User = Depends(g
         except Exception:
             pass
 
-    await create_audit_log(user.user_id, "reject", "income", income_id, {"reason": reason, "was_approved": was_approved})
+    # If this income originated from a Sales Lead advance (lead_id is set), bounce
+    # the lead back to Deal Close + flip its onboarding_status to
+    # 'accountant_rejected'. This is what fires the red banner on the Sales
+    # board so the CRE/Sales user can re-enter the advance — matching the
+    # parity behaviour of POST /api/crm/leads/{lead_id}/accountant-reject.
+    lead_id = inc.get("lead_id")
+    if lead_id:
+        lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+        if lead:
+            now = datetime.now(timezone.utc)
+            stage_history = lead.get("stage_history", [])
+            stage_history.append({
+                "stage_id": "stg_payment_collect",
+                "from_stage_id": lead.get("current_stage_id"),
+                "moved_at": now.isoformat(),
+                "moved_by": user.user_id,
+                "action": "accountant_rejected_via_income",
+                "reason": reason or "No remarks",
+            })
+            advance_update = lead.get("advance_payment") or {}
+            advance_update.update({
+                "rejection_reason": reason or "No remarks",
+                "rejected_by_name": user.name,
+                "rejected_at": now.isoformat(),
+            })
+            await db.leads.update_one(
+                {"lead_id": lead_id},
+                {"$set": {
+                    "onboarding_status": "accountant_rejected",
+                    "current_stage_id": "stg_payment_collect",
+                    "stage_history": stage_history,
+                    "advance_payment": advance_update,
+                    "rejection_reason": reason or "No remarks",
+                    "rejected_by_name": user.name,
+                    "rejected_at": now.isoformat(),
+                    "updated_at": now,
+                }}
+            )
+            # Notify the lead's assigned sales/CRE user.
+            assigned = lead.get("assigned_to")
+            if assigned:
+                try:
+                    await create_notification(
+                        assigned,
+                        f"Advance payment for lead '{lead.get('name')}' was REJECTED by Accountant. Reason: {reason or 'No remarks'}. Please re-enter the advance from the Deal Close column."
+                    )
+                except Exception:
+                    pass
+
+    await create_audit_log(user.user_id, "reject", "income", income_id, {"reason": reason, "was_approved": was_approved, "lead_id": lead_id})
     return {
         "message": "Income rejected. Cashbook & cashflow rolled back." if was_approved else "Income rejected and returned for correction",
         "was_approved_before_reject": was_approved,
+        "lead_bounced": bool(lead_id),
     }
 
 

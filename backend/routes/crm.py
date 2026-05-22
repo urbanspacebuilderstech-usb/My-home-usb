@@ -1779,6 +1779,9 @@ async def move_to_planning(lead_id: str, data: MoveToPlanning, user: User = Depe
             "income_id": f"inc_{uuid.uuid4().hex[:12]}",
             "project_id": main_project["project_id"],
             "project_name": main_project["name"],
+            # Persist the originating lead so the income-reject endpoint
+            # can bounce the lead back to Deal Close + show the red banner.
+            "lead_id": lead_id,
             "category": "advance_payment",
             "sub_category": "Deal Conversion Advance",
             "amount": advance["advance_amount"],
