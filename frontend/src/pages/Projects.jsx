@@ -102,6 +102,13 @@ export default function Projects() {
         window.location.replace('/planning-board');
         return;
       }
+
+      // Super Admin & Planning Head — All Projects page is deprecated in favour
+      // of the Planning Board's project list (which has filters + role views).
+      if (response.data.role === 'super_admin' || response.data.role === 'planning') {
+        window.location.replace('/planning-board');
+        return;
+      }
       
       // Fetch projects only for non-site-engineers
       fetchProjects();
