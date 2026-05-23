@@ -910,13 +910,12 @@ export default function HRPortal() {
                           <td className="px-4 py-3 text-center"><Badge className={u.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>{u.is_active ? 'Active' : 'Inactive'}</Badge></td>
                           <td className="px-4 py-3 text-center">
                             <div className="flex justify-center gap-1">
-                              {user?.role === 'super_admin' && (<>
-                                <Button size="sm" variant="ghost" onClick={() => openRoleDialog(u)} data-testid={`edit-user-${u.user_id}`}><Edit className="h-4 w-4" /></Button>
-                                <Button size="sm" variant="ghost" className="text-amber-600" onClick={() => { setSelectedUser(u); setNewPassword(''); setResetPwdDialog(true); }} data-testid={`reset-pwd-${u.user_id}`}><Key className="h-4 w-4" /></Button>
-                                <Button size="sm" variant="ghost" className="text-red-600" onClick={() => handleDeleteUser(u.user_id)} data-testid={`delete-user-${u.user_id}`}><Trash2 className="h-4 w-4" /></Button>
+                              {(user?.role === 'super_admin' || user?.role === 'hr') && (<>
+                                <Button size="sm" variant="ghost" onClick={() => openRoleDialog(u)} data-testid={`edit-user-${u.user_id}`} title="Edit User"><Edit className="h-4 w-4" /></Button>
+                                <Button size="sm" variant="ghost" className="text-amber-600" onClick={() => { setSelectedUser(u); setNewPassword(''); setResetPwdDialog(true); }} data-testid={`reset-pwd-${u.user_id}`} title="Reset Password"><Key className="h-4 w-4" /></Button>
                               </>)}
-                              {user?.role === 'hr' && (
-                                <Button size="sm" variant="ghost" className="text-amber-600" onClick={() => { setSelectedUser(u); setNewPassword(''); setResetPwdDialog(true); }} data-testid={`reset-pwd-hr-${u.user_id}`} title="Reset Password"><Key className="h-4 w-4" /></Button>
+                              {user?.role === 'super_admin' && (
+                                <Button size="sm" variant="ghost" className="text-red-600" onClick={() => handleDeleteUser(u.user_id)} data-testid={`delete-user-${u.user_id}`} title="Delete User"><Trash2 className="h-4 w-4" /></Button>
                               )}
                             </div>
                           </td>

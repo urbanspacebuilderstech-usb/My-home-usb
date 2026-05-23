@@ -4228,10 +4228,26 @@ async def get_all_users_for_hr(role: Optional[str] = None, user: User = Depends(
 
 @router.patch("/hr/users/{user_id}/update-role")
 async def update_user_role(user_id: str, updates: dict, user: User = Depends(get_current_user)):
-    """Update a user's role, active status, name, phone, or email"""
-    if user.role != UserRole.SUPER_ADMIN:
-        raise HTTPException(status_code=403, detail="Only Super Admin can update roles")
-    
+    """Update a user's role, active status, name, phone, or email.
+
+    HR can edit users EXCEPT super_admin / general_manager roles (cannot
+    promote anyone to / demote anyone from those privileged roles).
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.HR]:
+        raise HTTPException(status_code=403, detail="Only Super Admin or HR can edit users")
+
+    # Look up target user once for HR guard rails
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "role": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    protected_roles = {UserRole.SUPER_ADMIN.value, UserRole.GENERAL_MANAGER.value}
+    if user.role == UserRole.HR:
+        if target.get("role") in protected_roles:
+            raise HTTPException(status_code=403, detail="HR cannot edit Super Admin / General Manager users")
+        if "role" in updates and updates["role"] in protected_roles:
+            raise HTTPException(status_code=403, detail="HR cannot assign Super Admin / General Manager roles")
+
     allowed = {}
     if "role" in updates:
         allowed["role"] = updates["role"]
