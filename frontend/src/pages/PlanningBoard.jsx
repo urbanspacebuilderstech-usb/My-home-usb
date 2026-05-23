@@ -278,6 +278,13 @@ export default function PlanningBoard({ embedded = false }) {
   // Planning Persons (managed by Planning Head)
   const [planningPersons, setPlanningPersons] = useState([]);
   const [planningPersonFilter, setPlanningPersonFilter] = useState('all'); // 'all' | 'unassigned' | user_id
+  // All active team members across every role (Architect, PM, Planning Person,
+  // Sr.SE, SE, CRE, QC, Procurement, …) — used by the new "Filter by Team
+  // Member" search box on the All Projects board.
+  const [allTeamUsers, setAllTeamUsers] = useState([]);
+  const [teamMemberQuery, setTeamMemberQuery] = useState('');
+  const [teamMemberFilterUserId, setTeamMemberFilterUserId] = useState('');
+  const [showTeamSuggestions, setShowTeamSuggestions] = useState(false);
 
   // Requests (site engineer + payment)
   const [pendingRequests, setPendingRequests] = useState([]);
@@ -376,7 +383,7 @@ export default function PlanningBoard({ embedded = false }) {
       }
       setUser(userRes.data);
 
-      const [dashRes, projRes, payReqRes, matReqRes, labReqRes, newCRERes, reProjRes, ppRes] = await Promise.allSettled([
+      const [dashRes, projRes, payReqRes, matReqRes, labReqRes, newCRERes, reProjRes, ppRes, teamRes] = await Promise.allSettled([
         axios.get(`${API}/planning/stage-dashboard`),
         axios.get(`${API}/planning/projects-by-stage`),
         axios.get(`${API}/work-orders/payment-requests`),
@@ -385,6 +392,7 @@ export default function PlanningBoard({ embedded = false }) {
         axios.get(`${API}/planning/projects?status=new`),
         axios.get(`${API}/crm/re-projects`).catch(() => ({ data: [] })),
         axios.get(`${API}/hr/users?role=planning_person`).catch(() => ({ data: [] })),
+        axios.get(`${API}/users/team-members`).catch(() => ({ data: [] })),
       ]);
 
       if (dashRes.status === 'fulfilled') setStages(dashRes.value.data.stages || []);
@@ -394,6 +402,9 @@ export default function PlanningBoard({ embedded = false }) {
       if (ppRes.status === 'fulfilled') {
         const list = Array.isArray(ppRes.value.data) ? ppRes.value.data : (ppRes.value.data?.users || []);
         setPlanningPersons(list.filter(u => u.is_active !== false && u.role === 'planning_person'));
+      }
+      if (teamRes.status === 'fulfilled') {
+        setAllTeamUsers(Array.isArray(teamRes.value.data) ? teamRes.value.data : []);
       }
       const reData = reProjRes.status === 'fulfilled' ? (reProjRes.value?.data || []) : [];
       setReNewCount(reData.filter(p => p.status === 're_requested').length);
@@ -1320,7 +1331,7 @@ export default function PlanningBoard({ embedded = false }) {
                   </div>
                 </div>
 
-                {/* Planning Person filter (Planning Head only) */}
+                {/* Planning Person filter + Team Member workload search (Planning Head only) */}
                 {user?.role !== 'planning_person' && (
                   <div className="flex items-center gap-2 mt-2 flex-wrap" data-testid="planning-person-filter-bar">
                     <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Planning Team:</span>
@@ -1341,8 +1352,83 @@ export default function PlanningBoard({ embedded = false }) {
                         <X className="h-3 w-3 mr-1" />Clear
                       </Button>
                     )}
+
+                    {/* Workload search — type any team member's name to see their projects */}
+                    <div className="relative ml-auto" data-testid="team-member-search-wrap">
+                      <span className="absolute left-2.5 top-2 text-gray-400"><Users className="h-3.5 w-3.5" /></span>
+                      <Input
+                        value={teamMemberFilterUserId
+                          ? (allTeamUsers.find(u => u.user_id === teamMemberFilterUserId)?.name || '')
+                          : teamMemberQuery}
+                        onChange={(e) => {
+                          setTeamMemberQuery(e.target.value);
+                          setTeamMemberFilterUserId('');
+                          setShowTeamSuggestions(true);
+                        }}
+                        onFocus={() => setShowTeamSuggestions(true)}
+                        onBlur={() => setTimeout(() => setShowTeamSuggestions(false), 200)}
+                        placeholder="Filter by Team Member…"
+                        className="pl-8 h-8 w-60 text-xs"
+                        data-testid="team-member-search-input"
+                      />
+                      {teamMemberFilterUserId && (
+                        <button
+                          type="button"
+                          onClick={() => { setTeamMemberFilterUserId(''); setTeamMemberQuery(''); }}
+                          className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600"
+                          data-testid="clear-team-member-filter"
+                          title="Clear filter"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {showTeamSuggestions && teamMemberQuery && !teamMemberFilterUserId && (() => {
+                        const q = teamMemberQuery.toLowerCase().trim();
+                        const matches = allTeamUsers.filter(u =>
+                          (u.name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q)
+                        ).slice(0, 8);
+                        if (matches.length === 0) return (
+                          <div className="absolute z-50 mt-1 w-60 rounded-md border bg-white shadow-md p-2 text-xs text-gray-400" data-testid="team-suggestions-empty">No team member found</div>
+                        );
+                        return (
+                          <div className="absolute z-50 mt-1 w-60 rounded-md border bg-white shadow-md overflow-hidden" data-testid="team-suggestions">
+                            {matches.map(u => (
+                              <button
+                                key={u.user_id}
+                                type="button"
+                                onMouseDown={(e) => { e.preventDefault(); setTeamMemberFilterUserId(u.user_id); setShowTeamSuggestions(false); }}
+                                className="w-full text-left px-3 py-1.5 text-xs hover:bg-indigo-50 flex items-center justify-between gap-2"
+                                data-testid={`team-suggestion-${u.user_id}`}
+                              >
+                                <span className="font-medium text-gray-800">{u.name}</span>
+                                <span className="text-[10px] text-gray-500 uppercase">{(u.role || '').replace(/_/g, ' ')}</span>
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </div>
                 )}
+
+                {/* Active filter banner — quick visual: who/how many projects */}
+                {teamMemberFilterUserId && (() => {
+                  const u = allTeamUsers.find(x => x.user_id === teamMemberFilterUserId);
+                  const count = subTabProjects.filter(p => {
+                    const t = p.team || {};
+                    return ['architect', 'project_manager', 'planning_person', 'sr_site_engineer', 'site_engineer', 'cre', 'qc', 'procurement']
+                      .some(role => t[role] === teamMemberFilterUserId)
+                      || p.assigned_planning_person_id === teamMemberFilterUserId
+                      || p.assigned_to === teamMemberFilterUserId
+                      || (Array.isArray(p.team_members) && p.team_members.includes(teamMemberFilterUserId));
+                  }).length;
+                  return (
+                    <div className="mt-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs flex items-center gap-2" data-testid="team-member-filter-banner">
+                      <Users className="h-3.5 w-3.5 text-indigo-600" />
+                      <span><b>{u?.name || 'Selected member'}</b> ({(u?.role || '').replace(/_/g, ' ')}) — <b>{count}</b> {count === 1 ? 'project' : 'projects'} in this view</span>
+                    </div>
+                  );
+                })()}
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
@@ -1377,14 +1463,29 @@ export default function PlanningBoard({ embedded = false }) {
                           </tr>
                         ))
                       ) : (() => {
+                          // Check if a project includes a specific user in any team role
+                          const projectIncludesUser = (p, uid) => {
+                            if (!uid) return true;
+                            const t = p.team || {};
+                            const teamMatch = ['architect', 'project_manager', 'planning_person', 'sr_site_engineer', 'site_engineer', 'cre', 'qc', 'procurement']
+                              .some(role => t[role] === uid);
+                            const directMatch = (
+                              p.assigned_planning_person_id === uid ||
+                              p.assigned_to === uid ||
+                              (Array.isArray(p.team_members) && p.team_members.includes(uid))
+                            );
+                            return teamMatch || directMatch;
+                          };
                           const filtered = subTabProjects.filter(p =>
-                            !projectSearch ||
-                            (p.name || '').toLowerCase().includes(projectSearch.toLowerCase()) ||
-                            (p.client_name || '').toLowerCase().includes(projectSearch.toLowerCase())
+                            (!projectSearch ||
+                              (p.name || '').toLowerCase().includes(projectSearch.toLowerCase()) ||
+                              (p.client_name || '').toLowerCase().includes(projectSearch.toLowerCase()))
+                            && projectIncludesUser(p, teamMemberFilterUserId)
                           );
                           if (filtered.length === 0) return (
                             <tr><td colSpan={projectSubTab === 'archived' ? 6 : 7} className="p-8 text-center text-gray-400">
-                              {projectSubTab === 'new' ? 'No new projects from CRE' : projectSubTab === 'active' ? 'No active construction projects' : projectSubTab === 'archived' ? 'No archived projects' : 'No delivered projects'}
+                              {teamMemberFilterUserId ? 'No projects found for this team member' :
+                                projectSubTab === 'new' ? 'No new projects from CRE' : projectSubTab === 'active' ? 'No active construction projects' : projectSubTab === 'archived' ? 'No archived projects' : 'No delivered projects'}
                             </td></tr>
                           );
                           return filtered.map((p) => (

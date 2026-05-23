@@ -3485,6 +3485,23 @@ async def get_users_by_role(role: str, current_user: User = Depends(get_current_
     return users
 
 
+@router.get("/users/team-members")
+async def list_team_members(current_user: User = Depends(get_current_user)):
+    """Active staff users (any project-team role).
+
+    Used by the Planning Head "Filter by Team Member" search bar.
+    Excludes clients, vendors, prospects, and inactive users.
+    """
+    if current_user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.GENERAL_MANAGER, UserRole.HR]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    excluded_roles = ["client", "vendor", "prospect"]
+    users = await db.users.find(
+        {"role": {"$nin": excluded_roles}, "is_active": {"$ne": False}},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "role": 1},
+    ).sort("name", 1).to_list(1000)
+    return users
+
+
 @router.get("/roles")
 async def get_all_roles(user: User = Depends(get_current_user)):
     """Get all available roles"""
