@@ -1100,6 +1100,8 @@ export default function ProjectDetail() {
   // Reusable WO Notes templates (Planning can save common phrases like
   // "Material at contractor cost" and pick from a dropdown next time).
   const [woNoteTemplates, setWoNoteTemplates] = useState([]);
+  // Mark Critical dialog
+  const [critDialog, setCritDialog] = useState({ open: false, is_critical: false, notes: '', submitting: false });
   // Add-template dialog (replaces ugly window.prompt)
   const [addTplDialog, setAddTplDialog] = useState({ open: false, text: '', submitting: false });
   // Delete-template confirmation dialog (replaces window.confirm)
@@ -2966,13 +2968,37 @@ export default function ProjectDetail() {
                 </div>
               ) : (
                 <>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h2 data-testid="project-detail-title" className="text-xl sm:text-3xl font-bold text-gray-900 truncate">
                       {project.name}
                     </h2>
+                    {project.is_critical && (
+                      <Badge className="bg-red-600 text-white hover:bg-red-700 gap-1" data-testid="critical-badge">
+                        <span className="block h-1.5 w-1.5 rounded-full bg-white" />
+                        Critical
+                      </Badge>
+                    )}
                     {(user?.role === 'super_admin' || user?.role === 'cre' || user?.role === 'planning') && (
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-gray-400 hover:text-indigo-600 shrink-0" onClick={startHeaderEdit} data-testid="header-edit-btn">
                         <Edit className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {/* Mark Critical action — Planning/PM/Super Admin can flag this project as critical with a note. */}
+                    {['super_admin', 'planning', 'planning_person', 'project_manager', 'general_manager'].includes(user?.role) && (
+                      <Button
+                        size="sm"
+                        variant={project.is_critical ? 'destructive' : 'outline'}
+                        className={`h-7 text-xs gap-1 ${project.is_critical ? '' : 'text-red-600 border-red-200 hover:bg-red-50'}`}
+                        data-testid="mark-critical-btn"
+                        onClick={() => setCritDialog({
+                          open: true,
+                          is_critical: !!project.is_critical,
+                          notes: project.critical_notes || '',
+                          submitting: false,
+                        })}
+                      >
+                        <span className={`block h-1.5 w-1.5 rounded-full ${project.is_critical ? 'bg-white' : 'bg-red-500'}`} />
+                        {project.is_critical ? 'Critical' : 'Mark Critical'}
                       </Button>
                     )}
                   </div>
@@ -8447,8 +8473,85 @@ export default function ProjectDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* WO Notes — Add Template Dialog (replaces window.prompt for clean Shadcn UX) */}
+      {/* Mark Critical Dialog — enables a red Critical badge on the project + a red dot on All Projects */}
       <Dialog
+        open={critDialog.open}
+        onOpenChange={(o) => !o && !critDialog.submitting && setCritDialog({ open: false, is_critical: false, notes: '', submitting: false })}
+      >
+        <DialogContent className="max-w-md" data-testid="mark-critical-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="block h-2.5 w-2.5 rounded-full bg-red-500" />
+              {project?.is_critical ? 'Update Critical Status' : 'Mark Project as Critical'}
+            </DialogTitle>
+            <DialogDescription>
+              {project?.is_critical
+                ? 'Update the reason or unmark this project to remove its critical badge.'
+                : 'Add a short reason. Once saved, a red dot appears next to this project on the All Projects board.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 rounded-md border p-2.5 bg-red-50/40">
+              <span className="text-xs font-medium text-gray-700 flex-1">Mark as Critical</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={critDialog.is_critical}
+                onClick={() => setCritDialog(d => ({ ...d, is_critical: !d.is_critical }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${critDialog.is_critical ? 'bg-red-500' : 'bg-gray-300'}`}
+                data-testid="crit-toggle"
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${critDialog.is_critical ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+            <div>
+              <Label className="text-xs">Reason / Notes {critDialog.is_critical && <span className="text-red-500">*</span>}</Label>
+              <Textarea
+                value={critDialog.notes}
+                onChange={(e) => setCritDialog(d => ({ ...d, notes: e.target.value }))}
+                rows={3}
+                placeholder="e.g. Client payment overdue, design escalated to GM, site stop-work…"
+                className="mt-1 text-sm"
+                data-testid="crit-notes-input"
+                disabled={!critDialog.is_critical}
+              />
+            </div>
+            {project?.is_critical && project.critical_marked_by_name && (
+              <p className="text-[11px] text-gray-400">
+                Last marked by {project.critical_marked_by_name}
+                {project.critical_marked_at ? ` • ${new Date(project.critical_marked_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCritDialog({ open: false, is_critical: false, notes: '', submitting: false })} disabled={critDialog.submitting}>Cancel</Button>
+            <Button
+              className="bg-red-600 hover:bg-red-700"
+              data-testid="crit-save-btn"
+              disabled={critDialog.submitting || (critDialog.is_critical && !critDialog.notes.trim())}
+              onClick={async () => {
+                setCritDialog(d => ({ ...d, submitting: true }));
+                try {
+                  const res = await axios.patch(`${API}/projects/${projectId}/critical`, {
+                    is_critical: critDialog.is_critical,
+                    critical_notes: critDialog.is_critical ? critDialog.notes.trim() : '',
+                  });
+                  toast.success(res.data.is_critical ? 'Marked as critical' : 'Critical flag removed');
+                  setCritDialog({ open: false, is_critical: false, notes: '', submitting: false });
+                  fetchData(false);
+                } catch (err) {
+                  toast.error(err.response?.data?.detail || 'Failed to update');
+                  setCritDialog(d => ({ ...d, submitting: false }));
+                }
+              }}
+            >
+              {critDialog.submitting ? 'Saving…' : (critDialog.is_critical ? 'Save' : 'Unmark Critical')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* WO Notes — Add Template Dialog (replaces window.prompt for clean Shadcn UX) */}      <Dialog
         open={addTplDialog.open}
         onOpenChange={(o) => !o && !addTplDialog.submitting && setAddTplDialog({ open: false, text: '', submitting: false })}
       >
