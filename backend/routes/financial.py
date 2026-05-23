@@ -3485,12 +3485,14 @@ async def get_users_by_role(role: str, current_user: User = Depends(get_current_
     return users
 
 
-@router.get("/users/team-members")
+@router.get("/team-members")
 async def list_team_members(current_user: User = Depends(get_current_user)):
     """Active staff users (any project-team role).
 
     Used by the Planning Head "Filter by Team Member" search bar.
     Excludes clients, vendors, prospects, and inactive users.
+    NOTE: This route is intentionally placed at /team-members (not
+    /users/team-members) to avoid colliding with /users/{user_id}.
     """
     if current_user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.GENERAL_MANAGER, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
