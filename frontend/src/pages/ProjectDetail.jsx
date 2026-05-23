@@ -1277,6 +1277,7 @@ export default function ProjectDetail() {
   const TEAM_ROLES = [
     { key: 'architect', label: 'Architect', dbRole: 'architect', color: 'purple' },
     { key: 'project_manager', label: 'Project Manager', dbRole: 'project_manager', color: 'indigo' },
+    { key: 'planning_person', label: 'Planning Person', dbRole: 'planning_person', color: 'blue' },
     { key: 'sr_site_engineer', label: 'Sr. Site Engineer', dbRole: 'sr_site_engineer', color: 'amber' },
     { key: 'site_engineer', label: 'Site Engineer', dbRole: 'site_engineer', color: 'green' },
     { key: 'cre', label: 'CRE', dbRole: 'cre', color: 'blue' },
@@ -1287,7 +1288,7 @@ export default function ProjectDetail() {
   const fetchTeamData = async () => {
     try {
       const res = await axios.get(`${API}/projects/${projectId}/team`);
-      setTeamData(res.data || { architect: null, project_manager: null, sr_site_engineer: null, site_engineer: null, cre: null, qc: null, procurement: null });
+      setTeamData(res.data || { architect: null, project_manager: null, planning_person: null, sr_site_engineer: null, site_engineer: null, cre: null, qc: null, procurement: null });
     } catch { /* No team data */ }
   };
 

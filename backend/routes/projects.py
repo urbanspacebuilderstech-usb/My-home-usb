@@ -4695,10 +4695,13 @@ async def get_project_team(project_id: str, user: User = Depends(get_current_use
 
     team_data = project.get("team", {})
     team = {}
-    roles = ["architect", "project_manager", "sr_site_engineer", "site_engineer", "cre", "qc", "procurement"]
+    roles = ["architect", "project_manager", "sr_site_engineer", "site_engineer", "cre", "qc", "procurement", "planning_person"]
     
     for role in roles:
         user_id = team_data.get(role)
+        # Backfill planning_person from the legacy `assigned_planning_person_id` field
+        if role == "planning_person" and not user_id:
+            user_id = project.get("assigned_planning_person_id")
         if user_id:
             u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
             if u:
@@ -4731,7 +4734,7 @@ async def update_project_team(project_id: str, request: Request, user: User = De
         raise HTTPException(status_code=404, detail="Project not found")
 
     body = await request.json()
-    valid_roles = ["architect", "project_manager", "sr_site_engineer", "site_engineer", "cre", "qc", "procurement"]
+    valid_roles = ["architect", "project_manager", "sr_site_engineer", "site_engineer", "cre", "qc", "procurement", "planning_person"]
     # Roles that must mirror into `site_engineer_assignments`
     SE_LIKE_ROLES = {"site_engineer", "sr_site_engineer", "associate_pm"}
 
@@ -4741,10 +4744,40 @@ async def update_project_team(project_id: str, request: Request, user: User = De
         if role in body:
             team[role] = body[role] if body[role] else None
 
-    await db.projects.update_one(
-        {"project_id": project_id},
-        {"$set": {"team": team, "updated_at": datetime.now(timezone.utc).isoformat()}}
-    )
+    # Mirror planning_person assignment into the top-level project fields used by
+    # the planning-person scoped queries (`assigned_planning_person_id`).
+    pp_extra_set: Dict[str, Any] = {}
+    pp_extra_unset: Dict[str, Any] = {}
+    if "planning_person" in body:
+        new_pp_id = body.get("planning_person") or None
+        old_pp_id = existing_team.get("planning_person") or project.get("assigned_planning_person_id")
+        if new_pp_id:
+            pp_user = await db.users.find_one(
+                {"user_id": new_pp_id, "role": UserRole.PLANNING_PERSON.value, "is_active": True},
+                {"_id": 0, "user_id": 1, "name": 1},
+            )
+            if pp_user:
+                pp_extra_set["assigned_planning_person_id"] = pp_user["user_id"]
+                pp_extra_set["assigned_planning_person_name"] = pp_user.get("name") or ""
+                pp_extra_set["assigned_planning_person_at"] = datetime.now(timezone.utc).isoformat()
+                pp_extra_set["assigned_planning_person_by"] = user.user_id
+                pp_extra_set["assigned_planning_person_by_name"] = user.name
+                if old_pp_id and old_pp_id != new_pp_id:
+                    try:
+                        await create_notification(old_pp_id, f"You have been removed from project: {project.get('name')}")
+                    except Exception:
+                        pass
+                try:
+                    await create_notification(new_pp_id, f"You have been assigned to project: {project.get('name')}")
+                except Exception:
+                    pass
+        else:
+            pp_extra_unset = {"assigned_planning_person_id": "", "assigned_planning_person_name": "", "assigned_planning_person_at": ""}
+
+    update_doc: Dict[str, Any] = {"$set": {"team": team, "updated_at": datetime.now(timezone.utc).isoformat(), **pp_extra_set}}
+    if pp_extra_unset:
+        update_doc["$unset"] = pp_extra_unset
+    await db.projects.update_one({"project_id": project_id}, update_doc)
 
     # Mirror SE-like role changes into site_engineer_assignments + notify
     project_name = project.get("name") or project.get("project_name") or project_id
