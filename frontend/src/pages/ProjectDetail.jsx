@@ -1100,6 +1100,10 @@ export default function ProjectDetail() {
   // Reusable WO Notes templates (Planning can save common phrases like
   // "Material at contractor cost" and pick from a dropdown next time).
   const [woNoteTemplates, setWoNoteTemplates] = useState([]);
+  // Add-template dialog (replaces ugly window.prompt)
+  const [addTplDialog, setAddTplDialog] = useState({ open: false, text: '', submitting: false });
+  // Delete-template confirmation dialog (replaces window.confirm)
+  const [delTplDialog, setDelTplDialog] = useState({ open: false, template: null, submitting: false });
   // Top-level tab inside the WO dialog: 'work_order' (with inner Scope/Additional/Deductions/Summary) | 'payment_stages'
   const [woMainTab, setWoMainTab] = useState('work_order');
   // Common construction units used by the searchable Unit dropdown across
@@ -7030,12 +7034,7 @@ export default function ProjectDetail() {
                             value=""
                             onValueChange={(val) => {
                               if (val === '__add__') {
-                                const txt = window.prompt('Add a new Notes template:', '');
-                                if (txt && txt.trim()) {
-                                  axios.post(`${API}/wo-note-templates`, { text: txt.trim() })
-                                    .then(res => { setWoNoteTemplates(prev => [res.data, ...prev]); toast.success('Template saved'); })
-                                    .catch(() => toast.error('Failed to save template'));
-                                }
+                                setAddTplDialog({ open: true, text: woForm.notes || '', submitting: false });
                               } else if (val) {
                                 const t = woNoteTemplates.find(x => x.template_id === val);
                                 if (t) setWoForm(f => ({ ...f, notes: t.text }));
@@ -7061,10 +7060,7 @@ export default function ProjectDetail() {
                                     className="text-red-500 hover:text-red-700 p-1"
                                     onClick={(e) => {
                                       e.preventDefault(); e.stopPropagation();
-                                      if (!window.confirm(`Delete template "${t.label || t.text}"?`)) return;
-                                      axios.delete(`${API}/wo-note-templates/${t.template_id}`)
-                                        .then(() => { setWoNoteTemplates(prev => prev.filter(x => x.template_id !== t.template_id)); toast.success('Template removed'); })
-                                        .catch(() => toast.error('Failed to remove'));
+                                      setDelTplDialog({ open: true, template: t, submitting: false });
                                     }}
                                     data-testid={`delete-wo-template-${t.template_id}`}
                                     title="Delete template"
@@ -8446,6 +8442,103 @@ export default function ProjectDetail() {
               data-testid="req-pay-submit"
             >
               <Send className="h-4 w-4 mr-1" /> Req
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* WO Notes — Add Template Dialog (replaces window.prompt for clean Shadcn UX) */}
+      <Dialog
+        open={addTplDialog.open}
+        onOpenChange={(o) => !o && !addTplDialog.submitting && setAddTplDialog({ open: false, text: '', submitting: false })}
+      >
+        <DialogContent className="max-w-md" data-testid="wo-tpl-add-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-emerald-600" /> Add Notes Template
+            </DialogTitle>
+            <DialogDescription>
+              Save a reusable note like &ldquo;Material at contractor cost&rdquo; so anyone can pick it next time.
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label className="text-xs">Template text</Label>
+            <Textarea
+              value={addTplDialog.text}
+              onChange={(e) => setAddTplDialog(d => ({ ...d, text: e.target.value }))}
+              rows={4}
+              placeholder="e.g. Material at contractor cost; advance subject to PM approval."
+              className="mt-1 text-sm"
+              data-testid="wo-tpl-add-textarea"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddTplDialog({ open: false, text: '', submitting: false })} disabled={addTplDialog.submitting}>Cancel</Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700"
+              data-testid="wo-tpl-add-confirm"
+              disabled={addTplDialog.submitting || !addTplDialog.text.trim()}
+              onClick={async () => {
+                setAddTplDialog(d => ({ ...d, submitting: true }));
+                try {
+                  const res = await axios.post(`${API}/wo-note-templates`, { text: addTplDialog.text.trim() });
+                  setWoNoteTemplates(prev => [res.data, ...prev]);
+                  toast.success('Template saved');
+                  setAddTplDialog({ open: false, text: '', submitting: false });
+                } catch (err) {
+                  toast.error(err.response?.data?.detail || 'Failed to save template');
+                  setAddTplDialog(d => ({ ...d, submitting: false }));
+                }
+              }}
+            >
+              {addTplDialog.submitting ? 'Saving…' : 'Save Template'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* WO Notes — Delete Template Confirmation Dialog */}
+      <Dialog
+        open={delTplDialog.open}
+        onOpenChange={(o) => !o && !delTplDialog.submitting && setDelTplDialog({ open: false, template: null, submitting: false })}
+      >
+        <DialogContent className="max-w-sm" data-testid="wo-tpl-del-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-600" /> Delete Template?
+            </DialogTitle>
+            <DialogDescription>
+              This template will be removed for everyone in your team.
+            </DialogDescription>
+          </DialogHeader>
+          {delTplDialog.template && (
+            <div className="rounded-md border bg-gray-50 p-3 text-sm text-gray-800">
+              {delTplDialog.template.label || delTplDialog.template.text}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDelTplDialog({ open: false, template: null, submitting: false })} disabled={delTplDialog.submitting}>Cancel</Button>
+            <Button
+              className="bg-red-600 hover:bg-red-700"
+              data-testid="wo-tpl-del-confirm"
+              disabled={delTplDialog.submitting}
+              onClick={async () => {
+                const t = delTplDialog.template;
+                if (!t) return;
+                setDelTplDialog(d => ({ ...d, submitting: true }));
+                try {
+                  await axios.delete(`${API}/wo-note-templates/${t.template_id}`);
+                  setWoNoteTemplates(prev => prev.filter(x => x.template_id !== t.template_id));
+                  toast.success('Template removed');
+                  setDelTplDialog({ open: false, template: null, submitting: false });
+                } catch (err) {
+                  toast.error(err.response?.data?.detail || 'Failed to remove');
+                  setDelTplDialog(d => ({ ...d, submitting: false }));
+                }
+              }}
+            >
+              {delTplDialog.submitting ? 'Deleting…' : 'Delete'}
             </Button>
           </DialogFooter>
         </DialogContent>
