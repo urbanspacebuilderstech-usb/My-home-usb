@@ -70,7 +70,7 @@ export default function Dashboard() {
           site_engineer: '/site-engineer', sr_site_engineer: '/site-engineer',
           pre_sales: '/crm-pre-sales', sales: '/crm-sales',
           general_manager: '/gm-dashboard', accountant: '/accounts-board',
-          planning: '/planning-board', procurement: '/procurement-board-v2',
+          planning: '/planning-board', planning_person: '/planning-board', procurement: '/procurement-board-v2',
           cre: '/cre-board', project_manager: '/pm-dashboard', associate_pm: '/pm-dashboard',
           client: '/client-portal', vendor: '/vendor-portal', marketing_head: '/marketing-board',
           hr: '/hr-portal'
