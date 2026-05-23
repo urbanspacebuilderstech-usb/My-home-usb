@@ -163,9 +163,15 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
   // - `?embedded=1&navRole=<role>` → render a slim sub-nav strip using that role's
   //   ROLE_NAV (e.g. show Cashbook/Approvals/Expense for super_admin viewing
   //   /accounts-board through the Finance Board's Accounts tab).
+  // - Defense-in-depth: if we are inside an iframe (window.parent !== window)
+  //   but the embedded=1 flag was somehow lost (e.g. internal navigate() without
+  //   query-string preservation), still suppress the full header — render nothing.
+  //   This eliminates the "double header" bug seen on the Super Admin Finance Board.
   if (typeof window !== 'undefined') {
     const qs = new URLSearchParams(window.location.search);
-    if (qs.get('embedded') === '1') {
+    let inIframe = false;
+    try { inIframe = window.self !== window.top; } catch { inIframe = true; }
+    if (qs.get('embedded') === '1' || inIframe) {
       const navRole = qs.get('navRole');
       const embeddedNav = navRole ? (ROLE_NAV[navRole] || []) : [];
       if (embeddedNav.length === 0) return null;
