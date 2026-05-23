@@ -50,7 +50,6 @@ const ROLE_NAV = {
   ],
   planning_person: [
     { label: 'Planning Board', path: '/planning-board' },
-    { label: 'My Projects', path: '/projects' },
   ],
   procurement: [
     { label: 'Procurement', path: '/procurement-board-v2' },
