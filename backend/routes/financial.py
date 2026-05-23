@@ -240,7 +240,7 @@ async def get_all_income(
     # IDOR Fix: Only financial/management roles can access income data
     income_access_roles = [
         UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
-        UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING
+        UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING, UserRole.PLANNING_PERSON
     ]
     if user.role not in income_access_roles:
         raise HTTPException(status_code=403, detail="Access denied to financial data")
@@ -284,7 +284,7 @@ async def get_income_summary(user: User = Depends(get_current_user)):
     # IDOR Fix: Only financial/management roles can access income summary
     income_access_roles = [
         UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
-        UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING
+        UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING, UserRole.PLANNING_PERSON
     ]
     if user.role not in income_access_roles:
         raise HTTPException(status_code=403, detail="Access denied to financial data")
@@ -316,7 +316,7 @@ async def get_project_income(project_id: str, user: User = Depends(get_current_u
     # IDOR Fix: Only financial/management roles can access project income
     income_access_roles = [
         UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
-        UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING
+        UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING, UserRole.PLANNING_PERSON
     ]
     if user.role not in income_access_roles:
         raise HTTPException(status_code=403, detail="Access denied to financial data")
