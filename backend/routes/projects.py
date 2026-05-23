@@ -245,6 +245,40 @@ async def assign_planning_person(
     }
 
 
+@router.patch("/projects/{project_id}/critical")
+async def toggle_project_critical(
+    project_id: str,
+    body: Dict[str, Any] = Body(...),
+    user: User = Depends(get_current_user),
+):
+    """Mark / unmark a project as Critical with an optional note.
+
+    Body: { "is_critical": true/false, "critical_notes": "..." }
+    """
+    if user.role not in (UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.GENERAL_MANAGER):
+        raise HTTPException(status_code=403, detail="Permission denied")
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    set_doc = {
+        "is_critical": bool((body or {}).get("is_critical")),
+        "critical_notes": ((body or {}).get("critical_notes") or "").strip(),
+        "critical_marked_by": user.user_id,
+        "critical_marked_by_name": user.name,
+        "critical_marked_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if not set_doc["is_critical"]:
+        # Keep history of last note but clear active flag/note
+        set_doc["critical_notes"] = ""
+    await db.projects.update_one({"project_id": project_id}, {"$set": set_doc})
+    return {
+        "message": "Project critical flag updated",
+        "is_critical": set_doc["is_critical"],
+        "critical_notes": set_doc["critical_notes"],
+    }
+
+
 @router.get("/boq/{project_id}")
 async def get_boq(project_id: str, user: User = Depends(get_current_user)):
     boq_items = await db.boq_items.find({"project_id": project_id}, {"_id": 0}).to_list(1000)

@@ -1505,7 +1505,81 @@ export default function PlanningBoard({ embedded = false }) {
                           return filtered.map((p) => (
                             <tr key={p.project_id} className="hover:bg-gray-50" data-testid={`project-row-${p.project_id}`}>
                               <td className="px-4 py-2.5">
-                                <p className="font-medium">{p.name}</p>
+                                <div className="flex items-center gap-1.5">
+                                  <p className="font-medium">{p.name}</p>
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className={`flex h-4 w-4 items-center justify-center rounded-full transition-all ${p.is_critical ? 'bg-red-500 ring-2 ring-red-200 hover:bg-red-600' : 'bg-gray-200 hover:bg-red-100'}`}
+                                        title={p.is_critical ? 'Critical — click to view notes' : 'Mark as critical'}
+                                        data-testid={`critical-btn-${p.project_id}`}
+                                      >
+                                        {p.is_critical && <span className="block h-1.5 w-1.5 rounded-full bg-white" />}
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-80 p-3" align="start" data-testid={`critical-popover-${p.project_id}`}>
+                                      <div className="flex items-center justify-between mb-2">
+                                        <h4 className="text-sm font-semibold flex items-center gap-1.5">
+                                          <span className={`h-2.5 w-2.5 rounded-full ${p.is_critical ? 'bg-red-500' : 'bg-gray-300'}`}></span>
+                                          Critical Status
+                                        </h4>
+                                        <Badge variant={p.is_critical ? 'destructive' : 'outline'} className="text-[10px]">
+                                          {p.is_critical ? 'Marked Critical' : 'Not Critical'}
+                                        </Badge>
+                                      </div>
+                                      <Label className="text-[11px] text-gray-600">Notes / Reason</Label>
+                                      <Textarea
+                                        defaultValue={p.critical_notes || ''}
+                                        placeholder="Why is this project critical? (delays, escalations, blockers…)"
+                                        rows={3}
+                                        className="text-xs mt-1"
+                                        data-testid={`critical-notes-${p.project_id}`}
+                                        id={`crit-notes-${p.project_id}`}
+                                      />
+                                      {p.is_critical && p.critical_marked_by_name && (
+                                        <p className="text-[10px] text-gray-400 mt-1.5">
+                                          Marked by {p.critical_marked_by_name}
+                                          {p.critical_marked_at ? ` • ${new Date(p.critical_marked_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}` : ''}
+                                        </p>
+                                      )}
+                                      <div className="flex gap-2 mt-3">
+                                        {p.is_critical ? (
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="flex-1 text-xs"
+                                            data-testid={`clear-critical-${p.project_id}`}
+                                            onClick={async () => {
+                                              try {
+                                                await axios.patch(`${API}/projects/${p.project_id}/critical`, { is_critical: false, critical_notes: '' });
+                                                toast.success('Critical flag cleared');
+                                                fetchSubTabProjects(projectSubTab, projectDateFilter, planningPersonFilter);
+                                              } catch { toast.error('Failed'); }
+                                            }}
+                                          >
+                                            Unmark
+                                          </Button>
+                                        ) : null}
+                                        <Button
+                                          size="sm"
+                                          className="flex-1 text-xs bg-red-600 hover:bg-red-700"
+                                          data-testid={`save-critical-${p.project_id}`}
+                                          onClick={async () => {
+                                            const notes = (document.getElementById(`crit-notes-${p.project_id}`)?.value || '').trim();
+                                            try {
+                                              await axios.patch(`${API}/projects/${p.project_id}/critical`, { is_critical: true, critical_notes: notes });
+                                              toast.success(p.is_critical ? 'Critical notes updated' : 'Marked as critical');
+                                              fetchSubTabProjects(projectSubTab, projectDateFilter, planningPersonFilter);
+                                            } catch { toast.error('Failed'); }
+                                          }}
+                                        >
+                                          {p.is_critical ? 'Save Notes' : 'Mark Critical'}
+                                        </Button>
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
+                                </div>
                                 <p className="text-xs text-gray-400">{p.location || p.project_code || '-'}</p>
                               </td>
                               <td className="px-4 py-2.5 text-gray-600">{p.client_name || '-'}</td>
