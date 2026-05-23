@@ -48,6 +48,8 @@ export default function UserManagement() {
   const [editingUser, setEditingUser] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRole, setFilterRole] = useState('all');
+  // Card-driven category filter — 'all' | 'admin' | 'staff' | 'client' | 'vendor'
+  const [categoryFilter, setCategoryFilter] = useState('all');
   
   const [formData, setFormData] = useState({
     email: '',
@@ -160,7 +162,12 @@ export default function UserManagement() {
     const matchesSearch = u.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           u.email?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesRole = filterRole === 'all' || u.role === filterRole;
-    return matchesSearch && matchesRole;
+    let matchesCategory = true;
+    if (categoryFilter === 'admin') matchesCategory = u.role === 'super_admin';
+    else if (categoryFilter === 'staff') matchesCategory = !['client', 'vendor', 'super_admin'].includes(u.role);
+    else if (categoryFilter === 'client') matchesCategory = u.role === 'client';
+    else if (categoryFilter === 'vendor') matchesCategory = u.role === 'vendor';
+    return matchesSearch && matchesRole && matchesCategory;
   });
 
   if (loading || !user) {
@@ -287,54 +294,79 @@ export default function UserManagement() {
           )}
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 sm:gap-4 mb-4 sm:mb-8">
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
-              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Total</CardTitle>
-            </CardHeader>
-            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+        {/* Stats — clickable filter cards */}
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 sm:gap-4 mb-4 sm:mb-8" data-testid="user-stat-cards">
+          <button
+            type="button"
+            onClick={() => setCategoryFilter(categoryFilter === 'all' ? 'all' : 'all')}
+            className={`text-left rounded-lg border bg-gradient-to-br from-blue-50 to-blue-100 transition-all ${categoryFilter === 'all' ? 'ring-2 ring-blue-400 border-blue-300 shadow-md' : 'border-blue-200 hover:shadow-md hover:-translate-y-0.5'}`}
+            data-testid="stat-card-total"
+          >
+            <div className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <p className="text-xs sm:text-sm font-medium text-gray-600">Total</p>
+            </div>
+            <div className="p-2 pt-0 sm:p-6 sm:pt-0">
               <div className="flex items-center gap-1 sm:gap-2">
                 <Users className="h-4 w-4 sm:h-6 sm:w-6 text-amber-600" />
                 <span className="text-lg sm:text-2xl font-bold text-amber-700">{users.length}</span>
               </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200">
-            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
-              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Admins</CardTitle>
-            </CardHeader>
-            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCategoryFilter(categoryFilter === 'admin' ? 'all' : 'admin')}
+            className={`text-left rounded-lg border bg-gradient-to-br from-red-50 to-red-100 transition-all ${categoryFilter === 'admin' ? 'ring-2 ring-red-400 border-red-300 shadow-md' : 'border-red-200 hover:shadow-md hover:-translate-y-0.5'}`}
+            data-testid="stat-card-admins"
+          >
+            <div className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <p className="text-xs sm:text-sm font-medium text-gray-600">Admins</p>
+            </div>
+            <div className="p-2 pt-0 sm:p-6 sm:pt-0">
               <div className="flex items-center gap-1 sm:gap-2">
                 <Shield className="h-4 w-4 sm:h-6 sm:w-6 text-red-600" />
                 <span className="text-lg sm:text-2xl font-bold text-red-700">{adminCount}</span>
               </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
-              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Staff</CardTitle>
-            </CardHeader>
-            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCategoryFilter(categoryFilter === 'staff' ? 'all' : 'staff')}
+            className={`text-left rounded-lg border bg-gradient-to-br from-green-50 to-green-100 transition-all ${categoryFilter === 'staff' ? 'ring-2 ring-green-400 border-green-300 shadow-md' : 'border-green-200 hover:shadow-md hover:-translate-y-0.5'}`}
+            data-testid="stat-card-staff"
+          >
+            <div className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <p className="text-xs sm:text-sm font-medium text-gray-600">Staff</p>
+            </div>
+            <div className="p-2 pt-0 sm:p-6 sm:pt-0">
               <span className="text-lg sm:text-2xl font-bold text-green-700">{staffCount}</span>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-teal-50 to-teal-100 border-teal-200 hidden sm:block">
-            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
-              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Clients</CardTitle>
-            </CardHeader>
-            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCategoryFilter(categoryFilter === 'client' ? 'all' : 'client')}
+            className={`text-left rounded-lg border bg-gradient-to-br from-teal-50 to-teal-100 transition-all hidden sm:block ${categoryFilter === 'client' ? 'ring-2 ring-teal-400 border-teal-300 shadow-md' : 'border-teal-200 hover:shadow-md hover:-translate-y-0.5'}`}
+            data-testid="stat-card-clients"
+          >
+            <div className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <p className="text-xs sm:text-sm font-medium text-gray-600">Clients</p>
+            </div>
+            <div className="p-2 pt-0 sm:p-6 sm:pt-0">
               <span className="text-lg sm:text-2xl font-bold text-teal-700">{clientCount}</span>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 hidden sm:block">
-            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
-              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Vendors</CardTitle>
-            </CardHeader>
-            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCategoryFilter(categoryFilter === 'vendor' ? 'all' : 'vendor')}
+            className={`text-left rounded-lg border bg-gradient-to-br from-gray-50 to-gray-100 transition-all hidden sm:block ${categoryFilter === 'vendor' ? 'ring-2 ring-gray-400 border-gray-300 shadow-md' : 'border-gray-200 hover:shadow-md hover:-translate-y-0.5'}`}
+            data-testid="stat-card-vendors"
+          >
+            <div className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <p className="text-xs sm:text-sm font-medium text-gray-600">Vendors</p>
+            </div>
+            <div className="p-2 pt-0 sm:p-6 sm:pt-0">
               <span className="text-lg sm:text-2xl font-bold text-gray-700">{vendorCount}</span>
-            </CardContent>
-          </Card>
+            </div>
+          </button>
         </div>
 
         {/* Filters */}
