@@ -3527,7 +3527,7 @@ export default function ProjectDetail() {
                   <p className="text-xs sm:text-sm text-gray-500">Define scope items - total becomes project value</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {(user?.role === 'planning' || user?.role === 'super_admin') &&
+                  {(user?.role === 'planning' || user?.role === 'planning_person' || user?.role === 'super_admin') &&
                     (!project?.fe?.status || project.fe.status === 'draft' || project.fe.status === 'review_pending' || project.fe.status === 'rejected_by_gm') && (
                     <Button
                       data-testid="fe-submit-to-gm-btn"
@@ -6014,18 +6014,24 @@ export default function ProjectDetail() {
 
             {/* ==================== PAYMENT SUMMARY TAB ==================== */}
             <TabsContent value="payment-summary" className="p-3 sm:p-6">
-              <Tabs defaultValue="cashflow" className="w-full">
-                <TabsList className="mb-4" data-testid="payment-summary-subtabs">
-                  <TabsTrigger value="cashflow" data-testid="ps-subtab-cashflow"><Wallet className="h-4 w-4 mr-1.5" />Cashflow Engine</TabsTrigger>
-                  <TabsTrigger value="cheques" data-testid="ps-subtab-cheques"><CreditCard className="h-4 w-4 mr-1.5" />Cheques</TabsTrigger>
-                </TabsList>
-                <TabsContent value="cashflow">
-                  <ProjectCashflowTab projectId={projectId} isAdmin={['super_admin'].includes(user?.role)} />
-                </TabsContent>
-                <TabsContent value="cheques">
-                  {projectId && <ChequeListView scope="project" projectId={projectId} userRole={user?.role} />}
-                </TabsContent>
-              </Tabs>
+              {user?.role === 'planning_person' ? (
+                /* Planning Person doesn't see the Cashflow Engine (project-finance internals).
+                   They land directly on the Cheques sub-view instead. */
+                <ChequeListView scope="project" projectId={projectId} userRole={user?.role} />
+              ) : (
+                <Tabs defaultValue="cashflow" className="w-full">
+                  <TabsList className="mb-4" data-testid="payment-summary-subtabs">
+                    <TabsTrigger value="cashflow" data-testid="ps-subtab-cashflow"><Wallet className="h-4 w-4 mr-1.5" />Cashflow Engine</TabsTrigger>
+                    <TabsTrigger value="cheques" data-testid="ps-subtab-cheques"><CreditCard className="h-4 w-4 mr-1.5" />Cheques</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="cashflow">
+                    <ProjectCashflowTab projectId={projectId} isAdmin={['super_admin'].includes(user?.role)} />
+                  </TabsContent>
+                  <TabsContent value="cheques">
+                    {projectId && <ChequeListView scope="project" projectId={projectId} userRole={user?.role} />}
+                  </TabsContent>
+                </Tabs>
+              )}
             </TabsContent>
 
 
@@ -6649,7 +6655,7 @@ export default function ProjectDetail() {
                   <h3 className="text-base font-bold flex items-center gap-2">
                     <FileText className="h-5 w-5 text-violet-600" />Work Orders ({workOrders.length})
                   </h3>
-                  {(user?.role === 'super_admin' || user?.role === 'planning' || user?.role === 'project_manager' || user?.role === 'cre') && (
+                  {(user?.role === 'super_admin' || user?.role === 'planning' || user?.role === 'planning_person' || user?.role === 'project_manager' || user?.role === 'cre') && (
                     <Button size="sm" onClick={() => openWoDialog()} className="bg-violet-600 hover:bg-violet-700" data-testid="create-wo-btn">
                       <Plus className="h-3.5 w-3.5 mr-1" />Create Work Order
                     </Button>
@@ -7521,7 +7527,7 @@ export default function ProjectDetail() {
                   {/* LABOUR REQUESTS SUB-TAB */}
                   <TabsContent value="requests" className="mt-4">
                     <div className="flex items-center justify-end mb-3">
-                      {(user?.role === 'super_admin' || user?.role === 'planning' || user?.role === 'project_manager' || user?.role === 'cre') && (
+                      {(user?.role === 'super_admin' || user?.role === 'planning' || user?.role === 'planning_person' || user?.role === 'project_manager' || user?.role === 'cre') && (
                         <Button
                           size="sm"
                           onClick={() => { setLabourSubTab('workorders'); setTimeout(() => openWoDialog(), 0); }}
@@ -7595,7 +7601,7 @@ export default function ProjectDetail() {
                   <TabsContent value="workorders" className="mt-4">
                     <div className="flex justify-between items-center mb-4">
                       <p className="text-sm text-gray-500">{workOrders.length} work orders</p>
-                      {(user?.role === 'super_admin' || user?.role === 'planning' || user?.role === 'project_manager' || user?.role === 'cre') && (
+                      {(user?.role === 'super_admin' || user?.role === 'planning' || user?.role === 'planning_person' || user?.role === 'project_manager' || user?.role === 'cre') && (
                         <Button size="sm" onClick={() => openWoDialog()} className="bg-violet-600 hover:bg-violet-700" data-testid="labour-create-wo-btn">
                           <Plus className="h-3.5 w-3.5 mr-1" />Create Work Order
                         </Button>
