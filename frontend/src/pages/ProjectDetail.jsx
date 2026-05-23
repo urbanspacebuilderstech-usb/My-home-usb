@@ -6014,9 +6014,9 @@ export default function ProjectDetail() {
 
             {/* ==================== PAYMENT SUMMARY TAB ==================== */}
             <TabsContent value="payment-summary" className="p-3 sm:p-6">
-              {user?.role === 'planning_person' ? (
-                /* Planning Person doesn't see the Cashflow Engine (project-finance internals).
-                   They land directly on the Cheques sub-view instead. */
+              {(user?.role === 'planning_person' || user?.role === 'planning') ? (
+                /* Planning Head / Planning Person don't see the Cashflow Engine
+                   (project-finance internals). They land directly on the Cheques view. */
                 <ChequeListView scope="project" projectId={projectId} userRole={user?.role} />
               ) : (
                 <Tabs defaultValue="cashflow" className="w-full">
