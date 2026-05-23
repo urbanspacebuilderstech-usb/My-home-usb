@@ -95,6 +95,13 @@ export default function Projects() {
         window.location.href = '/site-engineer';
         return;
       }
+
+      // Planning Person — All Projects list is hidden; they work entirely from
+      // the Planning Board which already lists projects assigned to them.
+      if (response.data.role === 'planning_person') {
+        window.location.replace('/planning-board');
+        return;
+      }
       
       // Fetch projects only for non-site-engineers
       fetchProjects();
