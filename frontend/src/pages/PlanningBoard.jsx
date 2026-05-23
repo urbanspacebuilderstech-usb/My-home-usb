@@ -1410,13 +1410,17 @@ export default function PlanningBoard({ embedded = false }) {
                 {/* Active filter banner — shows who & how many projects across the entire workload */}
                 {teamMemberFilterUserId && (() => {
                   const u = allTeamUsers.find(x => x.user_id === teamMemberFilterUserId);
+                  const ids = u && Array.isArray(u.aliases) && u.aliases.length ? u.aliases : [teamMemberFilterUserId];
                   const matchesUser = (p) => {
                     const t = p.team || {};
                     return ['architect', 'project_manager', 'planning_person', 'sr_site_engineer', 'site_engineer', 'cre', 'qc', 'procurement']
-                      .some(role => t[role] === teamMemberFilterUserId)
-                      || p.assigned_planning_person_id === teamMemberFilterUserId
-                      || p.assigned_to === teamMemberFilterUserId
-                      || (Array.isArray(p.team_members) && p.team_members.includes(teamMemberFilterUserId));
+                      .some(role => ids.includes(t[role]))
+                      || ids.includes(p.assigned_planning_person_id)
+                      || ids.includes(p.assigned_to)
+                      || ids.includes(p.project_manager_id)
+                      || ids.includes(p.architect_id)
+                      || ids.includes(p.cre_user_id)
+                      || (Array.isArray(p.team_members) && p.team_members.some(x => ids.includes(x)));
                   };
                   const subCount = subTabProjects.filter(matchesUser).length;
                   return (
@@ -1461,16 +1465,28 @@ export default function PlanningBoard({ embedded = false }) {
                           </tr>
                         ))
                       ) : (() => {
-                          // Check if a project includes a specific user in any team role
-                          const projectIncludesUser = (p, uid) => {
-                            if (!uid) return true;
+                          // Resolve the selected team member to ALL their user_ids
+                          // (a person can appear with multiple aliases — HR-created
+                          //  vs Sales-created — sharing one name+role).
+                          const selectedUser = teamMemberFilterUserId
+                            ? allTeamUsers.find(u => u.user_id === teamMemberFilterUserId)
+                            : null;
+                          const selectedIds = selectedUser
+                            ? (Array.isArray(selectedUser.aliases) && selectedUser.aliases.length ? selectedUser.aliases : [selectedUser.user_id])
+                            : [];
+                          // Project ↔ user match across every known team relationship
+                          const projectIncludesUser = (p) => {
+                            if (!selectedIds.length) return true;
                             const t = p.team || {};
-                            const teamMatch = ['architect', 'project_manager', 'planning_person', 'sr_site_engineer', 'site_engineer', 'cre', 'qc', 'procurement']
-                              .some(role => t[role] === uid);
+                            const teamRoles = ['architect', 'project_manager', 'planning_person', 'sr_site_engineer', 'site_engineer', 'cre', 'qc', 'procurement'];
+                            const teamMatch = teamRoles.some(role => selectedIds.includes(t[role]));
                             const directMatch = (
-                              p.assigned_planning_person_id === uid ||
-                              p.assigned_to === uid ||
-                              (Array.isArray(p.team_members) && p.team_members.includes(uid))
+                              selectedIds.includes(p.assigned_planning_person_id) ||
+                              selectedIds.includes(p.assigned_to) ||
+                              selectedIds.includes(p.project_manager_id) ||
+                              selectedIds.includes(p.architect_id) ||
+                              selectedIds.includes(p.cre_user_id) ||
+                              (Array.isArray(p.team_members) && p.team_members.some(uid => selectedIds.includes(uid)))
                             );
                             return teamMatch || directMatch;
                           };
@@ -1478,7 +1494,7 @@ export default function PlanningBoard({ embedded = false }) {
                             (!projectSearch ||
                               (p.name || '').toLowerCase().includes(projectSearch.toLowerCase()) ||
                               (p.client_name || '').toLowerCase().includes(projectSearch.toLowerCase()))
-                            && projectIncludesUser(p, teamMemberFilterUserId)
+                            && projectIncludesUser(p)
                           );
                           if (filtered.length === 0) return (
                             <tr><td colSpan={projectSubTab === 'archived' ? 6 : 7} className="p-8 text-center text-gray-400">

@@ -3501,7 +3501,20 @@ async def list_team_members(current_user: User = Depends(get_current_user)):
         {"role": {"$nin": excluded_roles}, "is_active": {"$ne": False}},
         {"_id": 0, "user_id": 1, "name": 1, "email": 1, "role": 1},
     ).sort("name", 1).to_list(1000)
-    return users
+    # Deduplicate — same person can appear twice (e.g. created via HR + Sales)
+    # with two distinct user_ids and identical (name, role). The UI picker still
+    # needs ONE entry but must remember every alias so the filter can match
+    # projects assigned to either alias.
+    seen: Dict[str, Dict[str, Any]] = {}
+    for u in users:
+        key = ((u.get("name") or "").strip().lower(), u.get("role") or "")
+        if not key[0]:
+            key = (u.get("user_id"), u.get("role") or "")
+        if key in seen:
+            seen[key]["aliases"].append(u.get("user_id"))
+        else:
+            seen[key] = {**u, "aliases": [u.get("user_id")]}
+    return list(seen.values())
 
 
 @router.get("/roles")
