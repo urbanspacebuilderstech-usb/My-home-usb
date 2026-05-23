@@ -1123,11 +1123,11 @@ export default function PlanningBoard({ embedded = false }) {
   };
   const getStatusBadge = (s) => {
     const m = { in_planning: 'bg-green-100 text-green-700', planning_review: 'bg-amber-100 text-amber-700', awaiting_approval: 'bg-yellow-100 text-yellow-700', gm_approved: 'bg-purple-100 text-purple-700', planning_approved: 'bg-green-100 text-green-700', active: 'bg-green-100 text-green-700', completed: 'bg-gray-100 text-gray-700' };
-    return <span className={`px-2 py-0.5 rounded text-xs font-medium ${m[s] || 'bg-gray-100 text-gray-700'}`}>{s?.replace(/_/g, ' ')}</span>;
+    return <span className={`px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap inline-block ${m[s] || 'bg-gray-100 text-gray-700'}`}>{s?.replace(/_/g, ' ')}</span>;
   };
   const getStageBadge = (id) => {
     const s = stages.find(x => x.id === id);
-    return <Badge variant="outline" className="text-xs capitalize">{s?.name || id?.replace(/_/g, ' ') || '-'}</Badge>;
+    return <Badge variant="outline" className="text-xs capitalize whitespace-nowrap px-2.5 py-0.5">{s?.name || id?.replace(/_/g, ' ') || '-'}</Badge>;
   };
   const getMaterialName = (id) => materials.find(m => m.material_id === id)?.name || id;
 
