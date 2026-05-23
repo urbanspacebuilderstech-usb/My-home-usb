@@ -806,7 +806,6 @@ export default function HRPortal() {
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">DESIGNATION</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">JOINED</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">TERMINATED</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">EXIT REASON</th>
                         <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">REHIRE</th>
                         <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">ATTENDANCE DAYS</th>
                         <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">LEAVES</th>
@@ -815,7 +814,7 @@ export default function HRPortal() {
                     </thead>
                     <tbody className="divide-y">
                       {terminatedStaff.length === 0 ? (
-                        <tr><td colSpan="10" className="px-4 py-8 text-center text-gray-500">No terminated employees found.</td></tr>
+                        <tr><td colSpan="9" className="px-4 py-8 text-center text-gray-500">No terminated employees found.</td></tr>
                       ) : [...terminatedStaff].sort((a, b) => {
                         switch (leftSortBy) {
                           case 'name_asc': return (a.name || '').localeCompare(b.name || '');
@@ -838,9 +837,6 @@ export default function HRPortal() {
                           <td className="px-4 py-3 text-sm text-gray-600">{s.designation || '-'}</td>
                           <td className="px-4 py-3 text-sm text-gray-600">{s.date_of_joining ? new Date(s.date_of_joining).toLocaleDateString('en-IN') : '-'}</td>
                           <td className="px-4 py-3 text-sm text-red-600 font-medium">{s.terminated_at ? new Date(s.terminated_at).toLocaleDateString('en-IN') : '-'}</td>
-                          <td className="px-4 py-3 text-sm text-gray-700 max-w-[220px]" title={s.exit_reason || ''}>
-                            <span className="line-clamp-2">{s.exit_reason || <span className="text-gray-400">—</span>}</span>
-                          </td>
                           <td className="px-4 py-3 text-center">
                             {s.rehire_eligibility === 'eligible' ? (
                               <Badge className="bg-green-100 text-green-700 border-green-200">Eligible</Badge>
@@ -1124,6 +1120,33 @@ export default function HRPortal() {
                 </div>
                 <Badge className={`ml-auto ${viewingStaff.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{viewingStaff.status || 'Active'}</Badge>
               </div>
+              {viewingStaff.status === 'terminated' && (
+                <div className="rounded-lg border border-red-200 bg-red-50/60 p-4" data-testid="exit-details-block">
+                  <h4 className="font-semibold text-sm text-red-700 mb-2 flex items-center gap-1.5">
+                    <UserX className="h-4 w-4" /> Exit Details
+                  </h4>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                    <InfoRow label="Terminated On" value={viewingStaff.terminated_at ? new Date(viewingStaff.terminated_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null} />
+                    <InfoRow label="Terminated By" value={viewingStaff.terminated_by_name} />
+                    <InfoRow
+                      label="Rehire Eligibility"
+                      value={
+                        viewingStaff.rehire_eligibility === 'eligible'
+                          ? <Badge className="bg-green-100 text-green-700 border-green-200">Eligible</Badge>
+                          : viewingStaff.rehire_eligibility === 'not_eligible'
+                            ? <Badge className="bg-red-100 text-red-700 border-red-200">Not Eligible</Badge>
+                            : null
+                      }
+                    />
+                  </div>
+                  <div className="mt-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Reason for Exit</p>
+                    <p className="text-sm text-gray-800 whitespace-pre-wrap mt-0.5" data-testid="exit-reason-text">
+                      {viewingStaff.exit_reason || <span className="text-gray-400">No reason recorded</span>}
+                    </p>
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
                 <InfoRow label="Email" value={viewingStaff.email} /><InfoRow label="Phone" value={viewingStaff.phone} />
                 <InfoRow label="Date of Birth" value={viewingStaff.date_of_birth ? new Date(viewingStaff.date_of_birth).toLocaleDateString('en-IN') : null} />
