@@ -3422,8 +3422,8 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
         "status": "received" if advance_amount > 0 else "pending"
     }
 
-    # Calculate totals - include advance payment in total_received
-    total_scheduled = sum(s.get("amount", 0) for s in payment_stages)
+    # Remove the earlier total_scheduled (it was computed before self-heal).
+    # `total_scheduled` is now set after the self-heal loop above.
     stages_received = sum(s.get("amount_received", 0) for s in payment_stages)
 
     # SINGLE SOURCE OF TRUTH for Total Income shown on the project header:
@@ -3439,20 +3439,26 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     else:
         total_received = advance_amount + stages_received
     
-    # Project value from scopes
-    project_value = project.get("total_value", 0) or 0
-    scope_total = project.get("scope_total", 0) or 0
-    additional_cost = project.get("additional_cost", 0) or 0
-
-    # Authoritative additions / deductions from their respective collections
+    # ── PROJECT VALUE — SINGLE SOURCE OF TRUTH ──────────────────────────────
+    # Both the project header card and the Payment Summary tab MUST agree.
+    # Source: live sum of scope_items + additional_costs − deductions.
+    # The denormalized `project.scope_total` / `project.additional_cost` fields
+    # were drifting because nothing kept them in sync with scope edits.
+    # If FE has been locked (cre_approved), the locked value takes precedence
+    # so payment-stage % math is anchored to FE — exactly as the user requested.
+    live_scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(2000)
+    scope_total = sum((item.get("total_amount") or 0) for item in live_scope_items)
     additional_costs_list = await db.additional_costs.find({"project_id": project_id}, {"_id": 0, "estimated_amount": 1, "actual_amount": 1}).to_list(500)
     additions_total = sum((c.get("estimated_amount") or c.get("actual_amount") or 0) for c in additional_costs_list)
-
     deductions_list = await db.deductions.find({"project_id": project_id}, {"_id": 0, "amount": 1}).to_list(500)
     deductions_total = sum(d.get("amount", 0) for d in deductions_list)
 
-    # Total project value = scope total + additions − deductions
-    total_project_value = max(0, (scope_total or project_value) + additions_total - deductions_total)
+    # Locked project value (= FE grand_total at last CRE approval) takes priority
+    locked_value = float(project.get("total_value") or 0)
+    live_grand = max(0, scope_total + additions_total - deductions_total)
+    total_project_value = locked_value if locked_value > 0 else live_grand
+    project_value = total_project_value
+    additional_cost = additions_total  # back-compat alias
 
     # Project-wide expenses (used by the redesigned strip) — APPROVED only.
     # Exclude rejected / under_correction so the strip stops counting amounts
@@ -3464,6 +3470,39 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     ).to_list(2000)
     total_expense = sum(e.get("amount", 0) for e in project_expenses_list)
     
+    # ── SELF-HEALING PAYMENT STAGE AMOUNTS ──────────────────────────────────
+    # If a stage stores a percentage, ensure amount = locked × pct / 100 every
+    # time we serve the payment summary. This eliminates the long-standing
+    # drift where amounts ÷ project_value didn't equal the stored percentage.
+    # Stages without a stored percentage are derived (amount ÷ project_value).
+    # Already-collected stages are never reduced below amount_received.
+    if total_project_value > 0:
+        for stage in payment_stages:
+            pct = stage.get("percentage")
+            try:
+                pct_f = float(pct) if pct not in (None, "") else None
+            except Exception:
+                pct_f = None
+            already = stage.get("amount_received") or 0
+            if pct_f is not None:
+                new_amount = round((total_project_value * pct_f) / 100)
+                if new_amount < already:
+                    new_amount = already
+                if abs((stage.get("amount") or 0) - new_amount) > 0.5:
+                    stage["amount"] = new_amount
+                    await db.payment_stages.update_one(
+                        {"stage_id": stage["stage_id"]},
+                        {"$set": {"amount": new_amount}}
+                    )
+            else:
+                # No stored percentage — derive one from current amount so the
+                # UI can always show "X% of Project Value" consistently.
+                stage["percentage"] = round(((stage.get("amount") or 0) / total_project_value) * 100, 2)
+
+    # Recompute totals after self-heal
+    total_scheduled = sum(s.get("amount", 0) for s in payment_stages)
+    # Total % across all stages — UI uses this to surface "must equal 100%"
+    total_percentage = sum(float(s.get("percentage") or 0) for s in payment_stages)
     # Balance = Total Project Value - Total Received
     total_balance = total_project_value - total_received
     
@@ -3476,7 +3515,7 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
         "project_id": project_id,
         "project_name": project.get("name"),
         "project_value": total_project_value,
-        "scope_total": scope_total or project_value,
+        "scope_total": scope_total,
         "additions_total": additions_total,
         "deductions_total": deductions_total,
         "total_expense": total_expense,
@@ -3486,6 +3525,7 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
         "income_records": income_records,
         "summary": {
             "total_scheduled": total_scheduled,
+            "total_percentage": total_percentage,
             "total_received": total_received,
             "advance_received": advance_amount,
             "stages_received": stages_received,
