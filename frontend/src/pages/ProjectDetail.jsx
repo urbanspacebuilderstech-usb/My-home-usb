@@ -1097,6 +1097,9 @@ export default function ProjectDetail() {
   };
   const [woSelectedType, setWoSelectedType] = useState('');
   const [woForm, setWoForm] = useState({ contractor_id: '', notes: '', scope_items: [], stages: [], additional_work: [], deductions: [], payment_stages: [], total_amount: 0, description: '', labour_rates: { skilled: 0, semi_skilled: 0, unskilled: 0 } });
+  // Reusable WO Notes templates (Planning can save common phrases like
+  // "Material at contractor cost" and pick from a dropdown next time).
+  const [woNoteTemplates, setWoNoteTemplates] = useState([]);
   // Top-level tab inside the WO dialog: 'work_order' (with inner Scope/Additional/Deductions/Summary) | 'payment_stages'
   const [woMainTab, setWoMainTab] = useState('work_order');
   // Common construction units used by the searchable Unit dropdown across
@@ -1444,14 +1447,17 @@ export default function ProjectDetail() {
   const openWoDialog = async (wo = null) => {
     setEditingWo(wo);
     setWoViewId(null);
-    // Fetch contractor types and contractors (merged: legacy + new)
+    // Fetch contractor types and contractors (merged: legacy + new), plus the
+    // shared Notes template library so the dropdown is ready on first open.
     try {
-      const [typesRes, contMerged] = await Promise.all([
+      const [typesRes, contMerged, tplsRes] = await Promise.all([
         axios.get(`${API}/contractor-types`),
         fetchAllContractors(),
+        axios.get(`${API}/wo-note-templates`).catch(() => ({ data: [] })),
       ]);
       setContractorTypes(typesRes.data || []);
       setAllContractors(contMerged);
+      setWoNoteTemplates(Array.isArray(tplsRes.data) ? tplsRes.data : []);
     } catch { setContractorTypes([]); setAllContractors([]); }
 
     if (wo) {
@@ -7016,7 +7022,63 @@ export default function ProjectDetail() {
                         </Popover>
                       </div>
                     </div>
-                    <div><Label className="text-xs">Notes</Label><Textarea value={woForm.notes} onChange={e => setWoForm(f => ({ ...f, notes: e.target.value }))} placeholder="Work order notes..." rows={2} data-testid="wo-notes" /></div>
+                    <div data-testid="wo-notes-section">
+                      <div className="flex items-center justify-between mb-1">
+                        <Label className="text-xs">Notes</Label>
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value=""
+                            onValueChange={(val) => {
+                              if (val === '__add__') {
+                                const txt = window.prompt('Add a new Notes template:', '');
+                                if (txt && txt.trim()) {
+                                  axios.post(`${API}/wo-note-templates`, { text: txt.trim() })
+                                    .then(res => { setWoNoteTemplates(prev => [res.data, ...prev]); toast.success('Template saved'); })
+                                    .catch(() => toast.error('Failed to save template'));
+                                }
+                              } else if (val) {
+                                const t = woNoteTemplates.find(x => x.template_id === val);
+                                if (t) setWoForm(f => ({ ...f, notes: t.text }));
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-7 w-56 text-xs" data-testid="wo-notes-template-picker">
+                              <SelectValue placeholder="Pick saved template" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__add__" className="text-green-700">
+                                <Plus className="h-3 w-3 inline mr-1" />Add New Template
+                              </SelectItem>
+                              {woNoteTemplates.length === 0 ? (
+                                <div className="px-3 py-2 text-xs text-gray-400">No templates yet</div>
+                              ) : woNoteTemplates.map(t => (
+                                <div key={t.template_id} className="flex items-center justify-between pr-1 hover:bg-gray-50">
+                                  <SelectItem value={t.template_id} className="flex-1 cursor-pointer">
+                                    <span className="text-xs truncate" title={t.text}>{t.label || t.text}</span>
+                                  </SelectItem>
+                                  <button
+                                    type="button"
+                                    className="text-red-500 hover:text-red-700 p-1"
+                                    onClick={(e) => {
+                                      e.preventDefault(); e.stopPropagation();
+                                      if (!window.confirm(`Delete template "${t.label || t.text}"?`)) return;
+                                      axios.delete(`${API}/wo-note-templates/${t.template_id}`)
+                                        .then(() => { setWoNoteTemplates(prev => prev.filter(x => x.template_id !== t.template_id)); toast.success('Template removed'); })
+                                        .catch(() => toast.error('Failed to remove'));
+                                    }}
+                                    data-testid={`delete-wo-template-${t.template_id}`}
+                                    title="Delete template"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <Textarea value={woForm.notes} onChange={e => setWoForm(f => ({ ...f, notes: e.target.value }))} placeholder="Pick a template or type custom notes…" rows={2} data-testid="wo-notes" />
+                    </div>
 
                     {/* Labour Rates */}
                     <div className="border rounded-lg p-3 bg-teal-50/30">

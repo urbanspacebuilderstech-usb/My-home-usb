@@ -998,6 +998,48 @@ class WorkOrderAssignmentCreate(BaseModel):
     notes: Optional[str] = None
 
 
+# ==================== WORK ORDER NOTE TEMPLATES ====================
+# Reusable note templates the Planning team can pick from when creating a
+# Work Order. Templates are shared org-wide so HR/Planning Head doesn't have
+# to retype standard verbiage like "Material at contractor's cost" etc.
+
+@router.get("/wo-note-templates")
+async def list_wo_note_templates(user: User = Depends(get_current_user)):
+    items = await db.wo_note_templates.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return items
+
+
+@router.post("/wo-note-templates")
+async def create_wo_note_template(body: Dict[str, Any] = Body(...), user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    text = (body or {}).get("text", "").strip()
+    label = (body or {}).get("label", "").strip() or (text[:60] + ("…" if len(text) > 60 else ""))
+    if not text:
+        raise HTTPException(status_code=400, detail="Note text is required")
+    tpl = {
+        "template_id": f"wnt_{uuid.uuid4().hex[:10]}",
+        "label": label,
+        "text": text,
+        "created_by": user.user_id,
+        "created_by_name": user.name,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.wo_note_templates.insert_one(tpl)
+    tpl.pop("_id", None)
+    return tpl
+
+
+@router.delete("/wo-note-templates/{template_id}")
+async def delete_wo_note_template(template_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    res = await db.wo_note_templates.delete_one({"template_id": template_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {"message": "Deleted"}
+
+
 @router.get("/work-order-assignments/{project_id}")
 async def get_work_order_assignments(project_id: str, user: User = Depends(get_current_user)):
     assignments = await db.work_order_assignments.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
