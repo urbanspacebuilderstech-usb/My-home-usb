@@ -6,7 +6,7 @@ import {
   Clock, CheckCircle, XCircle, Truck, Camera, AlertTriangle, Send,
   Calendar, ClipboardList, Warehouse, Save, Trash2, History,
   ChevronRight, Banknote, ArrowRight, Eye, Circle,
-  ListChecks, FileClock, Wallet, PackageCheck, CheckCircle2, Video, FileText
+  ListChecks, FileClock, Wallet, PackageCheck, CheckCircle2, Video, FileText, IndianRupee
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -99,6 +99,10 @@ export default function SiteEngineerProject() {
   const [loading, setLoading] = useState(true);
   
   const [activeTab, setActiveTab] = useState('dlr_dpr');
+  // Sub-tab inside DLR & DPR: 'dlr' (existing) | 'payments' (read-only payment schedule)
+  const [dlrSubTab, setDlrSubTab] = useState('dlr');
+  const [paymentStages, setPaymentStages] = useState([]);
+  const [paymentStagesLoading, setPaymentStagesLoading] = useState(false);
   const [materialsSubTab, setMaterialsSubTab] = useState('requests'); // requests | inventory
   const [materialBucket, setMaterialBucket] = useState('all'); // lifecycle filter
   const [labourSubTab, setLabourSubTab] = useState('orders');
@@ -846,10 +850,10 @@ export default function SiteEngineerProject() {
             </TabsTrigger>
           </TabsList>
 
-          {/* DLR & DPR TAB — Daily Labour Report + Daily Progress Report */}
+          {/* DLR & DPR TAB — Daily Labour Report + Daily Progress Report  +  Payment Schedule (read-only) */}
           <TabsContent value="dlr_dpr">
             <Card>
-              <CardHeader className="p-3 sm:p-6">
+              <CardHeader className="p-3 sm:p-6 pb-0">
                 <div className="flex items-start justify-between gap-2 flex-wrap">
                   <div className="min-w-0">
                     <CardTitle className="text-base sm:text-lg flex items-center gap-2">
@@ -858,55 +862,150 @@ export default function SiteEngineerProject() {
                     <CardDescription className="text-xs sm:text-sm">Daily Labour Report &amp; Daily Progress Report submitted by Site Engineer</CardDescription>
                   </div>
                 </div>
-              </CardHeader>
-              <CardContent className="p-3 sm:p-6 pt-0 space-y-4">
-                {/* DLR card — single unified entry point (DPR captured inside DLR popup) */}
-                <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/60 to-white p-4 sm:p-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center">
-                      <ClipboardList className="h-4 w-4 text-amber-700" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-gray-900">Daily Labour Report (DLR) &amp; Daily Progress Report (DPR)</h3>
-                      <p className="text-[11px] text-gray-500">Labour headcount + Current stage + Work summary — captured in one form</p>
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-600 mb-3">
-                    Open the Work Order → click <span className="font-semibold">+ DLR</span> to capture today&apos;s
-                    labour deployment along with the Current Project Stage and Work Summary (DPR).
-                  </p>
-                  <Button
-                    size="sm"
-                    className="bg-amber-600 hover:bg-amber-700 text-white gap-1 w-full sm:w-auto"
-                    onClick={() => setActiveTab('work_orders')}
-                    data-testid="open-dlr-btn"
+                <div className="flex gap-1 mt-3 border-b -mx-3 sm:-mx-6 px-3 sm:px-6">
+                  <button
+                    type="button"
+                    onClick={() => setDlrSubTab('dlr')}
+                    className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${dlrSubTab === 'dlr' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                    data-testid="dlr-subtab-dlr"
                   >
-                    <Calendar className="h-3.5 w-3.5" /> Open Today&apos;s DLR &amp; DPR
-                  </Button>
+                    <ClipboardList className="h-3.5 w-3.5 inline mr-1" /> DLR &amp; DPR
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setDlrSubTab('payments');
+                      if (paymentStages.length === 0) {
+                        setPaymentStagesLoading(true);
+                        try {
+                          const res = await axios.get(`${API}/projects/${projectId}/payment-stages`);
+                          setPaymentStages(Array.isArray(res.data) ? res.data : []);
+                        } catch { setPaymentStages([]); }
+                        setPaymentStagesLoading(false);
+                      }
+                    }}
+                    className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${dlrSubTab === 'payments' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                    data-testid="dlr-subtab-payments"
+                  >
+                    <IndianRupee className="h-3.5 w-3.5 inline mr-1" /> Payment Schedule
+                  </button>
                 </div>
+              </CardHeader>
+              <CardContent className="p-3 sm:p-6 pt-3 space-y-4">
+                {dlrSubTab === 'dlr' ? (
+                  <>
+                    {/* DLR card — single unified entry point (DPR captured inside DLR popup) */}
+                    <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/60 to-white p-4 sm:p-5">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center">
+                          <ClipboardList className="h-4 w-4 text-amber-700" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-gray-900">Daily Labour Report (DLR) &amp; Daily Progress Report (DPR)</h3>
+                          <p className="text-[11px] text-gray-500">Labour headcount + Current stage + Work summary — captured in one form</p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-600 mb-3">
+                        Open the Work Order → click <span className="font-semibold">+ DLR</span> to capture today&apos;s
+                        labour deployment along with the Current Project Stage and Work Summary (DPR).
+                      </p>
+                      <Button
+                        size="sm"
+                        className="bg-amber-600 hover:bg-amber-700 text-white gap-1 w-full sm:w-auto"
+                        onClick={() => setActiveTab('work_orders')}
+                        data-testid="open-dlr-btn"
+                      >
+                        <Calendar className="h-3.5 w-3.5" /> Open Today&apos;s DLR &amp; DPR
+                      </Button>
+                    </div>
 
-                {/* Quick metric strip — today's summary */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  <div className="rounded-xl border bg-white px-3 py-2.5">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Today&apos;s Labour</p>
-                    <p className="text-base font-bold text-amber-700 mt-0.5">{dailyLabourCount}</p>
-                  </div>
-                  <div className="rounded-xl border bg-white px-3 py-2.5">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Last DPR</p>
-                    <p className="text-base font-bold text-emerald-700 mt-0.5">{lastDPRDate ? new Date(lastDPRDate).toLocaleDateString('en-IN', { day:'2-digit', month:'short' }) : '—'}</p>
-                  </div>
-                  <div className="rounded-xl border bg-white px-3 py-2.5">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Active Contractors</p>
-                    <p className="text-base font-bold text-blue-700 mt-0.5">{activeContractorsCount}</p>
-                  </div>
-                  <div className="rounded-xl border bg-white px-3 py-2.5">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Open Hindrances</p>
-                    <p className="text-base font-bold text-rose-700 mt-0.5">{openHindrancesCount}</p>
-                  </div>
-                </div>
+                    {/* Quick metric strip — today's summary */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      <div className="rounded-xl border bg-white px-3 py-2.5">
+                        <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Today&apos;s Labour</p>
+                        <p className="text-base font-bold text-amber-700 mt-0.5">{dailyLabourCount}</p>
+                      </div>
+                      <div className="rounded-xl border bg-white px-3 py-2.5">
+                        <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Last DPR</p>
+                        <p className="text-base font-bold text-emerald-700 mt-0.5">{lastDPRDate ? new Date(lastDPRDate).toLocaleDateString('en-IN', { day:'2-digit', month:'short' }) : '—'}</p>
+                      </div>
+                      <div className="rounded-xl border bg-white px-3 py-2.5">
+                        <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Active Contractors</p>
+                        <p className="text-base font-bold text-blue-700 mt-0.5">{activeContractorsCount}</p>
+                      </div>
+                      <div className="rounded-xl border bg-white px-3 py-2.5">
+                        <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Open Hindrances</p>
+                        <p className="text-base font-bold text-rose-700 mt-0.5">{openHindrancesCount}</p>
+                      </div>
+                    </div>
 
-                {/* Overall DLR & DPR submissions list */}
-                <ProjectDLRDPRList projectId={projectId} />
+                    {/* Overall DLR & DPR submissions list */}
+                    <ProjectDLRDPRList projectId={projectId} />
+                  </>
+                ) : (
+                  /* PAYMENT SCHEDULE — read-only view */
+                  <div className="rounded-xl border bg-white overflow-hidden" data-testid="se-payment-schedule">
+                    <div className="px-3 sm:px-4 py-2.5 border-b bg-gray-50/60 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <IndianRupee className="h-4 w-4 text-emerald-600" />
+                        <span className="text-sm font-semibold text-gray-900">Payment Schedule ({paymentStages.length})</span>
+                      </div>
+                      <span className="text-[10px] text-gray-400 uppercase tracking-wide">View only</span>
+                    </div>
+                    {paymentStagesLoading ? (
+                      <p className="text-center text-gray-400 text-xs py-6">Loading…</p>
+                    ) : paymentStages.length === 0 ? (
+                      <div className="text-center py-8 px-4">
+                        <IndianRupee className="h-8 w-8 text-gray-300 mx-auto mb-2" />
+                        <p className="text-sm text-gray-500">No payment stages set up yet.</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-xs">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-600">#</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-600">Stage</th>
+                              <th className="px-3 py-2 text-right font-semibold text-gray-600">Amount</th>
+                              <th className="px-3 py-2 text-right font-semibold text-gray-600">Received</th>
+                              <th className="px-3 py-2 text-right font-semibold text-gray-600">Balance</th>
+                              <th className="px-3 py-2 text-center font-semibold text-gray-600">Status</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-600">Date</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {paymentStages.map((s, i) => {
+                              const bal = (s.amount || 0) - (s.amount_received || 0);
+                              const pct = s.amount ? Math.round(((s.amount_received || 0) / s.amount) * 100) : 0;
+                              const statusColor = s.status === 'paid' ? 'bg-green-100 text-green-700' : s.status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600';
+                              return (
+                                <tr key={s.stage_id} className="hover:bg-gray-50" data-testid={`se-ps-row-${s.stage_id}`}>
+                                  <td className="px-3 py-2 text-gray-500">{i + 1}</td>
+                                  <td className="px-3 py-2 font-medium">{s.stage_name}</td>
+                                  <td className="px-3 py-2 text-right">{formatCurrency(s.amount)}</td>
+                                  <td className="px-3 py-2 text-right text-green-700">{formatCurrency(s.amount_received || 0)}</td>
+                                  <td className="px-3 py-2 text-right text-red-600">{formatCurrency(bal)}</td>
+                                  <td className="px-3 py-2 text-center">
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusColor}`}>
+                                      {s.status === 'paid' ? `Collected (${pct}%)` : s.status === 'partial' ? `Partial (${pct}%)` : 'Pending'}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-500">
+                                    {s.completed_date
+                                      ? new Date(s.completed_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                                      : s.due_date
+                                        ? new Date(s.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                                        : '—'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

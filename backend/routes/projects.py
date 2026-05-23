@@ -6619,11 +6619,29 @@ async def delete_dlr(project_id: str, wo_id: str, dlr_id: str, user: User = Depe
 
 
 @router.get("/projects/{project_id}/dlr/summary")
-async def get_project_dlr_summary(project_id: str, date: Optional[str] = None, user: User = Depends(get_current_user)):
-    """Get DLR summary for entire project - grouped by contractor and date"""
+async def get_project_dlr_summary(
+    project_id: str,
+    date: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Get DLR summary for entire project - grouped by contractor and date.
+
+    Supports either a single `date` or a `date_from`/`date_to` range
+    (used by the Site Engineer DLR & DPR filter).
+    """
     query = {"project_id": project_id}
     if date:
         query["date"] = date
+    elif date_from or date_to:
+        rng: Dict[str, Any] = {}
+        if date_from:
+            rng["$gte"] = date_from
+        if date_to:
+            rng["$lte"] = date_to
+        if rng:
+            query["date"] = rng
     entries = await db.daily_labour_reports.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
 
     total_workers = sum(e.get("total_workers", 0) for e in entries)

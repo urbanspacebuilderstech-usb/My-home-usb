@@ -7,11 +7,13 @@ import {
   IndianRupee,
   ClipboardList,
   FileText,
-  Filter
+  X
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { DayPicker } from 'react-day-picker';
+import 'react-day-picker/dist/style.css';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = v => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(v || 0);
@@ -24,21 +26,35 @@ const typeLabel = (t) => {
 const ProjectDLRDPRList = ({ projectId }) => {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [filterDate, setFilterDate] = useState('');
+  // Date range filter — same UX as Pre-Sales board (presets + DayPicker)
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const fetchEntries = async () => {
     if (!projectId) return;
     setLoading(true);
     try {
-      const params = filterDate ? `?date=${filterDate}` : '';
-      // Reuse summary endpoint — it returns flat `entries` list of all DLRs for the project
+      const qs = new URLSearchParams();
+      if (dateFrom) qs.append('date_from', dateFrom);
+      if (dateTo) qs.append('date_to', dateTo || dateFrom);
+      const params = qs.toString() ? `?${qs.toString()}` : '';
       const res = await axios.get(`${API}/projects/${projectId}/dlr/summary${params}`);
       setEntries(res.data?.entries || []);
     } catch { setEntries([]); }
     setLoading(false);
   };
 
-  useEffect(() => { fetchEntries(); /* eslint-disable-next-line */ }, [projectId, filterDate]);
+  useEffect(() => { fetchEntries(); /* eslint-disable-next-line */ }, [projectId, dateFrom, dateTo]);
+
+  const presets = [
+    { label: 'Today', fn: () => { const d = new Date().toISOString().split('T')[0]; setDateFrom(d); setDateTo(''); } },
+    { label: 'Yesterday', fn: () => { const d = new Date(); d.setDate(d.getDate() - 1); const s = d.toISOString().split('T')[0]; setDateFrom(s); setDateTo(''); } },
+    { label: 'This Week', fn: () => { const now = new Date(); const mon = new Date(now); mon.setDate(now.getDate() - now.getDay() + 1); const sun = new Date(mon); sun.setDate(mon.getDate() + 6); setDateFrom(mon.toISOString().split('T')[0]); setDateTo(sun.toISOString().split('T')[0]); } },
+    { label: 'Last 7 Days', fn: () => { const e = new Date(); const s = new Date(); s.setDate(e.getDate() - 7); setDateFrom(s.toISOString().split('T')[0]); setDateTo(e.toISOString().split('T')[0]); } },
+    { label: 'This Month', fn: () => { const now = new Date(); setDateFrom(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]); setDateTo(new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]); } },
+    { label: 'Last 30 Days', fn: () => { const e = new Date(); const s = new Date(); s.setDate(e.getDate() - 30); setDateFrom(s.toISOString().split('T')[0]); setDateTo(e.toISOString().split('T')[0]); } },
+    { label: 'Clear', fn: () => { setDateFrom(''); setDateTo(''); }, danger: true },
+  ];
 
   return (
     <div className="rounded-xl border bg-white" data-testid="project-dlr-dpr-list">
@@ -48,21 +64,56 @@ const ProjectDLRDPRList = ({ projectId }) => {
           <FileText className="h-4 w-4 text-indigo-600" />
           <span className="text-sm font-semibold text-gray-900">DLR &amp; DPR Submissions ({entries.length})</span>
         </div>
-        <div className="flex items-center gap-2">
-          <Filter className="h-3.5 w-3.5 text-gray-400" />
-          <Input
-            type="date"
-            value={filterDate}
-            onChange={(e) => setFilterDate(e.target.value)}
-            className="h-8 text-xs w-[140px]"
-            data-testid="dlr-dpr-list-date-filter"
-          />
-          {filterDate && (
-            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setFilterDate('')}>
-              Clear
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              className={`h-8 text-xs gap-1.5 rounded-lg shadow-sm ${dateFrom ? 'bg-blue-50 border-blue-400 text-blue-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}
+              data-testid="dlr-dpr-date-filter-btn"
+            >
+              <Calendar className="h-3.5 w-3.5" />
+              {dateFrom ? (
+                dateTo && dateFrom !== dateTo
+                  ? `${new Date(dateFrom).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} - ${new Date(dateTo).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}`
+                  : new Date(dateFrom).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+              ) : 'Date'}
+              {dateFrom && <X className="h-3 w-3 ml-1 opacity-50 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setDateFrom(''); setDateTo(''); }} />}
             </Button>
-          )}
-        </div>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0 rounded-xl shadow-xl border-0" align="end">
+            <div className="flex">
+              <div className="w-32 border-r bg-gray-50 p-2 space-y-0.5 rounded-l-xl">
+                {presets.map(p => (
+                  <button
+                    key={p.label}
+                    onClick={p.fn}
+                    className={`w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-colors ${p.danger ? 'text-red-500 hover:bg-red-50 mt-2' : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'}`}
+                    data-testid={`dlr-preset-${p.label.toLowerCase().replace(/ /g, '-')}`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <div className="p-3">
+                <DayPicker
+                  mode="range"
+                  selected={dateFrom ? { from: new Date(dateFrom + 'T00:00:00'), to: dateTo ? new Date(dateTo + 'T00:00:00') : new Date(dateFrom + 'T00:00:00') } : undefined}
+                  onSelect={(range) => {
+                    if (range?.from) {
+                      const from = range.from.toLocaleDateString('en-CA');
+                      const to = range.to ? range.to.toLocaleDateString('en-CA') : '';
+                      setDateFrom(from);
+                      setDateTo(from === to ? '' : to);
+                    } else {
+                      setDateFrom('');
+                      setDateTo('');
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
       {/* Body */}
@@ -71,7 +122,7 @@ const ProjectDLRDPRList = ({ projectId }) => {
       ) : entries.length === 0 ? (
         <div className="text-center py-8 px-4">
           <ClipboardList className="h-8 w-8 text-gray-300 mx-auto mb-2" />
-          <p className="text-sm text-gray-500">No DLR &amp; DPR entries{filterDate ? ` for ${filterDate}` : ' submitted yet'}</p>
+          <p className="text-sm text-gray-500">No DLR &amp; DPR entries{dateFrom ? ` in this date range` : ' submitted yet'}</p>
           <p className="text-[11px] text-gray-400 mt-1">Open the Work Order tab and click <span className="font-semibold">+ DLR</span> to submit one.</p>
         </div>
       ) : (
