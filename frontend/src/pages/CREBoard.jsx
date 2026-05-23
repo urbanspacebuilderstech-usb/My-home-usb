@@ -165,6 +165,9 @@ export default function CREBoard() {
   const [creRejectReason, setCreRejectReason] = useState('');
   const [collectForm, setCollectForm] = useState({ amount: '', remarks: '' });
   const [collectPaymentEntries, setCollectPaymentEntries] = useState([{ amount: '', payment_mode: 'bank_transfer', reference: '', cheque_details: [] }]);
+  // Smart Bulk Collect (auto-distribute across multiple pending stages FIFO)
+  const [outstandingStages, setOutstandingStages] = useState([]);     // sibling pending stages on the same project
+  const [bulkCollectAmount, setBulkCollectAmount] = useState('');     // single client-paid amount
 
   // Search
   const [projectSearch, setProjectSearch] = useState('');
@@ -437,15 +440,85 @@ export default function CREBoard() {
     setRequestREMode(false);
   };
 
-  const openCollectDialog = (stage) => {
+  const openCollectDialog = async (stage) => {
     setSelectedPaymentStage(stage);
     const balance = (stage.amount || 0) - (stage.amount_received || 0);
     setCollectForm({ amount: balance, mode: 'bank_transfer', reference: '', remarks: '', num_cheques: 1, cheque_details: [] });
+    setBulkCollectAmount('');
+    setOutstandingStages([]);
     setCollectDialog(true);
+    // Fetch the project's other pending stages — drives the FIFO preview.
+    if (stage.project_id) {
+      try {
+        const res = await axios.get(`${API}/projects/${stage.project_id}/outstanding-stages`);
+        setOutstandingStages(res.data?.stages || []);
+      } catch {
+        // Non-blocking — single-stage popup still works if this fails.
+      }
+    }
+  };
+
+  // Compute FIFO allocation preview for a given total amount.
+  // Stages array is already sorted server-side by requested_at ascending.
+  const computeFIFOAllocation = (amount, stages) => {
+    const amt = parseFloat(amount) || 0;
+    if (amt <= 0 || !stages.length) return [];
+    let remaining = amt;
+    const result = [];
+    for (const s of stages) {
+      if (remaining <= 0.5) break;
+      const take = Math.min(remaining, s.balance);
+      if (take > 0) {
+        result.push({ ...s, allocated: take, post_balance: Math.max(0, s.balance - take) });
+        remaining -= take;
+      }
+    }
+    if (remaining > 0.5 && result.length) {
+      // Excess — credit to the last stage (over-collected)
+      result[result.length - 1].allocated += remaining;
+      result[result.length - 1].excess = remaining;
+    }
+    return result;
   };
 
   const handleCollectPayment = async () => {
     if (!selectedPaymentStage) return;
+    // Smart Bulk Collect path — used when CRE filled the single "Amount Received from Client"
+    // field instead of the legacy per-cheque entries grid.
+    const bulkAmt = parseFloat(bulkCollectAmount) || 0;
+    if (bulkAmt > 0 && outstandingStages.length > 0) {
+      const mode = collectPaymentEntries[0]?.payment_mode || 'bank_transfer';
+      const ref = collectPaymentEntries[0]?.reference || '';
+      const cheque_details = mode === 'cheque' ? (collectPaymentEntries[0]?.cheque_details || []) : null;
+      if (mode === 'cheque' && (!cheque_details || cheque_details.length === 0 || !cheque_details[0]?.cheque_number)) {
+        toast.error('Please add at least one cheque number before confirming');
+        return;
+      }
+      try {
+        const res = await axios.post(`${API}/projects/${selectedPaymentStage.project_id}/collect-payment-bulk`, {
+          amount: bulkAmt,
+          payment_mode: mode,
+          payment_reference: ref,
+          remarks: collectForm.remarks || null,
+          cheque_details,
+        });
+        const lines = res.data?.allocations || [];
+        const summary = lines.map(l => `${l.stage_name}: ₹${l.collected.toLocaleString('en-IN')}${l.new_status === 'partial' ? ' (partial)' : ''}`).join(' • ');
+        toast.success(`Distributed ₹${bulkAmt.toLocaleString('en-IN')} → ${summary}`);
+        setCollectDialog(false);
+        setCollectForm({ amount: '', remarks: '' });
+        setBulkCollectAmount('');
+        setOutstandingStages([]);
+        setCollectPaymentEntries([{ amount: '', payment_mode: 'bank_transfer', reference: '', cheque_details: [] }]);
+        fetchData(false);
+        return;
+      } catch (error) {
+        toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to collect payment');
+        return;
+      }
+    }
+
+    // Legacy single-stage path
     const totalPayEntries = collectPaymentEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
     if (collectPaymentEntries.length === 0 || totalPayEntries <= 0) { toast.error('Add at least one payment entry'); return; }
     const balance = (selectedPaymentStage.amount || 0) - (selectedPaymentStage.amount_received || 0);
@@ -1075,10 +1148,16 @@ export default function CREBoard() {
                                       <p className="font-medium">{e.project_name}</p>
                                       <p className="text-[11px] text-gray-400">{e.client_name || ''}</p>
                                     </td>
-                                    <td className="px-4 py-2.5 text-sm">{e.stage_name}</td>
+                                    <td className="px-4 py-2.5 text-sm">
+                                      {e.stage_name}
+                                      {e.is_carryover && (
+                                        <Badge className="ml-1.5 bg-red-50 text-red-700 border-red-200 text-[10px] align-middle" data-testid="last-month-pending-badge">
+                                          🔴 Last Month Pending{e.carry_from_month ? ` (${new Date(2000, e.carry_from_month - 1, 1).toLocaleString('en-IN', { month: 'short' })} ${e.carry_from_year})` : ''}
+                                        </Badge>
+                                      )}
+                                    </td>
                                     <td className="px-4 py-2.5 text-xs text-gray-700">
                                       {e.expected_payment_date ? new Date(e.expected_payment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
-                                      {e.is_carryover && <span className="ml-1 text-[10px] text-orange-600">(carryover)</span>}
                                     </td>
                                     <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(e.amount)}</td>
                                     <td className="px-4 py-2.5 text-right text-green-600">
@@ -1365,8 +1444,88 @@ export default function CREBoard() {
               <div><p className="text-xs text-gray-500">Already Received</p><p className="font-semibold text-green-600">{formatCurrency(selectedPaymentStage?.amount_received || 0)}</p></div>
               <div><p className="text-xs text-gray-500">Balance</p><p className="font-semibold text-red-600">{formatCurrency((selectedPaymentStage?.amount || 0) - (selectedPaymentStage?.amount_received || 0))}</p></div>
             </div>
+
+            {/* Smart Bulk Collect — auto-distribute FIFO across all pending stages on this project */}
+            {outstandingStages.length > 1 && (
+              <div className="border border-amber-200 bg-amber-50/40 rounded-lg p-3 space-y-3" data-testid="bulk-collect-section">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-amber-800">Smart Collect — distribute across pending stages</p>
+                    <p className="text-[11px] text-amber-700">
+                      {outstandingStages.length} stages pending for this project. Total Outstanding: <span className="font-bold">{formatCurrency(outstandingStages.reduce((s, x) => s + x.balance, 0))}</span>
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">Amount Received from Client (₹)</Label>
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    value={bulkCollectAmount}
+                    onChange={(e) => setBulkCollectAmount(e.target.value)}
+                    placeholder={`e.g. ${outstandingStages.reduce((s, x) => s + x.balance, 0)}`}
+                    className="mt-1 text-sm"
+                    data-testid="bulk-collect-amount-input"
+                  />
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    Entering an amount here will auto-distribute it across the pending stages below in Planning's requested order (first-come-first-paid).
+                  </p>
+                </div>
+
+                {/* FIFO allocation preview */}
+                {parseFloat(bulkCollectAmount) > 0 && (() => {
+                  const plan = computeFIFOAllocation(bulkCollectAmount, outstandingStages);
+                  if (!plan.length) return null;
+                  const planned = plan.reduce((s, p) => s + p.allocated, 0);
+                  return (
+                    <div className="rounded-md border border-amber-200 bg-white overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-amber-100/50 text-amber-800">
+                          <tr>
+                            <th className="px-2 py-1.5 text-left">Stage</th>
+                            <th className="px-2 py-1.5 text-right">Pending</th>
+                            <th className="px-2 py-1.5 text-right">Allocated</th>
+                            <th className="px-2 py-1.5 text-right">Remaining</th>
+                            <th className="px-2 py-1.5 text-center">Result</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {plan.map((p, i) => (
+                            <tr key={p.stage_id} data-testid={`bulk-collect-row-${i}`}>
+                              <td className="px-2 py-1.5 font-medium">{p.stage_name}</td>
+                              <td className="px-2 py-1.5 text-right text-red-600">{formatCurrency(p.balance)}</td>
+                              <td className="px-2 py-1.5 text-right font-semibold text-green-700">{formatCurrency(p.allocated)}</td>
+                              <td className="px-2 py-1.5 text-right text-gray-700">{formatCurrency(p.post_balance || 0)}</td>
+                              <td className="px-2 py-1.5 text-center">
+                                {p.post_balance === 0 ? (
+                                  <span className="px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px]">Collected</span>
+                                ) : (
+                                  <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px]">Partial</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="bg-amber-50 font-semibold">
+                          <tr>
+                            <td className="px-2 py-1.5">Total</td>
+                            <td className="px-2 py-1.5 text-right text-red-600">{formatCurrency(outstandingStages.reduce((s, x) => s + x.balance, 0))}</td>
+                            <td className="px-2 py-1.5 text-right text-green-700">{formatCurrency(planned)}</td>
+                            <td colSpan={2}></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Payment mode picker — used by BOTH bulk and single-stage paths */}
             <MultiPaymentInput
-              totalAmount={(selectedPaymentStage?.amount || 0) - (selectedPaymentStage?.amount_received || 0)}
+              totalAmount={(parseFloat(bulkCollectAmount) > 0)
+                ? parseFloat(bulkCollectAmount)
+                : (selectedPaymentStage?.amount || 0) - (selectedPaymentStage?.amount_received || 0)}
               entries={collectPaymentEntries}
               onChange={setCollectPaymentEntries}
               allowPartial={true}

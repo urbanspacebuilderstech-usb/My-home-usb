@@ -1639,7 +1639,14 @@ export default function PlanningBoard({ embedded = false }) {
                                 <React.Fragment key={e.entry_id}>
                                 <tr className="hover:bg-gray-50" data-testid={`schedule-row-${e.entry_id}`}>
                                   <td className="px-4 py-2.5"><p className="font-medium text-sm">{e.project_name}</p></td>
-                                  <td className="px-4 py-2.5 text-sm">{e.stage_name}</td>
+                                  <td className="px-4 py-2.5 text-sm">
+                                    {e.stage_name}
+                                    {e.is_carryover && (
+                                      <Badge className="ml-1.5 bg-red-50 text-red-700 border-red-200 text-[10px] align-middle" data-testid="last-month-pending-badge">
+                                        🔴 Last Month Pending{e.carry_from_month ? ` (${new Date(2000, e.carry_from_month - 1, 1).toLocaleString('en-IN', { month: 'short' })} ${e.carry_from_year})` : ''}
+                                      </Badge>
+                                    )}
+                                  </td>
                                   <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(e.amount)}</td>
                                   <td className="px-4 py-2.5 text-right text-green-600">
                                     {formatCurrency(e.amount_received || 0)}

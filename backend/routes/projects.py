@@ -2857,6 +2857,254 @@ async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInpu
     }
 
 
+# ===================================================================
+# Smart Bulk Payment Collection — FIFO across requested stages
+# ===================================================================
+class BulkCollectAllocation(BaseModel):
+    stage_id: str
+    amount: float
+
+
+class BulkCollectInput(BaseModel):
+    amount: float
+    payment_mode: str = "cash"
+    payment_reference: Optional[str] = None
+    payment_date: Optional[str] = None
+    remarks: Optional[str] = None
+    cheque_details: Optional[List[Dict[str, Any]]] = None  # shared across all stages
+    allocations: Optional[List[BulkCollectAllocation]] = None  # optional manual override
+
+
+@router.post("/projects/{project_id}/collect-payment-bulk")
+async def collect_payment_bulk(
+    project_id: str,
+    body: BulkCollectInput,
+    user: User = Depends(get_current_user),
+):
+    """CRE collects a single client payment and auto-distributes it across the
+    project's pending payment stages in Planning's requested order (FIFO).
+
+    Example: Project A has Stage 01 pending ₹45,000 and Stage 02 pending ₹5,60,000.
+    Client pays ₹5,00,000. The server:
+      - Stage 01 → ₹45,000 (fully collected)
+      - Stage 02 → ₹4,55,000 (partially collected, balance ₹1,05,000)
+    Excess over the total outstanding spills into the next available stage
+    (or stays in the wallet for the next collection).
+    """
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can collect payments")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    incoming_amount = float(body.amount or 0)
+    if incoming_amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than zero")
+
+    # FIFO order: stages first requested by Planning are paid first.
+    # Sort key — `requested_at` ascending, fall back to stage_number/sort_order/created_at.
+    stages = await db.payment_stages.find(
+        {"project_id": project_id, "workflow_status": "requested"},
+        {"_id": 0},
+    ).sort([("requested_at", 1), ("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(200)
+    # Exclude already-fully-collected stages
+    stages = [s for s in stages if (s.get("amount", 0) - s.get("amount_received", 0)) > 0.5]
+    if not stages:
+        raise HTTPException(status_code=400, detail="No pending payment requests for this project")
+
+    # Build the allocation plan
+    allocations: List[Dict[str, Any]] = []
+    if body.allocations:
+        # Manual mode — use exactly what CRE submitted
+        stage_map = {s["stage_id"]: s for s in stages}
+        for alloc in body.allocations:
+            if alloc.amount <= 0:
+                continue
+            st = stage_map.get(alloc.stage_id)
+            if not st:
+                raise HTTPException(status_code=400, detail=f"Stage {alloc.stage_id} not in pending list")
+            allocations.append({"stage": st, "amount": float(alloc.amount)})
+        # If the manual total < incoming amount, append the excess to the last stage
+        manual_total = sum(a["amount"] for a in allocations)
+        excess = incoming_amount - manual_total
+        if excess > 0.5 and allocations:
+            allocations[-1]["amount"] += excess
+    else:
+        # FIFO auto-allocation
+        remaining = incoming_amount
+        for st in stages:
+            if remaining <= 0.5:
+                break
+            stage_balance = (st.get("amount", 0) - st.get("amount_received", 0))
+            take = min(remaining, stage_balance)
+            if take > 0:
+                allocations.append({"stage": st, "amount": float(take)})
+                remaining -= take
+        # Excess after all stages fully collected → spill into the LAST stage
+        # so the project ledger captures the full client payment.
+        if remaining > 0.5 and allocations:
+            allocations[-1]["amount"] += remaining
+
+    payment_date = body.payment_date or datetime.now(timezone.utc).isoformat()
+    if isinstance(payment_date, str) and "T" not in payment_date:
+        payment_date = datetime.fromisoformat(payment_date).isoformat()
+    payment_ref = body.payment_reference or ""
+    shared_collection_id = f"col_{uuid.uuid4().hex[:10]}"
+    result_lines: List[Dict[str, Any]] = []
+
+    for alloc in allocations:
+        st = alloc["stage"]
+        alloc_amt = alloc["amount"]
+        stage_id = st["stage_id"]
+        current_received = st.get("amount_received", 0)
+        new_received = current_received + alloc_amt
+        stage_amount = st.get("amount", 0)
+        if new_received >= stage_amount - 0.5:
+            new_status = "paid"
+        elif new_received > 0:
+            new_status = "partial"
+        else:
+            new_status = "pending"
+
+        await db.payment_stages.update_one(
+            {"stage_id": stage_id},
+            {"$set": {
+                "amount_received": new_received,
+                "status": new_status,
+                "workflow_status": "collected",
+                "payment_mode": body.payment_mode,
+                "payment_reference": payment_ref,
+                "payment_date": payment_date,
+                "collected_by": user.user_id,
+                "collected_by_name": user.name,
+                "remarks": body.remarks or st.get("remarks"),
+                "bulk_collection_id": shared_collection_id,
+            }}
+        )
+
+        # Income record for each stage
+        income_record = {
+            "income_id": f"inc_{uuid.uuid4().hex[:12]}",
+            "project_id": project_id,
+            "project_name": project.get("name") or "",
+            "category": "payment_collection",
+            "sub_category": f"{st.get('stage_name', 'Payment Stage')} - {body.payment_mode.replace('_', ' ').title()}",
+            "amount": alloc_amt,
+            "payment_mode": body.payment_mode,
+            "payment_reference": payment_ref,
+            "payment_date": payment_date,
+            "stage": st.get("stage_label", st.get("stage_name", "")),
+            "description": f"Payment collection: {st.get('stage_name', '')}",
+            "collected_by": user.user_id,
+            "collected_by_name": user.name,
+            "status": "pending_approval",
+            "source": "approval",
+            "payment_stage_id": stage_id,
+            "planning_user_id": st.get("requested_by"),
+            "planning_user_name": st.get("requested_by_name"),
+            "bulk_collection_id": shared_collection_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.income.insert_one(income_record)
+
+        result_lines.append({
+            "stage_id": stage_id,
+            "stage_name": st.get("stage_name"),
+            "collected": alloc_amt,
+            "new_total": new_received,
+            "stage_amount": stage_amount,
+            "balance": max(0, stage_amount - new_received),
+            "new_status": new_status,
+        })
+
+    # One shared cheque record covering ALL allocations (req #5)
+    if body.payment_mode == "cheque" and body.cheque_details:
+        for chq in body.cheque_details:
+            if chq.get("cheque_number"):
+                await db.cheques.insert_one({
+                    "cheque_id": f"chq_{uuid.uuid4().hex[:8]}",
+                    "project_id": project_id,
+                    "cheque_number": chq.get("cheque_number", ""),
+                    "bank_name": chq.get("bank_name", ""),
+                    "amount": float(chq.get("amount", incoming_amount)),
+                    "cheque_date": chq.get("cheque_date", payment_date),
+                    "cheque_type": "incoming",
+                    "category": "payment_collection",
+                    "covers_stage_ids": [r["stage_id"] for r in result_lines],
+                    "bulk_collection_id": shared_collection_id,
+                    "status": "received",
+                    "collected_by": user.user_id,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                })
+
+    # Notify Planning team
+    planning_users = await db.users.find(
+        {"role": {"$in": ["planning", "planning_person"]}}, {"_id": 0, "user_id": 1}
+    ).to_list(20)
+    summary_line = ", ".join([f"{r['stage_name']} ₹{r['collected']:,.0f}" for r in result_lines])
+    for pu in planning_users:
+        try:
+            await create_notification(
+                pu["user_id"],
+                f"Bulk payment collected for {project.get('name')}: ₹{incoming_amount:,.0f} → {summary_line}",
+            )
+        except Exception:
+            pass
+
+    await create_audit_log(user.user_id, "collect_payment_bulk", "project", project_id, {
+        "amount": incoming_amount,
+        "allocations": [{"stage_id": r["stage_id"], "amount": r["collected"]} for r in result_lines],
+    })
+
+    return {
+        "message": f"₹{incoming_amount:,.0f} collected and distributed across {len(result_lines)} stage(s)",
+        "bulk_collection_id": shared_collection_id,
+        "allocations": result_lines,
+    }
+
+
+@router.get("/projects/{project_id}/outstanding-stages")
+async def get_outstanding_stages(project_id: str, user: User = Depends(get_current_user)):
+    """Pending payment stages (workflow_status='requested') in Planning's FIFO order.
+
+    Used by the CRE Bulk Collect popup to preview what the next client payment
+    will be auto-allocated to.
+    """
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1, "client_name": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    stages = await db.payment_stages.find(
+        {"project_id": project_id, "workflow_status": "requested"},
+        {"_id": 0},
+    ).sort([("requested_at", 1), ("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(200)
+    out: List[Dict[str, Any]] = []
+    for s in stages:
+        bal = (s.get("amount", 0) or 0) - (s.get("amount_received", 0) or 0)
+        if bal <= 0.5:
+            continue
+        out.append({
+            "stage_id": s.get("stage_id"),
+            "stage_name": s.get("stage_name"),
+            "stage_number": s.get("stage_number"),
+            "amount": s.get("amount", 0),
+            "amount_received": s.get("amount_received", 0),
+            "balance": bal,
+            "requested_at": s.get("requested_at"),
+            "expected_payment_date": s.get("expected_payment_date"),
+        })
+    total = sum(x["balance"] for x in out)
+    return {
+        "project_id": project_id,
+        "project_name": project.get("name"),
+        "client_name": project.get("client_name"),
+        "stages": out,
+        "total_outstanding": total,
+    }
+
+
 class CRERejectStageInput(BaseModel):
     reason: str
 
