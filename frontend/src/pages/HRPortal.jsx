@@ -174,6 +174,8 @@ export default function HRPortal() {
 
   // Left/Terminated Employees
   const [terminatedStaff, setTerminatedStaff] = useState([]);
+  // Termination dialog (Reason for Exit + Rehire Eligibility)
+  const [termDialog, setTermDialog] = useState({ open: false, staff: null, reason: '', rehire: 'eligible', submitting: false });
   const [empListView, setEmpListView] = useState('active'); // 'active' or 'left'
   const [viewLeaveHistory, setViewLeaveHistory] = useState(null);
 
@@ -464,15 +466,27 @@ export default function HRPortal() {
     input.click();
   };
 
-  const handleTerminate = async (staffId) => {
-    if (!confirm('Are you sure you want to terminate this employee? They will be moved to "Left Employees" history.')) return;
+  const openTerminateDialog = (staff) => {
+    setTermDialog({ open: true, staff, reason: '', rehire: 'eligible', submitting: false });
+  };
+
+  const handleTerminate = async () => {
+    const { staff, reason, rehire } = termDialog;
+    if (!staff) return;
+    if (!reason.trim()) { toast.error('Please enter a reason for exit'); return; }
+    setTermDialog(d => ({ ...d, submitting: true }));
     try {
-      await axios.delete(`${API}/hr/staff/${staffId}`);
-      toast.success('Employee terminated and moved to Left Employees');
+      await axios.delete(`${API}/hr/staff/${staff.staff_id}`, {
+        params: { exit_reason: reason.trim(), rehire_eligibility: rehire },
+      });
+      toast.success(`${staff.name} terminated and moved to Left Employees`);
+      setTermDialog({ open: false, staff: null, reason: '', rehire: 'eligible', submitting: false });
       fetchData(false);
       fetchTerminatedStaff();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to terminate');
+      setTermDialog(d => ({ ...d, submitting: false }));
     }
-    catch (err) { toast.error(err.response?.data?.detail || 'Failed to terminate'); }
   };
 
   const fetchTerminatedStaff = async () => {
@@ -753,7 +767,7 @@ export default function HRPortal() {
                             <div className="flex justify-center gap-1">
                               <Button size="sm" variant="ghost" onClick={() => openViewEmployee(s)} data-testid={`view-employee-${s.staff_id}`}><Eye className="h-4 w-4" /></Button>
                               <Button size="sm" variant="ghost" onClick={() => openEditEmployee(s)} data-testid={`edit-employee-${s.staff_id}`}><Edit className="h-4 w-4" /></Button>
-                              {s.status === 'active' && (<Button size="sm" variant="ghost" className="text-red-600" onClick={() => handleTerminate(s.staff_id)} data-testid={`terminate-${s.staff_id}`}><Trash2 className="h-4 w-4" /></Button>)}
+                              {s.status === 'active' && (<Button size="sm" variant="ghost" className="text-red-600" onClick={() => openTerminateDialog(s)} data-testid={`terminate-${s.staff_id}`}><Trash2 className="h-4 w-4" /></Button>)}
                             </div>
                           </td>
                         </tr>
@@ -792,6 +806,8 @@ export default function HRPortal() {
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">DESIGNATION</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">JOINED</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">TERMINATED</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">EXIT REASON</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">REHIRE</th>
                         <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">ATTENDANCE DAYS</th>
                         <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">LEAVES</th>
                         <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">ACTIONS</th>
@@ -799,7 +815,7 @@ export default function HRPortal() {
                     </thead>
                     <tbody className="divide-y">
                       {terminatedStaff.length === 0 ? (
-                        <tr><td colSpan="8" className="px-4 py-8 text-center text-gray-500">No terminated employees found.</td></tr>
+                        <tr><td colSpan="10" className="px-4 py-8 text-center text-gray-500">No terminated employees found.</td></tr>
                       ) : [...terminatedStaff].sort((a, b) => {
                         switch (leftSortBy) {
                           case 'name_asc': return (a.name || '').localeCompare(b.name || '');
@@ -822,6 +838,18 @@ export default function HRPortal() {
                           <td className="px-4 py-3 text-sm text-gray-600">{s.designation || '-'}</td>
                           <td className="px-4 py-3 text-sm text-gray-600">{s.date_of_joining ? new Date(s.date_of_joining).toLocaleDateString('en-IN') : '-'}</td>
                           <td className="px-4 py-3 text-sm text-red-600 font-medium">{s.terminated_at ? new Date(s.terminated_at).toLocaleDateString('en-IN') : '-'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-700 max-w-[220px]" title={s.exit_reason || ''}>
+                            <span className="line-clamp-2">{s.exit_reason || <span className="text-gray-400">—</span>}</span>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {s.rehire_eligibility === 'eligible' ? (
+                              <Badge className="bg-green-100 text-green-700 border-green-200">Eligible</Badge>
+                            ) : s.rehire_eligibility === 'not_eligible' ? (
+                              <Badge className="bg-red-100 text-red-700 border-red-200">Not Eligible</Badge>
+                            ) : (
+                              <span className="text-gray-400 text-xs">—</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-center text-sm font-semibold">{s.total_attendance_days || 0}</td>
                           <td className="px-4 py-3 text-center text-sm font-semibold">{s.leave_history?.length || 0}</td>
                           <td className="px-4 py-3 text-center">
@@ -1158,9 +1186,64 @@ export default function HRPortal() {
         </DialogContent>
       </Dialog>
 
+      {/* ==================== TERMINATE EMPLOYEE DIALOG ==================== */}
+      <Dialog open={termDialog.open} onOpenChange={(o) => !o && !termDialog.submitting && setTermDialog({ open: false, staff: null, reason: '', rehire: 'eligible', submitting: false })}>
+        <DialogContent className="max-w-md" data-testid="terminate-employee-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserX className="h-5 w-5 text-red-600" /> Terminate Employee
+            </DialogTitle>
+            <DialogDescription>
+              {termDialog.staff?.name} ({termDialog.staff?.employee_code}) will be moved to <b>Left Employees</b>. Capture exit details below.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm">Reason for Exit <span className="text-red-500">*</span></Label>
+              <Textarea
+                value={termDialog.reason}
+                onChange={(e) => setTermDialog(d => ({ ...d, reason: e.target.value }))}
+                rows={3}
+                placeholder="e.g. Resigned for higher studies / Performance / Absconded …"
+                className="mt-1 text-sm"
+                data-testid="term-reason"
+              />
+            </div>
+            <div>
+              <Label className="text-sm">Rehire Eligibility <span className="text-red-500">*</span></Label>
+              <div className="flex gap-2 mt-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  className={termDialog.rehire === 'eligible' ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-green-50'}
+                  onClick={() => setTermDialog(d => ({ ...d, rehire: 'eligible' }))}
+                  data-testid="term-rehire-eligible"
+                >
+                  Eligible
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className={termDialog.rehire === 'not_eligible' ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-red-50'}
+                  onClick={() => setTermDialog(d => ({ ...d, rehire: 'not_eligible' }))}
+                  data-testid="term-rehire-not-eligible"
+                >
+                  Not Eligible
+                </Button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTermDialog({ open: false, staff: null, reason: '', rehire: 'eligible', submitting: false })} disabled={termDialog.submitting}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700" onClick={handleTerminate} disabled={termDialog.submitting || !termDialog.reason.trim()} data-testid="confirm-terminate-btn">
+              {termDialog.submitting ? 'Terminating…' : 'Terminate & Move to Left Employees'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ==================== EDIT USER ROLE DIALOG ==================== */}
-      <Dialog open={roleDialog} onOpenChange={setRoleDialog}>
-        <DialogContent className="max-w-md">
+      <Dialog open={roleDialog} onOpenChange={setRoleDialog}>        <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Edit User</DialogTitle><DialogDescription>Update user details, role and status.</DialogDescription></DialogHeader>
           {selectedUser && (
             <div className="space-y-4">

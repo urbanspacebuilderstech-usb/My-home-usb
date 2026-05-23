@@ -4050,23 +4050,46 @@ async def update_staff(staff_id: str, updates: dict, user: User = Depends(get_cu
 
 
 @router.delete("/hr/staff/{staff_id}")
-async def delete_staff(staff_id: str, user: User = Depends(get_current_user)):
-    """Terminate a staff member (soft delete) - HR and Super Admin"""
+async def delete_staff(
+    staff_id: str,
+    exit_reason: Optional[str] = None,
+    rehire_eligibility: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Terminate a staff member (soft delete) - HR and Super Admin.
+
+    Optional query/body params:
+      - exit_reason: free-text reason captured by HR in the termination dialog
+      - rehire_eligibility: "eligible" | "not_eligible"
+    """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Only Super Admin or HR can terminate staff")
-    
-    result = await db.staff.update_one(
-        {"staff_id": staff_id},
-        {"$set": {
-            "status": "terminated",
-            "terminated_by": user.user_id,
-            "terminated_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }}
-    )
+
+    set_doc = {
+        "status": "terminated",
+        "terminated_by": user.user_id,
+        "terminated_by_name": user.name,
+        "terminated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if exit_reason:
+        set_doc["exit_reason"] = exit_reason
+    if rehire_eligibility:
+        rg = rehire_eligibility.lower().replace(" ", "_").replace("-", "_")
+        if rg not in ("eligible", "not_eligible"):
+            raise HTTPException(status_code=400, detail="rehire_eligibility must be 'eligible' or 'not_eligible'")
+        set_doc["rehire_eligibility"] = rg
+
+    result = await db.staff.update_one({"staff_id": staff_id}, {"$set": set_doc})
     if result.modified_count == 0:
         raise HTTPException(status_code=404, detail="Staff not found")
-    
+
+    # Deactivate the linked user account so they can no longer log in
+    staff_doc = await db.staff.find_one({"staff_id": staff_id}, {"_id": 0, "linked_user_id": 1, "email": 1, "name": 1})
+    linked_user_id = (staff_doc or {}).get("linked_user_id")
+    if linked_user_id:
+        await db.users.update_one({"user_id": linked_user_id}, {"$set": {"is_active": False}})
+
     return {"message": "Staff terminated"}
 
 
