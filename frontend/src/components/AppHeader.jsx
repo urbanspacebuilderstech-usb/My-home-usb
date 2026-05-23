@@ -95,7 +95,6 @@ const ROLE_SUB_MENUS = {
     ],
     '/planning-board': [
       { label: 'Planning Board', path: '/planning-board' },
-      { label: 'Projects', path: '/projects' },
       { label: 'BOQ', path: '/planning-board?tab=boq' },
       { label: 'Vendors', path: '/vendor-management' },
       { label: 'Contractors', path: '/contractor-management' },
