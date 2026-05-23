@@ -16,7 +16,7 @@ old revisions are kept in `project.fe.history` but not exposed publicly.
 """
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -263,6 +263,61 @@ async def gm_reject_fe(project_id: str, body: GmRejectBody, user: User = Depends
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Helper: lock project_value to the latest approved FE grand_total and recompute
+# all existing payment_stage amounts from their stored percentages.
+# This is called when CRE approves an FE (final approval). The locked value
+# becomes the source of truth for ALL payment-stage math going forward.
+# Selected behaviour (per user choice "a"): FE re-approval AUTO-refreshes
+# project.total_value to the new grand_total — payment stage amounts re-scale.
+# ──────────────────────────────────────────────────────────────────────────────
+async def _lock_project_value_to_fe(project_id: str, actor_user_id: Optional[str] = None) -> Dict[str, Any]:
+    scope = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(500)
+    adds = await db.additional_costs.find({"project_id": project_id}, {"_id": 0, "estimated_amount": 1}).to_list(500)
+    deds = await db.deductions.find({"project_id": project_id}, {"_id": 0, "amount": 1}).to_list(500)
+    grand = sum((s.get("total_amount") or 0) for s in scope) \
+        + sum((a.get("estimated_amount") or 0) for a in adds) \
+        - sum((d.get("amount") or 0) for d in deds)
+    grand = round(grand, 2)
+
+    now = _now()
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {
+            "total_value": grand,
+            "fe_locked_value": grand,
+            "fe_locked_at": now,
+            "fe_locked_by": actor_user_id,
+        }}
+    )
+
+    # Recompute every existing payment stage's amount from its stored percentage
+    # against the new locked value. Stages without a percentage are left alone.
+    stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0, "stage_id": 1, "percentage": 1, "amount_received": 1, "amount": 1}).to_list(500)
+    updated = 0
+    for st in stages:
+        pct = st.get("percentage")
+        if pct is None or pct == "":
+            continue
+        try:
+            pct_f = float(pct)
+        except Exception:
+            continue
+        new_amount = round((grand * pct_f) / 100) if grand > 0 else 0
+        # Never let the requested amount drop BELOW what was already collected.
+        # If client already paid more than the new pro-rated amount, keep amount
+        # at amount_received and let UI surface the residual (over-collection).
+        already = st.get("amount_received") or 0
+        if new_amount < already:
+            new_amount = already
+        await db.payment_stages.update_one(
+            {"stage_id": st["stage_id"]},
+            {"$set": {"amount": new_amount, "fe_recalc_at": now}}
+        )
+        updated += 1
+    return {"grand_total": grand, "stages_recalced": updated}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # FE totals (Final Estimate scope + additions - deductions)
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/projects/{project_id}/fe-total")
@@ -340,17 +395,22 @@ async def cre_approve_fe(project_id: str, user: User = Depends(get_current_user)
 
     await db.projects.update_one({"project_id": project_id}, {"$set": {"fe": fe}})
 
+    # ✅ Lock project_value to this approved FE grand_total + recompute all
+    # payment stages from their stored percentages. User-confirmed behaviour:
+    # FE re-approval auto-refreshes the locked value (option "a").
+    lock_result = await _lock_project_value_to_fe(project_id, user.user_id)
+
     # Notify Planning
     planners = await db.users.find({"role": "planning", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(50)
     for p in planners:
         await _notify(
             p["user_id"],
             "Final Estimate approved",
-            f"CRE approved Final Estimate (Rev {fe['revision']}) for {project.get('name', '')}",
+            f"CRE approved Final Estimate (Rev {fe['revision']}) for {project.get('name', '')}. Project Value locked at ₹{lock_result['grand_total']:,.0f}.",
             "fe_approved",
             project_id,
         )
-    return {"message": "Final Estimate approved", "fe": fe}
+    return {"message": "Final Estimate approved", "fe": fe, "lock": lock_result}
 
 
 # ──────────────────────────────────────────────────────────────────────────────

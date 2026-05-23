@@ -279,6 +279,44 @@ async def toggle_project_critical(
     }
 
 
+@router.get("/projects/{project_id}/value-summary")
+async def get_project_value_summary(project_id: str, user: User = Depends(get_current_user)):
+    """Returns the locked Project Value (= approved FE grand_total) along with
+    the live scope/additions/deductions snapshot. Used by ProjectDetail header
+    to show "Project Value: ₹X (from Final Estimate)" with a lock icon.
+    """
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    scope = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(500)
+    adds = await db.additional_costs.find({"project_id": project_id}, {"_id": 0, "estimated_amount": 1}).to_list(500)
+    deds = await db.deductions.find({"project_id": project_id}, {"_id": 0, "amount": 1}).to_list(500)
+    scope_total = sum((s.get("total_amount") or 0) for s in scope)
+    add_total = sum((a.get("estimated_amount") or 0) for a in adds)
+    ded_total = sum((d.get("amount") or 0) for d in deds)
+    live_grand = round(scope_total + add_total - ded_total, 2)
+    locked = float(project.get("total_value") or 0)
+    fe = project.get("fe") or {}
+    is_locked = bool(project.get("fe_locked_at"))
+    return {
+        "project_id": project_id,
+        "project_value": locked,
+        "fe_locked_value": float(project.get("fe_locked_value") or 0),
+        "fe_locked_at": project.get("fe_locked_at"),
+        "fe_locked_by": project.get("fe_locked_by"),
+        "is_locked": is_locked,
+        "live_scope_total": round(scope_total, 2),
+        "live_additions_total": round(add_total, 2),
+        "live_deductions_total": round(ded_total, 2),
+        "live_grand_total": live_grand,
+        "fe_status": fe.get("status") if isinstance(fe, dict) else None,
+        "fe_revision": fe.get("revision") if isinstance(fe, dict) else None,
+        # If the live grand-total has drifted from the locked value, frontend can
+        # show a yellow warning hint ("FE changed — re-approve to re-lock").
+        "has_drift": is_locked and abs(live_grand - locked) > 0.5,
+    }
+
+
 @router.get("/boq/{project_id}")
 async def get_boq(project_id: str, user: User = Depends(get_current_user)):
     boq_items = await db.boq_items.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
@@ -2354,20 +2392,22 @@ async def update_payment_stage(stage_id: str, update_data: PaymentStageUpdate, u
     if "completed_date" in update_dict and update_dict["completed_date"]:
         update_dict["completed_date"] = datetime.fromisoformat(update_dict["completed_date"]).isoformat()
     
-    # If only percentage was edited, recompute amount from the Total Project Value
-    # displayed in the UI (= sum of scope_items.total_amount). Mirrors financial.py
-    # so % stored on the stage always reconciles with the Advance card's "N% of total".
+    # If only percentage was edited, recompute amount from the LOCKED Project
+    # Value (= Final Estimate grand_total). Scope items are NOT used here —
+    # scope changes are independent of payment-schedule math. The locked value
+    # is set on FE approval via _lock_project_value_to_fe(); falls back to the
+    # live scope total only if FE has never been approved yet.
     if "percentage" in update_dict and "amount" not in update_dict:
         stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0, "project_id": 1})
         if stage:
             project_id = stage["project_id"]
             project = await db.projects.find_one({"project_id": project_id}, {"_id": 0}) or {}
-            scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(2000)
-            total_value = sum((i.get("total_amount") or 0) for i in scope_items)
+            total_value = float(project.get("total_value") or 0)
             if not total_value:
-                total_value = float(project.get("total_value") or 0)
-            if not total_value:
-                total_value = float(project.get("scope_total") or 0)
+                # FE never approved — fall back to live scope sum so the UI still
+                # shows reasonable amounts before the first FE lock.
+                scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(2000)
+                total_value = sum((i.get("total_amount") or 0) for i in scope_items)
             if total_value > 0:
                 update_dict["amount"] = round(total_value * float(update_dict["percentage"]) / 100)
     
@@ -2417,17 +2457,17 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # Advance percentage is calculated against the Total Project Value displayed
-    # in the UI: sum of scope_items.total_amount (preferred), falling back to
-    # project.total_value field, then project.scope_total. This MUST match
-    # financial.py's `project_value` computation so the % shown in the
-    # "Advance (Sales) — N% of total" card matches the stored stage.percentage.
-    scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(2000)
-    total_value = sum((i.get("total_amount") or 0) for i in scope_items)
-    if not total_value:
-        total_value = float(project.get("total_value") or 0)
-    if not total_value:
-        total_value = float(project.get("scope_total") or 0)
+    # Advance percentage is calculated against the LOCKED Project Value
+    # (= Final Estimate grand_total). Scope items are not consulted directly
+    # so that Scope edits never silently change payment math. Falls back to
+    # live scope sum only if FE has not been approved yet.
+    project_total_for_pct = float(project.get("total_value") or 0)
+    if not project_total_for_pct:
+        scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(2000)
+        project_total_for_pct = sum((i.get("total_amount") or 0) for i in scope_items)
+    if not project_total_for_pct:
+        project_total_for_pct = float(project.get("scope_total") or 0)
+    total_value = project_total_for_pct
     
     # Find the earliest income entry to link. Try both collections (legacy + new).
     income = await db.income.find_one({"project_id": project_id}, sort=[("payment_date", 1), ("received_date", 1), ("created_at", 1)])
