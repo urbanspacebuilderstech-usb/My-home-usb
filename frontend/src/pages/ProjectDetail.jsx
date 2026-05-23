@@ -2722,7 +2722,7 @@ export default function ProjectDetail() {
     return `₹${Number(amount || 0).toLocaleString('en-IN')}`;
   };
 
-  const canManage = user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'accountant' || user?.role === 'planning';
+  const canManage = user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'accountant' || user?.role === 'planning' || user?.role === 'planning_person';
   const isSuperAdmin = user?.role === 'super_admin';
   const isPM = user?.role === 'project_manager';
   const canSeeFinancials = !isPM;
