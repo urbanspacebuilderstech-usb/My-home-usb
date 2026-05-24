@@ -1875,6 +1875,36 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     additions_total = sum(cost.get("estimated_amount", 0) for cost in additional_costs)
     additions_received = sum(cost.get("income_received", 0) for cost in additional_costs)
     deductions_total = sum(d.get("amount", 0) for d in deductions)
+
+    # ── SELF-HEAL PAYMENT STAGE AMOUNTS (same logic as /payment-summary) ────
+    # Anchor every stage's `amount` to (locked project_value × percentage / 100)
+    # so the Payment Schedule list at the bottom of the project page always
+    # matches the locked Project Value card at the top. Without this, /full-
+    # details races with /payment-summary on the frontend (Promise.all) and
+    # the UI flickers between healed and un-healed amounts.
+    locked_project_value = float(project.get("total_value") or 0)
+    anchor_value = locked_project_value if locked_project_value > 0 else scope_total
+    if anchor_value > 0:
+        for stage in payment_stages:
+            pct = stage.get("percentage")
+            try:
+                pct_f = float(pct) if pct not in (None, "") else None
+            except Exception:
+                pct_f = None
+            already = stage.get("amount_received") or 0
+            if pct_f is not None:
+                new_amount = round((anchor_value * pct_f) / 100)
+                if new_amount < already:
+                    new_amount = already
+                if abs((stage.get("amount") or 0) - new_amount) > 0.5:
+                    stage["amount"] = new_amount
+                    await db.payment_stages.update_one(
+                        {"stage_id": stage["stage_id"]},
+                        {"$set": {"amount": new_amount}}
+                    )
+            else:
+                # No stored percentage — derive one from the existing amount.
+                stage["percentage"] = round(((stage.get("amount") or 0) / anchor_value) * 100, 2)
     
     # Get income entries for this project (actual received payments)
     income_entries = await db.income.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
@@ -1906,8 +1936,10 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     payment_total = sum(stage.get("amount", 0) for stage in payment_stages)
     payment_received = sum(stage.get("amount_received", 0) for stage in payment_stages)
     
-    # Project value = Scope total (or original project value if no scope items)
-    project_value = scope_total if scope_items else project.get("total_value", 0)
+    # Project value — SAME single source of truth as /payment-summary:
+    # locked total_value (FE scope at last CRE approval) wins; fall back to
+    # live scope_total only when no FE-lock exists yet.
+    project_value = anchor_value
     
     # Total value = Project Value + Additions
     total_value = project_value + additions_total
