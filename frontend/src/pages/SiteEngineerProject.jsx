@@ -112,7 +112,7 @@ export default function SiteEngineerProject() {
   
   const [quickAttPopup, setQuickAttPopup] = useState(false);
   
-  const [materialForm, setMaterialForm] = useState({ material_id: '', material_name: '', brand: '', quantity: '', unit: 'kg', remarks: '', is_approved: true, delivery_choice: '48h', delivery_custom_date: '', emergency_reason: '' });
+  const [materialForm, setMaterialForm] = useState({ material_id: '', material_name: '', brand: '', quantity: '', unit: 'kg', remarks: '', is_approved: true, delivery_choice: '48h', delivery_custom_date: '', emergency_reason: '', is_locked_from_package: false, locked_estimated_rate: null });
   const [vendorSuggestion, setVendorSuggestion] = useState(null);
   const [approvedMaterials, setApprovedMaterials] = useState([]);
   const [materialSearch, setMaterialSearch] = useState('');
@@ -1057,7 +1057,7 @@ export default function SiteEngineerProject() {
                 <Dialog open={materialRequestDialog} onOpenChange={(open) => {
                   setMaterialRequestDialog(open);
                   if (!open) {
-                    setMaterialForm({ material_id: '', material_name: '', brand: '', quantity: '', unit: 'kg', remarks: '', is_approved: true });
+                    setMaterialForm({ material_id: '', material_name: '', brand: '', quantity: '', unit: 'kg', remarks: '', is_approved: true, is_locked_from_package: false, locked_estimated_rate: null });
                     setMaterialSearch('');
                     setVendorSuggestion(null);
                   }
@@ -1085,7 +1085,7 @@ export default function SiteEngineerProject() {
                           type="button"
                           className={`flex-1 px-3 py-2 text-xs sm:text-sm font-medium transition-colors ${materialForm.is_approved ? 'bg-amber-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
                           onClick={() => {
-                            setMaterialForm({ ...materialForm, is_approved: true, material_id: '', material_name: '', brand: '', unit: 'kg' });
+                            setMaterialForm({ ...materialForm, is_approved: true, material_id: '', material_name: '', brand: '', unit: 'kg', is_locked_from_package: false, locked_estimated_rate: null });
                             setMaterialSearch('');
                           }}
                           data-testid="toggle-approved-materials"
@@ -1096,7 +1096,7 @@ export default function SiteEngineerProject() {
                           type="button"
                           className={`flex-1 px-3 py-2 text-xs sm:text-sm font-medium transition-colors ${!materialForm.is_approved ? 'bg-amber-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
                           onClick={() => {
-                            setMaterialForm({ ...materialForm, is_approved: false, material_id: '', material_name: '', brand: '', unit: 'kg' });
+                            setMaterialForm({ ...materialForm, is_approved: false, material_id: '', material_name: '', brand: '', unit: 'kg', is_locked_from_package: false, locked_estimated_rate: null });
                             setMaterialSearch('');
                           }}
                           data-testid="toggle-custom-material"
@@ -1144,6 +1144,8 @@ export default function SiteEngineerProject() {
                                         material_name: mat.name,
                                         brand: mat.brand || '',
                                         unit: mat.unit || 'kg',
+                                        is_locked_from_package: !!mat.is_locked_from_package,
+                                        locked_estimated_rate: mat.locked_estimated_rate ?? null,
                                       });
                                       fetchVendorSuggestion(mat.name);
                                     }}
@@ -1157,6 +1159,12 @@ export default function SiteEngineerProject() {
                                         )}
                                         {isProjectApproved && (
                                           <span className="ml-1 text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">project</span>
+                                        )}
+                                        {mat.is_locked_from_package && mat.locked_estimated_rate > 0 && (
+                                          <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] sm:text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 font-semibold border border-amber-200" title="Planning-locked price">
+                                            <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 11c0-1.657 1.343-3 3-3s3 1.343 3 3v3H6v-3c0-1.657 1.343-3 3-3s3 1.343 3 3z"/></svg>
+                                            ₹{Number(mat.locked_estimated_rate).toLocaleString('en-IN')}/{mat.unit || 'unit'}
+                                          </span>
                                         )}
                                         {!isProjectApproved && mat.category && (
                                           <span className="ml-1 text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-medium capitalize">{mat.category}</span>
@@ -1178,6 +1186,12 @@ export default function SiteEngineerProject() {
                             <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5" data-testid="selected-material-info">
                               <p className="text-xs sm:text-sm font-medium text-amber-800">{materialForm.material_name}</p>
                               {materialForm.brand && <p className="text-xs text-amber-600">Brand: {materialForm.brand}</p>}
+                              {materialForm.is_locked_from_package && materialForm.locked_estimated_rate > 0 && (
+                                <p className="text-xs text-amber-700 mt-1 flex items-center gap-1" data-testid="locked-price-chip">
+                                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 11c0-1.657 1.343-3 3-3s3 1.343 3 3v3H6v-3c0-1.657 1.343-3 3-3s3 1.343 3 3z"/></svg>
+                                  Locked by Planning: <span className="font-semibold">₹{Number(materialForm.locked_estimated_rate).toLocaleString('en-IN')}</span> per {materialForm.unit}
+                                </p>
+                              )}
                             </div>
                           )}
                         </>
@@ -1221,8 +1235,13 @@ export default function SiteEngineerProject() {
                           />
                         </div>
                         <div>
-                          <Label className="text-xs sm:text-sm">Unit</Label>
-                          <UnitSelect value={materialForm.unit} onChange={(v) => setMaterialForm({...materialForm, unit: v})} data-testid="material-unit-select" />
+                          <Label className="text-xs sm:text-sm flex items-center gap-1">
+                            Unit
+                            {materialForm.is_locked_from_package && (
+                              <svg className="h-3 w-3 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" data-testid="unit-lock-icon"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 11c0-1.657 1.343-3 3-3s3 1.343 3 3v3H6v-3c0-1.657 1.343-3 3-3s3 1.343 3 3z"/></svg>
+                            )}
+                          </Label>
+                          <UnitSelect value={materialForm.unit} onChange={(v) => setMaterialForm({...materialForm, unit: v})} disabled={materialForm.is_locked_from_package} data-testid="material-unit-select" />
                         </div>
                       </div>
                       {vendorSuggestion && (

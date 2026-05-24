@@ -635,6 +635,12 @@ async def get_project_approved_materials(
         if key in seen:
             return
         seen.add(key)
+        # Planning Department locks unit + estimated_rate on package materials.
+        # Surface them to the Site Engineer so the request screen can show
+        # the price chip and disable unit edits when the row originated from
+        # an applied package.
+        is_pkg_locked = bool(item.get("is_locked_from_package"))
+        locked_rate = item.get("locked_estimated_rate") if item.get("locked_estimated_rate") is not None else item.get("estimated_rate")
         out.append({
             "material_id": item.get("material_id") or f"src_{source}_{len(out)}",
             "name": name,
@@ -643,6 +649,10 @@ async def get_project_approved_materials(
             "category": item.get("category") or "",
             "specification": item.get("specification") or item.get("specs") or "",
             "standard_rate": item.get("standard_rate"),
+            "estimated_rate": item.get("estimated_rate") or 0,
+            "locked_estimated_rate": locked_rate if is_pkg_locked else None,
+            "locked_unit": item.get("locked_unit") if is_pkg_locked else None,
+            "is_locked_from_package": is_pkg_locked,
             "source": source,  # "project" | "package" | "master"
             "project_approved": source in ("project", "package"),
         })

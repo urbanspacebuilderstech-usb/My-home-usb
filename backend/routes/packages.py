@@ -89,6 +89,51 @@ async def get_material_names(user: User = Depends(get_current_user)):
     return names
 
 
+@router.get("/package-material-catalog")
+async def get_package_material_catalog(user: User = Depends(get_current_user)):
+    """Aggregate (material → brand → unit → price) tuples across all active packages.
+
+    Powers the Planning > Materials tab so the team can see every locked
+    brand/unit/price combination at a glance, grouped by material name.
+    Same dataset Site Engineers see when picking an approved material —
+    keeps Planning's locked catalog and the request screen in sync.
+    """
+    pkgs = await db.packages.find(
+        {"is_active": True},
+        {"_id": 0, "package_id": 1, "name": 1, "tag": 1, "material_items": 1}
+    ).to_list(500)
+
+    # Group by material name → list of variants (one per brand+unit+price+package)
+    by_material: Dict[str, List[Dict]] = {}
+    for pkg in pkgs:
+        for m in pkg.get("material_items") or []:
+            name = (m.get("name") or "").strip()
+            if not name:
+                continue
+            entry = {
+                "package_id": pkg.get("package_id"),
+                "package_name": pkg.get("name"),
+                "package_tag": pkg.get("tag") or "",
+                "brand": (m.get("brand") or "").strip(),
+                "unit": m.get("unit") or "nos",
+                "estimated_rate": float(m.get("estimated_rate") or 0),
+            }
+            by_material.setdefault(name, []).append(entry)
+
+    catalog = []
+    for name in sorted(by_material.keys(), key=lambda s: s.lower()):
+        variants = by_material[name]
+        # Sort variants: brand asc, then package asc
+        variants.sort(key=lambda v: (v.get("brand", "").lower(), v.get("package_name", "").lower()))
+        catalog.append({
+            "name": name,
+            "variants": variants,
+            "brand_count": len({v["brand"].lower() for v in variants if v["brand"]}),
+            "package_count": len({v["package_id"] for v in variants}),
+        })
+    return catalog
+
+
 @router.post("/material-names")
 async def create_material_name(data: dict, user: User = Depends(get_current_user)):
     """Create a new material name (no approval needed)"""

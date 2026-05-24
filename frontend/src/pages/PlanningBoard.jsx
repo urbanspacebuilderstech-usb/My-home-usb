@@ -303,6 +303,9 @@ export default function PlanningBoard({ embedded = false }) {
   const [editingMaterial, setEditingMaterial] = useState(null);
   const [materialForm, setMaterialForm] = useState({ name: '', category: 'cement', unit: 'bag', description: '', hsn_code: '' });
   const [materialPackageFilter, setMaterialPackageFilter] = useState('all');
+  // Aggregated (material → brand → unit → ₹price) view from packages.
+  // Surfaces Planning's locked catalog inline with the Materials master list.
+  const [packageMaterialCatalog, setPackageMaterialCatalog] = useState({});
 
   // Labours
   const [contractors, setContractors] = useState([]);
@@ -367,7 +370,7 @@ export default function PlanningBoard({ embedded = false }) {
   // /planning-board?tab=labour_contractors leaves the page empty until the
   // user clicks the tab again.
   useEffect(() => {
-    if (activeTab === 'material_vendors') { fetchVendors(); fetchMaterials(); }
+    if (activeTab === 'material_vendors') { fetchVendors(); fetchMaterials(); fetchPackageMaterialCatalog(); }
     if (activeTab === 'labour_contractors') { fetchContractors(); fetchContractorTypes(); }
     if (activeTab === 're_templates') fetchTemplates();
     if (activeTab === 'packages') fetchPackages();
@@ -428,7 +431,7 @@ export default function PlanningBoard({ embedded = false }) {
     // (e.g. user creates a contractor in another tab/session, returns here,
     // and the page still shows "0" because the cached empty array suppresses
     // the fetch). Re-fetching is cheap and gives the most accurate view.
-    if (tab === 'material_vendors') { fetchVendors(); fetchMaterials(); }
+    if (tab === 'material_vendors') { fetchVendors(); fetchMaterials(); fetchPackageMaterialCatalog(); }
     if (tab === 'labour_contractors') { fetchContractors(); fetchContractorTypes(); }
     if (tab === 're_templates') fetchTemplates();
     if (tab === 'packages') fetchPackages();
@@ -647,6 +650,16 @@ export default function PlanningBoard({ embedded = false }) {
   };
 
   const fetchMaterials = async () => { try { const r = await axios.get(`${API}/materials?active_only=false`); setMaterials(r.data); } catch {} };
+  // Planning-locked package material catalog: { name → variants[{ package_name, brand, unit, estimated_rate }] }
+  // Same data the Site Engineer sees on the Request Material screen.
+  const fetchPackageMaterialCatalog = async () => {
+    try {
+      const r = await axios.get(`${API}/package-material-catalog`);
+      const map = {};
+      (r.data || []).forEach(row => { map[(row.name || '').toLowerCase()] = row.variants || []; });
+      setPackageMaterialCatalog(map);
+    } catch { /* silent */ }
+  };
   const fetchContractors = async () => {
     try {
       const r = await axios.get(`${API}/labour-contractors`);
@@ -1068,6 +1081,7 @@ export default function PlanningBoard({ embedded = false }) {
       }
       setPackageDialog(false);
       fetchPackages();
+      fetchPackageMaterialCatalog();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to save package'); }
   };
 
@@ -2161,19 +2175,52 @@ export default function PlanningBoard({ embedded = false }) {
                           <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Category</th>
                           <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Unit</th>
                           <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">HSN</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">
+                            <span className="inline-flex items-center gap-1">
+                              <Lock className="h-3 w-3 text-amber-600" /> Package Tier Prices
+                            </span>
+                          </th>
                           <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
                           <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
                         {filteredMaterials.length === 0 ? (
-                          <tr><td colSpan="6" className="p-8 text-center text-gray-400">No materials found. Click "Add Material" to create one.</td></tr>
-                        ) : filteredMaterials.map(m => (
+                          <tr><td colSpan="7" className="p-8 text-center text-gray-400">No materials found. Click "Add Material" to create one.</td></tr>
+                        ) : filteredMaterials.map(m => {
+                          const variants = packageMaterialCatalog[(m.name || '').toLowerCase()] || [];
+                          return (
                           <tr key={m.material_id} className={`hover:bg-gray-50 ${!m.is_active ? 'opacity-50' : ''}`} data-testid={`material-row-${m.material_id}`}>
                             <td className="px-4 py-2.5"><p className="font-medium">{m.name}</p>{m.description && <p className="text-xs text-gray-400 truncate max-w-[200px]">{m.description}</p>}</td>
                             <td className="px-4 py-2.5 hidden sm:table-cell text-xs capitalize">{(m.category || '').replace(/_/g, ' ')}</td>
                             <td className="px-4 py-2.5 hidden sm:table-cell text-xs">{m.unit || '-'}</td>
                             <td className="px-4 py-2.5 hidden md:table-cell text-xs">{m.hsn_code || '-'}</td>
+                            <td className="px-4 py-2.5">
+                              {variants.length === 0 ? (
+                                <span className="text-[11px] text-gray-300 italic">Not in any package</span>
+                              ) : (
+                                <div className="flex flex-wrap gap-1.5 max-w-[420px]" data-testid={`mat-variants-${m.material_id}`}>
+                                  {variants.map((v, i) => (
+                                    <div
+                                      key={i}
+                                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-[11px]"
+                                      title={`From package: ${v.package_name}`}
+                                    >
+                                      {v.brand && <span className="font-semibold text-amber-900">{v.brand}</span>}
+                                      <span className="text-amber-700">·</span>
+                                      <span className="text-amber-700">{v.unit}</span>
+                                      {v.estimated_rate > 0 && (
+                                        <>
+                                          <span className="text-amber-700">·</span>
+                                          <span className="font-bold text-amber-900">₹{v.estimated_rate.toLocaleString('en-IN')}</span>
+                                        </>
+                                      )}
+                                      <Lock className="h-2.5 w-2.5 text-amber-500 ml-0.5" />
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
                             <td className="px-4 py-2.5 text-center">{m.is_active !== false ? <Badge className="bg-green-100 text-green-700 text-xs">Active</Badge> : <Badge className="bg-gray-100 text-gray-500 text-xs">Hidden</Badge>}</td>
                             <td className="px-4 py-2.5">
                               <div className="flex justify-center gap-1">
@@ -2182,7 +2229,8 @@ export default function PlanningBoard({ embedded = false }) {
                               </div>
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
