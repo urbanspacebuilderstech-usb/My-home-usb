@@ -3456,9 +3456,19 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     deductions_list = await db.deductions.find({"project_id": project_id}, {"_id": 0, "amount": 1}).to_list(500)
     deductions_total = sum(d.get("amount", 0) for d in deductions_list)
 
-    # Locked Project Value (= FE scope_total at last CRE approval) takes priority
+    # Locked Project Value (= FE scope_total at last CRE approval) is just a
+    # cached copy. Live FE scope_total is the actual source of truth — the user
+    # rule is "Final Estimate value IS the Payment Schedule value". If the
+    # cache has drifted (scope edited without CRE re-approval), refresh it.
     locked_value = float(project.get("total_value") or 0)
-    project_value = locked_value if locked_value > 0 else scope_total
+    if scope_total > 0 and abs(scope_total - locked_value) > 0.5:
+        await db.projects.update_one(
+            {"project_id": project_id},
+            {"$set": {"total_value": scope_total, "fe_locked_value": scope_total}}
+        )
+        locked_value = scope_total
+        project["total_value"] = scope_total
+    project_value = scope_total if scope_total > 0 else locked_value
     grand_project_value = max(0, project_value + additions_total - deductions_total)
     # Keep `total_project_value` symbol for legacy local use; equals project_value
     total_project_value = project_value

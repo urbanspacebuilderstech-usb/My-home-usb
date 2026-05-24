@@ -1877,13 +1877,24 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     deductions_total = sum(d.get("amount", 0) for d in deductions)
 
     # ── SELF-HEAL PAYMENT STAGE AMOUNTS (same logic as /payment-summary) ────
-    # Anchor every stage's `amount` to (locked project_value × percentage / 100)
-    # so the Payment Schedule list at the bottom of the project page always
-    # matches the locked Project Value card at the top. Without this, /full-
-    # details races with /payment-summary on the frontend (Promise.all) and
-    # the UI flickers between healed and un-healed amounts.
+    # Anchor every stage's `amount` to (FE scope_total × percentage / 100) so
+    # the Payment Schedule list at the bottom of the project page always
+    # matches the live Final Estimate. User rule: "Final Estimate value IS the
+    # Payment Schedule value" — scope edits propagate immediately, no need to
+    # wait for a CRE re-approval to refresh the lock.
+    # Without this, /full-details races with /payment-summary on the frontend
+    # (Promise.all) and the UI flickers between healed and un-healed amounts.
     locked_project_value = float(project.get("total_value") or 0)
-    anchor_value = locked_project_value if locked_project_value > 0 else scope_total
+    anchor_value = scope_total if scope_total > 0 else locked_project_value
+    # If the live FE scope has drifted from the stored lock, refresh the lock so
+    # every downstream consumer (cashflow, dashboards, exports) sees the new
+    # Project Value without waiting for an explicit CRE re-approval.
+    if scope_total > 0 and abs(scope_total - locked_project_value) > 0.5:
+        await db.projects.update_one(
+            {"project_id": project_id},
+            {"$set": {"total_value": scope_total, "fe_locked_value": scope_total}}
+        )
+        project["total_value"] = scope_total
     if anchor_value > 0:
         for stage in payment_stages:
             pct = stage.get("percentage")
