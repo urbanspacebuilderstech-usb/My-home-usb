@@ -294,13 +294,18 @@ async def get_project_value_summary(project_id: str, user: User = Depends(get_cu
     scope_total = sum((s.get("total_amount") or 0) for s in scope)
     add_total = sum((a.get("estimated_amount") or 0) for a in adds)
     ded_total = sum((d.get("amount") or 0) for d in deds)
-    live_grand = round(scope_total + add_total - ded_total, 2)
+    # PROJECT VALUE = Scope only (FE scope total).
+    # GRAND PROJECT VALUE = Project Value + Additions − Deductions.
     locked = float(project.get("total_value") or 0)
+    project_value = locked if locked > 0 else round(scope_total, 2)
+    grand = max(0, round(project_value + add_total - ded_total, 2))
+    live_grand = grand  # backwards-compatible alias
     fe = project.get("fe") or {}
     is_locked = bool(project.get("fe_locked_at"))
     return {
         "project_id": project_id,
-        "project_value": locked,
+        "project_value": project_value,
+        "grand_project_value": grand,
         "fe_locked_value": float(project.get("fe_locked_value") or 0),
         "fe_locked_at": project.get("fe_locked_at"),
         "fe_locked_by": project.get("fe_locked_by"),
@@ -311,9 +316,8 @@ async def get_project_value_summary(project_id: str, user: User = Depends(get_cu
         "live_grand_total": live_grand,
         "fe_status": fe.get("status") if isinstance(fe, dict) else None,
         "fe_revision": fe.get("revision") if isinstance(fe, dict) else None,
-        # If the live grand-total has drifted from the locked value, frontend can
-        # show a yellow warning hint ("FE changed — re-approve to re-lock").
-        "has_drift": is_locked and abs(live_grand - locked) > 0.5,
+        # Drift = live scope vs locked value (only scope drives Project Value)
+        "has_drift": is_locked and abs(round(scope_total, 2) - project_value) > 0.5,
     }
 
 
@@ -3440,12 +3444,11 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
         total_received = advance_amount + stages_received
     
     # ── PROJECT VALUE — SINGLE SOURCE OF TRUTH ──────────────────────────────
-    # Both the project header card and the Payment Summary tab MUST agree.
-    # Source: live sum of scope_items + additional_costs − deductions.
-    # The denormalized `project.scope_total` / `project.additional_cost` fields
-    # were drifting because nothing kept them in sync with scope edits.
-    # If FE has been locked (cre_approved), the locked value takes precedence
-    # so payment-stage % math is anchored to FE — exactly as the user requested.
+    # Per user definition:
+    #   Project Value      = Final Estimate scope total ONLY (no add/deduct)
+    #   Grand Project Value = Project Value + Additions − Deductions
+    # Payment-stage % math always anchors to Project Value (scope-only).
+    # The "Grand" figure is purely for UI summary cards.
     live_scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(2000)
     scope_total = sum((item.get("total_amount") or 0) for item in live_scope_items)
     additional_costs_list = await db.additional_costs.find({"project_id": project_id}, {"_id": 0, "estimated_amount": 1, "actual_amount": 1}).to_list(500)
@@ -3453,11 +3456,12 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     deductions_list = await db.deductions.find({"project_id": project_id}, {"_id": 0, "amount": 1}).to_list(500)
     deductions_total = sum(d.get("amount", 0) for d in deductions_list)
 
-    # Locked project value (= FE grand_total at last CRE approval) takes priority
+    # Locked Project Value (= FE scope_total at last CRE approval) takes priority
     locked_value = float(project.get("total_value") or 0)
-    live_grand = max(0, scope_total + additions_total - deductions_total)
-    total_project_value = locked_value if locked_value > 0 else live_grand
-    project_value = total_project_value
+    project_value = locked_value if locked_value > 0 else scope_total
+    grand_project_value = max(0, project_value + additions_total - deductions_total)
+    # Keep `total_project_value` symbol for legacy local use; equals project_value
+    total_project_value = project_value
     additional_cost = additions_total  # back-compat alias
 
     # Project-wide expenses (used by the redesigned strip) — APPROVED only.
@@ -3514,7 +3518,8 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     return {
         "project_id": project_id,
         "project_name": project.get("name"),
-        "project_value": total_project_value,
+        "project_value": total_project_value,        # = Scope total only (FE-anchored)
+        "grand_project_value": grand_project_value,  # = Project Value + Additions − Deductions
         "scope_total": scope_total,
         "additions_total": additions_total,
         "deductions_total": deductions_total,

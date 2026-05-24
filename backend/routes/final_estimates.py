@@ -274,24 +274,29 @@ async def _lock_project_value_to_fe(project_id: str, actor_user_id: Optional[str
     scope = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(500)
     adds = await db.additional_costs.find({"project_id": project_id}, {"_id": 0, "estimated_amount": 1}).to_list(500)
     deds = await db.deductions.find({"project_id": project_id}, {"_id": 0, "amount": 1}).to_list(500)
-    grand = sum((s.get("total_amount") or 0) for s in scope) \
-        + sum((a.get("estimated_amount") or 0) for a in adds) \
-        - sum((d.get("amount") or 0) for d in deds)
-    grand = round(grand, 2)
+    scope_total = round(sum((s.get("total_amount") or 0) for s in scope), 2)
+    add_total = sum((a.get("estimated_amount") or 0) for a in adds)
+    ded_total = sum((d.get("amount") or 0) for d in deds)
+    grand = round(scope_total + add_total - ded_total, 2)
+
+    # PROJECT VALUE = FE scope total ONLY (no additions/deductions).
+    # Grand Project Value is a separate denormalized field for UI display.
+    project_value = scope_total
 
     now = _now()
     await db.projects.update_one(
         {"project_id": project_id},
         {"$set": {
-            "total_value": grand,
-            "fe_locked_value": grand,
+            "total_value": project_value,        # canonical Project Value
+            "fe_locked_value": project_value,
+            "grand_project_value": grand,        # for UI summary cards
             "fe_locked_at": now,
             "fe_locked_by": actor_user_id,
         }}
     )
 
     # Recompute every existing payment stage's amount from its stored percentage
-    # against the new locked value. Stages without a percentage are left alone.
+    # against the LOCKED Project Value (scope-only).
     stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0, "stage_id": 1, "percentage": 1, "amount_received": 1, "amount": 1}).to_list(500)
     updated = 0
     for st in stages:
@@ -302,10 +307,7 @@ async def _lock_project_value_to_fe(project_id: str, actor_user_id: Optional[str
             pct_f = float(pct)
         except Exception:
             continue
-        new_amount = round((grand * pct_f) / 100) if grand > 0 else 0
-        # Never let the requested amount drop BELOW what was already collected.
-        # If client already paid more than the new pro-rated amount, keep amount
-        # at amount_received and let UI surface the residual (over-collection).
+        new_amount = round((project_value * pct_f) / 100) if project_value > 0 else 0
         already = st.get("amount_received") or 0
         if new_amount < already:
             new_amount = already
@@ -314,7 +316,7 @@ async def _lock_project_value_to_fe(project_id: str, actor_user_id: Optional[str
             {"$set": {"amount": new_amount, "fe_recalc_at": now}}
         )
         updated += 1
-    return {"grand_total": grand, "stages_recalced": updated}
+    return {"project_value": project_value, "grand_project_value": grand, "stages_recalced": updated}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -406,7 +408,7 @@ async def cre_approve_fe(project_id: str, user: User = Depends(get_current_user)
         await _notify(
             p["user_id"],
             "Final Estimate approved",
-            f"CRE approved Final Estimate (Rev {fe['revision']}) for {project.get('name', '')}. Project Value locked at ₹{lock_result['grand_total']:,.0f}.",
+            f"CRE approved Final Estimate (Rev {fe['revision']}) for {project.get('name', '')}. Project Value locked at ₹{lock_result['project_value']:,.0f}.",
             "fe_approved",
             project_id,
         )
