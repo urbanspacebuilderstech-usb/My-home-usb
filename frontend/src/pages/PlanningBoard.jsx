@@ -963,7 +963,7 @@ export default function PlanningBoard({ embedded = false }) {
       description: pkg.description || '',
       base_rate_per_sqft: pkg.base_rate_per_sqft || '',
       scope_items: (pkg.scope_items || []).map(i => ({ name: i.name || '', unit: i.unit || 'nos', quantity: i.quantity || 1, unit_rate: i.unit_rate || 0 })),
-      material_items: (pkg.material_items || []).map(i => ({ name: i.name || '', brand: i.brand || '' }))
+      material_items: (pkg.material_items || []).map(i => ({ name: i.name || '', brand: i.brand || '', unit: i.unit || 'nos', estimated_rate: i.estimated_rate || 0 }))
     } : { name: '', description: '', base_rate_per_sqft: '', scope_items: [], material_items: [] });
     fetchMaterialNames();
     // Prefetch brands for existing material items
@@ -994,7 +994,7 @@ export default function PlanningBoard({ embedded = false }) {
   };
 
   const addPackageMaterialItem = () => {
-    setPackageForm(f => ({ ...f, material_items: [...f.material_items, { name: '', brand: '' }] }));
+    setPackageForm(f => ({ ...f, material_items: [...f.material_items, { name: '', brand: '', unit: 'nos', estimated_rate: 0 }] }));
   };
 
   const updatePackageMaterialItem = (idx, field, val) => {
@@ -1005,6 +1005,11 @@ export default function PlanningBoard({ embedded = false }) {
       return { ...f, material_items: items };
     });
   };
+
+  // Only Planning, Planning Head and Super Admin can edit the locked price.
+  // Everyone else (incl. CRE, Sales, Site Engineer) sees a read-only price
+  // with a lock icon — matching the "Price locked by Planning Department" rule.
+  const canEditPackagePrice = ['planning', 'planning_head', 'planning_person', 'super_admin'].includes(user?.role);
 
   const removePackageMaterialItem = (idx) => {
     setPackageForm(f => ({ ...f, material_items: f.material_items.filter((_, i) => i !== idx) }));
@@ -1047,7 +1052,10 @@ export default function PlanningBoard({ embedded = false }) {
         name: i.name, unit: i.unit || 'nos', quantity: parseFloat(i.quantity) || 1, unit_rate: parseFloat(i.unit_rate) || 0
       })),
       material_items: packageForm.material_items.filter(i => i.name.trim()).map(i => ({
-        name: i.name, brand: i.brand || ''
+        name: i.name,
+        brand: i.brand || '',
+        unit: i.unit || 'nos',
+        estimated_rate: parseFloat(i.estimated_rate) || 0
       }))
     };
     try {
@@ -1998,19 +2006,35 @@ export default function PlanningBoard({ embedded = false }) {
                   {/* Materials List */}
                   <div className="border rounded-lg p-3">
                     <div className="flex items-center justify-between mb-2">
-                      <Label className="text-sm font-semibold">Materials</Label>
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm font-semibold">Materials</Label>
+                        {!canEditPackagePrice && (
+                          <Badge className="bg-amber-50 text-amber-700 border border-amber-200 text-[10px] px-1.5 py-0">
+                            <Lock className="h-2.5 w-2.5 mr-0.5 inline" /> Price locked by Planning
+                          </Badge>
+                        )}
+                      </div>
                       <Button size="sm" variant="outline" onClick={addPackageMaterialItem} data-testid="add-material-item"><Plus className="h-3 w-3 mr-1" />Add Material</Button>
                     </div>
                     {packageForm.material_items.length === 0 ? (
                       <p className="text-xs text-gray-400 text-center py-3">No materials. Click "Add Material" to start.</p>
                     ) : (
                       <div className="space-y-3">
+                        {/* Column headers for clarity */}
+                        <div className="hidden sm:grid grid-cols-12 gap-2 px-7 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                          <div className="col-span-4">Material</div>
+                          <div className="col-span-3">Brand</div>
+                          <div className="col-span-2">Unit</div>
+                          <div className="col-span-2">Price (₹/unit)</div>
+                          <div className="col-span-1"></div>
+                        </div>
                         {packageForm.material_items.map((item, idx) => (
                           <div key={idx} className="border border-dashed rounded p-2 space-y-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-bold text-gray-400 w-5 shrink-0">#{idx + 1}</span>
+                            <div className="flex items-start gap-2">
+                              <span className="text-[10px] font-bold text-gray-400 w-5 shrink-0 pt-2">#{idx + 1}</span>
+                              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 flex-1">
                               {/* Material Name */}
-                              <div className="flex-1">
+                              <div className="sm:col-span-4">
                                 {addingMaterialFor === idx ? (
                                   <div className="flex items-center gap-1">
                                     <Input placeholder="New material name..." value={newMaterialName} onChange={e => setNewMaterialName(e.target.value)} className="h-8 text-xs flex-1" data-testid={`new-mat-input-${idx}`} onKeyDown={e => { if (e.key === 'Enter') handleCreateMaterialName(idx); }} />
@@ -2029,7 +2053,7 @@ export default function PlanningBoard({ embedded = false }) {
                                 )}
                               </div>
                               {/* Brand */}
-                              <div className="flex-1">
+                              <div className="sm:col-span-3">
                                 {addingBrandFor === idx ? (
                                   <div className="flex items-center gap-1">
                                     <Input placeholder="New brand name..." value={newBrandName} onChange={e => setNewBrandName(e.target.value)} className="h-8 text-xs flex-1" data-testid={`new-brand-input-${idx}`} onKeyDown={e => { if (e.key === 'Enter') handleCreateBrand(idx); }} />
@@ -2047,7 +2071,41 @@ export default function PlanningBoard({ embedded = false }) {
                                   </Select>
                                 )}
                               </div>
-                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 shrink-0" onClick={() => removePackageMaterialItem(idx)}><X className="h-3.5 w-3.5" /></Button>
+                              {/* Unit — searchable, all CONSTRUCTION_UNITS */}
+                              <div className="sm:col-span-2">
+                                <UnitSelect
+                                  value={item.unit || 'nos'}
+                                  onChange={v => updatePackageMaterialItem(idx, 'unit', v)}
+                                  className="h-8 text-xs"
+                                  data-testid={`mat-unit-${idx}`}
+                                  disabled={!canEditPackagePrice}
+                                />
+                              </div>
+                              {/* Price (₹/unit) — locked by Planning Department */}
+                              <div className="sm:col-span-2">
+                                <div className="relative">
+                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 pointer-events-none">₹</span>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    value={item.estimated_rate ?? 0}
+                                    onChange={e => updatePackageMaterialItem(idx, 'estimated_rate', e.target.value)}
+                                    disabled={!canEditPackagePrice}
+                                    className={`h-8 text-xs pl-5 ${!canEditPackagePrice ? 'bg-gray-50 text-gray-600 cursor-not-allowed' : ''}`}
+                                    data-testid={`mat-price-${idx}`}
+                                    title={canEditPackagePrice ? 'Locked unit price (₹ per unit)' : 'Price locked by Planning Department'}
+                                  />
+                                  {!canEditPackagePrice && (
+                                    <Lock className="h-3 w-3 text-amber-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                  )}
+                                </div>
+                              </div>
+                              <div className="sm:col-span-1 flex items-start justify-end">
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 shrink-0" onClick={() => removePackageMaterialItem(idx)} data-testid={`remove-material-${idx}`}><X className="h-3.5 w-3.5" /></Button>
+                              </div>
+                              </div>
                             </div>
                           </div>
                         ))}

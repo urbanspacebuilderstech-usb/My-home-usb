@@ -302,7 +302,11 @@ async def apply_package_to_project(project_id: str, package_id: str, user: User 
     if not package:
         raise HTTPException(status_code=404, detail="Package not found")
 
-    # Copy materials
+    # Copy materials. Carry the Planning-locked unit and unit price downstream
+    # so Final Estimate / Material Requests / POs can render them read-only.
+    # `is_locked_from_package=True` + `locked_estimated_rate` + `locked_unit`
+    # are the canonical lock signals — any consumer that wants to enforce
+    # "Planning locked the price" should check `is_locked_from_package`.
     materials_copy = []
     for m in package.get("material_items", []):
         materials_copy.append({
@@ -313,6 +317,9 @@ async def apply_package_to_project(project_id: str, package_id: str, user: User 
             "quantity": m.get("quantity", 0),
             "unit": m.get("unit", "nos"),
             "estimated_rate": m.get("estimated_rate", 0),
+            "locked_unit": m.get("unit", "nos"),
+            "locked_estimated_rate": m.get("estimated_rate", 0),
+            "is_locked_from_package": True,
             "source": "package",
             "source_package_id": package_id
         })
