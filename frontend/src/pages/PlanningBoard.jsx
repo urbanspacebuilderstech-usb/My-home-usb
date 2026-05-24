@@ -1965,7 +1965,7 @@ export default function PlanningBoard({ embedded = false }) {
 
             {/* Package Create/Edit Dialog */}
             <Dialog open={packageDialog} onOpenChange={setPackageDialog}>
-              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogContent className="max-w-5xl sm:max-w-5xl w-[95vw] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>{editingPackage ? 'Edit Package' : 'Add New Package'}</DialogTitle>
                   <DialogDescription>Fill in the package details, scope items, and materials</DialogDescription>
