@@ -4475,7 +4475,13 @@ export default function ProjectDetail() {
             <TabsContent value="payments" className="p-6">
               {/* Balance Payment Info — 4 cards calculated from Payment Schedule rows only */}
               {(() => {
-                const totalValue = payment_stages.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+                // Project Value = LOCKED Grand Total (scope + additions − deductions),
+                // returned by /payment-summary as `summary.project_value`. Falls
+                // back to the project's stored `total_value` so the UI never shows
+                // blank during initial load. NEVER use sum-of-stage-amounts — that
+                // only equals project value when stages sum to 100%, which is the
+                // bug the user reported.
+                const totalValue = Number(summary?.project_value) || Number(projectData?.project?.total_value) || 0;
                 const scheduleIncome = payment_stages.reduce((sum, s) => sum + (Number(s.amount_received) || 0), 0);
                 const totalPctAllocated = payment_stages.reduce((sum, s) => sum + (s.percentage || 0), 0);
                 const remainingPct = Math.round((100 - totalPctAllocated) * 100) / 100;
@@ -4562,7 +4568,7 @@ export default function ProjectDetail() {
                   <h3 className="text-lg font-bold">Payment Schedule</h3>
                   <p className="text-sm text-gray-500">
                     Milestone payments as % of project value
-                    {user?.role !== 'project_manager' && ` (₹${(summary?.scope_total || projectData?.project?.total_value || 0).toLocaleString()})`}
+                    {user?.role !== 'project_manager' && ` (₹${(summary?.project_value || projectData?.project?.total_value || 0).toLocaleString()})`}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -5272,7 +5278,7 @@ export default function ProjectDetail() {
                         (s.is_advance === true && (Number(s.amount_received) || 0) > 0)
                         || (s.linked_income_id && s.linked_income_id !== '' && s.linked_income_id !== null)
                       );
-                      const totalValueForRow = summary?.scope_total || projectData?.project?.total_value || 0;
+                      const totalValueForRow = summary?.project_value || projectData?.project?.total_value || summary?.scope_total || 0;
                       const earliestIncome = (projectIncomeEntries || []).slice().sort((a, b) => {
                         const da = new Date(a.received_date || a.created_at || 0).getTime();
                         const db = new Date(b.received_date || b.created_at || 0).getTime();
