@@ -1027,7 +1027,7 @@ export default function ProjectDetail() {
   
   // Inline edit for project header
   const [headerEditing, setHeaderEditing] = useState(false);
-  const [headerForm, setHeaderForm] = useState({ name: '', client_name: '', client_phone: '', client_email: '', location: '', package_id: '' });
+  const [headerForm, setHeaderForm] = useState({ name: '', client_name: '', client_phone: '', client_email: '', location: '', package_id: '', current_stage: '', status: '' });
   const [headerSaving, setHeaderSaving] = useState(false);
   const [allPackages, setAllPackages] = useState([]);
   // Payment Schedule Edit Dialog states
@@ -1703,11 +1703,36 @@ export default function ProjectDetail() {
 
 
 
+  // Stage + Status options (loaded lazily when header edit opens).
+  // Same source the All Projects table uses — keeps the two screens in sync.
+  const [stageOptions, setStageOptions] = useState([]);
+  const [workflowStatusOptions, setWorkflowStatusOptions] = useState([]);
+  // Inline Stage/Status edit allowed for Planning Head, Super Admin, GM only.
+  const canEditStageStatus = ['planning', 'super_admin', 'general_manager'].includes(user?.role);
+
   const startHeaderEdit = () => {
     if (!projectData?.project) return;
     const p = projectData.project;
-    setHeaderForm({ name: p.name || '', client_name: p.client_name || '', client_phone: p.client_phone || '', client_email: p.client_email || '', location: p.location || '', package_id: p.package_id || '' });
+    setHeaderForm({
+      name: p.name || '',
+      client_name: p.client_name || '',
+      client_phone: p.client_phone || '',
+      client_email: p.client_email || '',
+      location: p.location || '',
+      package_id: p.package_id || '',
+      current_stage: p.current_stage || 'yet_to_start',
+      status: p.status || 'in_planning',
+    });
     fetchPackages();
+    // Lazy-load Stage + Status dropdowns
+    if (canEditStageStatus) {
+      if (stageOptions.length === 0) {
+        axios.get(`${API}/planning/stage-dashboard`).then(r => setStageOptions(r.data?.stages || [])).catch(() => {});
+      }
+      if (workflowStatusOptions.length === 0) {
+        axios.get(`${API}/planning/workflow-statuses`).then(r => setWorkflowStatusOptions(r.data || [])).catch(() => {});
+      }
+    }
     setHeaderEditing(true);
   };
 
@@ -1722,10 +1747,38 @@ export default function ProjectDetail() {
       if (headerForm.client_email !== (p.client_email || '')) payload.client_email = headerForm.client_email;
       if (headerForm.location !== (p.location || '')) payload.location = headerForm.location;
       if (headerForm.package_id !== (p.package_id || '')) payload.package_id = headerForm.package_id || '';
-      if (Object.keys(payload).length === 0) { setHeaderEditing(false); setHeaderSaving(false); return; }
-      await axios.patch(`${API}/projects/${projectId}`, payload);
-      // Optimistic update
-      setProjectData(prev => ({ ...prev, project: { ...prev.project, ...payload, package_id: headerForm.package_id || null } }));
+
+      // Stage + Status go via their dedicated endpoints so the audit log /
+      // stage_history / status_history are populated correctly (the generic
+      // PATCH /projects/{id} doesn't track these transitions).
+      const stageChanged = canEditStageStatus && headerForm.current_stage && headerForm.current_stage !== (p.current_stage || 'yet_to_start');
+      const statusChanged = canEditStageStatus && headerForm.status && headerForm.status !== (p.status || '');
+
+      if (Object.keys(payload).length === 0 && !stageChanged && !statusChanged) {
+        setHeaderEditing(false); setHeaderSaving(false); return;
+      }
+
+      if (Object.keys(payload).length > 0) {
+        await axios.patch(`${API}/projects/${projectId}`, payload);
+      }
+      if (stageChanged) {
+        await axios.patch(`${API}/planning/projects/${projectId}/update-stage?stage=${headerForm.current_stage}`);
+      }
+      if (statusChanged) {
+        await axios.patch(`${API}/planning/projects/${projectId}/workflow-status`, { status: headerForm.status });
+      }
+
+      // Optimistic update — fold all changes into local state
+      setProjectData(prev => ({
+        ...prev,
+        project: {
+          ...prev.project,
+          ...payload,
+          package_id: headerForm.package_id || null,
+          ...(stageChanged ? { current_stage: headerForm.current_stage } : {}),
+          ...(statusChanged ? { status: headerForm.status } : {}),
+        },
+      }));
       toast.success('Project details updated');
       setHeaderEditing(false);
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update'); }
@@ -2956,6 +3009,36 @@ export default function ProjectDetail() {
                         </SelectContent>
                       </Select>
                     </div>
+                    {canEditStageStatus && (
+                      <>
+                        <div>
+                          <Label className="text-xs text-gray-500">Stage</Label>
+                          <Select value={headerForm.current_stage || 'yet_to_start'} onValueChange={v => setHeaderForm(f => ({ ...f, current_stage: v }))}>
+                            <SelectTrigger data-testid="header-edit-stage"><SelectValue placeholder="Select Stage" /></SelectTrigger>
+                            <SelectContent>
+                              {stageOptions.length === 0 ? (
+                                <SelectItem value="yet_to_start">Yet to Start</SelectItem>
+                              ) : stageOptions.map(s => (
+                                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-gray-500">Status</Label>
+                          <Select value={headerForm.status || 'in_planning'} onValueChange={v => setHeaderForm(f => ({ ...f, status: v }))}>
+                            <SelectTrigger data-testid="header-edit-status"><SelectValue placeholder="Select Status" /></SelectTrigger>
+                            <SelectContent>
+                              {workflowStatusOptions.length === 0 ? (
+                                <SelectItem value="in_planning">In Planning</SelectItem>
+                              ) : workflowStatusOptions.map(s => (
+                                <SelectItem key={s.id} value={s.id}>{s.name}{s.custom ? ' ★' : ''}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <Button size="sm" onClick={saveHeaderEdit} disabled={headerSaving} className="bg-indigo-600 hover:bg-indigo-700" data-testid="header-edit-save">
@@ -2978,7 +3061,7 @@ export default function ProjectDetail() {
                         Critical
                       </Badge>
                     )}
-                    {(user?.role === 'super_admin' || user?.role === 'cre' || user?.role === 'planning') && (
+                    {(user?.role === 'super_admin' || user?.role === 'cre' || user?.role === 'planning' || user?.role === 'general_manager') && (
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-gray-400 hover:text-indigo-600 shrink-0" onClick={startHeaderEdit} data-testid="header-edit-btn">
                         <Edit className="h-3.5 w-3.5" />
                       </Button>
