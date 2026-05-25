@@ -954,13 +954,14 @@ export default function CRMPreSales() {
               <table className="w-full table-fixed">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[18%]">Lead</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[16%]">Contact</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[10%]">Source</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Stage</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[18%]">Follow-up</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Created</th>
-                    <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[14%]">Actions</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[16%]">Lead</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[14%]">Contact</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[9%]">Source</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Assigned</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[11%]">Stage</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[15%]">Follow-up</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[11%]">Created</th>
+                    <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -994,6 +995,18 @@ export default function CRMPreSales() {
                         <Badge className={`text-[10px] px-1.5 truncate ${SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}`}>
                           {lead.source?.replace('_', ' ').substring(0, 10)}
                         </Badge>
+                      </td>
+                      <td className="px-2 py-2" data-testid={`lead-assignee-${lead.lead_id}`}>
+                        {lead.assigned_to_name ? (
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0" title={lead.assigned_to_name}>
+                              {lead.assigned_to_name.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="text-[11px] text-gray-700 truncate" title={lead.assigned_to_name}>{lead.assigned_to_name}</span>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-gray-300 italic">Unassigned</span>
+                        )}
                       </td>
                       <td className="px-2 py-2">
                         <Badge 

@@ -741,6 +741,17 @@ async def get_pre_sales_leads(
     
     leads = await db.leads.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
     leads = await filter_contacts_leads(db, leads, user.role)
+
+    # Backfill assigned_to_name for legacy leads that have an assigned_to but
+    # no cached name. Cheap one-shot batch — only the missing IDs are looked up.
+    missing_ids = sorted({l.get("assigned_to") for l in leads if l.get("assigned_to") and not l.get("assigned_to_name")})
+    if missing_ids:
+        users = await db.users.find({"user_id": {"$in": missing_ids}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(len(missing_ids))
+        name_by_id = {u["user_id"]: u.get("name") for u in users}
+        for l in leads:
+            if l.get("assigned_to") and not l.get("assigned_to_name"):
+                l["assigned_to_name"] = name_by_id.get(l["assigned_to"]) or None
+
     return mask_leads_phone(leads, user.role)
 
 
