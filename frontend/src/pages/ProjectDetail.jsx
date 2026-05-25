@@ -979,6 +979,15 @@ export default function ProjectDetail() {
   const [templateApplyMode, setTemplateApplyMode] = useState('append');
   const [applyingTemplate, setApplyingTemplate] = useState(false);
   const [bulkAdditionDialog, setBulkAdditionDialog] = useState(false);
+  // When opening the "Add Additions" dialog from within a Section we capture
+  // the section_id here so every row gets that section_id on submit.
+  // null = ungrouped (legacy behaviour).
+  const [bulkAdditionSectionId, setBulkAdditionSectionId] = useState(null);
+  // Section management (folders that group additional_costs rows)
+  const [additionSections, setAdditionSections] = useState([]);
+  const [newSectionDialog, setNewSectionDialog] = useState(false);
+  const [newSectionTitle, setNewSectionTitle] = useState('');
+  const [editingSection, setEditingSection] = useState(null); // { section_id, title }
   const [bulkDeductionDialog, setBulkDeductionDialog] = useState(false);
   
   // Verification dialog
@@ -1184,6 +1193,9 @@ export default function ProjectDetail() {
       ]);
       
       setProjectData(projectRes.data);
+      // Pluck addition_sections from the full-details payload (added in
+      // /app/backend/routes/financial.py) so the UI can group additional_costs.
+      setAdditionSections(projectRes.data?.addition_sections || []);
       if (summaryRes) setPaymentSummary(summaryRes.data);
       if (stagesRes) setProjectStages(stagesRes.data);
       if (templatesRes) setStageTemplates(templatesRes.data);
@@ -2095,11 +2107,13 @@ export default function ProjectDetail() {
             name: r.item_name,
             qty: qty,
             price: rate,
+            section_id: bulkAdditionSectionId || undefined,
           };
         })
       });
       toast.success(`Added ${validItems.length} additions`);
       setBulkAdditionDialog(false);
+      setBulkAdditionSectionId(null);
       setBulkAdditionRows(createEmptyRows('addition'));
       fetchData(false);
     } catch (error) {
@@ -2515,6 +2529,72 @@ export default function ProjectDetail() {
     } catch (error) {
       toast.error('Failed to delete addition');
     }
+  };
+
+  // ── Addition Section handlers ────────────────────────────────────────────
+  // Sections are folder-like groupings for additional_costs rows. They live
+  // in db.addition_sections and carry a title + optional file attachments.
+  const handleCreateSection = async () => {
+    const title = (newSectionTitle || '').trim();
+    if (!title) { toast.error('Section title is required'); return; }
+    try {
+      await axios.post(`${API}/projects/${projectId}/addition-sections`, { title });
+      toast.success(`Section "${title}" created`);
+      setNewSectionDialog(false);
+      setNewSectionTitle('');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to create section'); }
+  };
+
+  const handleRenameSection = async () => {
+    if (!editingSection) return;
+    const title = (editingSection.title || '').trim();
+    if (!title) { toast.error('Title required'); return; }
+    try {
+      await axios.patch(`${API}/projects/${projectId}/addition-sections/${editingSection.section_id}`, { title });
+      toast.success('Section renamed');
+      setEditingSection(null);
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to rename'); }
+  };
+
+  const handleDeleteSection = async (section) => {
+    if (!window.confirm(`Delete section "${section.title}"?\nAdditions in this section will move back to "Ungrouped" (no data loss).`)) return;
+    try {
+      await axios.delete(`${API}/projects/${projectId}/addition-sections/${section.section_id}`);
+      toast.success('Section deleted');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to delete section'); }
+  };
+
+  const handleUploadSectionAttachment = async (section, file) => {
+    if (!file) return;
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      await axios.post(`${API}/projects/${projectId}/addition-sections/${section.section_id}/attachments`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      toast.success('File attached');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Upload failed'); }
+  };
+
+  const handleDeleteSectionAttachment = async (section, fileId) => {
+    if (!window.confirm('Remove this attachment?')) return;
+    try {
+      await axios.delete(`${API}/projects/${projectId}/addition-sections/${section.section_id}/attachments/${fileId}`);
+      toast.success('Attachment removed');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
+  };
+
+  // Helper used by the Additional tab — opens the Add Additions dialog with
+  // an explicit section context (or null for ungrouped).
+  const openAddAdditionFor = (sectionId) => {
+    setBulkAdditionSectionId(sectionId || null);
+    setBulkAdditionRows(createEmptyRows('addition'));
+    setBulkAdditionDialog(true);
   };
 
   const handleRequestAdditionPayment = async (costId, expectedDate) => {
@@ -5720,16 +5800,45 @@ export default function ProjectDetail() {
                 </div>
                 <div className="flex gap-2">
                   {canManage && (
-                    <Dialog open={bulkAdditionDialog} onOpenChange={setBulkAdditionDialog}>
-                      <DialogTrigger asChild>
-                        <Button data-testid="add-addition-btn" className="gap-2 bg-secondary hover:bg-secondary/90">
-                          <Plus className="h-4 w-4" />Add Additions
-                        </Button>
-                      </DialogTrigger>
+                    <Button
+                      variant="outline"
+                      className="gap-2 border-dashed"
+                      onClick={() => { setNewSectionTitle(''); setNewSectionDialog(true); }}
+                      data-testid="create-section-btn"
+                    >
+                      <Plus className="h-4 w-4" />Create Section
+                    </Button>
+                  )}
+                  {canManage && (
+                    <Button
+                      data-testid="add-addition-btn"
+                      className="gap-2 bg-secondary hover:bg-secondary/90"
+                      onClick={() => openAddAdditionFor(null)}
+                    >
+                      <Plus className="h-4 w-4" />Add Additions
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Single Add Additions dialog — handles both ungrouped and per-section cases.
+                  `bulkAdditionSectionId` is set by openAddAdditionFor() before opening. */}
+              {canManage && (
+                <Dialog open={bulkAdditionDialog} onOpenChange={(v) => { setBulkAdditionDialog(v); if (!v) setBulkAdditionSectionId(null); }}>
                       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
-                          <DialogTitle>Add Additional Work</DialogTitle>
-                          <DialogDescription>Enter Name, Qty and Amount for each row.</DialogDescription>
+                          <DialogTitle>
+                            Add Additional Work
+                            {bulkAdditionSectionId && (() => {
+                              const s = additionSections.find(x => x.section_id === bulkAdditionSectionId);
+                              return s ? <span className="ml-2 text-sm text-indigo-600 font-medium">→ {s.title}</span> : null;
+                            })()}
+                          </DialogTitle>
+                          <DialogDescription>
+                            {bulkAdditionSectionId
+                              ? 'These rows will be added inside the selected section.'
+                              : 'Enter Name, Qty and Amount for each row.'}
+                          </DialogDescription>
                         </DialogHeader>
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm">
@@ -5805,9 +5914,112 @@ export default function ProjectDetail() {
                       </DialogContent>
                     </Dialog>
                   )}
-                </div>
-              </div>
 
+              {/* Create Section dialog */}
+              {canManage && (
+                <Dialog open={newSectionDialog} onOpenChange={setNewSectionDialog}>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Create Section</DialogTitle>
+                      <DialogDescription>Sections group related additions and let you attach reference files.</DialogDescription>
+                    </DialogHeader>
+                    <div>
+                      <Label className="text-sm">Section Title</Label>
+                      <Input
+                        value={newSectionTitle}
+                        onChange={(e) => setNewSectionTitle(e.target.value)}
+                        placeholder="e.g., External Works"
+                        className="mt-1"
+                        data-testid="new-section-title"
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleCreateSection(); }}
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" onClick={() => setNewSectionDialog(false)}>Cancel</Button>
+                      <Button onClick={handleCreateSection} data-testid="create-section-submit">Create</Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
+
+              {/* Rename Section dialog */}
+              {canManage && editingSection && (
+                <Dialog open={!!editingSection} onOpenChange={(v) => { if (!v) setEditingSection(null); }}>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Rename Section</DialogTitle>
+                    </DialogHeader>
+                    <div>
+                      <Label className="text-sm">Section Title</Label>
+                      <Input
+                        value={editingSection.title}
+                        onChange={(e) => setEditingSection(s => ({ ...s, title: e.target.value }))}
+                        className="mt-1"
+                        data-testid="rename-section-title"
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleRenameSection(); }}
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" onClick={() => setEditingSection(null)}>Cancel</Button>
+                      <Button onClick={handleRenameSection} data-testid="rename-section-submit">Save</Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
+
+              {/* Group additions by section_id. Ungrouped rows render first; one block per section below. */}
+              {(() => {
+                const sumGroup = (items) => {
+                  const total = items.reduce((s, a) => s + (a.estimated_amount || 0), 0);
+                  const received = items.reduce((s, a) => s + (a.income_received || 0), 0);
+                  return { total, received, balance: total - received };
+                };
+                const ungrouped = additional_costs.filter(c => !c.section_id);
+                const groups = [{ section_id: null, title: 'Ungrouped', isUngrouped: true, attachments: [] }, ...additionSections];
+                return groups.map((group) => {
+                  const items = group.section_id ? additional_costs.filter(c => c.section_id === group.section_id) : ungrouped;
+                  const t = sumGroup(items);
+                  return (
+                    <div key={group.section_id || 'ungrouped'} className={`mb-6 ${group.section_id ? 'border-2 border-indigo-100 rounded-xl p-4 bg-indigo-50/30' : ''}`} data-testid={`addition-group-${group.section_id || 'ungrouped'}`}>
+                      {group.section_id && (
+                        <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <h4 className="text-sm font-bold text-indigo-700 truncate">{group.title}</h4>
+                            {canManage && (
+                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-gray-400 hover:text-indigo-700" onClick={() => setEditingSection({ section_id: group.section_id, title: group.title })} data-testid={`rename-section-${group.section_id}`}>
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                            )}
+                            <Badge variant="outline" className="text-[10px] bg-white">{items.length} {items.length === 1 ? 'addition' : 'additions'}</Badge>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 mr-1 flex-wrap max-w-[260px]">
+                              {(group.attachments || []).map(att => (
+                                <div key={att.file_id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-indigo-200 text-[10px]" title={att.filename}>
+                                  <a href={`${API}/files/${att.file_id}/download`} target="_blank" rel="noreferrer" className="text-indigo-700 truncate max-w-[120px]" data-testid={`section-att-${att.file_id}`}>{att.filename}</a>
+                                  {canManage && (
+                                    <button onClick={() => handleDeleteSectionAttachment(group, att.file_id)} className="text-red-500 hover:text-red-700"><X className="h-2.5 w-2.5" /></button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                            {canManage && (
+                              <>
+                                <label className="inline-flex items-center gap-1 px-2 py-1 rounded border border-indigo-200 bg-white text-[11px] text-indigo-700 cursor-pointer hover:bg-indigo-50" data-testid={`attach-section-${group.section_id}`}>
+                                  <Plus className="h-3 w-3" /> File
+                                  <input type="file" className="hidden" onChange={(e) => { if (e.target.files?.[0]) { handleUploadSectionAttachment(group, e.target.files[0]); e.target.value = ''; } }} />
+                                </label>
+                                <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-200 text-emerald-700" onClick={() => openAddAdditionFor(group.section_id)} data-testid={`add-into-section-${group.section_id}`}>
+                                  <Plus className="h-3 w-3" /> Add
+                                </Button>
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => handleDeleteSection(group)} data-testid={`delete-section-${group.section_id}`}>
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
@@ -5823,18 +6035,18 @@ export default function ProjectDetail() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {additional_costs.length === 0 ? (
+                    {items.length === 0 ? (
                       <tr>
                         <td colSpan={canManage ? 8 : 7} className="px-4 py-8 text-center text-gray-500">
-                          No additions recorded yet. Click "Add Additions" for extra work.
+                          {group.section_id ? 'No additions in this section yet.' : 'No additions recorded yet. Click "Add Additions" for extra work.'}
                         </td>
                       </tr>
                     ) : (
                       <SortableList
-                        items={additional_costs.map(c => c.cost_id)}
+                        items={items.map(c => c.cost_id)}
                         onReorder={handleAdditionalCostReorder}
                       >
-                      {additional_costs.map((cost, index) => {
+                      {items.map((cost, index) => {
                         const balance = cost.estimated_amount - (cost.income_received || 0);
                         const isEditing = editingAddition === cost.cost_id;
                         
@@ -5939,19 +6151,23 @@ export default function ProjectDetail() {
                       </SortableList>
                     )}
                   </tbody>
-                  {additional_costs.length > 0 && (
+                  {items.length > 0 && (
                     <tfoot className="bg-cyan-50 border-t-2">
                       <tr>
                         <td colSpan="3" className="px-4 py-3 text-right font-bold">Totals:</td>
-                        <td className="px-4 py-3 text-right font-bold">₹{summary.additions_total?.toLocaleString()}</td>
-                        <td className="px-4 py-3 text-right font-bold text-green-600">₹{summary.additions_received?.toLocaleString()}</td>
-                        <td className="px-4 py-3 text-right font-bold text-red-600">₹{(summary.additions_total - summary.additions_received)?.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold">₹{t.total.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold text-green-600">₹{t.received.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold text-red-600">₹{t.balance.toLocaleString()}</td>
                         <td colSpan={canManage ? 2 : 1}></td>
                       </tr>
                     </tfoot>
                   )}
                 </table>
               </div>
+                    </div>
+                  );
+                });
+              })()}
             </TabsContent>
 
             {/* ==================== DEDUCTIONS TAB ==================== */}

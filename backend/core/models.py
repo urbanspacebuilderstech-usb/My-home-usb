@@ -731,6 +731,7 @@ class AdditionalCostItem(BaseModel):
     income_received: float = 0
     status: str = "pending"  # pending, in_progress, completed
     workflow_status: str = "approved"  # No approval needed - directly approved
+    section_id: Optional[str] = None  # Optional FK to addition_sections.section_id
     created_by: Optional[str] = None
     verified_by: Optional[str] = None
     approved_by: Optional[str] = None

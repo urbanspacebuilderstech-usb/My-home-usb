@@ -1915,6 +1915,11 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     for d in deductions:
         if isinstance(d.get("created_at"), str):
             d["created_at"] = datetime.fromisoformat(d["created_at"])
+
+    # Get addition sections (folders that group additional_costs)
+    addition_sections = await db.addition_sections.find(
+        {"project_id": project_id}, {"_id": 0}
+    ).sort("created_at", 1).to_list(200)
     
     # Calculate totals
     scope_total = sum(item.get("total_amount", 0) for item in scope_items)
@@ -2034,6 +2039,7 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
         "scope_items": scope_items,
         "payment_stages": payment_stages,
         "additional_costs": additional_costs,
+        "addition_sections": addition_sections,
         "deductions": deductions,
         "income_entries": income_entries,
         "pre_construction": pre_construction,

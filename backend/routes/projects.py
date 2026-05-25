@@ -2231,6 +2231,7 @@ class AdditionalCostCreate(BaseModel):
     name: Optional[str] = None
     qty: Optional[float] = None
     price: Optional[float] = None
+    section_id: Optional[str] = None
 
 
 class AdditionalCostUpdate(BaseModel):
@@ -2242,6 +2243,7 @@ class AdditionalCostUpdate(BaseModel):
     name: Optional[str] = None
     qty: Optional[float] = None
     price: Optional[float] = None
+    section_id: Optional[str] = None  # Move addition between sections (or to ungrouped via empty string)
 
 
 @router.get("/projects/{project_id}/comprehensive")
@@ -3624,6 +3626,7 @@ async def create_additional_cost(cost_input: AdditionalCostCreate, user: User = 
         name=cost_input.name,
         qty=cost_input.qty,
         price=cost_input.price,
+        section_id=cost_input.section_id,
     )
     
     cost_dict = cost.model_dump()
@@ -3654,6 +3657,170 @@ async def delete_additional_cost(cost_id: str, user: User = Depends(get_current_
     await db.additional_costs.delete_one({"cost_id": cost_id})
     await create_audit_log(user.user_id, "delete", "additional_cost", cost_id, {})
     return {"message": "Additional cost deleted"}
+
+
+# ── ADDITION SECTIONS ───────────────────────────────────────────────────────
+# Sections are folders that group additional_costs rows under a Planning-
+# managed title with optional file attachments. The frontend renders one
+# table per section plus an "Ungrouped" fallback for legacy / NULL section_id
+# rows. Deleting a section moves its children back to ungrouped (safe, no
+# data loss). Permissions mirror the existing Add Additions flow.
+SECTION_EDIT_ROLES = [
+    UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON,
+    UserRole.CRE, UserRole.PROJECT_MANAGER,
+]
+
+
+class AdditionSectionInput(BaseModel):
+    title: str
+
+
+@router.get("/projects/{project_id}/addition-sections")
+async def list_addition_sections(project_id: str, user: User = Depends(get_current_user)):
+    sections = await db.addition_sections.find(
+        {"project_id": project_id},
+        {"_id": 0},
+    ).sort("created_at", 1).to_list(200)
+    return sections
+
+
+@router.post("/projects/{project_id}/addition-sections")
+async def create_addition_section(
+    project_id: str,
+    body: AdditionSectionInput,
+    user: User = Depends(get_current_user),
+):
+    if user.role not in SECTION_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    section_id = f"asec_{uuid.uuid4().hex[:10]}"
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "section_id": section_id,
+        "project_id": project_id,
+        "title": title,
+        "attachments": [],
+        "created_at": now,
+        "created_by": user.user_id,
+        "updated_at": now,
+    }
+    await db.addition_sections.insert_one(doc)
+    doc.pop("_id", None)
+    await create_audit_log(user.user_id, "create", "addition_section", section_id, {"title": title})
+    return doc
+
+
+@router.patch("/projects/{project_id}/addition-sections/{section_id}")
+async def update_addition_section(
+    project_id: str,
+    section_id: str,
+    body: AdditionSectionInput,
+    user: User = Depends(get_current_user),
+):
+    if user.role not in SECTION_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    res = await db.addition_sections.update_one(
+        {"section_id": section_id, "project_id": project_id},
+        {"$set": {"title": title, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Section not found")
+    return {"message": "Section updated", "section_id": section_id, "title": title}
+
+
+@router.delete("/projects/{project_id}/addition-sections/{section_id}")
+async def delete_addition_section(
+    project_id: str,
+    section_id: str,
+    user: User = Depends(get_current_user),
+):
+    if user.role not in SECTION_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    section = await db.addition_sections.find_one(
+        {"section_id": section_id, "project_id": project_id}, {"_id": 0}
+    )
+    if not section:
+        raise HTTPException(status_code=404, detail="Section not found")
+    # Move children back to "ungrouped" (clear their section_id) — no data loss.
+    await db.additional_costs.update_many(
+        {"project_id": project_id, "section_id": section_id},
+        {"$set": {"section_id": None}},
+    )
+    await db.addition_sections.delete_one({"section_id": section_id, "project_id": project_id})
+    await create_audit_log(user.user_id, "delete", "addition_section", section_id, {
+        "title": section.get("title"),
+    })
+    return {"message": "Section deleted; child additions moved to Ungrouped"}
+
+
+@router.post("/projects/{project_id}/addition-sections/{section_id}/attachments")
+async def upload_section_attachment(
+    project_id: str,
+    section_id: str,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    if user.role not in SECTION_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    section = await db.addition_sections.find_one(
+        {"section_id": section_id, "project_id": project_id}, {"_id": 0}
+    )
+    if not section:
+        raise HTTPException(status_code=404, detail="Section not found")
+    BLOCKED_EXT = {'exe', 'bat', 'cmd', 'sh', 'php', 'py', 'js', 'vbs', 'ps1', 'msi', 'dll'}
+    ext = file.filename.split(".")[-1].lower() if file.filename and "." in file.filename else ""
+    if ext in BLOCKED_EXT:
+        raise HTTPException(status_code=400, detail=f"File type '.{ext}' is not allowed.")
+    contents = await file.read()
+    if len(contents) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum 50MB.")
+    file_id = await fs.upload_from_stream(
+        file.filename, contents,
+        metadata={"contentType": file.content_type, "uploaded_by": user.user_id, "scope": "addition_section"}
+    )
+    att = {
+        "file_id": str(file_id),
+        "filename": file.filename,
+        "content_type": file.content_type,
+        "size": len(contents),
+        "uploaded_by": user.user_id,
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.addition_sections.update_one(
+        {"section_id": section_id, "project_id": project_id},
+        {"$push": {"attachments": att}, "$set": {"updated_at": att["uploaded_at"]}},
+    )
+    await create_audit_log(user.user_id, "upload", "addition_section_attachment", section_id, {"filename": file.filename})
+    return att
+
+
+@router.delete("/projects/{project_id}/addition-sections/{section_id}/attachments/{file_id}")
+async def delete_section_attachment(
+    project_id: str,
+    section_id: str,
+    file_id: str,
+    user: User = Depends(get_current_user),
+):
+    if user.role not in SECTION_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    res = await db.addition_sections.update_one(
+        {"section_id": section_id, "project_id": project_id},
+        {"$pull": {"attachments": {"file_id": file_id}}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Section not found")
+    # Best-effort: drop the actual blob too.
+    try:
+        from bson import ObjectId
+        await fs.delete(ObjectId(file_id))
+    except Exception:
+        pass
+    return {"message": "Attachment removed"}
 
 
 @router.patch("/additional-costs/{cost_id}/request-payment")
@@ -4178,6 +4345,7 @@ class BulkAdditionInput(BaseModel):
     name: Optional[str] = None
     qty: Optional[float] = None
     price: Optional[float] = None
+    section_id: Optional[str] = None  # Optional grouping into an addition_sections doc
 
 
 class BulkAdditionCreate(BaseModel):
@@ -4317,6 +4485,7 @@ async def create_bulk_additions(
             name=item.name,
             qty=item.qty,
             price=item.price,
+            section_id=item.section_id,
             workflow_status="approved",
             created_by=user.user_id
         )
