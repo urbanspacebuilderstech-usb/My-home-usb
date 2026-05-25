@@ -3307,7 +3307,7 @@ export default function ProjectDetail() {
                   Team
                 </TabsTrigger>
                 <TabsTrigger value="construction-stage" className="data-[state=active]:border-b-2 data-[state=active]:border-rose-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-construction-stage">
-                  Construction Stage
+                  Pre-Construction Stages
                 </TabsTrigger>
                 <TabsTrigger value="project-stages" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-project-stages">
                   Stages - Project Stages
@@ -8182,7 +8182,7 @@ export default function ProjectDetail() {
 
             {/* Cheques TabsContent removed — moved as a sub-tab under Payment Summary. */}
 
-            {/* ==================== CONSTRUCTION STAGE (from CRE Pre-Construction) ==================== */}
+            {/* ==================== PRE-CONSTRUCTION STAGES (CRE + Planning Head + Planning Person + GM) ==================== */}
             <TabsContent value="construction-stage" className="p-3 sm:p-6">
               <div className="space-y-4" data-testid="construction-stage-tab-content">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -8192,7 +8192,9 @@ export default function ProjectDetail() {
                       Pre-Construction Stages
                     </h3>
                     <p className="text-xs text-gray-500 mt-1">
-                      Captured by the CRE team. Status updates live from the CRE → Pre-Construction board.
+                      {(['cre','super_admin','planning','planning_person','general_manager'].includes(user?.role))
+                        ? 'Update status and scheduled date for each pre-construction milestone.'
+                        : 'Captured by the CRE team. Status updates live from the CRE → Pre-Construction board.'}
                     </p>
                   </div>
                   {(() => {
@@ -8220,6 +8222,8 @@ export default function ProjectDetail() {
                         ? { bg: 'bg-amber-50', border: 'border-amber-300', text: 'text-amber-700', badge: 'bg-amber-100 text-amber-700' }
                         : { bg: 'bg-gray-50',  border: 'border-gray-200',  text: 'text-gray-600',  badge: 'bg-gray-100 text-gray-600' };
                       const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+                      // Inline editing surfaced to CRE (owner), Planning Head, Planning Person, GM and Super Admin.
+                      const canEditPC = ['cre','super_admin','planning','planning_person','general_manager'].includes(user?.role);
                       return (
                         <Card key={s.key} className={`${tone.bg} border ${tone.border}`} data-testid={`pc-stage-${s.key}`}>
                           <CardContent className="p-3">
@@ -8234,15 +8238,61 @@ export default function ProjectDetail() {
                                 <div className="pt-1 text-gray-500 italic line-clamp-2" title={s.notes}>{s.notes}</div>
                               )}
                             </div>
+                            {canEditPC && (
+                              <div className="mt-3 pt-3 border-t border-dashed grid grid-cols-2 gap-2">
+                                <div>
+                                  <Label className="text-[9px] uppercase tracking-wide text-gray-500">Status</Label>
+                                  <Select
+                                    value={s.status || 'pending'}
+                                    onValueChange={async (v) => {
+                                      try {
+                                        await axios.patch(`${API}/cre/pre-construction/${projectId}/${s.key}`, { status: v });
+                                        toast.success(`${s.label}: ${v}`);
+                                        loadProjectData();
+                                      } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update'); }
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-7 text-[11px]" data-testid={`pc-status-${s.key}`}><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="pending" className="text-xs">Pending</SelectItem>
+                                      <SelectItem value="scheduled" className="text-xs">Scheduled</SelectItem>
+                                      <SelectItem value="completed" className="text-xs">Completed</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Label className="text-[9px] uppercase tracking-wide text-gray-500">Scheduled Date</Label>
+                                  <Input
+                                    type="date"
+                                    className="h-7 text-[11px]"
+                                    defaultValue={s.scheduled_at ? new Date(s.scheduled_at).toISOString().split('T')[0] : ''}
+                                    onBlur={async (e) => {
+                                      const v = e.target.value;
+                                      // No-op if value unchanged
+                                      const current = s.scheduled_at ? new Date(s.scheduled_at).toISOString().split('T')[0] : '';
+                                      if (v === current) return;
+                                      try {
+                                        if (!v) {
+                                          await axios.patch(`${API}/cre/pre-construction/${projectId}/${s.key}`, { clear_schedule: true });
+                                          toast.success(`${s.label}: schedule cleared`);
+                                        } else {
+                                          await axios.patch(`${API}/cre/pre-construction/${projectId}/${s.key}`, { scheduled_at: new Date(v).toISOString() });
+                                          toast.success(`${s.label}: scheduled for ${v}`);
+                                        }
+                                        loadProjectData();
+                                      } catch (err) { toast.error(err.response?.data?.detail || 'Failed to update'); }
+                                    }}
+                                    data-testid={`pc-date-${s.key}`}
+                                  />
+                                </div>
+                              </div>
+                            )}
                           </CardContent>
                         </Card>
                       );
                     })}
                   </div>
                 )}
-                <p className="text-[10px] text-gray-400 text-right">
-                  Read-only view. Updates must be made by the CRE team from the CRE → Pre-Construction board.
-                </p>
               </div>
             </TabsContent>
 

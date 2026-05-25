@@ -149,8 +149,8 @@ async def update_pc_stage(
     body: StageUpdate,
     user: User = Depends(get_current_user),
 ):
-    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only CRE can update Pre-Construction")
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only CRE / Planning / GM can update Pre-Construction")
     if stage_key not in PC_STAGE_KEYS:
         raise HTTPException(status_code=400, detail=f"Unknown stage: {stage_key}")
     if body.status and body.status not in ALLOWED_STATUSES:
