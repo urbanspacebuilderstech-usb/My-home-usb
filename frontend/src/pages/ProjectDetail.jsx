@@ -1113,6 +1113,10 @@ export default function ProjectDetail() {
   const [woTemplates, setWoTemplates] = useState([]);
   const [saveWoTplDialog, setSaveWoTplDialog] = useState({ open: false, sourceWo: null, name: '', submitting: false });
   const [useWoTplDialog, setUseWoTplDialog] = useState(false);
+  // When set, the existing WO create/edit dialog acts as a TEMPLATE editor:
+  // contractor row is hidden, Save button writes back to /wo-templates/{id}.
+  const [editingTemplate, setEditingTemplate] = useState(null);
+  const [editingTemplateName, setEditingTemplateName] = useState('');
   // Mark Critical dialog
   const [critDialog, setCritDialog] = useState({ open: false, is_critical: false, notes: '', submitting: false });
   // Add-template dialog (replaces ugly window.prompt)
@@ -1569,6 +1573,63 @@ export default function ProjectDetail() {
       const r = await axios.get(`${API}/wo-templates`).catch(() => ({ data: [] }));
       setWoTemplates(r.data || []);
     } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
+  };
+
+  // Edit an existing template — hijacks the WO create dialog as a template
+  // editor. Contractor section is hidden because templates are contractor-
+  // agnostic. handleSaveWo() detects `editingTemplate` and PATCHes instead
+  // of creating a new Work Order.
+  const openEditWoTemplate = async (tpl) => {
+    // Pull fresh contractor types so existing dropdowns still render fine
+    try {
+      const typesRes = await axios.get(`${API}/contractor-types`).catch(() => ({ data: [] }));
+      setContractorTypes(typesRes.data || []);
+    } catch { /* non-fatal */ }
+    setEditingTemplate(tpl);
+    setEditingTemplateName(tpl.name || '');
+    setEditingWo(null);
+    setWoSelectedType(tpl.contractor_type || '');
+    setWoForm({
+      contractor_id: '',
+      notes: tpl.notes || '',
+      scope_items: (tpl.scope_items || []).map(s => ({ ...s })),
+      stages: (tpl.stages || []).map(s => ({ ...s })),
+      additional_work: (tpl.additional_work || []).map(a => ({ ...a })),
+      deductions: (tpl.deductions || []).map(d => ({ ...d })),
+      labour_rates: tpl.labour_rates || { skilled: 0, semi_skilled: 0, unskilled: 0 },
+    });
+    setWoSubTab('scope');
+    setWoMainTab('work_order');
+    setUseWoTplDialog(false);
+    setWoDialog(true);
+  };
+
+  const handleSaveTemplateEdit = async () => {
+    if (!editingTemplate) return;
+    const name = (editingTemplateName || '').trim();
+    if (!name) { toast.error('Template name required'); return; }
+    try {
+      const payload = {
+        name,
+        contractor_type: woSelectedType || editingTemplate.contractor_type || '',
+        description: woForm.notes || '',
+        scope_items: woForm.scope_items.map(s => ({ name: s.name, unit: s.unit, quantity: s.quantity, unit_rate: s.unit_rate })),
+        stages: woForm.stages.filter(s => s.source !== 'additional').map(s => ({ name: s.name, type: s.type, value: s.value })),
+        additional_work: woForm.additional_work.map(a => ({ description: a.description, unit: a.unit, quantity: a.quantity, unit_rate: a.unit_rate })),
+        deductions: woForm.deductions.map(d => ({ description: d.description, unit: d.unit, quantity: d.quantity, unit_rate: d.unit_rate })),
+        labour_rates: woForm.labour_rates || null,
+        notes: woForm.notes || '',
+      };
+      await axios.patch(`${API}/wo-templates/${editingTemplate.template_id}`, payload);
+      toast.success(`Template "${name}" saved`);
+      setEditingTemplate(null);
+      setEditingTemplateName('');
+      setWoDialog(false);
+      const r = await axios.get(`${API}/wo-templates`).catch(() => ({ data: [] }));
+      setWoTemplates(r.data || []);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to save template');
+    }
   };
 
   const handleSaveWo = async () => {
@@ -7276,15 +7337,37 @@ export default function ProjectDetail() {
               </div>
 
               {/* Work Order Create/Edit Dialog */}
-              <Dialog open={woDialog} onOpenChange={setWoDialog}>
+              <Dialog open={woDialog} onOpenChange={(o) => { setWoDialog(o); if (!o) { setEditingTemplate(null); setEditingTemplateName(''); } }}>
                 <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto">
                   <DialogHeader>
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <DialogTitle>{editingWo ? 'Edit Work Order' : 'Create New Work Order'}</DialogTitle>
-                        <DialogDescription>Select a contractor and define scope, additions, deductions, and payment stages.</DialogDescription>
+                      <div className="flex-1 min-w-0">
+                        <DialogTitle>
+                          {editingTemplate ? (
+                            <span className="flex items-center gap-2">
+                              <FileText className="h-4 w-4 text-violet-600 inline" /> Edit Template
+                            </span>
+                          ) : editingWo ? 'Edit Work Order' : 'Create New Work Order'}
+                        </DialogTitle>
+                        <DialogDescription>
+                          {editingTemplate
+                            ? 'Templates are contractor-agnostic. Update Scope / Stages / Additional below — these will be reused next time someone applies this template.'
+                            : 'Select a contractor and define scope, additions, deductions, and payment stages.'}
+                        </DialogDescription>
+                        {editingTemplate && (
+                          <div className="mt-2">
+                            <Label className="text-xs">Template Name *</Label>
+                            <Input
+                              className="h-9 mt-1"
+                              value={editingTemplateName}
+                              onChange={(e) => setEditingTemplateName(e.target.value)}
+                              placeholder="Template name"
+                              data-testid="tpl-edit-name"
+                            />
+                          </div>
+                        )}
                       </div>
-                      {!editingWo && (
+                      {!editingWo && !editingTemplate && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -7299,9 +7382,8 @@ export default function ProjectDetail() {
                     </div>
                   </DialogHeader>
                   <div className="space-y-4 py-2">
-                    {/* Contractor Selection — searchable dropdowns.
-                        Contractor list is filtered by the selected type so picking
-                        "Civil contractor" only shows civil contractors, etc. */}
+                    {/* Contractor Selection — hidden when editing a template (templates are contractor-agnostic). */}
+                    {!editingTemplate && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <Label className="text-xs">Contractor Type</Label>
@@ -7432,6 +7514,7 @@ export default function ProjectDetail() {
                         </Popover>
                       </div>
                     </div>
+                    )}
                     <div data-testid="wo-notes-section">
                       <div className="flex items-center justify-between mb-1">
                         <Label className="text-xs">Notes</Label>
@@ -7749,8 +7832,14 @@ export default function ProjectDetail() {
                     </Tabs>
                   </div>
                   <DialogFooter>
-                    <Button variant="outline" onClick={() => setWoDialog(false)}>Cancel</Button>
-                    <Button onClick={handleSaveWo} className="bg-violet-600 hover:bg-violet-700" data-testid="wo-save-btn">{editingWo ? 'Update Work Order' : 'Create Work Order'}</Button>
+                    <Button variant="outline" onClick={() => { setWoDialog(false); setEditingTemplate(null); setEditingTemplateName(''); }}>Cancel</Button>
+                    <Button
+                      onClick={editingTemplate ? handleSaveTemplateEdit : handleSaveWo}
+                      className="bg-violet-600 hover:bg-violet-700"
+                      data-testid="wo-save-btn"
+                    >
+                      {editingTemplate ? 'Save Template' : (editingWo ? 'Update Work Order' : 'Create Work Order')}
+                    </Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
@@ -7819,6 +7908,9 @@ export default function ProjectDetail() {
                             </div>
                             <div className="flex items-center gap-1">
                               <Button size="sm" className="bg-violet-600 hover:bg-violet-700 h-7 text-xs" onClick={() => applyWoTemplate(tpl)} data-testid={`wo-tpl-apply-${tpl.template_id}`}>Apply</Button>
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => openEditWoTemplate(tpl)} data-testid={`wo-tpl-edit-${tpl.template_id}`}>
+                                <Edit className="h-3 w-3 mr-1" /> Edit
+                              </Button>
                               <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => handleDeleteWoTemplate(tpl)} data-testid={`wo-tpl-del-${tpl.template_id}`}>
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>

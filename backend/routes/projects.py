@@ -5410,6 +5410,35 @@ async def delete_wo_template(template_id: str, user: User = Depends(get_current_
     return {"message": "Template deleted"}
 
 
+@router.patch("/wo-templates/{template_id}")
+async def update_wo_template(template_id: str, body: WorkOrderTemplateInput, user: User = Depends(get_current_user)):
+    """Replace the contents of a template (Scope, Stages, Additional, etc.).
+    Used by the inline edit flow on the Use Template dialog."""
+    if user.role not in WO_TEMPLATE_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    update = {
+        "name": name,
+        "contractor_type": body.contractor_type or "",
+        "description": body.description or "",
+        "scope_items": [s.dict() for s in body.scope_items],
+        "stages": [s.dict() for s in body.stages],
+        "additional_work": [a.dict() for a in body.additional_work],
+        "deductions": [d.dict() for d in body.deductions],
+        "labour_rates": body.labour_rates.dict() if body.labour_rates else None,
+        "notes": body.notes or "",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    res = await db.wo_templates.update_one({"template_id": template_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    await create_audit_log(user.user_id, "update", "wo_template", template_id, {"name": name})
+    doc = await db.wo_templates.find_one({"template_id": template_id}, {"_id": 0})
+    return doc
+
+
 @router.get("/projects/{project_id}/work-orders")
 async def get_project_work_orders(project_id: str, user: User = Depends(get_current_user)):
     """Get all work orders for a project"""
