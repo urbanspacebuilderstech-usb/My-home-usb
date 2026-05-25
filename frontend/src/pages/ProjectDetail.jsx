@@ -2525,11 +2525,35 @@ export default function ProjectDetail() {
     setNewStages(prev => prev.filter((_, i) => i !== idx));
   };
   const updateNewStage = (idx, field, value) => {
-    setNewStages(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
+    setNewStages(prev => {
+      const next = prev.map((s, i) => i === idx ? { ...s, [field]: value } : s);
+      // ── Carry-forward: when this row's Actual Finish (or Planned Finish, if
+      // no Actual Finish set yet) advances, push the FOLLOWING non-section
+      // row's Planned Start = finish + 1 day — but only if that next row's
+      // Planned Start is currently empty (don't overwrite manual entries).
+      if ((field === 'actual_finish_date' || field === 'target_date') && value) {
+        // Find next non-section row after idx
+        const nextRowIdx = next.findIndex((s, i) => i > idx && !s.is_section_header);
+        if (nextRowIdx !== -1 && !next[nextRowIdx].start_date) {
+          // Prefer Actual Finish, fall back to Planned Finish
+          const anchor = field === 'actual_finish_date' ? value : (next[idx].actual_finish_date || value);
+          const d = new Date(anchor);
+          if (!isNaN(d)) {
+            d.setDate(d.getDate() + 1);
+            next[nextRowIdx] = { ...next[nextRowIdx], start_date: d.toISOString().split('T')[0] };
+          }
+        }
+      }
+      return next;
+    });
   };
 
   const handleSaveStages = async () => {
-    const valid = newStages.filter(s => s.stage_name.trim());
+    const valid = newStages
+      .filter(s => s.stage_name.trim())
+      // Always compute duration from Planned dates so the saved value never
+      // drifts from what users see in the read-only Duration cell.
+      .map(s => ({ ...s, duration_days: daysBetween(s.start_date, s.target_date) || null }));
     if (!valid.length) { toast.error('Add at least one stage'); return; }
     try {
       await axios.post(`${API}/projects/${projectId}/project-stages/bulk`, valid);
@@ -4371,14 +4395,11 @@ export default function ProjectDetail() {
                                     />
                                   </td>
                                   <td className="px-2 py-2 text-center">
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      placeholder={String(daysBetween(stage.start_date, stage.target_date) || '')}
-                                      className="w-16 border rounded px-2 py-1 text-xs text-center"
-                                      value={stage.duration_days ?? ''}
-                                      onChange={(e) => updateNewStage(idx, 'duration_days', e.target.value === '' ? '' : Number(e.target.value))}
-                                    />
+                                    {/* Duration is auto-calculated from Planned Start / Planned Finish (inclusive).
+                                        Field is read-only so users can't drift the math. */}
+                                    <span className="inline-block w-16 px-2 py-1 text-xs text-center bg-gray-50 rounded border border-gray-200 text-gray-700" data-testid={`stage-duration-auto-${idx}`}>
+                                      {daysBetween(stage.start_date, stage.target_date) || '—'}
+                                    </span>
                                   </td>
                                   <td className="px-2 py-2">
                                     <input
@@ -4421,12 +4442,11 @@ export default function ProjectDetail() {
                                       className="border rounded px-1.5 py-1 text-xs w-full max-w-[110px]"
                                       value={stage.depends_on || ''}
                                       onChange={(e) => updateNewStage(idx, 'depends_on', e.target.value)}
+                                      data-testid={`stage-depends-on-${idx}`}
                                     >
                                       <option value="">—</option>
-                                      {newStages
-                                        .map((s, i) => ({ s, i }))
-                                        .filter(({ s, i }) => !s.is_section_header && i !== idx && s.sl_no)
-                                        .map(({ s, i }) => <option key={i} value={s.sl_no}>{s.sl_no}</option>)}
+                                      <option value="Internal">Internal</option>
+                                      <option value="Client">Client</option>
                                     </select>
                                   </td>
                                   <td className="px-2 py-2">
@@ -4563,7 +4583,7 @@ export default function ProjectDetail() {
                             {/* Planned Start */}
                             <td className="px-3 py-3 text-center">
                               {editingStageId === stage.stage_id ? (
-                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.start_date || ''} onChange={e => { const v = e.target.value; setEditStageData(d => ({...d, start_date: v})); autoSaveStageField(stage.stage_id, { start_date: v || null }); }} />
+                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.start_date || ''} onChange={e => { const v = e.target.value; setEditStageData(d => ({...d, start_date: v})); autoSaveStageField(stage.stage_id, { start_date: v || null, duration_days: daysBetween(v, editStageData.target_date) || null }); }} />
                               ) : (
                                 <span className="text-sm">{stage.start_date ? new Date(stage.start_date).toLocaleDateString('en-IN') : '-'}</span>
                               )}
@@ -4571,25 +4591,20 @@ export default function ProjectDetail() {
                             {/* Planned Finish */}
                             <td className="px-3 py-3 text-center">
                               {editingStageId === stage.stage_id ? (
-                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.target_date || ''} onChange={e => { const v = e.target.value; setEditStageData(d => ({...d, target_date: v})); autoSaveStageField(stage.stage_id, { target_date: v || null }); }} />
+                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.target_date || ''} onChange={e => { const v = e.target.value; setEditStageData(d => ({...d, target_date: v})); autoSaveStageField(stage.stage_id, { target_date: v || null, duration_days: daysBetween(editStageData.start_date, v) || null }); }} />
                               ) : (
                                 <span className="text-sm">{stage.target_date ? new Date(stage.target_date).toLocaleDateString('en-IN') : '-'}</span>
                               )}
                             </td>
-                            {/* Duration (days) — placeholder field, auto-computed from Planned Start/Finish but editable */}
+                            {/* Duration (days) — auto-computed from Planned Start/Finish, read-only */}
                             <td className="px-3 py-3 text-center">
                               {editingStageId === stage.stage_id ? (
-                                <input
-                                  type="number"
-                                  min="0"
-                                  className="border rounded px-2 py-1 text-sm w-20 text-center"
-                                  placeholder={String(daysBetween(editStageData.start_date, editStageData.target_date) || '')}
-                                  value={editStageData.duration_days ?? ''}
-                                  onChange={e => setEditStageData(d => ({...d, duration_days: e.target.value === '' ? '' : Number(e.target.value)}))}
-                                />
+                                <span className="inline-block w-20 px-2 py-1 text-sm text-center bg-gray-50 rounded border border-gray-200 text-gray-700" data-testid={`stage-duration-auto-edit-${stage.stage_id}`}>
+                                  {daysBetween(editStageData.start_date, editStageData.target_date) || '—'}
+                                </span>
                               ) : (
                                 <span className="text-sm text-gray-600">
-                                  {stage.duration_days || daysBetween(stage.start_date, stage.target_date) || '-'}
+                                  {daysBetween(stage.start_date, stage.target_date) || stage.duration_days || '-'}
                                 </span>
                               )}
                             </td>
@@ -4641,26 +4656,34 @@ export default function ProjectDetail() {
                                 );
                               })()}
                             </td>
-                            {/* Depends On (predecessor stage) */}
+                            {/* Depends On — Internal vs Client (no more free text) */}
                             <td className="px-3 py-3 text-center text-xs">
                               {editingStageId === stage.stage_id ? (
-                                <input
-                                  type="text"
-                                  className="border rounded px-2 py-1 text-xs w-24 text-center uppercase"
-                                  placeholder="e.g. PO3"
+                                <select
+                                  className="border rounded px-2 py-1 text-xs w-24 text-center"
                                   value={editStageData.depends_on || ''}
-                                  onChange={e => setEditStageData(d => ({...d, depends_on: e.target.value}))}
-                                  onBlur={e => autoSaveStageField(stage.stage_id, { depends_on: e.target.value || null })}
-                                />
+                                  onChange={e => {
+                                    const v = e.target.value;
+                                    setEditStageData(d => ({...d, depends_on: v}));
+                                    autoSaveStageField(stage.stage_id, { depends_on: v || null });
+                                  }}
+                                  data-testid={`stage-depends-on-edit-${stage.stage_id}`}
+                                >
+                                  <option value="">—</option>
+                                  <option value="Internal">Internal</option>
+                                  <option value="Client">Client</option>
+                                </select>
                               ) : (
                                 (() => {
                                   if (!stage.depends_on) return <span className="text-gray-300">-</span>;
-                                  const depUpper = String(stage.depends_on).trim().toUpperCase();
-                                  const dep = projectStages.find(s =>
-                                    s.stage_id === stage.depends_on
-                                    || String(s.sl_no || '').toUpperCase() === depUpper
-                                  );
-                                  return <span className="inline-flex items-center gap-1 text-[11px] bg-indigo-50 text-indigo-700 border border-indigo-200 rounded px-1.5 py-0.5">{dep?.sl_no || dep?.stage_name || stage.depends_on}</span>;
+                                  // Migrate any legacy free-text values: anything that isn't exactly
+                                  // "Internal" or "Client" still renders, but as a muted label.
+                                  const v = String(stage.depends_on).trim();
+                                  const isCanonical = v === 'Internal' || v === 'Client';
+                                  const cls = isCanonical
+                                    ? (v === 'Internal' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200')
+                                    : 'bg-gray-50 text-gray-500 border-gray-200';
+                                  return <span className={`inline-flex items-center gap-1 text-[11px] rounded border px-1.5 py-0.5 ${cls}`}>{v}</span>;
                                 })()
                               )}
                             </td>
