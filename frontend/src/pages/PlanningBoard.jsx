@@ -557,34 +557,6 @@ export default function PlanningBoard({ embedded = false }) {
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update'); }
   };
 
-  // Inline stage change from the All Projects table (Planning Head / Super Admin / GM)
-  const handleInlineStageChange = async (projectId, newStage) => {
-    try {
-      await axios.patch(`${API}/planning/projects/${projectId}/update-stage?stage=${newStage}`);
-      toast.success('Stage updated');
-      // Optimistic local update so the badge changes immediately
-      setSubTabProjects(prev => prev.map(p => p.project_id === projectId ? { ...p, current_stage: newStage } : p));
-    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update stage'); }
-  };
-
-  // Inline workflow status change from the All Projects table
-  const handleInlineWorkflowStatusChange = async (projectId, newStatus) => {
-    try {
-      await axios.patch(`${API}/planning/projects/${projectId}/workflow-status`, { status: newStatus });
-      toast.success('Status updated');
-      setSubTabProjects(prev => prev.map(p => p.project_id === projectId ? { ...p, status: newStatus } : p));
-    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update status'); }
-  };
-
-  // Roles allowed to inline-edit Stage + Status on the All Projects table.
-  // (Planning Person + PM intentionally excluded — status/stage are leadership calls.)
-  const canEditInlineStageStatus = ['planning', 'super_admin', 'general_manager'].includes(user?.role);
-  const [workflowStatusOptions, setWorkflowStatusOptions] = useState([]);
-  useEffect(() => {
-    if (!canEditInlineStageStatus) return;
-    axios.get(`${API}/planning/workflow-statuses`).then(r => setWorkflowStatusOptions(r.data || [])).catch(() => {});
-  }, [canEditInlineStageStatus]);
-
   // Archive (Super Admin only) — requires email OTP. We show a small modal that
   // POSTs /archive/send-otp on open, then collects the 6-digit code and submits
   // it to /archive (which validates and flips the flag in one shot).
@@ -1594,44 +1566,8 @@ export default function PlanningBoard({ embedded = false }) {
                                 <p className="text-xs text-gray-400">{p.location || p.project_code || '-'}</p>
                               </td>
                               <td className="px-4 py-2.5 text-gray-600">{p.client_name || '-'}</td>
-                              <td className="px-4 py-2.5 text-center">
-                                {canEditInlineStageStatus ? (
-                                  <Select
-                                    value={p.current_stage || 'yet_to_start'}
-                                    onValueChange={(v) => handleInlineStageChange(p.project_id, v)}
-                                  >
-                                    <SelectTrigger className="h-7 w-36 text-xs mx-auto" data-testid={`stage-select-${p.project_id}`}>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {stages.map(s => (
-                                        <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}</SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                ) : (
-                                  getStageBadge(p.current_stage || 'yet_to_start')
-                                )}
-                              </td>
-                              <td className="px-4 py-2.5 text-center">
-                                {canEditInlineStageStatus ? (
-                                  <Select
-                                    value={p.status || 'in_planning'}
-                                    onValueChange={(v) => handleInlineWorkflowStatusChange(p.project_id, v)}
-                                  >
-                                    <SelectTrigger className="h-7 w-36 text-xs mx-auto" data-testid={`status-select-${p.project_id}`}>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {workflowStatusOptions.map(s => (
-                                        <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}{s.custom ? ' ★' : ''}</SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                ) : (
-                                  getStatusBadge(p.status)
-                                )}
-                              </td>
+                              <td className="px-4 py-2.5 text-center">{getStageBadge(p.current_stage || 'yet_to_start')}</td>
+                              <td className="px-4 py-2.5 text-center">{getStatusBadge(p.status)}</td>
                               <td className="px-4 py-2.5 text-xs text-gray-500">
                                 {projectSubTab === 'new' && p.planning_new_date ? new Date(p.planning_new_date).toLocaleDateString('en-IN') :
                                  projectSubTab === 'active' && p.planning_active_date ? new Date(p.planning_active_date).toLocaleDateString('en-IN') :
