@@ -1675,7 +1675,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
   // Drilldown click handlers
   const handleModeClick = (mode) => {
     if (mode === 'suspense_account') {
-      setDrilldown({ type: 'suspense' });
+      navigate('/suspense-account');
       return;
     }
     // Petty Cash mode = jump straight to the Petty Cash Management drilldown
@@ -1693,7 +1693,10 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
 
   const handleCategoryClick = (catKey) => {
     if (catKey === 'suspense') {
-      setDrilldown({ type: 'suspense' });
+      // Open the dedicated Suspense Account page so the URL changes to
+      // /suspense-account (matching the user's expectation) instead of
+      // showing an inline drilldown stuck on /accounts-board.
+      navigate('/suspense-account');
       return;
     }
     if (catKey === 'petty_cash') {
