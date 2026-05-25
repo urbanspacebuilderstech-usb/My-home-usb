@@ -1162,6 +1162,21 @@ export default function PlanningBoard({ embedded = false }) {
     const s = stages.find(x => x.id === id);
     return <Badge variant="outline" className="text-xs capitalize whitespace-nowrap px-2.5 py-0.5">{s?.name || id?.replace(/_/g, ' ') || '-'}</Badge>;
   };
+  // Collapses the 11 fine-grained construction stages into the 4 user-facing
+  // phases shown on the All Projects table. Used only for display — the
+  // underlying `current_stage` value is unchanged so existing reports keep
+  // working.
+  const stageToPhase = (id) => {
+    if (!id || id === 'yet_to_start') return { id: 'pre_construction', name: 'Pre-Construction', cls: 'bg-slate-100 text-slate-700 border-slate-200' };
+    if (['foundation', 'plinth'].includes(id)) return { id: 'substructure', name: 'Substructure', cls: 'bg-amber-50 text-amber-700 border-amber-200' };
+    if (['ground_floor', 'first_floor', 'slab'].includes(id)) return { id: 'superstructure', name: 'Superstructure', cls: 'bg-blue-50 text-blue-700 border-blue-200' };
+    if (['plastering', 'flooring', 'painting', 'handover', 'completed'].includes(id)) return { id: 'finishing', name: 'Finishing', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+    return { id: 'pre_construction', name: 'Pre-Construction', cls: 'bg-slate-100 text-slate-700 border-slate-200' };
+  };
+  const getPhaseBadge = (id) => {
+    const ph = stageToPhase(id);
+    return <span className={`inline-block text-[11px] font-medium whitespace-nowrap px-2.5 py-1 rounded-full border ${ph.cls}`} data-testid={`phase-badge-${ph.id}`}>{ph.name}</span>;
+  };
   const getMaterialName = (id) => materials.find(m => m.material_id === id)?.name || id;
 
   const filteredProjects = projects.filter(p => !projectSearch || (p.name || '').toLowerCase().includes(projectSearch.toLowerCase()) || (p.client_name || '').toLowerCase().includes(projectSearch.toLowerCase()));
@@ -1461,8 +1476,7 @@ export default function PlanningBoard({ embedded = false }) {
                       <tr>
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
-                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Stage</th>
-                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Phase</th>
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
                         {projectSubTab !== 'archived' && (
                           <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Planning Team</th>
@@ -1519,7 +1533,7 @@ export default function PlanningBoard({ embedded = false }) {
                             && projectIncludesUser(p)
                           );
                           if (filtered.length === 0) return (
-                            <tr><td colSpan={projectSubTab === 'archived' ? 6 : 7} className="p-8 text-center text-gray-400">
+                            <tr><td colSpan={projectSubTab === 'archived' ? 5 : 6} className="p-8 text-center text-gray-400">
                               {teamMemberFilterUserId ? 'No projects found for this team member' :
                                 projectSubTab === 'new' ? 'No new projects from CRE' : projectSubTab === 'active' ? 'No active construction projects' : projectSubTab === 'archived' ? 'No archived projects' : 'No delivered projects'}
                             </td></tr>
@@ -1566,8 +1580,7 @@ export default function PlanningBoard({ embedded = false }) {
                                 <p className="text-xs text-gray-400">{p.location || p.project_code || '-'}</p>
                               </td>
                               <td className="px-4 py-2.5 text-gray-600">{p.client_name || '-'}</td>
-                              <td className="px-4 py-2.5 text-center">{getStageBadge(p.current_stage || 'yet_to_start')}</td>
-                              <td className="px-4 py-2.5 text-center">{getStatusBadge(p.status)}</td>
+                              <td className="px-4 py-2.5 text-center">{getPhaseBadge(p.current_stage || 'yet_to_start')}</td>
                               <td className="px-4 py-2.5 text-xs text-gray-500">
                                 {projectSubTab === 'new' && p.planning_new_date ? new Date(p.planning_new_date).toLocaleDateString('en-IN') :
                                  projectSubTab === 'active' && p.planning_active_date ? new Date(p.planning_active_date).toLocaleDateString('en-IN') :
