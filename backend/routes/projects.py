@@ -5336,6 +5336,80 @@ class WorkOrderCreate(BaseModel):
     labour_rates: Optional[LabourRates] = None
     notes: Optional[str] = ""
 
+
+# ── Work Order Templates ──────────────────────────────────────────────────
+# Global library of reusable Work Order blueprints. Snapshots Scope + Stages
+# + Additional + (optional) Notes & Labour Rates so a Planning user can spin
+# up a new WO without re-typing everything. Templates are project-agnostic —
+# contractor_id is NEVER persisted into a template.
+WO_TEMPLATE_EDIT_ROLES = [
+    UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER,
+    UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.CRE,
+]
+
+
+class WorkOrderTemplateInput(BaseModel):
+    name: str
+    contractor_type: Optional[str] = None  # informational only — doesn't gate visibility
+    description: Optional[str] = ""
+    scope_items: List[WorkOrderScopeItem] = []
+    stages: List[WorkOrderStage] = []
+    additional_work: List[WorkOrderAdditionalItem] = []
+    deductions: List[WorkOrderDeductionItem] = []
+    labour_rates: Optional[LabourRates] = None
+    notes: Optional[str] = ""
+
+
+@router.get("/wo-templates")
+async def list_wo_templates(user: User = Depends(get_current_user)):
+    """All saved Work Order templates (global)."""
+    rows = await db.wo_templates.find({"is_active": {"$ne": False}}, {"_id": 0}).sort("name", 1).to_list(500)
+    return rows
+
+
+@router.post("/wo-templates")
+async def create_wo_template(body: WorkOrderTemplateInput, user: User = Depends(get_current_user)):
+    if user.role not in WO_TEMPLATE_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    template_id = f"wotpl_{uuid.uuid4().hex[:10]}"
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "template_id": template_id,
+        "name": name,
+        "contractor_type": body.contractor_type or "",
+        "description": body.description or "",
+        "scope_items": [s.dict() for s in body.scope_items],
+        "stages": [s.dict() for s in body.stages],
+        "additional_work": [a.dict() for a in body.additional_work],
+        "deductions": [d.dict() for d in body.deductions],
+        "labour_rates": body.labour_rates.dict() if body.labour_rates else None,
+        "notes": body.notes or "",
+        "is_active": True,
+        "created_at": now,
+        "updated_at": now,
+        "created_by": user.user_id,
+        "created_by_name": user.name,
+    }
+    await db.wo_templates.insert_one(doc)
+    doc.pop("_id", None)
+    await create_audit_log(user.user_id, "create", "wo_template", template_id, {"name": name})
+    return doc
+
+
+@router.delete("/wo-templates/{template_id}")
+async def delete_wo_template(template_id: str, user: User = Depends(get_current_user)):
+    if user.role not in WO_TEMPLATE_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    res = await db.wo_templates.delete_one({"template_id": template_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    await create_audit_log(user.user_id, "delete", "wo_template", template_id, {})
+    return {"message": "Template deleted"}
+
+
 @router.get("/projects/{project_id}/work-orders")
 async def get_project_work_orders(project_id: str, user: User = Depends(get_current_user)):
     """Get all work orders for a project"""

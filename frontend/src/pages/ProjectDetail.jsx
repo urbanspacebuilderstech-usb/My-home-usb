@@ -1109,6 +1109,10 @@ export default function ProjectDetail() {
   // Reusable WO Notes templates (Planning can save common phrases like
   // "Material at contractor cost" and pick from a dropdown next time).
   const [woNoteTemplates, setWoNoteTemplates] = useState([]);
+  // Full Work Order templates (Scope + Stages + Additional snapshots)
+  const [woTemplates, setWoTemplates] = useState([]);
+  const [saveWoTplDialog, setSaveWoTplDialog] = useState({ open: false, sourceWo: null, name: '', submitting: false });
+  const [useWoTplDialog, setUseWoTplDialog] = useState(false);
   // Mark Critical dialog
   const [critDialog, setCritDialog] = useState({ open: false, is_critical: false, notes: '', submitting: false });
   // Add-template dialog (replaces ugly window.prompt)
@@ -1497,6 +1501,74 @@ export default function ProjectDetail() {
     setWoSubTab('scope');
     setWoMainTab('work_order');
     setWoDialog(true);
+    // Fetch full WO templates lazily so the "Use Template" option is ready
+    axios.get(`${API}/wo-templates`).then(r => setWoTemplates(r.data || [])).catch(() => {});
+  };
+
+  // ── Full Work Order Templates ────────────────────────────────────────────
+  // Save the current WO (or any existing WO) as a global reusable blueprint.
+  const openSaveWoTemplate = (wo) => {
+    setSaveWoTplDialog({ open: true, sourceWo: wo, name: wo?.contractor_type ? `${wo.contractor_type} — Standard` : '', submitting: false });
+  };
+
+  const handleSaveWoTemplate = async () => {
+    const { sourceWo, name } = saveWoTplDialog;
+    if (!sourceWo) return;
+    const tplName = (name || '').trim();
+    if (!tplName) { toast.error('Template name required'); return; }
+    setSaveWoTplDialog(s => ({ ...s, submitting: true }));
+    try {
+      // Strip per-project fields. Stages are already a flat list on the WO; we
+      // intentionally drop `source: "additional"` stages because they get
+      // auto-regenerated at WO create time from additional_work entries.
+      const payload = {
+        name: tplName,
+        contractor_type: sourceWo.contractor_type || '',
+        description: sourceWo.notes || '',
+        scope_items: (sourceWo.scope_items || []).map(s => ({ name: s.name, unit: s.unit, quantity: s.quantity, unit_rate: s.unit_rate })),
+        stages: (sourceWo.stages || []).filter(s => s.source !== 'additional').map(s => ({ name: s.name, type: s.type, value: s.value })),
+        additional_work: (sourceWo.additional_work || []).map(a => ({ description: a.description, unit: a.unit, quantity: a.quantity, unit_rate: a.unit_rate })),
+        deductions: (sourceWo.deductions || []).map(d => ({ description: d.description, unit: d.unit, quantity: d.quantity, unit_rate: d.unit_rate })),
+        labour_rates: sourceWo.labour_rates || null,
+        notes: sourceWo.notes || '',
+      };
+      await axios.post(`${API}/wo-templates`, payload);
+      toast.success(`Template "${tplName}" saved`);
+      setSaveWoTplDialog({ open: false, sourceWo: null, name: '', submitting: false });
+      const r = await axios.get(`${API}/wo-templates`).catch(() => ({ data: [] }));
+      setWoTemplates(r.data || []);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to save template');
+      setSaveWoTplDialog(s => ({ ...s, submitting: false }));
+    }
+  };
+
+  // Apply template into the open Create-WO form. Contractor pick stays with
+  // the user; everything else is overwritten so the math (Stages tab, totals)
+  // recalculates correctly.
+  const applyWoTemplate = (tpl) => {
+    if (!tpl) return;
+    setWoForm(f => ({
+      ...f,
+      scope_items: (tpl.scope_items || []).map(s => ({ ...s })),
+      stages: (tpl.stages || []).map(s => ({ ...s })),
+      additional_work: (tpl.additional_work || []).map(a => ({ ...a })),
+      deductions: (tpl.deductions || []).map(d => ({ ...d })),
+      labour_rates: tpl.labour_rates || f.labour_rates,
+      notes: tpl.notes || f.notes,
+    }));
+    setUseWoTplDialog(false);
+    toast.success(`Loaded template: ${tpl.name}`);
+  };
+
+  const handleDeleteWoTemplate = async (tpl) => {
+    if (!window.confirm(`Delete template "${tpl.name}"? This cannot be undone.`)) return;
+    try {
+      await axios.delete(`${API}/wo-templates/${tpl.template_id}`);
+      toast.success('Template deleted');
+      const r = await axios.get(`${API}/wo-templates`).catch(() => ({ data: [] }));
+      setWoTemplates(r.data || []);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
   };
 
   const handleSaveWo = async () => {
@@ -7023,6 +7095,9 @@ export default function ProjectDetail() {
                               )}
                               {wo.status !== 'frozen' && (
                                 <>
+                                  <Button size="sm" variant="outline" className="border-violet-300 text-violet-700 hover:bg-violet-50" onClick={() => openSaveWoTemplate(wo)} data-testid={`wo-save-template-${wo.work_order_id}`}>
+                                    <Plus className="h-3 w-3 mr-1" />Save as Template
+                                  </Button>
                                   <Button size="sm" variant="outline" onClick={() => openWoDialog(wo)} data-testid="wo-edit-btn"><Edit className="h-3 w-3 mr-1" />Edit</Button>
                                   <Button size="sm" variant="destructive" onClick={() => handleDeleteWo(wo)} data-testid="wo-delete-btn"><Trash2 className="h-3 w-3" /></Button>
                                 </>
@@ -7204,8 +7279,24 @@ export default function ProjectDetail() {
               <Dialog open={woDialog} onOpenChange={setWoDialog}>
                 <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto">
                   <DialogHeader>
-                    <DialogTitle>{editingWo ? 'Edit Work Order' : 'Create New Work Order'}</DialogTitle>
-                    <DialogDescription>Select a contractor and define scope, additions, deductions, and payment stages.</DialogDescription>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <DialogTitle>{editingWo ? 'Edit Work Order' : 'Create New Work Order'}</DialogTitle>
+                        <DialogDescription>Select a contractor and define scope, additions, deductions, and payment stages.</DialogDescription>
+                      </div>
+                      {!editingWo && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-violet-300 text-violet-700 hover:bg-violet-50 gap-1 shrink-0"
+                          onClick={() => setUseWoTplDialog(true)}
+                          data-testid="wo-use-template-btn"
+                        >
+                          <FileText className="h-3.5 w-3.5" /> Use Template
+                          {woTemplates.length > 0 && <Badge className="ml-1 bg-violet-100 text-violet-700 text-[10px]">{woTemplates.length}</Badge>}
+                        </Button>
+                      )}
+                    </div>
                   </DialogHeader>
                   <div className="space-y-4 py-2">
                     {/* Contractor Selection — searchable dropdowns.
@@ -7661,6 +7752,82 @@ export default function ProjectDetail() {
                     <Button variant="outline" onClick={() => setWoDialog(false)}>Cancel</Button>
                     <Button onClick={handleSaveWo} className="bg-violet-600 hover:bg-violet-700" data-testid="wo-save-btn">{editingWo ? 'Update Work Order' : 'Create Work Order'}</Button>
                   </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* ======= SAVE WORK ORDER AS TEMPLATE DIALOG ======= */}
+              <Dialog open={saveWoTplDialog.open} onOpenChange={(o) => !o && setSaveWoTplDialog({ open: false, sourceWo: null, name: '', submitting: false })}>
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Save Work Order as Template</DialogTitle>
+                    <DialogDescription>
+                      Snapshots Scope, Stages, Additional & Deductions into a reusable template. Contractor is not saved — it's picked fresh each time.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3 py-2">
+                    {saveWoTplDialog.sourceWo && (
+                      <div className="text-xs text-gray-500 bg-gray-50 rounded px-2 py-1.5">
+                        Saving from: <span className="font-semibold text-gray-700">{saveWoTplDialog.sourceWo.contractor_name}</span>
+                        <span className="mx-1">·</span>
+                        Scope {saveWoTplDialog.sourceWo.scope_items?.length || 0} · Stages {saveWoTplDialog.sourceWo.stages?.length || 0} · Additional {saveWoTplDialog.sourceWo.additional_work?.length || 0}
+                      </div>
+                    )}
+                    <div>
+                      <Label className="text-xs">Template Name *</Label>
+                      <Input
+                        className="h-9 mt-1"
+                        value={saveWoTplDialog.name}
+                        onChange={(e) => setSaveWoTplDialog(s => ({ ...s, name: e.target.value }))}
+                        placeholder="e.g., Civil — 2-Storey Standard"
+                        autoFocus
+                        data-testid="wo-save-template-name"
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setSaveWoTplDialog({ open: false, sourceWo: null, name: '', submitting: false })}>Cancel</Button>
+                    <Button onClick={handleSaveWoTemplate} disabled={saveWoTplDialog.submitting} className="bg-violet-600 hover:bg-violet-700" data-testid="wo-save-template-submit">
+                      {saveWoTplDialog.submitting ? 'Saving…' : 'Save Template'}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* ======= USE WORK ORDER TEMPLATE DIALOG ======= */}
+              <Dialog open={useWoTplDialog} onOpenChange={setUseWoTplDialog}>
+                <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Use a Work Order Template</DialogTitle>
+                    <DialogDescription>Pick a template — Scope, Stages, Additional, Deductions and Labour Rates will be loaded into the form. You still pick the contractor.</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-2 py-2">
+                    {woTemplates.length === 0 ? (
+                      <p className="text-sm text-gray-400 text-center py-8">No saved templates yet. Use the "Save as Template" button on any existing Work Order to add one.</p>
+                    ) : (
+                      woTemplates.map(tpl => (
+                        <div key={tpl.template_id} className="border rounded-lg p-3 hover:border-violet-300 hover:bg-violet-50/40 transition" data-testid={`wo-tpl-row-${tpl.template_id}`}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-bold text-sm truncate">{tpl.name}</p>
+                                {tpl.contractor_type && <Badge variant="outline" className="text-[10px]">{tpl.contractor_type}</Badge>}
+                              </div>
+                              <p className="text-[11px] text-gray-500 mt-1">
+                                Scope {tpl.scope_items?.length || 0} · Stages {tpl.stages?.length || 0} · Additional {tpl.additional_work?.length || 0}
+                                {tpl.created_by_name && <span className="ml-2 text-gray-400">· by {tpl.created_by_name}</span>}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Button size="sm" className="bg-violet-600 hover:bg-violet-700 h-7 text-xs" onClick={() => applyWoTemplate(tpl)} data-testid={`wo-tpl-apply-${tpl.template_id}`}>Apply</Button>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => handleDeleteWoTemplate(tpl)} data-testid={`wo-tpl-del-${tpl.template_id}`}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </DialogContent>
               </Dialog>
 
