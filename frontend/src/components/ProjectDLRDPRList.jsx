@@ -53,6 +53,9 @@ const ProjectDLRDPRList = ({ projectId }) => {
     { label: 'Last 7 Days', fn: () => { const e = new Date(); const s = new Date(); s.setDate(e.getDate() - 7); setDateFrom(s.toISOString().split('T')[0]); setDateTo(e.toISOString().split('T')[0]); } },
     { label: 'This Month', fn: () => { const now = new Date(); setDateFrom(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]); setDateTo(new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]); } },
     { label: 'Last 30 Days', fn: () => { const e = new Date(); const s = new Date(); s.setDate(e.getDate() - 30); setDateFrom(s.toISOString().split('T')[0]); setDateTo(e.toISOString().split('T')[0]); } },
+    { label: 'Last 3 Months', fn: () => { const e = new Date(); const s = new Date(); s.setMonth(e.getMonth() - 3); setDateFrom(s.toISOString().split('T')[0]); setDateTo(e.toISOString().split('T')[0]); } },
+    { label: 'Last 6 Months', fn: () => { const e = new Date(); const s = new Date(); s.setMonth(e.getMonth() - 6); setDateFrom(s.toISOString().split('T')[0]); setDateTo(e.toISOString().split('T')[0]); } },
+    { label: 'This Year', fn: () => { const now = new Date(); setDateFrom(`${now.getFullYear()}-01-01`); setDateTo(`${now.getFullYear()}-12-31`); } },
     { label: 'Clear', fn: () => { setDateFrom(''); setDateTo(''); }, danger: true },
   ];
 
@@ -95,6 +98,32 @@ const ProjectDLRDPRList = ({ projectId }) => {
                 ))}
               </div>
               <div className="p-3">
+                {/* Explicit Start / End date inputs — fast entry for custom ranges */}
+                <div className="flex items-end gap-2 mb-3" data-testid="dlr-custom-range">
+                  <div className="flex-1">
+                    <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Start Date</label>
+                    <input
+                      type="date"
+                      value={dateFrom}
+                      max={dateTo || undefined}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      className="h-8 w-full border border-gray-200 rounded-lg px-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      data-testid="dlr-date-start-input"
+                    />
+                  </div>
+                  <span className="text-gray-400 text-xs pb-1.5">→</span>
+                  <div className="flex-1">
+                    <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">End Date</label>
+                    <input
+                      type="date"
+                      value={dateTo}
+                      min={dateFrom || undefined}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      className="h-8 w-full border border-gray-200 rounded-lg px-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      data-testid="dlr-date-end-input"
+                    />
+                  </div>
+                </div>
                 <DayPicker
                   mode="range"
                   selected={dateFrom ? { from: new Date(dateFrom + 'T00:00:00'), to: dateTo ? new Date(dateTo + 'T00:00:00') : new Date(dateFrom + 'T00:00:00') } : undefined}
