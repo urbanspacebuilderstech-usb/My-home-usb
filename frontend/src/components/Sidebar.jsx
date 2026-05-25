@@ -44,7 +44,7 @@ export default function Sidebar({ open, onClose, user }) {
     { name: 'CRM Pre-Sales', icon: UserCheck, path: '/crm-pre-sales', roles: ['super_admin', 'pre_sales', 'cre'] },
     { name: 'CRM Sales', icon: Target, path: '/crm-sales', roles: ['super_admin', 'sales', 'cre', 'accountant'] },
     { name: 'RE Projects', icon: Calculator, path: '/crm/re-projects', roles: ['super_admin', 'planning', 'general_manager', 'sales'] },
-    { name: 'Projects', icon: FolderKanban, path: '/projects', roles: ['super_admin', 'project_manager', 'planning', 'cre', 'general_manager'] },
+    { name: 'Projects', icon: FolderKanban, path: '/projects', roles: ['super_admin', 'project_manager', 'planning', 'cre'] },
     { name: 'Add Project', icon: FolderPlus, path: '/admin/add-project', roles: ['super_admin', 'planning', 'sales'] },
     { name: 'Payment Templates', icon: FileText, path: '/payment-schedule-templates', roles: ['super_admin', 'planning'] },
     { name: 'Work Orders', icon: ClipboardList, path: '/work-orders', roles: ['super_admin', 'project_manager', 'procurement'] },

@@ -109,6 +109,13 @@ export default function Projects() {
         window.location.replace('/planning-board');
         return;
       }
+
+      // General Manager — old /projects page is deprecated. Send them to the
+      // GM Dashboard which embeds the new sub-tabbed All Projects view.
+      if (response.data.role === 'general_manager') {
+        window.location.replace('/gm-dashboard');
+        return;
+      }
       
       // Fetch projects only for non-site-engineers
       fetchProjects();

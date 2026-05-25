@@ -2961,11 +2961,12 @@ export default function ProjectDetail() {
               variant="ghost"
               size="icon"
               onClick={() => {
-                // Role-aware back: CRE returns to CRE Board's All Projects tab,
-                // Planning to its dashboard, everyone else falls back to /projects.
+                // Role-aware back: CRE → CRE Board, Planning → Planning Board,
+                // GM → GM Dashboard (new sub-tab UI), everyone else → /projects.
                 let dest = '/projects';
                 if (isPlanning) dest = '/planning-board';
                 else if (user?.role === 'cre') dest = '/cre-board?tab=all_projects';
+                else if (user?.role === 'general_manager') dest = '/gm-dashboard';
                 else if (user?.role === 'super_admin') dest = '/projects';
                 window.location.href = dest;
               }}
