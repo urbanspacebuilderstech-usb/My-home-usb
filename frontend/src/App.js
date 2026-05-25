@@ -3,6 +3,8 @@ import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Toaster } from '@/components/ui/sonner';
 import '@/App.css';
+// Side-effect import: applies the persisted theme to <html> before React paints.
+import '@/hooks/useTheme';
 
 import Login from '@/pages/Login';
 import ForgotPassword from '@/pages/ForgotPassword';

@@ -1,7 +1,8 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Bell, LogOut, UserCircle } from 'lucide-react';
+import { Bell, LogOut, UserCircle, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import axios from 'axios';
+import { useTheme } from '../hooks/useTheme';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -155,6 +156,7 @@ const roleLabel = (r) => (r ? (ROLE_LABEL_MAP[r] || r.replace(/_/g, ' ')) : '…
 export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange, headerActions, hideNav = false }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { isDark, toggleTheme } = useTheme();
 
   // Embedded mode: hosted inside Finance Board (or another) iframe.
   // - `?embedded=1` alone → render nothing (parent already has its own header).
@@ -188,7 +190,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
         return tparams.get('tab') === cparams.get('tab');
       };
       return (
-        <div className="bg-white border-b border-gray-200 px-4 lg:px-6 sticky top-0 z-40" data-testid="embedded-sub-nav">
+        <div className="bg-white border-b border-gray-200 px-4 lg:px-6 sticky top-0 z-40 dark:bg-gray-900 dark:border-gray-800" data-testid="embedded-sub-nav">
           <nav className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-hide">
             {embeddedNav.map((item) => {
               // Preserve embedded flags when navigating between sub-nav items
@@ -268,9 +270,9 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
   const showMainNav = !hasCustomNav || customNavAsSub;
 
   return (
-    <div className="sticky top-0 z-50 bg-white">
+    <div className="sticky top-0 z-50 bg-white dark:bg-gray-900">
       {/* Main Header */}
-      <header data-testid="app-header" className="bg-white border-b border-gray-200 shadow-sm">
+      <header data-testid="app-header" className="bg-white border-b border-gray-200 shadow-sm dark:bg-gray-900 dark:border-gray-800">
         <div className="flex items-center justify-between px-4 lg:px-6 h-14">
           {/* Left: Logo + Brand */}
           <div className="flex items-center gap-2.5 cursor-pointer shrink-0" onClick={() => navigate(navItems[0]?.path || '/dashboard')} data-testid="header-brand">
@@ -318,9 +320,20 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
             ) : null}
           </nav>
 
-          {/* Right: Notifs + Profile + User + Logout */}
+          {/* Right: Theme + Notifs + Profile + User + Logout */}
           <div className="flex items-center gap-2 shrink-0">
             {headerActions}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              className="h-9 w-9 text-gray-500 hover:text-amber-500 dark:text-gray-300"
+              data-testid="header-theme-toggle"
+              title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-label="Toggle theme"
+            >
+              {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
             <Button variant="ghost" size="icon" onClick={() => navigate('/notifications')} className="relative h-9 w-9" data-testid="header-notifications">
               <Bell className="h-4 w-4" />
               {unreadNotifs > 0 && (

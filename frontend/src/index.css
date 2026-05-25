@@ -58,6 +58,32 @@ input[inputmode="numeric"]::-webkit-inner-spin-button {
         --warning: 38 92% 50%;
         --info: 217 91% 60%;
     }
+
+    /* Phase 1 dark palette. Only overrides the shadcn CSS variables — every
+     * `dark:` Tailwind variant a page opts in to will also fire. Pages that
+     * still use hard-coded `bg-white` / `text-gray-900` will keep their
+     * existing look until they are explicitly migrated. */
+    .dark {
+        --background: 222 14% 8%;
+        --foreground: 0 0% 96%;
+        --card: 222 14% 11%;
+        --card-foreground: 0 0% 96%;
+        --popover: 222 14% 11%;
+        --popover-foreground: 0 0% 96%;
+        --primary: 40 91% 55%;
+        --primary-foreground: 0 0% 8%;
+        --secondary: 222 14% 16%;
+        --secondary-foreground: 0 0% 96%;
+        --muted: 222 14% 16%;
+        --muted-foreground: 0 0% 66%;
+        --accent: 222 14% 18%;
+        --accent-foreground: 0 0% 96%;
+        --destructive: 0 70% 55%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 222 14% 20%;
+        --input: 222 14% 22%;
+        --ring: 40 91% 55%;
+    }
 }
 
 @layer base {
