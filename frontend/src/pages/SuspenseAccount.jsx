@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import axios from 'axios';
-import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, AlertTriangle } from 'lucide-react';
+import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, AlertTriangle, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -65,6 +65,42 @@ export default function SuspenseAccountPage() {
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to settle');
     }
+  };
+
+  // Super Admin only — fully removes a suspense entry from its source collection.
+  // Used to clean up legacy/stale rows that "Process Payment" can't resolve
+  // (e.g. duplicate ledger writes). Aggregated balances recompute on next load.
+  const canDelete = user?.role === 'super_admin';
+  const [expandedSuspense, setExpandedSuspense] = useState({}); // key → bool
+  const toggleExpanded = (key) => setExpandedSuspense(s => ({ ...s, [key]: !s[key] }));
+
+  const deletePettyCash = async (pc) => {
+    if (!window.confirm(`Delete petty cash request "${pc.purpose}" of ${fmt(pc.amount_issued)}?\nThis cannot be undone.`)) return;
+    try {
+      await axios.delete(`${API}/suspense/petty-cash/${pc.petty_cash_id}`);
+      toast.success('Petty cash request deleted');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
+  };
+
+  const deleteMaterialEntry = async (entry) => {
+    if (!entry.ledger_id) { toast.error('Missing ledger id'); return; }
+    if (!window.confirm(`Delete material suspense entry of ${fmt(entry.balance)}?\nThis cannot be undone.`)) return;
+    try {
+      await axios.delete(`${API}/suspense/material-entry/${entry.ledger_id}`);
+      toast.success('Material suspense entry deleted');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
+  };
+
+  const deleteLabourEntry = async (entry) => {
+    if (!entry.labour_expense_id) { toast.error('Missing labour expense id'); return; }
+    if (!window.confirm(`Delete labour suspense entry of ${fmt(entry.balance)}?\nThis cannot be undone.`)) return;
+    try {
+      await axios.delete(`${API}/suspense/labour-entry/${entry.labour_expense_id}`);
+      toast.success('Labour suspense entry deleted');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
   };
 
   const handlePayment = async (e) => {
@@ -283,11 +319,18 @@ export default function SuspenseAccountPage() {
                         </div>
                       )}
                     </div>
-                    {(pc.status === 'submitted' || pc.status === 'partially_settled') && (
-                      <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleSettlePettyCash(pc.petty_cash_id)} data-testid={`settle-${pc.petty_cash_id}`}>
-                        <CheckCircle className="h-3.5 w-3.5 mr-1" />Settle
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {(pc.status === 'submitted' || pc.status === 'partially_settled') && (
+                        <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleSettlePettyCash(pc.petty_cash_id)} data-testid={`settle-${pc.petty_cash_id}`}>
+                          <CheckCircle className="h-3.5 w-3.5 mr-1" />Settle
+                        </Button>
+                      )}
+                      {canDelete && (
+                        <Button size="sm" variant="outline" className="border-red-200 text-red-600 hover:bg-red-50" onClick={() => deletePettyCash(pc)} data-testid={`delete-petty-${pc.petty_cash_id}`}>
+                          <Trash2 className="h-3.5 w-3.5 mr-1" />Delete
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -304,15 +347,54 @@ export default function SuspenseAccountPage() {
                     <tr>
                       <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase">Vendor</th>
                       <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase">Suspense Balance</th>
+                      <th className="px-4 py-2.5 w-16"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {(matSus.balances || []).map((b) => (
-                      <tr key={b.name} data-testid={`mat-balance-${b.name}`}>
-                        <td className="px-4 py-3 text-sm font-medium">{b.name}</td>
-                        <td className="px-4 py-3 text-right text-sm font-bold text-blue-600">{fmt(b.balance)}</td>
-                      </tr>
-                    ))}
+                    {(matSus.balances || []).map((b) => {
+                      const k = `mat-${b.name}`;
+                      const open = !!expandedSuspense[k];
+                      const entries = b.entries || [];
+                      return (
+                        <Fragment key={k}>
+                          <tr className="cursor-pointer hover:bg-gray-50" onClick={() => toggleExpanded(k)} data-testid={`mat-balance-${b.name}`}>
+                            <td className="px-4 py-3 text-sm font-medium">
+                              <div className="flex items-center gap-2">
+                                {open ? <ChevronDown className="h-3.5 w-3.5 text-gray-400" /> : <ChevronRight className="h-3.5 w-3.5 text-gray-400" />}
+                                <span>{b.name}</span>
+                                <span className="text-[10px] text-gray-400">({entries.length} {entries.length === 1 ? 'entry' : 'entries'})</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-right text-sm font-bold text-blue-600">{fmt(b.balance)}</td>
+                            <td className="px-4 py-3 text-right"></td>
+                          </tr>
+                          {open && entries.length > 0 && (
+                            <tr key={`${k}-detail`} className="bg-blue-50/30">
+                              <td colSpan={3} className="px-4 py-2">
+                                <div className="space-y-1">
+                                  {entries.map((e, i) => (
+                                    <div key={e.ledger_id || i} className="flex items-center justify-between gap-2 bg-white rounded px-3 py-2 border border-blue-100" data-testid={`mat-entry-${e.ledger_id || i}`}>
+                                      <div className="text-xs">
+                                        <div className="font-medium text-gray-800">{e.material || 'Unspecified material'}</div>
+                                        <div className="text-[10px] text-gray-500">{e.status || '—'} · {e.due_date ? new Date(e.due_date).toLocaleDateString('en-IN') : 'No due date'}</div>
+                                      </div>
+                                      <div className="flex items-center gap-3">
+                                        <span className="text-sm font-bold text-blue-700">{fmt(e.balance)}</span>
+                                        {canDelete && (
+                                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:bg-red-50" onClick={(ev) => { ev.stopPropagation(); deleteMaterialEntry(e); }} data-testid={`delete-mat-${e.ledger_id || i}`}>
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </Button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </CardContent></Card>
@@ -329,15 +411,54 @@ export default function SuspenseAccountPage() {
                     <tr>
                       <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase">Contractor</th>
                       <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase">Suspense Balance</th>
+                      <th className="px-4 py-2.5 w-16"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {(labSus.balances || []).map((b) => (
-                      <tr key={b.name} data-testid={`lab-balance-${b.name}`}>
-                        <td className="px-4 py-3 text-sm font-medium">{b.name}</td>
-                        <td className="px-4 py-3 text-right text-sm font-bold text-purple-600">{fmt(b.balance)}</td>
-                      </tr>
-                    ))}
+                    {(labSus.balances || []).map((b) => {
+                      const k = `lab-${b.name}`;
+                      const open = !!expandedSuspense[k];
+                      const entries = b.entries || [];
+                      return (
+                        <Fragment key={k}>
+                          <tr className="cursor-pointer hover:bg-gray-50" onClick={() => toggleExpanded(k)} data-testid={`lab-balance-${b.name}`}>
+                            <td className="px-4 py-3 text-sm font-medium">
+                              <div className="flex items-center gap-2">
+                                {open ? <ChevronDown className="h-3.5 w-3.5 text-gray-400" /> : <ChevronRight className="h-3.5 w-3.5 text-gray-400" />}
+                                <span>{b.name}</span>
+                                <span className="text-[10px] text-gray-400">({entries.length} {entries.length === 1 ? 'entry' : 'entries'})</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-right text-sm font-bold text-purple-600">{fmt(b.balance)}</td>
+                            <td className="px-4 py-3 text-right"></td>
+                          </tr>
+                          {open && entries.length > 0 && (
+                            <tr key={`${k}-detail`} className="bg-purple-50/30">
+                              <td colSpan={3} className="px-4 py-2">
+                                <div className="space-y-1">
+                                  {entries.map((e, i) => (
+                                    <div key={e.labour_expense_id || i} className="flex items-center justify-between gap-2 bg-white rounded px-3 py-2 border border-purple-100" data-testid={`lab-entry-${e.labour_expense_id || i}`}>
+                                      <div className="text-xs">
+                                        <div className="font-medium text-gray-800">{e.description || 'Labour entry'}</div>
+                                        <div className="text-[10px] text-gray-500">{e.status || '—'}</div>
+                                      </div>
+                                      <div className="flex items-center gap-3">
+                                        <span className="text-sm font-bold text-purple-700">{fmt(e.balance)}</span>
+                                        {canDelete && (
+                                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:bg-red-50" onClick={(ev) => { ev.stopPropagation(); deleteLabourEntry(e); }} data-testid={`delete-lab-${e.labour_expense_id || i}`}>
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </Button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </CardContent></Card>

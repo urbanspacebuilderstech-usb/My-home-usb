@@ -1596,6 +1596,52 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
     }
 
 
+# ── Super Admin destructive cleanup for suspense entries ─────────────────────
+# These endpoints permanently delete the underlying source records, which is
+# how an aggregate balance row in the UI gets "cleared". Restricted to
+# Super Admin because they bypass the normal Process Payment flow.
+
+@router.delete("/suspense/petty-cash/{petty_cash_id}")
+async def delete_petty_cash_request(petty_cash_id: str, user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can delete suspense entries")
+    pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id}, {"_id": 0})
+    if not pc:
+        raise HTTPException(status_code=404, detail="Petty cash request not found")
+    await db.petty_cash.delete_one({"petty_cash_id": petty_cash_id})
+    await create_audit_log(user.user_id, "delete_petty_cash", "petty_cash", petty_cash_id, {
+        "amount_issued": pc.get("amount_issued"), "purpose": pc.get("purpose"),
+    })
+    return {"message": "Petty cash request deleted", "petty_cash_id": petty_cash_id}
+
+
+@router.delete("/suspense/material-entry/{ledger_id}")
+async def delete_material_suspense_entry(ledger_id: str, user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can delete suspense entries")
+    # Entry could live in either ledger collection — try both.
+    res_v2 = await db.vendor_credit_ledger.delete_one({"ledger_id": ledger_id})
+    res_v1 = await db.credit_ledger.delete_one({"ledger_id": ledger_id})
+    if res_v2.deleted_count == 0 and res_v1.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Material suspense entry not found")
+    await create_audit_log(user.user_id, "delete_material_suspense", "credit_ledger", ledger_id, {})
+    return {"message": "Material suspense entry deleted", "ledger_id": ledger_id}
+
+
+@router.delete("/suspense/labour-entry/{labour_expense_id}")
+async def delete_labour_suspense_entry(labour_expense_id: str, user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can delete suspense entries")
+    exp = await db.labour_expenses.find_one({"labour_expense_id": labour_expense_id}, {"_id": 0})
+    if not exp:
+        raise HTTPException(status_code=404, detail="Labour suspense entry not found")
+    await db.labour_expenses.delete_one({"labour_expense_id": labour_expense_id})
+    await create_audit_log(user.user_id, "delete_labour_suspense", "labour_expense", labour_expense_id, {
+        "total_amount": exp.get("total_amount"), "contractor_name": exp.get("contractor_name"),
+    })
+    return {"message": "Labour suspense entry deleted", "labour_expense_id": labour_expense_id}
+
+
 class PaymentWithSuspense(BaseModel):
     payment_type: str  # material, labour
     vendor_or_contractor: str
