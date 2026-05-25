@@ -49,14 +49,17 @@ class CREProjectCreateInput(BaseModel):
 
 # Project stages definition for display
 PROJECT_STAGES = [
-    {"id": "drawing", "name": "Drawing Stage", "order": 1},
-    {"id": "yet_to_start", "name": "Yet to Start", "order": 2},
-    {"id": "foundation", "name": "Foundation", "order": 3},
-    {"id": "basement", "name": "Basement", "order": 4},
-    {"id": "brick_work", "name": "SS - Brick Work", "order": 5},
-    {"id": "plastering", "name": "SS - Plastering", "order": 6},
-    {"id": "finishing", "name": "Finishing", "order": 7},
-    {"id": "handover", "name": "Handover", "order": 8}
+    {"id": "yet_to_start", "name": "Yet to Start", "order": 1},
+    {"id": "foundation", "name": "Foundation", "order": 2},
+    {"id": "plinth", "name": "Plinth", "order": 3},
+    {"id": "ground_floor", "name": "Ground Floor", "order": 4},
+    {"id": "first_floor", "name": "First Floor", "order": 5},
+    {"id": "slab", "name": "Slab", "order": 6},
+    {"id": "plastering", "name": "Plastering", "order": 7},
+    {"id": "flooring", "name": "Flooring", "order": 8},
+    {"id": "painting", "name": "Painting", "order": 9},
+    {"id": "handover", "name": "Handover", "order": 10},
+    {"id": "completed", "name": "Completed", "order": 11}
 ]
 
 
@@ -1574,8 +1577,8 @@ async def get_projects_by_stage(stage: Optional[str] = None, user: User = Depend
 @router.patch("/planning/projects/{project_id}/update-stage")
 async def update_project_stage(project_id: str, stage: str, user: User = Depends(get_current_user)):
     """Update project construction stage - Planning/PM can move projects through stages"""
-    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only Planning or PM can update project stage")
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Planning/PM/GM can update project stage")
     
     # Validate stage
     valid_stages = [s["id"] for s in PROJECT_STAGES]
@@ -1639,6 +1642,74 @@ async def get_project_stage_history(project_id: str, user: User = Depends(get_cu
         "stage_history": project.get("stage_history", []),
         "stages": PROJECT_STAGES
     }
+
+
+# Canonical project workflow statuses surfaced by the Planning Board "Status"
+# column. Kept here (vs an enum) so admins can grow this list without a migration.
+PROJECT_WORKFLOW_STATUSES = [
+    {"id": "in_planning",       "name": "In Planning"},
+    {"id": "planning_review",   "name": "Planning Review"},
+    {"id": "awaiting_approval", "name": "Awaiting Approval"},
+    {"id": "gm_approved",       "name": "GM Approved"},
+    {"id": "planning_approved", "name": "Planning Approved"},
+    {"id": "active",            "name": "Active"},
+    {"id": "on_hold",           "name": "On Hold"},
+    {"id": "completed",         "name": "Completed"},
+]
+
+
+@router.get("/planning/workflow-statuses")
+async def list_workflow_statuses(user: User = Depends(get_current_user)):
+    """Options consumed by the inline Status dropdown on the All Projects table."""
+    # Merge built-ins with any custom statuses stored in db.workflow_statuses
+    custom = await db.workflow_statuses.find({"is_active": {"$ne": False}}, {"_id": 0}).to_list(100)
+    return PROJECT_WORKFLOW_STATUSES + [{"id": c["id"], "name": c.get("name", c["id"]), "custom": True} for c in custom]
+
+
+@router.patch("/planning/projects/{project_id}/workflow-status")
+async def update_project_workflow_status(
+    project_id: str, request: Request, user: User = Depends(get_current_user)
+):
+    """Inline status edit from the Planning Head's All Projects table.
+
+    Allowed roles: Planning Head, Super Admin, GM. Planning Person + Project
+    Manager intentionally excluded — status is a planning-leadership decision.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning Head / GM / Super Admin can change project status")
+
+    body = await request.json()
+    new_status = (body.get("status") or "").strip()
+    if not new_status:
+        raise HTTPException(status_code=400, detail="status is required")
+
+    valid_ids = {s["id"] for s in PROJECT_WORKFLOW_STATUSES}
+    custom_ids = {c["id"] for c in await db.workflow_statuses.find({}, {"_id": 0, "id": 1}).to_list(200)}
+    if new_status not in valid_ids and new_status not in custom_ids:
+        raise HTTPException(status_code=400, detail=f"Invalid status '{new_status}'")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "status": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {
+            "$set": {"status": new_status, "updated_at": now},
+            "$push": {"status_history": {
+                "from": project.get("status"),
+                "to": new_status,
+                "changed_by": user.user_id,
+                "changed_by_name": user.name,
+                "changed_at": now,
+            }},
+        },
+    )
+    await create_audit_log(user.user_id, "update_project_status", "project", project_id, {
+        "from": project.get("status"), "to": new_status
+    })
+    return {"message": "Status updated", "project_id": project_id, "status": new_status}
 
 
 @router.get("/planning/payment-schedule-overview")
