@@ -1703,11 +1703,7 @@ export default function ProjectDetail() {
 
 
 
-  // Stage + Status options (loaded lazily when header edit opens).
-  // Same source the All Projects table uses — keeps the two screens in sync.
-  const [stageOptions, setStageOptions] = useState([]);
-  const [workflowStatusOptions, setWorkflowStatusOptions] = useState([]);
-  // Inline Stage/Status edit allowed for Planning Head, Super Admin, GM only.
+  // Inline Phase edit allowed for Planning Head, Super Admin, GM only.
   const canEditStageStatus = ['planning', 'super_admin', 'general_manager'].includes(user?.role);
 
   const startHeaderEdit = () => {
@@ -1724,15 +1720,6 @@ export default function ProjectDetail() {
       status: p.status || 'in_planning',
     });
     fetchPackages();
-    // Lazy-load Stage + Status dropdowns
-    if (canEditStageStatus) {
-      if (stageOptions.length === 0) {
-        axios.get(`${API}/planning/stage-dashboard`).then(r => setStageOptions(r.data?.stages || [])).catch(() => {});
-      }
-      if (workflowStatusOptions.length === 0) {
-        axios.get(`${API}/planning/workflow-statuses`).then(r => setWorkflowStatusOptions(r.data || [])).catch(() => {});
-      }
-    }
     setHeaderEditing(true);
   };
 
@@ -1748,13 +1735,13 @@ export default function ProjectDetail() {
       if (headerForm.location !== (p.location || '')) payload.location = headerForm.location;
       if (headerForm.package_id !== (p.package_id || '')) payload.package_id = headerForm.package_id || '';
 
-      // Stage + Status go via their dedicated endpoints so the audit log /
-      // stage_history / status_history are populated correctly (the generic
-      // PATCH /projects/{id} doesn't track these transitions).
+      // Stage goes via its dedicated endpoint so the audit log / stage_history
+      // are populated correctly (the generic PATCH /projects/{id} doesn't
+      // track this transition). Status field is no longer surfaced in the
+      // header form — Phase is now the single source of truth.
       const stageChanged = canEditStageStatus && headerForm.current_stage && headerForm.current_stage !== (p.current_stage || 'yet_to_start');
-      const statusChanged = canEditStageStatus && headerForm.status && headerForm.status !== (p.status || '');
 
-      if (Object.keys(payload).length === 0 && !stageChanged && !statusChanged) {
+      if (Object.keys(payload).length === 0 && !stageChanged) {
         setHeaderEditing(false); setHeaderSaving(false); return;
       }
 
@@ -1763,9 +1750,6 @@ export default function ProjectDetail() {
       }
       if (stageChanged) {
         await axios.patch(`${API}/planning/projects/${projectId}/update-stage?stage=${headerForm.current_stage}`);
-      }
-      if (statusChanged) {
-        await axios.patch(`${API}/planning/projects/${projectId}/workflow-status`, { status: headerForm.status });
       }
 
       // Optimistic update — fold all changes into local state
@@ -1776,7 +1760,6 @@ export default function ProjectDetail() {
           ...payload,
           package_id: headerForm.package_id || null,
           ...(stageChanged ? { current_stage: headerForm.current_stage } : {}),
-          ...(statusChanged ? { status: headerForm.status } : {}),
         },
       }));
       toast.success('Project details updated');
@@ -3011,34 +2994,34 @@ export default function ProjectDetail() {
                       </Select>
                     </div>
                     {canEditStageStatus && (
-                      <>
-                        <div>
-                          <Label className="text-xs text-gray-500">Stage</Label>
-                          <Select value={headerForm.current_stage || 'yet_to_start'} onValueChange={v => setHeaderForm(f => ({ ...f, current_stage: v }))}>
-                            <SelectTrigger data-testid="header-edit-stage"><SelectValue placeholder="Select Stage" /></SelectTrigger>
-                            <SelectContent>
-                              {stageOptions.length === 0 ? (
-                                <SelectItem value="yet_to_start">Yet to Start</SelectItem>
-                              ) : stageOptions.map(s => (
-                                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label className="text-xs text-gray-500">Status</Label>
-                          <Select value={headerForm.status || 'in_planning'} onValueChange={v => setHeaderForm(f => ({ ...f, status: v }))}>
-                            <SelectTrigger data-testid="header-edit-status"><SelectValue placeholder="Select Status" /></SelectTrigger>
-                            <SelectContent>
-                              {workflowStatusOptions.length === 0 ? (
-                                <SelectItem value="in_planning">In Planning</SelectItem>
-                              ) : workflowStatusOptions.map(s => (
-                                <SelectItem key={s.id} value={s.id}>{s.name}{s.custom ? ' ★' : ''}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </>
+                      <div>
+                        <Label className="text-xs text-gray-500">Phase</Label>
+                        <Select
+                          value={(() => {
+                            const id = headerForm.current_stage || 'yet_to_start';
+                            if (id === 'yet_to_start') return 'pre_construction';
+                            if (['foundation', 'plinth'].includes(id)) return 'substructure';
+                            if (['ground_floor', 'first_floor', 'slab'].includes(id)) return 'superstructure';
+                            if (['plastering', 'flooring', 'painting', 'handover', 'completed'].includes(id)) return 'finishing';
+                            return 'pre_construction';
+                          })()}
+                          onValueChange={(v) => {
+                            // Saving a Phase writes back the FIRST canonical stage in that
+                            // phase so downstream reports (which read current_stage) keep
+                            // working without a separate schema migration.
+                            const map = { pre_construction: 'yet_to_start', substructure: 'foundation', superstructure: 'ground_floor', finishing: 'plastering' };
+                            setHeaderForm(f => ({ ...f, current_stage: map[v] || 'yet_to_start' }));
+                          }}
+                        >
+                          <SelectTrigger data-testid="header-edit-phase"><SelectValue placeholder="Select Phase" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pre_construction">Pre-Construction</SelectItem>
+                            <SelectItem value="substructure">Substructure</SelectItem>
+                            <SelectItem value="superstructure">Superstructure</SelectItem>
+                            <SelectItem value="finishing">Finishing</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
