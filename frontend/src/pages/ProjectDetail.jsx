@@ -85,6 +85,18 @@ const daysBetween = (start, end) => {
   const ms = b.getTime() - a.getTime();
   return Math.max(1, Math.round(ms / (1000 * 60 * 60 * 24)) + 1);
 };
+// addDaysISO: returns YYYY-MM-DD that is `days` inclusive-days from `startISO`.
+// Example: addDaysISO('2026-05-06', 7) → '2026-05-12' (6+7-1 = 12).
+const addDaysISO = (startISO, days) => {
+  if (!startISO || !days || days < 1) return '';
+  const d = new Date(startISO);
+  if (isNaN(d)) return '';
+  d.setDate(d.getDate() + (Number(days) - 1));
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+};
 const InlineEditRate = ({ initial, onSave, mode = 'percent' }) => {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(String(initial ?? ''));
@@ -2598,21 +2610,41 @@ export default function ProjectDetail() {
   };
   const updateNewStage = (idx, field, value) => {
     setNewStages(prev => {
-      const next = prev.map((s, i) => i === idx ? { ...s, [field]: value } : s);
+      const next = prev.map((s, i) => {
+        if (i !== idx) return s;
+        // Apply the field directly, then re-derive any dependent fields below.
+        const merged = { ...s, [field]: value };
+        // ── Duration ↔ Planned Finish auto-derive ──
+        // Manual flow: user types Duration → recompute Planned Finish from Planned Start.
+        // Implicit: user changes Planned Start → keep current Duration, recompute Finish.
+        if (field === 'duration_days' && merged.start_date) {
+          const dur = parseInt(value) || 0;
+          merged.target_date = dur > 0 ? addDaysISO(merged.start_date, dur) : merged.target_date;
+        } else if (field === 'start_date' && value) {
+          const dur = parseInt(merged.duration_days) || 0;
+          if (dur > 0) merged.target_date = addDaysISO(value, dur);
+        }
+        return merged;
+      });
       // ── Carry-forward: when this row's Actual Finish (or Planned Finish, if
       // no Actual Finish set yet) advances, push the FOLLOWING non-section
       // row's Planned Start = finish + 1 day — but only if that next row's
       // Planned Start is currently empty (don't overwrite manual entries).
-      if ((field === 'actual_finish_date' || field === 'target_date') && value) {
+      if ((field === 'actual_finish_date' || field === 'target_date' || field === 'duration_days') && next[idx].target_date) {
         // Find next non-section row after idx
         const nextRowIdx = next.findIndex((s, i) => i > idx && !s.is_section_header);
         if (nextRowIdx !== -1 && !next[nextRowIdx].start_date) {
           // Prefer Actual Finish, fall back to Planned Finish
-          const anchor = field === 'actual_finish_date' ? value : (next[idx].actual_finish_date || value);
+          const anchor = field === 'actual_finish_date' ? value : (next[idx].actual_finish_date || next[idx].target_date);
           const d = new Date(anchor);
           if (!isNaN(d)) {
             d.setDate(d.getDate() + 1);
             next[nextRowIdx] = { ...next[nextRowIdx], start_date: d.toISOString().split('T')[0] };
+            // If the next row has duration set, recompute its target_date too.
+            const nextDur = parseInt(next[nextRowIdx].duration_days) || 0;
+            if (nextDur > 0) {
+              next[nextRowIdx].target_date = addDaysISO(next[nextRowIdx].start_date, nextDur);
+            }
           }
         }
       }
@@ -2623,9 +2655,11 @@ export default function ProjectDetail() {
   const handleSaveStages = async () => {
     const valid = newStages
       .filter(s => s.stage_name.trim())
-      // Always compute duration from Planned dates so the saved value never
-      // drifts from what users see in the read-only Duration cell.
-      .map(s => ({ ...s, duration_days: daysBetween(s.start_date, s.target_date) || null }));
+      // Use user-entered Duration when present, else derive from Planned dates.
+      .map(s => ({
+        ...s,
+        duration_days: parseInt(s.duration_days) || daysBetween(s.start_date, s.target_date) || null,
+      }));
     if (!valid.length) { toast.error('Add at least one stage'); return; }
     try {
       await axios.post(`${API}/projects/${projectId}/project-stages/bulk`, valid);
@@ -4510,6 +4544,7 @@ export default function ProjectDetail() {
                               <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Duration<br/><span className="text-[10px] normal-case text-gray-400">(days)</span></th>
                               <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Actual Start</th>
                               <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Actual Finish</th>
+                              <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Actual Duration<br/><span className="text-[10px] normal-case text-gray-400">(days)</span></th>
                               <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Progress</th>
                               <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Depends On</th>
                               <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Hindrances</th>
@@ -4566,22 +4601,26 @@ export default function ProjectDetail() {
                                       className="border rounded px-2 py-1 text-xs"
                                       value={stage.start_date || ''}
                                       onChange={(e) => updateNewStage(idx, 'start_date', e.target.value)}
+                                      data-testid={`new-stage-planned-start-${idx}`}
                                     />
                                   </td>
                                   <td className="px-2 py-2">
-                                    <input
-                                      type="date"
-                                      className="border rounded px-2 py-1 text-xs"
-                                      value={stage.target_date || ''}
-                                      onChange={(e) => updateNewStage(idx, 'target_date', e.target.value)}
-                                    />
+                                    {/* Planned Finish — auto-computed from Planned Start + Duration, read-only */}
+                                    <span className="inline-block w-28 px-2 py-1 text-xs text-center bg-gray-50 rounded border border-gray-200 text-gray-700" data-testid={`new-stage-planned-finish-${idx}`}>
+                                      {stage.target_date ? new Date(stage.target_date).toLocaleDateString('en-IN') : '—'}
+                                    </span>
                                   </td>
                                   <td className="px-2 py-2 text-center">
-                                    {/* Duration is auto-calculated from Planned Start / Planned Finish (inclusive).
-                                        Field is read-only so users can't drift the math. */}
-                                    <span className="inline-block w-16 px-2 py-1 text-xs text-center bg-gray-50 rounded border border-gray-200 text-gray-700" data-testid={`stage-duration-auto-${idx}`}>
-                                      {daysBetween(stage.start_date, stage.target_date) || '—'}
-                                    </span>
+                                    {/* Duration (days) — MANUAL entry. updateNewStage recomputes Planned Finish from Planned Start. */}
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      placeholder="—"
+                                      className="w-16 border rounded px-2 py-1 text-xs text-center"
+                                      value={stage.duration_days ?? ''}
+                                      onChange={(e) => updateNewStage(idx, 'duration_days', e.target.value)}
+                                      data-testid={`new-stage-duration-${idx}`}
+                                    />
                                   </td>
                                   <td className="px-2 py-2">
                                     <input
@@ -4598,6 +4637,12 @@ export default function ProjectDetail() {
                                       value={stage.actual_finish_date || ''}
                                       onChange={(e) => updateNewStage(idx, 'actual_finish_date', e.target.value)}
                                     />
+                                  </td>
+                                  <td className="px-2 py-2 text-center">
+                                    {/* Actual Duration — auto-computed from Actual Start/Finish */}
+                                    <span className="inline-block w-16 px-2 py-1 text-xs text-center bg-gray-50 rounded border border-gray-200 text-gray-700" data-testid={`new-stage-actual-duration-${idx}`}>
+                                      {daysBetween(stage.actual_start_date, stage.actual_finish_date) || '—'}
+                                    </span>
                                   </td>
                                   <td className="px-2 py-2 text-center">
                                     <div className="flex items-center gap-1 justify-center">
@@ -4718,6 +4763,7 @@ export default function ProjectDetail() {
                           <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Duration (days)</th>
                           <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Actual Start</th>
                           <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Actual Finish</th>
+                          <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Actual Duration<br/><span className="text-[10px] normal-case text-gray-400">(days)</span></th>
                           <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Progress</th>
                           <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Depends On</th>
                           <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Hindrances</th>
@@ -4762,31 +4808,50 @@ export default function ProjectDetail() {
                                 <span className="font-medium">{stage.stage_name}</span>
                               )}
                             </td>
-                            {/* Planned Start */}
+                            {/* Planned Start — entering this with existing Duration auto-computes Planned Finish */}
                             <td className="px-3 py-3 text-center">
                               {editingStageId === stage.stage_id ? (
-                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.start_date || ''} onChange={e => { const v = e.target.value; setEditStageData(d => ({...d, start_date: v})); autoSaveStageField(stage.stage_id, { start_date: v || null, duration_days: daysBetween(v, editStageData.target_date) || null }); }} />
+                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.start_date || ''} onChange={e => {
+                                  const v = e.target.value;
+                                  const dur = parseInt(editStageData.duration_days) || 0;
+                                  const newFinish = (v && dur > 0) ? addDaysISO(v, dur) : editStageData.target_date;
+                                  setEditStageData(d => ({...d, start_date: v, target_date: newFinish || d.target_date}));
+                                  autoSaveStageField(stage.stage_id, { start_date: v || null, target_date: newFinish || editStageData.target_date || null, duration_days: dur || daysBetween(v, newFinish || editStageData.target_date) || null });
+                                }} data-testid={`stage-planned-start-${stage.stage_id}`} />
                               ) : (
                                 <span className="text-sm">{stage.start_date ? new Date(stage.start_date).toLocaleDateString('en-IN') : '-'}</span>
                               )}
                             </td>
-                            {/* Planned Finish */}
+                            {/* Planned Finish — read-only auto-computed from Planned Start + Duration */}
                             <td className="px-3 py-3 text-center">
                               {editingStageId === stage.stage_id ? (
-                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.target_date || ''} onChange={e => { const v = e.target.value; setEditStageData(d => ({...d, target_date: v})); autoSaveStageField(stage.stage_id, { target_date: v || null, duration_days: daysBetween(editStageData.start_date, v) || null }); }} />
+                                <span className="inline-block w-28 px-2 py-1 text-sm text-center bg-gray-50 rounded border border-gray-200 text-gray-700" title="Auto-computed from Planned Start + Duration" data-testid={`stage-planned-finish-${stage.stage_id}`}>
+                                  {editStageData.target_date ? new Date(editStageData.target_date).toLocaleDateString('en-IN') : '—'}
+                                </span>
                               ) : (
                                 <span className="text-sm">{stage.target_date ? new Date(stage.target_date).toLocaleDateString('en-IN') : '-'}</span>
                               )}
                             </td>
-                            {/* Duration (days) — auto-computed from Planned Start/Finish, read-only */}
+                            {/* Duration (days) — MANUAL entry. Updating this recomputes Planned Finish from Planned Start. */}
                             <td className="px-3 py-3 text-center">
                               {editingStageId === stage.stage_id ? (
-                                <span className="inline-block w-20 px-2 py-1 text-sm text-center bg-gray-50 rounded border border-gray-200 text-gray-700" data-testid={`stage-duration-auto-edit-${stage.stage_id}`}>
-                                  {daysBetween(editStageData.start_date, editStageData.target_date) || '—'}
-                                </span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  className="border rounded px-2 py-1 text-sm w-20 text-center"
+                                  value={editStageData.duration_days ?? ''}
+                                  onChange={e => {
+                                    const dur = parseInt(e.target.value) || 0;
+                                    const newFinish = (editStageData.start_date && dur > 0) ? addDaysISO(editStageData.start_date, dur) : editStageData.target_date;
+                                    setEditStageData(d => ({...d, duration_days: e.target.value, target_date: newFinish || d.target_date}));
+                                    autoSaveStageField(stage.stage_id, { duration_days: dur || null, target_date: newFinish || null });
+                                  }}
+                                  data-testid={`stage-duration-${stage.stage_id}`}
+                                  placeholder="—"
+                                />
                               ) : (
                                 <span className="text-sm text-gray-600">
-                                  {daysBetween(stage.start_date, stage.target_date) || stage.duration_days || '-'}
+                                  {stage.duration_days || daysBetween(stage.start_date, stage.target_date) || '-'}
                                 </span>
                               )}
                             </td>
@@ -4805,6 +4870,14 @@ export default function ProjectDetail() {
                               ) : (
                                 <span className="text-sm">{stage.actual_finish_date ? new Date(stage.actual_finish_date).toLocaleDateString('en-IN') : '-'}</span>
                               )}
+                            </td>
+                            {/* Actual Duration (days) — auto-computed from Actual Start / Actual Finish, read-only */}
+                            <td className="px-3 py-3 text-center">
+                              <span className="text-sm text-gray-600" data-testid={`stage-actual-duration-${stage.stage_id}`}>
+                                {(editingStageId === stage.stage_id
+                                  ? daysBetween(editStageData.actual_start_date, editStageData.actual_finish_date)
+                                  : daysBetween(stage.actual_start_date, stage.actual_finish_date)) || '-'}
+                              </span>
                             </td>
                             {/* Progress (% complete) — also doubles as Status indicator */}
                             <td className="px-3 py-3 text-center">
