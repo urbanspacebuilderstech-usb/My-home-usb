@@ -1161,7 +1161,13 @@ export default function CRMSales() {
     if (stageId === 'revision') {
       stageLeads = filteredLeads.filter(lead => (lead.re_revision_number || 0) > 0 && lead.current_stage_id === 'stg_re_requested');
     } else if (stageId === 'P1' || stageId === 'P2' || stageId === 'P3') {
-      stageLeads = filteredLeads.filter(lead => (lead.client_category || '') === stageId);
+      // Exclude onboarded / moved-to-planning / lost from P1/P2/P3 buckets — those
+      // priority chips are meant to surface *active* pipeline only.
+      stageLeads = filteredLeads.filter(lead =>
+        (lead.client_category || '') === stageId &&
+        !['stg_project_onboarded', 'stg_lost'].includes(lead.current_stage_id) &&
+        lead.onboarding_status !== 'moved_to_planning'
+      );
     } else {
       stageLeads = filteredLeads.filter(lead => lead.current_stage_id === stageId);
     }
