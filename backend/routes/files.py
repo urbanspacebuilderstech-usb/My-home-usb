@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import uuid
 import logging
 
-from core.database import db
+from core.database import db, fs
 from core.deps import get_current_user
 from core.models import User
 from core.storage import put_object, get_object, init_storage, APP_NAME, MIME_TYPES
@@ -105,7 +105,32 @@ async def download_file(file_id: str, request: Request):
 
     record = await db.files.find_one({"file_id": file_id, "is_deleted": False}, {"_id": 0})
     if not record:
-        raise HTTPException(status_code=404, detail="File not found")
+        # Legacy fallback: attachments uploaded before the unified object-storage
+        # migration were saved to GridFS with the ObjectId as their file_id. Try
+        # GridFS so older addition-section files keep working without migration.
+        try:
+            from bson import ObjectId
+            try:
+                oid = ObjectId(file_id)
+            except Exception:
+                raise HTTPException(status_code=404, detail="File not found")
+            gf = await fs.open_download_stream(oid)
+            data = await gf.read()
+            meta = gf.metadata or {}
+            content_type = meta.get("contentType") or "application/octet-stream"
+            filename = gf.filename or "file"
+            return Response(
+                content=data,
+                media_type=content_type,
+                headers={
+                    "Content-Disposition": f'inline; filename="{filename}"',
+                    "Cache-Control": "private, max-age=3600",
+                },
+            )
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=404, detail="File not found")
 
     try:
         data, content_type = get_object(record["storage_path"])
