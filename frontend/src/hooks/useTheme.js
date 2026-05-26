@@ -43,7 +43,32 @@ export function useTheme() {
   useEffect(() => {
     applyClass(theme);
     try { window.localStorage.setItem(STORAGE_KEY, theme); } catch { /* ignore */ }
+    // Broadcast to other same-origin frames (e.g. Finance Board iframes)
+    // so they re-paint without needing a reload.
+    try { window.postMessage({ type: 'usb-theme-change', theme }, window.location.origin); } catch {}
   }, [theme]);
+
+  // Listen for theme changes from other frames (parent OR sibling iframes).
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === STORAGE_KEY && (e.newValue === 'dark' || e.newValue === 'light')) {
+        setThemeState(e.newValue);
+      }
+    };
+    const onMessage = (e) => {
+      // Only accept same-origin messages and our message type
+      if (e.origin !== window.location.origin) return;
+      if (e.data && e.data.type === 'usb-theme-change' && (e.data.theme === 'dark' || e.data.theme === 'light')) {
+        setThemeState(e.data.theme);
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('message', onMessage);
+    };
+  }, []);
 
   const setTheme = useCallback((next) => {
     setThemeState(next === 'dark' ? 'dark' : 'light');
