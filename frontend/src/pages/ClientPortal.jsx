@@ -24,7 +24,9 @@ import {
   Receipt,
   Layers,
   TrendingDown,
-  AlertCircle
+  AlertCircle,
+  XCircle,
+  MessageSquare
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -164,6 +166,20 @@ export default function ClientPortal() {
       if (projectId) fetchProjectData(projectId);
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Failed to reject');
+    }
+  };
+  // Client asks Planning for a review/clarification before approving.
+  // Records a note that Planning sees in their notification feed.
+  const handleClientRequestReview = async (costId) => {
+    const note = window.prompt('What would you like to clarify with Planning before approving?', '');
+    if (note === null) return;
+    if (!note.trim()) { toast.error('Please share a short note so Planning knows what to clarify'); return; }
+    try {
+      await axios.post(`${API}/client-portal/additional-costs/${costId}/request-review`, { note });
+      toast.success('Review request sent to Planning');
+      if (projectId) fetchProjectData(projectId);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to send review request');
     }
   };
   // Section batch decision (one click approves every addition inside).
@@ -774,6 +790,9 @@ export default function ClientPortal() {
                   const amt = cost.estimated_amount || cost.actual_amount || 0;
                   const rcv = cost.income_received || 0;
                   const bal = amt - rcv;
+                  const qty = cost.qty || 1;
+                  const unit = cost.unit || '';
+                  const unitRate = cost.price != null ? cost.price : (qty > 0 ? amt / qty : 0);
                   const isPaid = bal <= 0 && amt > 0;
                   const isPartial = rcv > 0 && bal > 0;
                   const requested = cost.payment_requested;
@@ -781,6 +800,7 @@ export default function ClientPortal() {
                   const clientRejected = cost.client_rejected;
                   const creApproved = cost.cre_approved;
                   const preStatus = cost.client_approval_status;
+                  const reviewRequested = cost.client_review_requested;
                   const preIsPending = preStatus === 'pending_client';
                   const preIsApproved = preStatus === 'client_approved';
                   const preIsRejected = preStatus === 'client_rejected';
@@ -788,28 +808,38 @@ export default function ClientPortal() {
                   if (isPaid) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Paid</span>;
                   else if (isPartial) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Partial Received</span>;
                   else if (clientRejected || preIsRejected) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-rose-100 text-rose-700">Rejected</span>;
+                  else if (reviewRequested) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-sky-100 text-sky-700" title={cost.client_review_note || ''}>Review Requested</span>;
                   else if (creApproved) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Approved · Pending Payment</span>;
                   else if (clientApproved || preIsApproved) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">You Approved</span>;
                   else if (requested) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Awaiting Your Approval</span>;
                   else if (preIsPending) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-violet-100 text-violet-700">Awaiting Your Approval</span>;
                   else statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Pending</span>;
-                  const showApprove = ((requested && !clientApproved && !clientRejected && !isPaid) || preIsPending);
+                  const showActions = ((requested && !clientApproved && !clientRejected && !isPaid) || preIsPending);
                   return (
                     <tr key={cost.cost_id} data-testid={`addn-row-${cost.cost_id}`}>
-                      <td className="px-4 py-3 text-sm text-gray-700 align-top">{idx + 1}</td>
-                      <td className="px-4 py-3 align-top">
+                      <td className="px-3 py-3 text-sm text-gray-700 align-top">{idx + 1}</td>
+                      <td className="px-3 py-3 align-top">
                         <p className="text-sm text-gray-900 font-medium">{cost.name || cost.description}</p>
-                        {cost.qty && cost.price && <p className="text-[11px] text-gray-500 mt-0.5">{cost.qty} × ₹{cost.price.toLocaleString('en-IN')}</p>}
                       </td>
-                      <td className="px-4 py-3 text-right text-sm font-semibold text-gray-900 align-top">₹{amt.toLocaleString('en-IN')}</td>
-                      <td className="px-4 py-3 text-right text-sm font-semibold text-emerald-600 align-top">₹{rcv.toLocaleString('en-IN')}</td>
-                      <td className="px-4 py-3 text-right text-sm font-bold text-orange-600 align-top">₹{bal.toLocaleString('en-IN')}</td>
-                      <td className="px-4 py-3 text-center align-top">{statusBadge}</td>
-                      <td className="px-4 py-3 text-center align-top print:hidden">
-                        {showApprove ? (
-                          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white h-8" onClick={() => preIsPending ? handlePreApproveAddition(cost.cost_id) : handleClientApproveAddition(cost.cost_id)} data-testid={`client-approve-addn-${cost.cost_id}`}>
-                            <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
-                          </Button>
+                      <td className="px-3 py-3 text-right text-sm text-gray-700 align-top">{qty}</td>
+                      <td className="px-3 py-3 text-sm text-gray-600 align-top">{unit || '—'}</td>
+                      <td className="px-3 py-3 text-right text-sm text-gray-700 align-top">₹{unitRate.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-3 text-right text-sm font-semibold text-gray-900 align-top">₹{amt.toLocaleString('en-IN')}</td>
+                      <td className="px-3 py-3 text-sm text-gray-600 align-top truncate max-w-[160px]" title={cost.remarks || ''}>{cost.remarks || '—'}</td>
+                      <td className="px-3 py-3 text-center align-top">{statusBadge}</td>
+                      <td className="px-3 py-3 text-center align-top print:hidden">
+                        {showActions ? (
+                          <div className="flex items-center justify-center gap-1 flex-wrap">
+                            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white h-8" onClick={() => preIsPending ? handlePreApproveAddition(cost.cost_id) : handleClientApproveAddition(cost.cost_id)} data-testid={`client-approve-addn-${cost.cost_id}`}>
+                              <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+                            </Button>
+                            <Button size="sm" variant="outline" className="border-rose-300 text-rose-700 hover:bg-rose-50 h-8" onClick={() => preIsPending ? handlePreRejectAddition(cost.cost_id) : handleClientRejectAddition(cost.cost_id)} data-testid={`client-reject-addn-${cost.cost_id}`}>
+                              <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
+                            </Button>
+                            <Button size="sm" variant="outline" className="border-sky-300 text-sky-700 hover:bg-sky-50 h-8" onClick={() => handleClientRequestReview(cost.cost_id)} data-testid={`client-review-addn-${cost.cost_id}`}>
+                              <MessageSquare className="h-3.5 w-3.5 mr-1" /> Review
+                            </Button>
+                          </div>
                         ) : (<span className="text-xs text-gray-400">—</span>)}
                       </td>
                     </tr>
@@ -819,13 +849,15 @@ export default function ClientPortal() {
                 const headerRow = (
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Work Description</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Received</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Balance</th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase print:hidden">Action</th>
+                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
+                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Work Description</th>
+                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Qty</th>
+                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Unit</th>
+                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Unit Rate</th>
+                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Total</th>
+                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
+                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
+                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase print:hidden">Action</th>
                     </tr>
                   </thead>
                 );
@@ -883,11 +915,13 @@ export default function ClientPortal() {
                               <tbody className="bg-white divide-y divide-gray-200">
                                 {renderRows(items, 1)}
                                 <tr className="bg-gray-50/50">
-                                  <td colSpan="2" className="px-4 py-2 text-right text-xs font-bold text-gray-600">Section Total</td>
-                                  <td className="px-4 py-2 text-right text-sm font-bold text-gray-800">₹{subtotal.toLocaleString('en-IN')}</td>
-                                  <td className="px-4 py-2 text-right text-sm font-bold text-emerald-700">₹{recvSubtotal.toLocaleString('en-IN')}</td>
-                                  <td className="px-4 py-2 text-right text-sm font-bold text-orange-600">₹{(subtotal-recvSubtotal).toLocaleString('en-IN')}</td>
-                                  <td colSpan="2"></td>
+                                  <td colSpan="5" className="px-3 py-2 text-right text-xs font-bold text-gray-600">Section Total</td>
+                                  <td className="px-3 py-2 text-right text-sm font-bold text-gray-800">₹{subtotal.toLocaleString('en-IN')}</td>
+                                  <td colSpan="3" className="px-3 py-2 text-right text-[11px] text-gray-600">
+                                    <span className="text-emerald-700">Received ₹{recvSubtotal.toLocaleString('en-IN')}</span>
+                                    <span className="mx-1 text-gray-300">·</span>
+                                    <span className="text-orange-600">Balance ₹{(subtotal-recvSubtotal).toLocaleString('en-IN')}</span>
+                                  </td>
                                 </tr>
                               </tbody>
                             </table>
@@ -903,18 +937,20 @@ export default function ClientPortal() {
                         <tbody className="bg-white divide-y divide-gray-200">
                           {ungrouped.length === 0 ? (
                             <tr>
-                              <td colSpan="7" className="px-6 py-8 text-center text-gray-500">{sections.length > 0 ? 'No ungrouped additions.' : 'No additional work recorded'}</td>
+                              <td colSpan="9" className="px-6 py-8 text-center text-gray-500">{sections.length > 0 ? 'No ungrouped additions.' : 'No additional work recorded'}</td>
                             </tr>
                           ) : renderRows(ungrouped, 1)}
                         </tbody>
                         {additionalCosts.length > 0 && (
                           <tfoot className="bg-amber-50">
                             <tr>
-                              <td colSpan="2" className="px-4 py-3 text-right text-sm font-bold text-gray-700">Totals:</td>
-                              <td className="px-4 py-3 text-right text-sm font-bold text-gray-900">₹{totalAdditional.toLocaleString('en-IN')}</td>
-                              <td className="px-4 py-3 text-right text-sm font-bold text-emerald-600">₹{totalAdditionalReceived.toLocaleString('en-IN')}</td>
-                              <td className="px-4 py-3 text-right text-sm font-bold text-orange-600">₹{(totalAdditional - totalAdditionalReceived).toLocaleString('en-IN')}</td>
-                              <td colSpan="2"></td>
+                              <td colSpan="5" className="px-3 py-3 text-right text-sm font-bold text-gray-700">Total:</td>
+                              <td className="px-3 py-3 text-right text-sm font-bold text-gray-900">₹{totalAdditional.toLocaleString('en-IN')}</td>
+                              <td colSpan="3" className="px-3 py-3 text-right text-[11px] text-gray-600">
+                                <span className="text-emerald-600">Received ₹{totalAdditionalReceived.toLocaleString('en-IN')}</span>
+                                <span className="mx-1 text-gray-300">·</span>
+                                <span className="text-orange-600">Balance ₹{(totalAdditional - totalAdditionalReceived).toLocaleString('en-IN')}</span>
+                              </td>
                             </tr>
                           </tfoot>
                         )}

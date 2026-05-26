@@ -859,10 +859,17 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
         "photos": photos,
         "documents": documents,
         "additional_costs": additional_costs,
+        # Return any section that's either (a) batch-sent to client, OR (b) has
+        # at least one child row currently visible to client (single-row sends).
+        # This keeps the parent section name visible even when Planning sent
+        # only one line from the section.
         "addition_sections": await db.addition_sections.find(
             {
                 "project_id": project_id,
-                "client_approval_status": {"$exists": True, "$ne": None},
+                "$or": [
+                    {"client_approval_status": {"$exists": True, "$ne": None}},
+                    {"section_id": {"$in": list({c.get("section_id") for c in additional_costs if c.get("section_id")})}},
+                ],
             },
             {"_id": 0},
         ).sort("created_at", 1).to_list(200),
@@ -4376,6 +4383,46 @@ async def client_reject_additional_cost(cost_id: str, request: Request, user: Us
         )
     await create_audit_log(user.user_id, "client_reject", "additional_cost", cost_id, {"reason": reason})
     return {"message": "Rejection recorded", "cost_id": cost_id}
+
+
+@router.post("/client-portal/additional-costs/{cost_id}/request-review")
+async def client_request_review_additional_cost(cost_id: str, request: Request, user: User = Depends(get_current_user)):
+    """Client requests a review/clarification before approving or rejecting.
+    Stamps client_review_requested + note onto the additional cost so Planning
+    sees the open question in their UI."""
+    if user.role != UserRole.CLIENT:
+        raise HTTPException(status_code=403, detail="Client access only")
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Additional cost not found")
+    project = await db.projects.find_one({"project_id": cost["project_id"], "client_user_id": user.user_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=403, detail="You can only request review on your own project")
+    note = ""
+    try:
+        body = await request.json()
+        if isinstance(body, dict):
+            note = (body.get("note") or "").strip()
+    except Exception:
+        pass
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.additional_costs.update_one(
+        {"cost_id": cost_id},
+        {"$set": {
+            "client_review_requested": True,
+            "client_review_requested_at": now_iso,
+            "client_review_note": note,
+            "client_approval_status": "pending_client",
+        }},
+    )
+    planning_users = await db.users.find({"role": {"$in": ["planning", "planning_person", "cre"]}}, {"_id": 0, "user_id": 1}).to_list(50)
+    for u in planning_users:
+        await create_notification(
+            u["user_id"],
+            f"Client requested review on Additional Work — {project.get('name', 'Project')}: {cost.get('description', '')[:60]}. Note: {note or '(no note)'}"
+        )
+    await create_audit_log(user.user_id, "client_request_review", "additional_cost", cost_id, {"note": note})
+    return {"message": "Review request sent to Planning", "cost_id": cost_id}
 
 
 @router.post("/additional-costs/{cost_id}/cre-approve")
