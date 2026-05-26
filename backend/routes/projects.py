@@ -773,8 +773,25 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
     documents = await db.documents.find({"project_id": project_id}, {"_id": 0}).sort("created_at", -1).to_list(1000)
 
     # Additional Work (variations) + Deductions — same data Planning team manages.
+    # Additional costs surfaced to the client ONLY when Planning has explicitly
+    # shared them. Three signals qualify a row for client visibility:
+    #   1. `client_approval_status` set (Send-to-Client clicked, any decision)
+    #   2. `payment_requested=True` (legacy post-payment-request approval flow)
+    #   3. Parent section was sent (covered via the section's status — we still
+    #      want individual rows visible so include section_id with sent parent)
+    sent_section_ids = await db.addition_sections.distinct(
+        "section_id",
+        {"project_id": project_id, "client_approval_status": {"$exists": True}},
+    )
     additional_costs = await db.additional_costs.find(
-        {"project_id": project_id},
+        {
+            "project_id": project_id,
+            "$or": [
+                {"client_approval_status": {"$exists": True, "$ne": None}},
+                {"payment_requested": True},
+                {"section_id": {"$in": sent_section_ids}} if sent_section_ids else {"_id": "__never__"},
+            ],
+        },
         {"_id": 0, "internal_notes": 0},
     ).sort("sort_order", 1).to_list(500)
     deductions = await db.deductions.find(
@@ -843,7 +860,11 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
         "documents": documents,
         "additional_costs": additional_costs,
         "addition_sections": await db.addition_sections.find(
-            {"project_id": project_id}, {"_id": 0}
+            {
+                "project_id": project_id,
+                "client_approval_status": {"$exists": True, "$ne": None},
+            },
+            {"_id": 0},
         ).sort("created_at", 1).to_list(200),
         "deductions": deductions,
         "income_entries": income_entries,
