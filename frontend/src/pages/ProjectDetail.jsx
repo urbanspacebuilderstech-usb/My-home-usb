@@ -2891,7 +2891,7 @@ export default function ProjectDetail() {
       await axios.patch(`${API}/additional-costs/${costId}/request-payment`, {
         expected_payment_date: expectedDate || null,
       });
-      toast.success('Additional payment requested! Goes to the Client for approval next.');
+      toast.success('Payment request sent to CRE Payment Schedule. CRE will collect and forward to Accountant.');
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request payment');
@@ -6642,7 +6642,14 @@ export default function ProjectDetail() {
                                       )
                                     )
                                   )}
-                                  {cost.payment_requested && balance > 0 && !cost.client_approved && !cost.client_rejected && (
+                                  {/* After Planning hits Req Payment, the row creates a payment_stages doc
+                                      and lives on the CRE Payment Schedule. We show "With CRE" so Planning
+                                      knows the row is no longer in their hands. The old "Awaiting Client"
+                                      legacy state only applies when client never pre-approved. */}
+                                  {cost.payment_requested && balance > 0 && (cost.client_approval_status === 'client_approved' || cost.client_approved) && !cost.cre_approved && (
+                                    <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-medium" data-testid={`add-with-cre-${cost.cost_id}`}>With CRE · Payment Schedule</span>
+                                  )}
+                                  {cost.payment_requested && balance > 0 && !(cost.client_approval_status === 'client_approved' || cost.client_approved) && !cost.client_rejected && (
                                     <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium">Awaiting Client</span>
                                   )}
                                   {cost.client_rejected && balance > 0 && (
