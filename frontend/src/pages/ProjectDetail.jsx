@@ -6574,11 +6574,31 @@ export default function ProjectDetail() {
                                     <>
                                   {/* Pre-payment client approval gate (new) — must be cleared before Req Payment. */}
                                   {balance > 0 && !cost.payment_requested && (
-                                    cost.client_approval_status === 'pending_client' ? (
+                                    cost.client_review_requested ? (
+                                      <>
+                                        <span className="text-[11px] px-2 py-1 rounded-full bg-sky-100 text-sky-700 font-medium" title={cost.client_review_note || ''} data-testid={`add-review-${cost.cost_id}`}>
+                                          Review: {cost.client_review_note ? (cost.client_review_note.length > 24 ? cost.client_review_note.slice(0, 24) + '…' : cost.client_review_note) : 'requested'}
+                                        </span>
+                                        {canManage && (
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 gap-1 border-violet-500 text-violet-700 hover:bg-violet-50 text-xs"
+                                            onClick={() => sendAdditionToClient(cost)}
+                                            data-testid={`resend-review-${cost.cost_id}`}
+                                            title="After addressing the client's note, resend for approval"
+                                          >
+                                            <Send className="h-3 w-3" /> Resend
+                                          </Button>
+                                        )}
+                                      </>
+                                    ) : cost.client_approval_status === 'pending_client' ? (
                                       <span className="text-[11px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium" data-testid={`add-pending-client-${cost.cost_id}`}>Pending Client</span>
                                     ) : cost.client_approval_status === 'client_rejected' ? (
                                       <>
-                                        <span className="text-[11px] px-2 py-1 rounded-full bg-rose-100 text-rose-700 font-medium" title={cost.client_rejection_reason || ''}>Client Rejected</span>
+                                        <span className="text-[11px] px-2 py-1 rounded-full bg-rose-100 text-rose-700 font-medium" title={cost.client_rejection_reason || ''} data-testid={`add-rejected-${cost.cost_id}`}>
+                                          Rejected{cost.client_rejection_reason ? `: ${cost.client_rejection_reason.length > 20 ? cost.client_rejection_reason.slice(0, 20) + '…' : cost.client_rejection_reason}` : ''}
+                                        </span>
                                         {canManage && (
                                           <Button
                                             variant="outline"

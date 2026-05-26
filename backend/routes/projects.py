@@ -3729,6 +3729,8 @@ async def send_addition_to_client(cost_id: str, user: User = Depends(get_current
             "client_approval_sent_at": now,
             "client_approval_sent_by": user.user_id,
             "client_rejection_reason": None,
+            "client_review_requested": False,
+            "client_review_note": None,
         }},
     )
     project = await db.projects.find_one({"project_id": cost["project_id"]}, {"_id": 0, "name": 1, "client_name": 1}) or {}
@@ -3793,6 +3795,10 @@ def _decision_payload(decision: str, reason: Optional[str], user: User):
         "client_decided_at": now,
         "client_decided_by": user.user_id,
         "client_rejection_reason": reason if decision == "reject" else None,
+        # Final decision clears any prior review request so Planning's row state
+        # transitions cleanly from "Review Requested" → Approved / Rejected.
+        "client_review_requested": False,
+        "client_review_note": None,
     }
 
 

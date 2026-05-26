@@ -380,7 +380,7 @@ export default function ClientPortal() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 py-4 sm:px-6 sm:py-8" ref={printRef}>
+      <div className="max-w-[1400px] mx-auto px-4 py-4 sm:px-6 sm:py-8" ref={printRef}>
         {/* Project Header */}
         <div className="mb-6 sm:mb-8 print:break-inside-avoid">
           <h2 data-testid="client-portal-title" className="text-xl sm:text-3xl font-bold text-gray-900">{project.name}</h2>
