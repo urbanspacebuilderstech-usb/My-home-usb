@@ -5119,6 +5119,7 @@ class ProjectStageCreate(BaseModel):
     duration_days: Optional[int] = None
     actual_start_date: Optional[str] = None
     actual_finish_date: Optional[str] = None
+    actual_duration_days: Optional[int] = None
     progress: Optional[int] = None
     hindrances: Optional[str] = None
     status: str = "yet_to_start"  # yet_to_start, started, finished
@@ -5138,6 +5139,7 @@ class ProjectStageUpdate(BaseModel):
     duration_days: Optional[int] = None
     actual_start_date: Optional[str] = None
     actual_finish_date: Optional[str] = None
+    actual_duration_days: Optional[int] = None
     progress: Optional[int] = None       # 0–100
     hindrances: Optional[str] = None      # delays / blockers (replaces "remarks" semantically)
     status: Optional[str] = None
@@ -5193,6 +5195,7 @@ async def add_project_stage(project_id: str, data: ProjectStageCreate, user: Use
         "duration_days": data.duration_days,
         "actual_start_date": data.actual_start_date,
         "actual_finish_date": data.actual_finish_date,
+        "actual_duration_days": data.actual_duration_days,
         "progress": data.progress if data.progress is not None else 0,
         "hindrances": data.hindrances,
         "status": data.status,
@@ -5231,6 +5234,7 @@ async def add_project_stages_bulk(project_id: str, stages: List[ProjectStageCrea
             "duration_days": s.duration_days,
             "actual_start_date": s.actual_start_date,
             "actual_finish_date": s.actual_finish_date,
+            "actual_duration_days": s.actual_duration_days,
             "progress": s.progress if s.progress is not None else 0,
             "hindrances": s.hindrances,
             "status": s.status or "yet_to_start",
