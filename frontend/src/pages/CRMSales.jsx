@@ -1525,11 +1525,12 @@ export default function CRMSales() {
               <table className="w-full table-fixed">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[22%]">Lead</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[22%]">Contact</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[16%]">Stage</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[14%]">RE Status</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[14%]">Created</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[20%]">Lead</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[18%]">Contact</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Assigned</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[14%]">Stage</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">RE Status</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Created</th>
                     <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Actions</th>
                   </tr>
                 </thead>
@@ -1574,6 +1575,20 @@ export default function CRMSales() {
                       </td>
                       <td className="px-2 py-2">
                         <MaskedContact phone={lead.phone} email={lead.email} lost={isLeadLost(lead)} compact />
+                      </td>
+                      {/* Assigned — mirrors the Pre-Sales CRM column so Super Admin can
+                          see at a glance who owns each sales lead. */}
+                      <td className="px-2 py-2">
+                        {lead.assigned_to_name ? (
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white text-[10px] font-semibold flex-shrink-0">
+                              {lead.assigned_to_name.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="text-xs text-gray-700 truncate" title={lead.assigned_to_name} data-testid={`sales-assignee-${lead.lead_id}`}>{lead.assigned_to_name}</span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
                       </td>
                       <td className="px-2 py-2">
                         <Badge 
