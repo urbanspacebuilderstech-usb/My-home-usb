@@ -6863,6 +6863,145 @@ async def accountant_labour_payments(status: str = "pending", user: User = Depen
     return {"count": len(out), "requests": out}
 
 
+@router.get("/accountant/labour-rab/{request_id}/pay-context")
+async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str, stage_id: str, user: User = Depends(get_current_user)):
+    """Returns full bill detail + suspense + active/inactive HDFC cheques for a labour RAB.
+    Used by the new Accountant Release dialog (Labour Payments tab)."""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    target_stage = None
+    target_pr = None
+    for st in wo.get("stages", []):
+        if st.get("stage_id") == stage_id:
+            target_stage = st
+            for pr in (st.get("payment_requests") or []):
+                if pr.get("request_id") == request_id:
+                    target_pr = pr
+                    break
+            break
+    if not target_pr or not target_stage:
+        raise HTTPException(status_code=404, detail="RAB not found")
+
+    bill_amount = float(target_pr.get("amount", 0) or 0)
+    contractor_id = wo.get("contractor_id")
+    contractor_name = wo.get("contractor_name", "")
+    project = await db.projects.find_one({"project_id": wo.get("project_id")}, {"_id": 0, "name": 1, "team": 1}) or {}
+
+    # Contractor suspense balance
+    suspense_balance = await _get_contractor_suspense_balance(contractor_id) if contractor_id else 0.0
+
+    # Prior RABs for the same WO (all stages) — for context
+    prior_rabs = []
+    for st in (wo.get("stages") or []):
+        for pr in (st.get("payment_requests") or []):
+            if pr.get("request_id") == request_id:
+                continue
+            prior_rabs.append({
+                "request_id": pr.get("request_id"),
+                "rab_number": pr.get("rab_number"),
+                "stage_name": st.get("name"),
+                "amount": pr.get("amount", 0),
+                "approved_amount": pr.get("approved_amount", 0),
+                "status": pr.get("status"),
+                "requested_at": pr.get("requested_at"),
+                "released_at": (pr.get("payment_record") or {}).get("released_at"),
+                "method": (pr.get("payment_record") or {}).get("method"),
+            })
+    prior_rabs.sort(key=lambda r: r.get("requested_at") or "")
+
+    # Stage totals
+    released = sum(float(p.get("approved_amount", 0) or 0) for p in (target_stage.get("payment_requests") or []) if p.get("status") == "approved")
+    pending_other = sum(float(p.get("amount", 0) or 0) for p in (target_stage.get("payment_requests") or []) if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"] and p.get("request_id") != request_id)
+    stage_total = float(target_stage.get("amount", 0) or 0)
+    stage_balance = max(0.0, stage_total - released - pending_other - bill_amount)
+
+    # HDFC-only Active incoming cheques (CRE-opened, unused) — bank_name contains 'HDFC'
+    bank_filter = {"$or": [
+        {"bank_name": {"$regex": "HDFC", "$options": "i"}},
+        {"bank": {"$regex": "HDFC", "$options": "i"}},
+    ]}
+    active_cheques = await db.cheques.find({
+        "cheque_type": "incoming",
+        "is_opened": True,
+        "status": {"$in": ["issued", "post_dated", "deposited"]},
+        "$or": [{"used_for_expense_id": {"$exists": False}}, {"used_for_expense_id": None}],
+        **bank_filter,
+    }, {"_id": 0}).sort("cheque_date", -1).to_list(200)
+    inactive_cheques = await db.cheques.find({
+        "cheque_type": "incoming",
+        "is_opened": False,
+        "status": {"$in": ["issued", "post_dated", "deposited"]},
+        "$or": [{"used_for_expense_id": {"$exists": False}}, {"used_for_expense_id": None}],
+        **bank_filter,
+    }, {"_id": 0}).sort("cheque_date", -1).to_list(200)
+
+    # Enrich with project_name
+    project_cache = {}
+    for ch in (active_cheques + inactive_cheques):
+        pid = ch.get("project_id")
+        if pid and pid not in project_cache:
+            p = await db.projects.find_one({"project_id": pid}, {"_id": 0, "name": 1})
+            project_cache[pid] = (p or {}).get("name")
+        if pid:
+            ch["project_name"] = project_cache.get(pid) or ch.get("project_name")
+
+    payable_after_suspense = max(0.0, bill_amount - suspense_balance)
+    suspense_to_apply = min(suspense_balance, bill_amount)
+
+    return {
+        "request": {
+            "request_id": request_id,
+            "rab_number": target_pr.get("rab_number"),
+            "amount": bill_amount,
+            "notes": target_pr.get("notes"),
+            "dlr_summary": target_pr.get("dlr_summary"),
+            "requested_at": target_pr.get("requested_at"),
+            "requested_by_name": target_pr.get("requested_by_name"),
+            "pm_approved_by_name": target_pr.get("pm_approved_by_name"),
+            "pm_approved_at": target_pr.get("pm_approved_at"),
+            "pm_notes": target_pr.get("pm_notes"),
+            "qc_approved_by_name": target_pr.get("qc_approved_by_name"),
+            "qc_approved_at": target_pr.get("qc_approved_at"),
+            "qc_notes": target_pr.get("qc_notes"),
+            "planning_approved_by_name": target_pr.get("planning_approved_by_name"),
+            "planning_approved_at": target_pr.get("planning_approved_at"),
+            "planning_notes": target_pr.get("planning_notes"),
+        },
+        "stage": {
+            "stage_id": stage_id,
+            "stage_name": target_stage.get("name"),
+            "stage_total": stage_total,
+            "released": released,
+            "pending_other": pending_other,
+            "balance_after_this": stage_balance,
+        },
+        "work_order": {
+            "work_order_id": work_order_id,
+            "contractor_id": contractor_id,
+            "contractor_name": contractor_name,
+            "contractor_type": wo.get("contractor_type"),
+            "total_value": wo.get("total_value", 0),
+            "paid_amount": wo.get("paid_amount", 0),
+        },
+        "project": {
+            "project_id": wo.get("project_id"),
+            "project_name": project.get("name"),
+        },
+        "suspense": {
+            "vendor_balance": suspense_balance,
+            "credit_to_apply": suspense_to_apply,
+        },
+        "payable_after_suspense": payable_after_suspense,
+        "prior_rabs": prior_rabs,
+        "active_cheques": active_cheques,
+        "inactive_cheques": inactive_cheques,
+    }
+
+
 @router.post("/accountant/labour-payments/{request_id}/release")
 async def accountant_release_labour_payment(request_id: str, data: dict, user: User = Depends(get_current_user)):
     """Accountant releases a planning-approved payment.
@@ -6887,10 +7026,15 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         raise HTTPException(status_code=404, detail="Work order not found")
 
     payment_method = (data.get("payment_method") or "bank").lower()
-    if payment_method not in ("cash", "bank", "cheque"):
+    # Aligned with Income side (MultiPaymentInput): cash, cheque, current_account, savings_account
+    # Legacy values 'bank' and 'savings' kept for backward compatibility.
+    METHOD_ALIASES = {"bank": "current_account", "savings": "savings_account"}
+    payment_method = METHOD_ALIASES.get(payment_method, payment_method)
+    if payment_method not in ("cash", "cheque", "current_account", "savings_account"):
         raise HTTPException(status_code=400, detail="Invalid payment method")
 
     cheque_no = data.get("cheque_no", "")
+    cheque_ids = data.get("cheque_ids") or []  # NEW: list of CRE-opened cheques to consume
     bank_ref = data.get("bank_ref", "")
     payment_date = data.get("payment_date") or datetime.now(timezone.utc).isoformat()
     notes = data.get("notes", "")
@@ -6932,6 +7076,28 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
             raise HTTPException(status_code=400, detail="Cheque amount cannot be less than approved amount")
         cheque_excess = max(0.0, cheque_amount - approved_amount)
 
+    # When Accountant picks pre-opened cheques (new flow), compute cheque_amount
+    # from the sum of the selected cheques and validate. Excess auto-credits suspense.
+    selected_cheque_docs = []
+    if payment_method == "cheque" and cheque_ids:
+        selected_cheque_docs = await db.cheques.find(
+            {"cheque_id": {"$in": cheque_ids}}, {"_id": 0}
+        ).to_list(len(cheque_ids))
+        if len(selected_cheque_docs) != len(cheque_ids):
+            raise HTTPException(status_code=400, detail="One or more selected cheques not found")
+        for ch in selected_cheque_docs:
+            if ch.get("used_for_expense_id"):
+                raise HTTPException(status_code=400, detail=f"Cheque {ch.get('cheque_number')} already used")
+            if not ch.get("is_opened"):
+                raise HTTPException(status_code=400, detail=f"Cheque {ch.get('cheque_number')} not yet opened by CRE")
+        sum_cheques = sum(float(ch.get("amount", 0) or 0) for ch in selected_cheque_docs)
+        if sum_cheques < approved_amount - 0.01:
+            raise HTTPException(status_code=400, detail=f"Selected cheques total ₹{sum_cheques:,.0f} < approved ₹{approved_amount:,.0f}")
+        cheque_amount = sum_cheques
+        cheque_excess = max(0.0, sum_cheques - approved_amount)
+        if not cheque_no:
+            cheque_no = ", ".join((ch.get("cheque_number") or "") for ch in selected_cheque_docs)
+
     # Payment record
     payment_record = {
         "request_id": request_id,
@@ -6939,7 +7105,8 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         "approved_amount": approved_amount,
         "cheque_amount": cheque_amount if payment_method == "cheque" else None,
         "cheque_no": cheque_no if payment_method == "cheque" else None,
-        "bank_ref": bank_ref if payment_method == "bank" else None,
+        "cheque_ids": cheque_ids if payment_method == "cheque" and cheque_ids else None,
+        "bank_ref": bank_ref if payment_method in ("current_account", "savings_account") else None,
         "use_suspense_amount": use_suspense,
         "suspense_credited": cheque_excess,
         "payment_date": payment_date,
@@ -7004,7 +7171,13 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
     # Cash outflow = approved_amount - use_suspense (suspense usage is a non-cash settlement)
     cash_paid = max(0.0, approved_amount - use_suspense)
     expense_id = f"exp_{uuid.uuid4().hex[:12]}"
-    cashbook_method_map = {"bank": "bank_transfer", "cash": "cash", "cheque": "cheque"}
+    cashbook_method_map = {
+        "bank": "bank_transfer",
+        "current_account": "current_account",
+        "savings_account": "savings_account",
+        "cash": "cash",
+        "cheque": "cheque",
+    }
     project_doc = await db.projects.find_one({"project_id": wo.get("project_id")}, {"_id": 0, "name": 1})
     cashbook_entry = {
         "expense_id": expense_id,
@@ -7020,7 +7193,7 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         "transaction_id": bank_ref or cheque_no or "",
         "cheque_no": cheque_no if payment_method == "cheque" else None,
         "cheque_amount": cheque_amount if payment_method == "cheque" else None,
-        "bank_ref": bank_ref if payment_method == "bank" else None,
+        "bank_ref": bank_ref if payment_method in ("bank", "current_account", "savings_account") else None,
         "vendor_name": wo.get("contractor_name", ""),
         "contractor_id": contractor_id,
         "contractor_type": wo.get("contractor_type", ""),
@@ -7040,6 +7213,23 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         "payment_date": payment_date,
     }
     await db.recorded_expenses.insert_one(cashbook_entry)
+
+    # Mark each selected cheque as consumed (links to this expense; CRE/Accountant
+    # views can show "Used for RAB-XX · Contractor"). Idempotent on retries.
+    if selected_cheque_docs:
+        for ch in selected_cheque_docs:
+            await db.cheques.update_one(
+                {"cheque_id": ch.get("cheque_id")},
+                {"$set": {
+                    "used_for_expense_id": expense_id,
+                    "used_for_request_id": request_id,
+                    "used_for_rab_number": target_pr.get("rab_number"),
+                    "used_for_contractor_name": wo.get("contractor_name", ""),
+                    "used_at": now,
+                    "used_by": user.user_id,
+                    "used_by_name": user.name,
+                }}
+            )
 
     # Auto-create a labour Payment Schedule entry for tracking on the project's
     # Payment Schedule view. Idempotent: keyed off (project_id, request_id).

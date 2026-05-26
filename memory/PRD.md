@@ -13,6 +13,14 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 26, 2026 — RAB Release Dialog v2 (4 payment methods + open-cheque picker)
+- **New shared component** `/app/frontend/src/components/LabourRABReleaseDialog.jsx` replaces the inline 3-method ReleaseDialog in `AccountantLabourPayments.jsx`. Shows full bill detail (RAB number, approved amount, stage totals, prior RABs on the WO, approval trail with PM/QC/Planning names, DLR/notes), contractor suspense balance with auto-apply input, and a 4-method picker.
+- **4 payment methods** mirroring the Income side (`MultiPaymentInput`): **Cash · Cheque · HDFC CURRENT · HDFC SAVINGS**. Cheque mode lists CRE-opened HDFC cheques (Active/Locked tabs + search + "Request Open" CTA for locked ones); multi-select with running total and auto excess-to-suspense preview.
+- **Backend** (`/app/backend/routes/projects.py`):
+  - New `GET /api/accountant/labour-rab/{request_id}/pay-context?work_order_id=&stage_id=` — returns request + stage + WO + project + suspense + prior_rabs + active/inactive HDFC cheques.
+  - Extended `POST /api/accountant/labour-payments/{request_id}/release` to accept new `payment_method ∈ {cash, cheque, current_account, savings_account}` (legacy `bank/savings` aliased) and `cheque_ids: [str]` for multi-cheque selection. Marks consumed cheques (`used_for_expense_id`, `used_for_rab_number`). Cashbook `bank_ref` now persists for current/savings methods too.
+- **Tests**: `/app/backend/tests/test_rab_workflow.py` 2/2 PASS; live curl verified `savings_account` method end-to-end (creates expense + auto-locked payment_stages row).
+
 ### Session — Feb 26, 2026 — Labour RAB (Running Account Bill) Approval Chain (Phase 1)
 - **Workflow**: SE submits RAB → PM Review → QC Review → Planning Review → Accountant Releases. Each step can Approve (forward) or Reject (return to previous role with mandatory reason). On SE rework, the RAB returns to SE who can resubmit.
 - **Backend** (`/app/backend/routes/projects.py`):

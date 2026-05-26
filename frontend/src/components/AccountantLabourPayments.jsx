@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Banknote, CheckCircle, Send, Wallet, ArrowDownToLine } from 'lucide-react';
 import { toast } from 'sonner';
+import LabourRABReleaseDialog from './LabourRABReleaseDialog';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
@@ -94,11 +95,12 @@ export default function AccountantLabourPayments() {
         </CardContent>
       </Card>
 
-      <ReleaseDialog item={open} onClose={() => setOpen(null)} onDone={() => { setOpen(null); fetchItems(); }} />
+      <LabourRABReleaseDialog item={open} onClose={() => setOpen(null)} onDone={() => { setOpen(null); fetchItems(); }} />
     </div>
   );
 }
 
+// Legacy ReleaseDialog kept below for backward compat; no longer rendered.
 function ReleaseDialog({ item, onClose, onDone }) {
   const [method, setMethod] = useState('bank');  // bank | cash | cheque
   const [chequeAmount, setChequeAmount] = useState('');
