@@ -744,41 +744,79 @@ export default function ClientPortal() {
               <div className="hidden print:block p-4 border-b">
                 <h3 className="text-lg font-bold">Additional Work</h3>
               </div>
-              {/* Section batch approvals — when Planning sends a whole section,
-                  the client sees one Approve/Reject pair per section. */}
-              {(projectData.addition_sections || []).filter(s => s.client_approval_status === 'pending_client').map(s => {
-                const sectionItems = additionalCosts.filter(c => c.section_id === s.section_id);
-                const sectionTotal = sectionItems.reduce((sum, c) => sum + (c.estimated_amount || 0), 0);
-                return (
-                  <div key={s.section_id} className="mx-4 mt-3 mb-2 p-3 rounded-lg border border-violet-200 bg-violet-50/50 flex items-center justify-between gap-3 flex-wrap" data-testid={`client-section-pending-${s.section_id}`}>
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-violet-700">{s.title}</p>
-                      <p className="text-[11px] text-gray-600 mt-0.5">
-                        {sectionItems.length} addition{sectionItems.length === 1 ? '' : 's'} · ₹{sectionTotal.toLocaleString('en-IN')}
-                      </p>
-                      {(s.attachments || []).length > 0 && (
-                        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                          {s.attachments.map(att => (
-                            <a key={att.file_id} href={`${API}/files/${att.file_id}/download`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border border-violet-200 text-[10px] text-violet-700">
-                              {att.filename}
-                            </a>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 print:hidden">
-                      <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8" onClick={() => handleSectionDecision(s.section_id, 'approve')} data-testid={`client-section-approve-${s.section_id}`}>
-                        <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve Section
-                      </Button>
-                      <Button size="sm" variant="outline" className="border-rose-300 text-rose-600 hover:bg-rose-50 h-8" onClick={() => handleSectionDecision(s.section_id, 'reject')} data-testid={`client-section-reject-${s.section_id}`}>
-                        Reject Section
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-              <div className="overflow-x-auto">
-                <table className="w-full">
+              {(() => {
+                // Group additions by section (matches the Planning view layout).
+                const sections = projectData.addition_sections || [];
+                const ungrouped = additionalCosts.filter(c => !c.section_id);
+                const isPendingForClient = (c) => c.client_approval_status === 'pending_client' || (c.payment_requested && !c.client_approved && !c.client_rejected && !((c.income_received || 0) >= (c.estimated_amount || 0)));
+                const pendingAll = additionalCosts.filter(isPendingForClient);
+                const handleApproveAll = async () => {
+                  if (!pendingAll.length) return;
+                  if (!window.confirm(`Approve all ${pendingAll.length} pending additions worth ₹${pendingAll.reduce((s,c)=>s+(c.estimated_amount||0),0).toLocaleString('en-IN')}?`)) return;
+                  for (const c of pendingAll) {
+                    const pre = c.client_approval_status === 'pending_client';
+                    try {
+                      if (pre) await axios.post(`${API}/additional-costs/${c.cost_id}/client-decision`, { decision: 'approve' });
+                      else await axios.post(`${API}/client-portal/additional-costs/${c.cost_id}/approve`);
+                    } catch { /* skip individual errors */ }
+                  }
+                  // Section-level approvals too
+                  for (const s of sections.filter(x => x.client_approval_status === 'pending_client')) {
+                    try { await axios.post(`${API}/projects/${projectId}/addition-sections/${s.section_id}/client-decision`, { decision: 'approve' }); } catch { /* skip */ }
+                  }
+                  toast.success('Approved all pending');
+                  fetchProjectData(projectId);
+                };
+
+                // Render helper for a table of additions (shared by ungrouped + each section).
+                const renderRows = (rows, startSerial = 1) => rows.map((cost, i) => {
+                  const idx = startSerial + i - 1;
+                  const amt = cost.estimated_amount || cost.actual_amount || 0;
+                  const rcv = cost.income_received || 0;
+                  const bal = amt - rcv;
+                  const isPaid = bal <= 0 && amt > 0;
+                  const isPartial = rcv > 0 && bal > 0;
+                  const requested = cost.payment_requested;
+                  const clientApproved = cost.client_approved;
+                  const clientRejected = cost.client_rejected;
+                  const creApproved = cost.cre_approved;
+                  const preStatus = cost.client_approval_status;
+                  const preIsPending = preStatus === 'pending_client';
+                  const preIsApproved = preStatus === 'client_approved';
+                  const preIsRejected = preStatus === 'client_rejected';
+                  let statusBadge;
+                  if (isPaid) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Paid</span>;
+                  else if (isPartial) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Partial Received</span>;
+                  else if (clientRejected || preIsRejected) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-rose-100 text-rose-700">Rejected</span>;
+                  else if (creApproved) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Approved · Pending Payment</span>;
+                  else if (clientApproved || preIsApproved) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">You Approved</span>;
+                  else if (requested) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Awaiting Your Approval</span>;
+                  else if (preIsPending) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-violet-100 text-violet-700">Awaiting Your Approval</span>;
+                  else statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Pending</span>;
+                  const showApprove = ((requested && !clientApproved && !clientRejected && !isPaid) || preIsPending);
+                  return (
+                    <tr key={cost.cost_id} data-testid={`addn-row-${cost.cost_id}`}>
+                      <td className="px-4 py-3 text-sm text-gray-700 align-top">{idx + 1}</td>
+                      <td className="px-4 py-3 align-top">
+                        <p className="text-sm text-gray-900 font-medium">{cost.name || cost.description}</p>
+                        {cost.qty && cost.price && <p className="text-[11px] text-gray-500 mt-0.5">{cost.qty} × ₹{cost.price.toLocaleString('en-IN')}</p>}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-semibold text-gray-900 align-top">₹{amt.toLocaleString('en-IN')}</td>
+                      <td className="px-4 py-3 text-right text-sm font-semibold text-emerald-600 align-top">₹{rcv.toLocaleString('en-IN')}</td>
+                      <td className="px-4 py-3 text-right text-sm font-bold text-orange-600 align-top">₹{bal.toLocaleString('en-IN')}</td>
+                      <td className="px-4 py-3 text-center align-top">{statusBadge}</td>
+                      <td className="px-4 py-3 text-center align-top print:hidden">
+                        {showApprove ? (
+                          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white h-8" onClick={() => preIsPending ? handlePreApproveAddition(cost.cost_id) : handleClientApproveAddition(cost.cost_id)} data-testid={`client-approve-addn-${cost.cost_id}`}>
+                            <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+                          </Button>
+                        ) : (<span className="text-xs text-gray-400">—</span>)}
+                      </td>
+                    </tr>
+                  );
+                });
+
+                const headerRow = (
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
@@ -790,103 +828,101 @@ export default function ClientPortal() {
                       <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase print:hidden">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {additionalCosts.length === 0 ? (
-                      <tr>
-                        <td colSpan="7" className="px-6 py-8 text-center text-gray-500">No additional work recorded</td>
-                      </tr>
-                    ) : (
-                      additionalCosts.map((cost, idx) => {
-                        const amt = cost.estimated_amount || cost.actual_amount || 0;
-                        const rcv = cost.income_received || 0;
-                        const bal = amt - rcv;
-                        const isPaid = bal <= 0 && amt > 0;
-                        const isPartial = rcv > 0 && bal > 0;
-                        const requested = cost.payment_requested;
-                        const clientApproved = cost.client_approved;
-                        const clientRejected = cost.client_rejected;
-                        const creApproved = cost.cre_approved;
-                        // Pre-payment approval lifecycle (new — must clear before Planning can Req Payment).
-                        const preStatus = cost.client_approval_status;
-                        const preIsPending = preStatus === 'pending_client';
-                        const preIsApproved = preStatus === 'client_approved';
-                        const preIsRejected = preStatus === 'client_rejected';
-                        // Determine display badge based on the full approval lifecycle
-                        let statusBadge;
-                        if (isPaid) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Paid</span>;
-                        else if (isPartial) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Partial Received</span>;
-                        else if (clientRejected) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-rose-100 text-rose-700">You Rejected</span>;
-                        else if (creApproved) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Approved · Pending Payment</span>;
-                        else if (clientApproved) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">You Approved</span>;
-                        else if (requested) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Awaiting Your Approval</span>;
-                        else if (preIsRejected) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-rose-100 text-rose-700" title={cost.client_rejection_reason || ''}>You Rejected</span>;
-                        else if (preIsApproved) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">You Approved</span>;
-                        else if (preIsPending) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-violet-100 text-violet-700">Awaiting Your Approval</span>;
-                        else statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Pending</span>;
-                        // Show action buttons whenever the client owes a decision (either pre or post payment-request stage).
-                        const showApproveActions = (requested && !clientApproved && !clientRejected && !isPaid) || preIsPending;
-                        const preStage = preIsPending; // route the click to pre-payment decision endpoint when in that stage
-                        return (
-                          <tr key={cost.cost_id} className={`hover:bg-gray-50 ${isPaid ? 'bg-green-50' : clientRejected ? 'bg-rose-50/50' : ''}`} data-testid={`client-addn-row-${cost.cost_id}`}>
-                            <td className="px-4 py-3 text-sm">{idx + 1}</td>
-                            <td className="px-4 py-3">
-                              <p className="font-medium">{cost.description || cost.name || 'Additional Work'}</p>
-                              {cost.qty && cost.price && (
-                                <p className="text-xs text-gray-500">{cost.qty} × ₹{Number(cost.price).toLocaleString()}</p>
-                              )}
-                              {clientRejected && cost.client_rejection_reason && (
-                                <p className="text-xs text-rose-600 mt-1 italic">Your reason: {cost.client_rejection_reason}</p>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-right font-semibold">₹{amt.toLocaleString()}</td>
-                            <td className="px-4 py-3 text-right text-green-600 font-semibold">₹{rcv.toLocaleString()}</td>
-                            <td className="px-4 py-3 text-right">
-                              <span className={bal > 0 ? 'text-orange-600 font-semibold' : 'text-green-600 font-semibold'}>₹{bal.toLocaleString()}</span>
-                            </td>
-                            <td className="px-4 py-3 text-center">{statusBadge}</td>
-                            <td className="px-4 py-3 text-center print:hidden">
-                              {showApproveActions ? (
-                                <div className="flex items-center justify-center gap-2">
-                                  <Button
-                                    size="sm"
-                                    className="bg-emerald-600 hover:bg-emerald-700 text-white h-8"
-                                    onClick={() => preStage ? handlePreApproveAddition(cost.cost_id) : handleClientApproveAddition(cost.cost_id)}
-                                    data-testid={`client-approve-addn-${cost.cost_id}`}
-                                  >
-                                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="border-rose-300 text-rose-600 hover:bg-rose-50 h-8"
-                                    onClick={() => preStage ? handlePreRejectAddition(cost.cost_id) : handleClientRejectAddition(cost.cost_id)}
-                                    data-testid={`client-reject-addn-${cost.cost_id}`}
-                                  >
-                                    Reject
-                                  </Button>
-                                </div>
-                              ) : (
-                                <span className="text-xs text-gray-400">—</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })
+                );
+
+                return (
+                  <>
+                    {/* Master "Approve All Pending" — appears when there's anything to act on */}
+                    {pendingAll.length > 0 && (
+                      <div className="mx-4 mt-3 mb-2 p-3 rounded-lg bg-gradient-to-r from-emerald-50 to-emerald-100/40 border border-emerald-200 flex items-center justify-between gap-3 flex-wrap print:hidden" data-testid="client-approve-all-banner">
+                        <div className="text-sm text-emerald-800">
+                          <span className="font-bold">{pendingAll.length}</span> addition{pendingAll.length === 1 ? '' : 's'} awaiting your approval &middot; <span className="font-bold">₹{pendingAll.reduce((s,c)=>s+(c.estimated_amount||0),0).toLocaleString('en-IN')}</span>
+                        </div>
+                        <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8" onClick={handleApproveAll} data-testid="client-approve-all-btn">
+                          <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve All Pending
+                        </Button>
+                      </div>
                     )}
-                  </tbody>
-                  {additionalCosts.length > 0 && (
-                    <tfoot className="bg-amber-50 border-t-2">
-                      <tr>
-                        <td colSpan="2" className="px-4 py-3 text-right font-bold">Totals:</td>
-                        <td className="px-4 py-3 text-right font-bold">₹{totalAdditional.toLocaleString()}</td>
-                        <td className="px-4 py-3 text-right font-bold text-green-600">₹{totalAdditionalReceived.toLocaleString()}</td>
-                        <td className="px-4 py-3 text-right font-bold text-orange-600">₹{(totalAdditional - totalAdditionalReceived).toLocaleString()}</td>
-                        <td colSpan="2"></td>
-                      </tr>
-                    </tfoot>
-                  )}
-                </table>
-              </div>
+
+                    {/* Section blocks — each has its own header, attachments, table, and Approve Section button */}
+                    {sections.map((s, sIdx) => {
+                      const items = additionalCosts.filter(c => c.section_id === s.section_id);
+                      if (items.length === 0) return null;
+                      const subtotal = items.reduce((sum, c) => sum + (c.estimated_amount || 0), 0);
+                      const recvSubtotal = items.reduce((sum, c) => sum + (c.income_received || 0), 0);
+                      return (
+                        <div key={s.section_id} className="mx-4 mt-4 rounded-xl border-2 border-violet-100 bg-violet-50/30 overflow-hidden" data-testid={`client-section-${s.section_id}`}>
+                          <div className="flex items-center justify-between gap-3 flex-wrap p-3 bg-violet-50">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-bold text-violet-700">{s.title}</p>
+                              <p className="text-[11px] text-gray-600 mt-0.5">
+                                {items.length} addition{items.length === 1 ? '' : 's'} &middot; ₹{subtotal.toLocaleString('en-IN')}
+                              </p>
+                              {(s.attachments || []).length > 0 && (
+                                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                                  {s.attachments.map(att => (
+                                    <a key={att.file_id} href={`${API}/files/${att.file_id}/download`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border border-violet-200 text-[10px] text-violet-700">
+                                      {att.filename}
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            {s.client_approval_status === 'pending_client' && (
+                              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8 print:hidden" onClick={() => handleSectionDecision(s.section_id, 'approve')} data-testid={`client-section-approve-${s.section_id}`}>
+                                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve Section
+                              </Button>
+                            )}
+                            {s.client_approval_status === 'client_approved' && (
+                              <span className="text-[11px] px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Section Approved</span>
+                            )}
+                          </div>
+                          <div className="overflow-x-auto">
+                            <table className="w-full">
+                              {headerRow}
+                              <tbody className="bg-white divide-y divide-gray-200">
+                                {renderRows(items, 1)}
+                                <tr className="bg-gray-50/50">
+                                  <td colSpan="2" className="px-4 py-2 text-right text-xs font-bold text-gray-600">Section Total</td>
+                                  <td className="px-4 py-2 text-right text-sm font-bold text-gray-800">₹{subtotal.toLocaleString('en-IN')}</td>
+                                  <td className="px-4 py-2 text-right text-sm font-bold text-emerald-700">₹{recvSubtotal.toLocaleString('en-IN')}</td>
+                                  <td className="px-4 py-2 text-right text-sm font-bold text-orange-600">₹{(subtotal-recvSubtotal).toLocaleString('en-IN')}</td>
+                                  <td colSpan="2"></td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Ungrouped (legacy) additions table */}
+                    <div className="overflow-x-auto mt-4">
+                      <table className="w-full">
+                        {headerRow}
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {ungrouped.length === 0 ? (
+                            <tr>
+                              <td colSpan="7" className="px-6 py-8 text-center text-gray-500">{sections.length > 0 ? 'No ungrouped additions.' : 'No additional work recorded'}</td>
+                            </tr>
+                          ) : renderRows(ungrouped, 1)}
+                        </tbody>
+                        {additionalCosts.length > 0 && (
+                          <tfoot className="bg-amber-50">
+                            <tr>
+                              <td colSpan="2" className="px-4 py-3 text-right text-sm font-bold text-gray-700">Totals:</td>
+                              <td className="px-4 py-3 text-right text-sm font-bold text-gray-900">₹{totalAdditional.toLocaleString('en-IN')}</td>
+                              <td className="px-4 py-3 text-right text-sm font-bold text-emerald-600">₹{totalAdditionalReceived.toLocaleString('en-IN')}</td>
+                              <td className="px-4 py-3 text-right text-sm font-bold text-orange-600">₹{(totalAdditional - totalAdditionalReceived).toLocaleString('en-IN')}</td>
+                              <td colSpan="2"></td>
+                            </tr>
+                          </tfoot>
+                        )}
+                      </table>
+                    </div>
+                  </>
+                );
+              })()}
             </TabsContent>
 
             {/* Deductions Tab */}

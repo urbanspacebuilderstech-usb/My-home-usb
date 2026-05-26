@@ -842,6 +842,9 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
         "photos": photos,
         "documents": documents,
         "additional_costs": additional_costs,
+        "addition_sections": await db.addition_sections.find(
+            {"project_id": project_id}, {"_id": 0}
+        ).sort("created_at", 1).to_list(200),
         "deductions": deductions,
         "income_entries": income_entries,
         "total_income": total_income,
