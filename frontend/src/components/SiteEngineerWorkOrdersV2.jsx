@@ -441,7 +441,7 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
       <CardHeader className="p-3 pb-2 flex flex-row items-center justify-between">
         <div>
           <CardTitle className="text-sm flex items-center gap-2"><Banknote className="h-4 w-4 text-violet-600" /> Stages</CardTitle>
-          <CardDescription className="text-[11px] mt-0.5">Approval flow: You → Planning → Accountant</CardDescription>
+          <CardDescription className="text-[11px] mt-0.5">Approval flow: You → PM → QC → Planning → Accountant</CardDescription>
         </div>
         <Badge variant="outline" className="text-[10px]">{paidStages}/{stages.length} paid</Badge>
       </CardHeader>
