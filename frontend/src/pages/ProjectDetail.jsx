@@ -1020,6 +1020,8 @@ export default function ProjectDetail() {
   // Editing states
   const [editingPayment, setEditingPayment] = useState(null);
   const [editingAddition, setEditingAddition] = useState(null);
+  // Inline-edit form for Additional Work rows (parity with Final Estimate inline edit)
+  const [editAdditionForm, setEditAdditionForm] = useState({ item_name: '', quantity: 1, unit: 'Nos', unit_rate: 0, remarks: '' });
   // Edit Addition / Deduction dialog: lets user change Name, Qty, Amount post-creation
   const [editItemDialog, setEditItemDialog] = useState({ open: false, type: null, id: null });
   const [editItemForm, setEditItemForm] = useState({ name: '', qty: '1', amount: '' });
@@ -2879,6 +2881,52 @@ export default function ProjectDetail() {
     } catch (error) {
       toast.error('Failed to update addition');
     }
+  };
+
+  // ==================== ADDITIONAL WORK INLINE EDIT (parity with FE inline edit) ====================
+  const openAdditionEdit = (cost) => {
+    const qty = cost.qty || 1;
+    const unitRate = cost.price != null ? cost.price : (qty > 0 ? cost.estimated_amount / qty : 0);
+    setEditingAddition(cost.cost_id);
+    setEditAdditionForm({
+      item_name: cost.name || cost.description || '',
+      quantity: qty,
+      unit: cost.unit || 'Nos',
+      unit_rate: unitRate,
+      remarks: cost.remarks || '',
+    });
+  };
+
+  const saveAdditionInline = async () => {
+    if (!editingAddition) return;
+    const name = (editAdditionForm.item_name || '').trim();
+    const qty = parseFloat(editAdditionForm.quantity) || 1;
+    const rate = parseFloat(editAdditionForm.unit_rate) || 0;
+    const unit = (editAdditionForm.unit || 'Nos').trim() || 'Nos';
+    const total = qty * rate;
+    if (!name) { toast.error('Name is required'); return; }
+    const desc = qty > 1 ? `${name} (${qty} ${unit} × ₹${rate.toFixed(2)})` : name;
+    try {
+      await axios.patch(`${API}/additional-costs/${editingAddition}`, {
+        name,
+        description: desc,
+        qty,
+        unit,
+        price: rate,
+        estimated_amount: total,
+        remarks: editAdditionForm.remarks || null,
+      });
+      toast.success('Addition updated');
+      setEditingAddition(null);
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update addition');
+    }
+  };
+
+  const cancelAdditionEdit = () => {
+    setEditingAddition(null);
+    setEditAdditionForm({ item_name: '', quantity: 1, unit: 'Nos', unit_rate: 0, remarks: '' });
   };
 
   // Open Name/Qty/Amount edit dialog for an Addition or Deduction row
@@ -6277,6 +6325,7 @@ export default function ProjectDetail() {
                         const qty = cost.qty || 1;
                         const unit = cost.unit || '';
                         const unitRate = cost.price != null ? cost.price : (qty > 0 ? cost.estimated_amount / qty : 0);
+                        const isEditing = editingAddition === cost.cost_id;
                         
                         return (
                           <SortableTableRow key={cost.cost_id} id={cost.cost_id} className="hover:bg-gray-50">
@@ -6284,18 +6333,103 @@ export default function ProjectDetail() {
                               <>
                             <td className="px-1 py-3 text-center"><DragHandle listeners={listeners} attributes={attributes} /></td>
                             <td className="px-4 py-3 text-sm">{index + 1}</td>
-                            <td className="px-4 py-3 font-medium">{cost.name || cost.description}</td>
-                            <td className="px-3 py-3 text-right text-sm">{qty}</td>
-                            <td className="px-3 py-3 text-sm text-gray-600">{unit || '—'}</td>
-                            <td className="px-3 py-3 text-right text-sm">₹{unitRate.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
-                            <td className="px-3 py-3 text-right font-semibold">₹{cost.estimated_amount?.toLocaleString()}</td>
-                            <td className="px-3 py-3 text-sm text-gray-600 truncate max-w-[180px]" title={cost.remarks || ''}>{cost.remarks || '—'}</td>
+                            <td className="px-4 py-3 font-medium">
+                              {isEditing ? (
+                                <Input
+                                  data-testid={`edit-addition-name-${cost.cost_id}`}
+                                  value={editAdditionForm.item_name}
+                                  onChange={(e) => setEditAdditionForm({...editAdditionForm, item_name: e.target.value})}
+                                  className="h-8 w-full min-w-[150px]"
+                                />
+                              ) : (
+                                cost.name || cost.description
+                              )}
+                            </td>
+                            <td className="px-3 py-3 text-right text-sm">
+                              {isEditing ? (
+                                <NumericInput
+                                  data-testid={`edit-addition-qty-${cost.cost_id}`}
+                                  value={editAdditionForm.quantity}
+                                  onChange={(e) => setEditAdditionForm({...editAdditionForm, quantity: e.target.value})}
+                                  className="h-8 w-20 text-right"
+                                />
+                              ) : (
+                                qty
+                              )}
+                            </td>
+                            <td className="px-3 py-3 text-sm text-gray-600">
+                              {isEditing ? (
+                                <UnitSelect
+                                  data-testid={`edit-addition-unit-${cost.cost_id}`}
+                                  value={editAdditionForm.unit}
+                                  onChange={(v) => setEditAdditionForm({...editAdditionForm, unit: v})}
+                                  className="w-24"
+                                />
+                              ) : (
+                                unit || '—'
+                              )}
+                            </td>
+                            <td className="px-3 py-3 text-right text-sm">
+                              {isEditing ? (
+                                <NumericInput
+                                  data-testid={`edit-addition-rate-${cost.cost_id}`}
+                                  value={editAdditionForm.unit_rate}
+                                  onChange={(e) => setEditAdditionForm({...editAdditionForm, unit_rate: e.target.value})}
+                                  className="h-8 w-24 text-right"
+                                />
+                              ) : (
+                                `₹${unitRate.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                              )}
+                            </td>
+                            <td className="px-3 py-3 text-right font-semibold">
+                              {isEditing ? (
+                                `₹${((parseFloat(editAdditionForm.quantity) || 0) * (parseFloat(editAdditionForm.unit_rate) || 0)).toLocaleString()}`
+                              ) : (
+                                `₹${cost.estimated_amount?.toLocaleString()}`
+                              )}
+                            </td>
+                            <td className="px-3 py-3 text-sm text-gray-600 truncate max-w-[180px]" title={isEditing ? '' : (cost.remarks || '')}>
+                              {isEditing ? (
+                                <Input
+                                  data-testid={`edit-addition-remarks-${cost.cost_id}`}
+                                  value={editAdditionForm.remarks}
+                                  onChange={(e) => setEditAdditionForm({...editAdditionForm, remarks: e.target.value})}
+                                  className="h-8 w-full"
+                                  placeholder="Remarks"
+                                />
+                              ) : (
+                                cost.remarks || '—'
+                              )}
+                            </td>
                             <td className="px-4 py-3 text-center">
                               <WorkflowBadge status={cost.workflow_status || 'draft'} />
                             </td>
                             {canManage && (
                               <td className="px-4 py-3 text-center">
                                 <div className="flex items-center justify-center gap-1">
+                                  {isEditing ? (
+                                    <>
+                                      <Button
+                                        data-testid={`save-addition-${cost.cost_id}`}
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={saveAdditionInline}
+                                        className="h-8 w-8"
+                                      >
+                                        <Save className="h-4 w-4 text-green-500" />
+                                      </Button>
+                                      <Button
+                                        data-testid={`cancel-addition-edit-${cost.cost_id}`}
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={cancelAdditionEdit}
+                                        className="h-8 w-8"
+                                      >
+                                        <X className="h-4 w-4 text-gray-500" />
+                                      </Button>
+                                    </>
+                                  ) : (
+                                    <>
                                   {/* Pre-payment client approval gate (new) — must be cleared before Req Payment. */}
                                   {balance > 0 && !cost.payment_requested && (
                                     cost.client_approval_status === 'pending_client' ? (
@@ -6376,15 +6510,18 @@ export default function ProjectDetail() {
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    onClick={() => openEditItemDialog('addition', cost)}
+                                    onClick={() => openAdditionEdit(cost)}
                                     data-testid={`edit-addition-${cost.cost_id}`}
-                                    title="Edit name / qty / amount"
+                                    title="Edit inline"
+                                    className="h-8 w-8"
                                   >
                                     <Edit className="h-4 w-4 text-amber-600" />
                                   </Button>
-                                  <Button variant="ghost" size="icon" onClick={() => handleDeleteAddition(cost.cost_id)}>
+                                  <Button variant="ghost" size="icon" onClick={() => handleDeleteAddition(cost.cost_id)} className="h-8 w-8">
                                     <Trash2 className="h-4 w-4 text-red-500" />
                                   </Button>
+                                    </>
+                                  )}
                                 </div>
                               </td>
                             )}
