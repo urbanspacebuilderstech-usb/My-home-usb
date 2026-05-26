@@ -2746,6 +2746,28 @@ export default function ProjectDetail() {
     } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
   };
 
+  // ── Client Approval lifecycle for Additions ───────────────────────────
+  // Per-row send. Optimistic UI: row goes amber "Pending Client" immediately.
+  const sendAdditionToClient = async (cost) => {
+    if (!window.confirm(`Send "${cost.description || cost.name}" (₹${Number(cost.estimated_amount || 0).toLocaleString('en-IN')}) to client for approval?`)) return;
+    try {
+      await axios.post(`${API}/additional-costs/${cost.cost_id}/send-to-client`);
+      toast.success('Sent to client for approval');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to send'); }
+  };
+
+  // Section batch send — confirms with count + total amount.
+  const sendSectionToClient = async (section, items) => {
+    const total = items.reduce((s, x) => s + (x.estimated_amount || 0), 0);
+    if (!window.confirm(`Send ${items.length} addition${items.length === 1 ? '' : 's'} (₹${Number(total).toLocaleString('en-IN')}) in "${section.title}" to client for approval?`)) return;
+    try {
+      await axios.post(`${API}/projects/${projectId}/addition-sections/${section.section_id}/send-to-client`);
+      toast.success('Section sent to client');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to send'); }
+  };
+
   // Helper used by the Additional tab — opens the Add Additions dialog with
   // an explicit section context (or null for ungrouped).
   const openAddAdditionFor = (sectionId) => {
@@ -6168,6 +6190,21 @@ export default function ProjectDetail() {
                                 <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-200 text-emerald-700" onClick={() => openAddAdditionFor(group.section_id)} data-testid={`add-into-section-${group.section_id}`}>
                                   <Plus className="h-3 w-3" /> Add
                                 </Button>
+                                {/* Send to Client — batch. Hidden when empty / already pending / approved. */}
+                                {items.length > 0 && !['pending_client','client_approved'].includes(group.client_approval_status) && (
+                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-violet-300 text-violet-700 hover:bg-violet-50" onClick={() => sendSectionToClient(group, items)} data-testid={`send-section-client-${group.section_id}`}>
+                                    <Send className="h-3 w-3" /> Send to Client
+                                  </Button>
+                                )}
+                                {group.client_approval_status === 'pending_client' && (
+                                  <span className="inline-flex items-center text-[10px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-semibold" data-testid={`section-pending-client-${group.section_id}`}>Pending Client</span>
+                                )}
+                                {group.client_approval_status === 'client_approved' && (
+                                  <span className="inline-flex items-center text-[10px] px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Client Approved</span>
+                                )}
+                                {group.client_approval_status === 'client_rejected' && (
+                                  <span className="inline-flex items-center text-[10px] px-2 py-1 rounded-full bg-rose-100 text-rose-700 font-semibold" title={group.client_rejection_reason || ''}>Rejected</span>
+                                )}
                                 <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => handleDeleteSection(group)} data-testid={`delete-section-${group.section_id}`}>
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
@@ -6238,24 +6275,55 @@ export default function ProjectDetail() {
                             {canManage && (
                               <td className="px-4 py-3 text-center">
                                 <div className="flex items-center justify-center gap-1">
+                                  {/* Pre-payment client approval gate (new) — must be cleared before Req Payment. */}
                                   {balance > 0 && !cost.payment_requested && (
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-7 gap-1 border-green-500 text-green-700 hover:bg-green-50 text-xs"
-                                      onClick={() => setReqPayDialog({
-                                        open: true,
-                                        // Reuse the same dialog — `mode: 'addition'` tells the submit
-                                        // handler to call the additional-costs endpoint instead of payment-stages
-                                        mode: 'addition',
-                                        stage: { stage_id: cost.cost_id, stage_name: cost.description || cost.name || 'Additional Work', amount: balance, amount_received: 0 },
-                                        date: '',
-                                        submitting: false,
-                                      })}
-                                      data-testid={`req-payment-addition-${cost.cost_id}`}
-                                    >
-                                      <Send className="h-3 w-3" /> Req Payment
-                                    </Button>
+                                    cost.client_approval_status === 'pending_client' ? (
+                                      <span className="text-[11px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium" data-testid={`add-pending-client-${cost.cost_id}`}>Pending Client</span>
+                                    ) : cost.client_approval_status === 'client_rejected' ? (
+                                      <>
+                                        <span className="text-[11px] px-2 py-1 rounded-full bg-rose-100 text-rose-700 font-medium" title={cost.client_rejection_reason || ''}>Client Rejected</span>
+                                        {canManage && (
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 gap-1 border-violet-500 text-violet-700 hover:bg-violet-50 text-xs"
+                                            onClick={() => sendAdditionToClient(cost)}
+                                            data-testid={`resend-client-${cost.cost_id}`}
+                                          >
+                                            <Send className="h-3 w-3" /> Resend
+                                          </Button>
+                                        )}
+                                      </>
+                                    ) : cost.client_approval_status === 'client_approved' ? (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 gap-1 border-green-500 text-green-700 hover:bg-green-50 text-xs"
+                                        onClick={() => setReqPayDialog({
+                                          open: true,
+                                          mode: 'addition',
+                                          stage: { stage_id: cost.cost_id, stage_name: cost.description || cost.name || 'Additional Work', amount: balance, amount_received: 0 },
+                                          date: '',
+                                          submitting: false,
+                                        })}
+                                        data-testid={`req-payment-addition-${cost.cost_id}`}
+                                      >
+                                        <Send className="h-3 w-3" /> Req Payment
+                                      </Button>
+                                    ) : (
+                                      // Default: not yet sent. Show Send to Client.
+                                      canManage && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-7 gap-1 border-violet-500 text-violet-700 hover:bg-violet-50 text-xs"
+                                          onClick={() => sendAdditionToClient(cost)}
+                                          data-testid={`send-client-${cost.cost_id}`}
+                                        >
+                                          <Send className="h-3 w-3" /> Send to Client
+                                        </Button>
+                                      )
+                                    )
                                   )}
                                   {cost.payment_requested && balance > 0 && !cost.client_approved && !cost.client_rejected && (
                                     <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium">Awaiting Client</span>

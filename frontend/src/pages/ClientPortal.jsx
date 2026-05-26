@@ -143,6 +143,46 @@ export default function ClientPortal() {
     }
   };
 
+  // Pre-payment client approval (the new "Send to Client" flow). Decision made
+  // BEFORE Planning hits Req Payment. Reason mandatory on reject.
+  const handlePreApproveAddition = async (costId) => {
+    try {
+      await axios.post(`${API}/additional-costs/${costId}/client-decision`, { decision: 'approve' });
+      toast.success('Approved — Planning can now request payment');
+      if (projectId) fetchProjectData(projectId);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to approve');
+    }
+  };
+  const handlePreRejectAddition = async (costId) => {
+    const reason = window.prompt('Please share a brief reason for rejecting:', '');
+    if (reason === null) return;
+    if (!reason.trim()) { toast.error('Reason is required to reject'); return; }
+    try {
+      await axios.post(`${API}/additional-costs/${costId}/client-decision`, { decision: 'reject', reason });
+      toast.success('Rejection recorded');
+      if (projectId) fetchProjectData(projectId);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to reject');
+    }
+  };
+  // Section batch decision (one click approves every addition inside).
+  const handleSectionDecision = async (sectionId, decision) => {
+    let reason = null;
+    if (decision === 'reject') {
+      reason = window.prompt('Please share a brief reason for rejecting the entire section:', '');
+      if (reason === null) return;
+      if (!reason.trim()) { toast.error('Reason is required to reject'); return; }
+    }
+    try {
+      await axios.post(`${API}/projects/${projectId}/addition-sections/${sectionId}/client-decision`, { decision, reason });
+      toast.success(decision === 'approve' ? 'Section approved' : 'Section rejected');
+      if (projectId) fetchProjectData(projectId);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || `Failed to ${decision}`);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
@@ -704,6 +744,39 @@ export default function ClientPortal() {
               <div className="hidden print:block p-4 border-b">
                 <h3 className="text-lg font-bold">Additional Work</h3>
               </div>
+              {/* Section batch approvals — when Planning sends a whole section,
+                  the client sees one Approve/Reject pair per section. */}
+              {(projectData.addition_sections || []).filter(s => s.client_approval_status === 'pending_client').map(s => {
+                const sectionItems = additionalCosts.filter(c => c.section_id === s.section_id);
+                const sectionTotal = sectionItems.reduce((sum, c) => sum + (c.estimated_amount || 0), 0);
+                return (
+                  <div key={s.section_id} className="mx-4 mt-3 mb-2 p-3 rounded-lg border border-violet-200 bg-violet-50/50 flex items-center justify-between gap-3 flex-wrap" data-testid={`client-section-pending-${s.section_id}`}>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-violet-700">{s.title}</p>
+                      <p className="text-[11px] text-gray-600 mt-0.5">
+                        {sectionItems.length} addition{sectionItems.length === 1 ? '' : 's'} · ₹{sectionTotal.toLocaleString('en-IN')}
+                      </p>
+                      {(s.attachments || []).length > 0 && (
+                        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                          {s.attachments.map(att => (
+                            <a key={att.file_id} href={`${API}/files/${att.file_id}/download`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border border-violet-200 text-[10px] text-violet-700">
+                              {att.filename}
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 print:hidden">
+                      <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8" onClick={() => handleSectionDecision(s.section_id, 'approve')} data-testid={`client-section-approve-${s.section_id}`}>
+                        <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve Section
+                      </Button>
+                      <Button size="sm" variant="outline" className="border-rose-300 text-rose-600 hover:bg-rose-50 h-8" onClick={() => handleSectionDecision(s.section_id, 'reject')} data-testid={`client-section-reject-${s.section_id}`}>
+                        Reject Section
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b border-gray-200">
@@ -733,6 +806,11 @@ export default function ClientPortal() {
                         const clientApproved = cost.client_approved;
                         const clientRejected = cost.client_rejected;
                         const creApproved = cost.cre_approved;
+                        // Pre-payment approval lifecycle (new — must clear before Planning can Req Payment).
+                        const preStatus = cost.client_approval_status;
+                        const preIsPending = preStatus === 'pending_client';
+                        const preIsApproved = preStatus === 'client_approved';
+                        const preIsRejected = preStatus === 'client_rejected';
                         // Determine display badge based on the full approval lifecycle
                         let statusBadge;
                         if (isPaid) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Paid</span>;
@@ -741,9 +819,13 @@ export default function ClientPortal() {
                         else if (creApproved) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Approved · Pending Payment</span>;
                         else if (clientApproved) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">You Approved</span>;
                         else if (requested) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Awaiting Your Approval</span>;
+                        else if (preIsRejected) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-rose-100 text-rose-700" title={cost.client_rejection_reason || ''}>You Rejected</span>;
+                        else if (preIsApproved) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">You Approved</span>;
+                        else if (preIsPending) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-violet-100 text-violet-700">Awaiting Your Approval</span>;
                         else statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Pending</span>;
-                        // Show action buttons only when request is pending the client's decision
-                        const showApproveActions = requested && !clientApproved && !clientRejected && !isPaid;
+                        // Show action buttons whenever the client owes a decision (either pre or post payment-request stage).
+                        const showApproveActions = (requested && !clientApproved && !clientRejected && !isPaid) || preIsPending;
+                        const preStage = preIsPending; // route the click to pre-payment decision endpoint when in that stage
                         return (
                           <tr key={cost.cost_id} className={`hover:bg-gray-50 ${isPaid ? 'bg-green-50' : clientRejected ? 'bg-rose-50/50' : ''}`} data-testid={`client-addn-row-${cost.cost_id}`}>
                             <td className="px-4 py-3 text-sm">{idx + 1}</td>
@@ -768,7 +850,7 @@ export default function ClientPortal() {
                                   <Button
                                     size="sm"
                                     className="bg-emerald-600 hover:bg-emerald-700 text-white h-8"
-                                    onClick={() => handleClientApproveAddition(cost.cost_id)}
+                                    onClick={() => preStage ? handlePreApproveAddition(cost.cost_id) : handleClientApproveAddition(cost.cost_id)}
                                     data-testid={`client-approve-addn-${cost.cost_id}`}
                                   >
                                     <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
@@ -777,7 +859,7 @@ export default function ClientPortal() {
                                     size="sm"
                                     variant="outline"
                                     className="border-rose-300 text-rose-600 hover:bg-rose-50 h-8"
-                                    onClick={() => handleClientRejectAddition(cost.cost_id)}
+                                    onClick={() => preStage ? handlePreRejectAddition(cost.cost_id) : handleClientRejectAddition(cost.cost_id)}
                                     data-testid={`client-reject-addn-${cost.cost_id}`}
                                   >
                                     Reject

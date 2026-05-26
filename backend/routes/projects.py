@@ -3659,6 +3659,156 @@ async def delete_additional_cost(cost_id: str, user: User = Depends(get_current_
     return {"message": "Additional cost deleted"}
 
 
+# ── CLIENT APPROVAL FOR ADDITIONS ───────────────────────────────────────────
+# Workflow: Planning adds addition → "Send to Client" → CRE notified, row goes
+# read-only with `client_approval_status=pending_client`. Client opens portal,
+# approves (status → `client_approved`) or rejects (with reason). Only after
+# `client_approved` can Planning hit Req Payment.
+
+async def _notify_cre_for_project(project_id: str, message: str):
+    """Best-effort: ping every active CRE about a client-approval event."""
+    cre_users = await db.users.find(
+        {"role": "cre", "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}
+    ).to_list(100)
+    for u in cre_users:
+        try:
+            await create_notification(u["user_id"], message)
+        except Exception:
+            pass
+
+
+@router.post("/additional-costs/{cost_id}/send-to-client")
+async def send_addition_to_client(cost_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Addition not found")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.additional_costs.update_one(
+        {"cost_id": cost_id},
+        {"$set": {
+            "client_approval_status": "pending_client",
+            "client_approval_sent_at": now,
+            "client_approval_sent_by": user.user_id,
+            "client_rejection_reason": None,
+        }},
+    )
+    project = await db.projects.find_one({"project_id": cost["project_id"]}, {"_id": 0, "name": 1, "client_name": 1}) or {}
+    amount = cost.get("estimated_amount", 0)
+    await _notify_cre_for_project(
+        cost["project_id"],
+        f"Planning sent 1 addition worth ₹{int(amount):,} to {project.get('client_name','client')} for approval ({project.get('name','project')})",
+    )
+    await create_audit_log(user.user_id, "send_to_client", "additional_cost", cost_id, {"amount": amount})
+    return {"message": "Sent to client for approval", "cost_id": cost_id}
+
+
+@router.post("/projects/{project_id}/addition-sections/{section_id}/send-to-client")
+async def send_section_to_client(project_id: str, section_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    section = await db.addition_sections.find_one({"section_id": section_id, "project_id": project_id}, {"_id": 0})
+    if not section:
+        raise HTTPException(status_code=404, detail="Section not found")
+    rows = await db.additional_costs.find({"project_id": project_id, "section_id": section_id}, {"_id": 0}).to_list(500)
+    if not rows:
+        raise HTTPException(status_code=400, detail="Section has no additions to send.")
+    now = datetime.now(timezone.utc).isoformat()
+    total_amount = sum((r.get("estimated_amount") or 0) for r in rows)
+    await db.addition_sections.update_one(
+        {"section_id": section_id, "project_id": project_id},
+        {"$set": {
+            "client_approval_status": "pending_client",
+            "client_approval_sent_at": now,
+            "client_approval_sent_by": user.user_id,
+            "client_rejection_reason": None,
+            "updated_at": now,
+        }},
+    )
+    # Flag every child row so per-row "Req Payment" stays gated consistently.
+    await db.additional_costs.update_many(
+        {"project_id": project_id, "section_id": section_id},
+        {"$set": {"client_approval_status": "pending_client", "client_approval_sent_at": now}},
+    )
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1, "client_name": 1}) or {}
+    await _notify_cre_for_project(
+        project_id,
+        f"Planning sent {len(rows)} additions worth ₹{int(total_amount):,} to {project.get('client_name','client')} for approval ({project.get('name','project')})",
+    )
+    await create_audit_log(user.user_id, "send_to_client", "addition_section", section_id, {"total_amount": total_amount, "rows": len(rows)})
+    return {"message": "Section sent to client", "section_id": section_id, "count": len(rows), "total_amount": total_amount}
+
+
+class ClientDecisionInput(BaseModel):
+    decision: str  # "approve" | "reject"
+    reason: Optional[str] = None  # required if reject
+
+
+def _decision_payload(decision: str, reason: Optional[str], user: User):
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
+    if decision == "reject" and not (reason or "").strip():
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+    now = datetime.now(timezone.utc).isoformat()
+    return {
+        "client_approval_status": "client_approved" if decision == "approve" else "client_rejected",
+        "client_decided_at": now,
+        "client_decided_by": user.user_id,
+        "client_rejection_reason": reason if decision == "reject" else None,
+    }
+
+
+@router.post("/additional-costs/{cost_id}/client-decision")
+async def client_decide_addition(cost_id: str, body: ClientDecisionInput, user: User = Depends(get_current_user)):
+    """Called by the Client Portal. Client must be the project's client_user."""
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Addition not found")
+    project = await db.projects.find_one({"project_id": cost["project_id"]}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if user.role != UserRole.SUPER_ADMIN and project.get("client_user_id") != user.user_id:
+        raise HTTPException(status_code=403, detail="Only the project's client can approve")
+    payload = _decision_payload(body.decision, body.reason, user)
+    await db.additional_costs.update_one({"cost_id": cost_id}, {"$set": payload})
+    await _notify_cre_for_project(
+        cost["project_id"],
+        f"Client {body.decision}d an addition worth ₹{int(cost.get('estimated_amount') or 0):,} on {project.get('name','project')}" + (f": {body.reason}" if body.decision == 'reject' else ''),
+    )
+    await create_audit_log(user.user_id, f"client_{body.decision}", "additional_cost", cost_id, {"reason": body.reason})
+    return {"message": f"Addition {body.decision}d"}
+
+
+@router.post("/projects/{project_id}/addition-sections/{section_id}/client-decision")
+async def client_decide_section(project_id: str, section_id: str, body: ClientDecisionInput, user: User = Depends(get_current_user)):
+    section = await db.addition_sections.find_one({"section_id": section_id, "project_id": project_id}, {"_id": 0})
+    if not section:
+        raise HTTPException(status_code=404, detail="Section not found")
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if user.role != UserRole.SUPER_ADMIN and project.get("client_user_id") != user.user_id:
+        raise HTTPException(status_code=403, detail="Only the project's client can approve")
+    payload = _decision_payload(body.decision, body.reason, user)
+    now = payload["client_decided_at"]
+    await db.addition_sections.update_one(
+        {"section_id": section_id, "project_id": project_id},
+        {"$set": {**payload, "updated_at": now}},
+    )
+    # Propagate the decision to every row inside.
+    await db.additional_costs.update_many(
+        {"project_id": project_id, "section_id": section_id},
+        {"$set": payload},
+    )
+    await _notify_cre_for_project(
+        project_id,
+        f"Client {body.decision}d {section.get('title','section')} ({project.get('name','project')})" + (f": {body.reason}" if body.decision == 'reject' else ''),
+    )
+    await create_audit_log(user.user_id, f"client_{body.decision}_section", "addition_section", section_id, {"reason": body.reason})
+    return {"message": f"Section {body.decision}d"}
+
+
 # ── ADDITION SECTIONS ───────────────────────────────────────────────────────
 # Sections are folders that group additional_costs rows under a Planning-
 # managed title with optional file attachments. The frontend renders one
@@ -3829,6 +3979,25 @@ async def request_additional_payment(cost_id: str, request: Request, user: User 
     so the request shows up in the project's Payment Schedule (filterable by month)."""
     if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning/PM can request payments")
+    
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Additional cost not found")
+
+    # Gate Req Payment behind client approval. If the addition belongs to a
+    # section, the section's batch approval also satisfies this gate.
+    client_status = cost.get("client_approval_status")
+    if client_status != "client_approved":
+        section_id = cost.get("section_id")
+        section_ok = False
+        if section_id:
+            section = await db.addition_sections.find_one(
+                {"section_id": section_id, "client_approval_status": "client_approved"},
+                {"_id": 0, "section_id": 1},
+            )
+            section_ok = bool(section)
+        if not section_ok:
+            raise HTTPException(status_code=403, detail="Client approval required before requesting payment. Click 'Send to Client' first.")
     
     # Optional body: { expected_payment_date: "YYYY-MM-DD" }
     expected_date = None

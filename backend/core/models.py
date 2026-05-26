@@ -732,6 +732,10 @@ class AdditionalCostItem(BaseModel):
     status: str = "pending"  # pending, in_progress, completed
     workflow_status: str = "approved"  # No approval needed - directly approved
     section_id: Optional[str] = None  # Optional FK to addition_sections.section_id
+    # Client portal approval lifecycle. `not_sent` (default) → `pending_client`
+    # (after Planning hits Send-to-Client) → `client_approved` | `client_rejected`.
+    client_approval_status: Optional[str] = None
+    client_rejection_reason: Optional[str] = None
     created_by: Optional[str] = None
     verified_by: Optional[str] = None
     approved_by: Optional[str] = None
