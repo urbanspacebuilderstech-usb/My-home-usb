@@ -2254,7 +2254,9 @@ class AdditionalCostCreate(BaseModel):
     estimated_amount: float
     name: Optional[str] = None
     qty: Optional[float] = None
+    unit: Optional[str] = None
     price: Optional[float] = None
+    remarks: Optional[str] = None
     section_id: Optional[str] = None
 
 
@@ -2266,7 +2268,9 @@ class AdditionalCostUpdate(BaseModel):
     status: Optional[str] = None
     name: Optional[str] = None
     qty: Optional[float] = None
+    unit: Optional[str] = None
     price: Optional[float] = None
+    remarks: Optional[str] = None
     section_id: Optional[str] = None  # Move addition between sections (or to ungrouped via empty string)
 
 
@@ -3649,7 +3653,9 @@ async def create_additional_cost(cost_input: AdditionalCostCreate, user: User = 
         estimated_amount=cost_input.estimated_amount,
         name=cost_input.name,
         qty=cost_input.qty,
+        unit=cost_input.unit,
         price=cost_input.price,
+        remarks=cost_input.remarks,
         section_id=cost_input.section_id,
     )
     
@@ -4537,7 +4543,9 @@ class BulkAdditionInput(BaseModel):
     estimated_amount: float
     name: Optional[str] = None
     qty: Optional[float] = None
+    unit: Optional[str] = None
     price: Optional[float] = None
+    remarks: Optional[str] = None
     section_id: Optional[str] = None  # Optional grouping into an addition_sections doc
 
 
@@ -4677,7 +4685,9 @@ async def create_bulk_additions(
             estimated_amount=item.estimated_amount,
             name=item.name,
             qty=item.qty,
+            unit=item.unit,
             price=item.price,
+            remarks=item.remarks,
             section_id=item.section_id,
             workflow_status="approved",
             created_by=user.user_id

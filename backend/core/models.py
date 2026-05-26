@@ -725,7 +725,9 @@ class AdditionalCostItem(BaseModel):
     # Itemised fields (new — used for FE-stage additions). qty * price = estimated_amount.
     name: Optional[str] = None
     qty: Optional[float] = None
-    price: Optional[float] = None
+    unit: Optional[str] = None  # Unit of measurement (Nos, Sqft, Lump etc.)
+    price: Optional[float] = None  # Unit rate (₹ per unit)
+    remarks: Optional[str] = None
     estimated_amount: float
     actual_amount: float = 0
     income_received: float = 0

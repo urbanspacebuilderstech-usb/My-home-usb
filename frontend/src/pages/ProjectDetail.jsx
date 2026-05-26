@@ -191,8 +191,8 @@ const createEmptyRows = (type, count = 6) => {
   } else if (type === 'payment') {
     return Array(count).fill(null).map(() => ({ stage_name: '', percentage: '', amount: '', due_date: '' }));
   } else if (type === 'addition') {
-    // Simplified to Name | Qty | Amount per product owner
-    return Array(count).fill(null).map(() => ({ item_name: '', quantity: '1', amount: '' }));
+    // Itemised: Name | Qty | Unit | Unit Rate | Total (auto) | Remarks
+    return Array(count).fill(null).map(() => ({ item_name: '', quantity: '1', unit: 'Nos', unit_rate: '', remarks: '' }));
   } else if (type === 'deduction') {
     return Array(count).fill(null).map(() => ({ item_name: '', quantity: '1', amount: '' }));
   }
@@ -2220,9 +2220,9 @@ export default function ProjectDetail() {
   };
 
   const handleBulkAddAddition = async () => {
-    const validItems = bulkAdditionRows.filter(r => r.item_name && parseFloat(r.amount) > 0);
+    const validItems = bulkAdditionRows.filter(r => r.item_name && parseFloat(r.unit_rate) > 0 && parseFloat(r.quantity) > 0);
     if (validItems.length === 0) {
-      toast.error('Please fill at least one row (Name + Amount)');
+      toast.error('Please fill at least one row (Name + Qty + Unit Rate)');
       return;
     }
     
@@ -2231,15 +2231,18 @@ export default function ProjectDetail() {
         project_id: projectId,
         items: validItems.map(r => {
           const qty = parseFloat(r.quantity) || 1;
-          const total = parseFloat(r.amount) || 0;
-          const rate = qty > 0 ? total / qty : total;
-          const desc = qty > 1 ? `${r.item_name} (${qty} × ₹${rate.toFixed(2)})` : r.item_name;
+          const rate = parseFloat(r.unit_rate) || 0;
+          const unit = (r.unit || 'Nos').trim() || 'Nos';
+          const total = qty * rate;
+          const desc = qty > 1 ? `${r.item_name} (${qty} ${unit} × ₹${rate.toFixed(2)})` : r.item_name;
           return {
             description: desc,
             estimated_amount: total,
             name: r.item_name,
             qty: qty,
+            unit: unit,
             price: rate,
+            remarks: r.remarks || null,
             section_id: bulkAdditionSectionId || undefined,
           };
         })
@@ -6015,7 +6018,7 @@ export default function ProjectDetail() {
                           <DialogDescription>
                             {bulkAdditionSectionId
                               ? 'These rows will be added inside the selected section.'
-                              : 'Enter Name, Qty and Amount for each row.'}
+                              : 'Enter Name, Qty, Unit, Unit Rate and (optional) Remarks for each row. Total auto-computed.'}
                           </DialogDescription>
                         </DialogHeader>
                         <div className="overflow-x-auto">
@@ -6024,13 +6027,20 @@ export default function ProjectDetail() {
                               <tr>
                                 <th className="px-2 py-2 text-left">#</th>
                                 <th className="px-2 py-2 text-left">Name *</th>
-                                <th className="px-2 py-2 text-left w-24">Qty</th>
-                                <th className="px-2 py-2 text-right w-32">Amount (₹) *</th>
+                                <th className="px-2 py-2 text-left w-20">Qty *</th>
+                                <th className="px-2 py-2 text-left w-24">Unit</th>
+                                <th className="px-2 py-2 text-right w-28">Unit Rate (₹) *</th>
+                                <th className="px-2 py-2 text-right w-28">Total (₹)</th>
+                                <th className="px-2 py-2 text-left w-40">Remarks</th>
                                 <th className="px-2 py-2 w-10"></th>
                               </tr>
                             </thead>
                             <tbody>
-                              {bulkAdditionRows.map((row, idx) => (
+                              {bulkAdditionRows.map((row, idx) => {
+                                const rowQty = parseFloat(row.quantity) || 0;
+                                const rowRate = parseFloat(row.unit_rate) || 0;
+                                const rowTotal = rowQty * rowRate;
+                                return (
                                 <tr key={idx} className="border-b">
                                   <td className="px-2 py-1 text-gray-500">{idx + 1}</td>
                                   <td className="px-2 py-1">
@@ -6051,12 +6061,33 @@ export default function ProjectDetail() {
                                     />
                                   </td>
                                   <td className="px-2 py-1">
+                                    <Input
+                                      value={row.unit}
+                                      onChange={(e) => { const r = [...bulkAdditionRows]; r[idx].unit = e.target.value; setBulkAdditionRows(r); }}
+                                      placeholder="Nos / Sqft / Lump"
+                                      className="h-8"
+                                      data-testid={`addition-unit-${idx}`}
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1">
                                     <NumericInput
-                                      value={row.amount}
-                                      onChange={(e) => { const r = [...bulkAdditionRows]; r[idx].amount = e.target.value; setBulkAdditionRows(r); }}
-                                      className="h-8 text-right font-semibold"
+                                      value={row.unit_rate}
+                                      onChange={(e) => { const r = [...bulkAdditionRows]; r[idx].unit_rate = e.target.value; setBulkAdditionRows(r); }}
+                                      className="h-8 text-right"
                                       placeholder="0"
-                                      data-testid={`addition-amount-${idx}`}
+                                      data-testid={`addition-rate-${idx}`}
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1 text-right font-semibold text-emerald-700" data-testid={`addition-total-${idx}`}>
+                                    ₹{rowTotal.toLocaleString()}
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <Input
+                                      value={row.remarks}
+                                      onChange={(e) => { const r = [...bulkAdditionRows]; r[idx].remarks = e.target.value; setBulkAdditionRows(r); }}
+                                      placeholder="Optional"
+                                      className="h-8"
+                                      data-testid={`addition-remarks-${idx}`}
                                     />
                                   </td>
                                   <td className="px-2 py-1 text-center">
@@ -6067,15 +6098,15 @@ export default function ProjectDetail() {
                                     )}
                                   </td>
                                 </tr>
-                              ))}
+                              );})}
                             </tbody>
                             <tfoot className="bg-emerald-50 border-t-2">
                               <tr>
-                                <td colSpan={3} className="px-2 py-2 text-right font-bold">Grand Total:</td>
+                                <td colSpan={5} className="px-2 py-2 text-right font-bold">Grand Total:</td>
                                 <td className="px-2 py-2 text-right font-bold text-emerald-700" data-testid="addition-grand-total">
-                                  ₹{bulkAdditionRows.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0).toLocaleString()}
+                                  ₹{bulkAdditionRows.reduce((sum, r) => sum + ((parseFloat(r.quantity) || 0) * (parseFloat(r.unit_rate) || 0)), 0).toLocaleString()}
                                 </td>
-                                <td></td>
+                                <td colSpan={2}></td>
                               </tr>
                             </tfoot>
                           </table>
@@ -6220,9 +6251,11 @@ export default function ProjectDetail() {
                       <th className="px-1 py-3 w-8"></th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Work Description</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Income</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Balance</th>
+                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Qty</th>
+                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Unit</th>
+                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Unit Rate</th>
+                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Total</th>
+                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
                       <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
                       {canManage && <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
                     </tr>
@@ -6230,7 +6263,7 @@ export default function ProjectDetail() {
                   <tbody className="divide-y divide-gray-200">
                     {items.length === 0 ? (
                       <tr>
-                        <td colSpan={canManage ? 8 : 7} className="px-4 py-8 text-center text-gray-500">
+                        <td colSpan={canManage ? 10 : 9} className="px-4 py-8 text-center text-gray-500">
                           {group.section_id ? 'No additions in this section yet.' : 'No additions recorded yet. Click "Add Additions" for extra work.'}
                         </td>
                       </tr>
@@ -6241,7 +6274,9 @@ export default function ProjectDetail() {
                       >
                       {items.map((cost, index) => {
                         const balance = cost.estimated_amount - (cost.income_received || 0);
-                        const isEditing = editingAddition === cost.cost_id;
+                        const qty = cost.qty || 1;
+                        const unit = cost.unit || '';
+                        const unitRate = cost.price != null ? cost.price : (qty > 0 ? cost.estimated_amount / qty : 0);
                         
                         return (
                           <SortableTableRow key={cost.cost_id} id={cost.cost_id} className="hover:bg-gray-50">
@@ -6249,26 +6284,12 @@ export default function ProjectDetail() {
                               <>
                             <td className="px-1 py-3 text-center"><DragHandle listeners={listeners} attributes={attributes} /></td>
                             <td className="px-4 py-3 text-sm">{index + 1}</td>
-                            <td className="px-4 py-3 font-medium">{cost.description}</td>
-                            <td className="px-4 py-3 text-right font-semibold">₹{cost.estimated_amount?.toLocaleString()}</td>
-                            <td className="px-4 py-3 text-right">
-                              {isEditing ? (
-                                <NumericInput
-                                  
-                                  className="w-28 text-right"
-                                  defaultValue={cost.income_received}
-                                  onBlur={(e) => handleUpdateAddition(cost.cost_id, { income_received: parseFloat(e.target.value) || 0 })}
-                                  autoFocus
-                                />
-                              ) : (
-                                <span className="text-green-600">₹{(cost.income_received || 0).toLocaleString()}</span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-right">
-                              <span className={balance > 0 ? 'text-red-600' : 'text-green-600'}>
-                                ₹{balance.toLocaleString()}
-                              </span>
-                            </td>
+                            <td className="px-4 py-3 font-medium">{cost.name || cost.description}</td>
+                            <td className="px-3 py-3 text-right text-sm">{qty}</td>
+                            <td className="px-3 py-3 text-sm text-gray-600">{unit || '—'}</td>
+                            <td className="px-3 py-3 text-right text-sm">₹{unitRate.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                            <td className="px-3 py-3 text-right font-semibold">₹{cost.estimated_amount?.toLocaleString()}</td>
+                            <td className="px-3 py-3 text-sm text-gray-600 truncate max-w-[180px]" title={cost.remarks || ''}>{cost.remarks || '—'}</td>
                             <td className="px-4 py-3 text-center">
                               <WorkflowBadge status={cost.workflow_status || 'draft'} />
                             </td>
@@ -6378,11 +6399,13 @@ export default function ProjectDetail() {
                   {items.length > 0 && (
                     <tfoot className="bg-cyan-50 border-t-2">
                       <tr>
-                        <td colSpan="3" className="px-4 py-3 text-right font-bold">Totals:</td>
-                        <td className="px-4 py-3 text-right font-bold">₹{t.total.toLocaleString()}</td>
-                        <td className="px-4 py-3 text-right font-bold text-green-600">₹{t.received.toLocaleString()}</td>
-                        <td className="px-4 py-3 text-right font-bold text-red-600">₹{t.balance.toLocaleString()}</td>
-                        <td colSpan={canManage ? 2 : 1}></td>
+                        <td colSpan="6" className="px-4 py-3 text-right font-bold">Total:</td>
+                        <td className="px-3 py-3 text-right font-bold">₹{t.total.toLocaleString()}</td>
+                        <td colSpan={canManage ? 3 : 2} className="px-3 py-3 text-right text-xs text-gray-600">
+                          <span className="text-green-700">Received ₹{t.received.toLocaleString()}</span>
+                          <span className="mx-2 text-gray-300">·</span>
+                          <span className={t.balance > 0 ? 'text-red-600' : 'text-green-600'}>Balance ₹{t.balance.toLocaleString()}</span>
+                        </td>
                       </tr>
                     </tfoot>
                   )}
