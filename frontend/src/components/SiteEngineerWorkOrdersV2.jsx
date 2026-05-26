@@ -497,15 +497,23 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-semibold text-gray-900">{i + 1}. {stage.name}</span>
-                      <Badge variant="outline" className={`text-[10px] ${sb.cls}`}>{sb.label}</Badge>
-                      {stage.is_open && balance > 0 && (
-                        <Badge className="text-[10px] bg-green-100 text-green-800 border-green-300">Open</Badge>
+                      {/* Locked stages: title only. SE has no need for status/amount/badge until Planning unlocks. */}
+                      {stage.is_open && (
+                        <>
+                          <Badge variant="outline" className={`text-[10px] ${sb.cls}`}>{sb.label}</Badge>
+                          {balance > 0 && (
+                            <Badge className="text-[10px] bg-green-100 text-green-800 border-green-300">Open</Badge>
+                          )}
+                          {carryover > 0 && (
+                            <Badge variant="outline" className="text-[9px] bg-orange-50 text-orange-700 border-orange-200">−{fmt(carryover)} carryover</Badge>
+                          )}
+                        </>
                       )}
                       {!stage.is_open && stage.open_requested && (
                         <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-300 animate-pulse">Open Requested</Badge>
                       )}
-                      {carryover > 0 && (
-                        <Badge variant="outline" className="text-[9px] bg-orange-50 text-orange-700 border-orange-200">−{fmt(carryover)} carryover</Badge>
+                      {!stage.is_open && !stage.open_requested && (
+                        <Badge variant="outline" className="text-[10px] bg-gray-100 text-gray-500 border-gray-300">Locked</Badge>
                       )}
                     </div>
                   </div>

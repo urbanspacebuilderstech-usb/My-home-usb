@@ -39,6 +39,7 @@ import {
   CreditCard,
   GitBranch,
   Lock,
+  Unlock,
   Undo2,
   Snowflake,
   Mail,
@@ -9024,6 +9025,37 @@ export default function ProjectDetail() {
                                 <TabsContent value="stages" className="p-3">
                                   {wo.stages?.length > 0 ? (
                                     <div className="space-y-2">
+                                      {/* Planning quick action: open multiple stages at once. Locked stages
+                                          stay hidden to SE until Planning unlocks them via this bar OR the
+                                          per-row "Open for SE" button. */}
+                                      {['planning', 'super_admin'].includes(user?.role) && wo.status !== 'frozen' && wo.stages.some(s => !s.is_open && s.status !== 'approved') && (
+                                        <div className="flex items-center justify-between gap-2 p-2 bg-violet-50 border border-violet-200 rounded">
+                                          <span className="text-xs text-violet-700">
+                                            <strong>{wo.stages.filter(s => !s.is_open && s.status !== 'approved').length}</strong> stage(s) hidden from Site Engineer
+                                          </span>
+                                          <Button
+                                            size="sm"
+                                            className="h-7 text-xs bg-violet-600 hover:bg-violet-700 text-white gap-1"
+                                            data-testid={`bulk-open-stages-${wo.work_order_id}`}
+                                            onClick={async () => {
+                                              const locked = wo.stages.filter(s => !s.is_open && s.status !== 'approved');
+                                              if (!locked.length) return;
+                                              if (!window.confirm(`Open ${locked.length} stage(s) for the Site Engineer?`)) return;
+                                              try {
+                                                await Promise.all(locked.map(s =>
+                                                  axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${s.stage_id}/open`)
+                                                ));
+                                                toast.success(`Opened ${locked.length} stage(s)`);
+                                                fetchWorkOrders();
+                                              } catch (err) {
+                                                toast.error(err.response?.data?.detail || 'Bulk open failed');
+                                              }
+                                            }}
+                                          >
+                                            <Unlock className="h-3 w-3" /> Open All for SE
+                                          </Button>
+                                        </div>
+                                      )}
                                       {wo.stages.map((st, i) => {
                                         const cfg = getStageStatusConfig(st.status, st.is_open);
                                         const showApprove = canApproveStage(st);
@@ -9072,31 +9104,31 @@ export default function ProjectDetail() {
                                                   </div>
                                                 )}
                                                 <div className="flex gap-1 flex-wrap pt-1">
-                                                  {/* Planning / Super-Admin: Lock Open toggle — controls SE visibility of this stage */}
-                                                  {['planning', 'super_admin'].includes(user?.role) && st.status !== 'approved' && (
+                                                  {/* Planning / Super-Admin: simple Open button. Once opened the
+                                                      stage stays visible to SE — no need for a Lock button afterwards. */}
+                                                  {['planning', 'super_admin'].includes(user?.role) && st.status !== 'approved' && !st.is_open && (
                                                     <Button
                                                       size="sm"
-                                                      variant="outline"
-                                                      className={`h-7 text-xs gap-1 ${st.is_open ? 'border-emerald-400 text-emerald-700 hover:bg-emerald-50' : 'border-amber-400 text-amber-700 hover:bg-amber-50'}`}
-                                                      data-testid={`labour-wo-stage-lock-toggle-${st.stage_id}`}
+                                                      className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                                                      data-testid={`labour-wo-stage-open-${st.stage_id}`}
                                                       onClick={async (e) => {
                                                         e.stopPropagation();
                                                         try {
-                                                          if (st.is_open) {
-                                                            await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${st.stage_id}/lock`);
-                                                            toast.success('Stage locked — Site Engineer view removed');
-                                                          } else {
-                                                            await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${st.stage_id}/open`);
-                                                            toast.success('Stage unlocked — visible to Site Engineer');
-                                                          }
+                                                          await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${st.stage_id}/open`);
+                                                          toast.success('Stage opened — visible to Site Engineer');
                                                           fetchWorkOrders();
                                                         } catch (err) {
-                                                          toast.error(err.response?.data?.detail || 'Failed to toggle lock');
+                                                          toast.error(err.response?.data?.detail || 'Failed to open stage');
                                                         }
                                                       }}
                                                     >
-                                                      {st.is_open ? '🔓 Lock' : '🔒 Lock Open'}
+                                                      <Unlock className="h-3 w-3" /> Open for SE
                                                     </Button>
+                                                  )}
+                                                  {['planning', 'super_admin'].includes(user?.role) && st.is_open && st.status !== 'approved' && (
+                                                    <span className="text-[10px] px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium" data-testid={`labour-wo-stage-opened-${st.stage_id}`}>
+                                                      ✓ Open for SE
+                                                    </span>
                                                   )}
                                                   {showApprove && (
                                                     <>
