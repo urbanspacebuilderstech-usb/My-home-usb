@@ -1577,6 +1577,67 @@ export default function ProjectDetail() {
     } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
   };
 
+  // Duplicate an existing template. Reuses the create endpoint with the
+  // same payload + "(Copy)" suffix on the name; refreshes the list.
+  const handleDuplicateWoTemplate = async (tpl) => {
+    const copyName = `${tpl.name} (Copy)`;
+    try {
+      const payload = {
+        name: copyName,
+        contractor_type: tpl.contractor_type || '',
+        description: tpl.description || '',
+        scope_items: (tpl.scope_items || []).map(s => ({ name: s.name, unit: s.unit, quantity: s.quantity, unit_rate: s.unit_rate })),
+        stages: (tpl.stages || []).filter(s => s.source !== 'additional').map(s => ({ name: s.name, type: s.type, value: s.value })),
+        additional_work: (tpl.additional_work || []).map(a => ({ description: a.description, unit: a.unit, quantity: a.quantity, unit_rate: a.unit_rate })),
+        deductions: (tpl.deductions || []).map(d => ({ description: d.description, unit: d.unit, quantity: d.quantity, unit_rate: d.unit_rate })),
+        labour_rates: tpl.labour_rates || null,
+        notes: tpl.notes || '',
+      };
+      await axios.post(`${API}/wo-templates`, payload);
+      toast.success(`Duplicated as "${copyName}"`);
+      const r = await axios.get(`${API}/wo-templates`).catch(() => ({ data: [] }));
+      setWoTemplates(r.data || []);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Duplicate failed'); }
+  };
+
+  // Open the Create-WO dialog as a blank template editor (no contractor, no
+  // existing rows). Save lands via handleSaveTemplateEdit / POST /wo-templates.
+  const openNewWoTemplate = async () => {
+    try {
+      const typesRes = await axios.get(`${API}/contractor-types`).catch(() => ({ data: [] }));
+      setContractorTypes(typesRes.data || []);
+    } catch { /* non-fatal */ }
+    const blank = {
+      template_id: null, // sentinel — handleSaveTemplateEdit will treat as create
+      name: '',
+      contractor_type: '',
+      description: '',
+      scope_items: [],
+      stages: [],
+      additional_work: [],
+      deductions: [],
+      labour_rates: { skilled: 0, semi_skilled: 0, unskilled: 0 },
+      notes: '',
+    };
+    setEditingTemplate(blank);
+    setEditingTemplateName('');
+    setEditingWo(null);
+    setWoSelectedType('');
+    setWoForm({
+      contractor_id: '',
+      notes: '',
+      scope_items: [],
+      stages: [],
+      additional_work: [],
+      deductions: [],
+      labour_rates: { skilled: 0, semi_skilled: 0, unskilled: 0 },
+    });
+    setWoSubTab('scope');
+    setWoMainTab('work_order');
+    setUseWoTplDialog(false);
+    setWoDialog(true);
+  };
+
   // Edit an existing template — hijacks the WO create dialog as a template
   // editor. Contractor section is hidden because templates are contractor-
   // agnostic. handleSaveWo() detects `editingTemplate` and PATCHes instead
@@ -1622,8 +1683,14 @@ export default function ProjectDetail() {
         labour_rates: woForm.labour_rates || null,
         notes: woForm.notes || '',
       };
-      await axios.patch(`${API}/wo-templates/${editingTemplate.template_id}`, payload);
-      toast.success(`Template "${name}" saved`);
+      if (editingTemplate.template_id) {
+        await axios.patch(`${API}/wo-templates/${editingTemplate.template_id}`, payload);
+        toast.success(`Template "${name}" saved`);
+      } else {
+        // New template path — POST and let backend assign template_id
+        await axios.post(`${API}/wo-templates`, payload);
+        toast.success(`Template "${name}" created`);
+      }
       setEditingTemplate(null);
       setEditingTemplateName('');
       setWoDialog(false);
@@ -8212,12 +8279,26 @@ export default function ProjectDetail() {
               <Dialog open={useWoTplDialog} onOpenChange={setUseWoTplDialog}>
                 <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
                   <DialogHeader>
-                    <DialogTitle>Use a Work Order Template</DialogTitle>
-                    <DialogDescription>Pick a template — Scope, Stages, Additional, Deductions and Labour Rates will be loaded into the form. You still pick the contractor.</DialogDescription>
+                    <div className="flex items-start justify-between gap-3 pr-6">
+                      <div>
+                        <DialogTitle>Use a Work Order Template</DialogTitle>
+                        <DialogDescription>Pick a template — Scope, Stages, Additional, Deductions and Labour Rates will be loaded into the form. You still pick the contractor.</DialogDescription>
+                      </div>
+                      {(user?.role === 'planning' || user?.role === 'planning_person' || user?.role === 'super_admin' || user?.role === 'project_manager') && (
+                        <Button
+                          size="sm"
+                          className="bg-violet-600 hover:bg-violet-700 h-8 gap-1 shrink-0"
+                          onClick={openNewWoTemplate}
+                          data-testid="wo-tpl-new"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> New Template
+                        </Button>
+                      )}
+                    </div>
                   </DialogHeader>
                   <div className="space-y-2 py-2">
                     {woTemplates.length === 0 ? (
-                      <p className="text-sm text-gray-400 text-center py-8">No saved templates yet. Use the "Save as Template" button on any existing Work Order to add one.</p>
+                      <p className="text-sm text-gray-400 text-center py-8">No saved templates yet. Click "+ New Template" above or use "Save as Template" on any existing Work Order.</p>
                     ) : (
                       woTemplates.map(tpl => (
                         <div key={tpl.template_id} className="border rounded-lg p-3 hover:border-violet-300 hover:bg-violet-50/40 transition" data-testid={`wo-tpl-row-${tpl.template_id}`}>
@@ -8234,6 +8315,9 @@ export default function ProjectDetail() {
                             </div>
                             <div className="flex items-center gap-1">
                               <Button size="sm" className="bg-violet-600 hover:bg-violet-700 h-7 text-xs" onClick={() => applyWoTemplate(tpl)} data-testid={`wo-tpl-apply-${tpl.template_id}`}>Apply</Button>
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs border-blue-300 text-blue-700 hover:bg-blue-50" onClick={() => handleDuplicateWoTemplate(tpl)} data-testid={`wo-tpl-duplicate-${tpl.template_id}`} title="Duplicate this template">
+                                <Copy className="h-3 w-3 mr-1" /> Duplicate
+                              </Button>
                               <Button size="sm" variant="outline" className="h-7 px-2 text-xs border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => openEditWoTemplate(tpl)} data-testid={`wo-tpl-edit-${tpl.template_id}`}>
                                 <Edit className="h-3 w-3 mr-1" /> Edit
                               </Button>
