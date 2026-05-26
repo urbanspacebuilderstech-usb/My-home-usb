@@ -76,6 +76,7 @@ import CSVImportPage from '@/pages/CSVImportPage';
 import GMDashboard from '@/pages/GMDashboard';
 import MarketingBoard from '@/pages/MarketingBoard';
 import PMDashboard from '@/pages/PMDashboard';
+import QCDashboard from '@/pages/QCDashboard';
 import ArchitectDashboard from '@/pages/ArchitectDashboard';
 import SetupWizard from '@/pages/SetupWizard';
 import PaymentSchedulePage from '@/pages/PaymentSchedulePage';
@@ -187,6 +188,7 @@ function AppRouter() {
       <Route path="/crm/import-csv" element={<ProtectedRoute><CSVImportPage /></ProtectedRoute>} />
       <Route path="/gm-dashboard" element={<ProtectedRoute><GMDashboard /></ProtectedRoute>} />
       <Route path="/pm-dashboard" element={<ProtectedRoute><PMDashboard /></ProtectedRoute>} />
+      <Route path="/qc-dashboard" element={<ProtectedRoute><QCDashboard /></ProtectedRoute>} />
       <Route path="/architect-dashboard" element={<ProtectedRoute><ArchitectDashboard /></ProtectedRoute>} />
       <Route path="/marketing-board" element={<ProtectedRoute><MarketingBoard /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
@@ -209,6 +211,7 @@ function getRoleRedirect(role) {
     cre: '/cre-board',
     project_manager: '/pm-dashboard',
     associate_pm: '/pm-dashboard',
+    quality_check: '/qc-dashboard',
     client: '/client-portal',
     vendor: '/vendor-portal',
     marketing_head: '/marketing-board',

@@ -6178,16 +6178,16 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
         {"$set": {"stages": wo["stages"], "updated_at": now}}
     )
     
-    # Notify Planning team (PM step is skipped)
+    # Notify PM team (first step in chain: SE → PM → QC → Planning → Accountant)
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "team": 1, "name": 1})
-    planning_users = await db.users.find({"role": {"$in": [UserRole.PLANNING.value, UserRole.SUPER_ADMIN.value]}, "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}).to_list(20)
-    for pu in planning_users:
+    pm_users = await db.users.find({"role": {"$in": [UserRole.PROJECT_MANAGER.value, UserRole.SUPER_ADMIN.value]}, "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}).to_list(20)
+    for pu in pm_users:
         try:
             notif = Notification(
                 user_id=pu.get("user_id"),
-                title="Payment Request",
+                title=f"New {rab_number} — Payment Request",
                 message=f"₹{request_amount:,.0f} stage payment requested for {wo.get('contractor_name', '')} in {(project or {}).get('name', '')}",
-                link=f"/planning-board"
+                link=f"/pm-dashboard"
             )
             notif_dict = notif.model_dump()
             notif_dict["created_at"] = notif_dict["created_at"].isoformat()
@@ -6195,7 +6195,7 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
         except Exception:
             pass
     
-    return {"message": "Payment requested successfully", "request_id": payment_req["request_id"]}
+    return {"message": "Payment requested successfully", "request_id": payment_req["request_id"], "rab_number": rab_number}
 
 
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/finish")
@@ -6271,18 +6271,18 @@ async def wo_finish_stage(project_id: str, work_order_id: str, stage_id: str, da
 async def planning_labour_stage_requests(status: str = "new", user: User = Depends(get_current_user)):
     """Planning queue: list all WO stage payment requests grouped by status.
     status values:
-      - 'new'      → pm_approved (Site Engineer just submitted, awaiting Planning)
+      - 'new'      → qc_approved (QC has cleared it, awaiting Planning's final approval)
       - 'forwarded'→ planning_approved (already forwarded to Accountant)
-      - 'all'      → every non-finalised request
+      - 'all'      → every non-finalised request in Planning's purview
     """
     if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     target_statuses = {
-        "new": ["pm_approved"],
+        "new": ["qc_approved"],
         "forwarded": ["planning_approved"],
-        "all": ["pm_approved", "planning_approved"],
-    }.get(status, ["pm_approved"])
+        "all": ["qc_approved", "planning_approved"],
+    }.get(status, ["qc_approved"])
 
     # Pull all active work orders that have at least one matching payment request
     work_orders = await db.project_work_orders.find(
@@ -6369,6 +6369,171 @@ async def planning_labour_stage_requests(status: str = "new", user: User = Depen
 #   SE raises → PM review → QC review → Planning review → Accountant pays
 #   Reject at any step sends RAB back to the PREVIOUS approver (status field).
 # =====================================================================
+async def _list_labour_stage_requests(target_statuses: list):
+    """Shared helper: returns a flat list of labour stage payment requests
+    matching ANY of the supplied statuses with enriched project/contractor/SE
+    context. Used by PM, QC, Planning, Accountant, and SE-rework queues so
+    every role sees the same shape."""
+    work_orders = await db.project_work_orders.find(
+        {"is_active": {"$ne": False}, "stages.payment_requests.status": {"$in": target_statuses}},
+        {"_id": 0}
+    ).to_list(500)
+    project_ids = list({wo.get("project_id") for wo in work_orders if wo.get("project_id")})
+    projects = {p["project_id"]: p for p in await db.projects.find(
+        {"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "name": 1, "team": 1}
+    ).to_list(500)}
+    engineer_ids = []
+    for p in projects.values():
+        team = p.get("team") or {}
+        for k in ("site_engineer", "sr_site_engineer"):
+            if team.get(k):
+                engineer_ids.append(team[k])
+    user_lookup = {u["user_id"]: u for u in await db.users.find(
+        {"user_id": {"$in": engineer_ids}}, {"_id": 0, "user_id": 1, "name": 1}
+    ).to_list(500)} if engineer_ids else {}
+    out = []
+    for wo in work_orders:
+        proj = projects.get(wo.get("project_id"), {})
+        team = proj.get("team") or {}
+        se_id = team.get("site_engineer") or team.get("sr_site_engineer")
+        se_name = (user_lookup.get(se_id) or {}).get("name", "—")
+        for stage in wo.get("stages", []):
+            for pr in stage.get("payment_requests", []) or []:
+                if pr.get("status") not in target_statuses:
+                    continue
+                released = sum(p.get("approved_amount", 0) for p in stage.get("payment_requests", []) if p.get("status") == "approved")
+                pending = sum(p.get("amount", 0) for p in stage.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
+                stage_total = stage.get("amount", 0)
+                carryover_ded = float(stage.get("carryover_deduction", 0))
+                stage_idx_ = wo.get("stages", []).index(stage)
+                next_stage_obj = wo["stages"][stage_idx_ + 1] if stage_idx_ + 1 < len(wo["stages"]) else None
+                next_stage_capacity = 0
+                if next_stage_obj:
+                    ns_rel = sum(p.get("approved_amount", 0) for p in (next_stage_obj.get("payment_requests") or []) if p.get("status") == "approved")
+                    next_stage_capacity = max(0, float(next_stage_obj.get("amount", 0)) - ns_rel - float(next_stage_obj.get("carryover_deduction", 0)))
+                out.append({
+                    "request_id": pr.get("request_id"),
+                    "rab_number": pr.get("rab_number"),
+                    "status": pr.get("status"),
+                    "amount": pr.get("amount", 0),
+                    "notes": pr.get("notes", ""),
+                    "dlr_summary": pr.get("dlr_summary", ""),
+                    "requested_at": pr.get("requested_at"),
+                    "requested_by_name": pr.get("requested_by_name", se_name),
+                    "site_engineer_name": se_name,
+                    "pm_approved_by_name": pr.get("pm_approved_by_name"),
+                    "pm_approved_at": pr.get("pm_approved_at"),
+                    "pm_notes": pr.get("pm_notes"),
+                    "qc_approved_by_name": pr.get("qc_approved_by_name"),
+                    "qc_approved_at": pr.get("qc_approved_at"),
+                    "qc_notes": pr.get("qc_notes"),
+                    "planning_approved_by_name": pr.get("planning_approved_by_name"),
+                    "planning_approved_at": pr.get("planning_approved_at"),
+                    "planning_notes": pr.get("planning_notes"),
+                    "rejected_by_role": pr.get("rejected_by_role"),
+                    "rejected_by_name": pr.get("rejected_by_name"),
+                    "rejection_reason": pr.get("rejection_reason"),
+                    "rejected_at": pr.get("rejected_at"),
+                    "project_id": wo.get("project_id"),
+                    "project_name": proj.get("name") or wo.get("project_name", ""),
+                    "work_order_id": wo.get("work_order_id"),
+                    "contractor_id": wo.get("contractor_id"),
+                    "contractor_name": wo.get("contractor_name", ""),
+                    "contractor_type": wo.get("contractor_type", ""),
+                    "stage_id": stage.get("stage_id"),
+                    "stage_name": stage.get("name", ""),
+                    "stage_amount": stage_total,
+                    "stage_released": released,
+                    "stage_pending": pending,
+                    "stage_carryover_deduction": carryover_ded,
+                    "stage_balance": max(0, stage_total - released - pending - carryover_ded + pr.get("amount", 0)),
+                    "se_exceeds_balance": pr.get("se_exceeds_balance", False),
+                    "se_balance_at_request": pr.get("se_balance_at_request", 0),
+                    "next_stage_name": (next_stage_obj or {}).get("name"),
+                    "next_stage_capacity": next_stage_capacity,
+                    "wo_total_value": wo.get("total_value", 0),
+                    "wo_paid_amount": wo.get("paid_amount", 0),
+                })
+    out.sort(key=lambda r: r.get("requested_at") or "", reverse=True)
+    return out
+
+
+async def _notify_users_by_role(roles: list, title: str, message: str, link: str):
+    """Push a notification to every active user holding one of the given roles."""
+    try:
+        users = await db.users.find(
+            {"role": {"$in": roles}, "is_active": {"$ne": False}},
+            {"_id": 0, "user_id": 1}
+        ).to_list(50)
+        for u in users:
+            notif = Notification(
+                user_id=u.get("user_id"),
+                title=title,
+                message=message,
+                link=link,
+            )
+            notif_dict = notif.model_dump()
+            notif_dict["created_at"] = notif_dict["created_at"].isoformat()
+            await db.notifications.insert_one(notif_dict)
+    except Exception:
+        pass
+
+
+@router.get("/pm/labour-stage-requests")
+async def pm_labour_stage_requests(status: str = "new", user: User = Depends(get_current_user)):
+    """PM queue. status:
+      - new       → requested (SE just raised it)
+      - forwarded → pm_approved (moved to QC)
+      - all       → requested + pm_approved
+    """
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    target = {
+        "new": ["requested"],
+        "forwarded": ["pm_approved"],
+        "all": ["requested", "pm_approved"],
+    }.get(status, ["requested"])
+    rows = await _list_labour_stage_requests(target)
+    return {"count": len(rows), "requests": rows}
+
+
+@router.get("/qc/labour-stage-requests")
+async def qc_labour_stage_requests(status: str = "new", user: User = Depends(get_current_user)):
+    """QC queue. status:
+      - new       → pm_approved (PM cleared, awaiting QC)
+      - forwarded → qc_approved (moved to Planning)
+      - all       → pm_approved + qc_approved
+    """
+    if user.role not in [UserRole.QUALITY_CHECK, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    target = {
+        "new": ["pm_approved"],
+        "forwarded": ["qc_approved"],
+        "all": ["pm_approved", "qc_approved"],
+    }.get(status, ["pm_approved"])
+    rows = await _list_labour_stage_requests(target)
+    return {"count": len(rows), "requests": rows}
+
+
+@router.get("/site-engineer/labour-stage-requests")
+async def se_labour_stage_requests(status: str = "rework", user: User = Depends(get_current_user)):
+    """Site Engineer queue. status:
+      - rework  → se_rework (PM rejected, needs SE re-submission)
+      - mine    → every non-approved request the SE submitted
+    """
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    target = {
+        "rework": ["se_rework"],
+        "mine": ["se_rework", "requested", "pm_approved", "qc_approved", "planning_approved"],
+    }.get(status, ["se_rework"])
+    rows = await _list_labour_stage_requests(target)
+    # SE only sees their own
+    if user.role != UserRole.SUPER_ADMIN:
+        rows = [r for r in rows if r.get("requested_by_name") == user.name or r.get("site_engineer_name") == user.name]
+    return {"count": len(rows), "requests": rows}
+
+
 async def _find_pr_and_update(work_order_id: str, stage_id: str, request_id: str, expected_status: list, mutate):
     """Helper: load WO, find the request, validate status, run mutate(pr, wo, stage), persist."""
     wo = await db.project_work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
@@ -6413,6 +6578,10 @@ async def pm_approve_labour_payment(project_id: str, work_order_id: str, stage_i
         pr["rejected_by_role"] = None; pr["rejection_reason"] = None
     pr = await _find_pr_and_update(work_order_id, stage_id, request_id, ["requested"], mutate)
     await create_audit_log(user.user_id, "pm_approve", "labour_payment_request", request_id, {"rab": pr.get("rab_number")})
+    await _notify_users_by_role([UserRole.QUALITY_CHECK.value, UserRole.SUPER_ADMIN.value],
+        f"{pr.get('rab_number','RAB')} — QC Review",
+        f"PM approved {pr.get('rab_number','RAB')} ₹{pr.get('amount',0):,.0f} — awaiting QC review",
+        "/qc-dashboard")
     return {"message": f"{pr.get('rab_number','RAB')} forwarded to QC", "status": "pm_approved"}
 
 
@@ -6432,6 +6601,16 @@ async def pm_reject_labour_payment(project_id: str, work_order_id: str, stage_id
         pr["rejection_reason"] = reason
     pr = await _find_pr_and_update(work_order_id, stage_id, request_id, ["requested"], mutate)
     await create_audit_log(user.user_id, "pm_reject", "labour_payment_request", request_id, {"rab": pr.get("rab_number"), "reason": reason})
+    # Notify the original Site Engineer
+    try:
+        wo = await db.project_work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0, "project_id": 1})
+        proj = await db.projects.find_one({"project_id": (wo or {}).get("project_id")}, {"_id": 0, "team": 1, "name": 1}) if wo else None
+        team = (proj or {}).get("team") or {}
+        se_id = team.get("site_engineer") or team.get("sr_site_engineer")
+        if se_id:
+            await create_notification(se_id, f"{pr.get('rab_number','RAB')} — Returned for Re-work", f"PM rejected your payment request. Reason: {reason}", link="/site-engineer")
+    except Exception:
+        pass
     return {"message": f"{pr.get('rab_number','RAB')} returned to Site Engineer", "status": "se_rework"}
 
 
@@ -6450,6 +6629,10 @@ async def qc_approve_labour_payment(project_id: str, work_order_id: str, stage_i
         pr["rejected_by_role"] = None; pr["rejection_reason"] = None
     pr = await _find_pr_and_update(work_order_id, stage_id, request_id, ["pm_approved"], mutate)
     await create_audit_log(user.user_id, "qc_approve", "labour_payment_request", request_id, {"rab": pr.get("rab_number")})
+    await _notify_users_by_role([UserRole.PLANNING.value, UserRole.PLANNING_PERSON.value, UserRole.SUPER_ADMIN.value],
+        f"{pr.get('rab_number','RAB')} — Planning Review",
+        f"QC approved {pr.get('rab_number','RAB')} ₹{pr.get('amount',0):,.0f} — awaiting Planning review",
+        "/planning-board")
     return {"message": f"{pr.get('rab_number','RAB')} forwarded to Planning", "status": "qc_approved"}
 
 
@@ -6487,6 +6670,10 @@ async def planning_approve_labour_payment(project_id: str, work_order_id: str, s
         pr["rejected_by_role"] = None; pr["rejection_reason"] = None
     pr = await _find_pr_and_update(work_order_id, stage_id, request_id, ["qc_approved"], mutate)
     await create_audit_log(user.user_id, "planning_approve", "labour_payment_request", request_id, {"rab": pr.get("rab_number")})
+    await _notify_users_by_role([UserRole.ACCOUNTANT.value, UserRole.SUPER_ADMIN.value],
+        f"{pr.get('rab_number','RAB')} — Awaiting Accountant",
+        f"Planning approved {pr.get('rab_number','RAB')} ₹{pr.get('amount',0):,.0f} — ready for payment release",
+        "/accounts-board")
     return {"message": f"{pr.get('rab_number','RAB')} forwarded to Accountant", "status": "planning_approved"}
 
 
@@ -6525,7 +6712,50 @@ async def accountant_reject_labour_payment(project_id: str, work_order_id: str, 
         pr["rejection_reason"] = reason
     pr = await _find_pr_and_update(work_order_id, stage_id, request_id, ["planning_approved"], mutate)
     await create_audit_log(user.user_id, "accountant_reject", "labour_payment_request", request_id, {"rab": pr.get("rab_number"), "reason": reason})
+    await _notify_users_by_role([UserRole.PLANNING.value, UserRole.PLANNING_PERSON.value, UserRole.SUPER_ADMIN.value],
+        f"{pr.get('rab_number','RAB')} — Returned by Accountant",
+        f"Accountant rejected {pr.get('rab_number','RAB')}. Reason: {reason}",
+        "/planning-board")
     return {"message": f"{pr.get('rab_number','RAB')} returned to Planning", "status": "qc_approved"}
+
+
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/payment-requests/{request_id}/se-resubmit")
+async def se_resubmit_labour_payment(project_id: str, work_order_id: str, stage_id: str, request_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Site Engineer edits a PM-rejected RAB (status `se_rework`) and resubmits.
+    Body may include amount, notes, dlr_summary. Status flips back to `requested`."""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can resubmit")
+    new_amount = data.get("amount")
+    new_notes = data.get("notes")
+    new_dlr = data.get("dlr_summary")
+    now = datetime.now(timezone.utc).isoformat()
+    def mutate(pr, _wo, _st):
+        if new_amount is not None and new_amount != "":
+            try:
+                amt = float(new_amount)
+                if amt <= 0:
+                    raise HTTPException(status_code=400, detail="Amount must be positive")
+                pr["amount"] = amt
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="Amount must be a number")
+        if new_notes is not None:
+            pr["notes"] = new_notes
+        if new_dlr is not None:
+            pr["dlr_summary"] = new_dlr
+        pr["status"] = "requested"
+        pr["resubmitted_by"] = user.user_id
+        pr["resubmitted_by_name"] = user.name
+        pr["resubmitted_at"] = now
+        pr["rejected_by_role"] = None
+        pr["rejection_reason"] = None
+        pr["rejected_at"] = None
+    pr = await _find_pr_and_update(work_order_id, stage_id, request_id, ["se_rework"], mutate)
+    await create_audit_log(user.user_id, "se_resubmit", "labour_payment_request", request_id, {"rab": pr.get("rab_number")})
+    await _notify_users_by_role([UserRole.PROJECT_MANAGER.value, UserRole.SUPER_ADMIN.value],
+        f"{pr.get('rab_number','RAB')} — Resubmitted",
+        f"SE resubmitted {pr.get('rab_number','RAB')} ₹{pr.get('amount',0):,.0f} — awaiting PM review",
+        "/pm-dashboard")
+    return {"message": f"{pr.get('rab_number','RAB')} resubmitted to PM", "status": "requested"}
 
 
 # =====================================================================
@@ -6810,6 +7040,54 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         "payment_date": payment_date,
     }
     await db.recorded_expenses.insert_one(cashbook_entry)
+
+    # Auto-create a labour Payment Schedule entry for tracking on the project's
+    # Payment Schedule view. Idempotent: keyed off (project_id, request_id).
+    try:
+        existing_ps = await db.payment_stages.find_one({"project_id": wo.get("project_id"), "rab_request_id": request_id}, {"_id": 0})
+        if not existing_ps:
+            ps_id = f"ps_rab_{uuid.uuid4().hex[:10]}"
+            await db.payment_stages.insert_one({
+                "stage_id": ps_id,
+                "project_id": wo.get("project_id"),
+                "project_name": (project_doc or {}).get("name", ""),
+                "stage_name": f"{target_pr.get('rab_number','RAB')} · {wo.get('contractor_name','')} · {target_stage.get('name','')}",
+                "amount": approved_amount,
+                "due_date": payment_date,
+                "status": "paid",
+                "workflow_status": "paid",
+                "category": "labour",
+                "kind": "labour_rab",
+                "rab_request_id": request_id,
+                "rab_number": target_pr.get("rab_number"),
+                "work_order_id": work_order_id,
+                "labour_stage_id": stage_id,
+                "contractor_id": contractor_id,
+                "contractor_name": wo.get("contractor_name", ""),
+                "expense_id": expense_id,
+                "payment_method": cashbook_method_map.get(payment_method, payment_method),
+                "is_locked": True,
+                "is_auto_generated": True,
+                "paid_at": now,
+                "paid_by": user.user_id,
+                "paid_by_name": user.name,
+                "created_at": now,
+                "updated_at": now,
+            })
+    except Exception as e:
+        logger.warning(f"Failed to auto-create payment_stages entry for {request_id}: {e}")
+
+    # Notify SE that payment is released
+    try:
+        proj_team_doc = await db.projects.find_one({"project_id": wo.get("project_id")}, {"_id": 0, "team": 1})
+        team_obj = (proj_team_doc or {}).get("team") or {}
+        se_id = team_obj.get("site_engineer") or team_obj.get("sr_site_engineer")
+        if se_id:
+            await create_notification(se_id, f"{target_pr.get('rab_number','RAB')} — Payment Released",
+                f"₹{approved_amount:,.0f} released for {wo.get('contractor_name','')} - {target_stage.get('name','')}",
+                link="/site-engineer")
+    except Exception:
+        pass
 
     return {
         "message": "Payment released",

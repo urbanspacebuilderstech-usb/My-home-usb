@@ -77,6 +77,9 @@ const ROLE_NAV = {
     { label: 'HR Portal', path: '/hr-portal' },
     { label: 'Projects', path: '/projects' },
   ],
+  quality_check: [
+    { label: 'QC Dashboard', path: '/qc-dashboard' },
+  ],
   prospect: [],  // mobile app uses its own footer nav; AppHeader is hidden
 };
 
@@ -112,6 +115,7 @@ const ROLE_SUB_MENUS = {
     '/gm-dashboard': [
       { label: 'GM Command Center', path: '/gm-dashboard' },
       { label: 'PM Dashboard', path: '/pm-dashboard' },
+      { label: 'QC Dashboard', path: '/qc-dashboard' },
       { label: 'Procurement', path: '/procurement-board-v2' },
       { label: 'Work Orders', path: '/work-order-management' },
     ],

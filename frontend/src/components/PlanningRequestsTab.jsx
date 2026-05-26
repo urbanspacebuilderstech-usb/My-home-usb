@@ -14,6 +14,7 @@ import RequestStatusFilter, { mapToReqStatus } from './RequestStatusFilter';
 import { Package, Users, Wallet, ThumbsUp, ThumbsDown, Loader2, CheckCircle2, AlertCircle, FileText, Calendar, User as UserIcon, Briefcase, CreditCard, ListChecks, Send, Truck, PackageCheck, FileClock, ClipboardCheck, Banknote } from 'lucide-react';
 import MetaDateFilter, { rangeForPreset } from './MetaDateFilter';
 import PlanningLabourStageRequests from './PlanningLabourStageRequests';
+import RABApprovalQueue from './RABApprovalQueue';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
@@ -339,8 +340,8 @@ export default function PlanningRequestsTab({ projects = [], onCountChange }) {
 
       {/* Labour Stages → Stage Open Requests only */}
       {activeType === 'labour_stages' && <PlanningLabourStageRequests mode="stages" />}
-      {/* Labour Payments → Payment Queue only */}
-      {activeType === 'labour_payments' && <PlanningLabourStageRequests mode="payments" />}
+      {/* Labour Payments → RAB approval queue (new 4-tier chain: SE→PM→QC→Planning→Accountant) */}
+      {activeType === 'labour_payments' && <RABApprovalQueue role="planning" title="Planning Review — Labour RAB" />}
 
       {/* MATERIAL — procurement-style card layout with lifecycle filter cards. */}
       {activeType === 'material' && (

@@ -52,11 +52,13 @@ const FIXED_LABOUR_ROWS = [
 // Stage payment-request status badges
 function prStatusBadge(status) {
   const map = {
-    pm_approved: { label: 'Awaiting Planning', cls: 'bg-amber-100 text-amber-800 border-amber-300' },
-    planning_approved: { label: 'Awaiting Accountant', cls: 'bg-indigo-100 text-indigo-800 border-indigo-300' },
+    requested: { label: 'Awaiting PM', cls: 'bg-amber-100 text-amber-800 border-amber-300' },
+    pm_approved: { label: 'Awaiting QC', cls: 'bg-cyan-100 text-cyan-800 border-cyan-300' },
+    qc_approved: { label: 'Awaiting Planning', cls: 'bg-indigo-100 text-indigo-800 border-indigo-300' },
+    planning_approved: { label: 'Awaiting Accountant', cls: 'bg-violet-100 text-violet-800 border-violet-300' },
+    se_rework: { label: 'Returned — Re-work', cls: 'bg-red-100 text-red-800 border-red-300' },
     approved: { label: 'Paid', cls: 'bg-green-100 text-green-800 border-green-300' },
     rejected: { label: 'Rejected', cls: 'bg-red-100 text-red-800 border-red-300' },
-    requested: { label: 'Submitted', cls: 'bg-amber-100 text-amber-800 border-amber-300' },
   };
   return map[status] || { label: status, cls: 'bg-gray-100 text-gray-700 border-gray-300' };
 }
@@ -64,7 +66,9 @@ function prStatusBadge(status) {
 // Stage-level status (for top-level row)
 function stageStatusBadge(stage) {
   const prs = stage.payment_requests || [];
-  const pending = prs.find(pr => ['requested', 'pm_approved', 'planning_approved'].includes(pr.status));
+  const rework = prs.find(pr => pr.status === 'se_rework');
+  if (rework) return { label: 'Returned — Re-work', cls: 'bg-red-100 text-red-800 border-red-300' };
+  const pending = prs.find(pr => ['requested', 'pm_approved', 'qc_approved', 'planning_approved'].includes(pr.status));
   if (pending) return prStatusBadge(pending.status);
   const approved = prs.filter(pr => pr.status === 'approved');
   if (approved.length && (stage.amount_released || 0) >= (stage.amount || 0)) return { label: 'Paid', cls: 'bg-green-100 text-green-800 border-green-300' };
@@ -384,7 +388,7 @@ function bucketsForStage(stage) {
   }
   // Pending payment request buckets — a stage can be in BOTH planning AND
   // accountant simultaneously when it has multiple in-flight requests.
-  const hasPlanning = prs.some(p => ['requested', 'pm_approved'].includes(p.status));
+  const hasPlanning = prs.some(p => ['requested', 'pm_approved', 'qc_approved'].includes(p.status));
   const hasAccountant = prs.some(p => p.status === 'planning_approved');
   if (hasPlanning) set.add('planning');
   if (hasAccountant) set.add('accountant');
@@ -484,7 +488,7 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
               const i = stages.indexOf(stage);
               const sb = stageStatusBadge(stage);
               const released = (stage.payment_requests || []).filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
-              const pending = (stage.payment_requests || []).filter(p => ['requested', 'pm_approved', 'planning_approved'].includes(p.status)).reduce((s, p) => s + (p.amount || 0), 0);
+              const pending = (stage.payment_requests || []).filter(p => ['requested', 'pm_approved', 'qc_approved', 'planning_approved'].includes(p.status)).reduce((s, p) => s + (p.amount || 0), 0);
               const carryover = stage.carryover_deduction || 0;
               const balance = Math.max(0, (stage.amount || 0) - released - pending - carryover);
               return (
@@ -661,16 +665,22 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (stage) { setAmount(''); setNotes(''); setSubTab('history'); }
+    if (stage) {
+      const rework = (stage.payment_requests || []).find(p => p.status === 'se_rework');
+      setAmount(rework ? String(rework.amount || '') : '');
+      setNotes(rework ? (rework.notes || '') : '');
+      setSubTab('history');
+    }
   }, [stage]);
 
   if (!stage) return null;
 
   const released = (stage.payment_requests || []).filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
-  const pending = (stage.payment_requests || []).filter(p => ['requested', 'pm_approved', 'planning_approved'].includes(p.status)).reduce((s, p) => s + (p.amount || 0), 0);
+  const pending = (stage.payment_requests || []).filter(p => ['requested', 'pm_approved', 'qc_approved', 'planning_approved'].includes(p.status)).reduce((s, p) => s + (p.amount || 0), 0);
   const carryover = stage.carryover_deduction || 0;
   const balance = Math.max(0, (stage.amount || 0) - released - pending - carryover);
   const allRequests = stage.payment_requests || [];
+  const reworkPR = allRequests.find(p => p.status === 'se_rework');
 
   const submit = async () => {
     const amt = parseFloat(amount || 0);
@@ -678,17 +688,23 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
     if (!stage.is_open) { toast.error('Stage is not yet opened by Planning'); return; }
     setSubmitting(true);
     try {
-      await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}/request-payment`, {
-        amount: amt,
-        notes,
-      });
-      const exceedsBalance = amt > balance + 0.01;
-      toast.success(exceedsBalance
-        ? `Request sent (₹${(amt - balance).toLocaleString('en-IN')} over balance — Planning will review).`
-        : 'Payment request sent to Planning');
+      if (reworkPR) {
+        // Resubmit the existing rejected RAB rather than create a new one
+        await axios.post(
+          `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}/payment-requests/${reworkPR.request_id}/se-resubmit`,
+          { amount: amt, notes },
+        );
+        toast.success(`${reworkPR.rab_number || 'RAB'} resubmitted — awaiting PM review`);
+      } else {
+        const res = await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}/request-payment`, {
+          amount: amt,
+          notes,
+        });
+        toast.success(`${res.data?.rab_number || 'RAB'} submitted — awaiting PM review`);
+      }
       onSaved();
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Failed to request payment');
+      toast.error(err.response?.data?.detail || 'Failed to submit RAB');
     } finally { setSubmitting(false); }
   };
 
@@ -753,14 +769,76 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
         <div className="flex gap-1 border-b">
           <button
             onClick={() => setSubTab('history')}
-            className={'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors border-amber-600 text-amber-700'}
+            className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${subTab === 'history' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-amber-700'}`}
             data-testid="wov2-subtab-history"
           >
             Payment Summary {allRequests.length > 0 && <span className="ml-1 text-[10px] opacity-70">({allRequests.length})</span>}
           </button>
+          {stage.is_open && (
+            <button
+              onClick={() => setSubTab('request')}
+              className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${subTab === 'request' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-amber-700'}`}
+              data-testid="wov2-subtab-request"
+            >
+              {reworkPR ? `Resubmit ${reworkPR.rab_number || 'RAB'}` : 'Request RAB'}
+            </button>
+          )}
         </div>
 
-        {(subTab === 'history' || subTab === 'request') && (
+        {subTab === 'request' && (
+          <div className="space-y-2.5 pt-1" data-testid="wov2-request-form">
+            {reworkPR && (
+              <div className="bg-red-50 border border-red-200 rounded p-2.5 text-xs space-y-1" data-testid="wov2-rework-banner">
+                <p className="font-semibold text-red-800 flex items-center gap-1">
+                  <Send className="h-3 w-3" /> {reworkPR.rab_number || 'RAB'} returned for re-work
+                </p>
+                {reworkPR.rejection_reason && (
+                  <p className="text-red-700">PM Note: <span className="italic">"{reworkPR.rejection_reason}"</span></p>
+                )}
+                {reworkPR.rejected_by_name && (
+                  <p className="text-[10px] text-red-700">By {reworkPR.rejected_by_name} · {fmtDate(reworkPR.rejected_at)}</p>
+                )}
+                <p className="text-[10px] text-red-700 mt-1">Update the amount/notes below and resubmit. It will go back to PM → QC → Planning → Accountant.</p>
+              </div>
+            )}
+            <div>
+              <Label className="text-xs font-semibold">Amount (₹) *</Label>
+              <Input
+                type="number"
+                min="1"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="e.g. 25000"
+                disabled={submitting}
+                className="mt-1"
+                data-testid="wov2-rab-amount"
+              />
+              <p className="text-[10px] text-gray-500 mt-0.5">Stage balance: {fmt(balance)} · Total: {fmt(stage.amount || 0)}</p>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold">Notes (optional)</Label>
+              <Textarea
+                rows={3}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="DLR summary, work completed, etc."
+                disabled={submitting}
+                className="text-sm mt-1"
+                data-testid="wov2-rab-notes"
+              />
+            </div>
+            <Button
+              className="w-full bg-amber-600 hover:bg-amber-700"
+              onClick={submit}
+              disabled={submitting}
+              data-testid="wov2-rab-submit"
+            >
+              <Send className="h-3.5 w-3.5 mr-1" /> {submitting ? 'Submitting…' : (reworkPR ? 'Resubmit to PM' : 'Submit to PM')}
+            </Button>
+          </div>
+        )}
+
+        {subTab === 'history' && (
           <div className="space-y-1.5 max-h-72 overflow-y-auto">
             {allRequests.length === 0 ? (
               <p className="text-center text-xs text-gray-400 py-6">No payment requests yet for this stage</p>

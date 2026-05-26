@@ -1808,13 +1808,32 @@ export default function ProjectDetail() {
   };
 
   const handleWoStageRequestPayment = async (woId, stageId) => {
+    // Open the RAB dialog rather than firing the request directly (amount is mandatory)
+    setRabDialog({ open: true, workOrderId: woId, stageId, amount: '', notes: '', submitting: false });
+  };
+
+  // Site Engineer RAB Request dialog state — used by both legacy + new labour WO tables
+  const [rabDialog, setRabDialog] = useState({ open: false, workOrderId: null, stageId: null, amount: '', notes: '', submitting: false });
+  const handleWoStageRequest = (woId, stageId) => {
+    setRabDialog({ open: true, workOrderId: woId, stageId, amount: '', notes: '', submitting: false });
+  };
+  const submitRabDialog = async () => {
+    const { workOrderId, stageId, amount, notes } = rabDialog;
+    const amt = parseFloat(amount || 0);
+    if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return; }
+    setRabDialog((d) => ({ ...d, submitting: true }));
     try {
-      await axios.patch(`${API}/projects/${projectId}/work-orders/${woId}/stages/${stageId}/request-payment`, {
-        notes: 'Payment requested'
+      const res = await axios.patch(`${API}/projects/${projectId}/work-orders/${workOrderId}/stages/${stageId}/request-payment`, {
+        amount: amt,
+        notes: notes || '',
       });
-      toast.success('Payment requested successfully');
+      toast.success(`${res.data?.rab_number || 'RAB'} submitted — awaiting PM review`);
+      setRabDialog({ open: false, workOrderId: null, stageId: null, amount: '', notes: '', submitting: false });
       fetchWorkOrders();
-    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to request payment'); }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to submit RAB');
+      setRabDialog((d) => ({ ...d, submitting: false }));
+    }
   };
 
   // Planning submits a Labour Advance request → routes to PM → GM → Accountant
@@ -7964,11 +7983,11 @@ export default function ProjectDetail() {
                                                   </Button>
                                                 </>
                                               )}
-                                              {/* SE: Request Payment only if stage is opened by Planning */}
-                                              {st.status === 'pending' && isStageOpen && ['site_engineer', 'sr_site_engineer'].includes(user?.role) && (
+                                              {/* SE: Request Payment (RAB) on any open, unfinished stage */}
+                                              {st.is_open && st.stage_status !== 'finished' && ['site_engineer', 'sr_site_engineer'].includes(user?.role) && (
                                                 <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700" data-testid={`wo-stage-request-${st.stage_id}`}
                                                   onClick={(e) => { e.stopPropagation(); handleWoStageRequestPayment(wo.work_order_id, st.stage_id); }}>
-                                                  Request Payment
+                                                  <Send className="h-3 w-3 mr-1" /> Req Payment (RAB)
                                                 </Button>
                                               )}
                                             </div>
@@ -9149,32 +9168,10 @@ export default function ProjectDetail() {
                                                       </Button>
                                                     </>
                                                   )}
-                                                  {st.status === 'pending' && ['site_engineer', 'sr_site_engineer'].includes(user?.role) && (
+                                                  {st.is_open && st.stage_status !== 'finished' && ['site_engineer', 'sr_site_engineer'].includes(user?.role) && (
                                                     <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700" data-testid={`labour-wo-stage-request-${st.stage_id}`}
                                                       onClick={(e) => { e.stopPropagation(); handleWoStageRequest(wo.work_order_id, st.stage_id); }}>
-                                                      Request Payment
-                                                    </Button>
-                                                  )}
-                                                  {/* Planning / Super-Admin: Request Advance (Planning → PM → GM → Accountant) */}
-                                                  {['planning', 'super_admin'].includes(user?.role) && (
-                                                    <Button
-                                                      size="sm"
-                                                      variant="outline"
-                                                      className="h-7 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                                                      data-testid={`labour-wo-stage-request-advance-${st.stage_id}`}
-                                                      onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setLabourAdvanceDialog({
-                                                          open: true,
-                                                          stage: st,
-                                                          workOrder: wo,
-                                                          amount: st.amount ? String(st.amount) : '',
-                                                          date: new Date().toISOString().split('T')[0],
-                                                          reason: '',
-                                                        });
-                                                      }}
-                                                    >
-                                                      <ArrowRight className="h-3 w-3" /> Request Advance
+                                                      <Send className="h-3 w-3 mr-1" /> Req Payment (RAB)
                                                     </Button>
                                                   )}
                                                 </div>
@@ -9755,6 +9752,55 @@ export default function ProjectDetail() {
         </DialogContent>
       </Dialog>
       <MobileBottomNav user={user} />
+
+      {/* RAB (Running Account Bill) Dialog — SE submits stage-payment request for labour WO */}
+      <Dialog
+        open={rabDialog.open}
+        onOpenChange={(o) => !o && !rabDialog.submitting && setRabDialog({ open: false, workOrderId: null, stageId: null, amount: '', notes: '', submitting: false })}
+      >
+        <DialogContent className="max-w-md" data-testid="rab-request-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="h-5 w-5 text-amber-600" /> Request Payment (RAB)
+            </DialogTitle>
+            <DialogDescription>
+              Submit a Running Account Bill for this stage. It will be reviewed by PM → QC → Planning → Accountant.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-gray-700 mb-1 block">Amount (₹) *</label>
+              <Input
+                type="number"
+                min="1"
+                value={rabDialog.amount}
+                onChange={(e) => setRabDialog((d) => ({ ...d, amount: e.target.value }))}
+                placeholder="e.g. 25000"
+                disabled={rabDialog.submitting}
+                data-testid="rab-amount-input"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-700 mb-1 block">Notes (optional)</label>
+              <Textarea
+                rows={3}
+                value={rabDialog.notes}
+                onChange={(e) => setRabDialog((d) => ({ ...d, notes: e.target.value }))}
+                placeholder="DLR summary, work completed, etc."
+                disabled={rabDialog.submitting}
+                data-testid="rab-notes-input"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRabDialog({ open: false, workOrderId: null, stageId: null, amount: '', notes: '', submitting: false })} disabled={rabDialog.submitting}>Cancel</Button>
+            <Button className="bg-amber-600 hover:bg-amber-700" onClick={submitRabDialog} disabled={rabDialog.submitting} data-testid="rab-submit">
+              <Send className="h-4 w-4 mr-1" /> {rabDialog.submitting ? 'Submitting…' : 'Submit RAB'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
 
       {/* Req Payment Dialog — asks for expected payment month/date before submitting */}
       <Dialog
