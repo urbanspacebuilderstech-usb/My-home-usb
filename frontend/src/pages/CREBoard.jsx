@@ -233,6 +233,14 @@ export default function CREBoard() {
         setDashboard(data);
         setPackages(data.packages || []);
         setProjects(data.recent_projects || []);
+        // Dashboard.recent_projects is capped at 20; if there are more, pull
+        // the full list (up to 2000) for the All Projects tab so a CRE never
+        // "loses" an older project like Mrs. Abinaya.
+        if ((data.recent_projects || []).length >= 20) {
+          axios.get(`${API}/cre/projects/all`)
+            .then(r => { if (Array.isArray(r.data) && r.data.length > (data.recent_projects || []).length) setProjects(r.data); })
+            .catch(() => {});
+        }
       }
       if (dealsRes.status === 'fulfilled') {
         setNewDeals(dealsRes.value.data || []);

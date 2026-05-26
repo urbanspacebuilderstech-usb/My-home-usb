@@ -1147,7 +1147,7 @@ async def get_all_cro_projects(
         except:
             pass
     
-    projects = await db.projects.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    projects = await db.projects.find(query, {"_id": 0}).sort("created_at", -1).to_list(2000)
     return projects
 
 
