@@ -34,6 +34,9 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../components/ui/dialog';
+import { Textarea } from '../components/ui/textarea';
+import { Label } from '../components/ui/label';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
@@ -59,6 +62,8 @@ export default function ClientPortal() {
   const [projectData, setProjectData] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
+  // Decision dialog state — proper modal instead of window.prompt
+  const [decisionDialog, setDecisionDialog] = useState({ open: false, mode: null, costId: null, name: '', text: '', submitting: false });
 
   useEffect(() => {
     fetchUserAndProjects();
@@ -156,30 +161,36 @@ export default function ClientPortal() {
       toast.error(e.response?.data?.detail || 'Failed to approve');
     }
   };
-  const handlePreRejectAddition = async (costId) => {
-    const reason = window.prompt('Please share a brief reason for rejecting:', '');
-    if (reason === null) return;
-    if (!reason.trim()) { toast.error('Reason is required to reject'); return; }
-    try {
-      await axios.post(`${API}/additional-costs/${costId}/client-decision`, { decision: 'reject', reason });
-      toast.success('Rejection recorded');
-      if (projectId) fetchProjectData(projectId);
-    } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to reject');
-    }
+  const handlePreRejectAddition = (cost) => {
+    setDecisionDialog({ open: true, mode: 'reject', costId: cost.cost_id, name: cost.name || cost.description || 'this item', text: '', submitting: false });
   };
   // Client asks Planning for a review/clarification before approving.
-  // Records a note that Planning sees in their notification feed.
-  const handleClientRequestReview = async (costId) => {
-    const note = window.prompt('What would you like to clarify with Planning before approving?', '');
-    if (note === null) return;
-    if (!note.trim()) { toast.error('Please share a short note so Planning knows what to clarify'); return; }
+  // Opens a proper styled dialog instead of native window.prompt.
+  const handleClientRequestReview = (cost) => {
+    setDecisionDialog({ open: true, mode: 'review', costId: cost.cost_id, name: cost.name || cost.description || 'this item', text: '', submitting: false });
+  };
+
+  const submitDecisionDialog = async () => {
+    const { mode, costId, text } = decisionDialog;
+    const value = (text || '').trim();
+    if (!value) {
+      toast.error(mode === 'reject' ? 'Reason is required to reject' : 'Please share a short note so Planning knows what to clarify');
+      return;
+    }
+    setDecisionDialog(d => ({ ...d, submitting: true }));
     try {
-      await axios.post(`${API}/client-portal/additional-costs/${costId}/request-review`, { note });
-      toast.success('Review request sent to Planning');
+      if (mode === 'reject') {
+        await axios.post(`${API}/additional-costs/${costId}/client-decision`, { decision: 'reject', reason: value });
+        toast.success('Rejection recorded');
+      } else {
+        await axios.post(`${API}/client-portal/additional-costs/${costId}/request-review`, { note: value });
+        toast.success('Review request sent to Planning');
+      }
+      setDecisionDialog({ open: false, mode: null, costId: null, name: '', text: '', submitting: false });
       if (projectId) fetchProjectData(projectId);
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to send review request');
+      toast.error(e.response?.data?.detail || (mode === 'reject' ? 'Failed to reject' : 'Failed to send review request'));
+      setDecisionDialog(d => ({ ...d, submitting: false }));
     }
   };
   // Section batch decision (one click approves every addition inside).
@@ -833,10 +844,10 @@ export default function ClientPortal() {
                             <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white h-8" onClick={() => preIsPending ? handlePreApproveAddition(cost.cost_id) : handleClientApproveAddition(cost.cost_id)} data-testid={`client-approve-addn-${cost.cost_id}`}>
                               <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
                             </Button>
-                            <Button size="sm" variant="outline" className="border-rose-300 text-rose-700 hover:bg-rose-50 h-8" onClick={() => preIsPending ? handlePreRejectAddition(cost.cost_id) : handleClientRejectAddition(cost.cost_id)} data-testid={`client-reject-addn-${cost.cost_id}`}>
+                            <Button size="sm" variant="outline" className="border-rose-300 text-rose-700 hover:bg-rose-50 h-8" onClick={() => preIsPending ? handlePreRejectAddition(cost) : handleClientRejectAddition(cost.cost_id)} data-testid={`client-reject-addn-${cost.cost_id}`}>
                               <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
                             </Button>
-                            <Button size="sm" variant="outline" className="border-sky-300 text-sky-700 hover:bg-sky-50 h-8" onClick={() => handleClientRequestReview(cost.cost_id)} data-testid={`client-review-addn-${cost.cost_id}`}>
+                            <Button size="sm" variant="outline" className="border-sky-300 text-sky-700 hover:bg-sky-50 h-8" onClick={() => handleClientRequestReview(cost)} data-testid={`client-review-addn-${cost.cost_id}`}>
                               <MessageSquare className="h-3.5 w-3.5 mr-1" /> Review
                             </Button>
                           </div>
@@ -1119,6 +1130,71 @@ export default function ClientPortal() {
         </div>
       </div>
       <MobileBottomNav user={user} />
+
+      {/* Reject / Review decision dialog — replaces native window.prompt */}
+      <Dialog open={decisionDialog.open} onOpenChange={(o) => !decisionDialog.submitting && setDecisionDialog(d => ({ ...d, open: o }))}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {decisionDialog.mode === 'reject' ? (
+                <><XCircle className="h-5 w-5 text-rose-600" /> Reject Additional Work</>
+              ) : (
+                <><MessageSquare className="h-5 w-5 text-sky-600" /> Request a Review</>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {decisionDialog.mode === 'reject' ? (
+                <>Tell Planning why you're rejecting <span className="font-semibold text-gray-800">"{decisionDialog.name}"</span>. They will see your reason and can resend after addressing it.</>
+              ) : (
+                <>Tell Planning what you'd like to clarify about <span className="font-semibold text-gray-800">"{decisionDialog.name}"</span> before approving. They will be notified.</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="decision-note" className="text-sm font-medium">
+              {decisionDialog.mode === 'reject' ? 'Reason' : 'Note for Planning'}
+              <span className="text-rose-500 ml-0.5">*</span>
+            </Label>
+            <Textarea
+              id="decision-note"
+              data-testid="decision-dialog-input"
+              autoFocus
+              rows={4}
+              placeholder={decisionDialog.mode === 'reject'
+                ? 'e.g., This was already covered in the original scope...'
+                : 'e.g., Can you confirm what material this covers?'}
+              value={decisionDialog.text}
+              onChange={(e) => setDecisionDialog(d => ({ ...d, text: e.target.value }))}
+              className="resize-none"
+            />
+            <p className="text-[11px] text-gray-500">
+              {(decisionDialog.text || '').length} characters
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDecisionDialog({ open: false, mode: null, costId: null, name: '', text: '', submitting: false })}
+              disabled={decisionDialog.submitting}
+              data-testid="decision-dialog-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={submitDecisionDialog}
+              disabled={decisionDialog.submitting || !decisionDialog.text.trim()}
+              className={decisionDialog.mode === 'reject'
+                ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                : 'bg-sky-600 hover:bg-sky-700 text-white'}
+              data-testid="decision-dialog-submit"
+            >
+              {decisionDialog.submitting
+                ? 'Sending…'
+                : decisionDialog.mode === 'reject' ? 'Submit Rejection' : 'Send Review Request'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
