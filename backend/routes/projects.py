@@ -6126,24 +6126,31 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
             
             # Calculate already released + pending amounts
             released = sum(pr.get("approved_amount", 0) for pr in stage["payment_requests"] if pr.get("status") == "approved")
-            pending = sum(pr.get("amount", 0) for pr in stage["payment_requests"] if pr.get("status") in ["requested", "pm_approved", "planning_approved"])
+            pending = sum(pr.get("amount", 0) for pr in stage["payment_requests"] if pr.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
             stage_total = stage.get("amount", 0)
             balance = stage_total - released - pending
             # Note: SE may request more than current stage balance; Planning can approve and overflow will deduct from next stage.
             
+            # RAB (Running Account Bill) number: increments per Work Order so
+            # contractor can be served a single PDF per request. Counts ALL
+            # existing payment_requests across every stage of this WO, then +1.
+            rab_count = sum(len(s.get("payment_requests") or []) for s in (wo.get("stages") or [])) + 1
+            rab_number = f"RAB-{rab_count:02d}"
             import uuid
             payment_req = {
                 "request_id": f"pr_{uuid.uuid4().hex[:8]}",
+                "rab_number": rab_number,
                 "amount": request_amount,
-                # PM step skipped — request lands directly in Planning queue
-                "status": "pm_approved",
+                # NEW 4-step approval chain: PM → QC → Planning → Accountant.
+                # No more auto-skip. Site Engineer raise lands in PM's queue.
+                "status": "requested",
                 "requested_by": user.user_id,
                 "requested_by_name": user.name,
                 "requested_at": now,
-                "pm_approved_by": user.user_id,
-                "pm_approved_by_name": user.name,
-                "pm_approved_at": now,
-                "pm_notes": "Auto-skipped (PM approval bypassed)",
+                "pm_approved_by": None, "pm_approved_by_name": None, "pm_approved_at": None, "pm_notes": None,
+                "qc_approved_by": None, "qc_approved_by_name": None, "qc_approved_at": None, "qc_notes": None,
+                "planning_approved_by": None, "planning_approved_by_name": None, "planning_approved_at": None,
+                "rejected_by_role": None, "rejected_by_name": None, "rejection_reason": None, "rejected_at": None,
                 "notes": data.get("notes", ""),
                 "dlr_summary": data.get("dlr_summary", ""),
                 "se_exceeds_balance": request_amount > balance + 0.01,
@@ -6220,7 +6227,7 @@ async def wo_finish_stage(project_id: str, work_order_id: str, stage_id: str, da
     for stage in wo.get("stages", []):
         if stage.get("stage_id") == stage_id:
             # Check for pending payment requests — these block finish until they're released or rejected.
-            pending_prs = [pr for pr in stage.get("payment_requests", []) if pr.get("status") in ["requested", "pm_approved", "planning_approved"]]
+            pending_prs = [pr for pr in stage.get("payment_requests", []) if pr.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"]]
             if pending_prs:
                 raise HTTPException(status_code=400, detail=f"Cannot mark complete — {len(pending_prs)} payment request(s) still pending Planning/Accountant action")
 
@@ -6312,7 +6319,7 @@ async def planning_labour_stage_requests(status: str = "new", user: User = Depen
                     continue
                 # Recompute summary so the popup is accurate
                 released = sum(p.get("approved_amount", 0) for p in stage.get("payment_requests", []) if p.get("status") == "approved")
-                pending = sum(p.get("amount", 0) for p in stage.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "planning_approved"])
+                pending = sum(p.get("amount", 0) for p in stage.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
                 stage_total = stage.get("amount", 0)
                 carryover_ded = float(stage.get("carryover_deduction", 0))
                 stage_idx_ = wo.get("stages", []).index(stage)
@@ -6355,6 +6362,170 @@ async def planning_labour_stage_requests(status: str = "new", user: User = Depen
     return {"count": len(out), "requests": out}
 
 
+
+
+# =====================================================================
+# LABOUR PAYMENT REQUEST — MULTI-STEP APPROVAL CHAIN
+#   SE raises → PM review → QC review → Planning review → Accountant pays
+#   Reject at any step sends RAB back to the PREVIOUS approver (status field).
+# =====================================================================
+async def _find_pr_and_update(work_order_id: str, stage_id: str, request_id: str, expected_status: list, mutate):
+    """Helper: load WO, find the request, validate status, run mutate(pr, wo, stage), persist."""
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    target_stage = None
+    target_pr = None
+    for stage in wo.get("stages", []):
+        if stage.get("stage_id") == stage_id:
+            target_stage = stage
+            for pr in stage.get("payment_requests", []) or []:
+                if pr.get("request_id") == request_id:
+                    target_pr = pr
+                    break
+            break
+    if not target_pr:
+        raise HTTPException(status_code=404, detail="Payment request not found")
+    if target_pr.get("status") not in expected_status:
+        raise HTTPException(status_code=400, detail=f"Request is in '{target_pr.get('status')}' state — cannot perform this action")
+    mutate(target_pr, wo, target_stage)
+    target_stage["amount_released"] = sum(p.get("approved_amount", 0) for p in target_stage.get("payment_requests", []) if p.get("status") == "approved")
+    target_stage["amount_pending"] = sum(p.get("amount", 0) for p in target_stage.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id},
+        {"$set": {"stages": wo["stages"], "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return target_pr
+
+
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/payment-requests/{request_id}/pm-approve")
+async def pm_approve_labour_payment(project_id: str, work_order_id: str, stage_id: str, request_id: str, data: dict = None, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager / Super Admin can approve at this step")
+    notes = (data or {}).get("notes", "") if isinstance(data, dict) else ""
+    now = datetime.now(timezone.utc).isoformat()
+    def mutate(pr, _wo, _st):
+        pr["status"] = "pm_approved"
+        pr["pm_approved_by"] = user.user_id
+        pr["pm_approved_by_name"] = user.name
+        pr["pm_approved_at"] = now
+        pr["pm_notes"] = notes
+        pr["rejected_by_role"] = None; pr["rejection_reason"] = None
+    pr = await _find_pr_and_update(work_order_id, stage_id, request_id, ["requested"], mutate)
+    await create_audit_log(user.user_id, "pm_approve", "labour_payment_request", request_id, {"rab": pr.get("rab_number")})
+    return {"message": f"{pr.get('rab_number','RAB')} forwarded to QC", "status": "pm_approved"}
+
+
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/payment-requests/{request_id}/pm-reject")
+async def pm_reject_labour_payment(project_id: str, work_order_id: str, stage_id: str, request_id: str, data: dict, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    reason = (data or {}).get("reason", "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+    now = datetime.now(timezone.utc).isoformat()
+    def mutate(pr, _wo, _st):
+        pr["status"] = "se_rework"  # back to Site Engineer
+        pr["rejected_by_role"] = "project_manager"
+        pr["rejected_by_name"] = user.name
+        pr["rejected_at"] = now
+        pr["rejection_reason"] = reason
+    pr = await _find_pr_and_update(work_order_id, stage_id, request_id, ["requested"], mutate)
+    await create_audit_log(user.user_id, "pm_reject", "labour_payment_request", request_id, {"rab": pr.get("rab_number"), "reason": reason})
+    return {"message": f"{pr.get('rab_number','RAB')} returned to Site Engineer", "status": "se_rework"}
+
+
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/payment-requests/{request_id}/qc-approve")
+async def qc_approve_labour_payment(project_id: str, work_order_id: str, stage_id: str, request_id: str, data: dict = None, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.QUALITY_CHECK, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only QC / Super Admin can approve at this step")
+    notes = (data or {}).get("notes", "") if isinstance(data, dict) else ""
+    now = datetime.now(timezone.utc).isoformat()
+    def mutate(pr, _wo, _st):
+        pr["status"] = "qc_approved"
+        pr["qc_approved_by"] = user.user_id
+        pr["qc_approved_by_name"] = user.name
+        pr["qc_approved_at"] = now
+        pr["qc_notes"] = notes
+        pr["rejected_by_role"] = None; pr["rejection_reason"] = None
+    pr = await _find_pr_and_update(work_order_id, stage_id, request_id, ["pm_approved"], mutate)
+    await create_audit_log(user.user_id, "qc_approve", "labour_payment_request", request_id, {"rab": pr.get("rab_number")})
+    return {"message": f"{pr.get('rab_number','RAB')} forwarded to Planning", "status": "qc_approved"}
+
+
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/payment-requests/{request_id}/qc-reject")
+async def qc_reject_labour_payment(project_id: str, work_order_id: str, stage_id: str, request_id: str, data: dict, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.QUALITY_CHECK, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    reason = (data or {}).get("reason", "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+    now = datetime.now(timezone.utc).isoformat()
+    def mutate(pr, _wo, _st):
+        pr["status"] = "requested"  # back to PM
+        pr["rejected_by_role"] = "quality_check"
+        pr["rejected_by_name"] = user.name
+        pr["rejected_at"] = now
+        pr["rejection_reason"] = reason
+    pr = await _find_pr_and_update(work_order_id, stage_id, request_id, ["pm_approved"], mutate)
+    await create_audit_log(user.user_id, "qc_reject", "labour_payment_request", request_id, {"rab": pr.get("rab_number"), "reason": reason})
+    return {"message": f"{pr.get('rab_number','RAB')} returned to PM", "status": "requested"}
+
+
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/payment-requests/{request_id}/planning-approve")
+async def planning_approve_labour_payment(project_id: str, work_order_id: str, stage_id: str, request_id: str, data: dict = None, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can approve at this step")
+    notes = (data or {}).get("notes", "") if isinstance(data, dict) else ""
+    now = datetime.now(timezone.utc).isoformat()
+    def mutate(pr, _wo, _st):
+        pr["status"] = "planning_approved"
+        pr["planning_approved_by"] = user.user_id
+        pr["planning_approved_by_name"] = user.name
+        pr["planning_approved_at"] = now
+        pr["planning_notes"] = notes
+        pr["rejected_by_role"] = None; pr["rejection_reason"] = None
+    pr = await _find_pr_and_update(work_order_id, stage_id, request_id, ["qc_approved"], mutate)
+    await create_audit_log(user.user_id, "planning_approve", "labour_payment_request", request_id, {"rab": pr.get("rab_number")})
+    return {"message": f"{pr.get('rab_number','RAB')} forwarded to Accountant", "status": "planning_approved"}
+
+
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/payment-requests/{request_id}/planning-reject")
+async def planning_reject_labour_payment(project_id: str, work_order_id: str, stage_id: str, request_id: str, data: dict, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    reason = (data or {}).get("reason", "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+    now = datetime.now(timezone.utc).isoformat()
+    def mutate(pr, _wo, _st):
+        pr["status"] = "pm_approved"  # back to QC
+        pr["rejected_by_role"] = "planning"
+        pr["rejected_by_name"] = user.name
+        pr["rejected_at"] = now
+        pr["rejection_reason"] = reason
+    pr = await _find_pr_and_update(work_order_id, stage_id, request_id, ["qc_approved"], mutate)
+    await create_audit_log(user.user_id, "planning_reject", "labour_payment_request", request_id, {"rab": pr.get("rab_number"), "reason": reason})
+    return {"message": f"{pr.get('rab_number','RAB')} returned to QC", "status": "pm_approved"}
+
+
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/payment-requests/{request_id}/accountant-reject")
+async def accountant_reject_labour_payment(project_id: str, work_order_id: str, stage_id: str, request_id: str, data: dict, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    reason = (data or {}).get("reason", "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+    now = datetime.now(timezone.utc).isoformat()
+    def mutate(pr, _wo, _st):
+        pr["status"] = "qc_approved"  # back to Planning
+        pr["rejected_by_role"] = "accountant"
+        pr["rejected_by_name"] = user.name
+        pr["rejected_at"] = now
+        pr["rejection_reason"] = reason
+    pr = await _find_pr_and_update(work_order_id, stage_id, request_id, ["planning_approved"], mutate)
+    await create_audit_log(user.user_id, "accountant_reject", "labour_payment_request", request_id, {"rab": pr.get("rab_number"), "reason": reason})
+    return {"message": f"{pr.get('rab_number','RAB')} returned to Planning", "status": "qc_approved"}
 
 
 # =====================================================================
@@ -6428,7 +6599,7 @@ async def accountant_labour_payments(status: str = "pending", user: User = Depen
                 if pr.get("status") not in target_statuses:
                     continue
                 released_total = sum(p.get("approved_amount", 0) for p in stage.get("payment_requests", []) if p.get("status") == "approved")
-                pending_total = sum(p.get("amount", 0) for p in stage.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "planning_approved"])
+                pending_total = sum(p.get("amount", 0) for p in stage.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
                 stage_total = stage.get("amount", 0)
                 out.append({
                     "request_id": pr.get("request_id"),
@@ -6559,7 +6730,7 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
     # Update WO totals
     wo["paid_amount"] = float(wo.get("paid_amount", 0)) + approved_amount
     target_stage["amount_released"] = sum(p.get("approved_amount", 0) for p in target_stage.get("payment_requests", []) if p.get("status") == "approved")
-    target_stage["amount_pending"] = sum(p.get("amount", 0) for p in target_stage.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "planning_approved"])
+    target_stage["amount_pending"] = sum(p.get("amount", 0) for p in target_stage.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
 
     await db.project_work_orders.update_one(
         {"work_order_id": work_order_id},
@@ -6681,7 +6852,7 @@ async def labour_contractor_payment_summary(user: User = Depends(get_current_use
         bucket["paid_amount"] += float(wo.get("paid_amount", 0))
         for stage in wo.get("stages", []):
             for pr in stage.get("payment_requests", []) or []:
-                if pr.get("status") in ["requested", "pm_approved", "planning_approved"]:
+                if pr.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"]:
                     bucket["pending_amount"] += float(pr.get("amount", 0))
 
     rows = []
@@ -6950,7 +7121,7 @@ async def wo_approve_stage(project_id: str, work_order_id: str, stage_id: str, d
 
                         # Compute current stage balance for overflow detection
                         released_so_far = sum(p.get("approved_amount", 0) for p in stage["payment_requests"] if p.get("status") == "approved")
-                        pending_so_far = sum(p.get("amount", 0) for p in stage["payment_requests"] if p.get("status") in ["requested", "pm_approved", "planning_approved"] and p.get("request_id") != target_pr.get("request_id"))
+                        pending_so_far = sum(p.get("amount", 0) for p in stage["payment_requests"] if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"] and p.get("request_id") != target_pr.get("request_id"))
                         carryover = float(stage.get("carryover_deduction", 0))
                         stage_balance = float(stage.get("amount", 0)) - released_so_far - pending_so_far - carryover
                         overflow = max(0.0, approved_amount - stage_balance)
@@ -7006,7 +7177,7 @@ async def wo_approve_stage(project_id: str, work_order_id: str, stage_id: str, d
                         raise HTTPException(status_code=400, detail=f"Cannot {action} request in '{current}' status with role '{user.role}'")
                 
                 # Recalc pending
-                stage["amount_pending"] = sum(pr.get("amount", 0) for pr in stage["payment_requests"] if pr.get("status") in ["requested", "pm_approved", "planning_approved"])
+                stage["amount_pending"] = sum(pr.get("amount", 0) for pr in stage["payment_requests"] if pr.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
                 break
             else:
                 # Legacy: single stage status (backward compatible)
