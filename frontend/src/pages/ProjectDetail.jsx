@@ -3784,7 +3784,10 @@ export default function ProjectDetail() {
 
         {/* Summary Strip — redesigned dual-half layout */}
         {canSeeFinancials && (() => {
-          const scopeTotal = summary.scope_total || summary.project_value || 0;
+          // Project Value mirrors live Final Estimate scope_items. If FE is
+          // deleted (scope_items removed), every value below resets to ₹0 —
+          // do NOT fall back to the stale locked project value.
+          const scopeTotal = summary.scope_total || 0;
           const additionsTotal = summary.additions_total || 0;
           const deductionsTotal = summary.deductions_total || 0;
           const grandTotal = scopeTotal + additionsTotal - deductionsTotal;

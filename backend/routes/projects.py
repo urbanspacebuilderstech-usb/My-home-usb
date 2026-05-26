@@ -296,8 +296,12 @@ async def get_project_value_summary(project_id: str, user: User = Depends(get_cu
     ded_total = sum((d.get("amount") or 0) for d in deds)
     # PROJECT VALUE = Scope only (FE scope total).
     # GRAND PROJECT VALUE = Project Value + Additions − Deductions.
+    # Live scope_total is the single source of truth — same rule as
+    # /payment-summary. If FE has been deleted (scope_items empty) the
+    # project value is genuinely ₹0; we never fall back to a stale locked
+    # cache here.
     locked = float(project.get("total_value") or 0)
-    project_value = locked if locked > 0 else round(scope_total, 2)
+    project_value = round(scope_total, 2)
     grand = max(0, round(project_value + add_total - ded_total, 2))
     live_grand = grand  # backwards-compatible alias
     fe = project.get("fe") or {}
@@ -3494,9 +3498,12 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     deductions_total = sum(d.get("amount", 0) for d in deductions_list)
 
     # Locked Project Value (= FE scope_total at last CRE approval) is just a
-    # cached copy. Live FE scope_total is the actual source of truth — the user
-    # rule is "Final Estimate value IS the Payment Schedule value". If the
-    # cache has drifted (scope edited without CRE re-approval), refresh it.
+    # cached copy. Live FE scope_total is the AUTHORITATIVE source — the user
+    # rule is "Final Estimate value IS the Project Value". If the FE has been
+    # deleted (scope_total = 0) we must reset the locked cache too, so every
+    # downstream view (Project Value Calculation card, Payment Schedule %,
+    # Grand Total, Receivable, etc.) zeroes out instead of pulling the stale
+    # locked figure.
     locked_value = float(project.get("total_value") or 0)
     if scope_total > 0 and abs(scope_total - locked_value) > 0.5:
         await db.projects.update_one(
@@ -3505,7 +3512,17 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
         )
         locked_value = scope_total
         project["total_value"] = scope_total
-    project_value = scope_total if scope_total > 0 else locked_value
+    elif scope_total == 0 and locked_value > 0:
+        # FE deleted — reset the locked cache so the project genuinely reads ₹0.
+        await db.projects.update_one(
+            {"project_id": project_id},
+            {"$set": {"total_value": 0, "fe_locked_value": 0}}
+        )
+        locked_value = 0
+        project["total_value"] = 0
+    # Single source of truth: live scope_total (Final Estimate). No fallback
+    # to locked_value — if FE is deleted the project value is 0, period.
+    project_value = scope_total
     grand_project_value = max(0, project_value + additions_total - deductions_total)
     # Keep `total_project_value` symbol for legacy local use; equals project_value
     total_project_value = project_value
