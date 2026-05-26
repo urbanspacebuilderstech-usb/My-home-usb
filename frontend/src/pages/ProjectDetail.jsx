@@ -2755,9 +2755,21 @@ export default function ProjectDetail() {
 
   // Auto-save a single stage field (used by date pickers + Depends On while editing)
   // — keeps the user in edit mode, silently PATCHes and refreshes the stage list.
+  // Coerces empty-string numeric fields to null so backend Pydantic validation
+  // doesn't reject patches like { hindrance_delay_days: "" }.
   const autoSaveStageField = async (stageId, patch) => {
+    const NUMERIC = new Set(['duration_days', 'actual_duration_days', 'progress', 'hindrance_delay_days']);
+    const cleaned = {};
+    for (const [k, v] of Object.entries(patch || {})) {
+      if (NUMERIC.has(k)) {
+        if (v === '' || v === null || v === undefined) cleaned[k] = null;
+        else { const n = Number(v); cleaned[k] = Number.isFinite(n) ? n : null; }
+      } else {
+        cleaned[k] = v === '' ? null : v;
+      }
+    }
     try {
-      await axios.patch(`${API}/projects/${projectId}/project-stages/${stageId}`, patch);
+      await axios.patch(`${API}/projects/${projectId}/project-stages/${stageId}`, cleaned);
       fetchData(false);
     } catch (e) {
       const detail = e.response?.data?.detail;
