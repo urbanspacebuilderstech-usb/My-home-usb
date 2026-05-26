@@ -5131,6 +5131,7 @@ class ProjectStageCreate(BaseModel):
     depends_on: Optional[str] = None        # Predecessor stage_id (or sl_no)
     hindrance_type: Optional[str] = None    # 'internal' | 'external' | 'neutral'
     hindrance_reason: Optional[str] = None  # e.g. 'Drawing', 'Rain', 'Others'
+    hindrance_delay_days: Optional[int] = None  # how many days this hindrance pushed the schedule by
 
 class ProjectStageUpdate(BaseModel):
     stage_name: Optional[str] = None
@@ -5151,6 +5152,7 @@ class ProjectStageUpdate(BaseModel):
     depends_on: Optional[str] = None
     hindrance_type: Optional[str] = None
     hindrance_reason: Optional[str] = None
+    hindrance_delay_days: Optional[int] = None
 
 class StageTemplateCreate(BaseModel):
     template_name: str
@@ -5207,6 +5209,7 @@ async def add_project_stage(project_id: str, data: ProjectStageCreate, user: Use
         "depends_on": data.depends_on,
         "hindrance_type": data.hindrance_type,
         "hindrance_reason": data.hindrance_reason,
+        "hindrance_delay_days": data.hindrance_delay_days,
         "created_by": user.user_id,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
@@ -5246,6 +5249,7 @@ async def add_project_stages_bulk(project_id: str, stages: List[ProjectStageCrea
             "depends_on": s.depends_on,
             "hindrance_type": s.hindrance_type,
             "hindrance_reason": s.hindrance_reason,
+            "hindrance_delay_days": s.hindrance_delay_days,
             "created_by": user.user_id,
             "created_at": datetime.now(timezone.utc).isoformat()
         }

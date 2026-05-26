@@ -247,15 +247,20 @@ const HINDRANCE_TYPE_COLOR = {
   neutral:  'bg-sky-100 text-sky-700 border-sky-200',
 };
 
-// Inline picker: 3 type pills → reason dropdown → optional "Others" text input.
-// Calls `onChange({hindrance_type, hindrance_reason, hindrances})`.
+// Inline picker: 3 type pills → reason dropdown → optional "Others" text input
+// → quick-pick delay days (1/2/Custom) so Planning can record how many days
+// this hindrance pushed the schedule by. Custom opens a number input.
+// Calls `onChange({hindrance_type, hindrance_reason, hindrances, hindrance_delay_days})`.
 function HindrancePicker({ value, onChange, compact = false }) {
   const hType = value?.hindrance_type || '';
   const hReason = value?.hindrance_reason || '';
   const hNotes = value?.hindrances || '';
+  const hDelay = value?.hindrance_delay_days ?? '';
   const isOthers = hReason === 'Others';
+  const delayPresets = [1, 2];
 
-  const clear = () => onChange({ hindrance_type: '', hindrance_reason: '', hindrances: '' });
+  const clear = () => onChange({ hindrance_type: '', hindrance_reason: '', hindrances: '', hindrance_delay_days: '' });
+  const setDelay = (d) => onChange({ hindrance_type: hType, hindrance_reason: hReason, hindrances: hNotes, hindrance_delay_days: d });
 
   return (
     <div className={`flex flex-col gap-1 ${compact ? '' : 'min-w-[180px]'}`}>
@@ -265,7 +270,7 @@ function HindrancePicker({ value, onChange, compact = false }) {
             type="button"
             key={t}
             className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${hType === t ? HINDRANCE_TYPE_COLOR[t] + ' font-semibold' : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'}`}
-            onClick={() => onChange({ hindrance_type: t, hindrance_reason: '', hindrances: '' })}
+            onClick={() => onChange({ hindrance_type: t, hindrance_reason: '', hindrances: '', hindrance_delay_days: hDelay })}
             data-testid={`hindrance-type-${t}`}
           >
             {HINDRANCE_TYPE_LABEL[t]}
@@ -279,7 +284,7 @@ function HindrancePicker({ value, onChange, compact = false }) {
         <select
           className="border rounded px-2 py-1 text-xs"
           value={hReason}
-          onChange={e => onChange({ hindrance_type: hType, hindrance_reason: e.target.value, hindrances: hNotes })}
+          onChange={e => onChange({ hindrance_type: hType, hindrance_reason: e.target.value, hindrances: hNotes, hindrance_delay_days: hDelay })}
           data-testid="hindrance-reason"
         >
           <option value="">— select reason —</option>
@@ -292,9 +297,34 @@ function HindrancePicker({ value, onChange, compact = false }) {
           placeholder="Describe the hindrance..."
           className="border rounded px-2 py-1 text-xs"
           value={hNotes}
-          onChange={e => onChange({ hindrance_type: hType, hindrance_reason: 'Others', hindrances: e.target.value })}
+          onChange={e => onChange({ hindrance_type: hType, hindrance_reason: 'Others', hindrances: e.target.value, hindrance_delay_days: hDelay })}
           data-testid="hindrance-other-text"
         />
+      )}
+      {hType && (
+        <div className="flex items-center gap-1 mt-0.5">
+          <span className="text-[10px] text-gray-500 mr-1">Delay:</span>
+          {delayPresets.map(d => (
+            <button
+              type="button"
+              key={d}
+              className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${parseInt(hDelay) === d ? 'bg-amber-100 text-amber-700 border-amber-300 font-semibold' : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'}`}
+              onClick={() => setDelay(d)}
+              data-testid={`hindrance-delay-${d}`}
+            >
+              {d} day{d > 1 ? 's' : ''}
+            </button>
+          ))}
+          <input
+            type="number"
+            min="1"
+            placeholder="Custom"
+            className="w-16 border rounded px-1.5 py-0.5 text-[10px]"
+            value={(hDelay !== '' && !delayPresets.includes(parseInt(hDelay))) ? hDelay : ''}
+            onChange={e => setDelay(e.target.value)}
+            data-testid="hindrance-delay-custom"
+          />
+        </div>
       )}
     </div>
   );
@@ -304,17 +334,17 @@ function HindranceBadge({ stage }) {
   const t = stage?.hindrance_type;
   const r = stage?.hindrance_reason;
   const notes = stage?.hindrances || stage?.remarks;
+  const delay = stage?.hindrance_delay_days;
   if (!t && !r && !notes) return <span className="text-gray-300">-</span>;
   const tone = HINDRANCE_TYPE_COLOR[t] || 'bg-gray-100 text-gray-700 border-gray-200';
-  // Single compact pill — never wraps inside; horizontally truncates with ellipsis
   return (
     <div className="flex flex-col items-start gap-0.5 min-w-0">
       {(t || r) && (
         <span
           className={`inline-flex items-center max-w-full text-[10px] uppercase tracking-wide font-medium px-2 py-0.5 rounded-full border whitespace-nowrap leading-tight ${tone}`}
-          title={`${t ? HINDRANCE_TYPE_LABEL[t] : ''}${t && r ? ' · ' : ''}${r || ''}${notes && r === 'Others' ? ` — ${notes}` : ''}`}
+          title={`${t ? HINDRANCE_TYPE_LABEL[t] : ''}${t && r ? ' · ' : ''}${r || ''}${notes && r === 'Others' ? ` — ${notes}` : ''}${delay ? ` · +${delay}d` : ''}`}
         >
-          <span className="truncate">{t ? HINDRANCE_TYPE_LABEL[t] : ''}{t && r ? ' · ' : ''}{r || ''}</span>
+          <span className="truncate">{t ? HINDRANCE_TYPE_LABEL[t] : ''}{t && r ? ' · ' : ''}{r || ''}{delay ? ` · +${delay}d` : ''}</span>
         </span>
       )}
       {notes && r === 'Others' && (
@@ -2697,7 +2727,7 @@ export default function ProjectDetail() {
       // Sanitize the payload — Pydantic's Optional[int]/Optional[bool] reject
       // empty strings, so coerce them to null. Pydantic skips null fields
       // via the existing `if v is not None` filter on the backend.
-      const NUMERIC_FIELDS = ['duration_days', 'progress'];
+      const NUMERIC_FIELDS = ['duration_days', 'progress', 'actual_duration_days', 'hindrance_delay_days'];
       const cleaned = {};
       for (const [k, v] of Object.entries(editStageData)) {
         if (NUMERIC_FIELDS.includes(k)) {
@@ -2733,6 +2763,29 @@ export default function ProjectDetail() {
         : (typeof detail === 'string' ? detail : 'Auto-save failed');
       toast.error(msg);
     }
+  };
+
+  // Cascade-forward: when this saved stage's Planned Finish changes, push the
+  // next non-section stage's Planned Start = finish + 1 day (only if next row's
+  // Planned Start is empty — don't overwrite manual entries). Also recomputes
+  // that next row's Planned Finish if it has a Duration already.
+  const cascadeForwardFromStage = async (currentStageId, newPlannedFinishISO) => {
+    if (!newPlannedFinishISO) return;
+    const idx = projectStages.findIndex(s => s.stage_id === currentStageId);
+    if (idx === -1) return;
+    const next = projectStages.find((s, i) => i > idx && !s.is_section_header);
+    if (!next || next.start_date) return;
+    const d = new Date(newPlannedFinishISO);
+    if (isNaN(d)) return;
+    d.setDate(d.getDate() + 1);
+    const nextStart = d.toISOString().split('T')[0];
+    const nextDur = parseInt(next.duration_days) || 0;
+    const patch = { start_date: nextStart };
+    if (nextDur > 0) patch.target_date = addDaysISO(nextStart, nextDur);
+    try {
+      await axios.patch(`${API}/projects/${projectId}/project-stages/${next.stage_id}`, patch);
+      fetchData(false);
+    } catch { /* non-fatal — user can edit manually */ }
   };
 
   // === Payment Schedule Templates ===
@@ -4829,6 +4882,7 @@ export default function ProjectDetail() {
                                   const newFinish = (v && dur > 0) ? addDaysISO(v, dur) : editStageData.target_date;
                                   setEditStageData(d => ({...d, start_date: v, target_date: newFinish || d.target_date}));
                                   autoSaveStageField(stage.stage_id, { start_date: v || null, target_date: newFinish || editStageData.target_date || null, duration_days: dur || daysBetween(v, newFinish || editStageData.target_date) || null });
+                                  if (newFinish) cascadeForwardFromStage(stage.stage_id, newFinish);
                                 }} data-testid={`stage-planned-start-${stage.stage_id}`} />
                               ) : (
                                 <span className="text-sm">{stage.start_date ? new Date(stage.start_date).toLocaleDateString('en-IN') : '-'}</span>
@@ -4857,6 +4911,7 @@ export default function ProjectDetail() {
                                     const newFinish = (editStageData.start_date && dur > 0) ? addDaysISO(editStageData.start_date, dur) : editStageData.target_date;
                                     setEditStageData(d => ({...d, duration_days: e.target.value, target_date: newFinish || d.target_date}));
                                     autoSaveStageField(stage.stage_id, { duration_days: dur || null, target_date: newFinish || null });
+                                    if (newFinish) cascadeForwardFromStage(stage.stage_id, newFinish);
                                   }}
                                   data-testid={`stage-duration-${stage.stage_id}`}
                                   placeholder="—"
@@ -4999,7 +5054,7 @@ export default function ProjectDetail() {
                                 ) : (
                                   <div className="flex flex-col items-center gap-1">
                                     <div className="flex justify-center gap-1">
-                                    <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditingStageId(stage.stage_id); setEditStageData({ stage_name: stage.stage_name, start_date: stage.start_date || '', target_date: stage.target_date || '', duration_days: stage.duration_days ?? '', actual_start_date: stage.actual_start_date || '', actual_finish_date: stage.actual_finish_date || '', actual_duration_days: stage.actual_duration_days ?? daysBetween(stage.actual_start_date, stage.actual_finish_date) ?? '', progress: stage.progress ?? (stage.status === 'finished' ? 100 : stage.status === 'started' ? 50 : 0), status: stage.status, hindrances: stage.hindrances || stage.remarks || '', remarks: stage.hindrances || stage.remarks || '', depends_on: stage.depends_on || '', hindrance_type: stage.hindrance_type || '', hindrance_reason: stage.hindrance_reason || '' }); }}>
+                                    <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditingStageId(stage.stage_id); setEditStageData({ stage_name: stage.stage_name, start_date: stage.start_date || '', target_date: stage.target_date || '', duration_days: stage.duration_days ?? '', actual_start_date: stage.actual_start_date || '', actual_finish_date: stage.actual_finish_date || '', actual_duration_days: stage.actual_duration_days ?? daysBetween(stage.actual_start_date, stage.actual_finish_date) ?? '', progress: stage.progress ?? (stage.status === 'finished' ? 100 : stage.status === 'started' ? 50 : 0), status: stage.status, hindrances: stage.hindrances || stage.remarks || '', remarks: stage.hindrances || stage.remarks || '', depends_on: stage.depends_on || '', hindrance_type: stage.hindrance_type || '', hindrance_reason: stage.hindrance_reason || '', hindrance_delay_days: stage.hindrance_delay_days ?? '' }); }}>
                                       <Edit className="h-3 w-3" />
                                     </Button>
                                     <Button
