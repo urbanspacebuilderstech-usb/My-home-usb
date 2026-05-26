@@ -3953,23 +3953,44 @@ async def upload_section_attachment(
     if not section:
         raise HTTPException(status_code=404, detail="Section not found")
     BLOCKED_EXT = {'exe', 'bat', 'cmd', 'sh', 'php', 'py', 'js', 'vbs', 'ps1', 'msi', 'dll'}
-    ext = file.filename.split(".")[-1].lower() if file.filename and "." in file.filename else ""
+    ext = file.filename.split(".")[-1].lower() if file.filename and "." in file.filename else "bin"
     if ext in BLOCKED_EXT:
         raise HTTPException(status_code=400, detail=f"File type '.{ext}' is not allowed.")
     contents = await file.read()
     if len(contents) > 50 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large. Maximum 50MB.")
-    file_id = await fs.upload_from_stream(
-        file.filename, contents,
-        metadata={"contentType": file.content_type, "uploaded_by": user.user_id, "scope": "addition_section"}
-    )
-    att = {
-        "file_id": str(file_id),
-        "filename": file.filename,
-        "content_type": file.content_type,
-        "size": len(contents),
+    # Use the unified object-storage pipeline so `/files/{file_id}/download` can serve the file.
+    from core.storage import put_object, APP_NAME, MIME_TYPES
+    content_type = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
+    file_id = str(uuid.uuid4())
+    storage_path = f"{APP_NAME}/addition_section/{user.user_id}/{file_id}.{ext}"
+    try:
+        result = put_object(storage_path, contents, content_type)
+    except Exception as e:
+        logger.error(f"Section attachment upload failed: {e}")
+        raise HTTPException(status_code=500, detail="File upload failed")
+    file_record = {
+        "file_id": file_id,
+        "storage_path": result.get("path", storage_path),
+        "original_filename": file.filename,
+        "content_type": content_type,
+        "size": result.get("size", len(contents)),
+        "category": "addition_section",
+        "project_id": project_id,
         "uploaded_by": user.user_id,
-        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        "uploaded_by_name": user.name,
+        "description": f"Attachment for addition section {section_id}",
+        "is_deleted": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.files.insert_one(file_record)
+    att = {
+        "file_id": file_id,
+        "filename": file.filename,
+        "content_type": content_type,
+        "size": file_record["size"],
+        "uploaded_by": user.user_id,
+        "uploaded_at": file_record["created_at"],
     }
     await db.addition_sections.update_one(
         {"section_id": section_id, "project_id": project_id},
@@ -3994,13 +4015,127 @@ async def delete_section_attachment(
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Section not found")
-    # Best-effort: drop the actual blob too.
+    # Soft-delete the underlying file record so the blob can be reaped later.
     try:
-        from bson import ObjectId
-        await fs.delete(ObjectId(file_id))
+        await db.files.update_one(
+            {"file_id": file_id},
+            {"$set": {"is_deleted": True, "deleted_by": user.user_id, "deleted_at": datetime.now(timezone.utc).isoformat()}},
+        )
     except Exception:
         pass
     return {"message": "Attachment removed"}
+
+
+# ── Project-level (ungrouped) Additional Work attachments ─────────────────
+# Mirrors the per-section attachment endpoints but stores file refs on the
+# project doc itself (`additional_attachments` array). Used for old/ungrouped
+# Additional Work rows that don't belong to any section.
+@router.post("/projects/{project_id}/additional-attachments")
+async def upload_project_additional_attachment(
+    project_id: str,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    if user.role not in SECTION_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "project_id": 1})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    BLOCKED_EXT = {'exe', 'bat', 'cmd', 'sh', 'php', 'py', 'js', 'vbs', 'ps1', 'msi', 'dll'}
+    ext = file.filename.split(".")[-1].lower() if file.filename and "." in file.filename else "bin"
+    if ext in BLOCKED_EXT:
+        raise HTTPException(status_code=400, detail=f"File type '.{ext}' is not allowed.")
+    contents = await file.read()
+    if len(contents) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum 50MB.")
+    from core.storage import put_object, APP_NAME, MIME_TYPES
+    content_type = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
+    file_id = str(uuid.uuid4())
+    storage_path = f"{APP_NAME}/additional_ungrouped/{user.user_id}/{file_id}.{ext}"
+    try:
+        result = put_object(storage_path, contents, content_type)
+    except Exception as e:
+        logger.error(f"Project additional attachment upload failed: {e}")
+        raise HTTPException(status_code=500, detail="File upload failed")
+    file_record = {
+        "file_id": file_id,
+        "storage_path": result.get("path", storage_path),
+        "original_filename": file.filename,
+        "content_type": content_type,
+        "size": result.get("size", len(contents)),
+        "category": "additional_ungrouped",
+        "project_id": project_id,
+        "uploaded_by": user.user_id,
+        "uploaded_by_name": user.name,
+        "description": "Ungrouped Additional Work attachment",
+        "is_deleted": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.files.insert_one(file_record)
+    att = {
+        "file_id": file_id,
+        "filename": file.filename,
+        "content_type": content_type,
+        "size": file_record["size"],
+        "uploaded_by": user.user_id,
+        "uploaded_at": file_record["created_at"],
+    }
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$push": {"additional_attachments": att}},
+    )
+    await create_audit_log(user.user_id, "upload", "project_additional_attachment", project_id, {"filename": file.filename})
+    return att
+
+
+@router.delete("/projects/{project_id}/additional-attachments/{file_id}")
+async def delete_project_additional_attachment(
+    project_id: str,
+    file_id: str,
+    user: User = Depends(get_current_user),
+):
+    if user.role not in SECTION_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    res = await db.projects.update_one(
+        {"project_id": project_id},
+        {"$pull": {"additional_attachments": {"file_id": file_id}}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        await db.files.update_one(
+            {"file_id": file_id},
+            {"$set": {"is_deleted": True, "deleted_by": user.user_id, "deleted_at": datetime.now(timezone.utc).isoformat()}},
+        )
+    except Exception:
+        pass
+    return {"message": "Attachment removed"}
+
+
+# Batch: Send all ungrouped (no section_id) approved additions to client at once.
+@router.post("/projects/{project_id}/additional-costs/send-ungrouped-to-client")
+async def send_ungrouped_additions_to_client(project_id: str, user: User = Depends(get_current_user)):
+    if user.role not in SECTION_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    rows = await db.additional_costs.find(
+        {
+            "project_id": project_id,
+            "$or": [{"section_id": None}, {"section_id": {"$exists": False}}],
+        },
+        {"_id": 0, "cost_id": 1, "client_approval_status": 1, "estimated_amount": 1},
+    ).to_list(500)
+    pending = [r for r in rows if r.get("client_approval_status") not in ("pending_client", "client_approved")]
+    if not pending:
+        return {"message": "No eligible rows to send", "count": 0}
+    cost_ids = [r["cost_id"] for r in pending]
+    await db.additional_costs.update_many(
+        {"cost_id": {"$in": cost_ids}},
+        {"$set": {"client_approval_status": "pending_client", "client_rejection_reason": None}},
+    )
+    total = sum(float(r.get("estimated_amount") or 0) for r in pending)
+    await _notify_cre_for_project(project_id, f"{len(pending)} ungrouped additional work item(s) sent to client for approval (₹{total:,.0f})")
+    await create_audit_log(user.user_id, "send_ungrouped_to_client", "additional_costs", project_id, {"count": len(pending), "amount": total})
+    return {"message": f"Sent {len(pending)} item(s) to client", "count": len(pending)}
 
 
 @router.patch("/additional-costs/{cost_id}/request-payment")

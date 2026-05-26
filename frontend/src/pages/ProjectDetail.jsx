@@ -2751,6 +2751,44 @@ export default function ProjectDetail() {
     } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
   };
 
+  // ── Project-level (ungrouped) attachment handlers ─────────────────────
+  // Files attached to the ungrouped block live on project.additional_attachments
+  // so old/legacy Additional Work rows can carry references without a section.
+  const handleUploadUngroupedAttachment = async (file) => {
+    if (!file) return;
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      await axios.post(`${API}/projects/${projectId}/additional-attachments`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      toast.success('File attached');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Upload failed'); }
+  };
+
+  const handleDeleteUngroupedAttachment = async (fileId) => {
+    if (!window.confirm('Remove this attachment?')) return;
+    try {
+      await axios.delete(`${API}/projects/${projectId}/additional-attachments/${fileId}`);
+      toast.success('Attachment removed');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
+  };
+
+  // Batch: Send all eligible ungrouped additions to the client at once.
+  const sendUngroupedToClient = async (items) => {
+    const eligible = items.filter(c => !['pending_client', 'client_approved'].includes(c.client_approval_status));
+    if (eligible.length === 0) { toast.info('Nothing to send — all ungrouped rows are already sent or approved.'); return; }
+    const total = eligible.reduce((s, x) => s + (x.estimated_amount || 0), 0);
+    if (!window.confirm(`Send ${eligible.length} ungrouped addition${eligible.length === 1 ? '' : 's'} (₹${Number(total).toLocaleString('en-IN')}) to client for approval?`)) return;
+    try {
+      await axios.post(`${API}/projects/${projectId}/additional-costs/send-ungrouped-to-client`);
+      toast.success(`Sent ${eligible.length} item(s) to client`);
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to send'); }
+  };
+
   // ── Client Approval lifecycle for Additions ───────────────────────────
   // Per-row send. Optimistic UI: row goes amber "Pending Client" immediately.
   const sendAdditionToClient = async (cost) => {
@@ -6287,6 +6325,43 @@ export default function ProjectDetail() {
                                 <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => handleDeleteSection(group)} data-testid={`delete-section-${group.section_id}`}>
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {/* Ungrouped toolbar — parity with section toolbar: File, Add, Send-to-Client batch */}
+                      {!group.section_id && items.length > 0 && (
+                        <div className="flex items-center justify-between mb-3 gap-3 flex-wrap" data-testid="ungrouped-toolbar">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <h4 className="text-sm font-bold text-gray-600 truncate">Ungrouped</h4>
+                            <Badge variant="outline" className="text-[10px] bg-white">{items.length} {items.length === 1 ? 'addition' : 'additions'}</Badge>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 mr-1 flex-wrap max-w-[260px]">
+                              {(projectData?.additional_attachments || []).map(att => (
+                                <div key={att.file_id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-gray-200 text-[10px]" title={att.filename}>
+                                  <a href={`${API}/files/${att.file_id}/download`} target="_blank" rel="noreferrer" className="text-gray-700 truncate max-w-[120px]" data-testid={`ungrouped-att-${att.file_id}`}>{att.filename}</a>
+                                  {canManage && (
+                                    <button onClick={() => handleDeleteUngroupedAttachment(att.file_id)} className="text-red-500 hover:text-red-700"><X className="h-2.5 w-2.5" /></button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                            {canManage && (
+                              <>
+                                <label className="inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-200 bg-white text-[11px] text-gray-700 cursor-pointer hover:bg-gray-50" data-testid="attach-ungrouped">
+                                  <Plus className="h-3 w-3" /> File
+                                  <input type="file" className="hidden" onChange={(e) => { if (e.target.files?.[0]) { handleUploadUngroupedAttachment(e.target.files[0]); e.target.value = ''; } }} />
+                                </label>
+                                <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-200 text-emerald-700" onClick={() => openAddAdditionFor(null)} data-testid="add-into-ungrouped">
+                                  <Plus className="h-3 w-3" /> Add
+                                </Button>
+                                {items.some(c => !['pending_client','client_approved'].includes(c.client_approval_status)) && (
+                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-violet-300 text-violet-700 hover:bg-violet-50" onClick={() => sendUngroupedToClient(items)} data-testid="send-ungrouped-client">
+                                    <Send className="h-3 w-3" /> Send to Client
+                                  </Button>
+                                )}
                               </>
                             )}
                           </div>

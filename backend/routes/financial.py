@@ -2040,6 +2040,7 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
         "payment_stages": payment_stages,
         "additional_costs": additional_costs,
         "addition_sections": addition_sections,
+        "additional_attachments": project.get("additional_attachments", []),
         "deductions": deductions,
         "income_entries": income_entries,
         "pre_construction": pre_construction,
