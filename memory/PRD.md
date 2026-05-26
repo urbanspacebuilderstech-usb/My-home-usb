@@ -13,6 +13,17 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 26, 2026 — Estimate Approval Flows (RE + FE) UX Fix
+- **Root-cause fix** for "Approval flow not working" report:
+  - GM Dashboard had a **duplicate `rough_estimate` tab trigger with no matching TabsContent** — clicking the obvious "rough_estimate" tab showed a blank page. The actual RE approval queue was hidden under a tab labeled "planning".
+  - Removed the orphan tab; renamed all tab labels to human-readable: `Overview · Rough Estimates · Projects · Site Engineer · Accountant · Design · Final Estimates · Planning Board · Labour Advance`.
+  - Result: RE approval queue (with Approve/Reject buttons) is now directly discoverable under "Rough Estimates".
+- **FE GM Approve — Skip CRE option (Q2.b)**:
+  - Frontend `GMDashboard.jsx` Approve dialog adds a checkbox: **"Skip CRE — auto-share with client"**. When checked, the FE auto-shares: GM approval issues `public_token`, sets status to `pending_client_review` directly, and copies the share link to clipboard.
+  - Backend `POST /api/gm/final-estimates/{id}/approve` accepts `{auto_share_to_client: bool}`. Returns `public_url` when auto-shared. CRE is still notified for awareness but doesn't gate the flow.
+- **Verified live** with curl: RE `submit-for-approval` → GM queue → Approve; FE `submit-to-gm` → `gm/approve { auto_share_to_client: true }` → public_token issued → public FE endpoint returns the project.
+- Test suite: `tests/test_rab_workflow.py` 2/2 PASS (no regression).
+
 ### Session — Feb 26, 2026 — RAB Release Dialog v2 (4 payment methods + open-cheque picker)
 - **New shared component** `/app/frontend/src/components/LabourRABReleaseDialog.jsx` replaces the inline 3-method ReleaseDialog in `AccountantLabourPayments.jsx`. Shows full bill detail (RAB number, approved amount, stage totals, prior RABs on the WO, approval trail with PM/QC/Planning names, DLR/notes), contractor suspense balance with auto-apply input, and a 4-method picker.
 - **4 payment methods** mirroring the Income side (`MultiPaymentInput`): **Cash · Cheque · HDFC CURRENT · HDFC SAVINGS**. Cheque mode lists CRE-opened HDFC cheques (Active/Locked tabs + search + "Request Open" CTA for locked ones); multi-select with running total and auto excess-to-suspense preview.

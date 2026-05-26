@@ -171,11 +171,20 @@ async def list_gm_final_estimates(user: User = Depends(get_current_user)):
     return projects
 
 
+class GmApproveBody(BaseModel):
+    auto_share_to_client: bool = False
+
+
 @router.post("/gm/final-estimates/{project_id}/approve")
-async def gm_approve_fe(project_id: str, user: User = Depends(get_current_user)):
-    """GM approves → moves FE to CRE's queue."""
+async def gm_approve_fe(project_id: str, body: Optional[GmApproveBody] = None, user: User = Depends(get_current_user)):
+    """GM approves → moves FE to CRE's queue.
+    When `auto_share_to_client=True` (Q2.b option), the FE skips CRE review and
+    moves directly to `pending_client_review` with a freshly-issued public token.
+    CRE can still view/edit later via the regular CRE queue."""
     if user.role not in [UserRole.GENERAL_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only GM can approve")
+
+    auto_share = bool(body and body.auto_share_to_client)
 
     project = await _get_project_or_404(project_id)
     fe = _ensure_fe(project)
@@ -183,31 +192,53 @@ async def gm_approve_fe(project_id: str, user: User = Depends(get_current_user))
     if fe["status"] != "pending_gm_review":
         raise HTTPException(status_code=400, detail=f"Cannot GM-approve from status: {fe['status']}")
 
-    fe["status"] = "pending_cre_review"
-    fe["gm_approved_at"] = _now()
+    now = _now()
+    fe["gm_approved_at"] = now
     fe["gm_approved_by"] = user.user_id
-    fe["sent_to_cre_at"] = fe["gm_approved_at"]
-    fe["sent_to_cre_by"] = user.user_id
-    fe["history"] = (fe.get("history") or []) + [{
-        "action": "gm_approve",
-        "revision": fe["revision"],
-        "by": user.user_id,
-        "at": fe["gm_approved_at"],
-    }]
+
+    if auto_share:
+        # Skip CRE entirely — generate share token + move to pending_client_review
+        if not fe.get("public_token"):
+            fe["public_token"] = uuid.uuid4().hex
+        fe["status"] = "pending_client_review"
+        fe["sent_to_client_at"] = now
+        fe["sent_to_client_by"] = user.user_id
+        fe["history"] = (fe.get("history") or []) + [{
+            "action": "gm_approve_and_auto_share",
+            "revision": fe["revision"],
+            "by": user.user_id,
+            "at": now,
+        }]
+    else:
+        # Standard path — CRE reviews next
+        fe["status"] = "pending_cre_review"
+        fe["sent_to_cre_at"] = now
+        fe["sent_to_cre_by"] = user.user_id
+        fe["history"] = (fe.get("history") or []) + [{
+            "action": "gm_approve",
+            "revision": fe["revision"],
+            "by": user.user_id,
+            "at": now,
+        }]
 
     await db.projects.update_one({"project_id": project_id}, {"$set": {"fe": fe}})
 
-    # Notify CRE
+    # Notify CRE either way (so they're aware even when auto-shared)
     cres = await db.users.find({"role": "cre", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(50)
     for c in cres:
         await _notify(
             c["user_id"],
-            "Final Estimate ready for CRE review",
+            "Final Estimate approved by GM" + (" — auto-shared with client" if auto_share else " — ready for CRE review"),
             f"GM approved Final Estimate for {project.get('name', '')}",
             "final_estimate_ready",
             project_id,
         )
-    return {"message": "GM approved. Sent to CRE.", "fe": fe}
+
+    resp = {"message": "GM approved." + (" Auto-shared with client." if auto_share else " Sent to CRE."), "fe": fe}
+    if auto_share:
+        resp["public_token"] = fe["public_token"]
+        resp["public_url"] = f"/fe/{fe['public_token']}"
+    return resp
 
 
 class GmRejectBody(BaseModel):

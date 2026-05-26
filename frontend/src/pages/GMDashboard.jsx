@@ -64,7 +64,7 @@ const GMDashboard = () => {
   const [drillDialog, setDrillDialog] = useState({ open: false, title: '', items: [], emptyText: '' });
 
   // FE Approve confirmation dialog — GM must type "APPROVE" to confirm
-  const [feApproveDialog, setFeApproveDialog] = useState({ open: false, project: null, typed: '', submitting: false });
+  const [feApproveDialog, setFeApproveDialog] = useState({ open: false, project: null, typed: '', autoShare: false, submitting: false });
   
   // Dashboard Data
   const [stats, setStats] = useState({});
@@ -571,7 +571,7 @@ const GMDashboard = () => {
         <Tabs
           value={activeTab}
           onValueChange={(value) => {
-            const validTabs = ['overview', 'planning', 'projects', 'site_engineer', 'accountant', 'design', 'rough_estimate', 'final_estimate', 'planning_board', 'labour_advance'];
+            const validTabs = ['overview', 'planning', 'projects', 'site_engineer', 'accountant', 'design', 'final_estimate', 'planning_board', 'labour_advance'];
             if (validTabs.includes(value)) {
               lastActiveTabRef.current = value;
               setActiveTab(value);
@@ -580,16 +580,15 @@ const GMDashboard = () => {
           className="space-y-4 mt-4"
         >
           <TabsList className="hidden">
-            <TabsTrigger value="overview">overview</TabsTrigger>
-            <TabsTrigger value="planning">planning</TabsTrigger>
-            <TabsTrigger value="projects">projects</TabsTrigger>
-            <TabsTrigger value="site_engineer">site_engineer</TabsTrigger>
-            <TabsTrigger value="accountant">accountant</TabsTrigger>
-            <TabsTrigger value="design">design</TabsTrigger>
-            <TabsTrigger value="rough_estimate">rough_estimate</TabsTrigger>
-            <TabsTrigger value="final_estimate">final_estimate</TabsTrigger>
-            <TabsTrigger value="planning_board">planning_board</TabsTrigger>
-            <TabsTrigger value="labour_advance" data-testid="gm-tab-labour-advance">labour advance</TabsTrigger>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="planning">Rough Estimates</TabsTrigger>
+            <TabsTrigger value="projects">Projects</TabsTrigger>
+            <TabsTrigger value="site_engineer">Site Engineer</TabsTrigger>
+            <TabsTrigger value="accountant">Accountant</TabsTrigger>
+            <TabsTrigger value="design">Design</TabsTrigger>
+            <TabsTrigger value="final_estimate">Final Estimates</TabsTrigger>
+            <TabsTrigger value="planning_board">Planning Board</TabsTrigger>
+            <TabsTrigger value="labour_advance" data-testid="gm-tab-labour-advance">Labour Advance</TabsTrigger>
           </TabsList>
           
           {/* Embedded Planning Board (rendered for the new Planning outer tab) */}
@@ -1190,7 +1189,7 @@ const GMDashboard = () => {
                                     className="bg-green-600 hover:bg-green-700"
                                     disabled={feBusy}
                                     data-testid={`fe-approve-${p.project_id}`}
-                                    onClick={() => setFeApproveDialog({ open: true, project: p, typed: '', submitting: false })}
+                                    onClick={() => setFeApproveDialog({ open: true, project: p, typed: '', autoShare: false, submitting: false })}
                                   >
                                     <CheckCircle className="h-3.5 w-3.5 mr-1" /> Approve
                                   </Button>
@@ -1855,15 +1854,28 @@ const GMDashboard = () => {
       </Dialog>
 
       {/* FE Approve confirmation — GM must type APPROVE to confirm */}
-      <Dialog open={feApproveDialog.open} onOpenChange={(o) => !o && !feApproveDialog.submitting && setFeApproveDialog({ open: false, project: null, typed: '', submitting: false })}>
+      <Dialog open={feApproveDialog.open} onOpenChange={(o) => !o && !feApproveDialog.submitting && setFeApproveDialog({ open: false, project: null, typed: '', autoShare: false, submitting: false })}>
         <DialogContent className="max-w-md" data-testid="gm-fe-approve-dialog">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><CheckCircle className="h-5 w-5 text-green-600" /> Approve Final Estimate</DialogTitle>
             <DialogDescription>
-              You are about to approve <strong>{feApproveDialog.project?.name || 'this project'}</strong>. This will send it forward to CRE. Type <strong>APPROVE</strong> below to confirm.
+              You are about to approve <strong>{feApproveDialog.project?.name || 'this project'}</strong>. Choose where it goes next.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
+            <label className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded p-2.5 cursor-pointer" data-testid="gm-fe-auto-share-label">
+              <input
+                type="checkbox"
+                checked={feApproveDialog.autoShare || false}
+                onChange={(e) => setFeApproveDialog(d => ({ ...d, autoShare: e.target.checked }))}
+                className="mt-0.5 accent-blue-600"
+                data-testid="gm-fe-auto-share-checkbox"
+              />
+              <div className="text-xs">
+                <p className="font-semibold text-blue-900">Skip CRE — auto-share with client</p>
+                <p className="text-blue-700 mt-0.5">Generate the client share link immediately on approval. CRE can still view/edit the FE if needed, but it goes straight to the client.</p>
+              </div>
+            </label>
             <Input
               autoFocus
               placeholder='Type "APPROVE" to enable the button'
@@ -1873,7 +1885,7 @@ const GMDashboard = () => {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setFeApproveDialog({ open: false, project: null, typed: '', submitting: false })} disabled={feApproveDialog.submitting}>Cancel</Button>
+            <Button variant="outline" onClick={() => setFeApproveDialog({ open: false, project: null, typed: '', autoShare: false, submitting: false })} disabled={feApproveDialog.submitting}>Cancel</Button>
             <Button
               className="bg-green-600 hover:bg-green-700"
               disabled={feApproveDialog.submitting || (feApproveDialog.typed || '').trim().toUpperCase() !== 'APPROVE'}
@@ -1883,10 +1895,17 @@ const GMDashboard = () => {
                 if (!proj) return;
                 setFeApproveDialog(d => ({ ...d, submitting: true }));
                 try {
-                  await axios.post(`${API}/gm/final-estimates/${proj.project_id}/approve`);
-                  toast.success('Final Estimate approved and sent to CRE');
-                  setFeApproveDialog({ open: false, project: null, typed: '', submitting: false });
-                  fetchDashboardData(false);
+                  const res = await axios.post(`${API}/gm/final-estimates/${proj.project_id}/approve`, {
+                    auto_share_to_client: !!feApproveDialog.autoShare,
+                  });
+                  if (feApproveDialog.autoShare && res.data?.public_url) {
+                    try { await navigator.clipboard.writeText(window.location.origin + res.data.public_url); } catch {}
+                    toast.success('FE approved — client link copied to clipboard');
+                  } else {
+                    toast.success('Final Estimate approved and sent to CRE');
+                  }
+                  setFeApproveDialog({ open: false, project: null, typed: '', autoShare: false, submitting: false });
+                  fetchAllData(false);
                 } catch (err) {
                   toast.error(err.response?.data?.detail || 'Failed to approve');
                   setFeApproveDialog(d => ({ ...d, submitting: false }));
