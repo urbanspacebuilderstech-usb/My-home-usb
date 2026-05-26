@@ -3206,7 +3206,11 @@ export default function ProjectDetail() {
     );
   }
 
-  const { project, scope_items = [], payment_stages = [], additional_costs = [], deductions = [], summary, pre_construction = [] } = projectData || {};
+  const { project, scope_items = [], additional_costs = [], deductions = [], summary, pre_construction = [] } = projectData || {};
+  // Filter Additional-derived payment_stages out of Payment Schedule listing.
+  // These come from Req Payment on additions and should only appear inside the
+  // Additional tab — not pollute the milestone Payment Schedule view.
+  const payment_stages = (projectData?.payment_stages || []).filter(s => !s.is_addition && !s.linked_addition_id);
 
   // Get draft items for verification
   const draftScopeItems = (scope_items || []).filter(s => s.workflow_status === 'draft');
