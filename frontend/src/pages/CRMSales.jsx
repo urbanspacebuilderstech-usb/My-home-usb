@@ -1307,7 +1307,13 @@ export default function CRMSales() {
                 { key: 'P2', color: '#f59e0b' },  // amber — warm
                 { key: 'P3', color: '#3b82f6' },  // blue — cold/info
               ].map(({ key, color }) => {
-                const catLeads = filteredLeads.filter(l => (l.client_category || '') === key);
+                // P1/P2/P3 chips count *active* pipeline only — exclude onboarded /
+                // lost / moved-to-planning so the priority view matches the list filter.
+                const catLeads = filteredLeads.filter(l =>
+                  (l.client_category || '') === key &&
+                  !['stg_project_onboarded', 'stg_lost'].includes(l.current_stage_id) &&
+                  l.onboarding_status !== 'moved_to_planning'
+                );
                 const count = catLeads.length;
                 const amount = sumAmount(catLeads);
                 const isActive = activeStage === key;
