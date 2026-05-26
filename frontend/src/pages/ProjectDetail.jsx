@@ -39,6 +39,7 @@ import {
   CreditCard,
   GitBranch,
   Lock,
+  Undo2,
   Snowflake,
   Mail,
   MapPin,
@@ -2907,7 +2908,21 @@ export default function ProjectDetail() {
       toast.success('Addition deleted');
       fetchData(false);
     } catch (error) {
-      toast.error('Failed to delete addition');
+      toast.error(error.response?.data?.detail || 'Failed to delete addition');
+    }
+  };
+
+  // Recall / Undo: pull a pending or rejected addition back so Planning can
+  // edit or delete it. Blocked server-side once the client has approved.
+  const handleRecallAddition = async (cost) => {
+    const label = cost.name || cost.description || 'this addition';
+    if (!window.confirm(`Recall "${label}" from the client? It will return to Draft so you can edit or delete it.`)) return;
+    try {
+      await axios.post(`${API}/additional-costs/${cost.cost_id}/recall-from-client`);
+      toast.success('Recalled from client');
+      fetchData(false);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to recall');
     }
   };
 
@@ -6925,6 +6940,20 @@ export default function ProjectDetail() {
                                   {cost.cre_approved && balance > 0 && (
                                     <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-medium">Approved · With Accountant</span>
                                   )}
+                                  {/* Undo / Recall — visible while client hasn't approved yet (pending OR rejected).
+                                      Lets Planning pull the row back without bothering the client. */}
+                                  {(cost.client_approval_status === 'pending_client' || cost.client_approval_status === 'client_rejected') && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => handleRecallAddition(cost)}
+                                      data-testid={`undo-send-${cost.cost_id}`}
+                                      title="Undo / Recall from client"
+                                      className="h-8 w-8"
+                                    >
+                                      <Undo2 className="h-4 w-4 text-orange-600" />
+                                    </Button>
+                                  )}
                                   <Button
                                     variant="ghost"
                                     size="icon"
@@ -6935,9 +6964,23 @@ export default function ProjectDetail() {
                                   >
                                     <Edit className="h-4 w-4 text-amber-600" />
                                   </Button>
-                                  <Button variant="ghost" size="icon" onClick={() => handleDeleteAddition(cost.cost_id)} className="h-8 w-8">
-                                    <Trash2 className="h-4 w-4 text-red-500" />
-                                  </Button>
+                                  {/* Delete — once client has approved, only Super Admin can delete.
+                                      Show a disabled lock for everyone else with a tooltip. */}
+                                  {(cost.client_approval_status === 'client_approved' || cost.client_approved) ? (
+                                    user?.role === 'super_admin' ? (
+                                      <Button variant="ghost" size="icon" onClick={() => handleDeleteAddition(cost.cost_id)} className="h-8 w-8" data-testid={`delete-addition-${cost.cost_id}`} title="Super Admin override delete">
+                                        <Trash2 className="h-4 w-4 text-red-500" />
+                                      </Button>
+                                    ) : (
+                                      <Button variant="ghost" size="icon" disabled className="h-8 w-8 opacity-40 cursor-not-allowed" title="Locked — client has approved. Ask Super Admin to delete." data-testid={`delete-locked-${cost.cost_id}`}>
+                                        <Lock className="h-4 w-4 text-gray-400" />
+                                      </Button>
+                                    )
+                                  ) : (
+                                    <Button variant="ghost" size="icon" onClick={() => handleDeleteAddition(cost.cost_id)} className="h-8 w-8" data-testid={`delete-addition-${cost.cost_id}`}>
+                                      <Trash2 className="h-4 w-4 text-red-500" />
+                                    </Button>
+                                  )}
                                     </>
                                   )}
                                 </div>

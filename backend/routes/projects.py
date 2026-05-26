@@ -3690,7 +3690,11 @@ async def update_additional_cost(cost_id: str, update_data: AdditionalCostUpdate
 async def delete_additional_cost(cost_id: str, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0, "client_approval_status": 1, "client_approved": 1})
+    if cost:
+        already_approved = cost.get("client_approval_status") == "client_approved" or cost.get("client_approved") is True
+        if already_approved and user.role != UserRole.SUPER_ADMIN:
+            raise HTTPException(status_code=403, detail="Client already approved. Only Super Admin can delete.")
     await db.additional_costs.delete_one({"cost_id": cost_id})
     await create_audit_log(user.user_id, "delete", "additional_cost", cost_id, {})
     return {"message": "Additional cost deleted"}
@@ -3741,6 +3745,35 @@ async def send_addition_to_client(cost_id: str, user: User = Depends(get_current
     )
     await create_audit_log(user.user_id, "send_to_client", "additional_cost", cost_id, {"amount": amount})
     return {"message": "Sent to client for approval", "cost_id": cost_id}
+
+
+# Recall / Undo: pull a pending or rejected addition back so Planning can edit
+# or delete it. Only allowed while the row is still in client_approval_status
+# 'pending_client' or 'client_rejected' — once the client has approved we keep
+# the audit trail intact and require Super Admin override (handled in delete).
+@router.post("/additional-costs/{cost_id}/recall-from-client")
+async def recall_addition_from_client(cost_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Addition not found")
+    status = cost.get("client_approval_status")
+    if status == "client_approved":
+        raise HTTPException(status_code=400, detail="Already approved by client. Ask Super Admin to delete instead.")
+    await db.additional_costs.update_one(
+        {"cost_id": cost_id},
+        {"$set": {
+            "client_approval_status": None,
+            "client_approval_sent_at": None,
+            "client_approval_sent_by": None,
+            "client_rejection_reason": None,
+            "client_review_requested": False,
+            "client_review_note": None,
+        }},
+    )
+    await create_audit_log(user.user_id, "recall_from_client", "additional_cost", cost_id, {})
+    return {"message": "Recalled from client", "cost_id": cost_id}
 
 
 @router.post("/projects/{project_id}/addition-sections/{section_id}/send-to-client")
