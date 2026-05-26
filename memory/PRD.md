@@ -13,6 +13,23 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 26, 2026 — Labour RAB (Running Account Bill) Approval Chain (Phase 1)
+- **Workflow**: SE submits RAB → PM Review → QC Review → Planning Review → Accountant Releases. Each step can Approve (forward) or Reject (return to previous role with mandatory reason). On SE rework, the RAB returns to SE who can resubmit.
+- **Backend** (`/app/backend/routes/projects.py`):
+  - `PATCH /projects/{pid}/work-orders/{wo_id}/stages/{stage_id}/request-payment` — SE creates RAB; sequential numbering RAB-01, RAB-02... per WO. Now notifies PM (was Planning).
+  - New queue endpoints: `GET /pm/labour-stage-requests`, `GET /qc/labour-stage-requests`, `GET /site-engineer/labour-stage-requests?status=rework`. Existing `/planning/labour-stage-requests?status=new` re-mapped to `qc_approved`.
+  - `POST /payment-requests/{id}/pm-approve | pm-reject | qc-approve | qc-reject | planning-approve | planning-reject | accountant-reject` (PM/QC/Planning/Accountant reject paths). Each transition notifies the next role; PM-reject notifies the SE.
+  - **NEW** `POST /payment-requests/{id}/se-resubmit` — SE updates amount/notes and flips back to `requested`.
+  - On Accountant `/release`, an auto-locked Payment Schedule row is created in `db.payment_stages` with `kind='labour_rab'`, `rab_request_id=request_id`, `status='paid'`. SE gets a payment-released notification.
+- **Frontend**:
+  - **NEW** `/app/frontend/src/components/RABApprovalQueue.jsx` — shared queue component used by PM, QC, and Planning; role-aware approve/reject endpoints.
+  - **NEW** `/app/frontend/src/pages/QCDashboard.jsx` + route `/qc-dashboard`; AppHeader nav + login redirect added for `quality_check` role.
+  - PMDashboard.jsx — new **Labour RAB** tab (mounts `RABApprovalQueue role="project_manager"`).
+  - PlanningRequestsTab.jsx — `labour_payments` sub-tab now mounts `RABApprovalQueue role="planning"` (was PlanningLabourStageRequests).
+  - ProjectDetail.jsx — removed legacy Planning "Request Advance" button on labour WO stages; SE "Req Payment (RAB)" button now appears on **every open, non-finished** labour stage; new `rabDialog` (amount + notes) wired to the backend. New `handleWoStageRequest` and `submitRabDialog` helpers.
+  - SiteEngineerWorkOrdersV2.jsx — StageRequestDialog now has a **Request RAB** sub-tab (or Resubmit RAB-XX if a `se_rework` PR exists). Status badges/buckets updated for `qc_approved` and `se_rework` states. Resubmit calls `/se-resubmit`; first-time call hits `/request-payment`.
+- **Tests** (`/app/backend/tests/test_rab_workflow.py`): 2/2 PASS local; testing_agent_v3_fork iteration 160 — backend **9/9** pytest (added QC reject, Planning reject, Accountant reject, Payment Schedule auto-link, role permissions, sequential RAB numbering), frontend 100% on all 4 required surfaces.
+
 ### Session — Feb 22, 2026 — Project Detail Payment Schedule CRE/Accountant Rejection Display
 - **Frontend** (`/app/frontend/src/pages/ProjectDetail.jsx`):
   - Per-project Payment Schedule table now renders a dedicated red detail `<tr>` under each `cre_rejected` / `accountant_rejected` stage showing the rejection reason, rejector name and timestamp.
