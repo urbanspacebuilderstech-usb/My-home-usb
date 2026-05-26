@@ -830,24 +830,24 @@ export default function ClientPortal() {
                     <tr key={cost.cost_id} data-testid={`addn-row-${cost.cost_id}`}>
                       <td className="px-3 py-3 text-sm text-gray-700 align-top">{idx + 1}</td>
                       <td className="px-3 py-3 align-top">
-                        <p className="text-sm text-gray-900 font-medium">{cost.name || cost.description}</p>
+                        <p className="text-sm text-gray-900 font-medium break-words">{cost.name || cost.description}</p>
                       </td>
-                      <td className="px-3 py-3 text-right text-sm text-gray-700 align-top">{qty}</td>
-                      <td className="px-3 py-3 text-sm text-gray-600 align-top">{unit || '—'}</td>
-                      <td className="px-3 py-3 text-right text-sm text-gray-700 align-top">₹{unitRate.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-3 text-right text-sm font-semibold text-gray-900 align-top">₹{amt.toLocaleString('en-IN')}</td>
+                      <td className="px-3 py-3 text-right text-sm text-gray-700 align-top whitespace-nowrap">{qty}</td>
+                      <td className="px-3 py-3 text-sm text-gray-600 align-top whitespace-nowrap">{unit || '—'}</td>
+                      <td className="px-3 py-3 text-right text-sm text-gray-700 align-top whitespace-nowrap">₹{unitRate.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-3 text-right text-sm font-semibold text-gray-900 align-top whitespace-nowrap">₹{amt.toLocaleString('en-IN')}</td>
                       <td className="px-3 py-3 text-sm text-gray-600 align-top truncate max-w-[160px]" title={cost.remarks || ''}>{cost.remarks || '—'}</td>
-                      <td className="px-3 py-3 text-center align-top">{statusBadge}</td>
-                      <td className="px-3 py-3 text-center align-top print:hidden">
+                      <td className="px-3 py-3 text-center align-top whitespace-nowrap">{statusBadge}</td>
+                      <td className="px-3 py-3 text-center align-top print:hidden whitespace-nowrap">
                         {showActions ? (
-                          <div className="flex items-center justify-center gap-1 flex-wrap">
-                            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white h-8" onClick={() => preIsPending ? handlePreApproveAddition(cost.cost_id) : handleClientApproveAddition(cost.cost_id)} data-testid={`client-approve-addn-${cost.cost_id}`}>
+                          <div className="flex items-center justify-center gap-1 flex-nowrap">
+                            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 px-2.5" onClick={() => preIsPending ? handlePreApproveAddition(cost.cost_id) : handleClientApproveAddition(cost.cost_id)} data-testid={`client-approve-addn-${cost.cost_id}`}>
                               <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
                             </Button>
-                            <Button size="sm" variant="outline" className="border-rose-300 text-rose-700 hover:bg-rose-50 h-8" onClick={() => preIsPending ? handlePreRejectAddition(cost) : handleClientRejectAddition(cost.cost_id)} data-testid={`client-reject-addn-${cost.cost_id}`}>
+                            <Button size="sm" variant="outline" className="border-rose-300 text-rose-700 hover:bg-rose-50 h-8 px-2.5" onClick={() => preIsPending ? handlePreRejectAddition(cost) : handleClientRejectAddition(cost.cost_id)} data-testid={`client-reject-addn-${cost.cost_id}`}>
                               <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
                             </Button>
-                            <Button size="sm" variant="outline" className="border-sky-300 text-sky-700 hover:bg-sky-50 h-8" onClick={() => handleClientRequestReview(cost)} data-testid={`client-review-addn-${cost.cost_id}`}>
+                            <Button size="sm" variant="outline" className="border-sky-300 text-sky-700 hover:bg-sky-50 h-8 px-2.5" onClick={() => handleClientRequestReview(cost)} data-testid={`client-review-addn-${cost.cost_id}`}>
                               <MessageSquare className="h-3.5 w-3.5 mr-1" /> Review
                             </Button>
                           </div>
@@ -860,15 +860,15 @@ export default function ClientPortal() {
                 const headerRow = (
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
+                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">S.No</th>
                       <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Work Description</th>
-                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Qty</th>
-                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Unit</th>
-                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Unit Rate</th>
-                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Total</th>
-                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase print:hidden">Action</th>
+                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Qty</th>
+                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Unit</th>
+                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Unit Rate</th>
+                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Total</th>
+                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Remarks</th>
+                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Status</th>
+                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase print:hidden whitespace-nowrap">Action</th>
                     </tr>
                   </thead>
                 );
