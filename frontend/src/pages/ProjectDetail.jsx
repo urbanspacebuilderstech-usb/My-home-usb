@@ -1050,6 +1050,9 @@ export default function ProjectDetail() {
   const [templateName, setTemplateName] = useState('');
   const [editingStageId, setEditingStageId] = useState(null);
   const [editStageData, setEditStageData] = useState({});
+  // Global Edit Mode — when ON, every row is editable at once (no per-row pencil).
+  // Each cell auto-saves via autoSaveStageField on change, so no Save button needed.
+  const [globalEditMode, setGlobalEditMode] = useState(false);
   const [timelineStage, setTimelineStage] = useState(null);  // null | stage object — opens the Timeline dialog
   const [stagesView, setStagesView] = useState('table'); // 'table' or 'gantt'
   
@@ -2786,6 +2789,18 @@ export default function ProjectDetail() {
       await axios.patch(`${API}/projects/${projectId}/project-stages/${next.stage_id}`, patch);
       fetchData(false);
     } catch { /* non-fatal — user can edit manually */ }
+  };
+
+  // Helpers used by both per-row edit AND global Edit All mode.
+  // When globalEditMode is ON, we bind cells to stage data directly and patch
+  // each change to the backend immediately (no intermediate editStageData).
+  const isStageEditable = (stage) => globalEditMode || editingStageId === stage.stage_id;
+  const stageEditVal = (stage, field) => globalEditMode ? (stage[field] ?? '') : (editStageData[field] ?? '');
+  const patchStageInline = (stage, patch) => {
+    if (!globalEditMode) {
+      setEditStageData(d => ({ ...d, ...patch }));
+    }
+    autoSaveStageField(stage.stage_id, patch);
   };
 
   // === Payment Schedule Templates ===
@@ -4563,6 +4578,17 @@ export default function ProjectDetail() {
                         <button className={`px-3 py-1.5 text-xs font-medium transition-colors ${stagesView === 'gantt' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`} onClick={() => setStagesView('gantt')} data-testid="gantt-view-btn">Gantt</button>
                       </div>
                     )}
+                    {!showAddStages && canManage && projectStages.length > 0 && (
+                      <Button
+                        size="sm"
+                        variant={globalEditMode ? 'default' : 'outline'}
+                        className={`gap-2 ${globalEditMode ? 'bg-emerald-600 hover:bg-emerald-700' : ''}`}
+                        onClick={() => { setGlobalEditMode(!globalEditMode); setEditingStageId(null); }}
+                        data-testid="global-edit-toggle"
+                      >
+                        {globalEditMode ? <><Check className="h-4 w-4" /> Done</> : <><Edit className="h-4 w-4" /> Edit All</>}
+                      </Button>
+                    )}
                     {!showAddStages && canManage && (
                       <Button data-testid="add-stages-btn" className="gap-2 bg-secondary hover:bg-secondary/90" onClick={() => setShowAddStages(true)}>
                         <Plus className="h-4 w-4" /> Add Stages
@@ -4867,21 +4893,21 @@ export default function ProjectDetail() {
                             </td>
                             <td className="px-3 py-3 text-sm font-medium whitespace-nowrap">{stage.sl_no || (idx + 1)}</td>
                             <td className="px-3 py-3">
-                              {editingStageId === stage.stage_id ? (
-                                <input className="border rounded px-2 py-1 text-sm w-full" value={editStageData.stage_name || ''} onChange={e => setEditStageData(d => ({...d, stage_name: e.target.value}))} />
+                              {isStageEditable(stage) ? (
+                                <input className="border rounded px-2 py-1 text-sm w-full" value={stageEditVal(stage, 'stage_name')} onChange={e => patchStageInline(stage, { stage_name: e.target.value })} data-testid={`stage-name-${stage.stage_id}`} />
                               ) : (
                                 <span className="font-medium">{stage.stage_name}</span>
                               )}
                             </td>
                             {/* Planned Start — entering this with existing Duration auto-computes Planned Finish */}
                             <td className="px-3 py-3 text-center">
-                              {editingStageId === stage.stage_id ? (
-                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.start_date || ''} onChange={e => {
+                              {isStageEditable(stage) ? (
+                                <input type="date" className="border rounded px-2 py-1 text-sm" value={stageEditVal(stage, 'start_date') || ''} onChange={e => {
                                   const v = e.target.value;
-                                  const dur = parseInt(editStageData.duration_days) || 0;
-                                  const newFinish = (v && dur > 0) ? addDaysISO(v, dur) : editStageData.target_date;
-                                  setEditStageData(d => ({...d, start_date: v, target_date: newFinish || d.target_date}));
-                                  autoSaveStageField(stage.stage_id, { start_date: v || null, target_date: newFinish || editStageData.target_date || null, duration_days: dur || daysBetween(v, newFinish || editStageData.target_date) || null });
+                                  const dur = parseInt(stageEditVal(stage, 'duration_days')) || 0;
+                                  const currFinish = stageEditVal(stage, 'target_date');
+                                  const newFinish = (v && dur > 0) ? addDaysISO(v, dur) : currFinish;
+                                  patchStageInline(stage, { start_date: v || null, target_date: newFinish || currFinish || null, duration_days: dur || daysBetween(v, newFinish || currFinish) || null });
                                   if (newFinish) cascadeForwardFromStage(stage.stage_id, newFinish);
                                 }} data-testid={`stage-planned-start-${stage.stage_id}`} />
                               ) : (
@@ -4890,9 +4916,9 @@ export default function ProjectDetail() {
                             </td>
                             {/* Planned Finish — read-only auto-computed from Planned Start + Duration */}
                             <td className="px-3 py-3 text-center">
-                              {editingStageId === stage.stage_id ? (
+                              {isStageEditable(stage) ? (
                                 <span className="inline-block w-28 px-2 py-1 text-sm text-center bg-gray-50 rounded border border-gray-200 text-gray-700" title="Auto-computed from Planned Start + Duration" data-testid={`stage-planned-finish-${stage.stage_id}`}>
-                                  {editStageData.target_date ? new Date(editStageData.target_date).toLocaleDateString('en-IN') : '—'}
+                                  {stageEditVal(stage, 'target_date') ? new Date(stageEditVal(stage, 'target_date')).toLocaleDateString('en-IN') : '—'}
                                 </span>
                               ) : (
                                 <span className="text-sm">{stage.target_date ? new Date(stage.target_date).toLocaleDateString('en-IN') : '-'}</span>
@@ -4900,17 +4926,18 @@ export default function ProjectDetail() {
                             </td>
                             {/* Duration (days) — MANUAL entry. Updating this recomputes Planned Finish from Planned Start. */}
                             <td className="px-3 py-3 text-center">
-                              {editingStageId === stage.stage_id ? (
+                              {isStageEditable(stage) ? (
                                 <input
                                   type="number"
                                   min="1"
                                   className="border rounded px-2 py-1 text-sm w-20 text-center"
-                                  value={editStageData.duration_days ?? ''}
+                                  value={stageEditVal(stage, 'duration_days') ?? ''}
                                   onChange={e => {
                                     const dur = parseInt(e.target.value) || 0;
-                                    const newFinish = (editStageData.start_date && dur > 0) ? addDaysISO(editStageData.start_date, dur) : editStageData.target_date;
-                                    setEditStageData(d => ({...d, duration_days: e.target.value, target_date: newFinish || d.target_date}));
-                                    autoSaveStageField(stage.stage_id, { duration_days: dur || null, target_date: newFinish || null });
+                                    const startVal = stageEditVal(stage, 'start_date');
+                                    const currFinish = stageEditVal(stage, 'target_date');
+                                    const newFinish = (startVal && dur > 0) ? addDaysISO(startVal, dur) : currFinish;
+                                    patchStageInline(stage, { duration_days: dur || null, target_date: newFinish || null });
                                     if (newFinish) cascadeForwardFromStage(stage.stage_id, newFinish);
                                   }}
                                   data-testid={`stage-duration-${stage.stage_id}`}
@@ -4924,13 +4951,13 @@ export default function ProjectDetail() {
                             </td>
                             {/* Actual Start */}
                             <td className="px-3 py-3 text-center">
-                              {editingStageId === stage.stage_id ? (
-                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.actual_start_date || ''} onChange={e => {
+                              {isStageEditable(stage) ? (
+                                <input type="date" className="border rounded px-2 py-1 text-sm" value={stageEditVal(stage, 'actual_start_date') || ''} onChange={e => {
                                   const v = e.target.value;
-                                  const dur = parseInt(editStageData.actual_duration_days) || 0;
-                                  const newFinish = (v && dur > 0) ? addDaysISO(v, dur) : editStageData.actual_finish_date;
-                                  setEditStageData(d => ({...d, actual_start_date: v, actual_finish_date: newFinish || d.actual_finish_date}));
-                                  autoSaveStageField(stage.stage_id, { actual_start_date: v || null, actual_finish_date: newFinish || null });
+                                  const dur = parseInt(stageEditVal(stage, 'actual_duration_days')) || 0;
+                                  const currFinish = stageEditVal(stage, 'actual_finish_date');
+                                  const newFinish = (v && dur > 0) ? addDaysISO(v, dur) : currFinish;
+                                  patchStageInline(stage, { actual_start_date: v || null, actual_finish_date: newFinish || null });
                                 }} />
                               ) : (
                                 <span className="text-sm">{stage.actual_start_date ? new Date(stage.actual_start_date).toLocaleDateString('en-IN') : '-'}</span>
@@ -4938,9 +4965,9 @@ export default function ProjectDetail() {
                             </td>
                             {/* Actual Finish — read-only auto-computed from Actual Start + Duration when both set */}
                             <td className="px-3 py-3 text-center">
-                              {editingStageId === stage.stage_id ? (
+                              {isStageEditable(stage) ? (
                                 <span className="inline-block w-28 px-2 py-1 text-sm text-center bg-gray-50 rounded border border-gray-200 text-gray-700" title="Auto-computed from Actual Start + Duration" data-testid={`stage-actual-finish-${stage.stage_id}`}>
-                                  {editStageData.actual_finish_date ? new Date(editStageData.actual_finish_date).toLocaleDateString('en-IN') : '—'}
+                                  {stageEditVal(stage, 'actual_finish_date') ? new Date(stageEditVal(stage, 'actual_finish_date')).toLocaleDateString('en-IN') : '—'}
                                 </span>
                               ) : (
                                 <span className="text-sm">{stage.actual_finish_date ? new Date(stage.actual_finish_date).toLocaleDateString('en-IN') : '-'}</span>
@@ -4948,17 +4975,18 @@ export default function ProjectDetail() {
                             </td>
                             {/* Duration (days) — Actual side. MANUAL entry, recomputes Actual Finish from Actual Start. */}
                             <td className="px-3 py-3 text-center">
-                              {editingStageId === stage.stage_id ? (
+                              {isStageEditable(stage) ? (
                                 <input
                                   type="number"
                                   min="1"
                                   className="border rounded px-2 py-1 text-sm w-20 text-center"
-                                  value={editStageData.actual_duration_days ?? ''}
+                                  value={stageEditVal(stage, 'actual_duration_days') ?? ''}
                                   onChange={e => {
                                     const dur = parseInt(e.target.value) || 0;
-                                    const newFinish = (editStageData.actual_start_date && dur > 0) ? addDaysISO(editStageData.actual_start_date, dur) : editStageData.actual_finish_date;
-                                    setEditStageData(d => ({...d, actual_duration_days: e.target.value, actual_finish_date: newFinish || d.actual_finish_date}));
-                                    autoSaveStageField(stage.stage_id, { actual_duration_days: dur || null, actual_finish_date: newFinish || null });
+                                    const startVal = stageEditVal(stage, 'actual_start_date');
+                                    const currFinish = stageEditVal(stage, 'actual_finish_date');
+                                    const newFinish = (startVal && dur > 0) ? addDaysISO(startVal, dur) : currFinish;
+                                    patchStageInline(stage, { actual_duration_days: dur || null, actual_finish_date: newFinish || null });
                                   }}
                                   data-testid={`stage-actual-duration-${stage.stage_id}`}
                                   placeholder="—"
@@ -4971,7 +4999,7 @@ export default function ProjectDetail() {
                             </td>
                             {/* Progress (% complete) — also doubles as Status indicator */}
                             <td className="px-3 py-3 text-center">
-                              {editingStageId === stage.stage_id ? (
+                              {isStageEditable(stage) ? (
                                 <div className="flex items-center gap-1 justify-center">
                                   <input
                                     type="number"
@@ -4979,11 +5007,11 @@ export default function ProjectDetail() {
                                     max="100"
                                     step="5"
                                     className="border rounded px-2 py-1 text-sm w-16 text-center"
-                                    value={editStageData.progress ?? ''}
+                                    value={stageEditVal(stage, 'progress') ?? ''}
                                     onChange={e => {
                                       const pct = e.target.value === '' ? '' : Math.max(0, Math.min(100, Number(e.target.value)));
-                                      const auto_status = pct === '' ? editStageData.status : pct >= 100 ? 'finished' : pct > 0 ? 'started' : 'yet_to_start';
-                                      setEditStageData(d => ({...d, progress: pct, status: auto_status}));
+                                      const auto_status = pct === '' ? stageEditVal(stage, 'status') : pct >= 100 ? 'finished' : pct > 0 ? 'started' : 'yet_to_start';
+                                      patchStageInline(stage, { progress: pct === '' ? null : pct, status: auto_status });
                                     }}
                                   />
                                   <span className="text-xs text-gray-500">%</span>
@@ -5003,15 +5031,11 @@ export default function ProjectDetail() {
                             </td>
                             {/* Depends On — Internal vs Client (no more free text) */}
                             <td className="px-3 py-3 text-center text-xs">
-                              {editingStageId === stage.stage_id ? (
+                              {isStageEditable(stage) ? (
                                 <select
                                   className="border rounded px-2 py-1 text-xs w-24 text-center"
-                                  value={editStageData.depends_on || ''}
-                                  onChange={e => {
-                                    const v = e.target.value;
-                                    setEditStageData(d => ({...d, depends_on: v}));
-                                    autoSaveStageField(stage.stage_id, { depends_on: v || null });
-                                  }}
+                                  value={stageEditVal(stage, 'depends_on') || ''}
+                                  onChange={e => patchStageInline(stage, { depends_on: e.target.value || null })}
                                   data-testid={`stage-depends-on-edit-${stage.stage_id}`}
                                 >
                                   <option value="">—</option>
@@ -5034,10 +5058,15 @@ export default function ProjectDetail() {
                             </td>
                             {/* Hindrances */}
                             <td className="px-3 py-3 text-sm text-gray-600 max-w-[220px]">
-                              {editingStageId === stage.stage_id ? (
+                              {isStageEditable(stage) ? (
                                 <HindrancePicker
-                                  value={editStageData}
-                                  onChange={(patch) => setEditStageData(d => ({...d, ...patch, remarks: patch.hindrances ?? d.remarks}))}
+                                  value={{
+                                    hindrance_type: stageEditVal(stage, 'hindrance_type'),
+                                    hindrance_reason: stageEditVal(stage, 'hindrance_reason'),
+                                    hindrances: stageEditVal(stage, 'hindrances') || stageEditVal(stage, 'remarks'),
+                                    hindrance_delay_days: stageEditVal(stage, 'hindrance_delay_days'),
+                                  }}
+                                  onChange={(patch) => patchStageInline(stage, { ...patch, remarks: patch.hindrances ?? null })}
                                   compact
                                 />
                               ) : (
@@ -5046,7 +5075,7 @@ export default function ProjectDetail() {
                             </td>
                             {canManage && (
                               <td className="px-4 py-3 text-center">
-                                {editingStageId === stage.stage_id ? (
+                                {!globalEditMode && editingStageId === stage.stage_id ? (
                                   <div className="flex justify-center gap-1">
                                     <Button size="sm" variant="outline" className="h-7 text-green-600" onClick={() => handleUpdateStage(stage.stage_id)}><Check className="h-3 w-3" /></Button>
                                     <Button size="sm" variant="outline" className="h-7" onClick={() => setEditingStageId(null)}><X className="h-3 w-3" /></Button>
@@ -5054,9 +5083,11 @@ export default function ProjectDetail() {
                                 ) : (
                                   <div className="flex flex-col items-center gap-1">
                                     <div className="flex justify-center gap-1">
-                                    <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditingStageId(stage.stage_id); setEditStageData({ stage_name: stage.stage_name, start_date: stage.start_date || '', target_date: stage.target_date || '', duration_days: stage.duration_days ?? '', actual_start_date: stage.actual_start_date || '', actual_finish_date: stage.actual_finish_date || '', actual_duration_days: stage.actual_duration_days ?? daysBetween(stage.actual_start_date, stage.actual_finish_date) ?? '', progress: stage.progress ?? (stage.status === 'finished' ? 100 : stage.status === 'started' ? 50 : 0), status: stage.status, hindrances: stage.hindrances || stage.remarks || '', remarks: stage.hindrances || stage.remarks || '', depends_on: stage.depends_on || '', hindrance_type: stage.hindrance_type || '', hindrance_reason: stage.hindrance_reason || '', hindrance_delay_days: stage.hindrance_delay_days ?? '' }); }}>
-                                      <Edit className="h-3 w-3" />
-                                    </Button>
+                                    {!globalEditMode && (
+                                      <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditingStageId(stage.stage_id); setEditStageData({ stage_name: stage.stage_name, start_date: stage.start_date || '', target_date: stage.target_date || '', duration_days: stage.duration_days ?? '', actual_start_date: stage.actual_start_date || '', actual_finish_date: stage.actual_finish_date || '', actual_duration_days: stage.actual_duration_days ?? daysBetween(stage.actual_start_date, stage.actual_finish_date) ?? '', progress: stage.progress ?? (stage.status === 'finished' ? 100 : stage.status === 'started' ? 50 : 0), status: stage.status, hindrances: stage.hindrances || stage.remarks || '', remarks: stage.hindrances || stage.remarks || '', depends_on: stage.depends_on || '', hindrance_type: stage.hindrance_type || '', hindrance_reason: stage.hindrance_reason || '', hindrance_delay_days: stage.hindrance_delay_days ?? '' }); }}>
+                                        <Edit className="h-3 w-3" />
+                                      </Button>
+                                    )}
                                     <Button
                                       size="sm"
                                       variant="ghost"
