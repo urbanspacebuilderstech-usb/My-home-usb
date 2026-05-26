@@ -133,7 +133,16 @@ async def download_file(file_id: str, request: Request):
             raise HTTPException(status_code=404, detail="File not found")
 
     try:
-        data, content_type = get_object(record["storage_path"])
+        sp = record.get("storage_path", "")
+        if sp.startswith("gridfs://"):
+            # GridFS-stored blob (production VPS without object storage init).
+            from bson import ObjectId
+            gf_id = sp.replace("gridfs://", "", 1)
+            gf = await fs.open_download_stream(ObjectId(gf_id))
+            data = await gf.read()
+            content_type = record.get("content_type") or (gf.metadata or {}).get("contentType") or "application/octet-stream"
+        else:
+            data, content_type = get_object(sp)
     except Exception as e:
         logger.error(f"Download failed for {file_id}: {e}")
         raise HTTPException(status_code=500, detail="File download failed")

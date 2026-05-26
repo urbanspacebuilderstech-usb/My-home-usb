@@ -4005,22 +4005,33 @@ async def upload_section_attachment(
     contents = await file.read()
     if len(contents) > 50 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large. Maximum 50MB.")
-    # Use the unified object-storage pipeline so `/files/{file_id}/download` can serve the file.
     from core.storage import put_object, APP_NAME, MIME_TYPES
     content_type = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
     file_id = str(uuid.uuid4())
     storage_path = f"{APP_NAME}/addition_section/{user.user_id}/{file_id}.{ext}"
+    storage_size = len(contents)
     try:
         result = put_object(storage_path, contents, content_type)
+        storage_path = result.get("path", storage_path)
+        storage_size = result.get("size", storage_size)
     except Exception as e:
-        logger.error(f"Section attachment upload failed: {e}")
-        raise HTTPException(status_code=500, detail="File upload failed")
+        # Fallback: production VPS deploys don't have EMERGENT_LLM_KEY configured,
+        # so external Object Storage init fails. GridFS is always available, so
+        # we transparently save the blob there and point storage_path at it. The
+        # download endpoint already understands the gridfs:// scheme.
+        logger.warning(f"Object storage upload failed ({e}); falling back to GridFS for {file_id}")
+        try:
+            gf_id = await fs.upload_from_stream(file.filename, contents, metadata={"contentType": content_type, "uploaded_by": user.user_id, "scope": "addition_section"})
+            storage_path = f"gridfs://{str(gf_id)}"
+        except Exception as ge:
+            logger.error(f"GridFS fallback failed for section attachment: {ge}")
+            raise HTTPException(status_code=500, detail="File upload failed")
     file_record = {
         "file_id": file_id,
-        "storage_path": result.get("path", storage_path),
+        "storage_path": storage_path,
         "original_filename": file.filename,
         "content_type": content_type,
-        "size": result.get("size", len(contents)),
+        "size": storage_size,
         "category": "addition_section",
         "project_id": project_id,
         "uploaded_by": user.user_id,
@@ -4098,17 +4109,26 @@ async def upload_project_additional_attachment(
     content_type = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
     file_id = str(uuid.uuid4())
     storage_path = f"{APP_NAME}/additional_ungrouped/{user.user_id}/{file_id}.{ext}"
+    storage_size = len(contents)
     try:
         result = put_object(storage_path, contents, content_type)
+        storage_path = result.get("path", storage_path)
+        storage_size = result.get("size", storage_size)
     except Exception as e:
-        logger.error(f"Project additional attachment upload failed: {e}")
-        raise HTTPException(status_code=500, detail="File upload failed")
+        # GridFS fallback — see upload_section_attachment for rationale.
+        logger.warning(f"Object storage upload failed ({e}); falling back to GridFS for {file_id}")
+        try:
+            gf_id = await fs.upload_from_stream(file.filename, contents, metadata={"contentType": content_type, "uploaded_by": user.user_id, "scope": "additional_ungrouped"})
+            storage_path = f"gridfs://{str(gf_id)}"
+        except Exception as ge:
+            logger.error(f"GridFS fallback failed for project additional attachment: {ge}")
+            raise HTTPException(status_code=500, detail="File upload failed")
     file_record = {
         "file_id": file_id,
-        "storage_path": result.get("path", storage_path),
+        "storage_path": storage_path,
         "original_filename": file.filename,
         "content_type": content_type,
-        "size": result.get("size", len(contents)),
+        "size": storage_size,
         "category": "additional_ungrouped",
         "project_id": project_id,
         "uploaded_by": user.user_id,
