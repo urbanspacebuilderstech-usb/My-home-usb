@@ -3851,7 +3851,14 @@ export default function ProjectDetail() {
               {/* LEFT — Project Value Calculation */}
               <Card className="border-blue-200 bg-gradient-to-br from-blue-50/60 to-violet-50/40">
                 <CardContent className="p-3">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-blue-700 mb-2">Project Value Calculation</p>
+                  <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-blue-700">Project Value Calculation</p>
+                    {summary?.scope_total_pending > 0 && (
+                      <Badge variant="outline" className="text-[9px] bg-amber-50 text-amber-700 border-amber-300 font-medium" data-testid="pvc-pending-pill">
+                        Pending Client Approval · ₹{(summary.scope_total_pending || 0).toLocaleString('en-IN')}
+                      </Badge>
+                    )}
+                  </div>
                   <div className="grid grid-cols-4 gap-2 items-stretch">
                     <div className="rounded-md bg-white/80 border border-blue-200 p-2.5">
                       <p className="text-[10px] text-gray-500 uppercase">Scope Value</p>

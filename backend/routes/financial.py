@@ -1924,7 +1924,13 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     # Calculate totals — Additions only count toward project value when the
     # CLIENT has approved them (matches /value-summary rule). Pending /
     # under-review / rejected additions contribute ₹0.
-    scope_total = sum(item.get("total_amount", 0) for item in scope_items)
+    # Likewise the Scope (Final Estimate) total only counts once the client
+    # has approved the FE on the public share link (fe.status == 'approved').
+    # Until then it's surfaced as `scope_total_pending` for header pills.
+    fe_doc = project.get("fe") or {}
+    fe_client_approved = fe_doc.get("status") == "approved"
+    raw_scope_total = sum(item.get("total_amount", 0) for item in scope_items)
+    scope_total = raw_scope_total if fe_client_approved else 0
     client_approved_additions = [
         c for c in additional_costs
         if c.get("client_approval_status") == "client_approved" or c.get("client_approved") is True
@@ -1941,17 +1947,18 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     # wait for a CRE re-approval to refresh the lock.
     # Without this, /full-details races with /payment-summary on the frontend
     # (Promise.all) and the UI flickers between healed and un-healed amounts.
+    # NOTE: payment_stages still anchor against the LIVE scope total (raw_scope_total)
+    # so the schedule keeps working before client approval; the gating is only
+    # applied to user-facing project_value / total_value / balance below.
     locked_project_value = float(project.get("total_value") or 0)
-    anchor_value = scope_total if scope_total > 0 else locked_project_value
-    # If the live FE scope has drifted from the stored lock, refresh the lock so
-    # every downstream consumer (cashflow, dashboards, exports) sees the new
-    # Project Value without waiting for an explicit CRE re-approval.
-    if scope_total > 0 and abs(scope_total - locked_project_value) > 0.5:
+    anchor_value = raw_scope_total if raw_scope_total > 0 else locked_project_value
+    # If the live FE scope has drifted from the stored lock, refresh the lock.
+    if raw_scope_total > 0 and abs(raw_scope_total - locked_project_value) > 0.5:
         await db.projects.update_one(
             {"project_id": project_id},
-            {"$set": {"total_value": scope_total, "fe_locked_value": scope_total}}
+            {"$set": {"total_value": raw_scope_total, "fe_locked_value": raw_scope_total}}
         )
-        project["total_value"] = scope_total
+        project["total_value"] = raw_scope_total
     if anchor_value > 0:
         for stage in payment_stages:
             pct = stage.get("percentage")
@@ -2004,10 +2011,11 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     payment_total = sum(stage.get("amount", 0) for stage in payment_stages)
     payment_received = sum(stage.get("amount_received", 0) for stage in payment_stages)
     
-    # Project value — SAME single source of truth as /payment-summary:
-    # locked total_value (FE scope at last CRE approval) wins; fall back to
-    # live scope_total only when no FE-lock exists yet.
-    project_value = anchor_value
+    # Project value — gated by client approval just like scope_total.
+    # Before client-approves the FE, the "Project Value Calculation" card shows ₹0.
+    # After approval it falls back to the same anchor_value used by the schedule.
+    project_value = anchor_value if fe_client_approved else 0
+    project_value_pending = anchor_value if not fe_client_approved else 0
     
     # Total value = Project Value + Additions
     total_value = project_value + additions_total
@@ -2052,7 +2060,10 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
         "pre_construction": pre_construction,
         "summary": {
             "scope_total": scope_total,
+            "scope_total_pending": raw_scope_total if not fe_client_approved else 0,
+            "fe_client_approved": fe_client_approved,
             "project_value": project_value,
+            "project_value_pending": project_value_pending,
             "additions_total": additions_total,
             "additions_received": additions_received,
             "total_value": total_value,
