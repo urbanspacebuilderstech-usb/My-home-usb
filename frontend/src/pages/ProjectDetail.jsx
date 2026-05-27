@@ -1364,7 +1364,7 @@ export default function ProjectDetail() {
     { key: 'sr_site_engineer', label: 'Sr. Site Engineer', dbRole: 'sr_site_engineer', color: 'amber' },
     { key: 'site_engineer', label: 'Site Engineer', dbRole: 'site_engineer', color: 'green' },
     { key: 'cre', label: 'CRE', dbRole: 'cre', color: 'blue' },
-    { key: 'qc', label: 'QC', dbRole: 'qc', color: 'rose' },
+    { key: 'qc', label: 'QC', dbRole: 'quality_check', color: 'rose' },
     { key: 'procurement', label: 'Procurement', dbRole: 'procurement', color: 'orange' },
   ];
 
