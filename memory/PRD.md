@@ -13,6 +13,16 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 27, 2026 — Additional Work Bulk-Delete + Client-Approved-Only Value
+- **Bulk Delete All button** (Planning Head > Additional tab):
+  - Red outline "Delete All" button next to "+ Create Section" — visible only when the project has ≥1 additional cost row.
+  - Confirmation dialog requires typing literal `delete` to enable the destructive button.
+  - Backend `POST /api/projects/{project_id}/additional-costs/bulk-delete` with body `{confirm: "delete"}`. Skips client-approved rows unless caller is Super Admin. Returns `{deleted_count, blocked_client_approved}`.
+- **Client-approval gating of Additions in Project Value**:
+  - Only `client_approval_status == 'client_approved'` additions now contribute to **Project Value / Grand Total / Additions Total**. Pending or rejected additions count as ₹0.
+  - Fixed in three places: `GET /projects/{id}/value-summary`, `GET /projects/{id}/full-details`, and the dashboard project-list aggregator (`add_by_proj` projection extended).
+- Regression `tests/test_rab_workflow.py` 2/2 PASS.
+
 ### Session — Feb 27, 2026 — QC Checking Dashboard Redesign
 - **Replaced** generic Project Finance Board for `quality_check` role with a purpose-built **QC Checking Dashboard**.
 - **Frontend** (`/app/frontend/src/pages/QCDashboard.jsx` — full rewrite):

@@ -289,7 +289,12 @@ async def get_project_value_summary(project_id: str, user: User = Depends(get_cu
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     scope = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(500)
-    adds = await db.additional_costs.find({"project_id": project_id}, {"_id": 0, "estimated_amount": 1}).to_list(500)
+    # Additions count toward project value ONLY when client has approved them.
+    # Pending / under-review / rejected additions stay at 0 until approval.
+    adds = await db.additional_costs.find(
+        {"project_id": project_id, "client_approval_status": "client_approved"},
+        {"_id": 0, "estimated_amount": 1},
+    ).to_list(500)
     deds = await db.deductions.find({"project_id": project_id}, {"_id": 0, "amount": 1}).to_list(500)
     scope_total = sum((s.get("total_amount") or 0) for s in scope)
     add_total = sum((a.get("estimated_amount") or 0) for a in adds)
@@ -1334,7 +1339,7 @@ async def get_admin_dashboard_summary(user: User = Depends(get_current_user)):
     # Bulk-fetch all related data in parallel
     scope_all, additions_all, stages_all, deductions_all, expenses_all = await asyncio.gather(
         db.scope_items.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "total_amount": 1}).to_list(10000),
-        db.additional_costs.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "estimated_amount": 1, "income_received": 1}).to_list(10000),
+        db.additional_costs.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "estimated_amount": 1, "income_received": 1, "client_approval_status": 1}).to_list(10000),
         db.payment_stages.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "amount_received": 1}).to_list(10000),
         db.deductions.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "amount": 1}).to_list(10000),
         db.expenses.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "amount": 1}).to_list(10000),
@@ -1367,7 +1372,8 @@ async def get_admin_dashboard_summary(user: User = Depends(get_current_user)):
         scope_total = sum(i.get("total_amount", 0) for i in scope_items)
         project_value = scope_total if scope_items else p.get("total_value", 0)
         
-        additions_total = sum(c.get("estimated_amount", 0) for c in add_by_proj.get(pid, []))
+        # Additions only count toward project value once the CLIENT has approved them.
+        additions_total = sum(c.get("estimated_amount", 0) for c in add_by_proj.get(pid, []) if c.get("client_approval_status") == "client_approved")
         additions_income = sum(c.get("income_received", 0) for c in add_by_proj.get(pid, []))
         payment_received = sum(s.get("amount_received", 0) for s in stages_by_proj.get(pid, []))
         deductions_total = sum(d.get("amount", 0) for d in ded_by_proj.get(pid, []))
@@ -3492,7 +3498,10 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     # The "Grand" figure is purely for UI summary cards.
     live_scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(2000)
     scope_total = sum((item.get("total_amount") or 0) for item in live_scope_items)
-    additional_costs_list = await db.additional_costs.find({"project_id": project_id}, {"_id": 0, "estimated_amount": 1, "actual_amount": 1}).to_list(500)
+    additional_costs_list = await db.additional_costs.find(
+        {"project_id": project_id, "client_approval_status": "client_approved"},
+        {"_id": 0, "estimated_amount": 1, "actual_amount": 1},
+    ).to_list(500)
     additions_total = sum((c.get("estimated_amount") or c.get("actual_amount") or 0) for c in additional_costs_list)
     deductions_list = await db.deductions.find({"project_id": project_id}, {"_id": 0, "amount": 1}).to_list(500)
     deductions_total = sum(d.get("amount", 0) for d in deductions_list)
@@ -3715,6 +3724,54 @@ async def delete_additional_cost(cost_id: str, user: User = Depends(get_current_
     await db.additional_costs.delete_one({"cost_id": cost_id})
     await create_audit_log(user.user_id, "delete", "additional_cost", cost_id, {})
     return {"message": "Additional cost deleted"}
+
+
+@router.post("/projects/{project_id}/additional-costs/bulk-delete")
+async def bulk_delete_additional_costs(project_id: str, body: dict, user: User = Depends(get_current_user)):
+    """Delete all additional cost rows for a project.
+
+    Body MUST include `confirm: "delete"` (case-insensitive) — guards against
+    accidental mass-deletion.  Rows already CLIENT-APPROVED are skipped unless
+    the caller is Super Admin (mirrors single-row delete rules)."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    if (body or {}).get("confirm", "").strip().lower() != "delete":
+        raise HTTPException(status_code=400, detail='Type "delete" to confirm bulk removal')
+
+    if user.role == UserRole.SUPER_ADMIN:
+        deletable = {"project_id": project_id}
+    else:
+        deletable = {
+            "project_id": project_id,
+            "$and": [
+                {"$or": [
+                    {"client_approval_status": {"$ne": "client_approved"}},
+                    {"client_approval_status": {"$exists": False}},
+                ]},
+                {"$or": [
+                    {"client_approved": {"$ne": True}},
+                    {"client_approved": {"$exists": False}},
+                ]},
+            ],
+        }
+
+    blocked_count = await db.additional_costs.count_documents({
+        "project_id": project_id,
+        "$or": [
+            {"client_approval_status": "client_approved"},
+            {"client_approved": True},
+        ],
+    }) if user.role != UserRole.SUPER_ADMIN else 0
+
+    result = await db.additional_costs.delete_many(deletable)
+    await create_audit_log(user.user_id, "bulk_delete", "additional_cost", project_id, {
+        "deleted_count": result.deleted_count,
+        "blocked_client_approved": blocked_count,
+    })
+    msg = f"Deleted {result.deleted_count} additional cost row(s)"
+    if blocked_count:
+        msg += f". {blocked_count} client-approved row(s) were left intact."
+    return {"message": msg, "deleted_count": result.deleted_count, "blocked_client_approved": blocked_count}
 
 
 # ── CLIENT APPROVAL FOR ADDITIONS ───────────────────────────────────────────

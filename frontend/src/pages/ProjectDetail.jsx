@@ -1030,6 +1030,7 @@ export default function ProjectDetail() {
   // Section management (folders that group additional_costs rows)
   const [additionSections, setAdditionSections] = useState([]);
   const [newSectionDialog, setNewSectionDialog] = useState(false);
+  const [deleteAllAdditionsDialog, setDeleteAllAdditionsDialog] = useState({ open: false, typed: '', submitting: false });
   const [newSectionTitle, setNewSectionTitle] = useState('');
   const [editingSection, setEditingSection] = useState(null); // { section_id, title }
   const [bulkDeductionDialog, setBulkDeductionDialog] = useState(false);
@@ -6435,6 +6436,16 @@ export default function ProjectDetail() {
                   <p className="text-sm text-gray-500">Track extra work and variations</p>
                 </div>
                 <div className="flex gap-2">
+                  {canManage && (additional_costs?.length > 0) && (
+                    <Button
+                      variant="outline"
+                      className="gap-2 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700"
+                      onClick={() => setDeleteAllAdditionsDialog({ open: true, typed: '', submitting: false })}
+                      data-testid="delete-all-additions-btn"
+                    >
+                      <Trash2 className="h-4 w-4" />Delete All
+                    </Button>
+                  )}
                   {canManage && (
                     <Button
                       variant="outline"
@@ -6601,6 +6612,57 @@ export default function ProjectDetail() {
                     <div className="flex justify-end gap-2">
                       <Button variant="outline" onClick={() => setNewSectionDialog(false)}>Cancel</Button>
                       <Button onClick={handleCreateSection} data-testid="create-section-submit">Create</Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
+
+              {/* Bulk Delete All Additions confirmation */}
+              {canManage && (
+                <Dialog
+                  open={deleteAllAdditionsDialog.open}
+                  onOpenChange={(o) => !o && !deleteAllAdditionsDialog.submitting && setDeleteAllAdditionsDialog({ open: false, typed: '', submitting: false })}
+                >
+                  <DialogContent className="max-w-md" data-testid="delete-all-additions-dialog">
+                    <DialogHeader>
+                      <DialogTitle className="text-red-600 flex items-center gap-2">
+                        <Trash2 className="h-5 w-5" /> Delete All Additional Work
+                      </DialogTitle>
+                      <DialogDescription>
+                        This will permanently remove every row under <strong>Additional Work</strong> for this project.
+                        Client-approved rows will be skipped unless you are Super Admin.
+                        <span className="block mt-2 font-medium text-red-600">Type <strong>delete</strong> below to confirm.</span>
+                      </DialogDescription>
+                    </DialogHeader>
+                    <Input
+                      autoFocus
+                      placeholder='Type "delete" to enable the button'
+                      value={deleteAllAdditionsDialog.typed}
+                      onChange={(e) => setDeleteAllAdditionsDialog(d => ({ ...d, typed: e.target.value }))}
+                      data-testid="delete-all-additions-typed"
+                    />
+                    <div className="flex justify-end gap-2 pt-2">
+                      <Button variant="outline" onClick={() => setDeleteAllAdditionsDialog({ open: false, typed: '', submitting: false })} disabled={deleteAllAdditionsDialog.submitting}>Cancel</Button>
+                      <Button
+                        className="bg-red-600 hover:bg-red-700 text-white"
+                        disabled={deleteAllAdditionsDialog.submitting || (deleteAllAdditionsDialog.typed || '').trim().toLowerCase() !== 'delete'}
+                        data-testid="delete-all-additions-confirm"
+                        onClick={async () => {
+                          setDeleteAllAdditionsDialog(d => ({ ...d, submitting: true }));
+                          try {
+                            const res = await axios.post(`${API}/projects/${projectId}/additional-costs/bulk-delete`, { confirm: 'delete' });
+                            toast.success(res.data?.message || 'Deleted');
+                            setDeleteAllAdditionsDialog({ open: false, typed: '', submitting: false });
+                            fetchData(false);
+                          } catch (err) {
+                            toast.error(err.response?.data?.detail || 'Failed to delete');
+                            setDeleteAllAdditionsDialog(d => ({ ...d, submitting: false }));
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        {deleteAllAdditionsDialog.submitting ? 'Deleting…' : 'Delete All'}
+                      </Button>
                     </div>
                   </DialogContent>
                 </Dialog>
