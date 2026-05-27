@@ -1921,10 +1921,16 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
         {"project_id": project_id}, {"_id": 0}
     ).sort("created_at", 1).to_list(200)
     
-    # Calculate totals
+    # Calculate totals — Additions only count toward project value when the
+    # CLIENT has approved them (matches /value-summary rule). Pending /
+    # under-review / rejected additions contribute ₹0.
     scope_total = sum(item.get("total_amount", 0) for item in scope_items)
-    additions_total = sum(cost.get("estimated_amount", 0) for cost in additional_costs)
-    additions_received = sum(cost.get("income_received", 0) for cost in additional_costs)
+    client_approved_additions = [
+        c for c in additional_costs
+        if c.get("client_approval_status") == "client_approved" or c.get("client_approved") is True
+    ]
+    additions_total = sum(cost.get("estimated_amount", 0) for cost in client_approved_additions)
+    additions_received = sum(cost.get("income_received", 0) for cost in client_approved_additions)
     deductions_total = sum(d.get("amount", 0) for d in deductions)
 
     # ── SELF-HEAL PAYMENT STAGE AMOUNTS (same logic as /payment-summary) ────
