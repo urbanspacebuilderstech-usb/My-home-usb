@@ -88,7 +88,166 @@ async def _notify(user_id: str, title: str, message: str, kind: str, ref_id: str
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Planning Person → "Save Estimate" → Planning Head → GM
+#
+# NEW two-step Planning sub-flow (Feb 27, 2026 release):
+#   planning_person clicks Save Estimate  →  status = pending_planning_head_review
+#   planning (Planning Head) clicks Approve →  status = pending_gm_review
+#   planning (Planning Head) clicks Reject  →  status = rejected_by_planning_head
+#                                              (Planning Person can edit again)
+#   super_admin can act in either role.
+# ──────────────────────────────────────────────────────────────────────────────
+async def _save_fe_for_planning_head(project_id: str, user: User) -> dict:
+    """Planning Person locks the FE and forwards it to the Planning Head queue."""
+    if user.role not in [UserRole.PLANNING_PERSON, UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can save Final Estimate")
+
+    project = await _get_project_or_404(project_id)
+    fe = _ensure_fe(project)
+
+    scope_count = await db.scope_items.count_documents({"project_id": project_id})
+    if scope_count == 0:
+        raise HTTPException(status_code=400, detail="Add at least one scope item before saving Final Estimate")
+
+    if fe["status"] in ("pending_planning_head_review", "pending_gm_review", "pending_cre_review", "approved"):
+        raise HTTPException(status_code=400, detail=f"Cannot save from status: {fe['status']}")
+
+    now = _now()
+    fe["status"] = "pending_planning_head_review"
+    fe["saved_by_planning_person_at"] = now
+    fe["saved_by_planning_person"] = user.user_id
+    # Bump revision when re-saving after a Planning Head rejection
+    if any((r.get("revision") == fe["revision"]) for r in (fe.get("planning_head_rejections") or [])):
+        fe["revision"] = (fe.get("revision") or 0) + 1
+    fe["history"] = (fe.get("history") or []) + [{
+        "action": "save_to_planning_head",
+        "revision": fe["revision"],
+        "by": user.user_id,
+        "at": now,
+    }]
+    await db.projects.update_one({"project_id": project_id}, {"$set": {"fe": fe}})
+
+    # Notify Planning Heads
+    recipients = await db.users.find(
+        {"role": {"$in": ["planning", "super_admin"]}, "is_active": True},
+        {"_id": 0, "user_id": 1},
+    ).to_list(50)
+    for r in recipients:
+        await _notify(
+            r["user_id"],
+            "Final Estimate ready for Planning Head review",
+            f"Planning Person submitted FE for {project.get('name', '')}",
+            "final_estimate_ready_planning_head",
+            project_id,
+        )
+    return {"message": "Final Estimate saved and sent to Planning Head", "fe": fe}
+
+
+async def _planning_head_approve_fe(project_id: str, user: User) -> dict:
+    """Planning Head approves the saved FE and forwards it to GM."""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning Head can approve")
+
+    project = await _get_project_or_404(project_id)
+    fe = _ensure_fe(project)
+    if fe["status"] != "pending_planning_head_review":
+        raise HTTPException(status_code=400, detail=f"FE is not awaiting Planning Head review (status: {fe['status']})")
+
+    now = _now()
+    fe["status"] = "pending_gm_review"
+    fe["planning_head_approved_at"] = now
+    fe["planning_head_approved_by"] = user.user_id
+    fe["sent_to_gm_at"] = now
+    fe["sent_to_gm_by"] = user.user_id
+    fe["history"] = (fe.get("history") or []) + [{
+        "action": "planning_head_approve",
+        "revision": fe["revision"],
+        "by": user.user_id,
+        "at": now,
+    }]
+    await db.projects.update_one({"project_id": project_id}, {"$set": {"fe": fe}})
+
+    # Notify GMs
+    recipients = await db.users.find(
+        {"role": {"$in": ["general_manager", "super_admin"]}, "is_active": True},
+        {"_id": 0, "user_id": 1},
+    ).to_list(50)
+    for r in recipients:
+        await _notify(
+            r["user_id"],
+            "Final Estimate ready for GM approval",
+            f"Planning Head approved FE for {project.get('name', '')}",
+            "final_estimate_ready_gm",
+            project_id,
+        )
+    return {"message": "Final Estimate approved and sent to GM", "fe": fe}
+
+
+async def _planning_head_reject_fe(project_id: str, body: dict, user: User) -> dict:
+    """Planning Head rejects the saved FE — sends it back to Planning Person."""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning Head can reject")
+
+    reason = (body.get("reason") or "").strip() if body else ""
+    if not reason:
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+
+    project = await _get_project_or_404(project_id)
+    fe = _ensure_fe(project)
+    if fe["status"] != "pending_planning_head_review":
+        raise HTTPException(status_code=400, detail=f"FE is not awaiting Planning Head review (status: {fe['status']})")
+
+    now = _now()
+    fe["status"] = "rejected_by_planning_head"
+    fe["planning_head_rejections"] = (fe.get("planning_head_rejections") or []) + [{
+        "revision": fe["revision"],
+        "reason": reason,
+        "by": user.user_id,
+        "at": now,
+    }]
+    fe["history"] = (fe.get("history") or []) + [{
+        "action": "planning_head_reject",
+        "revision": fe["revision"],
+        "by": user.user_id,
+        "at": now,
+        "reason": reason,
+    }]
+    await db.projects.update_one({"project_id": project_id}, {"$set": {"fe": fe}})
+
+    # Notify Planning Person(s)
+    recipients = await db.users.find(
+        {"role": {"$in": ["planning_person", "super_admin"]}, "is_active": True},
+        {"_id": 0, "user_id": 1},
+    ).to_list(50)
+    for r in recipients:
+        await _notify(
+            r["user_id"],
+            "Final Estimate rejected by Planning Head",
+            f"FE for {project.get('name', '')} was returned. Reason: {reason}",
+            "final_estimate_rejected_planning_head",
+            project_id,
+        )
+    return {"message": "Final Estimate rejected and returned to Planning Person", "fe": fe}
+
+
+@router.post("/planning/projects/{project_id}/final-estimate/save")
+async def planning_person_save_fe(project_id: str, user: User = Depends(get_current_user)):
+    return await _save_fe_for_planning_head(project_id, user)
+
+
+@router.post("/planning-head/projects/{project_id}/final-estimate/approve")
+async def planning_head_approve_fe(project_id: str, user: User = Depends(get_current_user)):
+    return await _planning_head_approve_fe(project_id, user)
+
+
+@router.post("/planning-head/projects/{project_id}/final-estimate/reject")
+async def planning_head_reject_fe(project_id: str, body: dict, user: User = Depends(get_current_user)):
+    return await _planning_head_reject_fe(project_id, body, user)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Planning → "Submit to GM"  (push FE into GM's queue for pre-CRE approval)
+# Kept for super_admin / legacy callers. Planning role uses Planning Head approve now.
 # ──────────────────────────────────────────────────────────────────────────────
 async def _submit_fe_to_gm(project_id: str, user: User) -> dict:
     """Shared core logic for Planning submitting the FE to GM."""
@@ -103,7 +262,7 @@ async def _submit_fe_to_gm(project_id: str, user: User) -> dict:
     if scope_count == 0:
         raise HTTPException(status_code=400, detail="Add at least one scope item before sending Final Estimate")
 
-    # Only allowable from draft / rejected_by_gm / review_pending
+    # Only allowable from draft / rejected_by_gm / review_pending / rejected_by_planning_head
     if fe["status"] in ("pending_gm_review", "pending_cre_review", "approved"):
         raise HTTPException(status_code=400, detail=f"Cannot submit from status: {fe['status']}")
 

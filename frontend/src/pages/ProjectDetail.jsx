@@ -3377,7 +3377,13 @@ export default function ProjectDetail() {
     return `₹${Number(amount || 0).toLocaleString('en-IN')}`;
   };
 
-  const canManage = user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'accountant' || user?.role === 'planning' || user?.role === 'planning_person';
+  const canManageBase = user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'accountant' || user?.role === 'planning' || user?.role === 'planning_person';
+  // When Planning Person has already saved the FE, lock scope edits for them.
+  // Planning Head (`planning`) and Super Admin retain edit rights.
+  const isPlanningPerson = user?.role === 'planning_person';
+  const LOCKED_FE_STATUSES = ['pending_planning_head_review', 'pending_gm_review', 'pending_cre_review', 'pending_client_review', 'feedback_received', 'approved'];
+  const isFeLocked = LOCKED_FE_STATUSES.includes(project?.fe?.status);
+  const canManage = canManageBase && !(isPlanningPerson && isFeLocked);
   const isSuperAdmin = user?.role === 'super_admin';
   const isPM = user?.role === 'project_manager';
   const isQC = user?.role === 'quality_check';
@@ -4210,10 +4216,14 @@ export default function ProjectDetail() {
                           project.fe.status === 'review_pending' ? 'bg-amber-100 text-amber-700' :
                           project.fe.status === 'pending_cre_review' ? 'bg-purple-100 text-purple-700' :
                           project.fe.status === 'pending_gm_review' ? 'bg-blue-100 text-blue-700' :
+                          project.fe.status === 'pending_planning_head_review' ? 'bg-cyan-100 text-cyan-700' :
+                          project.fe.status === 'rejected_by_planning_head' ? 'bg-rose-100 text-rose-700' :
                           project.fe.status === 'rejected_by_gm' ? 'bg-red-100 text-red-700' :
                           'bg-gray-100 text-gray-700'
                         }`}>
-                          {project.fe.status === 'pending_gm_review' ? 'Pending GM Approval' :
+                          {project.fe.status === 'pending_planning_head_review' ? 'Pending Planning Head Review' :
+                           project.fe.status === 'rejected_by_planning_head' ? 'Rejected by Planning Head — Action needed' :
+                           project.fe.status === 'pending_gm_review' ? 'Pending GM Approval' :
                            project.fe.status === 'rejected_by_gm' ? 'Rejected by GM — Action needed' :
                            project.fe.status === 'pending_cre_review' ? 'Sent to CRE' :
                            project.fe.status === 'review_pending' ? 'Review from CRE — Action needed' :
@@ -4228,6 +4238,13 @@ export default function ProjectDetail() {
                           <div className="text-[11px] font-semibold text-red-600 mb-0.5">GM Rejection Reason (Rev {project.fe.gm_rejections[project.fe.gm_rejections.length - 1].revision}):</div>
                           <div className="text-xs text-gray-700 whitespace-pre-wrap">{project.fe.gm_rejections[project.fe.gm_rejections.length - 1].reason}</div>
                           <div className="text-[10px] text-gray-400 mt-1">— {project.fe.gm_rejections[project.fe.gm_rejections.length - 1].by_name || 'GM'} · {new Date(project.fe.gm_rejections[project.fe.gm_rejections.length - 1].at).toLocaleString()}</div>
+                        </div>
+                      )}
+                      {project.fe.status === 'rejected_by_planning_head' && (project.fe.planning_head_rejections || []).length > 0 && (
+                        <div className="mt-2 p-2 rounded bg-white border border-rose-200" data-testid="fe-planning-head-rejection-reason">
+                          <div className="text-[11px] font-semibold text-rose-600 mb-0.5">Planning Head Rejection Reason (Rev {project.fe.planning_head_rejections[project.fe.planning_head_rejections.length - 1].revision}):</div>
+                          <div className="text-xs text-gray-700 whitespace-pre-wrap">{project.fe.planning_head_rejections[project.fe.planning_head_rejections.length - 1].reason}</div>
+                          <div className="text-[10px] text-gray-400 mt-1">— Planning Head · {new Date(project.fe.planning_head_rejections[project.fe.planning_head_rejections.length - 1].at).toLocaleString()}</div>
                         </div>
                       )}
                     </div>
@@ -4258,33 +4275,98 @@ export default function ProjectDetail() {
                   <p className="text-xs sm:text-sm text-gray-500">Define scope items - total becomes project value</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {(user?.role === 'planning' || user?.role === 'planning_person' || user?.role === 'super_admin') &&
-                    (!project?.fe?.status || project.fe.status === 'draft' || project.fe.status === 'review_pending' || project.fe.status === 'rejected_by_gm') && (
+                  {/* Planning Person — "Save Estimate" to forward to Planning Head */}
+                  {(user?.role === 'planning_person' || user?.role === 'super_admin') &&
+                    (!project?.fe?.status || ['draft', 'review_pending', 'rejected_by_gm', 'rejected_by_planning_head'].includes(project.fe.status)) && (
                     <Button
-                      data-testid="fe-submit-to-gm-btn"
+                      data-testid="fe-save-to-planning-head-btn"
                       size="sm"
-                      className="gap-1 sm:gap-2 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm"
+                      className="gap-1 sm:gap-2 bg-cyan-600 hover:bg-cyan-700 text-white text-xs sm:text-sm"
                       onClick={async () => {
-                        const isResend = project.fe?.status === 'review_pending' || project.fe?.status === 'rejected_by_gm';
-                        const msg = isResend
-                          ? `Re-submit updated Final Estimate to GM? This will be marked as Rev ${(project.fe?.revision || 0) + 1}.`
-                          : 'Submit this Final Estimate to GM for approval?\n\nFinal Estimate + Additional Costs − Deductions. Make sure totals are finalised.';
+                        const isResave = ['review_pending', 'rejected_by_gm', 'rejected_by_planning_head'].includes(project.fe?.status);
+                        const msg = isResave
+                          ? `Re-save updated Final Estimate? This will be marked as Rev ${(project.fe?.revision || 0) + 1} and sent to Planning Head.`
+                          : 'Save Final Estimate and lock it for Planning Head review?\n\nOnce saved, you will not be able to edit until Planning Head reviews.';
                         if (!window.confirm(msg)) return;
                         try {
-                          await axios.post(`${API}/planning/projects/${projectId}/final-estimate/submit-to-gm`);
-                          toast.success(isResend ? 'Updated Final Estimate sent to GM' : 'Final Estimate sent to GM for approval');
+                          await axios.post(`${API}/planning/projects/${projectId}/final-estimate/save`);
+                          toast.success('Final Estimate saved — sent to Planning Head');
                           fetchProject();
                         } catch (err) {
-                          const status = err.response?.status;
-                          const msg2 = err.response?.data?.detail
-                            || (status === 401 ? 'Your session expired. Please log in again.' : null)
-                            || (status === 403 ? 'You do not have permission to submit Final Estimate.' : null)
-                            || `Failed to submit (HTTP ${status || 'unknown'})`;
-                          toast.error(msg2);
+                          toast.error(err.response?.data?.detail || 'Failed to save');
                         }
                       }}
                     >
-                      <Send className="h-3 w-3 sm:h-4 sm:w-4" /> {(project.fe?.status === 'review_pending' || project.fe?.status === 'rejected_by_gm') ? 'Re-submit to GM' : 'Submit to GM'}
+                      <Send className="h-3 w-3 sm:h-4 sm:w-4" /> {['review_pending','rejected_by_gm','rejected_by_planning_head'].includes(project.fe?.status) ? 'Re-save Estimate' : 'Save Estimate'}
+                    </Button>
+                  )}
+
+                  {/* Planning Head — Approve / Reject (only when status is pending_planning_head_review) */}
+                  {(user?.role === 'planning' || user?.role === 'super_admin') && project?.fe?.status === 'pending_planning_head_review' && (
+                    <>
+                      <Button
+                        data-testid="fe-planning-head-approve-btn"
+                        size="sm"
+                        className="gap-1 sm:gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm"
+                        onClick={async () => {
+                          if (!window.confirm('Approve this Final Estimate and forward to GM?')) return;
+                          try {
+                            await axios.post(`${API}/planning-head/projects/${projectId}/final-estimate/approve`);
+                            toast.success('Approved — sent to GM');
+                            fetchProject();
+                          } catch (err) {
+                            toast.error(err.response?.data?.detail || 'Failed to approve');
+                          }
+                        }}
+                      >
+                        <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4" /> Approve → GM
+                      </Button>
+                      <Button
+                        data-testid="fe-planning-head-reject-btn"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1 sm:gap-2 border-rose-300 text-rose-700 hover:bg-rose-50 text-xs sm:text-sm"
+                        onClick={async () => {
+                          const reason = window.prompt('Rejection reason (will be shown to Planning Person):');
+                          if (!reason || !reason.trim()) return;
+                          try {
+                            await axios.post(`${API}/planning-head/projects/${projectId}/final-estimate/reject`, { reason: reason.trim() });
+                            toast.success('Rejected — sent back to Planning Person');
+                            fetchProject();
+                          } catch (err) {
+                            toast.error(err.response?.data?.detail || 'Failed to reject');
+                          }
+                        }}
+                      >
+                        <XCircle className="h-3 w-3 sm:h-4 sm:w-4" /> Reject
+                      </Button>
+                    </>
+                  )}
+
+                  {/* Planning Head / Super-Admin legacy direct submit-to-GM — only when no Planning Person workflow is active */}
+                  {(user?.role === 'planning' || user?.role === 'super_admin') &&
+                    (!project?.fe?.status || ['draft', 'review_pending', 'rejected_by_gm'].includes(project.fe.status)) && (
+                    <Button
+                      data-testid="fe-submit-to-gm-btn"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1 sm:gap-2 text-xs sm:text-sm"
+                      onClick={async () => {
+                        const isResend = ['review_pending', 'rejected_by_gm'].includes(project.fe?.status);
+                        const msg = isResend
+                          ? `Re-submit updated Final Estimate to GM? Marked as Rev ${(project.fe?.revision || 0) + 1}.`
+                          : 'Submit this Final Estimate directly to GM (skip Planning Person flow)?';
+                        if (!window.confirm(msg)) return;
+                        try {
+                          await axios.post(`${API}/planning/projects/${projectId}/final-estimate/submit-to-gm`);
+                          toast.success('Final Estimate sent to GM');
+                          fetchProject();
+                        } catch (err) {
+                          toast.error(err.response?.data?.detail || 'Failed to submit');
+                        }
+                      }}
+                    >
+                      <Send className="h-3 w-3 sm:h-4 sm:w-4" /> Submit to GM
                     </Button>
                   )}
                   {selectedScopeIds.length > 0 && (

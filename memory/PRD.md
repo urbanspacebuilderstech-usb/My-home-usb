@@ -13,6 +13,26 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 27, 2026 — FE Two-Step Planning Approval
+- **New flow**: Planning Person edits Final Estimate → **Save Estimate** (locks FE for them) → Planning Head sees Approve / Reject.
+  - **Approve** → forwards to GM (existing GM chain continues).
+  - **Reject** (mandatory reason) → status `rejected_by_planning_head`, Planning Person can edit again.
+  - **Planning Head can also edit** the FE while it's awaiting their review (per user request).
+- **Backend** (`/app/backend/routes/final_estimates.py`):
+  - New status values: `pending_planning_head_review`, `rejected_by_planning_head`.
+  - New endpoints:
+    - `POST /api/planning/projects/{id}/final-estimate/save` (Planning Person)
+    - `POST /api/planning-head/projects/{id}/final-estimate/approve` (Planning Head)
+    - `POST /api/planning-head/projects/{id}/final-estimate/reject` body `{reason}`
+  - Notifies the next role on each transition (Planning Head, GM, or Planning Person).
+- **Scope lock** (`/app/backend/routes/projects.py`):
+  - New helper `_assert_fe_editable_for_planning_person` blocks `planning_person` from create/update/delete on scope items once FE has moved past their hands. Planning Head and Super Admin bypass.
+- **Frontend** (`/app/frontend/src/pages/ProjectDetail.jsx`):
+  - Two new status pills + a rose Planning Head rejection banner.
+  - Planning Person sees **Save Estimate** (cyan); Planning Head sees **Approve → GM** (green) + **Reject** (rose) when status is `pending_planning_head_review`.
+  - `canManage` now disables scope-row Edit/Delete buttons for Planning Person when FE is locked (matches backend rule).
+- Verified live with curl: save → reject 400 (no reason) → approve → moves to `pending_gm_review`. `tests/test_rab_workflow.py` 2/2 PASS.
+
 ### Session — Feb 27, 2026 — Additional Work Bulk-Delete + Client-Approved-Only Value
 - **Bulk Delete All button** (Planning Head > Additional tab):
   - Red outline "Delete All" button next to "+ Create Section" — visible only when the project has ≥1 additional cost row.

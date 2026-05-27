@@ -4634,10 +4634,25 @@ async def get_scope_items(project_id: str, user: User = Depends(get_current_user
     return items
 
 
+async def _assert_fe_editable_for_planning_person(project_id: str, user: User):
+    """When the FE has moved past Planning Person (saved for Planning Head review,
+    GM review, CRE review, or approved) the Planning Person role can no longer
+    edit scope items. Planning Head (`planning`) and Super Admin retain edit rights.
+    Called from scope-item create/update/delete handlers."""
+    if user.role != UserRole.PLANNING_PERSON:
+        return
+    proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "fe": 1})
+    fe_status = ((proj or {}).get("fe") or {}).get("status")
+    LOCKED = {"pending_planning_head_review", "pending_gm_review", "pending_cre_review", "approved", "pending_client_review", "feedback_received"}
+    if fe_status in LOCKED:
+        raise HTTPException(status_code=423, detail="Final Estimate is locked. Wait for Planning Head review.")
+
+
 @router.post("/scope-items")
 async def create_scope_item(item_input: ScopeItemCreate, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
+    await _assert_fe_editable_for_planning_person(item_input.project_id, user)
     
     total_amount = item_input.quantity * item_input.unit_rate
     
@@ -4668,6 +4683,7 @@ async def update_scope_item(scope_id: str, update_data: ScopeItemUpdate, user: U
     existing = await db.scope_items.find_one({"scope_id": scope_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Scope item not found")
+    await _assert_fe_editable_for_planning_person(existing.get("project_id"), user)
     
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
     
@@ -4685,6 +4701,9 @@ async def update_scope_item(scope_id: str, update_data: ScopeItemUpdate, user: U
 async def delete_scope_item(scope_id: str, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
+    existing = await db.scope_items.find_one({"scope_id": scope_id}, {"_id": 0, "project_id": 1})
+    if existing:
+        await _assert_fe_editable_for_planning_person(existing.get("project_id"), user)
     
     await db.scope_items.delete_one({"scope_id": scope_id})
     await create_audit_log(user.user_id, "delete", "scope_item", scope_id, {})
