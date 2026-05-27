@@ -1246,14 +1246,18 @@ function ClientFinalEstimateView({ data, onAction, projectId }) {
   };
 
   const isPendingClient = fe.status === 'pending_client_review' || fe.status === 'feedback_received';
+  const isPreparing = !fe.status || fe.status === 'not_started' || fe.status === 'draft' || fe.status === 'pending_planning_review' || fe.status === 'pending_planning_head' || fe.status === 'pending_gm';
   const statusLabel = fe.status === 'approved' ? 'Approved by You'
     : fe.status === 'feedback_received' ? 'Awaiting Revised Estimate'
     : fe.status === 'pending_client_review' ? 'Awaiting Your Decision'
+    : isPreparing ? 'Being Prepared'
     : fe.status;
   const statusTone = fe.status === 'approved'
     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
     : fe.status === 'feedback_received'
     ? 'bg-rose-50 text-rose-700 border-rose-200'
+    : isPreparing
+    ? 'bg-slate-50 text-slate-600 border-slate-200'
     : 'bg-amber-50 text-amber-700 border-amber-200';
 
   return (
@@ -1266,7 +1270,10 @@ function ClientFinalEstimateView({ data, onAction, projectId }) {
               <FileText className="h-5 w-5 text-blue-600" /> Final Estimate
             </h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              GM-approved on {fe.gm_approved_at ? new Date(fe.gm_approved_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—'} · Revision {fe.revision ?? 0}
+              {isPreparing
+                ? 'Our team is preparing your Final Estimate'
+                : <>GM-approved on {fe.gm_approved_at ? new Date(fe.gm_approved_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—'} · Revision {fe.revision ?? 0}</>
+              }
             </p>
           </div>
           <Badge variant="outline" className={`text-xs px-2.5 py-1 ${statusTone}`} data-testid="cp-fe-status-badge">{statusLabel}</Badge>
@@ -1290,6 +1297,18 @@ function ClientFinalEstimateView({ data, onAction, projectId }) {
       </div>
 
       {/* Approval-state messages */}
+      {isPreparing && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 flex items-start gap-3" data-testid="cp-fe-preparing-banner">
+          <FileText className="h-5 w-5 text-slate-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-slate-800">Your Final Estimate is being prepared</p>
+            <p className="text-xs text-slate-600 mt-0.5">
+              Our planning team is putting together the detailed final estimate for your project. You'll be notified here as soon as it's ready for your review and approval.
+            </p>
+          </div>
+        </div>
+      )}
+
       {fe.status === 'approved' && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 flex items-start gap-3" data-testid="cp-fe-approved-banner">
           <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />

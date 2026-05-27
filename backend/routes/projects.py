@@ -891,15 +891,13 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
     }
 
 
-def _build_client_fe_payload(project: dict) -> Optional[dict]:
-    """Always returns an FE payload for the client portal. The frontend renders
-    different states (preparing / pending decision / approved / revision-requested)
-    based on `status`. Returns None only when no FE block exists at all."""
-    fe = project.get("fe")
-    if not fe:
-        return None
+def _build_client_fe_payload(project: dict) -> dict:
+    """Always returns an FE payload for the client portal so the tab is always
+    visible. When the project has no `fe` block yet, surfaces a `not_started`
+    state so the client sees a 'being prepared' message instead of a hidden tab."""
+    fe = project.get("fe") or {}
     return {
-        "status": fe.get("status") or "draft",
+        "status": fe.get("status") or "not_started",
         "revision": fe.get("revision", 0),
         "gm_approved_at": fe.get("gm_approved_at"),
         "sent_to_client_at": fe.get("sent_to_client_at"),
