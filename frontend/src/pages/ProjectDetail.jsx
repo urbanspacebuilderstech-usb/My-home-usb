@@ -3450,7 +3450,12 @@ export default function ProjectDetail() {
     const publicUrl = fe.public_token ? `${window.location.origin}/fe/${fe.public_token}` : '';
     const showLinkCorner = !!fe.public_token || canSendToClient;
 
-    const feTotal = summary?.scope_total || 0;
+    const rawFeTotal = summary?.scope_total || 0;
+    // FE amount only counts toward Project Value once CLIENT has approved.
+    // Until then, show ₹0 in the cost card and surface the pending value as a
+    // small "Pending Client Approval" pill in the card header.
+    const isClientApproved = fe.status === 'approved';
+    const feTotal = isClientApproved ? rawFeTotal : 0;
     // Only CLIENT-APPROVED additions contribute to the grand total (matches backend
     // /value-summary rule). Pending / under-review / rejected rows count as ₹0.
     const addTotal = (additional_costs || [])
@@ -3476,7 +3481,14 @@ export default function ProjectDetail() {
       <>
         {showTotal && (
           <div className="mb-3 rounded-lg border-2 border-amber-200 bg-gradient-to-br from-amber-50/70 to-white p-3 sm:p-4" data-testid="fe-grand-total-card">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-2">Total Final Estimate Cost</div>
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Total Final Estimate Cost</div>
+              {!isClientApproved && rawFeTotal > 0 && (
+                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 text-[10px] font-medium" data-testid="fe-pending-client-pill">
+                  Pending Client Approval · ₹{rawFeTotal.toLocaleString()}
+                </Badge>
+              )}
+            </div>
             <div className="grid grid-cols-3 gap-2 sm:gap-4 text-xs mb-2">
               <div>
                 <div className="text-gray-500">Final Estimate</div>
@@ -4733,8 +4745,15 @@ export default function ProjectDetail() {
                   {scope_items.length > 0 && (
                     <tfoot className="bg-amber-50 border-t-2">
                       <tr>
-                        <td colSpan={canManage ? 8 : 5} className="px-4 py-3 text-right font-bold">Project Value (Scope Total):</td>
-                        <td className="px-4 py-3 text-right font-bold text-amber-700">₹{summary.scope_total?.toLocaleString()}</td>
+                        <td colSpan={canManage ? 8 : 5} className="px-4 py-3 text-right font-bold">
+                          Project Value (Scope Total){project?.fe?.status !== 'approved' && <span className="ml-1 text-[10px] font-normal text-amber-700">· awaiting client approval</span>}:
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-amber-700" data-testid="scope-total-cell">
+                          ₹{(project?.fe?.status === 'approved' ? (summary.scope_total || 0) : 0).toLocaleString()}
+                          {project?.fe?.status !== 'approved' && (summary.scope_total || 0) > 0 && (
+                            <span className="block text-[10px] font-normal text-gray-500">(pending: ₹{(summary.scope_total || 0).toLocaleString()})</span>
+                          )}
+                        </td>
                         <td colSpan={canManage ? 3 : 2}></td>
                       </tr>
                     </tfoot>
