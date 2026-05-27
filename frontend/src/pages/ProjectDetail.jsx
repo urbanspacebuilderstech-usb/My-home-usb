@@ -1223,6 +1223,11 @@ export default function ProjectDetail() {
       const userRes = await axios.get(`${API}/auth/me`);
       setUser(userRes.data);
       
+      // QC users only see Project Stages — lock the activeTab.
+      if (userRes.data.role === 'quality_check') {
+        setActiveTab('project-stages');
+      }
+      
       // Redirect Site Engineers to their dedicated board
       if (userRes.data.role === 'site_engineer') {
         window.location.href = `/site-engineer/project/${projectId}`;
@@ -3374,7 +3379,9 @@ export default function ProjectDetail() {
   const canManage = user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'accountant' || user?.role === 'planning' || user?.role === 'planning_person';
   const isSuperAdmin = user?.role === 'super_admin';
   const isPM = user?.role === 'project_manager';
-  const canSeeFinancials = !isPM;
+  const isQC = user?.role === 'quality_check';
+  // QC sees only the Project Stages tab (no financials, value calc, or income/expense).
+  const canSeeFinancials = !isPM && !isQC;
 
   if (loading && !projectData) {
     return (
@@ -3874,6 +3881,13 @@ export default function ProjectDetail() {
         <Card>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <CardHeader className="border-b p-3 sm:p-6">
+              {user?.role === 'quality_check' ? (
+                <TabsList className="bg-transparent border-0 p-0 h-auto gap-0 w-full justify-between overflow-x-auto flex-nowrap" data-testid="qc-restricted-tabs">
+                  <TabsTrigger value="project-stages" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-project-stages">
+                    Stages - Project Stages
+                  </TabsTrigger>
+                </TabsList>
+              ) : (
               <TabsList className="bg-transparent border-0 p-0 h-auto gap-0 w-full justify-between overflow-x-auto flex-nowrap">
                 {/* Order: Estimate → Final Estimate → Payment Schedule → Work Order → Materials →
                     Payment Summary → Team → Construction Stage (CRE) → Project Stages → Documents */}
@@ -3909,6 +3923,7 @@ export default function ProjectDetail() {
                   Documents
                 </TabsTrigger>
               </TabsList>
+              )}
             </CardHeader>
 
             {/* ==================== ROUGH ESTIMATE TAB ==================== */}

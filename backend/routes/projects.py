@@ -6515,6 +6515,23 @@ async def qc_labour_stage_requests(status: str = "new", user: User = Depends(get
     return {"count": len(rows), "requests": rows}
 
 
+@router.get("/qc/projects")
+async def qc_assigned_projects(user: User = Depends(get_current_user)):
+    """List projects assigned to the current QC user (or all for super_admin).
+    Planning assigns QC via `team.qc` on the project doc."""
+    if user.role not in [UserRole.QUALITY_CHECK, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    query = {"$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}]}
+    if user.role == UserRole.QUALITY_CHECK:
+        query["team.qc"] = user.user_id
+    projects = await db.projects.find(
+        query,
+        {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "client_phone": 1,
+         "location": 1, "status": 1, "team": 1, "created_at": 1, "project_code": 1},
+    ).sort("created_at", -1).to_list(500)
+    return projects
+
+
 @router.get("/site-engineer/labour-stage-requests")
 async def se_labour_stage_requests(status: str = "rework", user: User = Depends(get_current_user)):
     """Site Engineer queue. status:

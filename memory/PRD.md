@@ -13,6 +13,24 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 27, 2026 — QC Checking Dashboard Redesign
+- **Replaced** generic Project Finance Board for `quality_check` role with a purpose-built **QC Checking Dashboard**.
+- **Frontend** (`/app/frontend/src/pages/QCDashboard.jsx` — full rewrite):
+  - Title: **QC Checking Dashboard**
+  - 4 round pill tabs: **Billing Summary · Pending Requests · Check List · Recommender**.
+  - "Pending Requests" mounts the existing `RABApprovalQueue` (Approve→Planning / Reject + Pending Action / Forwarded sub-tabs).
+  - Billing Summary, Check List, Recommender ship as **Coming Soon** placeholders (visible scaffolding).
+  - Below the tabs: **"Projects Assigned for QC Checking"** list — clickable rows opening the project's Project Stages.
+- **Dashboard.jsx**: Added role gate — `quality_check` role hitting `/dashboard` is auto-redirected to `/qc-dashboard` so they never see the Project Finance Board.
+- **ProjectDetail.jsx role gate**: when `user.role === 'quality_check'`,
+  - `activeTab` is forced to `project-stages` after auth.
+  - All other tab triggers are hidden — only the **Stages - Project Stages** tab renders.
+  - Income/Expense/Cashflow mini-views and Project-Value/Financial-Performance cards are hidden (driven by `canSeeFinancials` which now excludes QC).
+- **Backend** (`/app/backend/routes/projects.py`):
+  - New `GET /api/qc/projects` — returns projects where `team.qc == current_user.user_id` (super_admin/GM see all).
+- Also fixed an accidentally-duplicated docstring in `qc_labour_stage_requests` endpoint.
+- Regression: `tests/test_rab_workflow.py` 2/2 PASS.
+
 ### Session — Feb 26, 2026 — Estimate Approval Flows (RE + FE) UX Fix
 - **Root-cause fix** for "Approval flow not working" report:
   - GM Dashboard had a **duplicate `rough_estimate` tab trigger with no matching TabsContent** — clicking the obvious "rough_estimate" tab showed a blank page. The actual RE approval queue was hidden under a tab labeled "planning".

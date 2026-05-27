@@ -56,6 +56,11 @@ export default function Dashboard() {
     try {
       if (showLoader) setLoading(true);
       const userRes = await axios.get(`${API}/auth/me`);
+      // QC role should never see the generic Project Finance Board — redirect them.
+      if (userRes.data?.role === 'quality_check') {
+        window.location.replace('/qc-dashboard');
+        return;
+      }
       setUser(userRes.data);
       
       // Super Admin's home is the Finance Board (the old dashboard is deprecated).
