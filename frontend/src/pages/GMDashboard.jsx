@@ -26,6 +26,7 @@ import {
   HardHat,
   IndianRupee,
   CheckCircle,
+  CheckCircle2,
   XCircle,
   Clock,
   AlertTriangle,
@@ -1863,19 +1864,15 @@ const GMDashboard = () => {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <label className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded p-2.5 cursor-pointer" data-testid="gm-fe-auto-share-label">
-              <input
-                type="checkbox"
-                checked={feApproveDialog.autoShare || false}
-                onChange={(e) => setFeApproveDialog(d => ({ ...d, autoShare: e.target.checked }))}
-                className="mt-0.5 accent-blue-600"
-                data-testid="gm-fe-auto-share-checkbox"
-              />
-              <div className="text-xs">
-                <p className="font-semibold text-blue-900">Skip CRE — auto-share with client</p>
-                <p className="text-blue-700 mt-0.5">Generate the client share link immediately on approval. CRE can still view/edit the FE if needed, but it goes straight to the client.</p>
-              </div>
-            </label>
+            <div className="bg-emerald-50 border border-emerald-200 rounded p-2.5 text-xs">
+              <p className="font-semibold text-emerald-900 flex items-center gap-1">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Auto-share with Client
+              </p>
+              <p className="text-emerald-700 mt-1">
+                On approval, the Final Estimate share link is generated immediately and sent to the client.
+                CRE receives a notification but does not gate the flow.
+              </p>
+            </div>
             <Input
               autoFocus
               placeholder='Type "APPROVE" to enable the button'
@@ -1896,13 +1893,13 @@ const GMDashboard = () => {
                 setFeApproveDialog(d => ({ ...d, submitting: true }));
                 try {
                   const res = await axios.post(`${API}/gm/final-estimates/${proj.project_id}/approve`, {
-                    auto_share_to_client: !!feApproveDialog.autoShare,
+                    auto_share_to_client: true,
                   });
-                  if (feApproveDialog.autoShare && res.data?.public_url) {
+                  if (res.data?.public_url) {
                     try { await navigator.clipboard.writeText(window.location.origin + res.data.public_url); } catch {}
                     toast.success('FE approved — client link copied to clipboard');
                   } else {
-                    toast.success('Final Estimate approved and sent to CRE');
+                    toast.success('Final Estimate approved');
                   }
                   setFeApproveDialog({ open: false, project: null, typed: '', autoShare: false, submitting: false });
                   fetchAllData(false);
