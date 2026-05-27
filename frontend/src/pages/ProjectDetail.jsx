@@ -3450,7 +3450,7 @@ export default function ProjectDetail() {
     const publicUrl = fe.public_token ? `${window.location.origin}/fe/${fe.public_token}` : '';
     const showLinkCorner = !!fe.public_token || canSendToClient;
 
-    const rawFeTotal = summary?.scope_total || 0;
+    const rawFeTotal = (scope_items || []).reduce((s, it) => s + (it.total_amount || 0), 0);
     // FE total always displays the live scope total — independent of client approval.
     const isClientApproved = fe.status === 'approved';
     const feTotal = rawFeTotal;
@@ -4776,7 +4776,7 @@ export default function ProjectDetail() {
                           Project Value (Scope Total):
                         </td>
                         <td className="px-4 py-3 text-right font-bold text-amber-700" data-testid="scope-total-cell">
-                          ₹{(summary.scope_total || 0).toLocaleString()}
+                          ₹{(scope_items || []).reduce((s, it) => s + (it.total_amount || 0), 0).toLocaleString()}
                         </td>
                         <td colSpan={canManage ? 3 : 2}></td>
                       </tr>
