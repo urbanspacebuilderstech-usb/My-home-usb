@@ -3382,7 +3382,7 @@ export default function ProjectDetail() {
   // Planning Head (`planning`) and Super Admin retain edit rights.
   const isPlanningPerson = user?.role === 'planning_person';
   const LOCKED_FE_STATUSES = ['pending_planning_head_review', 'pending_gm_review', 'pending_cre_review', 'pending_client_review', 'feedback_received', 'approved'];
-  const isFeLocked = LOCKED_FE_STATUSES.includes(project?.fe?.status);
+  const isFeLocked = LOCKED_FE_STATUSES.includes(projectData?.project?.fe?.status);
   const canManage = canManageBase && !(isPlanningPerson && isFeLocked);
   const isSuperAdmin = user?.role === 'super_admin';
   const isPM = user?.role === 'project_manager';
@@ -3532,7 +3532,7 @@ export default function ProjectDetail() {
                       try {
                         await axios.post(`${API}/cre/final-estimates/${projectId}/send-to-client`);
                         toast.success(isFirst ? 'Public link generated' : 'Client link re-sent');
-                        fetchProject();
+                        fetchData(false);
                       } catch (err) {
                         toast.error(err.response?.data?.detail || 'Failed to send to client');
                       }
@@ -3738,7 +3738,7 @@ export default function ProjectDetail() {
                     try {
                       await axios.patch(`${API}/planning/projects/${projectId}/planning-status`, { planning_status: 'delivered' });
                       toast.success('Project handed over — moved to Delivered');
-                      fetchProject();
+                      fetchData(false);
                     } catch (err) {
                       toast.error(err.response?.data?.detail || 'Failed to hand over project');
                     }
@@ -4291,7 +4291,7 @@ export default function ProjectDetail() {
                         try {
                           await axios.post(`${API}/planning/projects/${projectId}/final-estimate/save`);
                           toast.success('Final Estimate saved — sent to Planning Head');
-                          fetchProject();
+                          fetchData(false);
                         } catch (err) {
                           toast.error(err.response?.data?.detail || 'Failed to save');
                         }
@@ -4313,13 +4313,13 @@ export default function ProjectDetail() {
                           try {
                             await axios.post(`${API}/planning-head/projects/${projectId}/final-estimate/approve`);
                             toast.success('Approved — sent to GM');
-                            fetchProject();
+                            fetchData(false);
                           } catch (err) {
                             toast.error(err.response?.data?.detail || 'Failed to approve');
                           }
                         }}
                       >
-                        <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4" /> Approve → GM
+                        <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4" /> Approve → GM
                       </Button>
                       <Button
                         data-testid="fe-planning-head-reject-btn"
@@ -4332,7 +4332,7 @@ export default function ProjectDetail() {
                           try {
                             await axios.post(`${API}/planning-head/projects/${projectId}/final-estimate/reject`, { reason: reason.trim() });
                             toast.success('Rejected — sent back to Planning Person');
-                            fetchProject();
+                            fetchData(false);
                           } catch (err) {
                             toast.error(err.response?.data?.detail || 'Failed to reject');
                           }
@@ -4360,7 +4360,7 @@ export default function ProjectDetail() {
                         try {
                           await axios.post(`${API}/planning/projects/${projectId}/final-estimate/submit-to-gm`);
                           toast.success('Final Estimate sent to GM');
-                          fetchProject();
+                          fetchData(false);
                         } catch (err) {
                           toast.error(err.response?.data?.detail || 'Failed to submit');
                         }
