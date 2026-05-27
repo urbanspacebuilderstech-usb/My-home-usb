@@ -756,6 +756,101 @@ async def cre_send_fe_to_client(project_id: str, user: User = Depends(get_curren
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Restart FE Approval Chain — sends FE back to "draft" so Planning Person can
+# re-route through Planning Person → Planning Head → GM → CRE → Client.
+# Visible to Planning Person, Planning Head, and Super Admin.
+# Preserves history (audit trail) and scope items. Does NOT touch payment stages
+# or locked project value — only the next FE re-approval updates those.
+# ──────────────────────────────────────────────────────────────────────────────
+class RestartFEBody(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.post("/final-estimates/{project_id}/restart-approval")
+async def restart_fe_approval(project_id: str, body: Optional[RestartFEBody] = None, user: User = Depends(get_current_user)):
+    """Resets the FE back to draft so the full Planning Person → Planning Head
+    → GM chain re-runs. Allowed for Planning Person, Planning Head, and Super Admin.
+    """
+    if user.role not in [UserRole.PLANNING_PERSON, UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can restart the FE approval chain")
+
+    project = await _get_project_or_404(project_id)
+    fe = _ensure_fe(project)
+
+    if fe["status"] == "draft":
+        raise HTTPException(status_code=400, detail="FE is already in draft state")
+
+    reason = (body.reason or "").strip() if body else ""
+    now = _now()
+    prior_status = fe["status"]
+    fe["status"] = "draft"
+    fe["history"] = (fe.get("history") or []) + [{
+        "action": "restart_approval",
+        "revision": fe.get("revision", 0),
+        "prior_status": prior_status,
+        "reason": reason,
+        "by": user.user_id,
+        "at": now,
+    }]
+    await db.projects.update_one({"project_id": project_id}, {"$set": {"fe": fe}})
+
+    # Notify Planning Persons so they know to re-submit
+    recipients = await db.users.find(
+        {"role": {"$in": ["planning_person", "super_admin"]}, "is_active": True},
+        {"_id": 0, "user_id": 1},
+    ).to_list(50)
+    for r in recipients:
+        await _notify(
+            r["user_id"],
+            "Final Estimate approval restarted",
+            f"FE for {project.get('name', '')} was reset to draft. Please re-submit through Planning Head → GM.",
+            "final_estimate_restarted",
+            project_id,
+        )
+    return {"message": "Final Estimate approval chain restarted. Submit through Planning Head → GM.", "fe": fe, "prior_status": prior_status}
+
+
+@router.post("/admin/final-estimates/migrate-legacy-bypassed")
+async def migrate_legacy_bypassed_fes(user: User = Depends(get_current_user)):
+    """Super admin one-time migration: reset every `fe.status='approved'` project
+    whose history NEVER touched the Planning Head + GM chain back to `draft`,
+    so the proper Planning Person → Planning Head → GM chain re-runs.
+    Idempotent — only acts on FEs that bypassed both planning_head_approve and
+    gm_approve_*."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    approved_projects = await db.projects.find(
+        {"fe.status": "approved"},
+        {"_id": 0, "project_id": 1, "name": 1, "fe": 1},
+    ).to_list(2000)
+
+    affected = []
+    now = _now()
+    for proj in approved_projects:
+        fe = proj.get("fe") or {}
+        history = fe.get("history") or []
+        has_ph = any(h.get("action") == "planning_head_approve" for h in history)
+        has_gm = any(h.get("action") in ("gm_approve", "gm_approve_and_auto_share") for h in history)
+        if has_ph or has_gm:
+            continue  # already used the new chain
+
+        fe["status"] = "draft"
+        fe["history"] = history + [{
+            "action": "restart_approval",
+            "revision": fe.get("revision", 0),
+            "prior_status": "approved",
+            "reason": "Auto-migration: legacy FE bypassed Planning Head / GM chain",
+            "by": user.user_id,
+            "at": now,
+        }]
+        await db.projects.update_one({"project_id": proj["project_id"]}, {"$set": {"fe": fe}})
+        affected.append({"project_id": proj["project_id"], "name": proj.get("name")})
+
+    return {"message": f"Reset {len(affected)} legacy-bypassed FEs to draft", "affected": affected}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Public client page — view, approve, feedback (no auth)
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/public/fe/{token}")

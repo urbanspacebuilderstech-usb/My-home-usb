@@ -4251,6 +4251,28 @@ export default function ProjectDetail() {
                         {project?.fe?.sent_to_client_at && (
                           <span className="text-[10px] text-gray-400">Last client send: {new Date(project.fe.sent_to_client_at).toLocaleString()}</span>
                         )}
+                        {/* Restart FE Approval — for Planning Person / Planning Head / Super Admin */}
+                        {['planning_person', 'planning', 'super_admin'].includes(user?.role) && project.fe.status !== 'draft' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="ml-auto h-7 px-2 text-[11px] border-amber-300 text-amber-700 hover:bg-amber-50 gap-1"
+                            data-testid="fe-restart-approval-btn"
+                            onClick={async () => {
+                              const reason = window.prompt('Restart Final Estimate approval — this resets the FE to draft so it re-runs through Planning Person → Planning Head → GM.\n\nOptional note (audit trail):');
+                              if (reason === null) return;
+                              try {
+                                await axios.post(`${API}/final-estimates/${projectId}/restart-approval`, { reason: reason || '' });
+                                toast.success('Approval chain restarted. Re-submit through Planning Head → GM.');
+                                fetchData(false);
+                              } catch (err) {
+                                toast.error(err.response?.data?.detail || 'Failed to restart approval');
+                              }
+                            }}
+                          >
+                            <RefreshCw className="h-3 w-3" /> Restart Approval
+                          </Button>
+                        )}
                       </div>
                       {project.fe.status === 'rejected_by_gm' && (project.fe.gm_rejections || []).length > 0 && (
                         <div className="mt-2 p-2 rounded bg-white border border-red-200" data-testid="fe-gm-rejection-reason">
