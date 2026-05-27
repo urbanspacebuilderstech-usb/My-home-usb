@@ -3451,11 +3451,9 @@ export default function ProjectDetail() {
     const showLinkCorner = !!fe.public_token || canSendToClient;
 
     const rawFeTotal = summary?.scope_total || 0;
-    // FE amount only counts toward Project Value once CLIENT has approved.
-    // Until then, show ₹0 in the cost card and surface the pending value as a
-    // small "Pending Client Approval" pill in the card header.
+    // FE total always displays the live scope total — independent of client approval.
     const isClientApproved = fe.status === 'approved';
-    const feTotal = isClientApproved ? rawFeTotal : 0;
+    const feTotal = rawFeTotal;
     // Only CLIENT-APPROVED additions contribute to the grand total (matches backend
     // /value-summary rule). Pending / under-review / rejected rows count as ₹0.
     const addTotal = (additional_costs || [])
@@ -3485,7 +3483,7 @@ export default function ProjectDetail() {
               <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Total Final Estimate Cost</div>
               {!isClientApproved && rawFeTotal > 0 && (
                 <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 text-[10px] font-medium" data-testid="fe-pending-client-pill">
-                  Pending Client Approval · ₹{rawFeTotal.toLocaleString()}
+                  Pending Client Approval
                 </Badge>
               )}
             </div>
@@ -4775,13 +4773,10 @@ export default function ProjectDetail() {
                     <tfoot className="bg-amber-50 border-t-2">
                       <tr>
                         <td colSpan={canManage ? 8 : 5} className="px-4 py-3 text-right font-bold">
-                          Project Value (Scope Total){project?.fe?.status !== 'approved' && <span className="ml-1 text-[10px] font-normal text-amber-700">· awaiting client approval</span>}:
+                          Project Value (Scope Total):
                         </td>
                         <td className="px-4 py-3 text-right font-bold text-amber-700" data-testid="scope-total-cell">
-                          ₹{(project?.fe?.status === 'approved' ? (summary.scope_total || 0) : 0).toLocaleString()}
-                          {project?.fe?.status !== 'approved' && (summary.scope_total || 0) > 0 && (
-                            <span className="block text-[10px] font-normal text-gray-500">(pending: ₹{(summary.scope_total || 0).toLocaleString()})</span>
-                          )}
+                          ₹{(summary.scope_total || 0).toLocaleString()}
                         </td>
                         <td colSpan={canManage ? 3 : 2}></td>
                       </tr>
