@@ -3445,7 +3445,11 @@ export default function ProjectDetail() {
     const showLinkCorner = !!fe.public_token || canSendToClient;
 
     const feTotal = summary?.scope_total || 0;
-    const addTotal = (additional_costs || []).reduce((s, a) => s + (a.estimated_amount || 0), 0);
+    // Only CLIENT-APPROVED additions contribute to the grand total (matches backend
+    // /value-summary rule). Pending / under-review / rejected rows count as ₹0.
+    const addTotal = (additional_costs || [])
+      .filter(a => a.client_approval_status === 'client_approved' || a.client_approved === true)
+      .reduce((s, a) => s + (a.estimated_amount || 0), 0);
     const dedTotal = (deductions || []).reduce((s, d) => s + (d.amount || 0), 0);
     const grand = feTotal + addTotal - dedTotal;
     const showTotal = scope_items.length > 0 || addTotal > 0 || dedTotal > 0;
@@ -6696,8 +6700,12 @@ export default function ProjectDetail() {
               {/* Group additions by section_id. Ungrouped rows render first; one block per section below. */}
               {(() => {
                 const sumGroup = (items) => {
-                  const total = items.reduce((s, a) => s + (a.estimated_amount || 0), 0);
-                  const received = items.reduce((s, a) => s + (a.income_received || 0), 0);
+                  // Only CLIENT-APPROVED additions count toward the project total.
+                  // Pending / under-review / rejected rows contribute ₹0 (matches the
+                  // backend rule used in /value-summary and /full-details).
+                  const approved = items.filter(a => a.client_approval_status === 'client_approved' || a.client_approved === true);
+                  const total = approved.reduce((s, a) => s + (a.estimated_amount || 0), 0);
+                  const received = approved.reduce((s, a) => s + (a.income_received || 0), 0);
                   return { total, received, balance: total - received };
                 };
                 const ungrouped = additional_costs.filter(c => !c.section_id);
