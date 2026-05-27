@@ -886,7 +886,139 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
         "income_entries": income_entries,
         "total_income": total_income,
         "pre_construction": pre_construction,
+        # Final Estimate (gated by GM approval — only surface to client AFTER GM has approved)
+        "final_estimate": _build_client_fe_payload(project),
     }
+
+
+def _build_client_fe_payload(project: dict) -> Optional[dict]:
+    """Returns the client-facing FE payload IF GM has approved it.
+    Otherwise returns None so the Client Portal Final Estimate tab is hidden."""
+    fe = project.get("fe") or {}
+    # GM has approved when status moves past pending_gm_review
+    visible_statuses = {"pending_client_review", "feedback_received", "approved"}
+    if fe.get("status") not in visible_statuses:
+        return None
+    return {
+        "status": fe.get("status"),
+        "revision": fe.get("revision", 0),
+        "gm_approved_at": fe.get("gm_approved_at"),
+        "sent_to_client_at": fe.get("sent_to_client_at"),
+        "client_approved_at": fe.get("client_approved_at"),
+        "client_rejected_at": fe.get("client_rejected_at"),
+        "client_feedback": fe.get("client_feedback"),
+        "client_rejection_reason": fe.get("client_rejection_reason"),
+        "public_token": fe.get("public_token"),
+        "package_summary": fe.get("package_summary"),
+    }
+
+
+@router.post("/client-portal/final-estimate/{project_id}/approve")
+async def client_approve_fe(project_id: str, user: User = Depends(get_current_user)):
+    """Client approves the Final Estimate from the portal."""
+    if user.role != UserRole.CLIENT:
+        raise HTTPException(status_code=403, detail="Client access only")
+
+    project = await db.projects.find_one(
+        {"project_id": project_id, "client_user_id": user.user_id},
+        {"_id": 0, "fe": 1, "name": 1, "project_id": 1},
+    )
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    fe = project.get("fe") or {}
+    if fe.get("status") not in ["pending_client_review", "feedback_received"]:
+        raise HTTPException(status_code=400, detail=f"Cannot approve from status: {fe.get('status')}")
+
+    now = datetime.now(timezone.utc).isoformat()
+    fe["status"] = "approved"
+    fe["client_approved_at"] = now
+    fe["client_approved_by"] = user.user_id
+    fe["history"] = (fe.get("history") or []) + [{
+        "action": "client_approve",
+        "revision": fe.get("revision", 0),
+        "by": user.user_id,
+        "at": now,
+    }]
+    await db.projects.update_one({"project_id": project_id}, {"$set": {"fe": fe}})
+
+    # Notify CRE team
+    try:
+        cres = await db.users.find({"role": "cre", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(50)
+        for c in cres:
+            notif = Notification(
+                user_id=c.get("user_id"),
+                title="Client APPROVED Final Estimate",
+                message=f"Client signed off the Final Estimate for {project.get('name', '')}.",
+                link=f"/projects/{project_id}",
+            )
+            nd = notif.model_dump()
+            nd["created_at"] = nd["created_at"].isoformat()
+            await db.notifications.insert_one(nd)
+    except Exception:
+        pass
+
+    return {"message": "Final Estimate approved", "fe": fe}
+
+
+@router.post("/client-portal/final-estimate/{project_id}/reject")
+async def client_reject_fe(project_id: str, body: dict, user: User = Depends(get_current_user)):
+    """Client rejects the Final Estimate from the portal — reason is required."""
+    if user.role != UserRole.CLIENT:
+        raise HTTPException(status_code=403, detail="Client access only")
+
+    reason = (body or {}).get("reason", "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+
+    project = await db.projects.find_one(
+        {"project_id": project_id, "client_user_id": user.user_id},
+        {"_id": 0, "fe": 1, "name": 1, "project_id": 1},
+    )
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    fe = project.get("fe") or {}
+    if fe.get("status") not in ["pending_client_review", "feedback_received"]:
+        raise HTTPException(status_code=400, detail=f"Cannot reject from status: {fe.get('status')}")
+
+    now = datetime.now(timezone.utc).isoformat()
+    fe["status"] = "feedback_received"
+    fe["client_rejection_reason"] = reason
+    fe["client_rejected_at"] = now
+    fe["client_rejected_by"] = user.user_id
+    fe["client_feedback"] = (fe.get("client_feedback") or []) + [{
+        "revision": fe.get("revision", 0),
+        "reason": reason,
+        "by": user.user_id,
+        "at": now,
+    }]
+    fe["history"] = (fe.get("history") or []) + [{
+        "action": "client_reject",
+        "revision": fe.get("revision", 0),
+        "by": user.user_id,
+        "at": now,
+        "reason": reason,
+    }]
+    await db.projects.update_one({"project_id": project_id}, {"$set": {"fe": fe}})
+
+    # Notify CRE team
+    try:
+        cres = await db.users.find({"role": "cre", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(50)
+        for c in cres:
+            notif = Notification(
+                user_id=c.get("user_id"),
+                title="Client REJECTED Final Estimate",
+                message=f"Client returned the Final Estimate for {project.get('name', '')}. Reason: {reason}",
+                link=f"/projects/{project_id}",
+            )
+            nd = notif.model_dump()
+            nd["created_at"] = nd["created_at"].isoformat()
+            await db.notifications.insert_one(nd)
+    except Exception:
+        pass
+
+    return {"message": "Final Estimate rejected", "fe": fe}
 
 
 @router.get("/client-portal/my-projects")

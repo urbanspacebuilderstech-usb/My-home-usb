@@ -26,6 +26,7 @@ import {
   TrendingDown,
   AlertCircle,
   XCircle,
+  AlertTriangle,
   MessageSquare
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -522,6 +523,14 @@ export default function ClientPortal() {
             <CardHeader className="border-b print:hidden">
               <TabsList>
                 <TabsTrigger value="overview">Overview</TabsTrigger>
+                {projectData?.final_estimate && (
+                  <TabsTrigger value="final_estimate" data-testid="cp-tab-final-estimate">
+                    Final Estimate
+                    {projectData.final_estimate.status === 'pending_client_review' && (
+                      <span className="ml-1.5 h-2 w-2 rounded-full bg-amber-500 inline-block" />
+                    )}
+                  </TabsTrigger>
+                )}
                 <TabsTrigger value="payments">Payment Schedule</TabsTrigger>
                 <TabsTrigger value="additional">Additional Work</TabsTrigger>
                 <TabsTrigger value="deductions">Deductions</TabsTrigger>
@@ -688,6 +697,17 @@ export default function ClientPortal() {
                 </div>
               </div>
             </TabsContent>
+
+            {/* Final Estimate Tab — visible only AFTER GM approval */}
+            {projectData?.final_estimate && (
+              <TabsContent value="final_estimate" className="p-4 sm:p-6 print:break-inside-avoid" data-testid="cp-final-estimate-tab">
+                <ClientFinalEstimateView
+                  data={projectData}
+                  onAction={async () => { await fetchProjectData(projectId); setActiveTab('final_estimate'); }}
+                  projectId={projectId}
+                />
+              </TabsContent>
+            )}
 
             {/* Payment Schedule Tab */}
             <TabsContent value="payments" className="p-0 print:break-inside-avoid">
@@ -1191,6 +1211,212 @@ export default function ClientPortal() {
               {decisionDialog.submitting
                 ? 'Sending…'
                 : decisionDialog.mode === 'reject' ? 'Submit Rejection' : 'Send Review Request'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ─── Client Final Estimate View ──────────────────────────────────────────────
+// Surfaces the GM-approved Final Estimate to the client with Approve / Reject CTAs.
+// Talks to /client-portal/final-estimate/{id}/approve and /reject.
+function ClientFinalEstimateView({ data, onAction, projectId }) {
+  const fe = data?.final_estimate || {};
+  const scope = data?.scope_items || [];
+  const total = scope.reduce((s, item) => s + (item.total_amount || 0), 0);
+  const [decision, setDecision] = useState({ open: false, mode: null, reason: '', submitting: false });
+
+  const submit = async () => {
+    setDecision(d => ({ ...d, submitting: true }));
+    try {
+      const url = decision.mode === 'approve'
+        ? `${API}/client-portal/final-estimate/${projectId}/approve`
+        : `${API}/client-portal/final-estimate/${projectId}/reject`;
+      const body = decision.mode === 'reject' ? { reason: decision.reason.trim() } : {};
+      await axios.post(url, body);
+      toast.success(decision.mode === 'approve' ? 'Final Estimate approved — thank you!' : 'Sent back to our team for revision');
+      setDecision({ open: false, mode: null, reason: '', submitting: false });
+      onAction();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Action failed. Please try again.');
+      setDecision(d => ({ ...d, submitting: false }));
+    }
+  };
+
+  const isPendingClient = fe.status === 'pending_client_review' || fe.status === 'feedback_received';
+  const statusLabel = fe.status === 'approved' ? 'Approved by You'
+    : fe.status === 'feedback_received' ? 'Awaiting Revised Estimate'
+    : fe.status === 'pending_client_review' ? 'Awaiting Your Decision'
+    : fe.status;
+  const statusTone = fe.status === 'approved'
+    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    : fe.status === 'feedback_received'
+    ? 'bg-rose-50 text-rose-700 border-rose-200'
+    : 'bg-amber-50 text-amber-700 border-amber-200';
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-white to-blue-50/30 p-5 sm:p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold text-gray-900 flex items-center gap-2">
+              <FileText className="h-5 w-5 text-blue-600" /> Final Estimate
+            </h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              GM-approved on {fe.gm_approved_at ? new Date(fe.gm_approved_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—'} · Revision {fe.revision ?? 0}
+            </p>
+          </div>
+          <Badge variant="outline" className={`text-xs px-2.5 py-1 ${statusTone}`} data-testid="cp-fe-status-badge">{statusLabel}</Badge>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
+          <div className="bg-white rounded-lg border p-3">
+            <p className="text-[10px] uppercase tracking-wide text-gray-500">Estimated Total</p>
+            <p className="text-base sm:text-lg font-bold text-blue-700">₹{(total || 0).toLocaleString('en-IN')}</p>
+          </div>
+          <div className="bg-white rounded-lg border p-3">
+            <p className="text-[10px] uppercase tracking-wide text-gray-500">Scope Items</p>
+            <p className="text-base sm:text-lg font-bold text-gray-900">{scope.length}</p>
+          </div>
+          <div className="bg-white rounded-lg border p-3">
+            <p className="text-[10px] uppercase tracking-wide text-gray-500">Shared With You</p>
+            <p className="text-xs sm:text-sm font-medium text-gray-700">
+              {fe.sent_to_client_at ? new Date(fe.sent_to_client_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Approval-state messages */}
+      {fe.status === 'approved' && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 flex items-start gap-3" data-testid="cp-fe-approved-banner">
+          <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-emerald-800">You approved this Final Estimate</p>
+            <p className="text-xs text-emerald-700 mt-0.5">
+              {fe.client_approved_at ? `Approved on ${new Date(fe.client_approved_at).toLocaleString('en-IN')}` : ''} — your construction can now move forward.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {fe.status === 'feedback_received' && (fe.client_rejection_reason || (fe.client_feedback && fe.client_feedback.length > 0)) && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4" data-testid="cp-fe-feedback-banner">
+          <p className="text-sm font-semibold text-rose-800 flex items-center gap-1">
+            <AlertTriangle className="h-4 w-4" /> You requested a revision
+          </p>
+          <p className="text-xs text-rose-700 mt-1 italic">
+            "{fe.client_rejection_reason || (fe.client_feedback?.[fe.client_feedback.length - 1]?.reason)}"
+          </p>
+          <p className="text-[11px] text-rose-600 mt-1">Our team will share an updated estimate soon. You can also approve the current version if you've changed your mind.</p>
+        </div>
+      )}
+
+      {/* Scope items list */}
+      <div className="rounded-2xl border bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b bg-gray-50">
+          <h3 className="text-sm font-semibold text-gray-900">Scope of Work</h3>
+        </div>
+        {scope.length === 0 ? (
+          <p className="text-center text-xs text-gray-400 py-8">No scope items yet</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs sm:text-sm">
+              <thead className="bg-gray-50/50 text-[11px] text-gray-600 uppercase">
+                <tr>
+                  <th className="text-left px-3 py-2">#</th>
+                  <th className="text-left px-3 py-2">Item</th>
+                  <th className="text-right px-3 py-2">Qty</th>
+                  <th className="text-right px-3 py-2">Unit Rate</th>
+                  <th className="text-right px-3 py-2">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {scope.map((item, idx) => (
+                  <tr key={item.scope_id || idx}>
+                    <td className="px-3 py-2 text-gray-400">{idx + 1}</td>
+                    <td className="px-3 py-2 font-medium text-gray-900">{item.item_name}</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{item.quantity ?? '—'} {item.unit || ''}</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{item.unit_rate ? `₹${item.unit_rate.toLocaleString('en-IN')}` : '—'}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-gray-900">₹{(item.total_amount || 0).toLocaleString('en-IN')}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="bg-blue-50">
+                <tr>
+                  <td colSpan={4} className="px-3 py-2.5 text-right font-semibold">Estimated Total</td>
+                  <td className="px-3 py-2.5 text-right font-bold text-blue-700">₹{(total || 0).toLocaleString('en-IN')}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Approve / Reject actions */}
+      {isPendingClient && (
+        <div className="rounded-xl border-2 border-blue-200 bg-blue-50/40 p-4 sm:p-5" data-testid="cp-fe-actions">
+          <h4 className="text-sm font-semibold text-blue-900 mb-1">Your Decision</h4>
+          <p className="text-xs text-blue-700 mb-3">Approve to confirm the estimate or request a revision with your feedback.</p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+              onClick={() => setDecision({ open: true, mode: 'approve', reason: '', submitting: false })}
+              data-testid="cp-fe-approve-btn"
+            >
+              <CheckCircle2 className="h-4 w-4" /> Approve Final Estimate
+            </Button>
+            <Button
+              variant="outline"
+              className="border-rose-300 text-rose-700 hover:bg-rose-50 gap-2"
+              onClick={() => setDecision({ open: true, mode: 'reject', reason: '', submitting: false })}
+              data-testid="cp-fe-reject-btn"
+            >
+              <XCircle className="h-4 w-4" /> Reject & Request Revision
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Decision dialog */}
+      <Dialog open={decision.open} onOpenChange={(o) => !o && !decision.submitting && setDecision({ open: false, mode: null, reason: '', submitting: false })}>
+        <DialogContent className="max-w-md" data-testid="cp-fe-decision-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {decision.mode === 'approve' ? (
+                <><CheckCircle2 className="h-5 w-5 text-emerald-600" /> Confirm Approval</>
+              ) : (
+                <><XCircle className="h-5 w-5 text-rose-600" /> Request Revision</>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {decision.mode === 'approve'
+                ? 'Once you approve, our team will move your project to the next phase. This action cannot be undone from the portal.'
+                : 'Tell us what you would like to change. Our team will revise the Final Estimate and resend it to you.'}
+            </DialogDescription>
+          </DialogHeader>
+          {decision.mode === 'reject' && (
+            <Textarea
+              autoFocus
+              rows={4}
+              value={decision.reason}
+              onChange={(e) => setDecision(d => ({ ...d, reason: e.target.value }))}
+              placeholder="What needs to change? Be as specific as possible."
+              disabled={decision.submitting}
+              data-testid="cp-fe-reason-input"
+            />
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDecision({ open: false, mode: null, reason: '', submitting: false })} disabled={decision.submitting}>Cancel</Button>
+            <Button
+              className={decision.mode === 'approve' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-rose-600 hover:bg-rose-700 text-white'}
+              onClick={submit}
+              disabled={decision.submitting || (decision.mode === 'reject' && !decision.reason.trim())}
+              data-testid="cp-fe-decision-confirm"
+            >
+              {decision.submitting ? 'Submitting…' : (decision.mode === 'approve' ? 'Yes, Approve' : 'Send to Team')}
             </Button>
           </DialogFooter>
         </DialogContent>
