@@ -4,8 +4,10 @@ import axios from 'axios';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Building2, Phone, MapPin, FileText, Download } from 'lucide-react';
+import { Building2, Phone, MapPin, FileText, Download, CheckCircle2, XCircle } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -16,13 +18,21 @@ export default function PublicFinalEstimateView() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
+  const [me, setMe] = useState(null);
+  const [acting, setActing] = useState(false);
+  const [rejectDialog, setRejectDialog] = useState({ open: false, reason: '' });
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const r = await axios.get(`${API}/public/fe/${token}`);
-        if (mounted) setData(r.data);
+        const [r, meRes] = await Promise.all([
+          axios.get(`${API}/public/fe/${token}`),
+          axios.get(`${API}/auth/me`).catch(() => ({ data: null })),
+        ]);
+        if (!mounted) return;
+        setData(r.data);
+        setMe(meRes.data);
       } catch (e) {
         if (mounted) setErr(e.response?.data?.detail || 'Could not load estimate');
       } finally {
@@ -31,6 +41,43 @@ export default function PublicFinalEstimateView() {
     })();
     return () => { mounted = false; };
   }, [token]);
+
+  const refresh = async () => {
+    try {
+      const r = await axios.get(`${API}/public/fe/${token}`);
+      setData(r.data);
+    } catch { /* ignore */ }
+  };
+
+  const handleApprove = async () => {
+    if (!window.confirm('Approve this Final Estimate? Once approved, only Super Admin can edit it.')) return;
+    setActing(true);
+    try {
+      await axios.post(`${API}/client-portal/final-estimate/${data.project_id}/approve`, {});
+      toast.success('Final Estimate approved');
+      await refresh();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Approval failed');
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const handleReject = async () => {
+    const reason = rejectDialog.reason.trim();
+    if (!reason || reason.length < 3) { toast.error('Please share a brief reason'); return; }
+    setActing(true);
+    try {
+      await axios.post(`${API}/client-portal/final-estimate/${data.project_id}/reject`, { reason });
+      toast.success('Sent back to Planning for revision');
+      setRejectDialog({ open: false, reason: '' });
+      await refresh();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Reject failed');
+    } finally {
+      setActing(false);
+    }
+  };
 
   const handleDownload = () => {
     window.print();
@@ -104,6 +151,65 @@ export default function PublicFinalEstimateView() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Action card — visible only to logged-in clients */}
+        {me && me.role === 'client' && data.fe_status && (() => {
+          const isApproved = data.fe_status === 'approved' || data.fe_status === 'client_approved';
+          const isRejected = data.fe_status === 'feedback_received' || data.fe_status === 'client_rejected';
+          if (isApproved) {
+            return (
+              <Card className="border-emerald-300 bg-emerald-50" data-testid="fe-approval-status-approved">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <CheckCircle2 className="h-6 w-6 text-emerald-600 shrink-0" />
+                  <div className="text-sm">
+                    <p className="font-semibold text-emerald-800">You approved this Final Estimate</p>
+                    <p className="text-emerald-700 text-xs">Approved on {data.approved_at ? new Date(data.approved_at).toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—'}. The estimate is now locked and cannot be edited.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          }
+          if (isRejected) {
+            return (
+              <Card className="border-amber-300 bg-amber-50" data-testid="fe-approval-status-rejected">
+                <CardContent className="p-4 flex items-start gap-3">
+                  <XCircle className="h-6 w-6 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-sm flex-1">
+                    <p className="font-semibold text-amber-800">Revision requested</p>
+                    <p className="text-amber-700 text-xs">Our planning team has been notified and is preparing a revised estimate for you. You'll receive a fresh notification once the new version is ready.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          }
+          return (
+            <Card className="border-amber-200" data-testid="fe-approval-actions">
+              <CardContent className="p-4">
+                <p className="text-sm font-semibold text-gray-800">Your decision</p>
+                <p className="text-xs text-gray-500 mt-0.5">Please review the scope below. Approving will lock this Final Estimate as the final agreement.</p>
+                <div className="flex gap-2 mt-3 flex-wrap">
+                  <Button
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                    onClick={handleApprove}
+                    disabled={acting}
+                    data-testid="fe-approve-btn"
+                  >
+                    <CheckCircle2 className="h-4 w-4" /> Approve
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="border-rose-300 text-rose-700 hover:bg-rose-50 gap-1.5"
+                    onClick={() => setRejectDialog({ open: true, reason: '' })}
+                    disabled={acting}
+                    data-testid="fe-reject-btn"
+                  >
+                    <XCircle className="h-4 w-4" /> Reject
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         <Card>
           <CardHeader className="pb-2">
@@ -200,6 +306,37 @@ export default function PublicFinalEstimateView() {
           </Button>
         </div>
       </div>
+
+      {/* Reject reason dialog */}
+      <Dialog open={rejectDialog.open} onOpenChange={(o) => !acting && setRejectDialog(r => ({ ...r, open: o }))}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><XCircle className="h-5 w-5 text-rose-600" /> Reject Final Estimate</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-2">
+            <p className="text-xs text-gray-500">Tell our planning team what needs to change. They'll prepare a revised estimate based on your feedback.</p>
+            <Textarea
+              placeholder="e.g. Please remove the additional car parking. Increase the kitchen scope."
+              value={rejectDialog.reason}
+              onChange={(e) => setRejectDialog(r => ({ ...r, reason: e.target.value }))}
+              rows={4}
+              data-testid="reject-reason-input"
+              className="resize-none"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialog({ open: false, reason: '' })} disabled={acting}>Cancel</Button>
+            <Button
+              className="bg-rose-600 hover:bg-rose-700 text-white"
+              onClick={handleReject}
+              disabled={acting || rejectDialog.reason.trim().length < 3}
+              data-testid="reject-submit-btn"
+            >
+              {acting ? 'Sending…' : 'Send Feedback'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1018,12 +1018,23 @@ async def client_reject_fe(project_id: str, body: dict, user: User = Depends(get
     }]
     await db.projects.update_one({"project_id": project_id}, {"$set": {"fe": fe}})
 
-    # Notify CRE team
+    # Notify Planning Person (assigned) + Planning Head + CRE — client feedback flows back to Planning for correction.
     try:
-        cres = await db.users.find({"role": "cre", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(50)
-        for c in cres:
+        full_proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "assigned_planning_person_id": 1, "team": 1})
+        recipient_ids = set()
+        if full_proj:
+            if full_proj.get("assigned_planning_person_id"):
+                recipient_ids.add(full_proj["assigned_planning_person_id"])
+        # Add all Planning Heads + CREs as broad fallback
+        broader = await db.users.find(
+            {"role": {"$in": ["planning", "planning_person", "cre", "super_admin"]}, "is_active": True},
+            {"_id": 0, "user_id": 1},
+        ).to_list(100)
+        for u in broader:
+            recipient_ids.add(u["user_id"])
+        for uid in recipient_ids:
             notif = Notification(
-                user_id=c.get("user_id"),
+                user_id=uid,
                 title="Client REJECTED Final Estimate",
                 message=f"Client returned the Final Estimate for {project.get('name', '')}. Reason: {reason}",
                 link=f"/projects/{project_id}",
