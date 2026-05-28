@@ -21,6 +21,8 @@ export default function CREFEDetail() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [credDialog, setCredDialog] = useState({ open: false, email: '', password: '', showPwd: false, submitting: false });
+  // After credentials are created, surface them on the page so CRE can copy/share
+  const [issuedCreds, setIssuedCreds] = useState(null);  // { email, password }
 
   const handleCreateCredentials = async () => {
     const { email, password } = credDialog;
@@ -28,13 +30,19 @@ export default function CREFEDetail() {
     if (!password || password.length < 6) { toast.error('Password must be at least 6 characters'); return; }
     setCredDialog(c => ({ ...c, submitting: true }));
     try {
-      await axios.post(`${API}/projects/${projectId}/create-client-portal`, { email, password });
-      toast.success('Client portal credentials created — share via WhatsApp');
+      const res = await axios.post(`${API}/projects/${projectId}/create-client-portal`, { email, password });
+      toast.success('Client portal credentials created');
+      setIssuedCreds({ email: res.data?.email || email, password: res.data?.password || password });
       setCredDialog({ open: false, email: '', password: '', showPwd: false, submitting: false });
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to create credentials');
       setCredDialog(c => ({ ...c, submitting: false }));
     }
+  };
+
+  const copyText = (text, label) => {
+    navigator.clipboard.writeText(text);
+    toast.success(`${label} copied`);
   };
 
   useEffect(() => {
@@ -148,16 +156,26 @@ export default function CREFEDetail() {
                 </div>
               )}
             </div>
-            {publicUrl && (
-              <div className="mt-3 pt-3 border-t flex items-center gap-2">
-                <span className="text-xs text-gray-500">Public client link:</span>
-                <code className="flex-1 text-xs bg-gray-50 px-2 py-1 rounded border truncate">{publicUrl}</code>
-                <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => { navigator.clipboard.writeText(publicUrl); toast.success('Copied'); }} data-testid="fe-detail-copy-link">
-                  <Copy className="h-3 w-3" />
-                </Button>
-                <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => window.open(publicUrl, '_blank')} data-testid="fe-detail-open-link">
-                  <ExternalLink className="h-3 w-3" />
-                </Button>
+            {issuedCreds && (
+              <div className="mt-3 pt-3 border-t space-y-2" data-testid="issued-credentials-block">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-emerald-700 font-medium uppercase tracking-wide flex-shrink-0">Client portal credentials:</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500 w-20 flex-shrink-0">Email:</span>
+                  <code className="flex-1 text-xs bg-gray-50 px-2 py-1 rounded border truncate font-mono">{issuedCreds.email}</code>
+                  <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => copyText(issuedCreds.email, 'Email')} data-testid="issued-copy-email">
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500 w-20 flex-shrink-0">Password:</span>
+                  <code className="flex-1 text-xs bg-gray-50 px-2 py-1 rounded border truncate font-mono">{issuedCreds.password}</code>
+                  <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => copyText(issuedCreds.password, 'Password')} data-testid="issued-copy-password">
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+                <p className="text-[11px] text-gray-400 italic">Share these with the client (e.g. via WhatsApp). The password is shown only once — copy now.</p>
               </div>
             )}
           </CardContent>
