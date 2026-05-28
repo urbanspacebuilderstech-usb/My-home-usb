@@ -1573,15 +1573,20 @@ async def accountant_verify(lead_id: str, user: User = Depends(get_current_user)
         }}
     )
     
-    # Also update the project status
+    # Also update the project status — NEW WORKFLOW (Feb 2026): auto-route to Planning Head
     if lead.get("project_id"):
         await db.projects.update_one(
             {"project_id": lead["project_id"]},
             {"$set": {
-                "status": "payment_received",
+                "status": "in_planning",
                 "accountant_verified": True,
                 "accountant_verified_by": user.user_id,
-                "accountant_verified_at": now
+                "accountant_verified_at": now,
+                "planning_status": "new",
+                "planning_new_date": now.isoformat(),
+                "sent_to_planning_by": user.user_id,
+                "sent_to_planning_at": now.isoformat(),
+                "auto_sent_to_planning": True,
             }}
         )
     

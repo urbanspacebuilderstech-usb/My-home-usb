@@ -691,17 +691,40 @@ async def accountant_verify_advance(project_id: str, data: AccountantVerifyInput
     now = datetime.now(timezone.utc)
     txn_id = (data.transaction_id if data else None) or project.get("advance_payment_reference", "")
     pay_type = (data.payment_type if data else None) or project.get("advance_payment_mode", "cash")
-    
+
+    # NEW WORKFLOW (Feb 2026): Once accountant verifies the advance, the project
+    # automatically lands on Planning Head's "New Projects" queue. CRE is removed
+    # from this hop entirely; Planning Head later assigns a CRE via the Team tab
+    # which is what makes the project visible on that CRE's board.
     await db.projects.update_one(
         {"project_id": project_id},
         {"$set": {
-            "status": "payment_verified",
+            "status": "in_planning",
             "accountant_verified": True,
             "accountant_verified_by": user.user_id,
             "accountant_verified_at": now.isoformat(),
             "advance_transaction_id": txn_id,
+            "planning_status": "new",
+            "planning_new_date": now.isoformat(),
+            "sent_to_planning_by": user.user_id,
+            "sent_to_planning_at": now.isoformat(),
+            "auto_sent_to_planning": True,
         }}
     )
+
+    # Notify Planning Head + Planning Persons about the newly arrived project
+    try:
+        planning_recipients = await db.users.find(
+            {"role": {"$in": ["planning", "planning_person", "super_admin"]}, "is_active": True},
+            {"_id": 0, "user_id": 1},
+        ).to_list(100)
+        for pu in planning_recipients:
+            await create_notification(
+                pu["user_id"],
+                f"New project after accountant verify: {project.get('name')} — please assign CRE & team.",
+            )
+    except Exception:
+        pass
     
     # Record income entry in income_entries collection
     income_entry = {
@@ -735,7 +758,7 @@ async def accountant_verify_advance(project_id: str, data: AccountantVerifyInput
     }
     await db.income.insert_one(main_income)
     
-    return {"message": "Advance payment verified and recorded", "status": "payment_verified", "transaction_id": txn_id}
+    return {"message": "Advance verified — project auto-routed to Planning Head", "status": "in_planning", "transaction_id": txn_id}
 
 
 @router.patch("/cre/projects/{project_id}/send-to-planning")

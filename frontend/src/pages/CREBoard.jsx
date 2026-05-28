@@ -86,11 +86,11 @@ export default function CREBoard() {
   const [dashboard, setDashboard] = useState({});
   const [packages, setPackages] = useState([]);
   const [projects, setProjects] = useState([]);
-  const [activeTab, setActiveTab] = useState('new_deals');
+  const [activeTab, setActiveTab] = useState('final_estimate');
   const [searchParams] = useSearchParams();
   useEffect(() => {
     const t = searchParams.get('tab');
-    if (t) setActiveTab(t);
+    if (t && t !== 'new_deals') setActiveTab(t);
   }, [searchParams]);
 
   // ─── Global Meta-style Date Range Filter (Sales/Pre-Sales-style popover) ───
@@ -748,12 +748,6 @@ export default function CREBoard() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
             <TabsList className="bg-white border shadow-sm">
-              <TabsTrigger value="new_deals" className="text-xs sm:text-sm gap-1.5" data-testid="tab-new-deals">
-                New Deals {(() => {
-                  const c = (pendingApprovals.advance_verified || []).filter(p => inDateRange(p.advance_verified_at || p.created_at)).length;
-                  return c > 0 ? <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{c}</Badge> : null;
-                })()}
-              </TabsTrigger>
               <TabsTrigger value="final_estimate" className="text-xs sm:text-sm gap-1.5" data-testid="tab-final-estimate">
                 Final Estimate {(() => {
                   const c = feProjects.filter(p => p.fe?.status !== 'approved').length;
@@ -792,53 +786,7 @@ export default function CREBoard() {
             </TabsList>
           </div>
 
-          {/* ==================== TAB 1: NEW DEALS ==================== */}
-          <TabsContent value="new_deals">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2"><Target className="h-4 w-4 text-yellow-600" />New Deals — Advance Verified</CardTitle>
-                <p className="text-xs text-gray-500 mt-1">Projects automatically arrive here once Accountant verifies the advance payment. Click "Send to Planning" to hand over.</p>
-              </CardHeader>
-              <CardContent className="p-0">
-                {(() => {
-                  const dealsInRange = (pendingApprovals.advance_verified || []).filter(p => inDateRange(p.advance_verified_at || p.created_at));
-                  if (dealsInRange.length === 0) {
-                    return (
-                      <div className="p-8 text-center text-gray-400">
-                        <Target className="h-10 w-10 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">No new deals waiting for handover</p>
-                      </div>
-                    );
-                  }
-                  return (
-                  <div className="divide-y">
-                    {dealsInRange.map((p) => (
-                      <div key={p.project_id} className="p-4 hover:bg-gray-50 transition-colors" data-testid={`deal-card-${p.project_id}`}>
-                        <div className="flex justify-between items-start gap-4">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h4 className="font-semibold truncate">{p.name}</h4>
-                              <Badge className="bg-green-100 text-green-700 text-xs shrink-0">Advance Verified</Badge>
-                            </div>
-                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-                              <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{p.client_phone || '-'}</span>
-                              <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{p.location || '-'}</span>
-                              <span className="text-gray-700">Client: <span className="font-medium">{p.client_name}</span></span>
-                              {p.advance_amount > 0 && <span className="font-medium text-green-600">Advance: {formatCurrency(p.advance_amount)}</span>}
-                            </div>
-                          </div>
-                          <Button className="bg-amber-600 hover:bg-amber-700 shrink-0" size="sm" onClick={() => handleSubmitToPlanning(p.project_id)} data-testid={`send-to-planning-${p.project_id}`}>
-                            <ArrowRight className="h-4 w-4 mr-1" />Convert
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  );
-                })()}
-              </CardContent>
-            </Card>
-          </TabsContent>
+          {/* TAB 1: NEW DEALS — REMOVED (Feb 2026 workflow: accountant verify auto-routes to Planning Head) */}
 
           {/* ==================== TAB 1.5: FINAL ESTIMATE ==================== */}
           <TabsContent value="final_estimate">

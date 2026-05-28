@@ -646,15 +646,21 @@ async def approve_income(income_id: str, user: User = Depends(get_current_user))
     if not result:
         raise HTTPException(status_code=404, detail="Income entry not found or already processed")
     
-    # If this is an advance payment, update project status to payment_verified + move lead to Project Onboarded
+    # If this is an advance payment, auto-route to Planning Head (NEW Feb 2026 workflow — skip CRE)
     if result.get("category") == "advance_payment" and result.get("project_id"):
+        _now_iso = datetime.now(timezone.utc).isoformat()
         project_upd = await db.projects.find_one_and_update(
             {"project_id": result["project_id"]},
             {"$set": {
-                "status": "payment_verified",
+                "status": "in_planning",
                 "accountant_verified": True,
                 "accountant_verified_by": user.user_id,
-                "accountant_verified_at": datetime.now(timezone.utc).isoformat()
+                "accountant_verified_at": _now_iso,
+                "planning_status": "new",
+                "planning_new_date": _now_iso,
+                "sent_to_planning_by": user.user_id,
+                "sent_to_planning_at": _now_iso,
+                "auto_sent_to_planning": True,
             }},
             return_document=False
         )
@@ -1355,13 +1361,20 @@ async def review_income(income_id: str, data: IncomeReviewRequest, user: User = 
     
     # If this is an advance payment, update project status + move lead to Project Onboarded
     if income.get("category") == "advance_payment" and project_id:
+        # NEW WORKFLOW (Feb 2026): auto-route to Planning Head (skip CRE entirely)
+        _now_iso = datetime.now(timezone.utc).isoformat()
         await db.projects.update_one(
             {"project_id": project_id, "status": "pending_payment"},
             {"$set": {
-                "status": "payment_verified",
+                "status": "in_planning",
                 "accountant_verified": True,
                 "accountant_verified_by": user.user_id,
-                "accountant_verified_at": datetime.now(timezone.utc).isoformat()
+                "accountant_verified_at": _now_iso,
+                "planning_status": "new",
+                "planning_new_date": _now_iso,
+                "sent_to_planning_by": user.user_id,
+                "sent_to_planning_at": _now_iso,
+                "auto_sent_to_planning": True,
             }}
         )
 
