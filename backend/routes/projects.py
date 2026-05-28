@@ -3864,7 +3864,7 @@ async def create_additional_cost(cost_input: AdditionalCostCreate, user: User = 
 async def update_additional_cost(cost_id: str, update_data: AdditionalCostUpdate, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    existing = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0, "project_id": 1})
+    existing = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
     if existing:
         await _assert_fe_editable_for_planning_person(existing.get("project_id"), user)
     
@@ -3872,6 +3872,17 @@ async def update_additional_cost(cost_id: str, update_data: AdditionalCostUpdate
     
     await db.additional_costs.update_one({"cost_id": cost_id}, {"$set": update_dict})
     await create_audit_log(user.user_id, "update", "additional_cost", cost_id, update_dict)
+
+    # Propagate any amount/price/qty change to the linked payment_stage (if a
+    # "Req Payment" was previously raised) so Payment Schedule reflects reality.
+    if existing and any(k in update_dict for k in ("estimated_amount", "actual_amount", "qty", "price")):
+        merged = {**existing, **update_dict}
+        new_amount = merged.get("estimated_amount") or merged.get("actual_amount") or ((merged.get("qty") or 0) * (merged.get("price") or 0)) or 0
+        if new_amount:
+            await db.payment_stages.update_one(
+                {"linked_addition_id": cost_id},
+                {"$set": {"amount": new_amount}},
+            )
     return {"message": "Additional cost updated"}
 
 
@@ -4481,7 +4492,7 @@ async def request_additional_payment(cost_id: str, request: Request, user: User 
         raise HTTPException(status_code=404, detail="Additional cost not found")
     
     project = await db.projects.find_one({"project_id": cost["project_id"]}, {"_id": 0}) or {}
-    amount = (cost.get("estimated_amount", 0) or cost.get("actual_amount", 0))
+    amount = (cost.get("estimated_amount") or cost.get("actual_amount") or ((cost.get("qty") or 0) * (cost.get("price") or 0)) or 0)
     balance = amount - (cost.get("income_received", 0) or 0)
     
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -4510,11 +4521,16 @@ async def request_additional_payment(cost_id: str, request: Request, user: User 
             "created_by": user.user_id,
         }
         await db.payment_stages.insert_one(stage_doc)
-    elif expected_date:
-        # Existing stage — update due_date if a fresh date is provided
+    else:
+        # Sync the existing stage to the latest cost amount (in case the addition
+        # was re-priced after the original Req Payment).
+        sync_fields = {"amount": amount, "workflow_status": "requested"}
+        if expected_date:
+            sync_fields["due_date"] = expected_date
+            sync_fields["expected_payment_date"] = expected_date
         await db.payment_stages.update_one(
             {"stage_id": stage_id},
-            {"$set": {"due_date": expected_date, "expected_payment_date": expected_date, "workflow_status": "requested"}},
+            {"$set": sync_fields},
         )
     
     update_fields = {
