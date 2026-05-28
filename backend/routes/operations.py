@@ -1806,115 +1806,117 @@ async def get_monthly_schedule(
     year: int = Query(..., ge=2020, le=2050),
     user: User = Depends(get_current_user)
 ):
-    """Get monthly payment schedule with auto-carryover from previous months"""
+    """Monthly payment schedule with **strict single-step carryover**.
+
+    Rules (per user spec, Feb 2026):
+    • A stage belongs to exactly ONE month at a time — computed dynamically:
+        - Collected stages → show in their **collection month**
+        - Uncollected stages with due-date in the FUTURE → show in **planned month**
+        - Uncollected stages with due-date PASSED → show in **current calendar month** (carried)
+    • Past-due overdue items never appear in their original month after carry.
+    • Original `expected_payment_date` is preserved (carryover info is computed, not persisted).
+    """
     allowed = [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail="Access denied")
-    
-    # 1. Get entries for this month
-    entries = await db.monthly_schedule_entries.find(
-        {"month": month, "year": year}, {"_id": 0}
-    ).sort("added_at", 1).to_list(1000)
-    
-    # 1b. Backfill: ensure any Additional Work payment_stages that were "Requested"
-    # with an expected_payment_date in/before this month have a monthly_schedule_entries
-    # row. Older entries may pre-date the auto-create logic in request_additional_payment.
-    try:
-        month_end = (datetime(year, month, 28) + timedelta(days=4)).replace(day=1).isoformat()
-        addition_stages = await db.payment_stages.find(
-            {
-                "is_addition": True,
-                "expected_payment_date": {"$ne": None, "$lt": month_end},
-                "status": {"$nin": ["paid", "collected"]},
-            },
-            {"_id": 0},
-        ).to_list(2000)
-        existing_stage_ids_global = await db.monthly_schedule_entries.distinct("stage_id")
-        existing_global_set = set(existing_stage_ids_global)
-        for s in addition_stages:
-            sid = s.get("stage_id")
-            if not sid or sid in existing_global_set:
-                continue
-            try:
-                dt = datetime.strptime(s["expected_payment_date"][:10], "%Y-%m-%d")
-            except (ValueError, TypeError):
-                continue
-            await db.monthly_schedule_entries.insert_one({
-                "entry_id": f"mse_{uuid.uuid4().hex[:12]}",
-                "month": dt.month,
-                "year": dt.year,
-                "project_id": s["project_id"],
-                "stage_id": sid,
-                "expected_payment_date": s["expected_payment_date"],
-                "is_addition": True,
-                "linked_addition_id": s.get("linked_addition_id"),
-                "added_by": "system_backfill",
-                "added_at": datetime.now(timezone.utc).isoformat(),
-            })
-        # Re-fetch this month's entries after backfill
-        entries = await db.monthly_schedule_entries.find(
-            {"month": month, "year": year}, {"_id": 0}
-        ).sort("added_at", 1).to_list(1000)
-    except Exception:
-        # Backfill is best-effort; never block the main response
-        pass
-    
-    # 2. Get all uncollected entries from ALL previous months (carryover)
-    prev_entries = await db.monthly_schedule_entries.find(
-        {"$or": [
-            {"year": {"$lt": year}},
-            {"year": year, "month": {"$lt": month}}
-        ]},
-        {"_id": 0}
-    ).to_list(5000)
-    
-    # Get stage_ids already in this month
-    current_stage_ids = {e.get("stage_id") for e in entries}
-    
-    # 3. Check which previous entries are still uncollected
-    for pe in prev_entries:
-        if pe.get("stage_id") in current_stage_ids:
+
+    today = datetime.now(timezone.utc).date()
+    today_month = today.month
+    today_year = today.year
+    is_current_month_view = (month == today_month and year == today_year)
+
+    def _parse_date(val):
+        if not val:
+            return None
+        try:
+            return datetime.strptime(str(val)[:10], "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            return None
+
+    def _planned_month_for_stage(stage, planned_entry):
+        """Return (planned_month, planned_year) for a stage based on
+        Planning's manual entry (preferred) OR the stage's expected_payment_date."""
+        if planned_entry and planned_entry.get("month") and planned_entry.get("year"):
+            return planned_entry["month"], planned_entry["year"]
+        d = _parse_date(stage.get("expected_payment_date")) or _parse_date(stage.get("due_date"))
+        if d:
+            return d.month, d.year
+        return None, None
+
+    def _collection_month_for_stage(stage):
+        """Return (month, year) when stage was collected, or None if not collected."""
+        if stage.get("status") not in ("paid", "collected"):
+            return None, None
+        d = _parse_date(stage.get("paid_at")) or _parse_date(stage.get("collected_at")) or _parse_date(stage.get("updated_at"))
+        if d:
+            return d.month, d.year
+        return None, None
+
+    # 1. Hydrate Planning's manual "added to month" entries (NON-carryover only)
+    manual_entries = await db.monthly_schedule_entries.find(
+        {"is_carryover": {"$ne": True}}, {"_id": 0}
+    ).to_list(20000)
+    manual_by_stage = {e["stage_id"]: e for e in manual_entries if e.get("stage_id")}
+
+    # 2. Hydrate every payment_stage that could possibly belong to the requested month
+    #    Cast wide net: anything with a planned date OR a manual entry referencing it.
+    candidate_stage_ids = set(manual_by_stage.keys())
+    stage_query_or = [
+        {"stage_id": {"$in": list(candidate_stage_ids)}} if candidate_stage_ids else None,
+        {"expected_payment_date": {"$ne": None}},
+        {"due_date": {"$ne": None}},
+    ]
+    stage_query_or = [q for q in stage_query_or if q]
+    stages_cursor = await db.payment_stages.find(
+        {"$or": stage_query_or}, {"_id": 0}
+    ).to_list(20000) if stage_query_or else []
+
+    # 3. Classify each stage into a single effective month
+    matching_stages = []
+    for stage in stages_cursor:
+        manual = manual_by_stage.get(stage.get("stage_id"))
+        planned_month, planned_year = _planned_month_for_stage(stage, manual)
+        if not planned_month:
             continue
-        stage = await db.payment_stages.find_one(
-            {"stage_id": pe["stage_id"]}, {"_id": 0, "status": 1}
-        )
-        if stage and stage.get("status") not in ("paid", "collected"):
-            carryover = {
-                "entry_id": f"mse_{uuid.uuid4().hex[:12]}",
-                "month": month, "year": year,
-                "project_id": pe["project_id"],
-                "stage_id": pe["stage_id"],
-                "is_carryover": True,
-                "carry_from_month": pe.get("carry_from_month") or pe["month"],
-                "carry_from_year": pe.get("carry_from_year") or pe["year"],
-                "added_by": "system",
-                "added_at": datetime.now(timezone.utc).isoformat()
-            }
-            await db.monthly_schedule_entries.insert_one(carryover)
-            current_stage_ids.add(pe["stage_id"])
-    
-    # Re-fetch all entries for this month (now includes carryovers)
-    all_entries = await db.monthly_schedule_entries.find(
-        {"month": month, "year": year}, {"_id": 0}
-    ).sort("added_at", 1).to_list(1000)
-    
-    # 4. Enrich with stage + project details
-    enriched = []
+
+        collection_month, collection_year = _collection_month_for_stage(stage)
+        if collection_month:
+            # COLLECTED — owns its collection month.
+            effective_month, effective_year = collection_month, collection_year
+            is_carryover = (collection_month, collection_year) != (planned_month, planned_year)
+        else:
+            # UNCOLLECTED — does the due date fall on or before today?
+            due_date = _parse_date(stage.get("expected_payment_date")) or _parse_date(stage.get("due_date"))
+            if due_date and due_date <= today and (planned_year, planned_month) < (today_year, today_month):
+                # Past due AND planned for an earlier month → owns the current calendar month.
+                effective_month, effective_year = today_month, today_year
+                is_carryover = True
+            else:
+                # Either future-dated, or due this current month → keep in planned month.
+                effective_month, effective_year = planned_month, planned_year
+                is_carryover = False
+
+        if effective_month == month and effective_year == year:
+            matching_stages.append({
+                "stage": stage,
+                "manual_entry": manual,
+                "planned_month": planned_month,
+                "planned_year": planned_year,
+                "is_carryover": is_carryover,
+            })
+
+    # 4. Project + pending-approval lookups
+    pid_set = list({m["stage"].get("project_id") for m in matching_stages if m["stage"].get("project_id")})
     project_cache = {}
-    stage_ids = [e["stage_id"] for e in all_entries]
-    stages_map = {}
-    if stage_ids:
-        stages_list = await db.payment_stages.find({"stage_id": {"$in": stage_ids}}, {"_id": 0}).to_list(5000)
-        stages_map = {s["stage_id"]: s for s in stages_list}
-    
-    pid_set = list(set(e.get("project_id") for e in all_entries if e.get("project_id")))
     if pid_set:
-        proj_docs = await db.projects.find({"project_id": {"$in": pid_set}}, {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "total_value": 1}).to_list(1000)
+        proj_docs = await db.projects.find(
+            {"project_id": {"$in": pid_set}},
+            {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "total_value": 1},
+        ).to_list(2000)
         project_cache = {p["project_id"]: p for p in proj_docs}
 
-    # Pending-approval income roll-up per stage (so CRE can hide Collect button until Accountant approves)
     pending_by_stage = {}
-    if stage_ids:
+    if matching_stages:
         pending_inc = await db.income.aggregate([
             {"$match": {"status": "pending_approval", "category": "payment_collection"}},
             {"$group": {
@@ -1923,26 +1925,42 @@ async def get_monthly_schedule(
                 "count": {"$sum": 1},
             }},
         ]).to_list(5000)
-        # Map by stage_id: lookup via stages_map (stage label/name)
         for item in pending_inc:
             key = (item["_id"]["project_id"], item["_id"]["stage"])
             pending_by_stage[key] = {"total": item["total"], "count": item["count"]}
-    
-    for entry in all_entries:
-        stage = stages_map.get(entry["stage_id"])
-        if not stage:
-            continue
-        proj = project_cache.get(entry.get("project_id"), {})
+
+    # 5. Build the response entries
+    enriched = []
+    for m in matching_stages:
+        stage = m["stage"]
+        proj = project_cache.get(stage.get("project_id"), {})
         stage_label = stage.get("stage_label", stage.get("stage_name", ""))
-        pkey = (entry.get("project_id"), stage_label)
+        pkey = (stage.get("project_id"), stage_label)
         pending = pending_by_stage.get(pkey, {"total": 0, "count": 0})
+
+        manual = m["manual_entry"] or {}
+        days_overdue = 0
+        if m["is_carryover"]:
+            due_date = _parse_date(stage.get("expected_payment_date")) or _parse_date(stage.get("due_date"))
+            if due_date:
+                days_overdue = max(0, (today - due_date).days)
+
         enriched.append({
-            **entry,
+            "entry_id": manual.get("entry_id") or f"computed_{stage.get('stage_id')}",
+            "stage_id": stage.get("stage_id"),
+            "project_id": stage.get("project_id"),
+            "month": month,
+            "year": year,
+            "is_carryover": m["is_carryover"],
+            "carry_from_month": m["planned_month"] if m["is_carryover"] else None,
+            "carry_from_year": m["planned_year"] if m["is_carryover"] else None,
+            "days_overdue": days_overdue,
             "stage_name": stage.get("stage_name", ""),
             "stage_label": stage.get("stage_label", ""),
             "percentage": stage.get("percentage", 0),
             "amount": stage.get("amount", 0),
-            "amount_received": stage.get("amount_received", 0),
+            "amount_received": stage.get("amount_received", 0) or 0,
+            "balance_due": max(0, (stage.get("amount", 0) or 0) - (stage.get("amount_received", 0) or 0)),
             "pending_approval_amount": pending["total"],
             "pending_approval_count": pending["count"],
             "stage_status": stage.get("status", "pending"),
@@ -1950,20 +1968,26 @@ async def get_monthly_schedule(
             "due_date": stage.get("due_date"),
             "expected_payment_date": stage.get("expected_payment_date") or stage.get("due_date"),
             "requested_at": stage.get("requested_at"),
+            "is_addition": manual.get("is_addition") or stage.get("is_addition") or False,
             "project_name": proj.get("name", "Unknown"),
             "client_name": proj.get("client_name", ""),
             "project_value": proj.get("total_value", 0),
+            "added_by": manual.get("added_by"),
+            "added_at": manual.get("added_at"),
         })
-    
-    # 5. Summary
-    total_planned = sum(e.get("amount", 0) for e in enriched)
-    total_received = sum(e.get("amount_received", 0) or 0 for e in enriched)
-    carryover_count = sum(1 for e in enriched if e.get("is_carryover"))
-    requested_count = sum(1 for e in enriched if e.get("workflow_status") in ("requested", "pending_collection"))
-    collected_count = sum(1 for e in enriched if e.get("stage_status") in ("paid", "collected"))
-    
+
+    enriched.sort(key=lambda e: (e.get("expected_payment_date") or "", e.get("project_name") or ""))
+
+    # 6. Summary — outstanding = sum of balances on uncollected entries
+    total_planned = sum(e["amount"] for e in enriched)
+    total_received = sum(e["amount_received"] for e in enriched)
+    carryover_count = sum(1 for e in enriched if e["is_carryover"])
+    requested_count = sum(1 for e in enriched if e["workflow_status"] in ("requested", "pending_collection"))
+    collected_count = sum(1 for e in enriched if e["stage_status"] in ("paid", "collected"))
+
     return {
         "month": month, "year": year,
+        "is_current_month_view": is_current_month_view,
         "entries": enriched,
         "summary": {
             "total_entries": len(enriched),

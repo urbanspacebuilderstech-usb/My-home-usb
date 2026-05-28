@@ -1148,7 +1148,7 @@ export default function CREBoard() {
                                       {e.stage_name}
                                       {e.is_carryover && (
                                         <Badge className="ml-1.5 bg-red-50 text-red-700 border-red-200 text-[10px] align-middle" data-testid="last-month-pending-badge">
-                                          🔴 Last Month Pending{e.carry_from_month ? ` (${new Date(2000, e.carry_from_month - 1, 1).toLocaleString('en-IN', { month: 'short' })} ${e.carry_from_year})` : ''}
+                                          🔴 Carried from {e.carry_from_month ? `${new Date(2000, e.carry_from_month - 1, 1).toLocaleString('en-IN', { month: 'short' })} ${e.carry_from_year}` : 'earlier'}{e.days_overdue > 0 ? ` · ${e.days_overdue}d overdue` : ''}
                                         </Badge>
                                       )}
                                     </td>
