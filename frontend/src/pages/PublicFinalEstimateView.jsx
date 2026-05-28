@@ -31,6 +31,12 @@ export default function PublicFinalEstimateView() {
           axios.get(`${API}/auth/me`).catch(() => ({ data: null })),
         ]);
         if (!mounted) return;
+        // Login-gated FE link (per business rule): if not signed in, redirect
+        // to /login?next=/fe/<token> and return here after auth.
+        if (!meRes.data) {
+          window.location.replace(`/login?next=${encodeURIComponent(`/fe/${token}`)}`);
+          return;
+        }
         setData(r.data);
         setMe(meRes.data);
       } catch (e) {

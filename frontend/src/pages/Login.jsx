@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -55,6 +55,8 @@ const DEMO_USERS = [
 
 export default function Login() {
   const navigate = useNavigate();
+  const [sp] = useSearchParams();
+  const nextUrl = sp.get('next');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loginTab, setLoginTab] = useState('password');
@@ -106,6 +108,11 @@ export default function Login() {
       // Seed the cache with the freshly authenticated user so the next
       // route hydrates instantly without an extra /auth/me round-trip.
       try { sessionStorage.setItem('mhu_user_cache', JSON.stringify(data)); } catch {}
+      // If user came from a protected URL (e.g. /fe/:token), send them back there.
+      if (nextUrl && nextUrl.startsWith('/')) {
+        navigate(nextUrl, { replace: true });
+        return;
+      }
       const target = getRoleRedirect(data.role);
       navigate(target, { replace: true });
     } catch (error) {
@@ -123,6 +130,10 @@ export default function Login() {
       const user = response.data;
       toast.success(`Welcome, ${user.name}!`);
       if (window.__clearAuthCache) window.__clearAuthCache();
+      if (nextUrl && nextUrl.startsWith('/')) {
+        navigate(nextUrl, { replace: true });
+        return;
+      }
       const target = getRoleRedirect(user.role);
       navigate(target, { replace: true });
     } catch (error) {
