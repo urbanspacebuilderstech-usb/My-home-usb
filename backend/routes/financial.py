@@ -1889,7 +1889,7 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
         project.pop("client_email", None)
     
     # Get scope items
-    scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0}).sort([("sort_order", 1), ("created_at", 1)]).to_list(1000)
     for item in scope_items:
         if isinstance(item.get("created_at"), str):
             item["created_at"] = datetime.fromisoformat(item["created_at"])
@@ -1905,13 +1905,13 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
             stage["created_at"] = datetime.fromisoformat(stage["created_at"])
     
     # Get additional costs
-    additional_costs = await db.additional_costs.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    additional_costs = await db.additional_costs.find({"project_id": project_id}, {"_id": 0}).sort([("sort_order", 1), ("created_at", 1)]).to_list(1000)
     for cost in additional_costs:
         if isinstance(cost.get("created_at"), str):
             cost["created_at"] = datetime.fromisoformat(cost["created_at"])
     
     # Get deductions
-    deductions = await db.deductions.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    deductions = await db.deductions.find({"project_id": project_id}, {"_id": 0}).sort([("sort_order", 1), ("created_at", 1)]).to_list(1000)
     for d in deductions:
         if isinstance(d.get("created_at"), str):
             d["created_at"] = datetime.fromisoformat(d["created_at"])
