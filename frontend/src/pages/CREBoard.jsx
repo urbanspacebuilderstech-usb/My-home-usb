@@ -743,62 +743,50 @@ export default function CREBoard() {
           </Popover>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-          <Card className="border-l-4 border-l-amber-500" data-testid="card-total-projects">
-            <CardContent className="p-3">
-              <p className="text-xs text-gray-500 mb-1">Total Projects</p>
-              <p className="text-2xl font-bold text-gray-800">{projectsInRange.length}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-green-500" data-testid="card-total-value">
-            <CardContent className="p-3">
-              <p className="text-xs text-gray-500 mb-1">Total Value</p>
-              <p className="text-lg font-bold text-green-700">{formatCurrency(totalValueInRange)}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-blue-500" data-testid="card-collected">
-            <CardContent className="p-3">
-              <p className="text-xs text-gray-500 mb-1">Total Collected</p>
-              <p className="text-lg font-bold text-blue-700">{formatCurrency(totalCollected)}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-orange-500" data-testid="card-pending">
-            <CardContent className="p-3">
-              <p className="text-xs text-gray-500 mb-1">Pending Actions</p>
-              <p className="text-2xl font-bold text-orange-700">{(pendingApprovals.advance_verified || []).filter(p => inDateRange(p.advance_verified_at || p.created_at)).length + (paymentRequests || []).filter(r => inDateRange(r.requested_at || r.created_at)).length}</p>
-            </CardContent>
-          </Card>
-        </div>
-
         {/* Main Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
             <TabsList className="bg-white border shadow-sm">
-              <TabsTrigger value="new_deals" className="text-xs sm:text-sm" data-testid="tab-new-deals">
+              <TabsTrigger value="new_deals" className="text-xs sm:text-sm gap-1.5" data-testid="tab-new-deals">
                 New Deals {(() => {
                   const c = (pendingApprovals.advance_verified || []).filter(p => inDateRange(p.advance_verified_at || p.created_at)).length;
-                  return c > 0 ? <Badge className="ml-1 bg-yellow-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{c}</Badge> : null;
+                  return c > 0 ? <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{c}</Badge> : null;
                 })()}
               </TabsTrigger>
-              <TabsTrigger value="final_estimate" className="text-xs sm:text-sm" data-testid="tab-final-estimate">
-                Final Estimate {feProjects.filter(p => p.fe?.status !== 'approved').length > 0 && <Badge className="ml-1 bg-purple-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{feProjects.filter(p => p.fe?.status !== 'approved').length}</Badge>}
+              <TabsTrigger value="final_estimate" className="text-xs sm:text-sm gap-1.5" data-testid="tab-final-estimate">
+                Final Estimate {(() => {
+                  const c = feProjects.filter(p => p.fe?.status !== 'approved').length;
+                  return c > 0 ? <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{c}</Badge> : null;
+                })()}
               </TabsTrigger>
-              <TabsTrigger value="pre_construction" className="text-xs sm:text-sm" data-testid="tab-pre-construction">
+              <TabsTrigger value="pre_construction" className="text-xs sm:text-sm gap-1.5" data-testid="tab-pre-construction">
                 Pre-Construction
               </TabsTrigger>
-              <TabsTrigger value="payment_schedule" className="text-xs sm:text-sm" data-testid="tab-payment-schedule">
-                Payment Schedule
+              <TabsTrigger value="payment_schedule" className="text-xs sm:text-sm gap-1.5" data-testid="tab-payment-schedule">
+                Payment Schedule {(() => {
+                  const c = (paymentRequests || []).filter(r => inDateRange(r.requested_at || r.created_at)).length;
+                  return c > 0 ? <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{c}</Badge> : null;
+                })()}
               </TabsTrigger>
-              <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">All Projects</TabsTrigger>
-              <TabsTrigger value="cheques" className="text-xs sm:text-sm" data-testid="tab-cheque-management">
-                Cheque Management
+              <TabsTrigger value="all_projects" className="text-xs sm:text-sm gap-1.5" data-testid="tab-all-projects">
+                All Projects {projectsInRange.length > 0 && (
+                  <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{projectsInRange.length}</Badge>
+                )}
               </TabsTrigger>
-              <TabsTrigger value="income" className="text-xs sm:text-sm" data-testid="tab-income">
-                Income
+              <TabsTrigger value="cheques" className="text-xs sm:text-sm gap-1.5" data-testid="tab-cheque-management">
+                Cheque Management {(chequeEntries || []).length > 0 && (
+                  <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{chequeEntries.length}</Badge>
+                )}
               </TabsTrigger>
-              <TabsTrigger value="dt_requests" className="text-xs sm:text-sm" data-testid="tab-dt-requests">
-                DT Requests
+              <TabsTrigger value="income" className="text-xs sm:text-sm gap-1.5" data-testid="tab-income">
+                Income {(incomeCollected || []).length > 0 && (
+                  <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{incomeCollected.length}</Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="dt_requests" className="text-xs sm:text-sm gap-1.5" data-testid="tab-dt-requests">
+                DT Requests {(additionalPaymentRequests || []).length > 0 && (
+                  <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{additionalPaymentRequests.length}</Badge>
+                )}
               </TabsTrigger>
             </TabsList>
           </div>
