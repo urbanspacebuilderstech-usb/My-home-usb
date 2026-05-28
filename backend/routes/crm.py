@@ -4758,6 +4758,20 @@ async def get_sheets_credentials(user_id: str) -> Optional[Credentials]:
                 )
             except Exception as e:
                 logger.error(f"Failed to refresh sheets token: {e}")
+                # If Google has revoked the refresh token, mark the connection
+                # as broken so the UI accurately surfaces a "Reconnect" CTA.
+                err_str = str(e)
+                if "invalid_grant" in err_str or "revoked" in err_str.lower() or "expired" in err_str.lower():
+                    key = SHARED_SHEETS_KEY if using_shared else user_id
+                    try:
+                        await db.google_sheets_tokens.delete_one({"user_id": key})
+                        await db.google_sheets_config.update_one(
+                            {"user_id": SHARED_SHEETS_KEY},
+                            {"$set": {"is_connected": False, "needs_reconnect": True, "updated_at": datetime.now(timezone.utc).isoformat()}},
+                            upsert=True,
+                        )
+                    except Exception as ce:
+                        logger.error(f"Failed to clear stale sheets token: {ce}")
                 return None
     
     return creds

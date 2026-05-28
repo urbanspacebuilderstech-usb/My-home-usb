@@ -1636,12 +1636,30 @@ export default function MarketingBoard() {
                           <Unlink className="h-3.5 w-3.5" /> Disconnect
                         </Button>
                       </div>
+                    ) : sheetsConfig?.needs_reconnect ? (
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-rose-100 text-rose-700 gap-1"><AlertCircle className="h-3 w-3" /> Reconnect Required</Badge>
+                        <Button onClick={connectGoogleSheets} className="bg-rose-600 hover:bg-rose-700 gap-1.5" data-testid="reconnect-google-sheets-btn">
+                          <Link className="h-4 w-4" /> Reconnect Google
+                        </Button>
+                      </div>
                     ) : (
                       <Button onClick={connectGoogleSheets} className="bg-emerald-600 hover:bg-emerald-700 gap-1.5" data-testid="connect-google-sheets-btn">
                         <Link className="h-4 w-4" /> Connect Google Sheets
                       </Button>
                     )}
                   </div>
+                  {sheetsConfig?.needs_reconnect && !sheetsConfig?.is_connected && (
+                    <div className="mt-3 p-3 bg-rose-50 border border-rose-200 rounded-lg flex items-start gap-2" data-testid="sheets-reconnect-banner">
+                      <AlertCircle className="h-5 w-5 text-rose-600 mt-0.5 shrink-0" />
+                      <div className="text-sm">
+                        <p className="font-medium text-rose-800">Google has revoked the connection</p>
+                        <p className="text-rose-700 mt-0.5">
+                          The refresh token expired or was revoked from your Google account (common in OAuth "Testing" mode — tokens expire after 7 days). Click <strong>Reconnect Google</strong> above to restore lead sync. Your connected sheets and lead mappings have been preserved.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </CardHeader>
               </Card>
 
