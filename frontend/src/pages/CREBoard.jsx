@@ -104,15 +104,29 @@ export default function CREBoard() {
   }, [searchParams, user, showAllProjectsTab, showIncomeTab]);
 
   // ─── Global Meta-style Date Range Filter (Sales/Pre-Sales-style popover) ───
+  // Persisted in localStorage so the chosen range survives refresh/login.
+  // Stored as { from: 'YYYY-MM-DD' | '', to: 'YYYY-MM-DD' | '' }.
+  // If user previously cleared the filter ("All Time"), we restore the empty
+  // strings (NOT the default this-month range).
+  const _loadDate = (k, fallback) => {
+    try {
+      const v = localStorage.getItem(`cre_${k}`);
+      // null means "never set" → use fallback; '' means "explicitly cleared" → keep empty
+      return v === null ? fallback : v;
+    } catch { return fallback; }
+  };
   const [dateFrom, setDateFrom] = useState(() => {
-    // default: This Month start
     const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    return _loadDate('date_from', defaultFrom);
   });
   const [dateTo, setDateTo] = useState(() => {
     const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+    const defaultTo = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+    return _loadDate('date_to', defaultTo);
   });
+  useEffect(() => { try { localStorage.setItem('cre_date_from', dateFrom || ''); } catch (e) { /* ignore quota errors */ } }, [dateFrom]);
+  useEffect(() => { try { localStorage.setItem('cre_date_to', dateTo || ''); } catch (e) { /* ignore quota errors */ } }, [dateTo]);
   const dateRange = useMemo(() => ({
     from: dateFrom ? new Date(dateFrom + 'T00:00:00') : null,
     to: dateTo ? new Date(dateTo + 'T23:59:59.999') : (dateFrom ? new Date(dateFrom + 'T23:59:59.999') : null),
