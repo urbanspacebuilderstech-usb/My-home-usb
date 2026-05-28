@@ -4602,12 +4602,14 @@ async def sheets_oauth_login(request: Request, force: bool = False, user: User =
         }
     }, scopes=GOOGLE_SHEETS_SCOPES, redirect_uri=redirect_uri)
     
-    # Only force consent the first time (to get a refresh_token). For force-reconnect
-    # we still want consent so a fresh refresh_token is issued.
+    # Force a fresh consent so we always get a new refresh_token. Do NOT pass
+    # include_granted_scopes='true' — when Google previously revoked the grant,
+    # there is no prior scope set to merge with and Google redirects to the
+    # generic "Something went wrong" page (accounts.google.com/info/unknownerror).
+    # Also add `select_account` so the user can pick the right Google account.
     url, state = flow.authorization_url(
         access_type='offline',
-        prompt='consent',
-        include_granted_scopes='true'
+        prompt='consent select_account',
     )
     
     # Save state with user_id, redirect_uri, and code_verifier for callback

@@ -1636,7 +1636,7 @@ export default function MarketingBoard() {
                           <Unlink className="h-3.5 w-3.5" /> Disconnect
                         </Button>
                       </div>
-                    ) : sheetsConfig?.needs_reconnect ? (
+                    ) : (sheetsConfig?.needs_reconnect || connectedSheets.length > 0) ? (
                       <div className="flex items-center gap-2">
                         <Badge className="bg-rose-100 text-rose-700 gap-1"><AlertCircle className="h-3 w-3" /> Reconnect Required</Badge>
                         <Button onClick={connectGoogleSheets} className="bg-rose-600 hover:bg-rose-700 gap-1.5" data-testid="reconnect-google-sheets-btn">
@@ -1649,13 +1649,13 @@ export default function MarketingBoard() {
                       </Button>
                     )}
                   </div>
-                  {sheetsConfig?.needs_reconnect && !sheetsConfig?.is_connected && (
+                  {!sheetsConfig?.is_connected && (sheetsConfig?.needs_reconnect || connectedSheets.length > 0) && (
                     <div className="mt-3 p-3 bg-rose-50 border border-rose-200 rounded-lg flex items-start gap-2" data-testid="sheets-reconnect-banner">
                       <AlertCircle className="h-5 w-5 text-rose-600 mt-0.5 shrink-0" />
                       <div className="text-sm">
-                        <p className="font-medium text-rose-800">Google has revoked the connection</p>
+                        <p className="font-medium text-rose-800">Google sign-in required to resume sync</p>
                         <p className="text-rose-700 mt-0.5">
-                          The refresh token expired or was revoked from your Google account (common in OAuth "Testing" mode — tokens expire after 7 days). Click <strong>Reconnect Google</strong> above to restore lead sync. Your connected sheets and lead mappings have been preserved.
+                          Your <strong>{connectedSheets.length} connected sheet{connectedSheets.length === 1 ? '' : 's'}</strong> and all column mappings are safely stored. Click <strong>Reconnect Google</strong> above to restore Google sign-in. Existing leads will <strong>NOT be re-imported</strong> — dedup is done by phone number, so only new rows added after the last sync will flow in.
                         </p>
                       </div>
                     </div>
