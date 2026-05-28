@@ -29,6 +29,20 @@ router = APIRouter()
 
 # ==================== CRE BOARD ENDPOINTS ====================
 
+
+def _cre_project_scope_filter(user: User) -> dict:
+    """Mongo filter that limits results to projects the CRE is assigned to
+    (team.cre or original creator). Super admin gets a no-op filter."""
+    if user.role == UserRole.SUPER_ADMIN:
+        return {}
+    return {
+        "$or": [
+            {"team.cre": user.user_id},
+            {"created_by": user.user_id},
+        ]
+    }
+
+
 class CREProjectCreateInput(BaseModel):
     name: str
     client_name: str
@@ -90,8 +104,8 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
     import asyncio
-    base_query = {}
-    # CRE sees all projects (they manage customer relationships for all)
+    base_query = _cre_project_scope_filter(user)
+    # CRE sees only projects where they're assigned (team.cre or created_by).
     
     # Run all DB queries in parallel
     (
@@ -796,12 +810,13 @@ async def get_cro_payment_requests(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
     # Get all payment stages with workflow_status = 'requested'
+    match_clause = {"workflow_status": {"$in": ["requested", "pending_collection"]}}
+    cre_scope = _cre_project_scope_filter(user)
+    if cre_scope:
+        allowed_projects = await db.projects.find(cre_scope, {"_id": 0, "project_id": 1}).to_list(2000)
+        match_clause["project_id"] = {"$in": [p["project_id"] for p in allowed_projects]}
     pipeline = [
-        {
-            "$match": {
-                "workflow_status": {"$in": ["requested", "pending_collection"]}
-            }
-        },
+        {"$match": match_clause},
         {
             "$lookup": {
                 "from": "projects",
@@ -1121,7 +1136,10 @@ async def get_all_cro_projects(
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
     query = {}
-    # CRE sees all projects
+    # CRE sees only their assigned projects
+    scope = _cre_project_scope_filter(user)
+    if scope:
+        query.update(scope)
     
     if status:
         statuses = status.split(",")
@@ -1157,8 +1175,13 @@ async def get_cre_additional_payment_requests(user: User = Depends(get_current_u
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
+    match_clause = {"payment_requested": True, "status": {"$ne": "paid"}}
+    cre_scope = _cre_project_scope_filter(user)
+    if cre_scope:
+        allowed_projects = await db.projects.find(cre_scope, {"_id": 0, "project_id": 1}).to_list(2000)
+        match_clause["project_id"] = {"$in": [p["project_id"] for p in allowed_projects]}
     pipeline = [
-        {"$match": {"payment_requested": True, "status": {"$ne": "paid"}}},
+        {"$match": match_clause},
         {"$lookup": {
             "from": "projects",
             "localField": "project_id",
@@ -1194,8 +1217,14 @@ async def get_cre_income_collected(user: User = Depends(get_current_user)):
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
+    income_query = {}
+    cre_scope = _cre_project_scope_filter(user)
+    if cre_scope:
+        allowed_projects = await db.projects.find(cre_scope, {"_id": 0, "project_id": 1}).to_list(2000)
+        allowed_ids = [p["project_id"] for p in allowed_projects]
+        income_query["project_id"] = {"$in": allowed_ids}
     income_records = await db.income.find(
-        {},
+        income_query,
         {"_id": 0, "income_id": 1, "project_id": 1, "project_name": 1,
          "category": 1, "sub_category": 1, "amount": 1, "payment_mode": 1,
          "payment_reference": 1, "payment_date": 1, "stage": 1,
@@ -1216,14 +1245,18 @@ async def get_cre_pending_approvals(user: User = Depends(get_current_user)):
     #   • archived / soft-deleted (no longer actionable)
     #   • already sent to planning (sent_to_planning_at exists) — once CRE has
     #     handed over, the project belongs to Planning and shouldn't keep re-appearing.
+    and_clauses = [
+        {"$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}]},
+        {"$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]},
+        {"$or": [{"sent_to_planning_at": {"$exists": False}}, {"sent_to_planning_at": None}]},
+    ]
+    cre_scope = _cre_project_scope_filter(user)
+    if cre_scope:
+        and_clauses.append(cre_scope)
     advance_verified = await db.projects.find(
         {
             "status": {"$in": ["payment_verified", "payment_received"]},
-            "$and": [
-                {"$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}]},
-                {"$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]},
-                {"$or": [{"sent_to_planning_at": {"$exists": False}}, {"sent_to_planning_at": None}]},
-            ],
+            "$and": and_clauses,
         },
         {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "client_phone": 1, "location": 1,
          "total_value": 1, "advance_amount": 1, "status": 1, "created_at": 1, "planning_status": 1}

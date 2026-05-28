@@ -558,11 +558,19 @@ async def list_cre_final_estimates(user: User = Depends(get_current_user)):
     # Surface every project whose FE has been touched (excludes drafts).
     # Includes review_pending so CRE can still see what they sent back to Planning,
     # and pending_client_review / feedback_received so CRE can track in-flight client reviews.
+    base_match = {
+        "fe.status": {"$in": ["pending_cre_review", "review_pending", "approved", "pending_client_review", "feedback_received"]},
+        "$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}],
+    }
+    if user.role == UserRole.CRE:
+        base_match["$and"] = [{
+            "$or": [
+                {"team.cre": user.user_id},
+                {"created_by": user.user_id},
+            ]
+        }]
     projects = await db.projects.find(
-        {
-            "fe.status": {"$in": ["pending_cre_review", "review_pending", "approved", "pending_client_review", "feedback_received"]},
-            "$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}],
-        },
+        base_match,
         {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "client_phone": 1,
          "location": 1, "total_value": 1, "fe": 1, "created_at": 1},
     ).sort("fe.sent_to_cre_at", -1).to_list(200)
