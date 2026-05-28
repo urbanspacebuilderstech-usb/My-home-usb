@@ -6601,7 +6601,7 @@ export default function ProjectDetail() {
                   `bulkAdditionSectionId` is set by openAddAdditionFor() before opening. */}
               {canManage && (
                 <Dialog open={bulkAdditionDialog} onOpenChange={(v) => { setBulkAdditionDialog(v); if (!v) setBulkAdditionSectionId(null); }}>
-                      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                      <DialogContent className="max-w-6xl w-[95vw] max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
                           <DialogTitle>
                             Add Additional Work
@@ -6623,7 +6623,7 @@ export default function ProjectDetail() {
                                 <th className="px-2 py-2 text-left">#</th>
                                 <th className="px-2 py-2 text-left">Name *</th>
                                 <th className="px-2 py-2 text-left w-20">Qty *</th>
-                                <th className="px-2 py-2 text-left w-24">Unit</th>
+                                <th className="px-2 py-2 text-left w-36">Unit</th>
                                 <th className="px-2 py-2 text-right w-28">Unit Rate (₹) *</th>
                                 <th className="px-2 py-2 text-right w-28">Total (₹)</th>
                                 <th className="px-2 py-2 text-left w-40">Remarks</th>
@@ -6656,10 +6656,9 @@ export default function ProjectDetail() {
                                     />
                                   </td>
                                   <td className="px-2 py-1">
-                                    <Input
+                                    <UnitSelect
                                       value={row.unit}
-                                      onChange={(e) => { const r = [...bulkAdditionRows]; r[idx].unit = e.target.value; setBulkAdditionRows(r); }}
-                                      placeholder="Nos / Sqft / Lump"
+                                      onChange={(v) => { const r = [...bulkAdditionRows]; r[idx].unit = v; setBulkAdditionRows(r); }}
                                       className="h-8"
                                       data-testid={`addition-unit-${idx}`}
                                     />
