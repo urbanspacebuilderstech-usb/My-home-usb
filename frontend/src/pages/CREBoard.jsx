@@ -152,6 +152,7 @@ export default function CREBoard() {
   const [psYear, setPsYear] = useState(todayPS.getFullYear());
   const [psData, setPsData] = useState({ entries: [], summary: {} });
   const [psLoading, setPsLoading] = useState(false);
+  const [psSubTab, setPsSubTab] = useState('pending'); // pending | collected | all
 
   // Dialogs
   const [createDialog, setCreateDialog] = useState(false);
@@ -1068,11 +1069,20 @@ export default function CREBoard() {
               const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
               const allEntries = psData.entries || [];
               // Apply global date filter to entries (by expected_payment_date)
-              const entries = (dateRange.from || dateRange.to)
+              const dateFiltered = (dateRange.from || dateRange.to)
                 ? allEntries.filter(e => inDateRange(e.expected_payment_date))
                 : allEntries;
-              const summary = psData.summary || {};
-              const thisMonthCollected = entries.reduce((sum, e) => sum + (e.amount_received || 0), 0);
+              // Classify each entry as collected vs pending
+              const isCollectedEntry = (e) => {
+                const balance = (e.amount || 0) - (e.amount_received || 0);
+                const hasPendingApproval = (e.pending_approval_count || 0) > 0;
+                return !hasPendingApproval && (e.stage_status === 'paid' || e.stage_status === 'collected' || balance <= 0);
+              };
+              const pendingEntries = dateFiltered.filter(e => !isCollectedEntry(e));
+              const collectedEntries = dateFiltered.filter(e => isCollectedEntry(e));
+              const entries = psSubTab === 'pending' ? pendingEntries
+                            : psSubTab === 'collected' ? collectedEntries
+                            : dateFiltered;
               return (
                 <div className="space-y-4">
                   {/* Month nav */}
@@ -1094,13 +1104,31 @@ export default function CREBoard() {
                     </CardContent>
                   </Card>
 
-                  {/* Summary cards */}
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                    <Card className="border-l-4 border-l-indigo-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Total Planned</p><p className="text-lg font-bold text-indigo-700">{formatCurrency(summary.total_planned)}</p><p className="text-[10px] text-gray-400">{summary.total_entries || 0} stages</p></CardContent></Card>
-                    <Card className="border-l-4 border-l-green-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">This Month Collected</p><p className="text-lg font-bold text-green-700">{formatCurrency(thisMonthCollected)}</p></CardContent></Card>
-                    <Card className="border-l-4 border-l-red-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Balance</p><p className="text-lg font-bold text-red-700">{formatCurrency(summary.total_balance)}</p></CardContent></Card>
-                    <Card className="border-l-4 border-l-amber-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Pending</p><p className="text-lg font-bold text-amber-700">{(summary.total_entries || 0) - (summary.collected_count || 0)}</p></CardContent></Card>
-                    <Card className="border-l-4 border-l-blue-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Collected #</p><p className="text-lg font-bold text-blue-700">{summary.collected_count || 0}</p></CardContent></Card>
+                  {/* Sub-tabs: Pending | Collected | All */}
+                  <div className="flex gap-2 flex-wrap" data-testid="ps-subtabs">
+                    {[
+                      { key: 'pending', label: 'Pending', count: pendingEntries.length, activeBg: 'bg-amber-600', dot: 'bg-red-500' },
+                      { key: 'collected', label: 'Collected', count: collectedEntries.length, activeBg: 'bg-emerald-600', dot: 'bg-red-500' },
+                      { key: 'all', label: 'All', count: dateFiltered.length, activeBg: 'bg-slate-700', dot: 'bg-red-500' },
+                    ].map(t => (
+                      <button
+                        key={t.key}
+                        onClick={() => setPsSubTab(t.key)}
+                        data-testid={`ps-subtab-${t.key}`}
+                        className={`px-4 py-1.5 text-sm rounded-full border transition-colors flex items-center gap-1.5 ${
+                          psSubTab === t.key
+                            ? `${t.activeBg} text-white border-transparent shadow-sm`
+                            : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        {t.label}
+                        {t.count > 0 && (
+                          <span className={`${psSubTab === t.key ? 'bg-white/25 text-white' : `${t.dot} text-white`} text-[10px] h-5 min-w-[20px] px-1.5 rounded-full inline-flex items-center justify-center font-semibold`}>
+                            {t.count}
+                          </span>
+                        )}
+                      </button>
+                    ))}
                   </div>
 
                   {/* Table */}
