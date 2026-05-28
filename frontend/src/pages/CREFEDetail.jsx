@@ -33,6 +33,8 @@ export default function CREFEDetail() {
       const res = await axios.post(`${API}/projects/${projectId}/create-client-portal`, { email, password });
       toast.success('Client portal credentials created');
       setIssuedCreds({ email: res.data?.email || email, password: res.data?.password || password });
+      // Update local state so UI flips to "Edit Credentials" mode
+      setData(d => d ? { ...d, project: { ...(d.project || {}), client_user_id: res.data?.client_user_id, client_email: res.data?.email || email } } : d);
       setCredDialog({ open: false, email: '', password: '', showPwd: false, submitting: false });
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to create credentials');
@@ -89,6 +91,8 @@ export default function CREFEDetail() {
 
   const fe = data.project?.fe || {};
   const publicUrl = data.token ? `${window.location.origin}/fe/${data.token}` : '';
+  // CRE has already issued credentials when a client_user_id is linked.
+  const hasCredentials = !!data.project?.client_user_id;
 
   const statusBadge = (() => {
     if (fe.status === 'approved') return { cls: 'bg-green-100 text-green-700', label: 'Approved' };
@@ -106,14 +110,26 @@ export default function CREFEDetail() {
             <ArrowLeft className="h-4 w-4 mr-1" /> Back
           </Button>
           <div className="ml-auto flex gap-2">
-            <Button
-              size="sm"
-              className="bg-amber-600 hover:bg-amber-700 text-white gap-1"
-              onClick={() => setCredDialog({ open: true, email: data?.client_email || '', password: '', showPwd: false, submitting: false })}
-              data-testid="fe-detail-create-credentials"
-            >
-              <KeyRound className="h-3.5 w-3.5" /> Create Credentials
-            </Button>
+            {(hasCredentials || issuedCreds) ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-amber-400 text-amber-700 hover:bg-amber-50 gap-1"
+                onClick={() => setCredDialog({ open: true, email: data?.project?.client_email || data?.client_email || '', password: '', showPwd: false, submitting: false })}
+                data-testid="fe-detail-edit-credentials"
+              >
+                <KeyRound className="h-3.5 w-3.5" /> Edit Credentials
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                className="bg-amber-600 hover:bg-amber-700 text-white gap-1"
+                onClick={() => setCredDialog({ open: true, email: data?.client_email || '', password: '', showPwd: false, submitting: false })}
+                data-testid="fe-detail-create-credentials"
+              >
+                <KeyRound className="h-3.5 w-3.5" /> Create Credentials
+              </Button>
+            )}
             <Button size="sm" variant="outline" onClick={() => window.print()} data-testid="fe-detail-download">
               <Download className="h-3.5 w-3.5 mr-1" /> Download
             </Button>
@@ -156,7 +172,7 @@ export default function CREFEDetail() {
                 </div>
               )}
             </div>
-            {issuedCreds && (
+            {issuedCreds ? (
               <div className="mt-3 pt-3 border-t space-y-2" data-testid="issued-credentials-block">
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-emerald-700 font-medium uppercase tracking-wide flex-shrink-0">Client portal credentials:</span>
@@ -175,9 +191,32 @@ export default function CREFEDetail() {
                     <Copy className="h-3 w-3" />
                   </Button>
                 </div>
+                {publicUrl && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-xs text-gray-500 w-20 flex-shrink-0">FE Link:</span>
+                    <code className="flex-1 text-xs bg-gray-50 px-2 py-1 rounded border truncate font-mono">{publicUrl}</code>
+                    <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => copyText(publicUrl, 'Link')} data-testid="issued-copy-link">
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )}
                 <p className="text-[11px] text-gray-400 italic">Share these with the client (e.g. via WhatsApp). The password is shown only once — copy now.</p>
               </div>
-            )}
+            ) : hasCredentials && publicUrl ? (
+              <div className="mt-3 pt-3 border-t" data-testid="fe-link-block">
+                <div className="flex items-center gap-2 text-xs mb-1.5">
+                  <span className="text-emerald-700 font-medium uppercase tracking-wide flex-shrink-0">Client FE Link</span>
+                  <span className="text-[10px] text-gray-400">(credentials already issued)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs bg-gray-50 px-2 py-1 rounded border truncate font-mono">{publicUrl}</code>
+                  <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => copyText(publicUrl, 'Link')} data-testid="fe-link-copy">
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+                <p className="text-[11px] text-gray-400 italic mt-1">Client will be asked to log in before viewing the Final Estimate.</p>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
