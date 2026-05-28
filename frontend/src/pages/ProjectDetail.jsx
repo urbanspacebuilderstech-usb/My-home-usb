@@ -813,12 +813,18 @@ function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency
       )}
 
       {/* Summary Cards */}
-      {paymentSummary && (
+      {paymentSummary && (() => {
+        const feClientApproved = projectData?.project?.fe?.status === 'approved';
+        const displayedProjectValue = feClientApproved ? (paymentSummary.project_value || 0) : 0;
+        return (
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 border-indigo-200">
             <CardContent className="p-3">
               <p className="text-xs text-indigo-600 font-medium">Project Value</p>
-              <p className="text-lg font-bold text-indigo-700">{formatCurrency(paymentSummary.project_value || 0)}</p>
+              <p className="text-lg font-bold text-indigo-700">{formatCurrency(displayedProjectValue)}</p>
+              {!feClientApproved && (
+                <p className="text-[10px] text-amber-700">Pending client approval</p>
+              )}
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200">
@@ -847,7 +853,8 @@ function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency
             </CardContent>
           </Card>
         </div>
-      )}
+        );
+      })()}
 
       {/* Income / Expense Mini Views - Visible to GM, Planning, Super Admin, Accountant */}
       {canSeePaymentDetails && (
@@ -5394,7 +5401,11 @@ export default function ProjectDetail() {
                 // blank during initial load. NEVER use sum-of-stage-amounts — that
                 // only equals project value when stages sum to 100%, which is the
                 // bug the user reported.
-                const totalValue = Number(summary?.project_value) || Number(projectData?.project?.total_value) || 0;
+                const rawTotalValue = Number(summary?.project_value) || Number(projectData?.project?.total_value) || 0;
+                // Project Value is gated by FE client-approval per business rule.
+                // Until client signs off, surface ₹0 with a "Pending Client Approval" hint.
+                const feClientApproved = projectData?.project?.fe?.status === 'approved';
+                const totalValue = feClientApproved ? rawTotalValue : 0;
                 const scheduleIncome = payment_stages.reduce((sum, s) => sum + (Number(s.amount_received) || 0), 0);
                 const totalPctAllocated = payment_stages.reduce((sum, s) => sum + (s.percentage || 0), 0);
                 const remainingPct = Math.round((100 - totalPctAllocated) * 100) / 100;
@@ -5441,6 +5452,9 @@ export default function ProjectDetail() {
                     <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600">Project Value</p>
                       <p className="text-xl font-bold text-blue-700 mt-1">₹{totalValue.toLocaleString()}</p>
+                      {!feClientApproved && (
+                        <p className="text-[10px] text-amber-700 mt-0.5">Pending client approval</p>
+                      )}
                     </div>
                     {/* 2. TOTAL INCOME — sum of RECEIVED across payment schedule rows */}
                     <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-200" data-testid="total-income-card">

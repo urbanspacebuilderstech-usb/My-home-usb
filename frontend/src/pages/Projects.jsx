@@ -427,18 +427,26 @@ export default function Projects() {
                       </Badge>
                     </div>
                     <div className="grid grid-cols-3 gap-2 mt-3">
-                      <div>
-                        <p className="text-xs text-gray-500">Value</p>
-                        <p className="text-sm font-semibold text-gray-900">₹{(project.total_value / 100000).toFixed(2)}L</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Received</p>
-                        <p className="text-sm font-semibold text-green-600">₹{((project.total_received || 0) / 100000).toFixed(2)}L</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Balance</p>
-                        <p className="text-sm font-semibold text-red-600">₹{((project.balance || project.total_value) / 100000).toFixed(2)}L</p>
-                      </div>
+                      {(() => {
+                        const feApproved = project?.fe?.status === 'approved';
+                        const shownValue = feApproved ? (project.total_value || 0) : 0;
+                        const shownBalance = feApproved ? (project.balance !== undefined ? project.balance : project.total_value) : 0;
+                        return (<>
+                          <div>
+                            <p className="text-xs text-gray-500">Value</p>
+                            <p className="text-sm font-semibold text-gray-900">₹{(shownValue / 100000).toFixed(2)}L</p>
+                            {!feApproved && <p className="text-[9px] text-amber-700">Pending client approval</p>}
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500">Received</p>
+                            <p className="text-sm font-semibold text-green-600">₹{((project.total_received || 0) / 100000).toFixed(2)}L</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500">Balance</p>
+                            <p className="text-sm font-semibold text-red-600">₹{((shownBalance || 0) / 100000).toFixed(2)}L</p>
+                          </div>
+                        </>);
+                      })()}
                     </div>
                   </div>
                 ))
@@ -484,12 +492,16 @@ export default function Projects() {
                           </div>
                         </td>
                         <td className="px-6 py-4 font-semibold text-gray-900">
-                          ₹{(project.total_value / 100000).toFixed(2)}L
+                          {project?.fe?.status === 'approved'
+                            ? <>₹{((project.total_value || 0) / 100000).toFixed(2)}L</>
+                            : <span className="text-gray-400">— <span className="text-[10px] text-amber-700 ml-1">pending client approval</span></span>}
                         </td>
                         <td className="px-6 py-4 text-green-600 font-medium">₹{((project.total_received || 0) / 100000).toFixed(2)}L</td>
                         <td className="px-6 py-4 text-gray-700">₹{((project.total_spent || 0) / 100000).toFixed(2)}L</td>
                         <td className="px-6 py-4 font-semibold text-gray-900">
-                          ₹{((project.balance !== undefined ? project.balance : project.total_value) / 100000).toFixed(2)}L
+                          {project?.fe?.status === 'approved'
+                            ? <>₹{(((project.balance !== undefined ? project.balance : project.total_value) || 0) / 100000).toFixed(2)}L</>
+                            : <span className="text-gray-400">—</span>}
                         </td>
                         <td className="px-6 py-4">
                           <Badge 

@@ -245,6 +245,23 @@ async def planning_head_reject_fe(project_id: str, body: dict, user: User = Depe
     return await _planning_head_reject_fe(project_id, body, user)
 
 
+@router.get("/planning-head/final-estimates")
+async def list_planning_head_final_estimates(user: User = Depends(get_current_user)):
+    """Projects whose Final Estimate is awaiting Planning Head action (queue)."""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning Head can access this")
+
+    projects = await db.projects.find(
+        {
+            "fe.status": {"$in": ["pending_planning_head_review", "rejected_by_planning_head"]},
+            "$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}],
+        },
+        {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "client_phone": 1,
+         "location": 1, "total_value": 1, "fe": 1, "created_at": 1},
+    ).sort("fe.saved_by_planning_person_at", -1).to_list(200)
+    return projects
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Planning → "Submit to GM"  (push FE into GM's queue for pre-CRE approval)
 # Kept for super_admin / legacy callers. Planning role uses Planning Head approve now.
@@ -355,6 +372,7 @@ async def gm_approve_fe(project_id: str, body: Optional[GmApproveBody] = None, u
     now = _now()
     fe["gm_approved_at"] = now
     fe["gm_approved_by"] = user.user_id
+    fe["ph_re_edit_notified"] = False
 
     # GM approval ALWAYS auto-shares with client. CRE receives notification only.
     if not fe.get("public_token"):
@@ -411,6 +429,7 @@ async def gm_reject_fe(project_id: str, body: GmRejectBody, user: User = Depends
         raise HTTPException(status_code=400, detail=f"Cannot GM-reject from status: {fe['status']}")
 
     fe["status"] = "rejected_by_gm"
+    fe["ph_re_edit_notified"] = False
     rejection = {
         "revision": fe["revision"],
         "reason": reason,

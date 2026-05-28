@@ -49,6 +49,7 @@ import {
 import { SortableList, SortableTableRow, DragHandle, arrayMove } from '../components/SortableList';
 import { AppHeader } from '../components/AppHeader';
 import PlanningRequestsTab from '../components/PlanningRequestsTab';
+import PlanningHeadApprovalsTab from '../components/PlanningHeadApprovalsTab';
 import { useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Circle } from 'react-leaflet';
 import L from 'leaflet';
@@ -289,6 +290,7 @@ export default function PlanningBoard({ embedded = false }) {
   // Requests (site engineer + payment)
   const [pendingRequests, setPendingRequests] = useState([]);
   const [planningRequestsCount, setPlanningRequestsCount] = useState(0);  const [paymentRequests, setPaymentRequests] = useState([]);
+  const [feApprovalsCount, setFeApprovalsCount] = useState(0);
   const [newProjectsFromCRE, setNewProjectsFromCRE] = useState([]);
   const [reNewCount, setReNewCount] = useState(0);
   const [rejectDialog, setRejectDialog] = useState(false);
@@ -1254,10 +1256,11 @@ export default function PlanningBoard({ embedded = false }) {
               {[
                 { key: 'all_projects', label: 'All Projects', badge: newProjectCount },
                 { key: 'requests', label: 'Requests', badge: requestCount },
+                { key: 'approvals', label: 'Approvals', badge: feApprovalsCount, gated: ['planning', 'super_admin'] },
                 { key: 'labour_summary', label: 'Contractor Summary' },
                 { key: 'rough_estimates', label: 'Rough Estimates', badge: reNewCount },
                 { key: 'payment_schedule', label: 'Payment Schedule' },
-              ].map(tab => (
+              ].filter(tab => !tab.gated || tab.gated.includes(user?.role)).map(tab => (
                 <button
                   key={tab.key}
                   onClick={() => handleDashSubTabChange(tab.key)}
@@ -1718,6 +1721,11 @@ export default function PlanningBoard({ embedded = false }) {
             {/* ---- Dashboard > Requests ---- */}
             {dashSubTab === 'requests' && (
               <PlanningRequestsTab projects={projects} onCountChange={setPlanningRequestsCount} />
+            )}
+
+            {/* ---- Dashboard > Approvals (Planning Head FE queue) ---- */}
+            {dashSubTab === 'approvals' && ['planning', 'super_admin'].includes(user?.role) && (
+              <PlanningHeadApprovalsTab onCountChange={setFeApprovalsCount} />
             )}
 
             {/* ---- Dashboard > Contractor Summary ---- */}

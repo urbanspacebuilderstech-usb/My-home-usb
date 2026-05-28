@@ -3806,8 +3806,9 @@ async def get_additional_costs(project_id: str, user: User = Depends(get_current
 
 @router.post("/additional-costs")
 async def create_additional_cost(cost_input: AdditionalCostCreate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
+    await _assert_fe_editable_for_planning_person(cost_input.project_id, user)
     
     cost = AdditionalCostItem(
         project_id=cost_input.project_id,
@@ -3833,6 +3834,9 @@ async def create_additional_cost(cost_input: AdditionalCostCreate, user: User = 
 async def update_additional_cost(cost_id: str, update_data: AdditionalCostUpdate, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
+    existing = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0, "project_id": 1})
+    if existing:
+        await _assert_fe_editable_for_planning_person(existing.get("project_id"), user)
     
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
     
@@ -4764,17 +4768,74 @@ async def get_scope_items(project_id: str, user: User = Depends(get_current_user
 
 
 async def _assert_fe_editable_for_planning_person(project_id: str, user: User):
-    """When the FE has moved past Planning Person (saved for Planning Head review,
-    GM review, CRE review, or approved) the Planning Person role can no longer
-    edit scope items. Planning Head (`planning`) and Super Admin retain edit rights.
-    Called from scope-item create/update/delete handlers."""
-    if user.role != UserRole.PLANNING_PERSON:
+    """Role-aware FE edit gating.
+    
+    | FE Status                                                       | PP | PH | SA | Other |
+    |-----------------------------------------------------------------|----|----|----|----|
+    | draft / rejected_by_planning_head                               | ✅ | ✅ | ✅ | ❌  |
+    | pending_planning_head_review                                    | ❌ | ✅ | ✅ | ❌  |
+    | pending_gm_review                                               | ❌ | ✅ | ✅ | ❌  |
+    | rejected_by_gm                                                  | ✅ | ✅ | ✅ | ❌  |
+    | pending_cre_review / pending_client_review / feedback_received  | ❌ | ❌ | ✅ | ❌  |
+    | approved (client signed off)                                    | ❌ | ❌ | ✅ | ❌  |
+    
+    Also: when Planning Head edits while status == 'pending_gm_review',
+    bump revision once per cycle and re-notify GMs that the FE changed
+    after their queue.
+    """
+    # Super Admin bypasses all gates
+    if user.role == UserRole.SUPER_ADMIN:
         return
-    proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "fe": 1})
-    fe_status = ((proj or {}).get("fe") or {}).get("status")
-    LOCKED = {"pending_planning_head_review", "pending_gm_review", "pending_cre_review", "approved", "pending_client_review", "feedback_received"}
-    if fe_status in LOCKED:
+    proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "fe": 1, "name": 1})
+    fe = (proj or {}).get("fe") or {}
+    fe_status = fe.get("status") or "draft"
+    
+    # Status buckets
+    PP_LOCKED = {"pending_planning_head_review", "pending_gm_review", "pending_cre_review",
+                 "pending_client_review", "feedback_received", "approved"}
+    PH_LOCKED = {"pending_cre_review", "pending_client_review", "feedback_received", "approved"}
+    
+    if user.role == UserRole.PLANNING_PERSON and fe_status in PP_LOCKED:
         raise HTTPException(status_code=423, detail="Final Estimate is locked. Wait for Planning Head review.")
+    if user.role == UserRole.PLANNING and fe_status in PH_LOCKED:
+        if fe_status == "approved":
+            raise HTTPException(status_code=423, detail="Client approved this Final Estimate. Only Super Admin can edit now.")
+        raise HTTPException(status_code=423, detail="Final Estimate moved past Planning Head. Only Super Admin can edit now.")
+    if user.role not in (UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER):
+        # Project Managers also retain a window via the original routes; everyone
+        # else is blocked once FE has reached client signoff.
+        if fe_status == "approved":
+            raise HTTPException(status_code=423, detail="Client approved this Final Estimate. Only Super Admin can edit now.")
+    
+    # Planning Head edits AFTER they approved → bump revision + re-notify GMs.
+    if user.role == UserRole.PLANNING and fe_status == "pending_gm_review":
+        if not fe.get("ph_re_edit_notified"):
+            now = datetime.now(timezone.utc).isoformat()
+            new_rev = (fe.get("revision") or 0) + 1
+            fe["revision"] = new_rev
+            fe["ph_re_edit_notified"] = True
+            fe["ph_re_edit_at"] = now
+            fe["history"] = (fe.get("history") or []) + [{
+                "action": "ph_re_edit_after_approval",
+                "revision": new_rev,
+                "by": user.user_id,
+                "at": now,
+            }]
+            await db.projects.update_one({"project_id": project_id}, {"$set": {"fe": fe}})
+            try:
+                gms = await db.users.find({"role": {"$in": ["general_manager", "super_admin"]}, "is_active": True}, {"_id": 0, "user_id": 1}).to_list(50)
+                for g in gms:
+                    notif = Notification(
+                        user_id=g.get("user_id"),
+                        title=f"FE Rev {new_rev:02d} — edited by Planning Head",
+                        message=f"Planning Head updated Final Estimate for {(proj or {}).get('name', '')} after their approval. Please re-review.",
+                        link=f"/projects/{project_id}",
+                    )
+                    nd = notif.model_dump()
+                    nd["created_at"] = nd["created_at"].isoformat()
+                    await db.notifications.insert_one(nd)
+            except Exception:
+                pass
 
 
 @router.post("/scope-items")
@@ -4942,6 +5003,7 @@ async def create_deduction(deduction_input: DeductionCreate, user: User = Depend
         qty=deduction_input.qty,
         price=deduction_input.price,
     )
+    await _assert_fe_editable_for_planning_person(deduction_input.project_id, user)
     
     deduction_dict = deduction.model_dump()
     deduction_dict["created_at"] = deduction_dict["created_at"].isoformat()
@@ -4955,6 +5017,9 @@ async def create_deduction(deduction_input: DeductionCreate, user: User = Depend
 async def update_deduction(deduction_id: str, update_data: DeductionUpdate, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
+    existing = await db.deductions.find_one({"deduction_id": deduction_id}, {"_id": 0, "project_id": 1})
+    if existing:
+        await _assert_fe_editable_for_planning_person(existing.get("project_id"), user)
     
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
     
@@ -4967,6 +5032,9 @@ async def update_deduction(deduction_id: str, update_data: DeductionUpdate, user
 async def delete_deduction(deduction_id: str, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
+    existing = await db.deductions.find_one({"deduction_id": deduction_id}, {"_id": 0, "project_id": 1})
+    if existing:
+        await _assert_fe_editable_for_planning_person(existing.get("project_id"), user)
     
     await db.deductions.delete_one({"deduction_id": deduction_id})
     await create_audit_log(user.user_id, "delete", "deduction", deduction_id, {})
