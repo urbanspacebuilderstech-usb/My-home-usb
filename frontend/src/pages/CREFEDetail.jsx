@@ -5,8 +5,11 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
-import { ArrowLeft, Building2, Phone, MapPin, FileText, Download, Copy, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Building2, Phone, MapPin, FileText, Download, Copy, ExternalLink, KeyRound, Eye, EyeOff } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
@@ -17,6 +20,22 @@ export default function CREFEDetail() {
   const [user, setUser] = useState(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [credDialog, setCredDialog] = useState({ open: false, email: '', password: '', showPwd: false, submitting: false });
+
+  const handleCreateCredentials = async () => {
+    const { email, password } = credDialog;
+    if (!email || !email.includes('@')) { toast.error('Valid email required'); return; }
+    if (!password || password.length < 6) { toast.error('Password must be at least 6 characters'); return; }
+    setCredDialog(c => ({ ...c, submitting: true }));
+    try {
+      await axios.post(`${API}/projects/${projectId}/create-client-portal`, { email, password });
+      toast.success('Client portal credentials created — share via WhatsApp');
+      setCredDialog({ open: false, email: '', password: '', showPwd: false, submitting: false });
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to create credentials');
+      setCredDialog(c => ({ ...c, submitting: false }));
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -79,6 +98,14 @@ export default function CREFEDetail() {
             <ArrowLeft className="h-4 w-4 mr-1" /> Back
           </Button>
           <div className="ml-auto flex gap-2">
+            <Button
+              size="sm"
+              className="bg-amber-600 hover:bg-amber-700 text-white gap-1"
+              onClick={() => setCredDialog({ open: true, email: data?.client_email || '', password: '', showPwd: false, submitting: false })}
+              data-testid="fe-detail-create-credentials"
+            >
+              <KeyRound className="h-3.5 w-3.5" /> Create Credentials
+            </Button>
             <Button size="sm" variant="outline" onClick={() => window.print()} data-testid="fe-detail-download">
               <Download className="h-3.5 w-3.5 mr-1" /> Download
             </Button>
@@ -136,50 +163,7 @@ export default function CREFEDetail() {
           </CardContent>
         </Card>
 
-        {/* Scope items */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-purple-600" /> Scope of Work
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm" data-testid="fe-detail-scope-table">
-                <thead className="bg-gray-50 border-y">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {(data.scope || []).length === 0 ? (
-                    <tr><td colSpan="6" className="text-center text-gray-400 p-6">No scope items</td></tr>
-                  ) : data.scope.map((s, i) => (
-                    <tr key={s.scope_id || i}>
-                      <td className="px-4 py-2 text-gray-400">{i + 1}</td>
-                      <td className="px-4 py-2 font-medium">{s.item_name || s.name}</td>
-                      <td className="px-4 py-2 text-right">{s.quantity || '-'}</td>
-                      <td className="px-4 py-2 text-gray-500">{s.unit || '-'}</td>
-                      <td className="px-4 py-2 text-right">{s.unit_rate ? fmt(s.unit_rate) : '-'}</td>
-                      <td className="px-4 py-2 text-right font-semibold">{fmt(s.total_amount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-amber-50 border-t-2 border-amber-200">
-                    <td colSpan="5" className="px-4 py-3 text-right text-sm font-semibold text-gray-700">Total Project Value</td>
-                    <td className="px-4 py-3 text-right text-lg font-bold text-amber-700" data-testid="fe-detail-total">{fmt(data.total_value)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Scope of Work — hidden from CRE per business rule (amounts confidential) */}
 
         {/* Reviews history */}
         {(fe.reviews || []).length > 0 && (
@@ -202,6 +186,55 @@ export default function CREFEDetail() {
           </Card>
         )}
       </main>
+
+      {/* Create Client Credentials Dialog */}
+      <Dialog open={credDialog.open} onOpenChange={(o) => !credDialog.submitting && setCredDialog(c => ({ ...c, open: o }))}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5 text-amber-600" /> Create Client Portal Credentials</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-2">
+            <p className="text-xs text-gray-500">These credentials let your client log into the portal to view their Final Estimate, payment schedule, and approve milestones. Share via WhatsApp once created.</p>
+            <div>
+              <Label htmlFor="cred-email" className="text-xs">Client Email</Label>
+              <Input
+                id="cred-email"
+                type="email"
+                value={credDialog.email}
+                onChange={(e) => setCredDialog(c => ({ ...c, email: e.target.value }))}
+                placeholder="client@example.com"
+                data-testid="cred-email-input"
+              />
+            </div>
+            <div>
+              <Label htmlFor="cred-password" className="text-xs">Password (min 6 chars)</Label>
+              <div className="relative">
+                <Input
+                  id="cred-password"
+                  type={credDialog.showPwd ? 'text' : 'password'}
+                  value={credDialog.password}
+                  onChange={(e) => setCredDialog(c => ({ ...c, password: e.target.value }))}
+                  placeholder="Choose a password"
+                  data-testid="cred-password-input"
+                />
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400"
+                  onClick={() => setCredDialog(c => ({ ...c, showPwd: !c.showPwd }))}
+                >
+                  {credDialog.showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCredDialog({ open: false, email: '', password: '', showPwd: false, submitting: false })} disabled={credDialog.submitting}>Cancel</Button>
+            <Button className="bg-amber-600 hover:bg-amber-700" onClick={handleCreateCredentials} disabled={credDialog.submitting} data-testid="cred-submit-btn">
+              {credDialog.submitting ? 'Creating…' : 'Create'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

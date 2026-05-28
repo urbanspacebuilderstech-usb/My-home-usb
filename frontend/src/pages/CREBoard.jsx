@@ -969,7 +969,7 @@ export default function CREBoard() {
                                     )}
                                   </div>
 
-                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                                     <div>
                                       <span className="text-gray-500">Client:</span>
                                       <p className="font-medium">{p.client_name || '-'}</p>
@@ -981,10 +981,6 @@ export default function CREBoard() {
                                     <div>
                                       <span className="text-gray-500">Sent to CRE:</span>
                                       <p>{fe.sent_to_cre_at ? new Date(fe.sent_to_cre_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}</p>
-                                    </div>
-                                    <div>
-                                      <span className="text-gray-500">FE Total:</span>
-                                      <p className="font-bold text-purple-700">{formatCurrency(p.total_value)}</p>
                                     </div>
                                   </div>
 
