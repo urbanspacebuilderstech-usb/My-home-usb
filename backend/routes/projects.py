@@ -40,7 +40,7 @@ async def get_projects(include_deleted: bool = False, planning_person_id: Option
     # IDOR Fix: Role-based project filtering
     full_access_roles = [
         UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
-        UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROCUREMENT, UserRole.CRE
+        UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PROCUREMENT
     ]
     # Soft-deleted filter (only Super Admin can opt-in to see them)
     deleted_filter = {} if (include_deleted and user.role == UserRole.SUPER_ADMIN) else \
@@ -51,6 +51,20 @@ async def get_projects(include_deleted: bool = False, planning_person_id: Option
         projects = await db.projects.find(
             {"$and": [
                 {"$or": [{"assigned_to": user.user_id}, {"team_members": user.user_id}]},
+                deleted_filter,
+            ]},
+            {"_id": 0}
+        ).to_list(1000)
+    elif user.role == UserRole.CRE:
+        # CRE only sees projects where they're explicitly on the team (assigned by
+        # the Project Head via Project → Team tab as `team.cre`), OR projects they
+        # originally created. Legacy strict mode: no orphan-pool visibility.
+        projects = await db.projects.find(
+            {"$and": [
+                {"$or": [
+                    {"team.cre": user.user_id},
+                    {"created_by": user.user_id},
+                ]},
                 deleted_filter,
             ]},
             {"_id": 0}
@@ -175,6 +189,11 @@ async def get_project(project_id: str, user: User = Depends(get_current_user)):
     # PLANNING_PERSON — only projects assigned to them by Planning Head
     if user.role == UserRole.PLANNING_PERSON:
         if project_doc.get("assigned_planning_person_id") != user.user_id:
+            raise HTTPException(status_code=403, detail="Permission denied — project not assigned to you")
+    # CRE — only projects where they're assigned in team.cre OR they created it
+    if user.role == UserRole.CRE:
+        team_cre = (project_doc.get("team") or {}).get("cre")
+        if team_cre != user.user_id and project_doc.get("created_by") != user.user_id:
             raise HTTPException(status_code=403, detail="Permission denied — project not assigned to you")
 
     if isinstance(project_doc.get("start_date"), str):
