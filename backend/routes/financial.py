@@ -2927,6 +2927,39 @@ async def get_company_settings(user: User = Depends(get_current_user)):
     return settings
 
 
+@router.get("/settings/cre-module")
+async def get_cre_module_settings(user: User = Depends(get_current_user)):
+    """Global CRE Module toggles — controls optional tab visibility on the CRE Board."""
+    doc = await db.module_settings.find_one({"module": "cre"}, {"_id": 0}) or {}
+    return {
+        "show_all_projects_tab": bool(doc.get("show_all_projects_tab", False)),
+        "show_income_tab": bool(doc.get("show_income_tab", False)),
+    }
+
+
+class CREModuleSettings(BaseModel):
+    show_all_projects_tab: bool
+    show_income_tab: bool
+
+
+@router.patch("/settings/cre-module")
+async def update_cre_module_settings(payload: CREModuleSettings, user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can update module settings")
+    await db.module_settings.update_one(
+        {"module": "cre"},
+        {"$set": {
+            "module": "cre",
+            "show_all_projects_tab": payload.show_all_projects_tab,
+            "show_income_tab": payload.show_income_tab,
+            "updated_by": user.user_id,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+    return {"message": "CRE module settings updated", **payload.model_dump()}
+
+
 @router.post("/settings/company")
 async def create_or_update_company_settings(
     settings_input: CompanySettingsCreate,

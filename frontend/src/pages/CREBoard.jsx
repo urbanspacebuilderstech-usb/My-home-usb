@@ -12,7 +12,6 @@ import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Switch } from '../components/ui/switch';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
@@ -88,20 +87,31 @@ export default function CREBoard() {
   const [packages, setPackages] = useState([]);
   const [projects, setProjects] = useState([]);
   const [activeTab, setActiveTab] = useState('final_estimate');
-  // Super Admin-only toggles: hide All Projects & Income tabs by default
-  const [showAllProjectsTab, setShowAllProjectsTab] = useState(() => localStorage.getItem('cre_show_all_projects') === '1');
-  const [showIncomeTab, setShowIncomeTab] = useState(() => localStorage.getItem('cre_show_income') === '1');
-  useEffect(() => { localStorage.setItem('cre_show_all_projects', showAllProjectsTab ? '1' : '0'); }, [showAllProjectsTab]);
-  useEffect(() => { localStorage.setItem('cre_show_income', showIncomeTab ? '1' : '0'); }, [showIncomeTab]);
+  // Global CRE module settings (controlled by Super Admin via Settings → CRE Module)
+  // We default to hidden and overwrite from backend once loaded.
+  const [showAllProjectsTab, setShowAllProjectsTab] = useState(false);
+  const [showIncomeTab, setShowIncomeTab] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await axios.get(`${API}/settings/cre-module`);
+        if (cancelled) return;
+        setShowAllProjectsTab(!!r.data?.show_all_projects_tab);
+        setShowIncomeTab(!!r.data?.show_income_tab);
+      } catch { /* settings not yet seeded → defaults */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [searchParams] = useSearchParams();
   useEffect(() => {
     const t = searchParams.get('tab');
     if (!t || t === 'new_deals') return;
-    // Block hidden super-admin-only tabs for non-superadmins
-    if (t === 'all_projects' && !(user?.role === 'super_admin' && showAllProjectsTab)) return;
-    if (t === 'income' && !(user?.role === 'super_admin' && showIncomeTab)) return;
+    // Block hidden optional tabs (controlled globally by Super Admin)
+    if (t === 'all_projects' && !showAllProjectsTab) return;
+    if (t === 'income' && !showIncomeTab) return;
     setActiveTab(t);
-  }, [searchParams, user, showAllProjectsTab, showIncomeTab]);
+  }, [searchParams, showAllProjectsTab, showIncomeTab]);
 
   // ─── Global Meta-style Date Range Filter (Sales/Pre-Sales-style popover) ───
   // Persisted in localStorage so the chosen range survives refresh/login.
@@ -797,15 +807,15 @@ export default function CREBoard() {
                   <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{additionalPaymentRequests.length}</Badge>
                 )}
               </TabsTrigger>
-              {/* Super Admin-gated optional tabs */}
-              {user?.role === 'super_admin' && showAllProjectsTab && (
+              {/* Optional tabs — controlled globally by Super Admin via Settings → CRE Module */}
+              {showAllProjectsTab && (
                 <TabsTrigger value="all_projects" className="text-xs sm:text-sm gap-1.5" data-testid="tab-all-projects">
                   All Projects {projectsInRange.length > 0 && (
                     <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{projectsInRange.length}</Badge>
                   )}
                 </TabsTrigger>
               )}
-              {user?.role === 'super_admin' && showIncomeTab && (
+              {showIncomeTab && (
                 <TabsTrigger value="income" className="text-xs sm:text-sm gap-1.5" data-testid="tab-income">
                   Income {(incomeCollected || []).length > 0 && (
                     <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{incomeCollected.length}</Badge>
@@ -813,33 +823,6 @@ export default function CREBoard() {
                 </TabsTrigger>
               )}
             </TabsList>
-            {/* Super Admin toggle row — controls optional tab visibility */}
-            {user?.role === 'super_admin' && (
-              <div className="flex items-center gap-4 text-xs" data-testid="cre-admin-toggles">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <Switch
-                    checked={showAllProjectsTab}
-                    onCheckedChange={(v) => {
-                      setShowAllProjectsTab(v);
-                      if (!v && activeTab === 'all_projects') setActiveTab('final_estimate');
-                    }}
-                    data-testid="toggle-all-projects"
-                  />
-                  <span className="text-gray-700">All Projects</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <Switch
-                    checked={showIncomeTab}
-                    onCheckedChange={(v) => {
-                      setShowIncomeTab(v);
-                      if (!v && activeTab === 'income') setActiveTab('final_estimate');
-                    }}
-                    data-testid="toggle-income"
-                  />
-                  <span className="text-gray-700">Income</span>
-                </label>
-              </div>
-            )}
           </div>
 
           {/* TAB 1: NEW DEALS — REMOVED (Feb 2026 workflow: accountant verify auto-routes to Planning Head) */}

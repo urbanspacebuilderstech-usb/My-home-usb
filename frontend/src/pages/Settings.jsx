@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Building2, LogOut, Settings as SettingsIcon, Users, Package, Truck, Save, Building, ArrowDownRight, GitBranch } from 'lucide-react';
+import { Building2, LogOut, Settings as SettingsIcon, Users, Package, Truck, Save, Building, ArrowDownRight, GitBranch, Headphones } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
@@ -46,6 +47,38 @@ export default function Settings() {
     financial_year_start: 'April',
     indirect_cost_percent: 20
   });
+
+  // CRE Module settings (Super Admin only)
+  const [creModuleSettings, setCreModuleSettings] = useState({
+    show_all_projects_tab: false,
+    show_income_tab: false,
+  });
+  const [creSaving, setCreSaving] = useState(false);
+
+  useEffect(() => {
+    axios.get(`${API}/settings/cre-module`).then(r => {
+      setCreModuleSettings({
+        show_all_projects_tab: !!r.data?.show_all_projects_tab,
+        show_income_tab: !!r.data?.show_income_tab,
+      });
+    }).catch(() => {});
+  }, []);
+
+  const handleCreSettingChange = async (key, value) => {
+    const next = { ...creModuleSettings, [key]: value };
+    setCreModuleSettings(next);
+    setCreSaving(true);
+    try {
+      await axios.patch(`${API}/settings/cre-module`, next);
+      toast.success('CRE module settings updated');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to update');
+      // revert on failure
+      setCreModuleSettings(creModuleSettings);
+    } finally {
+      setCreSaving(false);
+    }
+  };
 
   useEffect(() => {
     fetchData();
@@ -206,6 +239,11 @@ export default function Settings() {
             <TabsTrigger value="quick-links" className="gap-1 sm:gap-2 text-xs sm:text-sm">
               <SettingsIcon className="h-3 w-3 sm:h-4 sm:w-4" /> Quick Links
             </TabsTrigger>
+            {user?.role === 'super_admin' && (
+              <TabsTrigger value="cre-module" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-cre-module-tab">
+                <Headphones className="h-3 w-3 sm:h-4 sm:w-4" /> CRE Module
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="company">
@@ -431,6 +469,55 @@ export default function Settings() {
               </Card>
             </div>
           </TabsContent>
+
+          {/* ────────── CRE Module Settings (Super Admin) ────────── */}
+          {user?.role === 'super_admin' && (
+            <TabsContent value="cre-module">
+              <Card>
+                <CardHeader className="p-4 sm:p-6">
+                  <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                    <Headphones className="h-5 w-5 text-amber-600" /> CRE Module
+                  </CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">
+                    Control which optional tabs appear on every CRE Board. Changes apply to all CRE users immediately.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-4 sm:p-6 pt-0 space-y-4">
+                  <div className="flex items-start justify-between gap-4 p-4 rounded-lg border bg-slate-50">
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-gray-900">Show "All Projects" tab</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        When ON, every CRE sees a full project listing tab on their board. Turn this OFF to keep CREs focused on Payment Schedule, Final Estimate and DT-level work.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={creModuleSettings.show_all_projects_tab}
+                      onCheckedChange={(v) => handleCreSettingChange('show_all_projects_tab', v)}
+                      disabled={creSaving}
+                      data-testid="settings-toggle-all-projects"
+                    />
+                  </div>
+                  <div className="flex items-start justify-between gap-4 p-4 rounded-lg border bg-slate-50">
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-gray-900">Show "Income" tab</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        When ON, every CRE sees an income-history tab listing approved/rejected income records. Turn this OFF for a leaner workflow.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={creModuleSettings.show_income_tab}
+                      onCheckedChange={(v) => handleCreSettingChange('show_income_tab', v)}
+                      disabled={creSaving}
+                      data-testid="settings-toggle-income"
+                    />
+                  </div>
+                  <p className="text-[11px] text-gray-400 pt-2 border-t">
+                    Settings are saved instantly. CRE users will see the change on their next page load.
+                  </p>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
         </Tabs>
       </div>
       <MobileBottomNav user={user} />
