@@ -3457,12 +3457,17 @@ export default function ProjectDetail() {
   };
 
   const canManageBase = user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'accountant' || user?.role === 'planning' || user?.role === 'planning_person';
-  // When Planning Person has already saved the FE, lock scope edits for them.
+  // When Planning Person has already saved the FE, lock SCOPE edits for them.
   // Planning Head (`planning`) and Super Admin retain edit rights.
+  // NOTE: Additional Work and Deductions are NOT scope items — they follow their
+  // own 4-step approval chain (PH → GM → Client) so they remain editable here
+  // even while the FE is sitting in review.
   const isPlanningPerson = user?.role === 'planning_person';
   const LOCKED_FE_STATUSES = ['pending_planning_head_review', 'pending_gm_review', 'pending_cre_review', 'pending_client_review', 'feedback_received', 'approved'];
   const isFeLocked = LOCKED_FE_STATUSES.includes(projectData?.project?.fe?.status);
   const canManage = canManageBase && !(isPlanningPerson && isFeLocked);
+  // Additions/Deductions are NOT affected by FE-lock — use this for those tables.
+  const canManageAdditionsDeductions = canManageBase;
   const isSuperAdmin = user?.role === 'super_admin';
   const isPM = user?.role === 'project_manager';
   const isQC = user?.role === 'quality_check';
@@ -6725,7 +6730,7 @@ export default function ProjectDetail() {
                       <Plus className="h-4 w-4" />Create Section
                     </Button>
                   )}
-                  {canManage && (
+                  {canManageAdditionsDeductions && (
                     <Button
                       data-testid="add-addition-btn"
                       className="gap-2 bg-secondary hover:bg-secondary/90"
@@ -7445,7 +7450,7 @@ export default function ProjectDetail() {
                   <p className="text-sm text-gray-500">Track penalties, discounts, and adjustments</p>
                 </div>
                 <div className="flex gap-2">
-                  {canManage && (
+                  {canManageAdditionsDeductions && (
                     <Button
                       data-testid="add-deduction-btn"
                       className="gap-2 bg-orange-600 hover:bg-orange-700"
