@@ -6709,12 +6709,14 @@ export default function ProjectDetail() {
                   <p className="text-sm text-gray-500">Track extra work and variations</p>
                 </div>
                 <div className="flex gap-2">
-                  {canManage && (additional_costs?.length > 0) && (
+                  {canManage && (
                     <Button
                       variant="outline"
-                      className="gap-2 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700"
+                      className="gap-2 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                      disabled={!additional_costs?.length}
                       onClick={() => setDeleteAllAdditionsDialog({ open: true, typed: '', submitting: false })}
                       data-testid="delete-all-additions-btn"
+                      title={additional_costs?.length ? 'Delete every Additional Work row in this project' : 'No additions to delete'}
                     >
                       <Trash2 className="h-4 w-4" />Delete All
                     </Button>
