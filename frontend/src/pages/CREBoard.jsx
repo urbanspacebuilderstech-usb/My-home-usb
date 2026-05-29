@@ -170,6 +170,10 @@ export default function CREBoard() {
   const [additionalPaymentRequests, setAdditionalPaymentRequests] = useState([]);
   const [paymentReqSubTab, setPaymentReqSubTab] = useState('stage');
 
+  // Additional Costs queue (post-GM approval band: awaiting client → CRE approved)
+  const [additionalCostsQueue, setAdditionalCostsQueue] = useState([]);
+  const [acSubTab, setAcSubTab] = useState('pending_client'); // pending_client | client_approved | all
+
   // Payment Approvals
   const [pendingApprovals, setPendingApprovals] = useState({ advance_verified: [], pending_income: [] });
   const [feProjects, setFeProjects] = useState([]);
@@ -253,14 +257,15 @@ export default function CREBoard() {
       }
       setUser(userRes.data);
 
-      const [dashboardRes, dealsRes, paymentReqRes, additionalReqRes, incomeRes, approvalsRes, feRes] = await Promise.allSettled([
+      const [dashboardRes, dealsRes, paymentReqRes, additionalReqRes, incomeRes, approvalsRes, feRes, acQueueRes] = await Promise.allSettled([
         axios.get(`${API}/cre/dashboard`),
         axios.get(`${API}/cre/new-deals`),
         axios.get(`${API}/cre/payment-requests`),
         axios.get(`${API}/cre/additional-payment-requests`),
         axios.get(`${API}/cre/income-collected`),
         axios.get(`${API}/cre/pending-approvals`),
-        axios.get(`${API}/cre/final-estimates`)
+        axios.get(`${API}/cre/final-estimates`),
+        axios.get(`${API}/cre/additional-costs`)
       ]);
 
       if (dashboardRes.status === 'fulfilled') {
@@ -290,6 +295,7 @@ export default function CREBoard() {
       if (incomeRes.status === 'fulfilled') setIncomeCollected(incomeRes.value.data || []);
       if (approvalsRes.status === 'fulfilled') setPendingApprovals(approvalsRes.value.data || { advance_verified: [], pending_income: [] });
       if (feRes.status === 'fulfilled') setFeProjects(feRes.value.data || []);
+      if (acQueueRes.status === 'fulfilled') setAdditionalCostsQueue(acQueueRes.value.data?.rows || []);
     } catch (error) {
       if (error.response?.status === 401) window.location.href = '/login';
     } finally {
@@ -807,6 +813,12 @@ export default function CREBoard() {
                   <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{additionalPaymentRequests.length}</Badge>
                 )}
               </TabsTrigger>
+              <TabsTrigger value="additional_costs" className="text-xs sm:text-sm gap-1.5" data-testid="tab-additional-costs">
+                Additional Costs {(() => {
+                  const c = (additionalCostsQueue || []).filter(r => r.client_approval_status === 'pending_client' || (r.client_approval_status === 'client_approved' && !r.cre_approved)).length;
+                  return c > 0 ? <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{c}</Badge> : null;
+                })()}
+              </TabsTrigger>
               {/* Optional tabs — controlled globally by Super Admin via Settings → CRE Module */}
               {showAllProjectsTab && (
                 <TabsTrigger value="all_projects" className="text-xs sm:text-sm gap-1.5" data-testid="tab-all-projects">
@@ -1288,6 +1300,115 @@ export default function CREBoard() {
           {/* ==================== TAB 8: DT REQUESTS ==================== */}
           <TabsContent value="dt_requests">
             <DTBoard embedded />
+          </TabsContent>
+
+          {/* ==================== TAB 9: ADDITIONAL COSTS ==================== */}
+          {/* CRE rolled-up view of all additional_costs that have crossed GM approval.
+              Sub-tabs filter by sub-status (pending client / client-approved). Rows
+              show the project, work description, amount, status pill and a "View
+              Project" CTA that deep-links into the Project Detail Additional Work tab. */}
+          <TabsContent value="additional_costs">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4" /> Additional Costs Queue
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {/* Sub-tabs */}
+                <div className="flex gap-2 flex-wrap mb-3" data-testid="ac-subtabs">
+                  {(() => {
+                    const inRange = (additionalCostsQueue || []).filter(r => inDateRange(r.client_approval_sent_at || r.created_at));
+                    const pendingClient = inRange.filter(r => r.client_approval_status === 'pending_client');
+                    const clientApproved = inRange.filter(r => r.client_approval_status === 'client_approved' && !r.cre_approved);
+                    const all = inRange;
+                    const tabs = [
+                      { key: 'pending_client', label: 'Pending Client', count: pendingClient.length, color: 'bg-amber-100 text-amber-700' },
+                      { key: 'client_approved', label: 'Client Approved · Need CRE Action', count: clientApproved.length, color: 'bg-emerald-100 text-emerald-700' },
+                      { key: 'all', label: 'All', count: all.length, color: 'bg-gray-100 text-gray-700' },
+                    ];
+                    return tabs.map(t => (
+                      <button
+                        key={t.key}
+                        onClick={() => setAcSubTab(t.key)}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition ${acSubTab === t.key ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+                        data-testid={`ac-subtab-${t.key}`}
+                      >
+                        {t.label} <span className={`ml-1 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] ${acSubTab === t.key ? 'bg-white text-indigo-700' : t.color}`}>{t.count}</span>
+                      </button>
+                    ));
+                  })()}
+                </div>
+                {/* Rows table */}
+                {(() => {
+                  const inRange = (additionalCostsQueue || []).filter(r => inDateRange(r.client_approval_sent_at || r.created_at));
+                  let rows = inRange;
+                  if (acSubTab === 'pending_client') rows = inRange.filter(r => r.client_approval_status === 'pending_client');
+                  if (acSubTab === 'client_approved') rows = inRange.filter(r => r.client_approval_status === 'client_approved' && !r.cre_approved);
+                  if (rows.length === 0) {
+                    return <div className="text-sm text-gray-500 italic py-8 text-center" data-testid="ac-empty">No additional costs in this view.</div>;
+                  }
+                  // Group by project
+                  const grouped = {};
+                  rows.forEach(r => {
+                    const k = r.project_id;
+                    if (!grouped[k]) grouped[k] = { project_name: r.project_name, client_name: r.client_name, project_id: k, items: [] };
+                    grouped[k].items.push(r);
+                  });
+                  return Object.values(grouped).map(g => {
+                    const total = g.items.reduce((s, x) => s + (x.estimated_amount || 0), 0);
+                    return (
+                      <div key={g.project_id} className="mb-4 border border-gray-200 rounded-lg overflow-hidden" data-testid={`ac-project-${g.project_id}`}>
+                        <div className="bg-gray-50 px-3 py-2 flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Building2 className="h-4 w-4 text-indigo-600 shrink-0" />
+                            <span className="font-semibold text-sm truncate">{g.project_name || '—'}</span>
+                            <span className="text-xs text-gray-500 truncate">· {g.client_name || ''}</span>
+                            <Badge variant="outline" className="text-[10px]">{g.items.length} item{g.items.length === 1 ? '' : 's'}</Badge>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600">Total: <span className="font-bold text-indigo-700">₹{Number(total).toLocaleString('en-IN')}</span></span>
+                            <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => navigate(`/projects/${g.project_id}?tab=scope`)} data-testid={`ac-view-${g.project_id}`}>
+                              <Eye className="h-3 w-3" /> View Project
+                            </Button>
+                          </div>
+                        </div>
+                        <table className="w-full text-xs">
+                          <thead className="bg-white border-b">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-600">Description</th>
+                              <th className="px-3 py-2 text-right font-semibold text-gray-600">Amount</th>
+                              <th className="px-3 py-2 text-right font-semibold text-gray-600">Received</th>
+                              <th className="px-3 py-2 text-center font-semibold text-gray-600">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {g.items.map((c) => (
+                              <tr key={c.cost_id} data-testid={`ac-row-${c.cost_id}`}>
+                                <td className="px-3 py-2 truncate max-w-[400px]" title={c.description || c.name}>{c.description || c.name || '—'}</td>
+                                <td className="px-3 py-2 text-right">₹{Number(c.estimated_amount || 0).toLocaleString('en-IN')}</td>
+                                <td className="px-3 py-2 text-right">₹{Number(c.income_received || 0).toLocaleString('en-IN')}</td>
+                                <td className="px-3 py-2 text-center">
+                                  {c.client_approval_status === 'pending_client' && (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700">Pending Client</span>
+                                  )}
+                                  {c.client_approval_status === 'client_approved' && !c.cre_approved && (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700">Client Approved · CRE Action</span>
+                                  )}
+                                  {c.cre_approved && (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700">CRE Approved</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  });
+                })()}
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>

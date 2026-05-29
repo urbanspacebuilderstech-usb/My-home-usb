@@ -1,0 +1,38 @@
+{
+  "summary": "Stage 2 — Additional Cost 4-step Approval Chain (PP→PH→GM→Client) end-to-end tested. Backend: 9/9 pytest cases pass — single-item happy path, PH reject (rejected_at_step=planning_head), GM reject (rejected_at_step=general_manager), state-machine guards (ph/gm approve only from correct prior state), section-level batch (submit-for-review / ph-approve / gm-approve all moved 2/2 items), and the new /api/cre/additional-costs endpoint (shape {rows:[...]} with project_name/client_name enrichment, 403 for non-CRE planning role, GM-approved row appears in queue). Frontend: CRE Board → Additional Costs tab visible with all 3 sub-tabs (pending_client, client_approved, all), rows grouped by project with View Project link. ProjectDetail → Final Estimate → Additional sub-tab renders all inline pipeline buttons (submit-review-*, ph-approve-*, ph-reject-*, resubmit-review-*) plus ungrouped toolbar batch buttons (ungrouped-submit-review, ungrouped-ph-approve). Status badges 'Pending Planning Head', 'Pending Client', 'Rejected at …' render. Legacy 'Send to Client' button is removed (0 in DOM).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "ProjectDetail.jsx ~line 3753", "issues": ["React hydration warning: '<div> cannot be a child of <tbody>'. Non-blocking but should be cleaned up — table row contains a <div> child where only <tr>/<td> is valid HTML."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_addition_4step_approval.py",
+    "/app/test_reports/pytest/addition_4step.xml"
+  ],
+  "action_items": [
+    "(Optional) Fix invalid HTML in ProjectDetail.jsx around line 3753 — <div className='max-w-[180...'> nested inside a <tbody>. Will eventually break React 19 hydration."
+  ],
+  "critical_code_review_comments": [
+    "Approval state machine guards work correctly: ph-approve requires ph_review, gm-approve requires gm_review, ph-reject/gm-reject require non-empty reason (else 400).",
+    "GM approval auto-sets client_approval_status=pending_client AND client_approval_sent_at/by, so the client portal and CRE Board pick the row up without an extra explicit 'send to client' action — confirmed by /api/cre/additional-costs returning the GM-approved row immediately.",
+    "/api/cre/additional-costs correctly scopes by team.cre or created_by for CRE role and returns 403 for non-CRE/non-superadmin (verified with planning user). Response shape {rows:[…with project_name, client_name…]} matches CRE Board's consumer.",
+    "Frontend correctly renders 'Resubmit for Review' button on a rejected row (resubmit-review-* testid present), and the backend allows submit-for-review when current status is 'rejected' (state machine accepts None/created/rejected).",
+    "Section-batch endpoints only act on items whose approval_status matches the expected stage (submit picks None/created/rejected, ph-approve picks ph_review only, gm-approve picks gm_review only), so calling them is idempotent and safe."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_addition_4step_approval.py (NEW)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% on the 4 spec-required surfaces"},
+  "test_credentials": "admin@constructionos.com / Demo@1234 (used for super_admin acting as all roles), planning@constructionos.com / Demo@1234 (used to confirm 403 on /cre/additional-costs).",
+  "seed_data_creation": "Created additional_costs on proj_be3a8542700b (Mrs. Abinaya). Multiple TEST_AC_4step_* and TEST_SEC_* rows now exist in various states (ph_review, rejected, awaiting_client). Two probe sections were created with section_ids 'sec_test_<ts>'. proj_f66ab2fcaa58 (Swathi) is globally locked (returns 423 on POST /additional-costs because some prior item is client-approved) — fixture now auto-cycles to find an unlocked project.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "If running tests again, the fixture in test_addition_4step_approval.py probes projects sequentially and picks the first unlocked one (currently proj_be3a8542700b). Login uses session cookies (requests.Session()). The /api/cre/additional-costs endpoint sits inside /app/backend/routes/projects.py at lines 4949-4984. Frontend tab is in CREBoard.jsx around line 816 (TabsTrigger) and TabsContent at line 1310. Inline pipeline buttons in ProjectDetail.jsx render only when the user clicks Final Estimate → Additional sub-tab (NOT a separate top-level 'Additional Work' tab as the spec text suggests).",
+  "rca of the issue": "N/A — all critical paths verified."
+}

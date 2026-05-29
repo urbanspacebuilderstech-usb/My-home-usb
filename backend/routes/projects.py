@@ -4940,6 +4940,50 @@ async def section_gm_approve(project_id: str, section_id: str, user: User = Depe
     return {"message": f"GM approved {len(items)} items", "count": len(items)}
 
 
+# ── CRE Dashboard: Additional Costs queue ──
+# Returns every additional_cost that is in the post-GM portion of the approval
+# chain (awaiting client → client approved → CRE approved), so the CRE Board can
+# display a single rolled-up tab. The frontend filters by sub-status. Each row
+# carries the project metadata needed for display (name, address, client info).
+
+@router.get("/cre/additional-costs")
+async def cre_additional_costs_queue(user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="CRE only")
+    # Scope: CRE sees rows on projects they're assigned to (team.cre == user_id) or
+    # projects they created. Super Admin sees everything.
+    project_query = {}
+    if user.role == UserRole.CRE:
+        project_query = {"$or": [{"team.cre": user.user_id}, {"created_by": user.user_id}]}
+    projects = await db.projects.find(project_query, {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "client_phone": 1, "address": 1, "team": 1}).to_list(2000)
+    pid_set = [p["project_id"] for p in projects]
+    if not pid_set:
+        return {"rows": []}
+    # Pull rows that are in the post-GM band only. Server filters keep payload small.
+    cursor = db.additional_costs.find(
+        {
+            "project_id": {"$in": pid_set},
+            "$or": [
+                {"approval_status": {"$in": ["awaiting_client", "client_approved"]}},
+                {"client_approval_status": {"$in": ["pending_client", "client_approved"]}},
+            ],
+        },
+        {"_id": 0},
+    )
+    rows = await cursor.to_list(5000)
+    pmap = {p["project_id"]: p for p in projects}
+    out = []
+    for r in rows:
+        p = pmap.get(r.get("project_id"), {})
+        out.append({
+            **r,
+            "project_name": p.get("name", ""),
+            "client_name": p.get("client_name", ""),
+            "client_phone": p.get("client_phone", ""),
+        })
+    return {"rows": out}
+
+
 # ==================== SUPER ADMIN PASSWORD GATE ====================
 # Required to edit any item locked by client approval (RE / FE / Additional / Deduction).
 # Returns a short-lived token the frontend then forwards on the edit call via

@@ -3181,6 +3181,104 @@ export default function ProjectDetail() {
     }
   };
 
+  // ── 4-Step Additional Cost Approval Chain (PP → PH → GM → Client) ─────
+  // Backend lives in /app/backend/routes/projects.py around line 4815-4940.
+  // We keep these handlers compact: server enforces role + status validity,
+  // we only do a confirm prompt and refresh on success.
+  const submitAdditionForReview = async (cost) => {
+    if (!window.confirm(`Submit "${cost.description || cost.name || 'this item'}" to Planning Head for review?`)) return;
+    try {
+      await axios.post(`${API}/additional-costs/${cost.cost_id}/submit-for-review`);
+      toast.success('Submitted to Planning Head');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to submit'); }
+  };
+  const phApproveAddition = async (cost) => {
+    try {
+      await axios.post(`${API}/additional-costs/${cost.cost_id}/ph-approve`);
+      toast.success('Forwarded to GM');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to approve'); }
+  };
+  const phRejectAddition = async (cost) => {
+    const reason = window.prompt('Reason for rejecting back to Planning Person:', '');
+    if (reason === null) return;
+    if (!reason.trim()) { toast.error('Reason is required'); return; }
+    try {
+      await axios.post(`${API}/additional-costs/${cost.cost_id}/ph-reject`, { reason: reason.trim() });
+      toast.success('Rejected back to Planning Person');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to reject'); }
+  };
+  const gmApproveAddition = async (cost) => {
+    if (!window.confirm(`GM Approve "${cost.description || cost.name || 'this item'}"? It will become visible to the Client immediately.`)) return;
+    try {
+      await axios.post(`${API}/additional-costs/${cost.cost_id}/gm-approve`);
+      toast.success('GM approved — visible to Client');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to approve'); }
+  };
+  const gmRejectAddition = async (cost) => {
+    const reason = window.prompt('Reason for rejecting back to Planning Person:', '');
+    if (reason === null) return;
+    if (!reason.trim()) { toast.error('Reason is required'); return; }
+    try {
+      await axios.post(`${API}/additional-costs/${cost.cost_id}/gm-reject`, { reason: reason.trim() });
+      toast.success('Rejected back to Planning Person');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to reject'); }
+  };
+  // Section-level batch operations (run when user clicks button in the section toolbar)
+  const submitSectionForReview = async (section, items) => {
+    const eligible = items.filter(c => !c.approval_status || ['created', 'rejected'].includes(c.approval_status));
+    if (eligible.length === 0) { toast.info('Nothing to submit — all rows are already in the approval chain.'); return; }
+    if (!window.confirm(`Submit ${eligible.length} addition${eligible.length === 1 ? '' : 's'} in "${section.title || 'Ungrouped'}" to Planning Head?`)) return;
+    try {
+      if (section.section_id) {
+        await axios.post(`${API}/projects/${projectId}/addition-sections/${section.section_id}/submit-for-review`);
+      } else {
+        // Ungrouped: hit per-row endpoint (no section batch for ungrouped on backend)
+        for (const c of eligible) {
+          try { await axios.post(`${API}/additional-costs/${c.cost_id}/submit-for-review`); } catch { /* skip */ }
+        }
+      }
+      toast.success(`Submitted ${eligible.length} item(s) for review`);
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to submit'); }
+  };
+  const phApproveSection = async (section, items) => {
+    const eligible = items.filter(c => c.approval_status === 'ph_review');
+    if (eligible.length === 0) { toast.info('No items awaiting Planning Head approval here.'); return; }
+    if (!window.confirm(`PH Approve ${eligible.length} item(s) and forward to GM?`)) return;
+    try {
+      if (section.section_id) {
+        await axios.post(`${API}/projects/${projectId}/addition-sections/${section.section_id}/ph-approve`);
+      } else {
+        for (const c of eligible) {
+          try { await axios.post(`${API}/additional-costs/${c.cost_id}/ph-approve`); } catch { /* skip */ }
+        }
+      }
+      toast.success(`Forwarded ${eligible.length} item(s) to GM`);
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to approve'); }
+  };
+  const gmApproveSection = async (section, items) => {
+    const eligible = items.filter(c => c.approval_status === 'gm_review');
+    if (eligible.length === 0) { toast.info('No items awaiting GM approval here.'); return; }
+    if (!window.confirm(`GM Approve ${eligible.length} item(s)? They will become visible to the Client immediately.`)) return;
+    try {
+      if (section.section_id) {
+        await axios.post(`${API}/projects/${projectId}/addition-sections/${section.section_id}/gm-approve`);
+      } else {
+        for (const c of eligible) {
+          try { await axios.post(`${API}/additional-costs/${c.cost_id}/gm-approve`); } catch { /* skip */ }
+        }
+      }
+      toast.success(`GM approved ${eligible.length} item(s) — visible to Client`);
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to approve'); }
+  };
+
   const handleDeleteDeduction = async (deductionId) => {
     if (!confirm('Delete this deduction?')) return;
     try {
@@ -7016,12 +7114,35 @@ export default function ProjectDetail() {
                                 <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-200 text-emerald-700" onClick={() => openAddAdditionFor(group.section_id)} data-testid={`add-into-section-${group.section_id}`}>
                                   <Plus className="h-3 w-3" /> Add
                                 </Button>
-                                {/* Send to Client — batch. Hidden when empty / already pending / approved. */}
-                                {items.length > 0 && !['pending_client','client_approved'].includes(group.client_approval_status) && (
-                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-violet-300 text-violet-700 hover:bg-violet-50" onClick={() => sendSectionToClient(group, items)} data-testid={`send-section-client-${group.section_id}`}>
-                                    <Send className="h-3 w-3" /> Send to Client
-                                  </Button>
-                                )}
+                                {/* Batch approval chain buttons — show ONE button at a time based on the
+                                    most common status in this section. Counts let the user know how many will move. */}
+                                {(() => {
+                                  const draftN = items.filter(c => !c.approval_status || ['created','rejected'].includes(c.approval_status)).length;
+                                  const phN = items.filter(c => c.approval_status === 'ph_review').length;
+                                  const gmN = items.filter(c => c.approval_status === 'gm_review').length;
+                                  const isPP = user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin';
+                                  const isPH = user?.role === 'planning' || user?.role === 'super_admin';
+                                  const isGM = user?.role === 'general_manager' || user?.role === 'super_admin';
+                                  return (
+                                    <>
+                                      {draftN > 0 && isPP && (
+                                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => submitSectionForReview(group, items)} data-testid={`section-submit-review-${group.section_id}`}>
+                                          <Send className="h-3 w-3" /> Submit {draftN} for Review
+                                        </Button>
+                                      )}
+                                      {phN > 0 && isPH && (
+                                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => phApproveSection(group, items)} data-testid={`section-ph-approve-${group.section_id}`}>
+                                          <CheckCircle2 className="h-3 w-3" /> PH Approve ({phN})
+                                        </Button>
+                                      )}
+                                      {gmN > 0 && isGM && (
+                                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => gmApproveSection(group, items)} data-testid={`section-gm-approve-${group.section_id}`}>
+                                          <CheckCircle2 className="h-3 w-3" /> GM Approve ({gmN})
+                                        </Button>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                                 {group.client_approval_status === 'pending_client' && (
                                   <span className="inline-flex items-center text-[10px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-semibold" data-testid={`section-pending-client-${group.section_id}`}>Pending Client</span>
                                 )}
@@ -7066,11 +7187,34 @@ export default function ProjectDetail() {
                                 <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-200 text-emerald-700" onClick={() => openAddAdditionFor(null)} data-testid="add-into-ungrouped">
                                   <Plus className="h-3 w-3" /> Add
                                 </Button>
-                                {items.some(c => !['pending_client','client_approved'].includes(c.client_approval_status)) && (
-                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-violet-300 text-violet-700 hover:bg-violet-50" onClick={() => sendUngroupedToClient(items)} data-testid="send-ungrouped-client">
-                                    <Send className="h-3 w-3" /> Send to Client
-                                  </Button>
-                                )}
+                                {/* Batch chain buttons for Ungrouped — same logic as section toolbar. */}
+                                {(() => {
+                                  const draftN = items.filter(c => !c.approval_status || ['created','rejected'].includes(c.approval_status)).length;
+                                  const phN = items.filter(c => c.approval_status === 'ph_review').length;
+                                  const gmN = items.filter(c => c.approval_status === 'gm_review').length;
+                                  const isPP = user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin';
+                                  const isPH = user?.role === 'planning' || user?.role === 'super_admin';
+                                  const isGM = user?.role === 'general_manager' || user?.role === 'super_admin';
+                                  return (
+                                    <>
+                                      {draftN > 0 && isPP && (
+                                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => submitSectionForReview({ section_id: null, title: 'Ungrouped' }, items)} data-testid="ungrouped-submit-review">
+                                          <Send className="h-3 w-3" /> Submit {draftN} for Review
+                                        </Button>
+                                      )}
+                                      {phN > 0 && isPH && (
+                                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => phApproveSection({ section_id: null }, items)} data-testid="ungrouped-ph-approve">
+                                          <CheckCircle2 className="h-3 w-3" /> PH Approve ({phN})
+                                        </Button>
+                                      )}
+                                      {gmN > 0 && isGM && (
+                                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => gmApproveSection({ section_id: null }, items)} data-testid="ungrouped-gm-approve">
+                                          <CheckCircle2 className="h-3 w-3" /> GM Approve ({gmN})
+                                        </Button>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                               </>
                             )}
                           </div>
@@ -7214,8 +7358,54 @@ export default function ProjectDetail() {
                                     </>
                                   ) : (
                                     <>
-                                  {/* Pre-payment client approval gate (new) — must be cleared before Req Payment. */}
+                                  {/* ── NEW 4-Step Approval Chain UI (PP → PH → GM → Client) ── */}
+                                  {/* Once the row enters this chain (approval_status set), this block owns
+                                      the status column. Rows that are already in `awaiting_client` fall through
+                                      to the legacy "Pending Client / Req Payment" UI below. */}
                                   {balance > 0 && !cost.payment_requested && (
+                                    cost.approval_status === 'ph_review' ? (
+                                      <>
+                                        <span className="text-[11px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium" data-testid={`add-ph-review-${cost.cost_id}`}>Pending Planning Head</span>
+                                        {(user?.role === 'planning' || user?.role === 'super_admin') && (
+                                          <>
+                                            <Button variant="outline" size="sm" className="h-7 gap-1 border-emerald-500 text-emerald-700 hover:bg-emerald-50 text-xs" onClick={() => phApproveAddition(cost)} data-testid={`ph-approve-${cost.cost_id}`}>
+                                              <CheckCircle2 className="h-3 w-3" /> PH Approve
+                                            </Button>
+                                            <Button variant="outline" size="sm" className="h-7 gap-1 border-rose-500 text-rose-700 hover:bg-rose-50 text-xs" onClick={() => phRejectAddition(cost)} data-testid={`ph-reject-${cost.cost_id}`}>
+                                              <X className="h-3 w-3" /> Reject
+                                            </Button>
+                                          </>
+                                        )}
+                                      </>
+                                    ) : cost.approval_status === 'gm_review' ? (
+                                      <>
+                                        <span className="text-[11px] px-2 py-1 rounded-full bg-violet-100 text-violet-700 font-medium" data-testid={`add-gm-review-${cost.cost_id}`}>Pending GM</span>
+                                        {(user?.role === 'general_manager' || user?.role === 'super_admin') && (
+                                          <>
+                                            <Button variant="outline" size="sm" className="h-7 gap-1 border-emerald-500 text-emerald-700 hover:bg-emerald-50 text-xs" onClick={() => gmApproveAddition(cost)} data-testid={`gm-approve-${cost.cost_id}`}>
+                                              <CheckCircle2 className="h-3 w-3" /> GM Approve
+                                            </Button>
+                                            <Button variant="outline" size="sm" className="h-7 gap-1 border-rose-500 text-rose-700 hover:bg-rose-50 text-xs" onClick={() => gmRejectAddition(cost)} data-testid={`gm-reject-${cost.cost_id}`}>
+                                              <X className="h-3 w-3" /> Reject
+                                            </Button>
+                                          </>
+                                        )}
+                                      </>
+                                    ) : cost.approval_status === 'rejected' ? (
+                                      <>
+                                        <span className="text-[11px] px-2 py-1 rounded-full bg-rose-100 text-rose-700 font-medium" title={cost.rejection_reason || ''} data-testid={`add-chain-rejected-${cost.cost_id}`}>
+                                          Rejected{cost.rejected_at_step ? ` at ${cost.rejected_at_step === 'general_manager' ? 'GM' : 'PH'}` : ''}{cost.rejection_reason ? `: ${cost.rejection_reason.length > 20 ? cost.rejection_reason.slice(0, 20) + '…' : cost.rejection_reason}` : ''}
+                                        </span>
+                                        {(user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin') && (
+                                          <Button variant="outline" size="sm" className="h-7 gap-1 border-amber-500 text-amber-700 hover:bg-amber-50 text-xs" onClick={() => submitAdditionForReview(cost)} data-testid={`resubmit-review-${cost.cost_id}`}>
+                                            <Send className="h-3 w-3" /> Resubmit
+                                          </Button>
+                                        )}
+                                      </>
+                                    ) : null
+                                  )}
+                                  {/* Pre-payment client approval gate (legacy + post-GM-approval) — must be cleared before Req Payment. */}
+                                  {balance > 0 && !cost.payment_requested && !['ph_review','gm_review','rejected'].includes(cost.approval_status) && (
                                     cost.client_review_requested ? (
                                       <>
                                         <span className="text-[11px] px-2 py-1 rounded-full bg-sky-100 text-sky-700 font-medium" title={cost.client_review_note || ''} data-testid={`add-review-${cost.cost_id}`}>
@@ -7270,16 +7460,18 @@ export default function ProjectDetail() {
                                         <Send className="h-3 w-3" /> Req Payment
                                       </Button>
                                     ) : (
-                                      // Default: not yet sent. Show Send to Client.
-                                      canManage && (
+                                      // Default: not yet in approval chain. Show "Submit for Review" (new 4-step flow).
+                                      // Planning Person / Planning Head / Super Admin can initiate the chain.
+                                      (user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin') && (
                                         <Button
                                           variant="outline"
                                           size="sm"
-                                          className="h-7 gap-1 border-violet-500 text-violet-700 hover:bg-violet-50 text-xs"
-                                          onClick={() => sendAdditionToClient(cost)}
-                                          data-testid={`send-client-${cost.cost_id}`}
+                                          className="h-7 gap-1 border-amber-500 text-amber-700 hover:bg-amber-50 text-xs"
+                                          onClick={() => submitAdditionForReview(cost)}
+                                          data-testid={`submit-review-${cost.cost_id}`}
+                                          title="Submit to Planning Head → GM → Client"
                                         >
-                                          <Send className="h-3 w-3" /> Send to Client
+                                          <Send className="h-3 w-3" /> Submit for Review
                                         </Button>
                                       )
                                     )
