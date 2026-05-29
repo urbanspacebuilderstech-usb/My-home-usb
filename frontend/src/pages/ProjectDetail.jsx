@@ -1022,6 +1022,11 @@ export default function ProjectDetail() {
   
   // Bulk dialog states
   const [bulkScopeDialog, setBulkScopeDialog] = useState(false);
+  // Inline-add row state (one per table). When non-null, a single editable row
+  // is rendered at the bottom of the corresponding table.
+  const [inlineNewScope, setInlineNewScope] = useState(null);
+  const [inlineNewAddition, setInlineNewAddition] = useState(null);
+  const [inlineNewDeduction, setInlineNewDeduction] = useState(null);
   const [bulkPaymentDialog, setBulkPaymentDialog] = useState(false);
   // Choose Payment Schedule Template dialog
   const [chooseTemplateDialog, setChooseTemplateDialog] = useState(false);
@@ -2286,6 +2291,73 @@ export default function ProjectDetail() {
       setActiveTab('payments');
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to convert payment schedule');
+    }
+  };
+
+  // ==================== INLINE-ADD HANDLERS ====================
+  const saveInlineScope = async () => {
+    const r = inlineNewScope;
+    if (!r?.item_name?.trim()) { toast.error('Item name required'); return; }
+    try {
+      await axios.post(`${API}/scope-items`, {
+        project_id: projectId,
+        item_name: r.item_name.trim(),
+        quantity: parseFloat(r.quantity) || 1,
+        unit: r.unit || 'Nos',
+        unit_rate: parseFloat(r.unit_rate) || 0,
+        remarks: r.remarks || null,
+      });
+      toast.success('Scope item added');
+      setInlineNewScope(null);
+      fetchData(false);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to add scope item');
+    }
+  };
+  const saveInlineAddition = async () => {
+    const r = inlineNewAddition;
+    if (!r?.description?.trim()) { toast.error('Description required'); return; }
+    const qty = parseFloat(r.qty) || 1;
+    const price = parseFloat(r.price) || 0;
+    try {
+      await axios.post(`${API}/additional-costs`, {
+        project_id: projectId,
+        description: r.description.trim(),
+        name: r.description.trim(),
+        qty,
+        unit: r.unit || 'Nos',
+        price,
+        estimated_amount: qty * price,
+        remarks: r.remarks || null,
+        section_id: r.section_id || null,
+      });
+      toast.success('Additional cost added');
+      setInlineNewAddition(null);
+      fetchData(false);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to add additional cost');
+    }
+  };
+  const saveInlineDeduction = async () => {
+    const r = inlineNewDeduction;
+    if (!r?.description?.trim()) { toast.error('Description required'); return; }
+    const qty = parseFloat(r.qty) || 1;
+    const price = parseFloat(r.price) || 0;
+    try {
+      await axios.post(`${API}/deductions`, {
+        project_id: projectId,
+        description: r.description.trim(),
+        name: r.description.trim(),
+        qty,
+        price,
+        amount: qty * price,
+        remarks: r.remarks || null,
+      });
+      toast.success('Deduction added');
+      setInlineNewDeduction(null);
+      fetchData(false);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to add deduction');
     }
   };
 
@@ -4427,12 +4499,18 @@ export default function ProjectDetail() {
                     </Button>
                   )}
                   {canManage && (
+                    <Button
+                      data-testid="add-scope-btn"
+                      size="sm"
+                      className="gap-1 sm:gap-2 bg-secondary hover:bg-secondary/90 text-xs sm:text-sm"
+                      onClick={() => setInlineNewScope({ item_name: '', quantity: 1, unit: 'Nos', unit_rate: 0, remarks: '' })}
+                    >
+                      <Plus className="h-3 w-3 sm:h-4 sm:w-4" /><span className="hidden sm:inline">Add </span>Scope
+                    </Button>
+                  )}
+                  {/* Bulk-add dialog (kept available; trigger removed in favor of inline add) */}
+                  {canManage && (
                     <Dialog open={bulkScopeDialog} onOpenChange={setBulkScopeDialog}>
-                      <DialogTrigger asChild>
-                        <Button data-testid="add-scope-btn" size="sm" className="gap-1 sm:gap-2 bg-secondary hover:bg-secondary/90 text-xs sm:text-sm">
-                          <Plus className="h-3 w-3 sm:h-4 sm:w-4" /><span className="hidden sm:inline">Add </span>Scope
-                        </Button>
-                      </DialogTrigger>
                       <DialogContent className="max-w-5xl max-h-[90vh] mx-4 sm:mx-auto">
                         <DialogHeader>
                           <DialogTitle>Add Multiple Scope Items</DialogTitle>
@@ -4611,13 +4689,13 @@ export default function ProjectDetail() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {scope_items.length === 0 ? (
+                    {scope_items.length === 0 && !inlineNewScope ? (
                       <tr>
                         <td colSpan={canManage ? 11 : 8} className="px-4 py-8 text-center text-gray-500">
-                          No scope items defined yet. Click "Add Scope Items" to define project scope.
+                          No scope items defined yet. Click "Add Scope" to define project scope.
                         </td>
                       </tr>
-                    ) : (
+                    ) : scope_items.length === 0 ? null : (
                       <SortableList
                         items={scope_items.map(s => s.scope_id)}
                         onReorder={handleScopeReorder}
@@ -4774,6 +4852,54 @@ export default function ProjectDetail() {
                         );
                       })}
                       </SortableList>
+                    )}
+                    {/* Inline Add New Scope Row */}
+                    {canManage && inlineNewScope && (
+                      <tr className="bg-emerald-50/40 border-y border-emerald-200" data-testid="inline-add-scope-row">
+                        <td className="px-2 py-2"></td>
+                        <td className="px-2 py-2"></td>
+                        <td className="px-2 py-2 text-xs text-emerald-700 font-medium">New</td>
+                        <td className="px-2 py-2">
+                          <Input
+                            autoFocus
+                            placeholder="Item name…"
+                            value={inlineNewScope.item_name}
+                            onChange={(e) => setInlineNewScope(r => ({ ...r, item_name: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === 'Enter') saveInlineScope(); if (e.key === 'Escape') setInlineNewScope(null); }}
+                            className="h-8 text-sm"
+                            data-testid="inline-scope-item-name"
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <Input type="number" min={0} step="0.01" value={inlineNewScope.quantity}
+                            onChange={(e) => setInlineNewScope(r => ({ ...r, quantity: e.target.value }))}
+                            className="h-8 text-sm w-24" data-testid="inline-scope-qty" />
+                        </td>
+                        <td className="px-2 py-2">
+                          <UnitSelect value={inlineNewScope.unit}
+                            onChange={(v) => setInlineNewScope(r => ({ ...r, unit: v }))}
+                            className="h-8" data-testid="inline-scope-unit" />
+                        </td>
+                        <td className="px-2 py-2">
+                          <Input type="number" min={0} step="0.01" value={inlineNewScope.unit_rate}
+                            onChange={(e) => setInlineNewScope(r => ({ ...r, unit_rate: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === 'Enter') saveInlineScope(); }}
+                            className="h-8 text-sm w-28" data-testid="inline-scope-rate" />
+                        </td>
+                        <td className="px-2 py-2 text-right text-sm font-medium text-amber-700">
+                          ₹{((parseFloat(inlineNewScope.quantity) || 0) * (parseFloat(inlineNewScope.unit_rate) || 0)).toLocaleString()}
+                        </td>
+                        <td className="px-2 py-2"></td>
+                        <td className="px-2 py-2">
+                          <Input placeholder="Remarks (optional)" value={inlineNewScope.remarks}
+                            onChange={(e) => setInlineNewScope(r => ({ ...r, remarks: e.target.value }))}
+                            className="h-8 text-xs" data-testid="inline-scope-remarks" />
+                        </td>
+                        <td className="px-2 py-2 whitespace-nowrap">
+                          <Button size="sm" className="h-7 px-2 bg-emerald-600 hover:bg-emerald-700 mr-1" onClick={saveInlineScope} data-testid="inline-scope-save">Save</Button>
+                          <Button size="sm" variant="ghost" className="h-7 px-2 text-gray-500" onClick={() => setInlineNewScope(null)} data-testid="inline-scope-cancel">Cancel</Button>
+                        </td>
+                      </tr>
                     )}
                   </tbody>
                   {scope_items.length > 0 && (
@@ -6603,7 +6729,7 @@ export default function ProjectDetail() {
                     <Button
                       data-testid="add-addition-btn"
                       className="gap-2 bg-secondary hover:bg-secondary/90"
-                      onClick={() => openAddAdditionFor(null)}
+                      onClick={() => setInlineNewAddition({ description: '', qty: 1, unit: 'Nos', price: 0, remarks: '', section_id: null })}
                     >
                       <Plus className="h-4 w-4" />Add Additions
                     </Button>
@@ -7239,6 +7365,55 @@ export default function ProjectDetail() {
                       })}
                       </SortableList>
                     )}
+                    {/* Inline Add New Addition Row — only on ungrouped block */}
+                    {canManage && group.isUngrouped && inlineNewAddition && (
+                      <tr className="bg-emerald-50/40 border-y border-emerald-200" data-testid="inline-add-addition-row">
+                        <td className="px-2 py-2"></td>
+                        <td className="px-2 py-2"></td>
+                        <td className="px-2 py-2 text-xs text-emerald-700 font-medium">New</td>
+                        <td className="px-2 py-2">
+                          <Input
+                            autoFocus
+                            placeholder="Description…"
+                            value={inlineNewAddition.description}
+                            onChange={(e) => setInlineNewAddition(r => ({ ...r, description: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === 'Enter') saveInlineAddition(); if (e.key === 'Escape') setInlineNewAddition(null); }}
+                            className="h-8 text-sm" data-testid="inline-addition-desc"
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <Input type="number" min={0} step="0.01" value={inlineNewAddition.qty}
+                            onChange={(e) => setInlineNewAddition(r => ({ ...r, qty: e.target.value }))}
+                            className="h-8 text-sm w-20" data-testid="inline-addition-qty" />
+                        </td>
+                        <td className="px-2 py-2">
+                          <UnitSelect value={inlineNewAddition.unit}
+                            onChange={(v) => setInlineNewAddition(r => ({ ...r, unit: v }))}
+                            className="h-8" data-testid="inline-addition-unit" />
+                        </td>
+                        <td className="px-2 py-2">
+                          <Input type="number" min={0} step="0.01" value={inlineNewAddition.price}
+                            onChange={(e) => setInlineNewAddition(r => ({ ...r, price: e.target.value }))}
+                            className="h-8 text-sm w-24" data-testid="inline-addition-price" />
+                        </td>
+                        <td className="px-2 py-2 text-right text-sm font-medium text-amber-700">
+                          ₹{((parseFloat(inlineNewAddition.qty) || 0) * (parseFloat(inlineNewAddition.price) || 0)).toLocaleString()}
+                        </td>
+                        <td className="px-2 py-2 text-xs text-gray-400">—</td>
+                        <td className="px-2 py-2 text-xs text-gray-400">—</td>
+                        <td className="px-2 py-2">
+                          <Input placeholder="Remarks" value={inlineNewAddition.remarks}
+                            onChange={(e) => setInlineNewAddition(r => ({ ...r, remarks: e.target.value }))}
+                            className="h-8 text-xs" data-testid="inline-addition-remarks" />
+                        </td>
+                        {canManage && (
+                          <td className="px-2 py-2 whitespace-nowrap">
+                            <Button size="sm" className="h-7 px-2 bg-emerald-600 hover:bg-emerald-700 mr-1" onClick={saveInlineAddition} data-testid="inline-addition-save">Save</Button>
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-gray-500" onClick={() => setInlineNewAddition(null)} data-testid="inline-addition-cancel">Cancel</Button>
+                          </td>
+                        )}
+                      </tr>
+                    )}
                   </tbody>
                   {items.length > 0 && (
                     <tfoot className="bg-cyan-50 border-t-2">
@@ -7271,12 +7446,17 @@ export default function ProjectDetail() {
                 </div>
                 <div className="flex gap-2">
                   {canManage && (
+                    <Button
+                      data-testid="add-deduction-btn"
+                      className="gap-2 bg-orange-600 hover:bg-orange-700"
+                      onClick={() => setInlineNewDeduction({ description: '', qty: 1, price: 0, remarks: '' })}
+                    >
+                      <MinusCircle className="h-4 w-4" />Add Deductions
+                    </Button>
+                  )}
+                  {/* Bulk-add dialog kept for power-users; trigger removed in favor of inline */}
+                  {canManage && (
                     <Dialog open={bulkDeductionDialog} onOpenChange={setBulkDeductionDialog}>
-                      <DialogTrigger asChild>
-                        <Button data-testid="add-deduction-btn" className="gap-2 bg-orange-600 hover:bg-orange-700">
-                          <MinusCircle className="h-4 w-4" />Add Deductions
-                        </Button>
-                      </DialogTrigger>
                       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
                           <DialogTitle>Add Deductions</DialogTitle>
@@ -7413,6 +7593,42 @@ export default function ProjectDetail() {
                         </SortableTableRow>
                       ))}
                       </SortableList>
+                    )}
+                    {/* Inline Add New Deduction Row */}
+                    {canManage && inlineNewDeduction && (
+                      <tr className="bg-emerald-50/40 border-y border-emerald-200" data-testid="inline-add-deduction-row">
+                        <td className="px-2 py-2"></td>
+                        <td className="px-2 py-2 text-xs text-emerald-700 font-medium">New</td>
+                        <td className="px-2 py-2">
+                          <Input
+                            autoFocus
+                            placeholder="Description…"
+                            value={inlineNewDeduction.description}
+                            onChange={(e) => setInlineNewDeduction(r => ({ ...r, description: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === 'Enter') saveInlineDeduction(); if (e.key === 'Escape') setInlineNewDeduction(null); }}
+                            className="h-8 text-sm" data-testid="inline-deduction-desc"
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <Input type="number" min={0} step="0.01" value={inlineNewDeduction.qty}
+                            onChange={(e) => setInlineNewDeduction(r => ({ ...r, qty: e.target.value }))}
+                            className="h-8 text-sm w-20" data-testid="inline-deduction-qty" />
+                        </td>
+                        <td className="px-2 py-2">
+                          <Input type="number" min={0} step="0.01" value={inlineNewDeduction.price}
+                            onChange={(e) => setInlineNewDeduction(r => ({ ...r, price: e.target.value }))}
+                            className="h-8 text-sm w-24" data-testid="inline-deduction-price" />
+                        </td>
+                        <td className="px-2 py-2 text-right text-sm font-medium text-orange-700">
+                          -₹{((parseFloat(inlineNewDeduction.qty) || 0) * (parseFloat(inlineNewDeduction.price) || 0)).toLocaleString()}
+                        </td>
+                        {canManage && (
+                          <td className="px-2 py-2 whitespace-nowrap">
+                            <Button size="sm" className="h-7 px-2 bg-emerald-600 hover:bg-emerald-700 mr-1" onClick={saveInlineDeduction} data-testid="inline-deduction-save">Save</Button>
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-gray-500" onClick={() => setInlineNewDeduction(null)} data-testid="inline-deduction-cancel">Cancel</Button>
+                          </td>
+                        )}
+                      </tr>
                     )}
                   </tbody>
                   {deductions.length > 0 && (
