@@ -7068,12 +7068,13 @@ export default function ProjectDetail() {
               {/* Group additions by section_id. Ungrouped rows render first; one block per section below. */}
               {(() => {
                 const sumGroup = (items) => {
-                  // Only CLIENT-APPROVED additions count toward the project total.
-                  // Pending / under-review / rejected rows contribute ₹0 (matches the
-                  // backend rule used in /value-summary and /full-details).
-                  const approved = items.filter(a => a.client_approval_status === 'client_approved' || a.client_approved === true);
-                  const total = approved.reduce((s, a) => s + (a.estimated_amount || 0), 0);
-                  const received = approved.reduce((s, a) => s + (a.income_received || 0), 0);
+                  // Section/Group footer shows the SUM of every row in the section
+                  // regardless of approval status. This is the planner's working total
+                  // (gives them visibility into what's been entered). The project-level
+                  // rollup elsewhere (Value Cards / Cashflow) continues to count only
+                  // client-approved rows — that rule lives on the backend.
+                  const total = items.reduce((s, a) => s + (a.estimated_amount || 0), 0);
+                  const received = items.reduce((s, a) => s + (a.income_received || 0), 0);
                   return { total, received, balance: total - received };
                 };
                 const ungrouped = additional_costs.filter(c => !c.section_id);
