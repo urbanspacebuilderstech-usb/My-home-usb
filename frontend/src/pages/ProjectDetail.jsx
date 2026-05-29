@@ -3457,16 +3457,15 @@ export default function ProjectDetail() {
   };
 
   const canManageBase = user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'accountant' || user?.role === 'planning' || user?.role === 'planning_person';
-  // When Planning Person has already saved the FE, lock SCOPE edits for them.
-  // Planning Head (`planning`) and Super Admin retain edit rights.
-  // NOTE: Additional Work and Deductions are NOT scope items — they follow their
-  // own 4-step approval chain (PH → GM → Client) so they remain editable here
-  // even while the FE is sitting in review.
+  // FE / scope edit lock is enforced by the backend per item (returns 423 when
+  // a Planning Person tries to edit a scope item that's in PH/GM/Client review).
+  // The frontend used to also pre-lock the entire UI, but that hid Send-to-Client,
+  // Delete All, edit icons, etc. for Additional Work + Deductions which have their
+  // own approval chain. So we no longer pre-gate here — the backend has the say.
   const isPlanningPerson = user?.role === 'planning_person';
   const LOCKED_FE_STATUSES = ['pending_planning_head_review', 'pending_gm_review', 'pending_cre_review', 'pending_client_review', 'feedback_received', 'approved'];
   const isFeLocked = LOCKED_FE_STATUSES.includes(projectData?.project?.fe?.status);
-  const canManage = canManageBase && !(isPlanningPerson && isFeLocked);
-  // Additions/Deductions are NOT affected by FE-lock — use this for those tables.
+  const canManage = canManageBase;
   const canManageAdditionsDeductions = canManageBase;
   const isSuperAdmin = user?.role === 'super_admin';
   const isPM = user?.role === 'project_manager';
