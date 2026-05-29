@@ -13,6 +13,22 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 28, 2026 — Stage 2: Additional Costs 4-Step Approval UI (P0)
+- **Status**: ✅ COMPLETE & TESTED (iteration_161: 9/9 backend, 100% frontend)
+- **Backend** (`/app/backend/routes/projects.py`):
+  - NEW endpoint `GET /api/cre/additional-costs` — returns rows in post-GM band (awaiting_client + client_approved) joined to project_name/client_name. Scoped by team.cre/created_by for CRE; 403 for non-CRE/non-superadmin.
+- **Frontend — ProjectDetail.jsx**:
+  - 8 new handlers wired: `submitAdditionForReview`, `phApproveAddition`, `phRejectAddition`, `gmApproveAddition`, `gmRejectAddition`, `submitSectionForReview`, `phApproveSection`, `gmApproveSection`.
+  - Inline row Status column now surfaces the new chain: created/rejected → "Submit for Review" (PP); ph_review → "Pending PH" + PH Approve/Reject (PH); gm_review → "Pending GM" + GM Approve/Reject (GM); rejected → "Rejected at PH/GM: <reason>" + Resubmit (PP).
+  - Section toolbar + Ungrouped toolbar show smart batch buttons "Submit N for Review", "PH Approve (N)", "GM Approve (N)" — only the action eligible for that role at the current item statuses.
+  - **Legacy direct "Send to Client" button removed** in favor of the new pipeline.
+- **Frontend — CREBoard.jsx**:
+  - New tab "Additional Costs" with red badge count for pending-client + need-CRE-action items.
+  - Three sub-tabs: Pending Client / Client Approved · Need CRE Action / All. Rows grouped by project with "View Project" deep-link to `/projects/{id}?tab=scope`.
+- **Files**: `/app/backend/routes/projects.py` (~lines 4940-4988), `/app/frontend/src/pages/ProjectDetail.jsx` (handlers lines 3185-3290, inline UI ~7315, batch toolbars ~7117 + ~7170), `/app/frontend/src/pages/CREBoard.jsx` (tab trigger ~821, content ~1300+).
+- **Tests**: `/app/backend/tests/test_addition_4step_approval.py` (NEW, 9 cases — all pass).
+
+
 ### Session — Feb 27, 2026 — FE Two-Step Planning Approval
 - **New flow**: Planning Person edits Final Estimate → **Save Estimate** (locks FE for them) → Planning Head sees Approve / Reject.
   - **Approve** → forwards to GM (existing GM chain continues).
