@@ -3835,10 +3835,10 @@ async def get_additional_costs(project_id: str, user: User = Depends(get_current
 
 
 @router.post("/additional-costs")
-async def create_additional_cost(cost_input: AdditionalCostCreate, user: User = Depends(get_current_user)):
+async def create_additional_cost(cost_input: AdditionalCostCreate, request: Request, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    await _assert_fe_editable_for_planning_person(cost_input.project_id, user)
+    await _assert_fe_editable_for_planning_person(cost_input.project_id, user, request=request)
     
     cost = AdditionalCostItem(
         project_id=cost_input.project_id,
@@ -3861,12 +3861,12 @@ async def create_additional_cost(cost_input: AdditionalCostCreate, user: User = 
 
 
 @router.patch("/additional-costs/{cost_id}")
-async def update_additional_cost(cost_id: str, update_data: AdditionalCostUpdate, user: User = Depends(get_current_user)):
+async def update_additional_cost(cost_id: str, update_data: AdditionalCostUpdate, request: Request, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     existing = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
     if existing:
-        await _assert_fe_editable_for_planning_person(existing.get("project_id"), user)
+        await _assert_fe_editable_for_planning_person(existing.get("project_id"), user, request=request)
     
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
     
@@ -4784,6 +4784,220 @@ async def cre_approve_additional_cost(cost_id: str, user: User = Depends(get_cur
     return {"message": "Approved for collection. Accountant has been notified.", "cost_id": cost_id}
 
 
+# ==================== NEW 4-STEP APPROVAL CHAIN ====================
+# Created (PP) → PH Review → GM Review → Awaiting Client → Approved
+# Stored on each additional_cost as `approval_status` (NEW field) so it's
+# decoupled from `client_approval_status` (last 2 hops). When GM approves
+# we automatically set client_approval_status=pending_client so the client
+# portal + CRE Additional Cost tab pick the row up.
+
+APPROVAL_STATUSES = ["created", "ph_review", "gm_review", "awaiting_client", "client_approved", "client_rejected", "rejected"]
+
+
+async def _set_addition_status(cost_id: str, new_status: str, by_user_id: str, reason: str = None, extra_set: dict = None):
+    """Update approval_status with audit history entry. Idempotent friendly."""
+    now = datetime.now(timezone.utc).isoformat()
+    history_entry = {"action": new_status, "by": by_user_id, "at": now}
+    if reason:
+        history_entry["reason"] = reason
+    update_doc = {"$set": {"approval_status": new_status, "approval_status_updated_at": now, **(extra_set or {})},
+                  "$push": {"approval_history": history_entry}}
+    await db.additional_costs.update_one({"cost_id": cost_id}, update_doc)
+
+
+async def _notify_role(role_or_roles, title: str, link: str = None):
+    roles = role_or_roles if isinstance(role_or_roles, list) else [role_or_roles]
+    users = await db.users.find({"role": {"$in": roles}, "is_active": True}, {"_id": 0, "user_id": 1}).to_list(100)
+    for u in users:
+        await create_notification(u["user_id"], title)
+
+
+@router.post("/additional-costs/{cost_id}/submit-for-review")
+async def submit_addition_for_ph_review(cost_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PLANNING_PERSON, UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can submit for review")
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Additional cost not found")
+    if cost.get("approval_status") not in (None, "created", "rejected"):
+        raise HTTPException(status_code=400, detail=f"Cannot submit — current status: {cost.get('approval_status')}")
+    await _set_addition_status(cost_id, "ph_review", user.user_id)
+    await _notify_role("planning", f"Additional Cost ready for your review: {cost.get('description', cost.get('name', ''))[:60]}")
+    return {"message": "Submitted to Planning Head for review", "approval_status": "ph_review"}
+
+
+@router.post("/additional-costs/{cost_id}/ph-approve")
+async def ph_approve_addition(cost_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning Head can approve")
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Additional cost not found")
+    if cost.get("approval_status") != "ph_review":
+        raise HTTPException(status_code=400, detail="Item is not awaiting Planning Head review")
+    await _set_addition_status(cost_id, "gm_review", user.user_id)
+    await _notify_role("general_manager", f"Additional Cost ready for GM review: {cost.get('description', cost.get('name', ''))[:60]}")
+    return {"message": "Forwarded to GM", "approval_status": "gm_review"}
+
+
+@router.post("/additional-costs/{cost_id}/ph-reject")
+async def ph_reject_addition(cost_id: str, body: dict, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning Head can reject")
+    reason = (body.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Reason required")
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Additional cost not found")
+    await _set_addition_status(cost_id, "rejected", user.user_id, reason=reason, extra_set={"rejection_reason": reason, "rejected_at_step": "planning_head"})
+    await _notify_role(["planning_person", "planning"], f"Additional Cost rejected by Planning Head — please revise")
+    return {"message": "Rejected and sent back to Planning Person", "approval_status": "rejected"}
+
+
+@router.post("/additional-costs/{cost_id}/gm-approve")
+async def gm_approve_addition(cost_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.GENERAL_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only GM can approve")
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Additional cost not found")
+    if cost.get("approval_status") != "gm_review":
+        raise HTTPException(status_code=400, detail="Item is not awaiting GM review")
+    now = datetime.now(timezone.utc).isoformat()
+    # Auto-send to client per Q3:a — GM approval = visible to client immediately.
+    await _set_addition_status(cost_id, "awaiting_client", user.user_id, extra_set={
+        "client_approval_status": "pending_client",
+        "client_approval_sent_at": now,
+        "client_approval_sent_by": user.user_id,
+    })
+    project = await db.projects.find_one({"project_id": cost["project_id"]}, {"_id": 0, "client_user_id": 1, "name": 1}) or {}
+    # Notify CRE + client (if linked)
+    await _notify_role("cre", f"New Additional Cost (GM-approved) awaiting client: {cost.get('description', cost.get('name', ''))[:60]} — {project.get('name', '')}")
+    if project.get("client_user_id"):
+        await create_notification(project["client_user_id"], f"New Additional Work for your approval: {cost.get('description', cost.get('name', ''))[:60]}")
+    return {"message": "GM approved — visible to Client & CRE", "approval_status": "awaiting_client"}
+
+
+@router.post("/additional-costs/{cost_id}/gm-reject")
+async def gm_reject_addition(cost_id: str, body: dict, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.GENERAL_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only GM can reject")
+    reason = (body.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Reason required")
+    await _set_addition_status(cost_id, "rejected", user.user_id, reason=reason, extra_set={"rejection_reason": reason, "rejected_at_step": "general_manager"})
+    await _notify_role(["planning_person", "planning"], f"Additional Cost rejected by GM — please revise")
+    return {"message": "Rejected back to Planning Person", "approval_status": "rejected"}
+
+
+# ── Section-level batch endpoints ──
+@router.post("/projects/{project_id}/addition-sections/{section_id}/submit-for-review")
+async def section_submit_for_ph_review(project_id: str, section_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PLANNING_PERSON, UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can submit")
+    items = await db.additional_costs.find({"project_id": project_id, "section_id": section_id}, {"_id": 0, "cost_id": 1, "approval_status": 1}).to_list(500)
+    if not items:
+        raise HTTPException(status_code=404, detail="No additions in section")
+    moved = 0
+    for it in items:
+        if it.get("approval_status") in (None, "created", "rejected"):
+            await _set_addition_status(it["cost_id"], "ph_review", user.user_id)
+            moved += 1
+    await _notify_role("planning", f"{moved} additional items in a section sent for Planning Head review")
+    return {"message": f"Submitted {moved} items", "count": moved}
+
+
+@router.post("/projects/{project_id}/addition-sections/{section_id}/ph-approve")
+async def section_ph_approve(project_id: str, section_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning Head")
+    items = await db.additional_costs.find({"project_id": project_id, "section_id": section_id, "approval_status": "ph_review"}, {"_id": 0, "cost_id": 1}).to_list(500)
+    for it in items:
+        await _set_addition_status(it["cost_id"], "gm_review", user.user_id)
+    if items:
+        await _notify_role("general_manager", f"{len(items)} additional items batch-approved by PH — GM review")
+    return {"message": f"PH approved {len(items)} items", "count": len(items)}
+
+
+@router.post("/projects/{project_id}/addition-sections/{section_id}/gm-approve")
+async def section_gm_approve(project_id: str, section_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.GENERAL_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only GM")
+    items = await db.additional_costs.find({"project_id": project_id, "section_id": section_id, "approval_status": "gm_review"}, {"_id": 0, "cost_id": 1, "description": 1, "name": 1}).to_list(500)
+    now = datetime.now(timezone.utc).isoformat()
+    for it in items:
+        await _set_addition_status(it["cost_id"], "awaiting_client", user.user_id, extra_set={
+            "client_approval_status": "pending_client",
+            "client_approval_sent_at": now,
+            "client_approval_sent_by": user.user_id,
+        })
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "client_user_id": 1, "name": 1}) or {}
+    if items:
+        await _notify_role("cre", f"{len(items)} Additional Costs (GM-approved) awaiting client: {project.get('name', '')}")
+        if project.get("client_user_id"):
+            await create_notification(project["client_user_id"], f"{len(items)} new Additional Works ready for your approval")
+    return {"message": f"GM approved {len(items)} items", "count": len(items)}
+
+
+# ==================== SUPER ADMIN PASSWORD GATE ====================
+# Required to edit any item locked by client approval (RE / FE / Additional / Deduction).
+# Returns a short-lived token the frontend then forwards on the edit call via
+# header `X-SuperAdmin-Confirm: <token>`.
+
+import hashlib
+import secrets as _secrets
+
+_su_confirm_tokens = {}  # token → (user_id, expires_at_epoch)
+
+
+@router.post("/superadmin/confirm-password")
+async def superadmin_confirm_password(body: dict, user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin only")
+    pwd = (body.get("password") or "").strip()
+    if not pwd:
+        raise HTTPException(status_code=400, detail="Password required")
+    # Verify against the stored hash
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1})
+    if not user_doc or not user_doc.get("password_hash"):
+        raise HTTPException(status_code=400, detail="No password set on account")
+    try:
+        import bcrypt
+        ok = bcrypt.checkpw(pwd.encode(), user_doc["password_hash"].encode())
+    except Exception:
+        ok = False
+    if not ok:
+        raise HTTPException(status_code=401, detail="Incorrect password")
+    # Issue a short-lived confirm token (10 minutes)
+    token = _secrets.token_urlsafe(24)
+    expires_at = datetime.now(timezone.utc).timestamp() + 600
+    _su_confirm_tokens[token] = (user.user_id, expires_at)
+    return {"token": token, "expires_in_seconds": 600}
+
+
+def _verify_superadmin_confirm(request: Request, user: User) -> bool:
+    """Returns True if request carries a valid X-SuperAdmin-Confirm token issued
+    to this super admin in the last 10 minutes. Side-effect: cleans expired tokens."""
+    if user.role != UserRole.SUPER_ADMIN:
+        return False
+    token = request.headers.get("x-superadmin-confirm") or request.headers.get("X-SuperAdmin-Confirm")
+    if not token:
+        return False
+    rec = _su_confirm_tokens.get(token)
+    if not rec:
+        return False
+    uid, exp = rec
+    now = datetime.now(timezone.utc).timestamp()
+    # purge expired
+    for t, (_, e) in list(_su_confirm_tokens.items()):
+        if e < now:
+            _su_confirm_tokens.pop(t, None)
+    if exp < now or uid != user.user_id:
+        return False
+    return True
+
+
 
 # ==================== SCOPE ITEMS CRUD ====================
 
@@ -4813,7 +5027,7 @@ async def get_scope_items(project_id: str, user: User = Depends(get_current_user
     return items
 
 
-async def _assert_fe_editable_for_planning_person(project_id: str, user: User):
+async def _assert_fe_editable_for_planning_person(project_id: str, user: User, request: "Request" = None):
     """Role-aware FE edit gating.
     
     | FE Status                                                       | PP | PH | SA | Other |
@@ -4823,18 +5037,21 @@ async def _assert_fe_editable_for_planning_person(project_id: str, user: User):
     | pending_gm_review                                               | ❌ | ✅ | ✅ | ❌  |
     | rejected_by_gm                                                  | ✅ | ✅ | ✅ | ❌  |
     | pending_cre_review / pending_client_review / feedback_received  | ❌ | ❌ | ✅ | ❌  |
-    | approved (client signed off)                                    | ❌ | ❌ | ✅ | ❌  |
+    | approved (client signed off)                                    | ❌ | ❌ | ✅ (with password confirm) | ❌  |
     
-    Also: when Planning Head edits while status == 'pending_gm_review',
-    bump revision once per cycle and re-notify GMs that the FE changed
-    after their queue.
+    Super Admin always bypasses status gating but MUST present a fresh
+    `X-SuperAdmin-Confirm` token (10-min window) for client-approved items.
     """
-    # Super Admin bypasses all gates
-    if user.role == UserRole.SUPER_ADMIN:
-        return
     proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "fe": 1, "name": 1})
     fe = (proj or {}).get("fe") or {}
     fe_status = fe.get("status") or "draft"
+    
+    # Super Admin: still needs password-confirm for client-approved items
+    if user.role == UserRole.SUPER_ADMIN:
+        if fe_status == "approved" and request is not None:
+            if not _verify_superadmin_confirm(request, user):
+                raise HTTPException(status_code=423, detail="Client-approved item is locked. Super Admin must confirm password to edit.")
+        return
     
     # Status buckets
     PP_LOCKED = {"pending_planning_head_review", "pending_gm_review", "pending_cre_review",
