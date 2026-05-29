@@ -3456,7 +3456,7 @@ export default function ProjectDetail() {
     return `₹${Number(amount || 0).toLocaleString('en-IN')}`;
   };
 
-  const canManageBase = user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'accountant' || user?.role === 'planning' || user?.role === 'planning_person';
+  const canManageBase = user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'accountant' || user?.role === 'planning' || user?.role === 'planning_person' || user?.role === 'general_manager';
   // FE / scope edit lock is enforced by the backend per item (returns 423 when
   // a Planning Person tries to edit a scope item that's in PH/GM/Client review).
   // The frontend used to also pre-lock the entire UI, but that hid Send-to-Client,
