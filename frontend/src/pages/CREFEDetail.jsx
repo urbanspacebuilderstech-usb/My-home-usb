@@ -90,7 +90,7 @@ export default function CREFEDetail() {
   if (!data) return null;
 
   const fe = data.project?.fe || {};
-  const publicUrl = data.token ? `${window.location.origin}/fe/${data.token}` : '';
+  const loginUrl = `${window.location.origin}/login`;
   // CRE has already issued credentials when a client_user_id is linked.
   const hasCredentials = !!data.project?.client_user_id;
 
@@ -191,30 +191,30 @@ export default function CREFEDetail() {
                     <Copy className="h-3 w-3" />
                   </Button>
                 </div>
-                {publicUrl && (
+                {loginUrl && (
                   <div className="flex items-center gap-2 pt-1">
-                    <span className="text-xs text-gray-500 w-20 flex-shrink-0">FE Link:</span>
-                    <code className="flex-1 text-xs bg-gray-50 px-2 py-1 rounded border truncate font-mono">{publicUrl}</code>
-                    <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => copyText(publicUrl, 'Link')} data-testid="issued-copy-link">
+                    <span className="text-xs text-gray-500 w-20 flex-shrink-0">Login URL:</span>
+                    <code className="flex-1 text-xs bg-gray-50 px-2 py-1 rounded border truncate font-mono">{loginUrl}</code>
+                    <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => copyText(loginUrl, 'Login URL')} data-testid="issued-copy-link">
                       <Copy className="h-3 w-3" />
                     </Button>
                   </div>
                 )}
-                <p className="text-[11px] text-gray-400 italic">Share these with the client (e.g. via WhatsApp). The password is shown only once — copy now.</p>
+                <p className="text-[11px] text-gray-400 italic">Share these with the client (e.g. via WhatsApp). The client logs in with this email & password to view the Final Estimate, Additional Work, and approve. The password is shown only once — copy now.</p>
               </div>
-            ) : hasCredentials && publicUrl ? (
+            ) : hasCredentials ? (
               <div className="mt-3 pt-3 border-t" data-testid="fe-link-block">
                 <div className="flex items-center gap-2 text-xs mb-1.5">
-                  <span className="text-emerald-700 font-medium uppercase tracking-wide flex-shrink-0">Client FE Link</span>
+                  <span className="text-emerald-700 font-medium uppercase tracking-wide flex-shrink-0">Client Login URL</span>
                   <span className="text-[10px] text-gray-400">(credentials already issued)</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 text-xs bg-gray-50 px-2 py-1 rounded border truncate font-mono">{publicUrl}</code>
-                  <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => copyText(publicUrl, 'Link')} data-testid="fe-link-copy">
+                  <code className="flex-1 text-xs bg-gray-50 px-2 py-1 rounded border truncate font-mono">{loginUrl}</code>
+                  <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => copyText(loginUrl, 'Login URL')} data-testid="fe-link-copy">
                     <Copy className="h-3 w-3" />
                   </Button>
                 </div>
-                <p className="text-[11px] text-gray-400 italic mt-1">Client will be asked to log in before viewing the Final Estimate.</p>
+                <p className="text-[11px] text-gray-400 italic mt-1">Client logs in here to view the FE, additional work, and approve/reject.</p>
               </div>
             ) : null}
           </CardContent>

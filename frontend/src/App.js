@@ -64,7 +64,6 @@ import DTBoard from '@/pages/DTBoard';
 import ProspectApp from '@/pages/ProspectApp';
 import PublicQuoteView from '@/pages/PublicQuoteView';
 import PublicPackageView from '@/pages/PublicPackageView';
-import PublicFinalEstimateView from '@/pages/PublicFinalEstimateView';
 import CREFEDetail from '@/pages/CREFEDetail';
 import CREPreConstruction from '@/pages/CREPreConstruction';
 import UserApp from '@/pages/UserApp';
@@ -120,7 +119,7 @@ function AppRouter() {
       <Route path="/setup-password" element={<SetupPassword />} />
       <Route path="/quote/:token" element={<PublicQuoteView />} />
       <Route path="/package/:token" element={<PublicPackageView />} />
-      <Route path="/fe/:token" element={<PublicFinalEstimateView />} />
+      <Route path="/fe/:token" element={<Navigate to="/login" replace />} />
       <Route path="/cre/final-estimate/:projectId" element={<ProtectedRoute><CREFEDetail /></ProtectedRoute>} />
       <Route path="/cre/pre-construction" element={<ProtectedRoute><CREPreConstruction /></ProtectedRoute>} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
