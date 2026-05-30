@@ -2349,6 +2349,7 @@ export default function ProjectDetail() {
         description: r.description.trim(),
         name: r.description.trim(),
         qty,
+        unit: r.unit || 'Nos',
         price,
         amount: qty * price,
         remarks: r.remarks || null,
@@ -7648,7 +7649,7 @@ export default function ProjectDetail() {
                     <Button
                       data-testid="add-deduction-btn"
                       className="gap-2 bg-orange-600 hover:bg-orange-700"
-                      onClick={() => setInlineNewDeduction({ description: '', qty: 1, price: 0, remarks: '' })}
+                      onClick={() => setInlineNewDeduction({ description: '', qty: 1, unit: 'Nos', price: 0, remarks: '' })}
                     >
                       <MinusCircle className="h-4 w-4" />Add Deductions
                     </Button>
@@ -7744,17 +7745,20 @@ export default function ProjectDetail() {
                     <tr>
                       <th className="px-1 py-3 w-8"></th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Description</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Work Description</th>
+                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Qty</th>
+                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Unit</th>
+                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Unit Rate</th>
+                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Total</th>
+                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
                       <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
                       {canManage && <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {deductions.length === 0 ? (
                       <tr>
-                        <td colSpan={canManage ? 7 : 6} className="px-4 py-8 text-center text-gray-500">
+                        <td colSpan={canManage ? 10 : 9} className="px-4 py-8 text-center text-gray-500">
                           No deductions recorded yet. Click "Add Deductions" for penalties or adjustments.
                         </td>
                       </tr>
@@ -7763,18 +7767,26 @@ export default function ProjectDetail() {
                         items={deductions.map(d => d.deduction_id)}
                         onReorder={handleDeductionReorder}
                       >
-                      {deductions.map((d, index) => (
+                      {deductions.map((d, index) => {
+                        // Legacy rows: qty/price may be null but amount is set. Derive sensible defaults.
+                        const qty = d.qty || 1;
+                        const unit = d.unit || '';
+                        const unitRate = d.price != null ? d.price : (d.amount || 0) / qty;
+                        return (
                         <SortableTableRow key={d.deduction_id} id={d.deduction_id} className="hover:bg-gray-50">
                           {({ listeners, attributes }) => (
                             <>
                           <td className="px-1 py-3 text-center"><DragHandle listeners={listeners} attributes={attributes} /></td>
                           <td className="px-4 py-3 text-sm">{index + 1}</td>
                           <td className="px-4 py-3 font-medium">{d.description}</td>
-                          <td className="px-4 py-3 text-right font-semibold text-orange-600">-₹{d.amount?.toLocaleString()}</td>
+                          <td className="px-3 py-3 text-right text-sm">{qty}</td>
+                          <td className="px-3 py-3 text-sm text-gray-700">{unit || '-'}</td>
+                          <td className="px-3 py-3 text-right text-sm">₹{Number(unitRate).toLocaleString('en-IN')}</td>
+                          <td className="px-3 py-3 text-right font-semibold text-orange-600">-₹{(d.amount || 0).toLocaleString('en-IN')}</td>
+                          <td className="px-3 py-3 text-sm text-gray-500">{d.remarks || '-'}</td>
                           <td className="px-4 py-3 text-center">
                             <WorkflowBadge status={d.workflow_status || 'draft'} />
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-500">{d.remarks || '-'}</td>
                           {canManage && (
                             <td className="px-4 py-3 text-center">
                               <div className="flex items-center justify-center gap-1">
@@ -7790,7 +7802,8 @@ export default function ProjectDetail() {
                             </>
                           )}
                         </SortableTableRow>
-                      ))}
+                        );
+                      })}
                       </SortableList>
                     )}
                     {/* Inline Add New Deduction Row */}
@@ -7814,6 +7827,11 @@ export default function ProjectDetail() {
                             className="h-8 text-sm w-20" data-testid="inline-deduction-qty" />
                         </td>
                         <td className="px-2 py-2">
+                          <UnitSelect value={inlineNewDeduction.unit}
+                            onChange={(v) => setInlineNewDeduction(r => ({ ...r, unit: v }))}
+                            className="h-8" data-testid="inline-deduction-unit" />
+                        </td>
+                        <td className="px-2 py-2">
                           <Input type="number" min={0} step="0.01" value={inlineNewDeduction.price}
                             onChange={(e) => setInlineNewDeduction(r => ({ ...r, price: e.target.value }))}
                             className="h-8 text-sm w-24" data-testid="inline-deduction-price" />
@@ -7821,6 +7839,12 @@ export default function ProjectDetail() {
                         <td className="px-2 py-2 text-right text-sm font-medium text-orange-700">
                           -₹{((parseFloat(inlineNewDeduction.qty) || 0) * (parseFloat(inlineNewDeduction.price) || 0)).toLocaleString()}
                         </td>
+                        <td className="px-2 py-2">
+                          <Input placeholder="Remarks…" value={inlineNewDeduction.remarks || ''}
+                            onChange={(e) => setInlineNewDeduction(r => ({ ...r, remarks: e.target.value }))}
+                            className="h-8 text-sm" data-testid="inline-deduction-remarks" />
+                        </td>
+                        <td className="px-2 py-2"></td>
                         {canManage && (
                           <td className="px-2 py-2 whitespace-nowrap">
                             <Button size="sm" className="h-7 px-2 bg-emerald-600 hover:bg-emerald-700 mr-1" onClick={saveInlineDeduction} data-testid="inline-deduction-save">Save</Button>
@@ -7833,7 +7857,7 @@ export default function ProjectDetail() {
                   {deductions.length > 0 && (
                     <tfoot className="bg-orange-50 border-t-2">
                       <tr>
-                        <td colSpan="2" className="px-4 py-3 text-right font-bold">Total Deductions:</td>
+                        <td colSpan="6" className="px-4 py-3 text-right font-bold">Total Deductions:</td>
                         <td className="px-4 py-3 text-right font-bold text-orange-700">-₹{summary.deductions_total?.toLocaleString()}</td>
                         <td colSpan={canManage ? 3 : 2}></td>
                       </tr>

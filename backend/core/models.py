@@ -767,6 +767,7 @@ class DeductionItem(BaseModel):
     # Itemised fields (new — used for FE-stage deductions). qty * price = amount.
     name: Optional[str] = None
     qty: Optional[float] = None
+    unit: Optional[str] = None
     price: Optional[float] = None
     amount: float
     status: str = "pending"  # pending, approved, rejected

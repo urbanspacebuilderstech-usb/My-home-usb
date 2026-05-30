@@ -5274,6 +5274,7 @@ class DeductionCreate(BaseModel):
     remarks: Optional[str] = None
     name: Optional[str] = None
     qty: Optional[float] = None
+    unit: Optional[str] = None
     price: Optional[float] = None
 
 
@@ -5284,6 +5285,7 @@ class DeductionUpdate(BaseModel):
     remarks: Optional[str] = None
     name: Optional[str] = None
     qty: Optional[float] = None
+    unit: Optional[str] = None
     price: Optional[float] = None
 
 
@@ -5308,6 +5310,7 @@ async def create_deduction(deduction_input: DeductionCreate, user: User = Depend
         remarks=deduction_input.remarks,
         name=deduction_input.name,
         qty=deduction_input.qty,
+        unit=deduction_input.unit,
         price=deduction_input.price,
     )
     await _assert_fe_editable_for_planning_person(deduction_input.project_id, user)
