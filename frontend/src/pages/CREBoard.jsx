@@ -712,7 +712,7 @@ export default function CREBoard() {
 
   if (loading && !user) {
     return (
-      <div className="min-h-screen bg-gray-50" data-testid="cre-board-loading">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-testid="cre-board-loading">
         <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="grid grid-cols-4 gap-4 mb-6">
             {[...Array(4)].map((_, i) => <div key={i} className="bg-white rounded-lg border p-4 animate-pulse"><div className="h-4 bg-gray-200 rounded w-20 mb-2" /><div className="h-8 bg-gray-200 rounded w-12" /></div>)}
@@ -726,7 +726,7 @@ export default function CREBoard() {
   const pendingCount = (pendingApprovals.advance_verified?.length || 0) + (pendingApprovals.pending_income?.length || 0);
 
   return (
-    <div className="min-h-screen bg-gray-50" data-testid="cre-board">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-testid="cre-board">
       <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6">
@@ -1147,7 +1147,7 @@ export default function CREBoard() {
                           className={`px-4 py-1.5 text-sm rounded-full border transition-colors flex items-center gap-1.5 ${
                             psSubTab === t.key
                               ? `${t.activeBg} text-white border-transparent shadow-sm`
-                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700 dark:hover:bg-gray-700'
                           }`}
                         >
                           {t.label}
@@ -1181,9 +1181,9 @@ export default function CREBoard() {
                       ) : (
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm" data-testid="cre-payment-schedule-table">
-                            <thead className="bg-gray-50 border-y">
+                            <thead className="bg-gray-50 dark:bg-gray-800/50 border-y">
                               <tr>
-                                <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase w-10">
+                                <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase w-10">
                                   <input
                                     type="checkbox"
                                     className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
@@ -1197,14 +1197,14 @@ export default function CREBoard() {
                                     data-testid="ps-select-all"
                                   />
                                 </th>
-                                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
-                                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Stage</th>
-                                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Expected Date</th>
-                                <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
-                                <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Received</th>
-                                <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
-                                <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
-                                <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Project</th>
+                                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Stage</th>
+                                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Expected Date</th>
+                                <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Amount</th>
+                                <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Received</th>
+                                <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Balance</th>
+                                <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                                <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y">
@@ -1223,7 +1223,7 @@ export default function CREBoard() {
                                 else if (e.workflow_status === 'requested') badge = <Badge className="bg-purple-100 text-purple-700 text-[11px]">Planning Requested</Badge>;
                                 else badge = <Badge className="bg-gray-100 text-gray-700 text-[11px]">Pending</Badge>;
                                 return (
-                                  <tr key={e.entry_id || e.stage_id} className="hover:bg-gray-50" data-testid={`ps-row-${e.entry_id || e.stage_id}`}>
+                                  <tr key={e.entry_id || e.stage_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50" data-testid={`ps-row-${e.entry_id || e.stage_id}`}>
                                     <td className="px-3 py-2.5 text-center">
                                       <input
                                         type="checkbox"
@@ -1318,18 +1318,18 @@ export default function CREBoard() {
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm" data-testid="projects-table">
-                      <thead className="bg-gray-50 border-y">
+                      <thead className="bg-gray-50 dark:bg-gray-800/50 border-y">
                         <tr>
-                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
-                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
-                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Location</th>
-                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
-                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Portal</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Project</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Client</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase hidden sm:table-cell">Location</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Portal</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
                         {filteredProjects.map((p) => (
-                          <tr key={p.project_id} className="hover:bg-gray-50" data-testid={`project-row-${p.project_id}`}>
+                          <tr key={p.project_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50" data-testid={`project-row-${p.project_id}`}>
                             <td className="px-4 py-2.5">
                               <p className="font-medium text-gray-900">{p.name}</p>
                               <p className="text-xs text-gray-400">{p.project_code || p.project_id}</p>
