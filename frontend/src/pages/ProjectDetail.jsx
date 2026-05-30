@@ -7093,7 +7093,7 @@ export default function ProjectDetail() {
                   {canManageAdditionsDeductions && (
                     <Button
                       data-testid="add-addition-btn"
-                      className="gap-2 bg-secondary hover:bg-secondary/90"
+                      className="gap-2 bg-secondary hover:bg-secondary/90 hidden"
                       onClick={() => setInlineNewAddition({ description: '', qty: 1, unit: 'Nos', price: 0, remarks: '', section_id: null })}
                     >
                       <Plus className="h-4 w-4" />Add Additions
