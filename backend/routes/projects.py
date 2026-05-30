@@ -5302,7 +5302,9 @@ async def get_deductions(project_id: str, user: User = Depends(get_current_user)
 async def create_deduction(deduction_input: DeductionCreate, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    
+
+    # Deductions have their own 4-step approval chain (PP → PH → GM → CRE-notify → Client),
+    # so they are NOT gated by the FE lock. They can be added independently at any point.
     deduction = DeductionItem(
         project_id=deduction_input.project_id,
         description=deduction_input.description,
@@ -5313,11 +5315,12 @@ async def create_deduction(deduction_input: DeductionCreate, user: User = Depend
         unit=deduction_input.unit,
         price=deduction_input.price,
     )
-    await _assert_fe_editable_for_planning_person(deduction_input.project_id, user)
-    
     deduction_dict = deduction.model_dump()
     deduction_dict["created_at"] = deduction_dict["created_at"].isoformat()
-    
+    # Seed chain state so the inline UI surfaces the right buttons.
+    deduction_dict["approval_status"] = "created"
+    deduction_dict["approval_history"] = []
+
     await db.deductions.insert_one(deduction_dict)
     await create_audit_log(user.user_id, "create", "deduction", deduction.deduction_id, {"description": deduction.description})
     return deduction
@@ -5327,12 +5330,12 @@ async def create_deduction(deduction_input: DeductionCreate, user: User = Depend
 async def update_deduction(deduction_id: str, update_data: DeductionUpdate, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    existing = await db.deductions.find_one({"deduction_id": deduction_id}, {"_id": 0, "project_id": 1})
-    if existing:
-        await _assert_fe_editable_for_planning_person(existing.get("project_id"), user)
-    
+    # Deduction edits are gated by the per-row approval_status (see chain below),
+    # NOT by the FE lock. Once GM approves a deduction it becomes client-pending
+    # and edits require Super Admin override (handled in chain code if needed).
+
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
-    
+
     await db.deductions.update_one({"deduction_id": deduction_id}, {"$set": update_dict})
     await create_audit_log(user.user_id, "update", "deduction", deduction_id, update_dict)
     return {"message": "Deduction updated"}
@@ -5342,13 +5345,145 @@ async def update_deduction(deduction_id: str, update_data: DeductionUpdate, user
 async def delete_deduction(deduction_id: str, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    existing = await db.deductions.find_one({"deduction_id": deduction_id}, {"_id": 0, "project_id": 1})
-    if existing:
-        await _assert_fe_editable_for_planning_person(existing.get("project_id"), user)
-    
+    # Same rationale as create/patch — gated by row chain, not FE lock.
+    existing = await db.deductions.find_one({"deduction_id": deduction_id}, {"_id": 0, "approval_status": 1, "client_approval_status": 1})
+    if existing and (existing.get("approval_status") in ("awaiting_client", "client_approved") or existing.get("client_approval_status") == "client_approved"):
+        if user.role != UserRole.SUPER_ADMIN:
+            raise HTTPException(status_code=423, detail="Deduction is awaiting client / client-approved. Only Super Admin can delete now.")
+
     await db.deductions.delete_one({"deduction_id": deduction_id})
     await create_audit_log(user.user_id, "delete", "deduction", deduction_id, {})
     return {"message": "Deduction deleted"}
+
+
+# ==================== DEDUCTION 4-STEP APPROVAL CHAIN ====================
+# Mirrors Additional Cost chain but the final hop is CRE-notification (no CRE
+# action) → Client Approve. State machine identical:
+#   created → ph_review → gm_review → awaiting_client → client_approved/rejected
+# Rejections at PH or GM bounce the row back to `rejected` and require the
+# Planning Person to resubmit. Endpoints follow the same naming so the frontend
+# can reuse handlers with a `kind` switch if/when refactored.
+
+async def _set_deduction_status(deduction_id: str, new_status: str, by_user_id: str, reason: str = None, extra_set: dict = None):
+    now = datetime.now(timezone.utc).isoformat()
+    history_entry = {"action": new_status, "by": by_user_id, "at": now}
+    if reason:
+        history_entry["reason"] = reason
+    update_doc = {"$set": {"approval_status": new_status, "approval_status_updated_at": now, **(extra_set or {})},
+                  "$push": {"approval_history": history_entry}}
+    await db.deductions.update_one({"deduction_id": deduction_id}, update_doc)
+
+
+@router.post("/deductions/{deduction_id}/submit-for-review")
+async def submit_deduction_for_ph_review(deduction_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PLANNING_PERSON, UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can submit")
+    d = await db.deductions.find_one({"deduction_id": deduction_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Deduction not found")
+    if d.get("approval_status") not in (None, "created", "rejected"):
+        raise HTTPException(status_code=400, detail=f"Cannot submit — current status: {d.get('approval_status')}")
+    await _set_deduction_status(deduction_id, "ph_review", user.user_id)
+    await _notify_role("planning", f"Deduction ready for Planning Head review: {d.get('description', '')[:60]}")
+    return {"message": "Submitted to Planning Head", "approval_status": "ph_review"}
+
+
+@router.post("/deductions/{deduction_id}/ph-approve")
+async def ph_approve_deduction(deduction_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning Head")
+    d = await db.deductions.find_one({"deduction_id": deduction_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Deduction not found")
+    if d.get("approval_status") != "ph_review":
+        raise HTTPException(status_code=400, detail="Not awaiting Planning Head")
+    await _set_deduction_status(deduction_id, "gm_review", user.user_id)
+    await _notify_role("general_manager", f"Deduction ready for GM review: {d.get('description', '')[:60]}")
+    return {"message": "Forwarded to GM", "approval_status": "gm_review"}
+
+
+@router.post("/deductions/{deduction_id}/ph-reject")
+async def ph_reject_deduction(deduction_id: str, body: dict, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning Head")
+    reason = (body.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Reason required")
+    await _set_deduction_status(deduction_id, "rejected", user.user_id, reason=reason, extra_set={"rejection_reason": reason, "rejected_at_step": "planning_head"})
+    await _notify_role(["planning_person", "planning"], "Deduction rejected by Planning Head — please revise")
+    return {"message": "Rejected", "approval_status": "rejected"}
+
+
+@router.post("/deductions/{deduction_id}/gm-approve")
+async def gm_approve_deduction(deduction_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.GENERAL_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only GM")
+    d = await db.deductions.find_one({"deduction_id": deduction_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Deduction not found")
+    if d.get("approval_status") != "gm_review":
+        raise HTTPException(status_code=400, detail="Not awaiting GM")
+    now = datetime.now(timezone.utc).isoformat()
+    await _set_deduction_status(deduction_id, "awaiting_client", user.user_id, extra_set={
+        "client_approval_status": "pending_client",
+        "client_approval_sent_at": now,
+        "client_approval_sent_by": user.user_id,
+    })
+    project = await db.projects.find_one({"project_id": d["project_id"]}, {"_id": 0, "client_user_id": 1, "name": 1}) or {}
+    # CRE is NOTIFIED (informational), client is asked to approve.
+    await _notify_role("cre", f"Deduction (GM-approved) sent to client: {d.get('description', '')[:60]} — {project.get('name', '')}")
+    if project.get("client_user_id"):
+        await create_notification(project["client_user_id"], f"New Deduction for your approval: {d.get('description', '')[:60]}")
+    return {"message": "GM approved — visible to Client (CRE notified)", "approval_status": "awaiting_client"}
+
+
+@router.post("/deductions/{deduction_id}/gm-reject")
+async def gm_reject_deduction(deduction_id: str, body: dict, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.GENERAL_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only GM")
+    reason = (body.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Reason required")
+    await _set_deduction_status(deduction_id, "rejected", user.user_id, reason=reason, extra_set={"rejection_reason": reason, "rejected_at_step": "general_manager"})
+    await _notify_role(["planning_person", "planning"], "Deduction rejected by GM — please revise")
+    return {"message": "Rejected", "approval_status": "rejected"}
+
+
+@router.post("/deductions/{deduction_id}/client-approve")
+async def client_approve_deduction(deduction_id: str, user: User = Depends(get_current_user)):
+    # Called from the client portal — client role only. Mirrors additional cost client decision.
+    if user.role != UserRole.CLIENT:
+        # Allow super_admin to record approval on client's behalf
+        if user.role != UserRole.SUPER_ADMIN:
+            raise HTTPException(status_code=403, detail="Client only")
+    d = await db.deductions.find_one({"deduction_id": deduction_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Deduction not found")
+    if d.get("client_approval_status") != "pending_client":
+        raise HTTPException(status_code=400, detail="Not pending client approval")
+    now = datetime.now(timezone.utc).isoformat()
+    await _set_deduction_status(deduction_id, "client_approved", user.user_id, extra_set={
+        "client_approval_status": "client_approved",
+        "client_approved_at": now,
+    })
+    await _notify_role(["planning_person", "planning", "general_manager", "cre"], "Client approved a Deduction")
+    return {"message": "Client approved", "approval_status": "client_approved"}
+
+
+@router.post("/deductions/{deduction_id}/client-reject")
+async def client_reject_deduction(deduction_id: str, body: dict, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.CLIENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Client only")
+    reason = (body.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Reason required")
+    await _set_deduction_status(deduction_id, "rejected", user.user_id, reason=reason, extra_set={
+        "client_approval_status": "client_rejected",
+        "client_rejection_reason": reason,
+        "rejected_at_step": "client",
+    })
+    await _notify_role(["planning_person", "planning"], "Client rejected a Deduction — please revise")
+    return {"message": "Client rejected", "approval_status": "rejected"}
 
 
 # ==================== BULK ITEM ENDPOINTS WITH VERIFICATION/APPROVAL WORKFLOW ====================

@@ -3280,6 +3280,52 @@ export default function ProjectDetail() {
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to approve'); }
   };
 
+  // ── 4-Step Deduction Approval Chain (PP → PH → GM → CRE-notify → Client) ──
+  // Mirrors the Additional Cost chain. Endpoints live on the same projects.py router.
+  const submitDeductionForReview = async (d) => {
+    if (!window.confirm(`Submit "${d.description || 'this deduction'}" to Planning Head for review?`)) return;
+    try {
+      await axios.post(`${API}/deductions/${d.deduction_id}/submit-for-review`);
+      toast.success('Submitted to Planning Head');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to submit'); }
+  };
+  const phApproveDeduction = async (d) => {
+    try {
+      await axios.post(`${API}/deductions/${d.deduction_id}/ph-approve`);
+      toast.success('Forwarded to GM');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to approve'); }
+  };
+  const phRejectDeduction = async (d) => {
+    const reason = window.prompt('Reason for rejecting back to Planning Person:', '');
+    if (reason === null) return;
+    if (!reason.trim()) { toast.error('Reason is required'); return; }
+    try {
+      await axios.post(`${API}/deductions/${d.deduction_id}/ph-reject`, { reason: reason.trim() });
+      toast.success('Rejected back to Planning Person');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to reject'); }
+  };
+  const gmApproveDeduction = async (d) => {
+    if (!window.confirm(`GM Approve "${d.description || 'this deduction'}"? CRE will be notified and Client will be asked to approve.`)) return;
+    try {
+      await axios.post(`${API}/deductions/${d.deduction_id}/gm-approve`);
+      toast.success('GM approved — sent to Client (CRE notified)');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to approve'); }
+  };
+  const gmRejectDeduction = async (d) => {
+    const reason = window.prompt('Reason for rejecting back to Planning Person:', '');
+    if (reason === null) return;
+    if (!reason.trim()) { toast.error('Reason is required'); return; }
+    try {
+      await axios.post(`${API}/deductions/${d.deduction_id}/gm-reject`, { reason: reason.trim() });
+      toast.success('Rejected back to Planning Person');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to reject'); }
+  };
+
   const handleDeleteDeduction = async (deductionId) => {
     if (!confirm('Delete this deduction?')) return;
     try {
@@ -7785,7 +7831,65 @@ export default function ProjectDetail() {
                           <td className="px-3 py-3 text-right font-semibold text-orange-600">-₹{(d.amount || 0).toLocaleString('en-IN')}</td>
                           <td className="px-3 py-3 text-sm text-gray-500">{d.remarks || '-'}</td>
                           <td className="px-4 py-3 text-center">
-                            <WorkflowBadge status={d.workflow_status || 'draft'} />
+                            <div className="flex items-center justify-center gap-1 flex-wrap">
+                              {/* 4-step chain pipeline: created/rejected → PH → GM → Client */}
+                              {(!d.approval_status || ['created', 'rejected'].includes(d.approval_status)) && (
+                                d.approval_status === 'rejected' ? (
+                                  <>
+                                    <span className="text-[11px] px-2 py-1 rounded-full bg-rose-100 text-rose-700 font-medium" title={d.rejection_reason || ''} data-testid={`ded-rejected-${d.deduction_id}`}>
+                                      Rejected{d.rejected_at_step ? ` at ${d.rejected_at_step === 'general_manager' ? 'GM' : d.rejected_at_step === 'planning_head' ? 'PH' : 'Client'}` : ''}{d.rejection_reason ? `: ${d.rejection_reason.length > 18 ? d.rejection_reason.slice(0, 18) + '…' : d.rejection_reason}` : ''}
+                                    </span>
+                                    {(user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin') && (
+                                      <Button variant="outline" size="sm" className="h-7 gap-1 border-amber-500 text-amber-700 hover:bg-amber-50 text-xs" onClick={() => submitDeductionForReview(d)} data-testid={`ded-resubmit-${d.deduction_id}`}>
+                                        <Send className="h-3 w-3" /> Resubmit
+                                      </Button>
+                                    )}
+                                  </>
+                                ) : (
+                                  (user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin') && (
+                                    <Button variant="outline" size="sm" className="h-7 gap-1 border-amber-500 text-amber-700 hover:bg-amber-50 text-xs" onClick={() => submitDeductionForReview(d)} data-testid={`ded-submit-review-${d.deduction_id}`}>
+                                      <Send className="h-3 w-3" /> Submit for Review
+                                    </Button>
+                                  )
+                                )
+                              )}
+                              {d.approval_status === 'ph_review' && (
+                                <>
+                                  <span className="text-[11px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium" data-testid={`ded-ph-review-${d.deduction_id}`}>Pending Planning Head</span>
+                                  {(user?.role === 'planning' || user?.role === 'super_admin') && (
+                                    <>
+                                      <Button variant="outline" size="sm" className="h-7 gap-1 border-emerald-500 text-emerald-700 hover:bg-emerald-50 text-xs" onClick={() => phApproveDeduction(d)} data-testid={`ded-ph-approve-${d.deduction_id}`}>
+                                        <CheckCircle2 className="h-3 w-3" /> PH Approve
+                                      </Button>
+                                      <Button variant="outline" size="sm" className="h-7 gap-1 border-rose-500 text-rose-700 hover:bg-rose-50 text-xs" onClick={() => phRejectDeduction(d)} data-testid={`ded-ph-reject-${d.deduction_id}`}>
+                                        <X className="h-3 w-3" /> Reject
+                                      </Button>
+                                    </>
+                                  )}
+                                </>
+                              )}
+                              {d.approval_status === 'gm_review' && (
+                                <>
+                                  <span className="text-[11px] px-2 py-1 rounded-full bg-violet-100 text-violet-700 font-medium" data-testid={`ded-gm-review-${d.deduction_id}`}>Pending GM</span>
+                                  {(user?.role === 'general_manager' || user?.role === 'super_admin') && (
+                                    <>
+                                      <Button variant="outline" size="sm" className="h-7 gap-1 border-emerald-500 text-emerald-700 hover:bg-emerald-50 text-xs" onClick={() => gmApproveDeduction(d)} data-testid={`ded-gm-approve-${d.deduction_id}`}>
+                                        <CheckCircle2 className="h-3 w-3" /> GM Approve
+                                      </Button>
+                                      <Button variant="outline" size="sm" className="h-7 gap-1 border-rose-500 text-rose-700 hover:bg-rose-50 text-xs" onClick={() => gmRejectDeduction(d)} data-testid={`ded-gm-reject-${d.deduction_id}`}>
+                                        <X className="h-3 w-3" /> Reject
+                                      </Button>
+                                    </>
+                                  )}
+                                </>
+                              )}
+                              {d.approval_status === 'awaiting_client' && (
+                                <span className="text-[11px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium" data-testid={`ded-pending-client-${d.deduction_id}`}>Pending Client</span>
+                              )}
+                              {d.approval_status === 'client_approved' && (
+                                <span className="text-[11px] px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium" data-testid={`ded-client-approved-${d.deduction_id}`}>Client Approved</span>
+                              )}
+                            </div>
                           </td>
                           {canManage && (
                             <td className="px-4 py-3 text-center">
