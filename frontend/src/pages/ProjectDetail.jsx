@@ -1470,7 +1470,7 @@ export default function ProjectDetail() {
 
   const saveProjectMaterials = async (mats) => {
     try {
-      await axios.put(`${API}/projects/${projectId}/package-materials`, { materials: mats.map(m => ({ name: m.name || '', brand: m.brand || '' })) });
+      await axios.put(`${API}/projects/${projectId}/package-materials`, { materials: mats.map(m => ({ name: m.name || '', brand: m.brand || '', unit: m.unit || '', price: parseFloat(m.price) || 0 })) });
     } catch { /* silent save */ }
   };
 
@@ -8459,6 +8459,8 @@ export default function ProjectDetail() {
                                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-10">#</th>
                                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Material Name</th>
                                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Brand</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th>
+                                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Price (₹/unit)</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y">
@@ -8467,6 +8469,8 @@ export default function ProjectDetail() {
                                   <td className="px-3 py-2.5 text-xs text-gray-400">{idx + 1}</td>
                                   <td className="px-3 py-2.5 font-medium">{m.name || '-'}</td>
                                   <td className="px-3 py-2.5">{m.brand ? <Badge variant="outline" className="text-xs">{m.brand}</Badge> : <span className="text-gray-400">-</span>}</td>
+                                  <td className="px-3 py-2.5 text-gray-700">{m.unit || <span className="text-gray-400">-</span>}</td>
+                                  <td className="px-3 py-2.5 text-right font-medium">{(m.price && Number(m.price) > 0) ? `₹${Number(m.price).toLocaleString('en-IN')}` : <span className="text-gray-400">-</span>}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -8517,6 +8521,27 @@ export default function ProjectDetail() {
                                     )}
                                   </div>
                                   <Button size="sm" variant="ghost" className="h-9 w-9 p-0 text-red-400 hover:text-red-600 shrink-0" onClick={() => removeProjectMaterial(idx)} data-testid={`proj-mat-delete-${idx}`}><X className="h-4 w-4" /></Button>
+                                </div>
+                                {/* Unit + Price row — small, secondary fields, kept compact below
+                                    the primary Material + Brand picker so screen real estate stays tidy. */}
+                                <div className="flex items-center gap-2 mt-2 pl-8">
+                                  <div className="flex-1 max-w-[180px]">
+                                    <Label className="text-[10px] text-gray-500 uppercase">Unit</Label>
+                                    <UnitSelect value={m.unit || ''} onChange={(v) => updateProjectMaterial(idx, 'unit', v)} className="h-9" data-testid={`proj-mat-unit-${idx}`} />
+                                  </div>
+                                  <div className="flex-1 max-w-[200px]">
+                                    <Label className="text-[10px] text-gray-500 uppercase">Price (₹/unit)</Label>
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      step="0.01"
+                                      value={m.price ?? ''}
+                                      placeholder="0"
+                                      onChange={(e) => updateProjectMaterial(idx, 'price', e.target.value === '' ? '' : parseFloat(e.target.value))}
+                                      className="h-9 text-sm"
+                                      data-testid={`proj-mat-price-${idx}`}
+                                    />
+                                  </div>
                                 </div>
                               </div>
                             ))}
