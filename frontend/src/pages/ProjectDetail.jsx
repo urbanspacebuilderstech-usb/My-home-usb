@@ -3687,7 +3687,9 @@ export default function ProjectDetail() {
     const addTotal = (additional_costs || [])
       .filter(a => a.client_approval_status === 'client_approved' || a.client_approved === true)
       .reduce((s, a) => s + (a.estimated_amount || 0), 0);
-    const dedTotal = (deductions || []).reduce((s, d) => s + (d.amount || 0), 0);
+    const dedTotal = (deductions || [])
+      .filter(d => d.client_approval_status === 'client_approved')
+      .reduce((s, d) => s + (d.amount || 0), 0);
     const grand = feTotal + addTotal - dedTotal;
     const showTotal = scope_items.length > 0 || addTotal > 0 || dedTotal > 0;
 
