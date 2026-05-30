@@ -1254,7 +1254,7 @@ export default function CREBoard() {
                       </thead>
                       <tbody className="divide-y">
                         {filteredProjects.map((p) => (
-                          <tr key={p.project_id} className="hover:bg-gray-50 cursor-pointer" onClick={() => window.location.href = `/projects/${p.project_id}`} data-testid={`project-row-${p.project_id}`}>
+                          <tr key={p.project_id} className="hover:bg-gray-50" data-testid={`project-row-${p.project_id}`}>
                             <td className="px-4 py-2.5">
                               <p className="font-medium text-gray-900">{p.name}</p>
                               <p className="text-xs text-gray-400">{p.project_code || p.project_id}</p>
