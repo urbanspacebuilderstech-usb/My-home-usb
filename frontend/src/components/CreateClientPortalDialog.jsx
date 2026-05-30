@@ -50,7 +50,7 @@ export default function CreateClientPortalDialog({ project, open, onOpenChange, 
 
   const buildShareMessage = () => {
     const cred = created || { email, password };
-    return `Hello ${project?.client_name || 'Sir/Ma\'am'},\n\nYour project portal is ready.\n\n🏗 Project: ${project?.name || ''}\n🔗 Login: ${PORTAL_BASE}\n📧 Email: ${cred.email}\n🔑 Password: ${cred.password}\n\nThank you!`;
+    return `Hello ${project?.client_name || 'Sir/Ma\'am'},\n\nYour project portal is ready.\n\n🏗️ Project: ${project?.name || ''}\n🔗 Login: ${PORTAL_BASE}\n📧 Email: ${cred.email}\n🔑 Password: ${cred.password}\n\nThank you!`;
   };
 
   const copyMessage = async () => {
