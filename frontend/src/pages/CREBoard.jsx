@@ -1691,7 +1691,12 @@ export default function CREBoard() {
                         <tbody className="divide-y">
                           {plan.map((p, i) => (
                             <tr key={p.stage_id} data-testid={`bulk-collect-row-${i}`}>
-                              <td className="px-2 py-1.5 font-medium">{p.stage_name}</td>
+                              <td className="px-2 py-1.5 font-medium">
+                                <span className="flex items-center gap-1.5 flex-wrap">
+                                  {p.is_addition && <Badge variant="outline" className="text-[9px] bg-violet-50 text-violet-700 border-violet-200 px-1 py-0">ADD</Badge>}
+                                  <span className="truncate">{p.stage_name}</span>
+                                </span>
+                              </td>
                               <td className="px-2 py-1.5 text-right text-red-600">{formatCurrency(p.balance)}</td>
                               <td className="px-2 py-1.5 text-right font-semibold text-green-700">{formatCurrency(p.allocated)}</td>
                               <td className="px-2 py-1.5 text-right text-gray-700">{formatCurrency(p.post_balance || 0)}</td>

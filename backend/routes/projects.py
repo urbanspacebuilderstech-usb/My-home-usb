@@ -3408,9 +3408,22 @@ async def get_outstanding_stages(project_id: str, user: User = Depends(get_curre
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     stages = await db.payment_stages.find(
-        {"project_id": project_id, "workflow_status": "requested"},
+        {
+            "project_id": project_id,
+            # Two cases qualify:
+            # 1. workflow_status="requested" — Planning has formally raised
+            #    the request, classic FIFO collection.
+            # 2. is_addition=True — every Additional Work line that has gone
+            #    through Req Payment, regardless of whether the legacy code
+            #    paths set workflow_status correctly. We still skip rows with
+            #    zero balance below.
+            "$or": [
+                {"workflow_status": "requested"},
+                {"is_addition": True},
+            ],
+        },
         {"_id": 0},
-    ).sort([("requested_at", 1), ("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(200)
+    ).sort([("requested_at", 1), ("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(500)
     out: List[Dict[str, Any]] = []
     for s in stages:
         bal = (s.get("amount", 0) or 0) - (s.get("amount_received", 0) or 0)
@@ -3425,6 +3438,7 @@ async def get_outstanding_stages(project_id: str, user: User = Depends(get_curre
             "balance": bal,
             "requested_at": s.get("requested_at"),
             "expected_payment_date": s.get("expected_payment_date"),
+            "is_addition": bool(s.get("is_addition")),
         })
     total = sum(x["balance"] for x in out)
     return {
