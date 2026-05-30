@@ -64,7 +64,8 @@ export default function ClientPortal() {
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   // Decision dialog state — proper modal instead of window.prompt
-  const [decisionDialog, setDecisionDialog] = useState({ open: false, mode: null, costId: null, name: '', text: '', submitting: false });
+  // `kind` distinguishes the entity ('addition' is default for back-compat; 'deduction' for deductions).
+  const [decisionDialog, setDecisionDialog] = useState({ open: false, mode: null, kind: 'addition', costId: null, name: '', text: '', submitting: false });
 
   useEffect(() => {
     fetchUserAndProjects();
@@ -172,7 +173,7 @@ export default function ClientPortal() {
   };
 
   const submitDecisionDialog = async () => {
-    const { mode, costId, text } = decisionDialog;
+    const { mode, kind, costId, text } = decisionDialog;
     const value = (text || '').trim();
     if (!value) {
       toast.error(mode === 'reject' ? 'Reason is required to reject' : 'Please share a short note so Planning knows what to clarify');
@@ -180,19 +181,48 @@ export default function ClientPortal() {
     }
     setDecisionDialog(d => ({ ...d, submitting: true }));
     try {
-      if (mode === 'reject') {
+      if (kind === 'deduction') {
+        // Deductions only support reject from the client portal (approve is one-click).
+        await axios.post(`${API}/deductions/${costId}/client-reject`, { reason: value });
+        toast.success('Rejection recorded');
+      } else if (mode === 'reject') {
         await axios.post(`${API}/additional-costs/${costId}/client-decision`, { decision: 'reject', reason: value });
         toast.success('Rejection recorded');
       } else {
         await axios.post(`${API}/client-portal/additional-costs/${costId}/request-review`, { note: value });
         toast.success('Review request sent to Planning');
       }
-      setDecisionDialog({ open: false, mode: null, costId: null, name: '', text: '', submitting: false });
+      setDecisionDialog({ open: false, mode: null, kind: 'addition', costId: null, name: '', text: '', submitting: false });
       if (projectId) fetchProjectData(projectId);
     } catch (e) {
       toast.error(e.response?.data?.detail || (mode === 'reject' ? 'Failed to reject' : 'Failed to send review request'));
       setDecisionDialog(d => ({ ...d, submitting: false }));
     }
+  };
+
+  // ── Deduction Approve / Reject (client portal) ──────────────────────
+  // Approve: one-click POST to backend client-approve endpoint.
+  // Reject:  opens the styled decision dialog (kind='deduction') so the
+  // client must enter a reason, mirroring the Additional Work flow.
+  const handleClientApproveDeduction = async (ded) => {
+    try {
+      await axios.post(`${API}/deductions/${ded.deduction_id}/client-approve`);
+      toast.success('Deduction approved');
+      if (projectId) fetchProjectData(projectId);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to approve');
+    }
+  };
+  const handleClientRejectDeduction = (ded) => {
+    setDecisionDialog({
+      open: true,
+      mode: 'reject',
+      kind: 'deduction',
+      costId: ded.deduction_id,
+      name: ded.description || ded.name || 'this deduction',
+      text: '',
+      submitting: false,
+    });
   };
   // Section batch decision (one click approves every addition inside).
   const handleSectionDecision = async (sectionId, decision) => {
@@ -1005,22 +1035,55 @@ export default function ClientPortal() {
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Description</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase print:hidden">Status</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {deductions.length === 0 ? (
                       <tr>
-                        <td colSpan="4" className="px-6 py-8 text-center text-gray-500">No deductions applied</td>
+                        <td colSpan="5" className="px-6 py-8 text-center text-gray-500">No deductions applied</td>
                       </tr>
                     ) : (
-                      deductions.map((ded, idx) => (
-                        <tr key={ded.deduction_id} className="hover:bg-gray-50" data-testid={`client-ded-row-${ded.deduction_id}`}>
-                          <td className="px-4 py-3 text-sm">{idx + 1}</td>
-                          <td className="px-4 py-3 font-medium">{ded.description || ded.name || 'Deduction'}</td>
-                          <td className="px-4 py-3 text-sm text-gray-600">{ded.remarks || '-'}</td>
-                          <td className="px-4 py-3 text-right font-semibold text-rose-600">- ₹{(ded.amount || 0).toLocaleString()}</td>
-                        </tr>
-                      ))
+                      deductions.map((ded, idx) => {
+                        const isPending = ded.client_approval_status === 'pending_client';
+                        const isApproved = ded.client_approval_status === 'client_approved';
+                        const isRejected = ded.client_approval_status === 'client_rejected';
+                        return (
+                          <tr key={ded.deduction_id} className="hover:bg-gray-50" data-testid={`client-ded-row-${ded.deduction_id}`}>
+                            <td className="px-4 py-3 text-sm">{idx + 1}</td>
+                            <td className="px-4 py-3 font-medium">{ded.description || ded.name || 'Deduction'}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600">{ded.remarks || '-'}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-rose-600">- ₹{(ded.amount || 0).toLocaleString()}</td>
+                            <td className="px-4 py-3 text-center print:hidden">
+                              <div className="flex items-center justify-center gap-2 flex-wrap">
+                                {isPending && (
+                                  <>
+                                    <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 px-3" onClick={() => handleClientApproveDeduction(ded)} data-testid={`client-ded-approve-${ded.deduction_id}`}>
+                                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+                                    </Button>
+                                    <Button size="sm" variant="outline" className="border-rose-300 text-rose-700 hover:bg-rose-50 h-8 px-3" onClick={() => handleClientRejectDeduction(ded)} data-testid={`client-ded-reject-${ded.deduction_id}`}>
+                                      <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
+                                    </Button>
+                                  </>
+                                )}
+                                {isApproved && (
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+                                    <CheckCircle2 className="h-3 w-3 mr-1" /> Approved
+                                  </span>
+                                )}
+                                {isRejected && (
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-100 text-rose-700" title={ded.client_rejection_reason || ''}>
+                                    <XCircle className="h-3 w-3 mr-1" /> Rejected
+                                  </span>
+                                )}
+                                {!isPending && !isApproved && !isRejected && (
+                                  <span className="text-[11px] text-gray-400 italic">Awaiting GM approval</span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                   {deductions.length > 0 && (
@@ -1028,6 +1091,7 @@ export default function ClientPortal() {
                       <tr>
                         <td colSpan="3" className="px-4 py-3 text-right font-bold">Total Deductions:</td>
                         <td className="px-4 py-3 text-right font-bold text-rose-600">- ₹{totalDeductions.toLocaleString()}</td>
+                        <td className="print:hidden"></td>
                       </tr>
                     </tfoot>
                   )}
@@ -1157,7 +1221,7 @@ export default function ClientPortal() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {decisionDialog.mode === 'reject' ? (
-                <><XCircle className="h-5 w-5 text-rose-600" /> Reject Additional Work</>
+                <><XCircle className="h-5 w-5 text-rose-600" /> Reject {decisionDialog.kind === 'deduction' ? 'Deduction' : 'Additional Work'}</>
               ) : (
                 <><MessageSquare className="h-5 w-5 text-sky-600" /> Request a Review</>
               )}
@@ -1194,7 +1258,7 @@ export default function ClientPortal() {
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setDecisionDialog({ open: false, mode: null, costId: null, name: '', text: '', submitting: false })}
+              onClick={() => setDecisionDialog({ open: false, mode: null, kind: 'addition', costId: null, name: '', text: '', submitting: false })}
               disabled={decisionDialog.submitting}
               data-testid="decision-dialog-cancel"
             >
