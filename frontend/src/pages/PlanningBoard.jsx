@@ -1143,10 +1143,14 @@ export default function PlanningBoard({ embedded = false }) {
   const handleRemoveScheduleEntry = async (entryId) => {
     if (!confirm('Remove this stage from the schedule?')) return;
     try {
-      await axios.delete(`${API}/planning/monthly-schedule/${entryId}`);
+      // Pass month/year so the backend scopes "hide" markers correctly for
+      // regular project stages (additions are deleted outright either way).
+      await axios.delete(`${API}/planning/monthly-schedule/${entryId}`, {
+        params: { month: scheduleMonth, year: scheduleYear },
+      });
       toast.success('Removed');
       fetchMonthlyScheduleFor(scheduleMonth, scheduleYear);
-    } catch { toast.error('Failed'); }
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
   };
 
   const handleRequestPayment = async (entryId) => {

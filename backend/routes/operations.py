@@ -1907,9 +1907,13 @@ async def get_monthly_schedule(
         return None, None
 
     # 1. Hydrate Planning's manual "added to month" entries (NON-carryover only)
-    manual_entries = await db.monthly_schedule_entries.find(
+    raw_manual = await db.monthly_schedule_entries.find(
         {"is_carryover": {"$ne": True}}, {"_id": 0}
     ).to_list(20000)
+    # Hide markers are scoped to a specific (stage_id, month, year). Keep them
+    # separately so we can suppress those stages in just that month.
+    hide_keys = {(e["stage_id"], e.get("month"), e.get("year")) for e in raw_manual if e.get("is_hidden") and e.get("stage_id")}
+    manual_entries = [e for e in raw_manual if not e.get("is_hidden")]
     manual_by_stage = {e["stage_id"]: e for e in manual_entries if e.get("stage_id")}
 
     # 2. Hydrate every payment_stage that could possibly belong to the requested month
@@ -1951,6 +1955,10 @@ async def get_monthly_schedule(
                 is_carryover = False
 
         if effective_month == month and effective_year == year:
+            # Honor hide markers — Planning explicitly suppressed this stage
+            # from this month via the trash icon on the monthly view.
+            if (stage.get("stage_id"), month, year) in hide_keys:
+                continue
             matching_stages.append({
                 "stage": stage,
                 "manual_entry": manual,
@@ -2174,38 +2182,64 @@ async def add_stages_to_monthly_schedule(body: dict, user: User = Depends(get_cu
 
 
 @router.delete("/planning/monthly-schedule/{entry_id}")
-async def remove_schedule_entry(entry_id: str, user: User = Depends(get_current_user)):
+async def remove_schedule_entry(entry_id: str, month: Optional[int] = None, year: Optional[int] = None, user: User = Depends(get_current_user)):
     """Remove a stage from the monthly schedule.
 
-    Entry IDs come in two shapes from `/planning/monthly-schedule`:
-      • `entry_<uid>` — a stored row in `monthly_schedule_entries` (Planning
-        added the stage to this month manually). We just drop that row.
-      • `computed_<stage_id>` — a derived entry coming from the stage's own
-        expected_payment_date (no stored row). For ADDITION stages we delete
-        the payment_stage so it disappears everywhere. For regular project
-        stages we refuse — those belong to the project's payment schedule
-        structure and must be removed from the project itself.
+    Three cases:
+      • `entry_<uid>` → stored manual row in `monthly_schedule_entries`. Drop it.
+      • `computed_<stage_id>` for ADDITION stages → delete the underlying
+        payment_stage so it disappears everywhere AND clear the linked cost's
+        `payment_requested` flag so user can re-submit later if needed.
+      • `computed_<stage_id>` for REGULAR project stages → insert a "hidden"
+        marker into `monthly_schedule_entries` that suppresses the stage from
+        the relevant month only. We never alter the project's underlying
+        payment schedule structure.
+
+    The frontend can optionally pass `?month=&year=` to scope the hide. If
+    omitted, today's calendar month is used (matches what Planning sees).
     """
     if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can manage schedules")
 
     if entry_id.startswith("computed_"):
         stage_id = entry_id[len("computed_"):]
-        stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0, "is_addition": 1, "linked_addition_id": 1})
+        stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0, "is_addition": 1, "linked_addition_id": 1, "project_id": 1})
         if not stage:
             raise HTTPException(status_code=404, detail="Stage not found")
-        if not stage.get("is_addition"):
-            raise HTTPException(status_code=400, detail="This stage belongs to the project's payment schedule. Remove it from the project, not the monthly view.")
-        # Soft-clear the link on the additional_cost so the user can resubmit Req Payment if needed.
-        if stage.get("linked_addition_id"):
-            await db.additional_costs.update_one(
-                {"cost_id": stage["linked_addition_id"]},
-                {"$set": {"payment_requested": False, "linked_stage_id": None}},
-            )
-        await db.payment_stages.delete_one({"stage_id": stage_id})
-        # Also drop any monthly_schedule_entries that referenced this stage.
-        await db.monthly_schedule_entries.delete_many({"stage_id": stage_id})
-        return {"message": "Removed from schedule"}
+
+        if stage.get("is_addition"):
+            # Soft-clear the link so the user can resubmit Req Payment.
+            if stage.get("linked_addition_id"):
+                await db.additional_costs.update_one(
+                    {"cost_id": stage["linked_addition_id"]},
+                    {"$set": {"payment_requested": False, "linked_stage_id": None}},
+                )
+            await db.payment_stages.delete_one({"stage_id": stage_id})
+            await db.monthly_schedule_entries.delete_many({"stage_id": stage_id})
+            return {"message": "Removed from schedule"}
+
+        # Regular project stage: insert a hidden marker for the target month.
+        today = datetime.now(timezone.utc).date()
+        target_month = month if month else today.month
+        target_year = year if year else today.year
+        hide_entry = {
+            "entry_id": f"hide_{uuid.uuid4().hex[:12]}",
+            "project_id": stage.get("project_id"),
+            "stage_id": stage_id,
+            "month": target_month,
+            "year": target_year,
+            "is_hidden": True,
+            "is_addition": False,
+            "added_by": user.user_id,
+            "added_at": datetime.now(timezone.utc).isoformat(),
+        }
+        # Idempotent: avoid duplicate hide markers for the same stage+month.
+        existing_hide = await db.monthly_schedule_entries.find_one({
+            "stage_id": stage_id, "month": target_month, "year": target_year, "is_hidden": True,
+        })
+        if not existing_hide:
+            await db.monthly_schedule_entries.insert_one(hide_entry)
+        return {"message": f"Hidden from {target_month}/{target_year}"}
 
     result = await db.monthly_schedule_entries.delete_one({"entry_id": entry_id})
     if result.deleted_count == 0:
