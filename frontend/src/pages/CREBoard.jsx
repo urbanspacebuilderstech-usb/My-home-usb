@@ -1228,7 +1228,7 @@ export default function CREBoard() {
                       <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
                       <Input placeholder="Search projects..." value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} className="pl-8 h-8 w-48 text-sm" data-testid="project-search" />
                     </div>
-                    <Button size="sm" onClick={() => { resetForm(); setCreateDialog(true); }} className="bg-amber-600 hover:bg-amber-700" data-testid="create-project-btn">
+                    <Button size="sm" onClick={() => { resetForm(); setCreateDialog(true); }} className="bg-amber-600 hover:bg-amber-700 hidden" data-testid="create-project-btn">
                       <Plus className="h-4 w-4 mr-1" />Create Project
                     </Button>
                   </div>
