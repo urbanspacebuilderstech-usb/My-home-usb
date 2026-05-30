@@ -1933,6 +1933,11 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     addition_sections = await db.addition_sections.find(
         {"project_id": project_id}, {"_id": 0}
     ).sort("created_at", 1).to_list(200)
+
+    # Get deduction sections (folders that group deductions — mirrors addition_sections)
+    deduction_sections = await db.deduction_sections.find(
+        {"project_id": project_id}, {"_id": 0}
+    ).sort("created_at", 1).to_list(200)
     
     # Calculate totals — Additions only count toward project value when the
     # CLIENT has approved them (matches /value-summary rule). Pending /
@@ -2069,6 +2074,8 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
         "addition_sections": addition_sections,
         "additional_attachments": project.get("additional_attachments", []),
         "deductions": deductions,
+        "deduction_sections": deduction_sections,
+        "deduction_attachments": project.get("deduction_attachments", []),
         "income_entries": income_entries,
         "pre_construction": pre_construction,
         "summary": {

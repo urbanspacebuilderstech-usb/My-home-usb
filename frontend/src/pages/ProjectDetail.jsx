@@ -1045,6 +1045,13 @@ export default function ProjectDetail() {
   const [deleteAllAdditionsDialog, setDeleteAllAdditionsDialog] = useState({ open: false, typed: '', submitting: false });
   const [newSectionTitle, setNewSectionTitle] = useState('');
   const [editingSection, setEditingSection] = useState(null); // { section_id, title }
+  // Deduction sections — mirror of additionSections for the Deductions tab.
+  const [deductionSections, setDeductionSections] = useState([]);
+  const [newDedSectionDialog, setNewDedSectionDialog] = useState(false);
+  const [newDedSectionTitle, setNewDedSectionTitle] = useState('');
+  const [editingDedSection, setEditingDedSection] = useState(null);
+  // The section context for the inline "+ Add" deduction (null = ungrouped)
+  const [inlineDeductionSectionId, setInlineDeductionSectionId] = useState(null);
   const [bulkDeductionDialog, setBulkDeductionDialog] = useState(false);
   
   // Verification dialog
@@ -1271,6 +1278,7 @@ export default function ProjectDetail() {
       // Pluck addition_sections from the full-details payload (added in
       // /app/backend/routes/financial.py) so the UI can group additional_costs.
       setAdditionSections(projectRes.data?.addition_sections || []);
+      setDeductionSections(projectRes.data?.deduction_sections || []);
       if (summaryRes) setPaymentSummary(summaryRes.data);
       if (stagesRes) setProjectStages(stagesRes.data);
       if (templatesRes) setStageTemplates(templatesRes.data);
@@ -2353,9 +2361,11 @@ export default function ProjectDetail() {
         price,
         amount: qty * price,
         remarks: r.remarks || null,
+        section_id: inlineDeductionSectionId || null,
       });
       toast.success('Deduction added');
       setInlineNewDeduction(null);
+      setInlineDeductionSectionId(null);
       fetchData(false);
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to add deduction');
@@ -3089,6 +3099,94 @@ export default function ProjectDetail() {
       fetchData(false);
     } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
   };
+
+  // ── Deduction Section handlers (mirror Addition section flow) ────────────
+  const handleCreateDedSection = async () => {
+    const title = (newDedSectionTitle || '').trim();
+    if (!title) { toast.error('Section title is required'); return; }
+    try {
+      await axios.post(`${API}/projects/${projectId}/deduction-sections`, { title });
+      toast.success(`Section "${title}" created`);
+      setNewDedSectionDialog(false);
+      setNewDedSectionTitle('');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to create section'); }
+  };
+  const handleRenameDedSection = async () => {
+    if (!editingDedSection) return;
+    const title = (editingDedSection.title || '').trim();
+    if (!title) { toast.error('Title required'); return; }
+    try {
+      await axios.patch(`${API}/projects/${projectId}/deduction-sections/${editingDedSection.section_id}`, { title });
+      toast.success('Section renamed');
+      setEditingDedSection(null);
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to rename'); }
+  };
+  const handleDeleteDedSection = async (section) => {
+    if (!window.confirm(`Delete section "${section.title}"?\nDeductions in this section will move back to "Ungrouped" (no data loss).`)) return;
+    try {
+      await axios.delete(`${API}/projects/${projectId}/deduction-sections/${section.section_id}`);
+      toast.success('Section deleted');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to delete section'); }
+  };
+  // Open the inline-add row scoped to a specific section (or null for ungrouped).
+  const openAddDeductionFor = (sectionId) => {
+    setInlineDeductionSectionId(sectionId || null);
+    setInlineNewDeduction({ description: '', qty: 1, unit: 'Nos', price: 0, remarks: '' });
+  };
+  // Section-level batch chain handlers (mirror additional cost section batch)
+  const submitDedSectionForReview = async (section, items) => {
+    const eligible = items.filter(d => !d.approval_status || ['created','rejected'].includes(d.approval_status));
+    if (eligible.length === 0) { toast.info('Nothing to submit — all rows are already in the approval chain.'); return; }
+    if (!window.confirm(`Submit ${eligible.length} deduction${eligible.length === 1 ? '' : 's'} in "${section.title || 'Ungrouped'}" to Planning Head?`)) return;
+    try {
+      if (section.section_id) {
+        await axios.post(`${API}/projects/${projectId}/deduction-sections/${section.section_id}/submit-for-review`);
+      } else {
+        for (const d of eligible) {
+          try { await axios.post(`${API}/deductions/${d.deduction_id}/submit-for-review`); } catch { /* skip */ }
+        }
+      }
+      toast.success(`Submitted ${eligible.length} item(s) for review`);
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to submit'); }
+  };
+  const phApproveDedSection = async (section, items) => {
+    const eligible = items.filter(d => d.approval_status === 'ph_review');
+    if (eligible.length === 0) { toast.info('No items awaiting Planning Head approval here.'); return; }
+    if (!window.confirm(`PH Approve ${eligible.length} item(s) and forward to GM?`)) return;
+    try {
+      if (section.section_id) {
+        await axios.post(`${API}/projects/${projectId}/deduction-sections/${section.section_id}/ph-approve`);
+      } else {
+        for (const d of eligible) {
+          try { await axios.post(`${API}/deductions/${d.deduction_id}/ph-approve`); } catch { /* skip */ }
+        }
+      }
+      toast.success(`Forwarded ${eligible.length} item(s) to GM`);
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to approve'); }
+  };
+  const gmApproveDedSection = async (section, items) => {
+    const eligible = items.filter(d => d.approval_status === 'gm_review');
+    if (eligible.length === 0) { toast.info('No items awaiting GM approval here.'); return; }
+    if (!window.confirm(`GM Approve ${eligible.length} item(s)? They will become visible to the Client immediately.`)) return;
+    try {
+      if (section.section_id) {
+        await axios.post(`${API}/projects/${projectId}/deduction-sections/${section.section_id}/gm-approve`);
+      } else {
+        for (const d of eligible) {
+          try { await axios.post(`${API}/deductions/${d.deduction_id}/gm-approve`); } catch { /* skip */ }
+        }
+      }
+      toast.success(`GM approved ${eligible.length} item(s) — visible to Client`);
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to approve'); }
+  };
+
+
 
   // ── Project-level (ungrouped) attachment handlers ─────────────────────
   // Files attached to the ungrouped block live on project.additional_attachments
@@ -7695,9 +7793,19 @@ export default function ProjectDetail() {
                 <div className="flex gap-2">
                   {canManageAdditionsDeductions && (
                     <Button
+                      data-testid="add-deduction-section-btn"
+                      variant="outline"
+                      className="gap-2 border-orange-300 text-orange-700 hover:bg-orange-50"
+                      onClick={() => setNewDedSectionDialog(true)}
+                    >
+                      <Plus className="h-4 w-4" />Create Section
+                    </Button>
+                  )}
+                  {canManageAdditionsDeductions && (
+                    <Button
                       data-testid="add-deduction-btn"
                       className="gap-2 bg-orange-600 hover:bg-orange-700"
-                      onClick={() => setInlineNewDeduction({ description: '', qty: 1, unit: 'Nos', price: 0, remarks: '' })}
+                      onClick={() => { setInlineDeductionSectionId(null); setInlineNewDeduction({ description: '', qty: 1, unit: 'Nos', price: 0, remarks: '' }); }}
                     >
                       <MinusCircle className="h-4 w-4" />Add Deductions
                     </Button>
@@ -7787,6 +7895,115 @@ export default function ProjectDetail() {
                 </div>
               </div>
 
+              {/* Section cards — folders that group deductions. Each card shows
+                  count + total + per-section chain batch buttons + Add / Delete.
+                  Sections are optional: rows without a section_id stay in the
+                  main table below as "Ungrouped". */}
+              {deductionSections.length > 0 && (
+                <div className="mb-4 space-y-2" data-testid="deduction-sections-list">
+                  {deductionSections.map((sec) => {
+                    const items = (deductions || []).filter(d => d.section_id === sec.section_id);
+                    const total = items.reduce((s, d) => s + (d.amount || 0), 0);
+                    const draftN = items.filter(d => !d.approval_status || ['created','rejected'].includes(d.approval_status)).length;
+                    const phN = items.filter(d => d.approval_status === 'ph_review').length;
+                    const gmN = items.filter(d => d.approval_status === 'gm_review').length;
+                    const isPP = user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin';
+                    const isPH = user?.role === 'planning' || user?.role === 'super_admin';
+                    const isGM = user?.role === 'general_manager' || user?.role === 'super_admin';
+                    return (
+                      <div key={sec.section_id} className="border-2 border-orange-100 rounded-xl p-3 bg-orange-50/30" data-testid={`ded-section-${sec.section_id}`}>
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <h4 className="text-sm font-bold text-orange-700 truncate">{sec.title}</h4>
+                            {canManageAdditionsDeductions && (
+                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-gray-400 hover:text-orange-700" onClick={() => setEditingDedSection({ section_id: sec.section_id, title: sec.title })} data-testid={`rename-ded-section-${sec.section_id}`}>
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                            )}
+                            <Badge variant="outline" className="text-[10px] bg-white">{items.length} {items.length === 1 ? 'deduction' : 'deductions'}</Badge>
+                            <span className="text-xs text-gray-600">Total: <span className="font-bold text-orange-700">-₹{Number(total).toLocaleString('en-IN')}</span></span>
+                          </div>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {canManageAdditionsDeductions && (
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-200 text-emerald-700" onClick={() => openAddDeductionFor(sec.section_id)} data-testid={`add-into-ded-section-${sec.section_id}`}>
+                                <Plus className="h-3 w-3" /> Add
+                              </Button>
+                            )}
+                            {draftN > 0 && isPP && (
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => submitDedSectionForReview(sec, items)} data-testid={`ded-section-submit-review-${sec.section_id}`}>
+                                <Send className="h-3 w-3" /> Submit {draftN} for Review
+                              </Button>
+                            )}
+                            {phN > 0 && isPH && (
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => phApproveDedSection(sec, items)} data-testid={`ded-section-ph-approve-${sec.section_id}`}>
+                                <CheckCircle2 className="h-3 w-3" /> PH Approve ({phN})
+                              </Button>
+                            )}
+                            {gmN > 0 && isGM && (
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => gmApproveDedSection(sec, items)} data-testid={`ded-section-gm-approve-${sec.section_id}`}>
+                                <CheckCircle2 className="h-3 w-3" /> GM Approve ({gmN})
+                              </Button>
+                            )}
+                            {canManageAdditionsDeductions && (
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => handleDeleteDedSection(sec)} data-testid={`delete-ded-section-${sec.section_id}`}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Create Section dialog */}
+              <Dialog open={newDedSectionDialog} onOpenChange={setNewDedSectionDialog}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create Deduction Section</DialogTitle>
+                    <DialogDescription>Group related deductions under a folder (e.g., "Quality Penalties").</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3">
+                    <Input
+                      autoFocus
+                      placeholder="Section title…"
+                      value={newDedSectionTitle}
+                      onChange={(e) => setNewDedSectionTitle(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleCreateDedSection(); }}
+                      data-testid="new-ded-section-title"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => { setNewDedSectionDialog(false); setNewDedSectionTitle(''); }}>Cancel</Button>
+                    <Button onClick={handleCreateDedSection} data-testid="create-ded-section-submit">Create</Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+
+              {/* Rename Section dialog */}
+              {editingDedSection && (
+                <Dialog open={!!editingDedSection} onOpenChange={(o) => !o && setEditingDedSection(null)}>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Rename Section</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3">
+                      <Input
+                        autoFocus
+                        value={editingDedSection.title}
+                        onChange={(e) => setEditingDedSection(s => ({ ...s, title: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleRenameDedSection(); }}
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" onClick={() => setEditingDedSection(null)}>Cancel</Button>
+                      <Button onClick={handleRenameDedSection} data-testid="rename-ded-section-submit">Save</Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
+
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
@@ -7798,6 +8015,7 @@ export default function ProjectDetail() {
                       <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Unit</th>
                       <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Unit Rate</th>
                       <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Total</th>
+                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Section</th>
                       <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
                       <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
                       {canManage && <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
@@ -7806,7 +8024,7 @@ export default function ProjectDetail() {
                   <tbody className="divide-y divide-gray-200">
                     {deductions.length === 0 ? (
                       <tr>
-                        <td colSpan={canManage ? 10 : 9} className="px-4 py-8 text-center text-gray-500">
+                        <td colSpan={canManage ? 11 : 10} className="px-4 py-8 text-center text-gray-500">
                           No deductions recorded yet. Click "Add Deductions" for penalties or adjustments.
                         </td>
                       </tr>
@@ -7831,6 +8049,12 @@ export default function ProjectDetail() {
                           <td className="px-3 py-3 text-sm text-gray-700">{unit || '-'}</td>
                           <td className="px-3 py-3 text-right text-sm">₹{Number(unitRate).toLocaleString('en-IN')}</td>
                           <td className="px-3 py-3 text-right font-semibold text-orange-600">-₹{(d.amount || 0).toLocaleString('en-IN')}</td>
+                          <td className="px-3 py-3 text-xs">
+                            {(() => {
+                              const sec = deductionSections.find(s => s.section_id === d.section_id);
+                              return sec ? <Badge variant="outline" className="text-[10px] bg-orange-50 text-orange-700 border-orange-200">{sec.title}</Badge> : <span className="text-gray-400">—</span>;
+                            })()}
+                          </td>
                           <td className="px-3 py-3 text-sm text-gray-500">{d.remarks || '-'}</td>
                           <td className="px-4 py-3 text-center">
                             <div className="flex items-center justify-center gap-1 flex-wrap">
@@ -7945,6 +8169,9 @@ export default function ProjectDetail() {
                         <td className="px-2 py-2 text-right text-sm font-medium text-orange-700">
                           -₹{((parseFloat(inlineNewDeduction.qty) || 0) * (parseFloat(inlineNewDeduction.price) || 0)).toLocaleString()}
                         </td>
+                        <td className="px-2 py-2 text-xs">
+                          {inlineDeductionSectionId ? (() => { const s = deductionSections.find(x => x.section_id === inlineDeductionSectionId); return s ? <Badge variant="outline" className="text-[10px] bg-orange-50 text-orange-700 border-orange-200">{s.title}</Badge> : <span className="text-gray-400">—</span>; })() : <span className="text-gray-400">—</span>}
+                        </td>
                         <td className="px-2 py-2">
                           <Input placeholder="Remarks…" value={inlineNewDeduction.remarks || ''}
                             onChange={(e) => setInlineNewDeduction(r => ({ ...r, remarks: e.target.value }))}
@@ -7954,7 +8181,7 @@ export default function ProjectDetail() {
                         {canManage && (
                           <td className="px-2 py-2 whitespace-nowrap">
                             <Button size="sm" className="h-7 px-2 bg-emerald-600 hover:bg-emerald-700 mr-1" onClick={saveInlineDeduction} data-testid="inline-deduction-save">Save</Button>
-                            <Button size="sm" variant="ghost" className="h-7 px-2 text-gray-500" onClick={() => setInlineNewDeduction(null)} data-testid="inline-deduction-cancel">Cancel</Button>
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-gray-500" onClick={() => { setInlineNewDeduction(null); setInlineDeductionSectionId(null); }} data-testid="inline-deduction-cancel">Cancel</Button>
                           </td>
                         )}
                       </tr>
@@ -7967,7 +8194,7 @@ export default function ProjectDetail() {
                         <td className="px-4 py-3 text-right font-bold text-orange-700">
                           -₹{Number(deductions.reduce((s, d) => s + (d.amount || 0), 0)).toLocaleString('en-IN')}
                         </td>
-                        <td colSpan={canManage ? 3 : 2}></td>
+                        <td colSpan={canManage ? 4 : 3}></td>
                       </tr>
                     </tfoot>
                   )}

@@ -5282,6 +5282,7 @@ class DeductionCreate(BaseModel):
     qty: Optional[float] = None
     unit: Optional[str] = None
     price: Optional[float] = None
+    section_id: Optional[str] = None
 
 
 class DeductionUpdate(BaseModel):
@@ -5293,6 +5294,7 @@ class DeductionUpdate(BaseModel):
     qty: Optional[float] = None
     unit: Optional[str] = None
     price: Optional[float] = None
+    section_id: Optional[str] = None
 
 
 @router.get("/projects/{project_id}/deductions")
@@ -5326,6 +5328,8 @@ async def create_deduction(deduction_input: DeductionCreate, user: User = Depend
     # Seed chain state so the inline UI surfaces the right buttons.
     deduction_dict["approval_status"] = "created"
     deduction_dict["approval_history"] = []
+    if deduction_input.section_id:
+        deduction_dict["section_id"] = deduction_input.section_id
 
     await db.deductions.insert_one(deduction_dict)
     await create_audit_log(user.user_id, "create", "deduction", deduction.deduction_id, {"description": deduction.description})
@@ -5490,6 +5494,132 @@ async def client_reject_deduction(deduction_id: str, body: dict, user: User = De
     })
     await _notify_role(["planning_person", "planning"], "Client rejected a Deduction — please revise")
     return {"message": "Client rejected", "approval_status": "rejected"}
+
+
+# ==================== DEDUCTION SECTIONS (folders) ====================
+# Mirrors addition_sections — same UX. Sections group `deductions` rows
+# inside a project. Each section can carry file attachments. Deleting a
+# section moves its rows back to "Ungrouped" (clears `section_id`).
+
+class DeductionSectionInput(BaseModel):
+    title: str
+
+
+@router.get("/projects/{project_id}/deduction-sections")
+async def list_deduction_sections(project_id: str, user: User = Depends(get_current_user)):
+    sections = await db.deduction_sections.find(
+        {"project_id": project_id}, {"_id": 0},
+    ).sort("created_at", 1).to_list(200)
+    return sections
+
+
+@router.post("/projects/{project_id}/deduction-sections")
+async def create_deduction_section(project_id: str, body: DeductionSectionInput, user: User = Depends(get_current_user)):
+    if user.role not in SECTION_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    section_id = f"dsec_{uuid.uuid4().hex[:10]}"
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "section_id": section_id,
+        "project_id": project_id,
+        "title": title,
+        "attachments": [],
+        "created_at": now,
+        "created_by": user.user_id,
+        "updated_at": now,
+    }
+    await db.deduction_sections.insert_one(doc)
+    doc.pop("_id", None)
+    await create_audit_log(user.user_id, "create", "deduction_section", section_id, {"title": title})
+    return doc
+
+
+@router.patch("/projects/{project_id}/deduction-sections/{section_id}")
+async def update_deduction_section(project_id: str, section_id: str, body: DeductionSectionInput, user: User = Depends(get_current_user)):
+    if user.role not in SECTION_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    res = await db.deduction_sections.update_one(
+        {"section_id": section_id, "project_id": project_id},
+        {"$set": {"title": title, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Section not found")
+    return {"message": "Section updated", "section_id": section_id, "title": title}
+
+
+@router.delete("/projects/{project_id}/deduction-sections/{section_id}")
+async def delete_deduction_section(project_id: str, section_id: str, user: User = Depends(get_current_user)):
+    if user.role not in SECTION_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    section = await db.deduction_sections.find_one(
+        {"section_id": section_id, "project_id": project_id}, {"_id": 0}
+    )
+    if not section:
+        raise HTTPException(status_code=404, detail="Section not found")
+    # Move children back to "ungrouped" (clear their section_id) — no data loss.
+    await db.deductions.update_many(
+        {"project_id": project_id, "section_id": section_id},
+        {"$set": {"section_id": None}},
+    )
+    await db.deduction_sections.delete_one({"section_id": section_id, "project_id": project_id})
+    await create_audit_log(user.user_id, "delete", "deduction_section", section_id, {"title": section.get("title")})
+    return {"message": "Section deleted; child deductions moved to Ungrouped"}
+
+
+# ── Section-level batch chain endpoints (mirror additional_costs batch) ──
+@router.post("/projects/{project_id}/deduction-sections/{section_id}/submit-for-review")
+async def section_submit_deductions_for_ph_review(project_id: str, section_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PLANNING_PERSON, UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can submit")
+    items = await db.deductions.find({"project_id": project_id, "section_id": section_id}, {"_id": 0, "deduction_id": 1, "approval_status": 1}).to_list(500)
+    if not items:
+        raise HTTPException(status_code=404, detail="No deductions in section")
+    moved = 0
+    for it in items:
+        if it.get("approval_status") in (None, "created", "rejected"):
+            await _set_deduction_status(it["deduction_id"], "ph_review", user.user_id)
+            moved += 1
+    if moved:
+        await _notify_role("planning", f"{moved} deduction items in a section sent for Planning Head review")
+    return {"message": f"Submitted {moved} items", "count": moved}
+
+
+@router.post("/projects/{project_id}/deduction-sections/{section_id}/ph-approve")
+async def section_ph_approve_deductions(project_id: str, section_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning Head")
+    items = await db.deductions.find({"project_id": project_id, "section_id": section_id, "approval_status": "ph_review"}, {"_id": 0, "deduction_id": 1}).to_list(500)
+    for it in items:
+        await _set_deduction_status(it["deduction_id"], "gm_review", user.user_id)
+    if items:
+        await _notify_role("general_manager", f"{len(items)} deduction items batch-approved by PH — GM review")
+    return {"message": f"PH approved {len(items)} items", "count": len(items)}
+
+
+@router.post("/projects/{project_id}/deduction-sections/{section_id}/gm-approve")
+async def section_gm_approve_deductions(project_id: str, section_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.GENERAL_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only GM")
+    items = await db.deductions.find({"project_id": project_id, "section_id": section_id, "approval_status": "gm_review"}, {"_id": 0, "deduction_id": 1, "description": 1}).to_list(500)
+    now = datetime.now(timezone.utc).isoformat()
+    for it in items:
+        await _set_deduction_status(it["deduction_id"], "awaiting_client", user.user_id, extra_set={
+            "client_approval_status": "pending_client",
+            "client_approval_sent_at": now,
+            "client_approval_sent_by": user.user_id,
+        })
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "client_user_id": 1, "name": 1}) or {}
+    if items:
+        await _notify_role("cre", f"{len(items)} Deductions (GM-approved) sent to client: {project.get('name', '')}")
+        if project.get("client_user_id"):
+            await create_notification(project["client_user_id"], f"{len(items)} new Deductions ready for your approval")
+    return {"message": f"GM approved {len(items)} items", "count": len(items)}
 
 
 # ==================== BULK ITEM ENDPOINTS WITH VERIFICATION/APPROVAL WORKFLOW ====================
