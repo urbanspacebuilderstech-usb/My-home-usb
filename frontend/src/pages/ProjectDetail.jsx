@@ -46,7 +46,8 @@ import {
   MapPin,
   ChevronDown,
   Copy,
-  ExternalLink
+  ExternalLink,
+  Paperclip
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -3101,6 +3102,26 @@ export default function ProjectDetail() {
   };
 
   // ── Deduction Section handlers (mirror Addition section flow) ────────────
+  const handleUploadDedSectionAttachment = async (section, file) => {
+    if (!file) return;
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      await axios.post(`${API}/projects/${projectId}/deduction-sections/${section.section_id}/attachments`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      toast.success('File attached');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Upload failed'); }
+  };
+  const handleDeleteDedSectionAttachment = async (section, fileId) => {
+    if (!window.confirm('Remove this attachment?')) return;
+    try {
+      await axios.delete(`${API}/projects/${projectId}/deduction-sections/${section.section_id}/attachments/${fileId}`);
+      toast.success('Attachment removed');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
+  };
   const handleCreateDedSection = async () => {
     const title = (newDedSectionTitle || '').trim();
     if (!title) { toast.error('Section title is required'); return; }
@@ -8079,6 +8100,28 @@ export default function ProjectDetail() {
                               <Plus className="h-3 w-3" /> Add
                             </Button>
                           )}
+                          {!group.isUngrouped && canManageAdditionsDeductions && (
+                            <>
+                              {/* File attach button — same pattern as additional sections.
+                                  Hidden label input keeps the look clean while still using
+                                  the native file picker. */}
+                              <label className="inline-flex items-center" data-testid={`ded-section-attach-label-${group.section_id}`}>
+                                <input
+                                  type="file"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const f = e.target.files && e.target.files[0];
+                                    if (f) handleUploadDedSectionAttachment(group, f);
+                                    e.target.value = '';
+                                  }}
+                                  data-testid={`ded-section-attach-input-${group.section_id}`}
+                                />
+                                <span className="h-7 px-2 text-xs gap-1 border border-sky-200 text-sky-700 hover:bg-sky-50 rounded-md inline-flex items-center cursor-pointer">
+                                  <Paperclip className="h-3 w-3" /> Attach{(group.attachments || []).length > 0 ? ` (${group.attachments.length})` : ''}
+                                </span>
+                              </label>
+                            </>
+                          )}
                           {draftN > 0 && isPP && (
                             <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => submitDedSectionForReview(group, items)} data-testid={`ded-section-submit-review-${group.section_id || 'ungrouped'}`}>
                               <Send className="h-3 w-3" /> Submit {draftN} for Review
@@ -8171,8 +8214,47 @@ export default function ProjectDetail() {
                               </tr>
                             )}
                           </tbody>
+                          {items.length > 0 && (
+                            <tfoot className="bg-orange-50/60 border-t">
+                              <tr>
+                                <td colSpan="5" className="px-4 py-2 text-right font-semibold text-gray-700">Total Deductions:</td>
+                                <td className="px-3 py-2 text-right font-bold text-orange-700">
+                                  -₹{Number(items.reduce((s, d) => s + (d.amount || 0), 0)).toLocaleString('en-IN')}
+                                </td>
+                                <td colSpan={canManage ? 3 : 2}></td>
+                              </tr>
+                            </tfoot>
+                          )}
                         </table>
                       </div>
+                      {/* Attachments strip: shows uploaded files with download/delete affordances. */}
+                      {!group.isUngrouped && (group.attachments || []).length > 0 && (
+                        <div className="px-3 py-2 bg-white border-t flex flex-wrap gap-2" data-testid={`ded-section-attachments-${group.section_id}`}>
+                          {group.attachments.map(att => (
+                            <a
+                              key={att.file_id}
+                              href={`${API}/files/${att.file_id}/download`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 px-2 py-1 bg-sky-50 border border-sky-200 rounded text-xs text-sky-700 hover:bg-sky-100"
+                              title={att.filename}
+                              data-testid={`ded-section-att-${att.file_id}`}
+                            >
+                              <Paperclip className="h-3 w-3" />
+                              <span className="truncate max-w-[160px]">{att.filename}</span>
+                              {canManageAdditionsDeductions && (
+                                <button
+                                  onClick={(e) => { e.preventDefault(); handleDeleteDedSectionAttachment(group, att.file_id); }}
+                                  className="ml-1 text-rose-400 hover:text-rose-600"
+                                  data-testid={`ded-section-att-delete-${att.file_id}`}
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              )}
+                            </a>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 };

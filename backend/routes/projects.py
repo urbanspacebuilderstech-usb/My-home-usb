@@ -5622,6 +5622,99 @@ async def section_gm_approve_deductions(project_id: str, section_id: str, user: 
     return {"message": f"GM approved {len(items)} items", "count": len(items)}
 
 
+# ── Deduction Section Attachments (mirror addition_section attachments) ──
+@router.post("/projects/{project_id}/deduction-sections/{section_id}/attachments")
+async def upload_deduction_section_attachment(
+    project_id: str,
+    section_id: str,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    if user.role not in SECTION_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    section = await db.deduction_sections.find_one(
+        {"section_id": section_id, "project_id": project_id}, {"_id": 0}
+    )
+    if not section:
+        raise HTTPException(status_code=404, detail="Section not found")
+    BLOCKED_EXT = {'exe', 'bat', 'cmd', 'sh', 'php', 'py', 'js', 'vbs', 'ps1', 'msi', 'dll'}
+    ext = file.filename.split(".")[-1].lower() if file.filename and "." in file.filename else "bin"
+    if ext in BLOCKED_EXT:
+        raise HTTPException(status_code=400, detail=f"File type '.{ext}' is not allowed.")
+    contents = await file.read()
+    if len(contents) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum 50MB.")
+    from core.storage import put_object, APP_NAME, MIME_TYPES
+    content_type = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
+    file_id = str(uuid.uuid4())
+    storage_path = f"{APP_NAME}/deduction_section/{user.user_id}/{file_id}.{ext}"
+    storage_size = len(contents)
+    try:
+        result = put_object(storage_path, contents, content_type)
+        storage_path = result.get("path", storage_path)
+        storage_size = result.get("size", storage_size)
+    except Exception as e:
+        # Same fallback as additional section attachments — GridFS when external object storage is unavailable.
+        logger.warning(f"Object storage upload failed ({e}); falling back to GridFS for {file_id}")
+        try:
+            gf_id = await fs.upload_from_stream(file.filename, contents, metadata={"contentType": content_type, "uploaded_by": user.user_id, "scope": "deduction_section"})
+            storage_path = f"gridfs://{str(gf_id)}"
+        except Exception as ge:
+            logger.error(f"GridFS fallback failed for deduction section attachment: {ge}")
+            raise HTTPException(status_code=500, detail="File upload failed")
+    file_record = {
+        "file_id": file_id,
+        "storage_path": storage_path,
+        "original_filename": file.filename,
+        "content_type": content_type,
+        "size": storage_size,
+        "category": "deduction_section",
+        "project_id": project_id,
+        "uploaded_by": user.user_id,
+        "uploaded_by_name": user.name,
+        "description": f"Attachment for deduction section {section_id}",
+        "is_deleted": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.files.insert_one(file_record)
+    att = {
+        "file_id": file_id,
+        "filename": file.filename,
+        "content_type": content_type,
+        "size": file_record["size"],
+        "uploaded_by": user.user_id,
+        "uploaded_at": file_record["created_at"],
+    }
+    await db.deduction_sections.update_one(
+        {"section_id": section_id, "project_id": project_id},
+        {"$push": {"attachments": att}, "$set": {"updated_at": att["uploaded_at"]}},
+    )
+    await create_audit_log(user.user_id, "upload", "deduction_section_attachment", section_id, {"filename": file.filename})
+    return att
+
+
+@router.delete("/projects/{project_id}/deduction-sections/{section_id}/attachments/{file_id}")
+async def delete_deduction_section_attachment(
+    project_id: str,
+    section_id: str,
+    file_id: str,
+    user: User = Depends(get_current_user),
+):
+    if user.role not in SECTION_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    res = await db.deduction_sections.update_one(
+        {"section_id": section_id, "project_id": project_id},
+        {"$pull": {"attachments": {"file_id": file_id}}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Section not found")
+    try:
+        await db.files.update_one({"file_id": file_id}, {"$set": {"is_deleted": True}})
+    except Exception:
+        pass
+    return {"message": "Attachment removed"}
+
+
 # ==================== BULK ITEM ENDPOINTS WITH VERIFICATION/APPROVAL WORKFLOW ====================
 
 class BulkScopeItemInput(BaseModel):
