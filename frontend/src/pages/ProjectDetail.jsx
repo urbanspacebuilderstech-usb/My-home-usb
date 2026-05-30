@@ -47,7 +47,8 @@ import {
   ChevronDown,
   Copy,
   ExternalLink,
-  Paperclip
+  Paperclip,
+  Undo2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7761,7 +7762,7 @@ export default function ProjectDetail() {
                                           data-testid={`undo-req-payment-${cost.cost_id}`}
                                           title="Withdraw Req Payment (only allowed before CRE approves / money is collected)"
                                         >
-                                          <X className="h-3 w-3" /> Undo
+                                          <Undo2 className="h-3 w-3" /> Undo
                                         </Button>
                                       )}
                                     </>
