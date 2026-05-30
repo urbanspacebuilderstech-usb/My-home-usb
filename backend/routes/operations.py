@@ -1777,6 +1777,37 @@ async def get_payment_schedule_overview(user: User = Depends(get_current_user)):
     # Get all payment stages
     all_stages = await db.payment_stages.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000)
 
+    # Auto-heal addition stages with amount==0 by pulling the linked cost.
+    # Same rationale as in `/planning/monthly-schedule`.
+    addition_ids_needing_heal = [
+        s.get("linked_addition_id") for s in all_stages
+        if s.get("is_addition") and s.get("linked_addition_id") and not (s.get("amount") or 0)
+    ]
+    if addition_ids_needing_heal:
+        cost_docs = await db.additional_costs.find(
+            {"cost_id": {"$in": addition_ids_needing_heal}},
+            {"_id": 0, "cost_id": 1, "estimated_amount": 1, "actual_amount": 1, "qty": 1, "price": 1, "income_received": 1},
+        ).to_list(2000)
+        cost_map = {c["cost_id"]: c for c in cost_docs}
+        for s in all_stages:
+            if not (s.get("is_addition") and not (s.get("amount") or 0)):
+                continue
+            cost = cost_map.get(s.get("linked_addition_id"))
+            if not cost:
+                continue
+            healed_amount = (cost.get("estimated_amount") or cost.get("actual_amount") or ((cost.get("qty") or 0) * (cost.get("price") or 0)) or 0)
+            healed_received = cost.get("income_received", 0) or 0
+            if healed_amount:
+                s["amount"] = healed_amount
+                s["amount_received"] = healed_received
+                try:
+                    await db.payment_stages.update_one(
+                        {"stage_id": s.get("stage_id")},
+                        {"$set": {"amount": healed_amount, "amount_received": healed_received}},
+                    )
+                except Exception:
+                    pass
+
     # Get project names in bulk
     project_ids = list(set(s.get("project_id") for s in all_stages if s.get("project_id")))
     projects = {}
@@ -1927,6 +1958,45 @@ async def get_monthly_schedule(
                 "planned_year": planned_year,
                 "is_carryover": is_carryover,
             })
+
+    # 3b. AUTO-HEAL legacy addition stages whose `amount` is 0/None because the
+    # underlying additional_cost was repriced after the Req Payment was raised.
+    # We pull the linked additional_cost and adopt its current amount (and
+    # already-received-against-cost) so the Payment Schedule reflects reality
+    # without needing a manual edit + re-save. We also write the corrected
+    # amount back to the stage so subsequent reads are O(1).
+    addition_ids_needing_heal = [
+        m["stage"].get("linked_addition_id")
+        for m in matching_stages
+        if m["stage"].get("is_addition") and m["stage"].get("linked_addition_id")
+        and not (m["stage"].get("amount") or 0)
+    ]
+    if addition_ids_needing_heal:
+        cost_docs = await db.additional_costs.find(
+            {"cost_id": {"$in": addition_ids_needing_heal}},
+            {"_id": 0, "cost_id": 1, "estimated_amount": 1, "actual_amount": 1, "qty": 1, "price": 1, "income_received": 1},
+        ).to_list(2000)
+        cost_map = {c["cost_id"]: c for c in cost_docs}
+        for m in matching_stages:
+            stage = m["stage"]
+            if not (stage.get("is_addition") and not (stage.get("amount") or 0)):
+                continue
+            cost = cost_map.get(stage.get("linked_addition_id"))
+            if not cost:
+                continue
+            healed_amount = (cost.get("estimated_amount") or cost.get("actual_amount") or ((cost.get("qty") or 0) * (cost.get("price") or 0)) or 0)
+            healed_received = cost.get("income_received", 0) or 0
+            if healed_amount:
+                stage["amount"] = healed_amount
+                stage["amount_received"] = healed_received
+                # Persist the fix so this stage no longer shows ₹0.
+                try:
+                    await db.payment_stages.update_one(
+                        {"stage_id": stage.get("stage_id")},
+                        {"$set": {"amount": healed_amount, "amount_received": healed_received}},
+                    )
+                except Exception:
+                    pass
 
     # 4. Project + pending-approval lookups
     pid_set = list({m["stage"].get("project_id") for m in matching_stages if m["stage"].get("project_id")})
