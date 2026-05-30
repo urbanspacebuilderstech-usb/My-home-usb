@@ -4603,12 +4603,55 @@ async def _notify_cre_for_collection(cost: dict, project: dict, balance: float):
         )
 
 
+@router.post("/additional-costs/{cost_id}/cancel-payment-request")
+async def cancel_addition_payment_request(cost_id: str, user: User = Depends(get_current_user)):
+    """Undo a Req Payment on an additional cost.
+
+    Planning sometimes clicks "Req Payment" by mistake or wants to revise
+    the cost before the CRE collects. This endpoint reverses the action:
+      1. Drops the linked payment_stages doc (so the row vanishes from CRE
+         Payment Schedule + Planning monthly view).
+      2. Clears `payment_requested` and `linked_stage_id` on the additional_cost.
+
+    Refused if the CRE has already approved or any money has been collected
+    against the row — at that point the entry is on the books and the
+    correction must go through the formal cancellation/correction engine.
+    """
+    if user.role not in [UserRole.PLANNING_PERSON, UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can undo Req Payment")
+
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Additional cost not found")
+    if not cost.get("payment_requested"):
+        raise HTTPException(status_code=400, detail="No Req Payment to undo")
+    if cost.get("cre_approved") and user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=423, detail="CRE has already approved this — undo not allowed. Use rejection flow instead.")
+    if (cost.get("income_received") or 0) > 0 and user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=423, detail="Income already collected against this row — undo not allowed.")
+
+    # Drop linked payment_stage (and any monthly_schedule_entries that point at it).
+    stage_id = cost.get("linked_stage_id")
+    if stage_id:
+        await db.payment_stages.delete_one({"stage_id": stage_id})
+        await db.monthly_schedule_entries.delete_many({"stage_id": stage_id})
+    else:
+        # Older rows may not have linked_stage_id. Fall back to lookup by linked_addition_id.
+        await db.payment_stages.delete_many({"linked_addition_id": cost_id})
+
+    await db.additional_costs.update_one(
+        {"cost_id": cost_id},
+        {"$set": {"payment_requested": False, "linked_stage_id": None, "payment_request_cancelled_at": datetime.now(timezone.utc).isoformat(), "payment_request_cancelled_by": user.user_id}},
+    )
+    await create_audit_log(user.user_id, "cancel_payment_request", "additional_cost", cost_id, {"description": cost.get("description")})
+    return {"message": "Req Payment undone", "cost_id": cost_id}
+
+
 @router.post("/client-portal/additional-costs/{cost_id}/approve")
 async def client_approve_additional_cost(cost_id: str, user: User = Depends(get_current_user)):
     """Client approves an additional cost line item from the client portal."""
     if user.role != UserRole.CLIENT:
         raise HTTPException(status_code=403, detail="Client access only")
-    
     cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
     if not cost:
         raise HTTPException(status_code=404, detail="Additional cost not found")

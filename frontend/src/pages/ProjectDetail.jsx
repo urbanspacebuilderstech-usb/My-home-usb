@@ -7743,7 +7743,28 @@ export default function ProjectDetail() {
                                       knows the row is no longer in their hands. The old "Awaiting Client"
                                       legacy state only applies when client never pre-approved. */}
                                   {cost.payment_requested && balance > 0 && (cost.client_approval_status === 'client_approved' || cost.client_approved) && !cost.cre_approved && (
-                                    <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-medium" data-testid={`add-with-cre-${cost.cost_id}`}>With CRE · Payment Schedule</span>
+                                    <>
+                                      <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-medium" data-testid={`add-with-cre-${cost.cost_id}`}>With CRE · Payment Schedule</span>
+                                      {(user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin') && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-7 gap-1 border-amber-500 text-amber-700 hover:bg-amber-50 text-xs"
+                                          onClick={async () => {
+                                            if (!window.confirm(`Undo Req Payment for "${cost.description || cost.name || 'this item'}"? It will be removed from the CRE Payment Schedule and you can request again later.`)) return;
+                                            try {
+                                              await axios.post(`${API}/additional-costs/${cost.cost_id}/cancel-payment-request`);
+                                              toast.success('Req Payment undone');
+                                              fetchData(false);
+                                            } catch (e) { toast.error(e.response?.data?.detail || 'Failed to undo'); }
+                                          }}
+                                          data-testid={`undo-req-payment-${cost.cost_id}`}
+                                          title="Withdraw Req Payment (only allowed before CRE approves / money is collected)"
+                                        >
+                                          <X className="h-3 w-3" /> Undo
+                                        </Button>
+                                      )}
+                                    </>
                                   )}
                                   {cost.payment_requested && balance > 0 && !(cost.client_approval_status === 'client_approved' || cost.client_approved) && !cost.client_rejected && (
                                     <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium">Awaiting Client</span>
