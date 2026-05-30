@@ -3424,6 +3424,99 @@ export default function ProjectDetail() {
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to reject'); }
   };
 
+  // Render the inner table cells for a single deduction row (used inside
+  // per-section grouped tables below). Status column carries the full 4-step
+  // chain pipeline UI; Section column is intentionally omitted because each
+  // group renders its own table inside its section card.
+  const renderDeductionRowCells = (d, index) => {
+    const qty = d.qty || 1;
+    const unit = d.unit || '';
+    const unitRate = d.price != null ? d.price : (d.amount || 0) / qty;
+    return (
+      <>
+        <td className="px-4 py-3 text-sm">{index + 1}</td>
+        <td className="px-4 py-3 font-medium">{d.description}</td>
+        <td className="px-3 py-3 text-right text-sm">{qty}</td>
+        <td className="px-3 py-3 text-sm text-gray-700">{unit || '-'}</td>
+        <td className="px-3 py-3 text-right text-sm">₹{Number(unitRate).toLocaleString('en-IN')}</td>
+        <td className="px-3 py-3 text-right font-semibold text-orange-600">-₹{(d.amount || 0).toLocaleString('en-IN')}</td>
+        <td className="px-3 py-3 text-sm text-gray-500">{d.remarks || '-'}</td>
+        <td className="px-4 py-3 text-center">
+          <div className="flex items-center justify-center gap-1 flex-wrap">
+            {(!d.approval_status || ['created', 'rejected'].includes(d.approval_status)) && (
+              d.approval_status === 'rejected' ? (
+                <>
+                  <span className="text-[11px] px-2 py-1 rounded-full bg-rose-100 text-rose-700 font-medium" title={d.rejection_reason || ''} data-testid={`ded-rejected-${d.deduction_id}`}>
+                    Rejected{d.rejected_at_step ? ` at ${d.rejected_at_step === 'general_manager' ? 'GM' : d.rejected_at_step === 'planning_head' ? 'PH' : 'Client'}` : ''}{d.rejection_reason ? `: ${d.rejection_reason.length > 18 ? d.rejection_reason.slice(0, 18) + '…' : d.rejection_reason}` : ''}
+                  </span>
+                  {(user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin') && (
+                    <Button variant="outline" size="sm" className="h-7 gap-1 border-amber-500 text-amber-700 hover:bg-amber-50 text-xs" onClick={() => submitDeductionForReview(d)} data-testid={`ded-resubmit-${d.deduction_id}`}>
+                      <Send className="h-3 w-3" /> Resubmit
+                    </Button>
+                  )}
+                </>
+              ) : (
+                (user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin') && (
+                  <Button variant="outline" size="sm" className="h-7 gap-1 border-amber-500 text-amber-700 hover:bg-amber-50 text-xs" onClick={() => submitDeductionForReview(d)} data-testid={`ded-submit-review-${d.deduction_id}`}>
+                    <Send className="h-3 w-3" /> Submit for Review
+                  </Button>
+                )
+              )
+            )}
+            {d.approval_status === 'ph_review' && (
+              <>
+                <span className="text-[11px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium" data-testid={`ded-ph-review-${d.deduction_id}`}>Pending Planning Head</span>
+                {(user?.role === 'planning' || user?.role === 'super_admin') && (
+                  <>
+                    <Button variant="outline" size="sm" className="h-7 gap-1 border-emerald-500 text-emerald-700 hover:bg-emerald-50 text-xs" onClick={() => phApproveDeduction(d)} data-testid={`ded-ph-approve-${d.deduction_id}`}>
+                      <CheckCircle2 className="h-3 w-3" /> PH Approve
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-7 gap-1 border-rose-500 text-rose-700 hover:bg-rose-50 text-xs" onClick={() => phRejectDeduction(d)} data-testid={`ded-ph-reject-${d.deduction_id}`}>
+                      <X className="h-3 w-3" /> Reject
+                    </Button>
+                  </>
+                )}
+              </>
+            )}
+            {d.approval_status === 'gm_review' && (
+              <>
+                <span className="text-[11px] px-2 py-1 rounded-full bg-violet-100 text-violet-700 font-medium" data-testid={`ded-gm-review-${d.deduction_id}`}>Pending GM</span>
+                {(user?.role === 'general_manager' || user?.role === 'super_admin') && (
+                  <>
+                    <Button variant="outline" size="sm" className="h-7 gap-1 border-emerald-500 text-emerald-700 hover:bg-emerald-50 text-xs" onClick={() => gmApproveDeduction(d)} data-testid={`ded-gm-approve-${d.deduction_id}`}>
+                      <CheckCircle2 className="h-3 w-3" /> GM Approve
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-7 gap-1 border-rose-500 text-rose-700 hover:bg-rose-50 text-xs" onClick={() => gmRejectDeduction(d)} data-testid={`ded-gm-reject-${d.deduction_id}`}>
+                      <X className="h-3 w-3" /> Reject
+                    </Button>
+                  </>
+                )}
+              </>
+            )}
+            {d.approval_status === 'awaiting_client' && (
+              <span className="text-[11px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium" data-testid={`ded-pending-client-${d.deduction_id}`}>Pending Client</span>
+            )}
+            {d.approval_status === 'client_approved' && (
+              <span className="text-[11px] px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium" data-testid={`ded-client-approved-${d.deduction_id}`}>Client Approved</span>
+            )}
+          </div>
+        </td>
+        {canManage && (
+          <td className="px-4 py-3 text-center">
+            <div className="flex items-center justify-center gap-1">
+              <Button variant="ghost" size="icon" onClick={() => openEditItemDialog('deduction', d)} data-testid={`edit-deduction-${d.deduction_id}`} title="Edit name / qty / amount">
+                <Edit className="h-4 w-4 text-amber-600" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => handleDeleteDeduction(d.deduction_id)}>
+                <Trash2 className="h-4 w-4 text-red-500" />
+              </Button>
+            </div>
+          </td>
+        )}
+      </>
+    );
+  };
+
   const handleDeleteDeduction = async (deductionId) => {
     if (!confirm('Delete this deduction?')) return;
     try {
@@ -7895,69 +7988,8 @@ export default function ProjectDetail() {
                 </div>
               </div>
 
-              {/* Section cards — folders that group deductions. Each card shows
-                  count + total + per-section chain batch buttons + Add / Delete.
-                  Sections are optional: rows without a section_id stay in the
-                  main table below as "Ungrouped". */}
-              {deductionSections.length > 0 && (
-                <div className="mb-4 space-y-2" data-testid="deduction-sections-list">
-                  {deductionSections.map((sec) => {
-                    const items = (deductions || []).filter(d => d.section_id === sec.section_id);
-                    const total = items.reduce((s, d) => s + (d.amount || 0), 0);
-                    const draftN = items.filter(d => !d.approval_status || ['created','rejected'].includes(d.approval_status)).length;
-                    const phN = items.filter(d => d.approval_status === 'ph_review').length;
-                    const gmN = items.filter(d => d.approval_status === 'gm_review').length;
-                    const isPP = user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin';
-                    const isPH = user?.role === 'planning' || user?.role === 'super_admin';
-                    const isGM = user?.role === 'general_manager' || user?.role === 'super_admin';
-                    return (
-                      <div key={sec.section_id} className="border-2 border-orange-100 rounded-xl p-3 bg-orange-50/30" data-testid={`ded-section-${sec.section_id}`}>
-                        <div className="flex items-center justify-between gap-3 flex-wrap">
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <h4 className="text-sm font-bold text-orange-700 truncate">{sec.title}</h4>
-                            {canManageAdditionsDeductions && (
-                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-gray-400 hover:text-orange-700" onClick={() => setEditingDedSection({ section_id: sec.section_id, title: sec.title })} data-testid={`rename-ded-section-${sec.section_id}`}>
-                                <Edit className="h-3 w-3" />
-                              </Button>
-                            )}
-                            <Badge variant="outline" className="text-[10px] bg-white">{items.length} {items.length === 1 ? 'deduction' : 'deductions'}</Badge>
-                            <span className="text-xs text-gray-600">Total: <span className="font-bold text-orange-700">-₹{Number(total).toLocaleString('en-IN')}</span></span>
-                          </div>
-                          <div className="flex items-center gap-1 flex-wrap">
-                            {canManageAdditionsDeductions && (
-                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-200 text-emerald-700" onClick={() => openAddDeductionFor(sec.section_id)} data-testid={`add-into-ded-section-${sec.section_id}`}>
-                                <Plus className="h-3 w-3" /> Add
-                              </Button>
-                            )}
-                            {draftN > 0 && isPP && (
-                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => submitDedSectionForReview(sec, items)} data-testid={`ded-section-submit-review-${sec.section_id}`}>
-                                <Send className="h-3 w-3" /> Submit {draftN} for Review
-                              </Button>
-                            )}
-                            {phN > 0 && isPH && (
-                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => phApproveDedSection(sec, items)} data-testid={`ded-section-ph-approve-${sec.section_id}`}>
-                                <CheckCircle2 className="h-3 w-3" /> PH Approve ({phN})
-                              </Button>
-                            )}
-                            {gmN > 0 && isGM && (
-                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => gmApproveDedSection(sec, items)} data-testid={`ded-section-gm-approve-${sec.section_id}`}>
-                                <CheckCircle2 className="h-3 w-3" /> GM Approve ({gmN})
-                              </Button>
-                            )}
-                            {canManageAdditionsDeductions && (
-                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => handleDeleteDedSection(sec)} data-testid={`delete-ded-section-${sec.section_id}`}>
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Create Section dialog */}
+              {/* Create / Rename Section dialogs (kept outside the per-section
+                  loop so they don't unmount when sections re-render). */}
               <Dialog open={newDedSectionDialog} onOpenChange={setNewDedSectionDialog}>
                 <DialogContent>
                   <DialogHeader>
@@ -7980,8 +8012,6 @@ export default function ProjectDetail() {
                   </div>
                 </DialogContent>
               </Dialog>
-
-              {/* Rename Section dialog */}
               {editingDedSection && (
                 <Dialog open={!!editingDedSection} onOpenChange={(o) => !o && setEditingDedSection(null)}>
                   <DialogContent>
@@ -8004,204 +8034,159 @@ export default function ProjectDetail() {
                 </Dialog>
               )}
 
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-1 py-3 w-8"></th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Work Description</th>
-                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Qty</th>
-                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Unit</th>
-                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Unit Rate</th>
-                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Total</th>
-                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Section</th>
-                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
-                      {canManage && <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {deductions.length === 0 ? (
-                      <tr>
-                        <td colSpan={canManage ? 11 : 10} className="px-4 py-8 text-center text-gray-500">
-                          No deductions recorded yet. Click "Add Deductions" for penalties or adjustments.
-                        </td>
-                      </tr>
-                    ) : (
-                      <SortableList
-                        items={deductions.map(d => d.deduction_id)}
-                        onReorder={handleDeductionReorder}
-                      >
-                      {deductions.map((d, index) => {
-                        // Legacy rows: qty/price may be null but amount is set. Derive sensible defaults.
-                        const qty = d.qty || 1;
-                        const unit = d.unit || '';
-                        const unitRate = d.price != null ? d.price : (d.amount || 0) / qty;
-                        return (
-                        <SortableTableRow key={d.deduction_id} id={d.deduction_id} className="hover:bg-gray-50">
-                          {({ listeners, attributes }) => (
-                            <>
-                          <td className="px-1 py-3 text-center"><DragHandle listeners={listeners} attributes={attributes} /></td>
-                          <td className="px-4 py-3 text-sm">{index + 1}</td>
-                          <td className="px-4 py-3 font-medium">{d.description}</td>
-                          <td className="px-3 py-3 text-right text-sm">{qty}</td>
-                          <td className="px-3 py-3 text-sm text-gray-700">{unit || '-'}</td>
-                          <td className="px-3 py-3 text-right text-sm">₹{Number(unitRate).toLocaleString('en-IN')}</td>
-                          <td className="px-3 py-3 text-right font-semibold text-orange-600">-₹{(d.amount || 0).toLocaleString('en-IN')}</td>
-                          <td className="px-3 py-3 text-xs">
-                            {(() => {
-                              const sec = deductionSections.find(s => s.section_id === d.section_id);
-                              return sec ? <Badge variant="outline" className="text-[10px] bg-orange-50 text-orange-700 border-orange-200">{sec.title}</Badge> : <span className="text-gray-400">—</span>;
-                            })()}
-                          </td>
-                          <td className="px-3 py-3 text-sm text-gray-500">{d.remarks || '-'}</td>
-                          <td className="px-4 py-3 text-center">
-                            <div className="flex items-center justify-center gap-1 flex-wrap">
-                              {/* 4-step chain pipeline: created/rejected → PH → GM → Client */}
-                              {(!d.approval_status || ['created', 'rejected'].includes(d.approval_status)) && (
-                                d.approval_status === 'rejected' ? (
-                                  <>
-                                    <span className="text-[11px] px-2 py-1 rounded-full bg-rose-100 text-rose-700 font-medium" title={d.rejection_reason || ''} data-testid={`ded-rejected-${d.deduction_id}`}>
-                                      Rejected{d.rejected_at_step ? ` at ${d.rejected_at_step === 'general_manager' ? 'GM' : d.rejected_at_step === 'planning_head' ? 'PH' : 'Client'}` : ''}{d.rejection_reason ? `: ${d.rejection_reason.length > 18 ? d.rejection_reason.slice(0, 18) + '…' : d.rejection_reason}` : ''}
-                                    </span>
-                                    {(user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin') && (
-                                      <Button variant="outline" size="sm" className="h-7 gap-1 border-amber-500 text-amber-700 hover:bg-amber-50 text-xs" onClick={() => submitDeductionForReview(d)} data-testid={`ded-resubmit-${d.deduction_id}`}>
-                                        <Send className="h-3 w-3" /> Resubmit
-                                      </Button>
-                                    )}
-                                  </>
-                                ) : (
-                                  (user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin') && (
-                                    <Button variant="outline" size="sm" className="h-7 gap-1 border-amber-500 text-amber-700 hover:bg-amber-50 text-xs" onClick={() => submitDeductionForReview(d)} data-testid={`ded-submit-review-${d.deduction_id}`}>
-                                      <Send className="h-3 w-3" /> Submit for Review
-                                    </Button>
-                                  )
-                                )
-                              )}
-                              {d.approval_status === 'ph_review' && (
-                                <>
-                                  <span className="text-[11px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium" data-testid={`ded-ph-review-${d.deduction_id}`}>Pending Planning Head</span>
-                                  {(user?.role === 'planning' || user?.role === 'super_admin') && (
-                                    <>
-                                      <Button variant="outline" size="sm" className="h-7 gap-1 border-emerald-500 text-emerald-700 hover:bg-emerald-50 text-xs" onClick={() => phApproveDeduction(d)} data-testid={`ded-ph-approve-${d.deduction_id}`}>
-                                        <CheckCircle2 className="h-3 w-3" /> PH Approve
-                                      </Button>
-                                      <Button variant="outline" size="sm" className="h-7 gap-1 border-rose-500 text-rose-700 hover:bg-rose-50 text-xs" onClick={() => phRejectDeduction(d)} data-testid={`ded-ph-reject-${d.deduction_id}`}>
-                                        <X className="h-3 w-3" /> Reject
-                                      </Button>
-                                    </>
-                                  )}
-                                </>
-                              )}
-                              {d.approval_status === 'gm_review' && (
-                                <>
-                                  <span className="text-[11px] px-2 py-1 rounded-full bg-violet-100 text-violet-700 font-medium" data-testid={`ded-gm-review-${d.deduction_id}`}>Pending GM</span>
-                                  {(user?.role === 'general_manager' || user?.role === 'super_admin') && (
-                                    <>
-                                      <Button variant="outline" size="sm" className="h-7 gap-1 border-emerald-500 text-emerald-700 hover:bg-emerald-50 text-xs" onClick={() => gmApproveDeduction(d)} data-testid={`ded-gm-approve-${d.deduction_id}`}>
-                                        <CheckCircle2 className="h-3 w-3" /> GM Approve
-                                      </Button>
-                                      <Button variant="outline" size="sm" className="h-7 gap-1 border-rose-500 text-rose-700 hover:bg-rose-50 text-xs" onClick={() => gmRejectDeduction(d)} data-testid={`ded-gm-reject-${d.deduction_id}`}>
-                                        <X className="h-3 w-3" /> Reject
-                                      </Button>
-                                    </>
-                                  )}
-                                </>
-                              )}
-                              {d.approval_status === 'awaiting_client' && (
-                                <span className="text-[11px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium" data-testid={`ded-pending-client-${d.deduction_id}`}>Pending Client</span>
-                              )}
-                              {d.approval_status === 'client_approved' && (
-                                <span className="text-[11px] px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium" data-testid={`ded-client-approved-${d.deduction_id}`}>Client Approved</span>
-                              )}
-                            </div>
-                          </td>
-                          {canManage && (
-                            <td className="px-4 py-3 text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <Button variant="ghost" size="icon" onClick={() => openEditItemDialog('deduction', d)} data-testid={`edit-deduction-${d.deduction_id}`} title="Edit name / qty / amount">
-                                  <Edit className="h-4 w-4 text-amber-600" />
-                                </Button>
-                                <Button variant="ghost" size="icon" onClick={() => handleDeleteDeduction(d.deduction_id)}>
-                                  <Trash2 className="h-4 w-4 text-red-500" />
-                                </Button>
-                              </div>
-                            </td>
+              {/* ── Per-Section Nested Rendering ────────────────────────────────
+                  Each section renders as its own card with a header bar (title,
+                  count, total, role-aware batch buttons + delete) and a mini
+                  table of just that section's rows. Ungrouped deductions appear
+                  in a final "Ungrouped" block. The inline-add row is rendered
+                  inside whichever group the user clicked "+ Add" on. */}
+              {(() => {
+                const groups = [
+                  ...deductionSections.map(s => ({ ...s, isUngrouped: false })),
+                  { section_id: null, title: 'Ungrouped', isUngrouped: true },
+                ];
+                const renderGroup = (group) => {
+                  const items = (deductions || []).filter(d => (d.section_id || null) === (group.section_id || null));
+                  // Hide ungrouped block when empty AND sections exist (avoid empty noise).
+                  if (group.isUngrouped && items.length === 0 && deductionSections.length > 0 && !(inlineNewDeduction && !inlineDeductionSectionId)) return null;
+                  if (!group.isUngrouped && items.length === 0 && !(inlineNewDeduction && inlineDeductionSectionId === group.section_id)) {
+                    // Section with no rows yet — still show header with Add/Delete so user can populate it.
+                  }
+                  const total = items.reduce((s, d) => s + (d.amount || 0), 0);
+                  const draftN = items.filter(d => !d.approval_status || ['created','rejected'].includes(d.approval_status)).length;
+                  const phN = items.filter(d => d.approval_status === 'ph_review').length;
+                  const gmN = items.filter(d => d.approval_status === 'gm_review').length;
+                  const isPP = user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin';
+                  const isPH = user?.role === 'planning' || user?.role === 'super_admin';
+                  const isGM = user?.role === 'general_manager' || user?.role === 'super_admin';
+                  const inlineHere = inlineNewDeduction && (inlineDeductionSectionId || null) === (group.section_id || null);
+                  return (
+                    <div key={group.section_id || 'ungrouped'} className={`mb-4 border-2 ${group.isUngrouped ? 'border-gray-200 bg-white' : 'border-orange-100 bg-orange-50/30'} rounded-xl overflow-hidden`} data-testid={`ded-group-${group.section_id || 'ungrouped'}`}>
+                      <div className={`${group.isUngrouped ? 'bg-gray-50' : 'bg-orange-50'} px-3 py-2 flex items-center justify-between gap-2 flex-wrap`}>
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <h4 className={`text-sm font-bold ${group.isUngrouped ? 'text-gray-700' : 'text-orange-700'} truncate`}>{group.title}</h4>
+                          {!group.isUngrouped && canManageAdditionsDeductions && (
+                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-gray-400 hover:text-orange-700" onClick={() => setEditingDedSection({ section_id: group.section_id, title: group.title })} data-testid={`rename-ded-section-${group.section_id}`}>
+                              <Edit className="h-3 w-3" />
+                            </Button>
                           )}
-                            </>
+                          <Badge variant="outline" className="text-[10px] bg-white">{items.length} {items.length === 1 ? 'deduction' : 'deductions'}</Badge>
+                          <span className="text-xs text-gray-600">Total: <span className={`font-bold ${group.isUngrouped ? 'text-gray-800' : 'text-orange-700'}`}>-₹{Number(total).toLocaleString('en-IN')}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {canManageAdditionsDeductions && (
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-200 text-emerald-700 hover:bg-emerald-50" onClick={() => openAddDeductionFor(group.section_id || null)} data-testid={`add-into-ded-${group.section_id || 'ungrouped'}`}>
+                              <Plus className="h-3 w-3" /> Add
+                            </Button>
                           )}
-                        </SortableTableRow>
-                        );
-                      })}
-                      </SortableList>
-                    )}
-                    {/* Inline Add New Deduction Row */}
-                    {canManage && inlineNewDeduction && (
-                      <tr className="bg-emerald-50/40 border-y border-emerald-200" data-testid="inline-add-deduction-row">
-                        <td className="px-2 py-2"></td>
-                        <td className="px-2 py-2 text-xs text-emerald-700 font-medium">New</td>
-                        <td className="px-2 py-2">
-                          <Input
-                            autoFocus
-                            placeholder="Description…"
-                            value={inlineNewDeduction.description}
-                            onChange={(e) => setInlineNewDeduction(r => ({ ...r, description: e.target.value }))}
-                            onKeyDown={(e) => { if (e.key === 'Enter') saveInlineDeduction(); if (e.key === 'Escape') setInlineNewDeduction(null); }}
-                            className="h-8 text-sm" data-testid="inline-deduction-desc"
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <Input type="number" min={0} step="0.01" value={inlineNewDeduction.qty}
-                            onChange={(e) => setInlineNewDeduction(r => ({ ...r, qty: e.target.value }))}
-                            className="h-8 text-sm w-20" data-testid="inline-deduction-qty" />
-                        </td>
-                        <td className="px-2 py-2">
-                          <UnitSelect value={inlineNewDeduction.unit}
-                            onChange={(v) => setInlineNewDeduction(r => ({ ...r, unit: v }))}
-                            className="h-8" data-testid="inline-deduction-unit" />
-                        </td>
-                        <td className="px-2 py-2">
-                          <Input type="number" min={0} step="0.01" value={inlineNewDeduction.price}
-                            onChange={(e) => setInlineNewDeduction(r => ({ ...r, price: e.target.value }))}
-                            className="h-8 text-sm w-24" data-testid="inline-deduction-price" />
-                        </td>
-                        <td className="px-2 py-2 text-right text-sm font-medium text-orange-700">
-                          -₹{((parseFloat(inlineNewDeduction.qty) || 0) * (parseFloat(inlineNewDeduction.price) || 0)).toLocaleString()}
-                        </td>
-                        <td className="px-2 py-2 text-xs">
-                          {inlineDeductionSectionId ? (() => { const s = deductionSections.find(x => x.section_id === inlineDeductionSectionId); return s ? <Badge variant="outline" className="text-[10px] bg-orange-50 text-orange-700 border-orange-200">{s.title}</Badge> : <span className="text-gray-400">—</span>; })() : <span className="text-gray-400">—</span>}
-                        </td>
-                        <td className="px-2 py-2">
-                          <Input placeholder="Remarks…" value={inlineNewDeduction.remarks || ''}
-                            onChange={(e) => setInlineNewDeduction(r => ({ ...r, remarks: e.target.value }))}
-                            className="h-8 text-sm" data-testid="inline-deduction-remarks" />
-                        </td>
-                        <td className="px-2 py-2"></td>
-                        {canManage && (
-                          <td className="px-2 py-2 whitespace-nowrap">
-                            <Button size="sm" className="h-7 px-2 bg-emerald-600 hover:bg-emerald-700 mr-1" onClick={saveInlineDeduction} data-testid="inline-deduction-save">Save</Button>
-                            <Button size="sm" variant="ghost" className="h-7 px-2 text-gray-500" onClick={() => { setInlineNewDeduction(null); setInlineDeductionSectionId(null); }} data-testid="inline-deduction-cancel">Cancel</Button>
-                          </td>
-                        )}
-                      </tr>
-                    )}
-                  </tbody>
-                  {deductions.length > 0 && (
-                    <tfoot className="bg-orange-50 border-t-2">
-                      <tr>
-                        <td colSpan="6" className="px-4 py-3 text-right font-bold">Total Deductions:</td>
-                        <td className="px-4 py-3 text-right font-bold text-orange-700">
-                          -₹{Number(deductions.reduce((s, d) => s + (d.amount || 0), 0)).toLocaleString('en-IN')}
-                        </td>
-                        <td colSpan={canManage ? 4 : 3}></td>
-                      </tr>
-                    </tfoot>
-                  )}
-                </table>
-              </div>
-            </TabsContent>
+                          {draftN > 0 && isPP && (
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => submitDedSectionForReview(group, items)} data-testid={`ded-section-submit-review-${group.section_id || 'ungrouped'}`}>
+                              <Send className="h-3 w-3" /> Submit {draftN} for Review
+                            </Button>
+                          )}
+                          {phN > 0 && isPH && (
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => phApproveDedSection(group, items)} data-testid={`ded-section-ph-approve-${group.section_id || 'ungrouped'}`}>
+                              <CheckCircle2 className="h-3 w-3" /> PH Approve ({phN})
+                            </Button>
+                          )}
+                          {gmN > 0 && isGM && (
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => gmApproveDedSection(group, items)} data-testid={`ded-section-gm-approve-${group.section_id || 'ungrouped'}`}>
+                              <CheckCircle2 className="h-3 w-3" /> GM Approve ({gmN})
+                            </Button>
+                          )}
+                          {!group.isUngrouped && canManageAdditionsDeductions && (
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => handleDeleteDedSection(group)} data-testid={`delete-ded-section-${group.section_id}`}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead className="bg-white border-b">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
+                              <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Work Description</th>
+                              <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Qty</th>
+                              <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Unit</th>
+                              <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Unit Rate</th>
+                              <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">Total</th>
+                              <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
+                              <th className="px-4 py-2 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
+                              {canManage && <th className="px-4 py-2 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {items.length === 0 && !inlineHere ? (
+                              <tr><td colSpan={canManage ? 9 : 8} className="px-4 py-6 text-center text-xs text-gray-400 italic">No deductions in this section yet. Use "+ Add" above.</td></tr>
+                            ) : items.map((d, idx) => (
+                              <tr key={d.deduction_id} className="hover:bg-gray-50" data-testid={`deduction-row-${d.deduction_id}`}>
+                                {renderDeductionRowCells(d, idx)}
+                              </tr>
+                            ))}
+                            {/* Inline Add row — only renders inside the group that was clicked */}
+                            {canManage && inlineHere && (
+                              <tr className="bg-emerald-50/40 border-y border-emerald-200" data-testid={`inline-add-deduction-row-${group.section_id || 'ungrouped'}`}>
+                                <td className="px-2 py-2 text-xs text-emerald-700 font-medium">New</td>
+                                <td className="px-2 py-2">
+                                  <Input
+                                    autoFocus
+                                    placeholder="Description…"
+                                    value={inlineNewDeduction.description}
+                                    onChange={(e) => setInlineNewDeduction(r => ({ ...r, description: e.target.value }))}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') saveInlineDeduction(); if (e.key === 'Escape') { setInlineNewDeduction(null); setInlineDeductionSectionId(null); } }}
+                                    className="h-8 text-sm" data-testid="inline-deduction-desc"
+                                  />
+                                </td>
+                                <td className="px-2 py-2">
+                                  <Input type="number" min={0} step="0.01" value={inlineNewDeduction.qty}
+                                    onChange={(e) => setInlineNewDeduction(r => ({ ...r, qty: e.target.value }))}
+                                    className="h-8 text-sm w-20" data-testid="inline-deduction-qty" />
+                                </td>
+                                <td className="px-2 py-2">
+                                  <UnitSelect value={inlineNewDeduction.unit}
+                                    onChange={(v) => setInlineNewDeduction(r => ({ ...r, unit: v }))}
+                                    className="h-8" data-testid="inline-deduction-unit" />
+                                </td>
+                                <td className="px-2 py-2">
+                                  <Input type="number" min={0} step="0.01" value={inlineNewDeduction.price}
+                                    onChange={(e) => setInlineNewDeduction(r => ({ ...r, price: e.target.value }))}
+                                    className="h-8 text-sm w-24" data-testid="inline-deduction-price" />
+                                </td>
+                                <td className="px-2 py-2 text-right text-sm font-medium text-orange-700">
+                                  -₹{((parseFloat(inlineNewDeduction.qty) || 0) * (parseFloat(inlineNewDeduction.price) || 0)).toLocaleString()}
+                                </td>
+                                <td className="px-2 py-2">
+                                  <Input placeholder="Remarks…" value={inlineNewDeduction.remarks || ''}
+                                    onChange={(e) => setInlineNewDeduction(r => ({ ...r, remarks: e.target.value }))}
+                                    className="h-8 text-sm" data-testid="inline-deduction-remarks" />
+                                </td>
+                                <td className="px-2 py-2"></td>
+                                {canManage && (
+                                  <td className="px-2 py-2 whitespace-nowrap">
+                                    <Button size="sm" className="h-7 px-2 bg-emerald-600 hover:bg-emerald-700 mr-1" onClick={saveInlineDeduction} data-testid="inline-deduction-save">Save</Button>
+                                    <Button size="sm" variant="ghost" className="h-7 px-2 text-gray-500" onClick={() => { setInlineNewDeduction(null); setInlineDeductionSectionId(null); }} data-testid="inline-deduction-cancel">Cancel</Button>
+                                  </td>
+                                )}
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                };
+                return groups.map(renderGroup);
+              })()}
 
+              {/* Grand Total — across all sections + ungrouped */}
+              {deductions.length > 0 && (
+                <div className="bg-orange-50 border-2 border-orange-200 rounded-lg px-4 py-3 flex items-center justify-between" data-testid="ded-grand-total">
+                  <span className="font-bold text-gray-700">Total Deductions:</span>
+                  <span className="font-bold text-orange-700 text-lg">-₹{Number(deductions.reduce((s, d) => s + (d.amount || 0), 0)).toLocaleString('en-IN')}</span>
+                </div>
+              )}
+            </TabsContent>
             {/* ==================== PAYMENT SUMMARY TAB ==================== */}
             <TabsContent value="payment-summary" className="p-3 sm:p-6">
               {(user?.role === 'planning_person' || user?.role === 'planning') ? (
