@@ -7962,7 +7962,9 @@ export default function ProjectDetail() {
                     <tfoot className="bg-orange-50 border-t-2">
                       <tr>
                         <td colSpan="6" className="px-4 py-3 text-right font-bold">Total Deductions:</td>
-                        <td className="px-4 py-3 text-right font-bold text-orange-700">-₹{summary.deductions_total?.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold text-orange-700">
+                          -₹{Number(deductions.reduce((s, d) => s + (d.amount || 0), 0)).toLocaleString('en-IN')}
+                        </td>
                         <td colSpan={canManage ? 3 : 2}></td>
                       </tr>
                     </tfoot>
