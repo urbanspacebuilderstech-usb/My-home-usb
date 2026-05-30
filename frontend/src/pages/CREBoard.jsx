@@ -1248,10 +1248,8 @@ export default function CREBoard() {
                           <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
                           <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
                           <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Location</th>
-                          <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Value</th>
                           <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
                           <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Portal</th>
-                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
@@ -1263,7 +1261,6 @@ export default function CREBoard() {
                             </td>
                             <td className="px-4 py-2.5 text-gray-600">{p.client_name}</td>
                             <td className="px-4 py-2.5 text-gray-500 hidden sm:table-cell">{p.location || '-'}</td>
-                            <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(p.total_value)}</td>
                             <td className="px-4 py-2.5 text-center">{getStatusBadge(p.status)}</td>
                             <td className="px-4 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                               <Button
@@ -1276,7 +1273,6 @@ export default function CREBoard() {
                                 <KeyRound className="h-3 w-3" /> {p.client_user_id ? 'Reset' : 'Create'}
                               </Button>
                             </td>
-                            <td className="px-4 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>{getProjectAction(p)}</td>
                           </tr>
                         ))}
                       </tbody>
