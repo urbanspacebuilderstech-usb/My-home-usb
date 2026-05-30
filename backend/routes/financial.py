@@ -1950,7 +1950,7 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     ]
     additions_total = sum(cost.get("estimated_amount", 0) for cost in client_approved_additions)
     additions_received = sum(cost.get("income_received", 0) for cost in client_approved_additions)
-    deductions_total = sum(d.get("amount", 0) for d in deductions)
+    deductions_total = sum(d.get("amount", 0) for d in deductions if d.get("client_approval_status") == "client_approved")
 
     # ── SELF-HEAL PAYMENT STAGE AMOUNTS (same logic as /payment-summary) ────
     # Anchor every stage's `amount` to (FE scope_total × percentage / 100) so

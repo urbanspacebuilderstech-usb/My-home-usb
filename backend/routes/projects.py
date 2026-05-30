@@ -314,7 +314,10 @@ async def get_project_value_summary(project_id: str, user: User = Depends(get_cu
         {"project_id": project_id, "client_approval_status": "client_approved"},
         {"_id": 0, "estimated_amount": 1},
     ).to_list(500)
-    deds = await db.deductions.find({"project_id": project_id}, {"_id": 0, "amount": 1}).to_list(500)
+    deds = await db.deductions.find(
+        {"project_id": project_id, "client_approval_status": "client_approved"},
+        {"_id": 0, "amount": 1},
+    ).to_list(500)
     scope_total = sum((s.get("total_amount") or 0) for s in scope)
     add_total = sum((a.get("estimated_amount") or 0) for a in adds)
     ded_total = sum((d.get("amount") or 0) for d in deds)
@@ -1500,7 +1503,7 @@ async def get_admin_dashboard_summary(user: User = Depends(get_current_user)):
         db.scope_items.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "total_amount": 1}).to_list(10000),
         db.additional_costs.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "estimated_amount": 1, "income_received": 1, "client_approval_status": 1}).to_list(10000),
         db.payment_stages.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "amount_received": 1}).to_list(10000),
-        db.deductions.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "amount": 1}).to_list(10000),
+        db.deductions.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "amount": 1, "client_approval_status": 1}).to_list(10000),
         db.expenses.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "amount": 1}).to_list(10000),
     )
     
@@ -1535,7 +1538,7 @@ async def get_admin_dashboard_summary(user: User = Depends(get_current_user)):
         additions_total = sum(c.get("estimated_amount", 0) for c in add_by_proj.get(pid, []) if c.get("client_approval_status") == "client_approved")
         additions_income = sum(c.get("income_received", 0) for c in add_by_proj.get(pid, []))
         payment_received = sum(s.get("amount_received", 0) for s in stages_by_proj.get(pid, []))
-        deductions_total = sum(d.get("amount", 0) for d in ded_by_proj.get(pid, []))
+        deductions_total = sum(d.get("amount", 0) for d in ded_by_proj.get(pid, []) if d.get("client_approval_status") == "client_approved")
         expenses_total = sum(e.get("amount", 0) for e in exp_by_proj.get(pid, []))
         
         value_total = project_value + additions_total
@@ -3662,7 +3665,10 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
         {"_id": 0, "estimated_amount": 1, "actual_amount": 1},
     ).to_list(500)
     additions_total = sum((c.get("estimated_amount") or c.get("actual_amount") or 0) for c in additional_costs_list)
-    deductions_list = await db.deductions.find({"project_id": project_id}, {"_id": 0, "amount": 1}).to_list(500)
+    deductions_list = await db.deductions.find(
+        {"project_id": project_id, "client_approval_status": "client_approved"},
+        {"_id": 0, "amount": 1},
+    ).to_list(500)
     deductions_total = sum(d.get("amount", 0) for d in deductions_list)
 
     # Locked Project Value (= FE scope_total at last CRE approval) is just a
