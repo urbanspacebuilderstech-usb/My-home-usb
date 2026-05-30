@@ -7939,7 +7939,7 @@ export default function ProjectDetail() {
                   {canManageAdditionsDeductions && (
                     <Button
                       data-testid="add-deduction-btn"
-                      className="gap-2 bg-orange-600 hover:bg-orange-700"
+                      className="gap-2 bg-orange-600 hover:bg-orange-700 hidden"
                       onClick={() => { setInlineDeductionSectionId(null); setInlineNewDeduction({ description: '', qty: 1, unit: 'Nos', price: 0, remarks: '' }); }}
                     >
                       <MinusCircle className="h-4 w-4" />Add Deductions
