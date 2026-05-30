@@ -2198,8 +2198,8 @@ async def remove_schedule_entry(entry_id: str, month: Optional[int] = None, year
     The frontend can optionally pass `?month=&year=` to scope the hide. If
     omitted, today's calendar month is used (matches what Planning sees).
     """
-    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only Planning can manage schedules")
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.CRE]:
+        raise HTTPException(status_code=403, detail="Only Planning/CRE can manage schedules")
 
     if entry_id.startswith("computed_"):
         stage_id = entry_id[len("computed_"):]

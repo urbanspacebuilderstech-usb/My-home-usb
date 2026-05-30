@@ -46,7 +46,8 @@ import {
   RefreshCw,
   MessageSquare,
   X,
-  KeyRound
+  KeyRound,
+  Trash2
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -211,6 +212,11 @@ export default function CREBoard() {
   // Search
   const [projectSearch, setProjectSearch] = useState('');
 
+  // Payment Schedule bulk delete — Set of selected entry/computed IDs +
+  // confirm dialog state that requires the user to type "delete" to proceed.
+  const [psSelected, setPsSelected] = useState(new Set());
+  const [psDeleteDialog, setPsDeleteDialog] = useState({ open: false, typed: '', submitting: false });
+
   const [form, setForm] = useState({
     name: '', client_name: '', client_phone: '', client_email: '',
     location: '', sqft: '', building_type: 'residential',
@@ -236,6 +242,33 @@ export default function CREBoard() {
     }
   };
   useEffect(() => { fetchPaymentSchedule(psMonth, psYear); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [psMonth, psYear]);
+
+  // ── Bulk delete on CRE Payment Schedule ──────────────────────────────
+  // Backend has a per-entry delete that handles three cases:
+  //   entry_*     → drop the manual row
+  //   computed_<sid> (addition) → drop the payment_stage entirely
+  //   computed_<sid> (project)  → insert a hide marker for the month
+  // We loop sequentially so a single failure doesn't poison the whole batch.
+  const performPsBulkDelete = async () => {
+    const ids = Array.from(psSelected);
+    if (ids.length === 0) return;
+    setPsDeleteDialog(s => ({ ...s, submitting: true }));
+    let ok = 0; let fail = 0;
+    for (const id of ids) {
+      try {
+        await axios.delete(`${API}/planning/monthly-schedule/${id}`, { params: { month: psMonth, year: psYear } });
+        ok += 1;
+      } catch { fail += 1; }
+    }
+    setPsSelected(new Set());
+    setPsDeleteDialog({ open: false, typed: '', submitting: false });
+    if (ok) toast.success(`Removed ${ok} entr${ok === 1 ? 'y' : 'ies'}`);
+    if (fail) toast.error(`${fail} failed`);
+    fetchPaymentSchedule(psMonth, psYear);
+  };
+
+  // Reset selection whenever sub-tab or month changes (the visible rows differ).
+  useEffect(() => { setPsSelected(new Set()); }, [psSubTab, psMonth, psYear]);
 
   const shiftPsMonth = (delta) => {
     let m = psMonth + delta;
@@ -1099,31 +1132,45 @@ export default function CREBoard() {
                     </CardContent>
                   </Card>
 
-                  {/* Sub-tabs: Pending | Collected | All */}
-                  <div className="flex gap-2 flex-wrap" data-testid="ps-subtabs">
-                    {[
-                      { key: 'pending', label: 'Pending', count: pendingEntries.length, activeBg: 'bg-amber-600', dot: 'bg-red-500' },
-                      { key: 'collected', label: 'Collected', count: collectedEntries.length, activeBg: 'bg-emerald-600', dot: 'bg-red-500' },
-                      { key: 'all', label: 'All', count: dateFiltered.length, activeBg: 'bg-slate-700', dot: 'bg-red-500' },
-                    ].map(t => (
-                      <button
-                        key={t.key}
-                        onClick={() => setPsSubTab(t.key)}
-                        data-testid={`ps-subtab-${t.key}`}
-                        className={`px-4 py-1.5 text-sm rounded-full border transition-colors flex items-center gap-1.5 ${
-                          psSubTab === t.key
-                            ? `${t.activeBg} text-white border-transparent shadow-sm`
-                            : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-                        }`}
+                  {/* Sub-tabs: Pending | Collected | All + Delete Selected button */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex gap-2 flex-wrap" data-testid="ps-subtabs">
+                      {[
+                        { key: 'pending', label: 'Pending', count: pendingEntries.length, activeBg: 'bg-amber-600', dot: 'bg-red-500' },
+                        { key: 'collected', label: 'Collected', count: collectedEntries.length, activeBg: 'bg-emerald-600', dot: 'bg-red-500' },
+                        { key: 'all', label: 'All', count: dateFiltered.length, activeBg: 'bg-slate-700', dot: 'bg-red-500' },
+                      ].map(t => (
+                        <button
+                          key={t.key}
+                          onClick={() => setPsSubTab(t.key)}
+                          data-testid={`ps-subtab-${t.key}`}
+                          className={`px-4 py-1.5 text-sm rounded-full border transition-colors flex items-center gap-1.5 ${
+                            psSubTab === t.key
+                              ? `${t.activeBg} text-white border-transparent shadow-sm`
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          {t.label}
+                          {t.count > 0 && (
+                            <span className={`${psSubTab === t.key ? 'bg-white/25 text-white' : `${t.dot} text-white`} text-[10px] h-5 min-w-[20px] px-1.5 rounded-full inline-flex items-center justify-center font-semibold`}>
+                              {t.count}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                    {/* Delete Selected — only renders when at least one row is checked. */}
+                    {psSelected.size > 0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-red-300 text-red-700 hover:bg-red-50 h-8 text-xs gap-1"
+                        onClick={() => setPsDeleteDialog({ open: true, typed: '', submitting: false })}
+                        data-testid="ps-delete-selected"
                       >
-                        {t.label}
-                        {t.count > 0 && (
-                          <span className={`${psSubTab === t.key ? 'bg-white/25 text-white' : `${t.dot} text-white`} text-[10px] h-5 min-w-[20px] px-1.5 rounded-full inline-flex items-center justify-center font-semibold`}>
-                            {t.count}
-                          </span>
-                        )}
-                      </button>
-                    ))}
+                        <Trash2 className="h-3.5 w-3.5" /> Delete Selected ({psSelected.size})
+                      </Button>
+                    )}
                   </div>
 
                   {/* Table */}
@@ -1136,6 +1183,20 @@ export default function CREBoard() {
                           <table className="w-full text-sm" data-testid="cre-payment-schedule-table">
                             <thead className="bg-gray-50 border-y">
                               <tr>
+                                <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase w-10">
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                                    checked={entries.length > 0 && entries.every(e => psSelected.has(e.entry_id || `computed_${e.stage_id}`))}
+                                    onChange={(ev) => {
+                                      const all = new Set(psSelected);
+                                      if (ev.target.checked) entries.forEach(e => all.add(e.entry_id || `computed_${e.stage_id}`));
+                                      else entries.forEach(e => all.delete(e.entry_id || `computed_${e.stage_id}`));
+                                      setPsSelected(all);
+                                    }}
+                                    data-testid="ps-select-all"
+                                  />
+                                </th>
                                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
                                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Stage</th>
                                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Expected Date</th>
@@ -1148,7 +1209,7 @@ export default function CREBoard() {
                             </thead>
                             <tbody className="divide-y">
                               {entries.length === 0 ? (
-                                <tr><td colSpan="8" className="p-8 text-center text-gray-400">No payments scheduled for {MONTHS[psMonth - 1]} {psYear}.</td></tr>
+                                <tr><td colSpan="9" className="p-8 text-center text-gray-400">No payments scheduled for {MONTHS[psMonth - 1]} {psYear}.</td></tr>
                               ) : entries.map((e) => {
                                 const balance = (e.amount || 0) - (e.amount_received || 0);
                                 const pendingApprovalAmt = e.pending_approval_amount || 0;
@@ -1163,6 +1224,20 @@ export default function CREBoard() {
                                 else badge = <Badge className="bg-gray-100 text-gray-700 text-[11px]">Pending</Badge>;
                                 return (
                                   <tr key={e.entry_id || e.stage_id} className="hover:bg-gray-50" data-testid={`ps-row-${e.entry_id || e.stage_id}`}>
+                                    <td className="px-3 py-2.5 text-center">
+                                      <input
+                                        type="checkbox"
+                                        className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                                        checked={psSelected.has(e.entry_id || `computed_${e.stage_id}`)}
+                                        onChange={(ev) => {
+                                          const key = e.entry_id || `computed_${e.stage_id}`;
+                                          const next = new Set(psSelected);
+                                          if (ev.target.checked) next.add(key); else next.delete(key);
+                                          setPsSelected(next);
+                                        }}
+                                        data-testid={`ps-select-${e.entry_id || e.stage_id}`}
+                                      />
+                                    </td>
                                     <td className="px-4 py-2.5">
                                       <p className="font-medium">{e.project_name}</p>
                                       <p className="text-[11px] text-gray-400">{e.client_name || ''}</p>
@@ -1902,6 +1977,40 @@ export default function CREBoard() {
         onOpenChange={(v) => { if (!v) setPortalProject(null); }}
         onCreated={() => fetchData(false)}
       />
+
+      {/* Payment Schedule — bulk delete confirmation. Mirrors the "type
+          DELETE to confirm" UX used elsewhere. Refuses to submit until the
+          word matches (case-insensitive). */}
+      <Dialog open={psDeleteDialog.open} onOpenChange={(v) => !v && setPsDeleteDialog({ open: false, typed: '', submitting: false })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-rose-700">Delete {psSelected.size} scheduled {psSelected.size === 1 ? 'entry' : 'entries'}?</DialogTitle>
+            <DialogDescription>
+              This will remove the selected rows from the monthly Payment Schedule. Addition rows are removed entirely (Planning can re-request later). Regular project stages are hidden from this month only — their underlying schedule is preserved.
+              <br /><br />
+              Type <span className="font-mono font-bold text-rose-700">delete</span> below to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            placeholder="Type delete here…"
+            value={psDeleteDialog.typed}
+            onChange={(e) => setPsDeleteDialog(s => ({ ...s, typed: e.target.value }))}
+            data-testid="ps-delete-confirm-input"
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setPsDeleteDialog({ open: false, typed: '', submitting: false })} disabled={psDeleteDialog.submitting}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={psDeleteDialog.typed.trim().toLowerCase() !== 'delete' || psDeleteDialog.submitting}
+              onClick={performPsBulkDelete}
+              data-testid="ps-delete-confirm-submit"
+            >
+              {psDeleteDialog.submitting ? 'Deleting…' : `Delete ${psSelected.size}`}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <MobileBottomNav user={user} />
     </div>
