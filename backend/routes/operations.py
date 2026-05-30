@@ -2175,9 +2175,38 @@ async def add_stages_to_monthly_schedule(body: dict, user: User = Depends(get_cu
 
 @router.delete("/planning/monthly-schedule/{entry_id}")
 async def remove_schedule_entry(entry_id: str, user: User = Depends(get_current_user)):
-    """Remove a stage from the monthly schedule"""
+    """Remove a stage from the monthly schedule.
+
+    Entry IDs come in two shapes from `/planning/monthly-schedule`:
+      • `entry_<uid>` — a stored row in `monthly_schedule_entries` (Planning
+        added the stage to this month manually). We just drop that row.
+      • `computed_<stage_id>` — a derived entry coming from the stage's own
+        expected_payment_date (no stored row). For ADDITION stages we delete
+        the payment_stage so it disappears everywhere. For regular project
+        stages we refuse — those belong to the project's payment schedule
+        structure and must be removed from the project itself.
+    """
     if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can manage schedules")
+
+    if entry_id.startswith("computed_"):
+        stage_id = entry_id[len("computed_"):]
+        stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0, "is_addition": 1, "linked_addition_id": 1})
+        if not stage:
+            raise HTTPException(status_code=404, detail="Stage not found")
+        if not stage.get("is_addition"):
+            raise HTTPException(status_code=400, detail="This stage belongs to the project's payment schedule. Remove it from the project, not the monthly view.")
+        # Soft-clear the link on the additional_cost so the user can resubmit Req Payment if needed.
+        if stage.get("linked_addition_id"):
+            await db.additional_costs.update_one(
+                {"cost_id": stage["linked_addition_id"]},
+                {"$set": {"payment_requested": False, "linked_stage_id": None}},
+            )
+        await db.payment_stages.delete_one({"stage_id": stage_id})
+        # Also drop any monthly_schedule_entries that referenced this stage.
+        await db.monthly_schedule_entries.delete_many({"stage_id": stage_id})
+        return {"message": "Removed from schedule"}
+
     result = await db.monthly_schedule_entries.delete_one({"entry_id": entry_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Entry not found")
