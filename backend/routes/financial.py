@@ -710,6 +710,33 @@ async def approve_income(income_id: str, user: User = Depends(get_current_user))
         # Never fail the approval if cashflow side-effect errors
         import logging; logging.getLogger(__name__).warning(f"Cashflow allocation skipped: {e}")
 
+    # Sync linked additional_cost.income_received when the approved income
+    # belongs to an Addition stage. Without this, the Additional Work row on
+    # ProjectDetail keeps showing "With CRE · Payment Schedule" forever because
+    # `balance > 0` stays true. We pull the stage to confirm it's an addition
+    # and stamp the cost with the cumulative received amount.
+    try:
+        inc = await db.income.find_one({"income_id": income_id}, {"_id": 0, "payment_stage_id": 1, "project_id": 1, "amount": 1})
+        stage_id = inc.get("payment_stage_id") if inc else None
+        if stage_id:
+            stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0, "is_addition": 1, "linked_addition_id": 1, "amount_received": 1, "amount": 1, "project_id": 1})
+            if stage and stage.get("is_addition") and stage.get("linked_addition_id"):
+                cost_id = stage["linked_addition_id"]
+                # Adopt the stage's received total as the cost's income_received.
+                # Using the stage's number (not summed from incomes) keeps us
+                # consistent with the planning/CRE views which read off the stage.
+                received = stage.get("amount_received", 0) or 0
+                cost_amount = stage.get("amount", 0) or 0
+                set_doc = {"income_received": received}
+                # When fully collected, also mark CRE-approved so the row visibly
+                # exits the "With CRE · Payment Schedule" state.
+                if cost_amount and received >= cost_amount - 0.5:
+                    set_doc["cre_approved"] = True
+                    set_doc["cre_approved_at"] = datetime.now(timezone.utc).isoformat()
+                await db.additional_costs.update_one({"cost_id": cost_id}, {"$set": set_doc})
+    except Exception as e:
+        import logging; logging.getLogger(__name__).warning(f"Addition-cost sync skipped: {e}")
+
     return {"message": "Income approved successfully"}
 
 

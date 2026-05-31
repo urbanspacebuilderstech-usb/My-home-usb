@@ -3693,6 +3693,37 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     ).to_list(500)
     deductions_total = sum(d.get("amount", 0) for d in deductions_list)
 
+    # AUTO-HEAL: sync additional_costs.income_received from their linked
+    # payment_stages so the UI exits "With CRE · Payment Schedule" once the
+    # accountant has approved the income. We touch only additions where the
+    # linked stage has received money but the cost hasn't been updated yet.
+    try:
+        addition_stages = await db.payment_stages.find(
+            {"project_id": project_id, "is_addition": True, "amount_received": {"$gt": 0}},
+            {"_id": 0, "linked_addition_id": 1, "amount_received": 1, "amount": 1},
+        ).to_list(500)
+        cost_ids = [s.get("linked_addition_id") for s in addition_stages if s.get("linked_addition_id")]
+        if cost_ids:
+            existing_costs = await db.additional_costs.find(
+                {"cost_id": {"$in": cost_ids}}, {"_id": 0, "cost_id": 1, "income_received": 1, "cre_approved": 1}
+            ).to_list(500)
+            cost_state = {c["cost_id"]: c for c in existing_costs}
+            for st in addition_stages:
+                cid = st.get("linked_addition_id")
+                if not cid or cid not in cost_state:
+                    continue
+                cs = cost_state[cid]
+                current_received = cs.get("income_received", 0) or 0
+                stage_received = st.get("amount_received", 0) or 0
+                if stage_received > current_received + 0.5:
+                    set_doc = {"income_received": stage_received}
+                    if stage_received >= (st.get("amount", 0) or 0) - 0.5:
+                        set_doc["cre_approved"] = True
+                    await db.additional_costs.update_one({"cost_id": cid}, {"$set": set_doc})
+    except Exception:
+        # Auto-heal is best-effort; never fail full-details rendering.
+        pass
+
     # Locked Project Value (= FE scope_total at last CRE approval) is just a
     # cached copy. Live FE scope_total is the AUTHORITATIVE source — the user
     # rule is "Final Estimate value IS the Project Value". If the FE has been
