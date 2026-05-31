@@ -587,7 +587,12 @@ export default function CREBoard() {
         // backend only credits those (legacy: empty → FIFO across all pending).
         let manualAllocations = null;
         if (collectSelectedStageIds.size > 0) {
-          const scoped = outstandingStages.filter(s => collectSelectedStageIds.has(s.stage_id));
+          // Sort smallest balance first so micro-balances get cleared and the
+          // remainder partially fills the biggest stage (matches preview UX).
+          const scoped = outstandingStages
+            .filter(s => collectSelectedStageIds.has(s.stage_id))
+            .slice()
+            .sort((a, b) => (a.balance || 0) - (b.balance || 0));
           const plan = computeFIFOAllocation(bulkAmt, scoped);
           manualAllocations = plan.filter(p => p.allocated > 0).map(p => ({ stage_id: p.stage_id, amount: p.allocated }));
         }
@@ -1737,9 +1742,15 @@ export default function CREBoard() {
                 {parseFloat(bulkCollectAmount) > 0 && (() => {
                   // When the user checks specific stages, restrict FIFO to that subset only.
                   // Empty selection = use all outstanding stages (legacy behavior).
-                  const scoped = collectSelectedStageIds.size > 0
-                    ? outstandingStages.filter(s => collectSelectedStageIds.has(s.stage_id))
-                    : outstandingStages;
+                  // Also: when CRE manually picks stages, allocate smallest-balance first
+                  // so micro-amounts get cleared and the leftover lands on the biggest stage.
+                  let scoped = outstandingStages;
+                  if (collectSelectedStageIds.size > 0) {
+                    scoped = outstandingStages
+                      .filter(s => collectSelectedStageIds.has(s.stage_id))
+                      .slice()
+                      .sort((a, b) => (a.balance || 0) - (b.balance || 0));
+                  }
                   const plan = computeFIFOAllocation(bulkCollectAmount, scoped);
                   if (!plan.length) return null;
                   const planned = plan.reduce((s, p) => s + p.allocated, 0);
