@@ -533,6 +533,30 @@ async def delete_cashbook_expense(expense_type: str, record_id: str, user: User 
         existing = await coll.find_one({id_field: record_id}, {"_id": 0})
         if existing:
             await coll.delete_one({id_field: record_id})
+            # Side-effect: reverse the matching work_order payment_request so
+            # the Site Engineer view stops showing "Paid" for the deleted
+            # advance. recorded_expenses from `wo_stage_release` carry the
+            # link (work_order_id + stage_id + request_id). We reset the PR
+            # to `planning_approved` (the state immediately before release)
+            # so accountant can release again with corrected data.
+            try:
+                wo_id = existing.get("work_order_id")
+                stage_id = existing.get("stage_id")
+                req_id = existing.get("request_id")
+                if wo_id and stage_id and req_id:
+                    await db.project_work_orders.update_one(
+                        {"work_order_id": wo_id, "stages.stage_id": stage_id, "stages.payment_requests.request_id": req_id},
+                        {"$set": {
+                            "stages.$[s].payment_requests.$[p].status": "planning_approved",
+                            "stages.$[s].payment_requests.$[p].released_at": None,
+                            "stages.$[s].payment_requests.$[p].released_by": None,
+                            "stages.$[s].payment_requests.$[p].reverted_by_accountant_at": datetime.now(timezone.utc).isoformat(),
+                            "stages.$[s].payment_requests.$[p].reverted_by_accountant_id": user.user_id,
+                        }},
+                        array_filters=[{"s.stage_id": stage_id}, {"p.request_id": req_id}],
+                    )
+            except Exception as e:
+                import logging; logging.getLogger(__name__).warning(f"PR revert skipped: {e}")
             await create_audit_log(
                 user.user_id, "delete", f"expense_{expense_type}", record_id,
                 {"amount": existing.get("amount") or existing.get("total_amount") or existing.get("estimated_price", 0),
