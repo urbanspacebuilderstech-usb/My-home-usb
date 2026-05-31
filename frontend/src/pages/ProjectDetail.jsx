@@ -1524,7 +1524,15 @@ export default function ProjectDetail() {
       const pkgRes = await axios.get(`${API}/packages`);
       const pkg = (pkgRes.data || []).find(p => p.package_id === pkgId);
       if (pkg?.material_items?.length > 0) {
-        const items = pkg.material_items.map(m => ({ name: m.name, brand: m.brand || '' }));
+        // Templates may carry unit/price metadata — pull them into the
+        // editable rows so the Planning Person doesn't have to retype every
+        // unit/rate from scratch.
+        const items = pkg.material_items.map(m => ({
+          name: m.name,
+          brand: m.brand || '',
+          unit: m.unit || '',
+          price: (m.price ?? m.estimated_rate ?? m.unit_price ?? m.rate ?? 0) || 0,
+        }));
         setProjectMaterials(items);
         items.forEach(m => { if (m.name) fetchProjBrands(m.name); });
         setEditingMaterials(true);
