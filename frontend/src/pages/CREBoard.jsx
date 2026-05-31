@@ -1710,21 +1710,29 @@ export default function CREBoard() {
                         type="checkbox"
                         className="h-3.5 w-3.5"
                         checked={outstandingStages.length > 0 && collectSelectedStageIds.size === outstandingStages.length}
-                        onChange={(e) => {
-                          if (e.target.checked) setCollectSelectedStageIds(new Set(outstandingStages.map(s => s.stage_id)));
-                          else setCollectSelectedStageIds(new Set());
+                        onChange={(ev) => {
+                          // The clicked stage is always pinned — preserve it on toggle-all.
+                          const pinned = selectedPaymentStage?.stage_id;
+                          if (ev.target.checked) setCollectSelectedStageIds(new Set(outstandingStages.map(s => s.stage_id)));
+                          else setCollectSelectedStageIds(new Set(pinned ? [pinned] : []));
                         }}
                         data-testid="collect-stage-select-all"
                       />
                       <span className="text-[11px] text-gray-600">Select all</span>
                     </div>
-                    {outstandingStages.map(s => (
-                      <label key={s.stage_id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 cursor-pointer" data-testid={`collect-stage-pick-${s.stage_id}`}>
+                    {outstandingStages.map(s => {
+                      // The stage the CRE clicked Collect on is locked-on so it
+                      // can't be unchecked mid-flow. Other stages remain togglable.
+                      const isPinned = s.stage_id === selectedPaymentStage?.stage_id;
+                      return (
+                      <label key={s.stage_id} className={`flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 ${isPinned ? '' : 'cursor-pointer'} ${isPinned ? 'bg-amber-50/40' : ''}`} data-testid={`collect-stage-pick-${s.stage_id}`}>
                         <input
                           type="checkbox"
                           className="h-3.5 w-3.5"
                           checked={collectSelectedStageIds.has(s.stage_id)}
+                          disabled={isPinned}
                           onChange={(e) => {
+                            if (isPinned) return;
                             const next = new Set(collectSelectedStageIds);
                             if (e.target.checked) next.add(s.stage_id); else next.delete(s.stage_id);
                             setCollectSelectedStageIds(next);
@@ -1733,10 +1741,12 @@ export default function CREBoard() {
                         <span className="flex-1 text-xs flex items-center gap-1.5 min-w-0">
                           {s.is_addition && <Badge variant="outline" className="text-[9px] bg-violet-50 text-violet-700 border-violet-200 px-1 py-0">ADD</Badge>}
                           <span className="truncate">{s.stage_name}</span>
+                          {isPinned && <Badge variant="outline" className="text-[9px] bg-amber-50 text-amber-700 border-amber-200 px-1 py-0">DEFAULT</Badge>}
                         </span>
                         <span className="text-xs font-semibold text-red-600 shrink-0">{formatCurrency(s.balance)}</span>
                       </label>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
