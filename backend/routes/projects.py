@@ -3236,9 +3236,15 @@ async def collect_payment_bulk(
     # FIFO order: stages first requested by Planning are paid first.
     # Sort key — `requested_at` ascending, fall back to stage_number/sort_order/created_at.
     stages = await db.payment_stages.find(
-        {"project_id": project_id, "workflow_status": "requested"},
+        {
+            "project_id": project_id,
+            "$or": [
+                {"workflow_status": "requested"},
+                {"is_addition": True},
+            ],
+        },
         {"_id": 0},
-    ).sort([("requested_at", 1), ("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(200)
+    ).sort([("requested_at", 1), ("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(500)
     # Exclude already-fully-collected stages
     stages = [s for s in stages if (s.get("amount", 0) - s.get("amount_received", 0)) > 0.5]
     if not stages:

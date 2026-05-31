@@ -528,6 +528,7 @@ export default function CREBoard() {
     setCollectForm({ amount: balance, mode: 'bank_transfer', reference: '', remarks: '', num_cheques: 1, cheque_details: [] });
     setBulkCollectAmount('');
     setOutstandingStages([]);
+    setCollectSelectedStageIds(new Set());
     setCollectDialog(true);
     // Fetch the project's other pending stages — drives the FIFO preview.
     if (stage.project_id) {
@@ -542,6 +543,9 @@ export default function CREBoard() {
 
   // Compute FIFO allocation preview for a given total amount.
   // Stages array is already sorted server-side by requested_at ascending.
+  // Smart Collect — user may opt to select specific stages to collect against
+  // instead of letting FIFO span every pending stage.
+  const [collectSelectedStageIds, setCollectSelectedStageIds] = useState(new Set());
   const computeFIFOAllocation = (amount, stages) => {
     const amt = parseFloat(amount) || 0;
     if (amt <= 0 || !stages.length) return [];
@@ -577,12 +581,21 @@ export default function CREBoard() {
         return;
       }
       try {
+        // If CRE picked specific stages, send explicit allocations so the
+        // backend only credits those (legacy: empty → FIFO across all pending).
+        let manualAllocations = null;
+        if (collectSelectedStageIds.size > 0) {
+          const scoped = outstandingStages.filter(s => collectSelectedStageIds.has(s.stage_id));
+          const plan = computeFIFOAllocation(bulkAmt, scoped);
+          manualAllocations = plan.map(p => ({ stage_id: p.stage_id, amount: p.allocated }));
+        }
         const res = await axios.post(`${API}/projects/${selectedPaymentStage.project_id}/collect-payment-bulk`, {
           amount: bulkAmt,
           payment_mode: mode,
           payment_reference: ref,
           remarks: collectForm.remarks || null,
           cheque_details,
+          ...(manualAllocations ? { allocations: manualAllocations } : {}),
         });
         const lines = res.data?.allocations || [];
         const summary = lines.map(l => `${l.stage_name}: ₹${l.collected.toLocaleString('en-IN')}${l.new_status === 'partial' ? ' (partial)' : ''}`).join(' • ');
@@ -591,6 +604,7 @@ export default function CREBoard() {
         setCollectForm({ amount: '', remarks: '' });
         setBulkCollectAmount('');
         setOutstandingStages([]);
+        setCollectSelectedStageIds(new Set());
         setCollectPaymentEntries([{ amount: '', payment_mode: 'bank_transfer', reference: '', cheque_details: [] }]);
         fetchData(false);
         return;
@@ -1671,9 +1685,60 @@ export default function CREBoard() {
                   </p>
                 </div>
 
+                {/* Stage picker — when CRE has a specific stage (or set of stages)
+                    the client paid for, they can tick them and FIFO will only fill
+                    those. Empty selection keeps the legacy "fill all" behavior. */}
+                <div className="border-t pt-2">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <Label className="text-xs font-semibold">Select stages to collect against</Label>
+                    <span className="text-[10px] text-gray-500">
+                      {collectSelectedStageIds.size === 0 ? 'No selection → all stages (FIFO)' : `${collectSelectedStageIds.size} of ${outstandingStages.length} selected`}
+                    </span>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto border rounded-md bg-white divide-y" data-testid="collect-stage-picker">
+                    <div className="flex items-center gap-2 px-2 py-1.5 bg-gray-50 sticky top-0">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5"
+                        checked={outstandingStages.length > 0 && collectSelectedStageIds.size === outstandingStages.length}
+                        onChange={(e) => {
+                          if (e.target.checked) setCollectSelectedStageIds(new Set(outstandingStages.map(s => s.stage_id)));
+                          else setCollectSelectedStageIds(new Set());
+                        }}
+                        data-testid="collect-stage-select-all"
+                      />
+                      <span className="text-[11px] text-gray-600">Select all</span>
+                    </div>
+                    {outstandingStages.map(s => (
+                      <label key={s.stage_id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 cursor-pointer" data-testid={`collect-stage-pick-${s.stage_id}`}>
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5"
+                          checked={collectSelectedStageIds.has(s.stage_id)}
+                          onChange={(e) => {
+                            const next = new Set(collectSelectedStageIds);
+                            if (e.target.checked) next.add(s.stage_id); else next.delete(s.stage_id);
+                            setCollectSelectedStageIds(next);
+                          }}
+                        />
+                        <span className="flex-1 text-xs flex items-center gap-1.5 min-w-0">
+                          {s.is_addition && <Badge variant="outline" className="text-[9px] bg-violet-50 text-violet-700 border-violet-200 px-1 py-0">ADD</Badge>}
+                          <span className="truncate">{s.stage_name}</span>
+                        </span>
+                        <span className="text-xs font-semibold text-red-600 shrink-0">{formatCurrency(s.balance)}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
                 {/* FIFO allocation preview */}
                 {parseFloat(bulkCollectAmount) > 0 && (() => {
-                  const plan = computeFIFOAllocation(bulkCollectAmount, outstandingStages);
+                  // When the user checks specific stages, restrict FIFO to that subset only.
+                  // Empty selection = use all outstanding stages (legacy behavior).
+                  const scoped = collectSelectedStageIds.size > 0
+                    ? outstandingStages.filter(s => collectSelectedStageIds.has(s.stage_id))
+                    : outstandingStages;
+                  const plan = computeFIFOAllocation(bulkCollectAmount, scoped);
                   if (!plan.length) return null;
                   const planned = plan.reduce((s, p) => s + p.allocated, 0);
                   return (
