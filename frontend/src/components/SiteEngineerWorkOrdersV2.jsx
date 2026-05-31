@@ -20,7 +20,8 @@ import {
   ShieldCheck,
   Wallet,
   CheckCheck,
-  Hourglass
+  Hourglass,
+  Trash2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -663,6 +664,25 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+
+  // Delete a single payment_request row from the stage's history. Backend
+  // enforces permission (PM/Planning/Accountant/Super Admin) and refuses to
+  // delete rows that have already been Accountant-released (those need to
+  // be reversed via the cashbook).
+  const deletePR = async (pr) => {
+    if (!window.confirm(`Delete this ${pr.rab_number || 'payment request'} entry of ₹${(pr.approved_amount || pr.amount || 0).toLocaleString('en-IN')}? This cannot be undone.`)) return;
+    setDeletingId(pr.request_id);
+    try {
+      await axios.delete(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}/payment-requests/${pr.request_id}`);
+      toast.success('Payment request deleted');
+      onSaved && onSaved();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to delete');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     if (stage) {
@@ -856,7 +876,22 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                         </p>
                         <p className="text-[10px] text-gray-500">{fmtDate(pr.requested_at)}</p>
                       </div>
-                      <Badge variant="outline" className={`text-[9px] ${sb.cls}`}>{sb.label}</Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="outline" className={`text-[9px] ${sb.cls}`}>{sb.label}</Badge>
+                        {/* Delete affordance — backend (`/payment-requests/{request_id}`)
+                            enforces role + whether the row has been released. */}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0 text-red-400 hover:text-red-600"
+                          onClick={() => deletePR(pr)}
+                          disabled={deletingId === pr.request_id}
+                          data-testid={`wov2-pr-delete-${pr.request_id || i}`}
+                          title="Delete this entry"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
                     {pr.notes && <p className="text-[11px] text-gray-600 mt-1">📝 {pr.notes}</p>}
                     {pr.planning_change_reason && (

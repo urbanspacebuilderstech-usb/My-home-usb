@@ -7622,6 +7622,58 @@ async def _find_pr_and_update(work_order_id: str, stage_id: str, request_id: str
     )
     return target_pr
 
+@router.delete("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/payment-requests/{request_id}")
+async def delete_stage_payment_request(
+    project_id: str,
+    work_order_id: str,
+    stage_id: str,
+    request_id: str,
+    user: User = Depends(get_current_user),
+):
+    """Delete a single payment_request from a work-order stage's history.
+
+    Allowed roles: PM, Planning, Planning Head, Accountant, Super Admin, Site Engineer.
+    Refuses if the request is already `approved` (released by accountant) —
+    in that case the accountant must reverse the cashbook expense first
+    (which auto-reverts the PR to `planning_approved`).
+    """
+    if user.role not in [
+        UserRole.PROJECT_MANAGER,
+        UserRole.PLANNING,
+        UserRole.PLANNING_PERSON,
+        UserRole.ACCOUNTANT,
+        UserRole.SUPER_ADMIN,
+        UserRole.SITE_ENGINEER,
+    ]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0, "stages": 1})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    target_pr = None
+    for s in wo.get("stages") or []:
+        if s.get("stage_id") != stage_id:
+            continue
+        for p in s.get("payment_requests") or []:
+            if p.get("request_id") == request_id:
+                target_pr = p
+                break
+        break
+    if not target_pr:
+        raise HTTPException(status_code=404, detail="Payment request not found")
+    if target_pr.get("status") == "approved" and user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=423, detail="Already released by Accountant. Delete the matching expense in Main Account to reverse this first.")
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "stages.stage_id": stage_id},
+        {"$pull": {"stages.$.payment_requests": {"request_id": request_id}}},
+    )
+    await create_audit_log(
+        user.user_id, "delete", "wo_payment_request", request_id,
+        {"work_order_id": work_order_id, "stage_id": stage_id, "amount": target_pr.get("approved_amount") or target_pr.get("amount")},
+    )
+    return {"message": "Payment request deleted"}
+
+
+
 
 @router.post("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/payment-requests/{request_id}/pm-approve")
 async def pm_approve_labour_payment(project_id: str, work_order_id: str, stage_id: str, request_id: str, data: dict = None, user: User = Depends(get_current_user)):
