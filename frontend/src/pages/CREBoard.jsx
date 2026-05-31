@@ -1217,7 +1217,7 @@ export default function CREBoard() {
                                 const isCollected = !hasPendingApproval && (e.stage_status === 'paid' || e.stage_status === 'collected' || balance <= 0);
                                 const isPartial = !hasPendingApproval && (e.amount_received || 0) > 0 && balance > 0;
                                 let badge;
-                                if (hasPendingApproval) badge = <Badge className="bg-orange-100 text-orange-700 text-[11px]">Pending Accountant Approval</Badge>;
+                                if (hasPendingApproval) badge = <Badge className="bg-orange-100 text-orange-700 text-[11px] whitespace-nowrap">Pending Accountant Approval</Badge>;
                                 else if (isCollected) badge = <Badge className="bg-green-100 text-green-700 text-[11px]">Collected</Badge>;
                                 else if (isPartial) badge = <Badge className="bg-amber-100 text-amber-700 text-[11px]">Partial</Badge>;
                                 else if (e.workflow_status === 'requested') badge = <Badge className="bg-purple-100 text-purple-700 text-[11px]">Planning Requested</Badge>;
