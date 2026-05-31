@@ -528,7 +528,9 @@ export default function CREBoard() {
     setCollectForm({ amount: balance, mode: 'bank_transfer', reference: '', remarks: '', num_cheques: 1, cheque_details: [] });
     setBulkCollectAmount('');
     setOutstandingStages([]);
-    setCollectSelectedStageIds(new Set());
+    // Pre-select the clicked stage so the picker shows it checked by default.
+    // CRE can tick additional stages if the client paid a lump sum.
+    setCollectSelectedStageIds(new Set(stage.stage_id ? [stage.stage_id] : []));
     setCollectDialog(true);
     // Fetch the project's other pending stages — drives the FIFO preview.
     if (stage.project_id) {
