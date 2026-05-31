@@ -548,17 +548,19 @@ export default function CREBoard() {
   const [collectSelectedStageIds, setCollectSelectedStageIds] = useState(new Set());
   const computeFIFOAllocation = (amount, stages) => {
     const amt = parseFloat(amount) || 0;
-    if (amt <= 0 || !stages.length) return [];
+    if (!stages.length) return [];
     let remaining = amt;
-    const result = [];
-    for (const s of stages) {
-      if (remaining <= 0.5) break;
-      const take = Math.min(remaining, s.balance);
-      if (take > 0) {
-        result.push({ ...s, allocated: take, post_balance: Math.max(0, s.balance - take) });
-        remaining -= take;
+    // Always include every input stage in the result so the preview lists
+    // exactly the stages the CRE picked. Stages that don't receive money get
+    // allocated=0 and post_balance unchanged.
+    const result = stages.map(s => {
+      if (remaining <= 0.5) {
+        return { ...s, allocated: 0, post_balance: s.balance };
       }
-    }
+      const take = Math.min(remaining, s.balance);
+      remaining -= take;
+      return { ...s, allocated: take, post_balance: Math.max(0, s.balance - take) };
+    });
     if (remaining > 0.5 && result.length) {
       // Excess — credit to the last stage (over-collected)
       result[result.length - 1].allocated += remaining;
@@ -587,7 +589,7 @@ export default function CREBoard() {
         if (collectSelectedStageIds.size > 0) {
           const scoped = outstandingStages.filter(s => collectSelectedStageIds.has(s.stage_id));
           const plan = computeFIFOAllocation(bulkAmt, scoped);
-          manualAllocations = plan.map(p => ({ stage_id: p.stage_id, amount: p.allocated }));
+          manualAllocations = plan.filter(p => p.allocated > 0).map(p => ({ stage_id: p.stage_id, amount: p.allocated }));
         }
         const res = await axios.post(`${API}/projects/${selectedPaymentStage.project_id}/collect-payment-bulk`, {
           amount: bulkAmt,
