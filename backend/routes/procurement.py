@@ -2351,10 +2351,11 @@ async def procurement_simple_queue(
     status_map = {
         "pending": ["requested", "pm_approved", "procurement_revision"],
         "planning_initial": ["planning_initial_pending"],
+        "verifying": ["procurement_verifying"],
         "forwarded": ["procurement_priced"],
-        "rejected": ["procurement_rejected", "planning_initial_rejected"],
+        "rejected": ["procurement_rejected", "planning_initial_rejected", "procurement_verify_rejected"],
         "revision": ["procurement_revision"],
-        "all": ["requested", "pm_approved", "procurement_priced", "procurement_rejected", "procurement_revision", "planning_initial_pending", "planning_initial_rejected"],
+        "all": ["requested", "pm_approved", "procurement_priced", "procurement_rejected", "procurement_revision", "planning_initial_pending", "planning_initial_rejected", "procurement_verifying", "procurement_verify_rejected", "in_transit", "pending_accounts_approval", "pending_balance_payment", "delivered"],
     }
     target = status_map.get(queue, status_map["pending"])
 
@@ -2602,6 +2603,102 @@ async def procurement_simple_dashboard(user: User = Depends(get_current_user)):
 # =====================================================================
 # PHASE 2 — Planning approval (payment-mode-aware routing)
 # =====================================================================
+@router.post("/procurement-simple/material-requests/{request_id}/verify-approve")
+async def procurement_verify_approve(request_id: str, data: dict = None, user: User = Depends(get_current_user)):
+    """Procurement verifies delivery (qty / invoice / price match) and approves.
+    Unstashes `pending_next_status` set during receipt-initiate and routes the
+    request onward (pending_accounts_approval / pending_balance_payment / delivered
+    for credit mode).
+    """
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement / Super Admin can verify deliveries")
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req.get("status") != "procurement_verifying":
+        raise HTTPException(status_code=400, detail=f"Cannot verify in status: {req.get('status')}")
+
+    body = data or {}
+    invoice_no = (body.get("invoice_no") or "").strip()
+    price_ok = bool(body.get("price_match", True))
+    qty_ok = bool(body.get("qty_match", True))
+    notes = (body.get("notes") or "").strip()
+    now = datetime.now(timezone.utc).isoformat()
+
+    next_status = req.get("pending_next_status") or "pending_accounts_approval"
+    extras = req.get("pending_next_extra") or {}
+    update = {
+        "status": next_status,
+        "procurement_verified_by": user.user_id,
+        "procurement_verified_by_name": user.name,
+        "procurement_verified_at": now,
+        "procurement_verify_invoice_no": invoice_no,
+        "procurement_verify_qty_ok": qty_ok,
+        "procurement_verify_price_ok": price_ok,
+        "procurement_verify_notes": notes,
+        # Clear stashed fields
+        "pending_next_status": None,
+        "pending_next_extra": None,
+    }
+    if isinstance(extras, dict):
+        for k, v in extras.items():
+            update[k] = v
+
+    await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
+
+    # Notify next handler
+    if next_status in ("pending_accounts_approval", "pending_balance_payment"):
+        try:
+            accs = await db.users.find(
+                {"role": {"$in": ["accountant", "super_admin"]}, "is_active": {"$ne": False}},
+                {"_id": 0, "user_id": 1},
+            ).to_list(50)
+            for a in accs:
+                phase = "balance" if next_status == "pending_balance_payment" else "full"
+                await create_notification(
+                    a["user_id"],
+                    f"Material verified & ready for payment ({phase}): {req.get('material_name')} → {req.get('vendor_name')}",
+                )
+        except Exception:
+            pass
+
+    await create_audit_log(user.user_id, "verify_approve", "material_request", request_id, update)
+    return {"message": "Delivery verified", "status": next_status}
+
+
+@router.post("/procurement-simple/material-requests/{request_id}/verify-reject")
+async def procurement_verify_reject(request_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Procurement rejects a delivery (qty/invoice/price mismatch). Returns the
+    request to `procurement_verify_rejected` so the SE can re-receive or escalate.
+    """
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement / Super Admin can reject deliveries")
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req.get("status") != "procurement_verifying":
+        raise HTTPException(status_code=400, detail=f"Cannot reject verification in status: {req.get('status')}")
+    reason = (data.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Reason is required")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.material_requests.update_one({"request_id": request_id}, {"$set": {
+        "status": "procurement_verify_rejected",
+        "procurement_verify_rejected_by": user.user_id,
+        "procurement_verify_rejected_by_name": user.name,
+        "procurement_verify_rejected_at": now,
+        "procurement_verify_rejection_reason": reason,
+    }})
+    # Notify SE
+    if req.get("site_engineer_id"):
+        try:
+            await create_notification(req["site_engineer_id"], f"Procurement rejected your delivery for {req.get('material_name')}: {reason}")
+        except Exception:
+            pass
+    await create_audit_log(user.user_id, "verify_reject", "material_request", request_id, {"reason": reason})
+    return {"message": "Delivery verification rejected", "status": "procurement_verify_rejected"}
+
+
 @router.patch("/procurement-simple/material-requests/{request_id}/planning-initial-approve")
 async def procurement_simple_planning_initial_approve(request_id: str, data: dict = None, user: User = Depends(get_current_user)):
     """Planning Person approves a brand-new SE material request (qty/material sanity

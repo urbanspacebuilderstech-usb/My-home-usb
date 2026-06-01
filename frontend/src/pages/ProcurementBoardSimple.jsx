@@ -28,7 +28,8 @@ import {
   Banknote,
   ListChecks,
   CheckCheck,
-  PackageCheck
+  PackageCheck,
+  ThumbsUp
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
@@ -94,8 +95,9 @@ const LIFECYCLE_BUCKETS = [
   { key: 'all',                 label: 'All',                 Icon: ListChecks,    cls: 'bg-violet-50 border-violet-200 text-violet-700',  active: 'bg-violet-600 text-white border-violet-600' },
   { key: 'new_request',         label: 'New Request (SE)',    Icon: ClipboardList, cls: 'bg-amber-50 border-amber-200 text-amber-700',     active: 'bg-amber-600 text-white border-amber-600' },
   { key: 'revision',            label: 'Revision (Planning)', Icon: FileClock,     cls: 'bg-orange-50 border-orange-200 text-orange-700',  active: 'bg-orange-600 text-white border-orange-600' },
-  { key: 'awaiting_accountant', label: 'Awaiting Accountant', Icon: Wallet,        cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white border-cyan-600' },
   { key: 'transit',             label: 'Transit',             Icon: Truck,         cls: 'bg-sky-50 border-sky-200 text-sky-700',           active: 'bg-sky-600 text-white border-sky-600' },
+  { key: 'verifying',           label: 'Verify Delivery',     Icon: ClipboardList, cls: 'bg-fuchsia-50 border-fuchsia-200 text-fuchsia-700', active: 'bg-fuchsia-600 text-white border-fuchsia-600' },
+  { key: 'awaiting_accountant', label: 'Awaiting Accountant', Icon: Wallet,        cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white border-cyan-600' },
   { key: 'delivered',           label: 'Delivered',           Icon: PackageCheck,  cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
 ];
 
@@ -103,10 +105,10 @@ function bucketForMaterial(req) {
   const status = (req.status || '').toLowerCase();
   if (status === 'planning_initial_pending') return null; // hidden from Procurement view
   if (status === 'requested' || status === 'pm_approved') return 'new_request';
-  // Legacy: 'procurement_priced' (old Planning-Pricing handoff) is no longer produced.
-  // If any in-flight items exist, surface them under transit (they're already vendor-assigned).
   if (status === 'procurement_priced') return 'transit';
   if (status === 'procurement_revision') return 'revision';
+  if (status === 'procurement_verifying') return 'verifying';
+  if (status === 'procurement_verify_rejected') return 'revision';
   if (['pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
   if (status === 'in_transit') return 'transit';
   if (['delivered', 'completed', 'closed'].includes(status)) return 'delivered';
@@ -120,6 +122,7 @@ function RequestsTab({ dateRange }) {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(null);
   const [rejectDialog, setRejectDialog] = useState({ open: false, req: null, reason: '' });
+  const [verifyDialog, setVerifyDialog] = useState({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '' });
   const [submitting, setSubmitting] = useState(false);
 
   const fetchAll = useCallback(async () => {
@@ -187,6 +190,40 @@ function RequestsTab({ dateRange }) {
     } finally { setSubmitting(false); }
   };
 
+  const submitVerify = async () => {
+    const req = verifyDialog.req;
+    if (!req) return;
+    setSubmitting(true);
+    try {
+      if (verifyDialog.reject_mode) {
+        if (!verifyDialog.reject_reason.trim()) { toast.error('Reason is required'); setSubmitting(false); return; }
+        await axios.post(`${API}/procurement-simple/material-requests/${req.request_id}/verify-reject`, { reason: verifyDialog.reject_reason });
+        toast.success('Delivery rejected');
+      } else {
+        await axios.post(`${API}/procurement-simple/material-requests/${req.request_id}/verify-approve`, {
+          invoice_no: verifyDialog.invoice_no,
+          qty_match: verifyDialog.qty_match,
+          price_match: verifyDialog.price_match,
+          notes: verifyDialog.notes,
+        });
+        toast.success('Delivery verified — sent to Accountant');
+      }
+      setVerifyDialog({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '' });
+      fetchAll();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Verification failed');
+    } finally { setSubmitting(false); }
+  };
+
+  // Card click handler — open the right dialog based on status
+  const openCard = (r) => {
+    if ((r.status || '').toLowerCase() === 'procurement_verifying') {
+      setVerifyDialog({ open: true, req: r, invoice_no: r.procurement_verify_invoice_no || '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '' });
+    } else {
+      setOpen(r);
+    }
+  };
+
   return (
     <div className="space-y-3" data-testid="proc-requests-tab">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -230,7 +267,7 @@ function RequestsTab({ dateRange }) {
       ) : (
         <div className="space-y-2" data-testid="proc-card-list">
           {visibleItems.map(r => (
-            <RequestCard key={r.request_id} req={r} onClick={() => setOpen(r)} />
+            <RequestCard key={r.request_id} req={r} onClick={() => openCard(r)} />
           ))}
         </div>
       )}
@@ -259,6 +296,132 @@ function RequestsTab({ dateRange }) {
             <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={submitReject} disabled={submitting} data-testid="proc-reject-confirm">
               {submitting ? 'Rejecting…' : 'Confirm Reject'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Verify-Delivery Dialog */}
+      <Dialog open={verifyDialog.open} onOpenChange={(o) => !o && setVerifyDialog({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '' })}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="proc-verify-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-fuchsia-700">
+              <PackageCheck className="h-5 w-5" /> Verify Delivery
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {verifyDialog.req?.material_name} · {verifyDialog.req?.vendor_name} · {verifyDialog.req?.project_name}
+            </DialogDescription>
+          </DialogHeader>
+
+          {verifyDialog.req && (
+            <div className="space-y-3 text-sm">
+              {/* Quick summary */}
+              <div className="grid grid-cols-2 gap-2 bg-gray-50 border rounded p-2 text-xs">
+                <div><span className="text-gray-500">Ordered Qty:</span> <strong>{verifyDialog.req.approved_quantity || verifyDialog.req.quantity} {verifyDialog.req.unit || ''}</strong></div>
+                <div><span className="text-gray-500">Received Qty:</span> <strong>{verifyDialog.req.received_quantity ?? '—'} {verifyDialog.req.unit || ''}</strong></div>
+                <div><span className="text-gray-500">Unit Price:</span> <strong>{fmt(verifyDialog.req.unit_price || verifyDialog.req.unit_rate || 0)}</strong></div>
+                <div><span className="text-gray-500">Total:</span> <strong>{fmt(verifyDialog.req.total_amount || verifyDialog.req.estimated_price || 0)}</strong></div>
+                <div className="col-span-2"><span className="text-gray-500">Payment Mode:</span> <strong>{verifyDialog.req.payment_mode || '—'}</strong></div>
+              </div>
+
+              {/* Photos preview */}
+              {(verifyDialog.req.lorry_image_id || verifyDialog.req.material_image_id) && (
+                <div className="grid grid-cols-2 gap-2">
+                  {verifyDialog.req.lorry_image_id && (
+                    <a href={`${API}/files/${verifyDialog.req.lorry_image_id}/download`} target="_blank" rel="noopener noreferrer" className="block border rounded overflow-hidden hover:border-fuchsia-400">
+                      <img src={`${API}/files/${verifyDialog.req.lorry_image_id}/download`} alt="Lorry" className="w-full h-28 object-cover" />
+                      <p className="text-[10px] uppercase font-semibold text-fuchsia-700 bg-fuchsia-50 py-0.5 px-2">Lorry</p>
+                    </a>
+                  )}
+                  {verifyDialog.req.material_image_id && (
+                    <a href={`${API}/files/${verifyDialog.req.material_image_id}/download`} target="_blank" rel="noopener noreferrer" className="block border rounded overflow-hidden hover:border-fuchsia-400">
+                      <img src={`${API}/files/${verifyDialog.req.material_image_id}/download`} alt="Material" className="w-full h-28 object-cover" />
+                      <p className="text-[10px] uppercase font-semibold text-fuchsia-700 bg-fuchsia-50 py-0.5 px-2">Material</p>
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {!verifyDialog.reject_mode ? (
+                <>
+                  {/* Approve form */}
+                  <div className="space-y-2">
+                    <Label className="text-xs">Invoice / Bill No.</Label>
+                    <Input
+                      value={verifyDialog.invoice_no}
+                      onChange={(e) => setVerifyDialog({ ...verifyDialog, invoice_no: e.target.value })}
+                      placeholder="e.g. INV-2024-001"
+                      className="text-sm"
+                      data-testid="verify-invoice-no"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={verifyDialog.qty_match}
+                        onChange={(e) => setVerifyDialog({ ...verifyDialog, qty_match: e.target.checked })}
+                        data-testid="verify-qty-match"
+                      />
+                      Qty matches ordered
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={verifyDialog.price_match}
+                        onChange={(e) => setVerifyDialog({ ...verifyDialog, price_match: e.target.checked })}
+                        data-testid="verify-price-match"
+                      />
+                      Price matches invoice
+                    </label>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Notes (optional)</Label>
+                    <Textarea
+                      rows={2}
+                      value={verifyDialog.notes}
+                      onChange={(e) => setVerifyDialog({ ...verifyDialog, notes: e.target.value })}
+                      placeholder="Anything Accountant should know…"
+                      className="mt-1 text-sm"
+                      data-testid="verify-notes"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="bg-red-50 border border-red-200 rounded p-3 space-y-1.5">
+                  <Label className="text-xs font-semibold text-red-800">Reason for rejection *</Label>
+                  <Textarea
+                    rows={3}
+                    value={verifyDialog.reject_reason}
+                    onChange={(e) => setVerifyDialog({ ...verifyDialog, reject_reason: e.target.value })}
+                    placeholder="e.g. qty short by 5 bags / invoice missing / price mismatch"
+                    className="text-sm"
+                    data-testid="verify-reject-reason"
+                    autoFocus
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setVerifyDialog({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '' })} disabled={submitting}>Close</Button>
+            {!verifyDialog.reject_mode ? (
+              <>
+                <Button variant="outline" size="sm" className="text-red-700 border-red-300 hover:bg-red-50" onClick={() => setVerifyDialog({ ...verifyDialog, reject_mode: true })} disabled={submitting} data-testid="verify-reject-btn">
+                  <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
+                </Button>
+                <Button size="sm" className="bg-fuchsia-600 hover:bg-fuchsia-700" onClick={submitVerify} disabled={submitting} data-testid="verify-approve-btn">
+                  <ThumbsUp className="h-3.5 w-3.5 mr-1" /> {submitting ? 'Verifying…' : 'Approve & Send to Accountant'}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="outline" size="sm" onClick={() => setVerifyDialog({ ...verifyDialog, reject_mode: false })} disabled={submitting}>Back</Button>
+                <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={submitVerify} disabled={submitting} data-testid="verify-reject-confirm">
+                  {submitting ? 'Rejecting…' : 'Confirm Reject'}
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -538,6 +701,7 @@ function RequestCard({ req, onClick }) {
   const bucket = bucketForMaterial(req);
   const cardCfg = LIFECYCLE_BUCKETS.find(b => b.key === bucket);
   const isActionable = ['requested', 'pm_approved', 'procurement_revision'].includes(status);
+  const isVerifying = status === 'procurement_verifying';
   // Compute "deliver in" label
   let deliveryLabel = '—';
   if (req.expected_delivery) {
@@ -614,6 +778,15 @@ function RequestCard({ req, onClick }) {
                 data-testid={`proc-card-approve-${req.request_id}`}
               >
                 <Eye className="h-3 w-3" /> {status === 'procurement_revision' ? 'Revise' : 'Approve'}
+              </Button>
+            ) : isVerifying ? (
+              <Button
+                size="sm"
+                className="h-8 w-full text-xs gap-1 mt-3 sm:mt-0 bg-fuchsia-600 hover:bg-fuchsia-700"
+                onClick={(e) => { e.stopPropagation(); onClick(); }}
+                data-testid={`proc-card-verify-${req.request_id}`}
+              >
+                <PackageCheck className="h-3 w-3" /> Verify
               </Button>
             ) : (
               <Button

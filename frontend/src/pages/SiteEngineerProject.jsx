@@ -88,6 +88,8 @@ function bucketForMaterial(req) {
   // bucket so Procurement can still see them; new flow skips this state entirely.
   if (status === 'procurement_priced') return 'awaiting_procurement';
   if (status === 'procurement_revision') return 'revision';
+  if (status === 'procurement_verifying') return 'transit'; // SE has collected — pending Procurement verify
+  if (status === 'procurement_verify_rejected') return 'revision';
   if (['pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved', 'accountant_approved'].includes(status)) return 'awaiting_accountant';
   if (['in_transit', 'ready_for_delivery'].includes(status)) return 'transit';
   if (['delivered', 'completed', 'closed', 'received_partial', 'received_completed'].includes(status)) return 'delivered';

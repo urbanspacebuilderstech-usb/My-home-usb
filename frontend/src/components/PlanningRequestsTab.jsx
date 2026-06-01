@@ -43,6 +43,8 @@ function bucketForMaterial(req) {
   // Legacy: items still at procurement_priced (in-flight pre-update) — show under awaiting_accountant.
   if (status === 'procurement_priced') return 'awaiting_accountant';
   if (status === 'procurement_revision') return 'revision';
+  if (status === 'procurement_verifying') return 'transit'; // SE collected — Procurement verifying
+  if (status === 'procurement_verify_rejected') return 'revision';
   if (['pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
   if (status === 'in_transit') return 'transit';
   if (['delivered', 'completed', 'closed'].includes(status)) return 'delivered';

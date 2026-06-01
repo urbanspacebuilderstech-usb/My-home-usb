@@ -1727,15 +1727,29 @@ async def initiate_material_receipt(
             })
             post_verify_extra["credit_ledger_id"] = ledger_id
             post_verify_extra["credit_due_date"] = due_date
-        else:  # pre_paid
-            post_verify_status = "delivered"
-            post_verify_extra["delivered_at"] = now_iso
+        else:  # pre_paid — in the new flow Accountant didn't pre-pay, so route to them for full payment after verify.
+            post_verify_status = "pending_accounts_approval"
+            post_verify_extra["next_payment_phase"] = "full"
 
         update["status"] = "procurement_verifying"
         update["pending_next_status"] = post_verify_status
         update["pending_next_extra"] = post_verify_extra
         update["procurement_verification_pending_since"] = now_iso
         await db.material_requests.update_one({"request_id": data.request_id}, {"$set": update})
+
+        # Notify Procurement — a delivery is awaiting their verification (qty/invoice/price)
+        try:
+            procs = await db.users.find(
+                {"role": {"$in": ["procurement", "super_admin"]}, "is_active": {"$ne": False}},
+                {"_id": 0, "user_id": 1},
+            ).to_list(50)
+            for p in procs:
+                await create_notification(
+                    p["user_id"],
+                    f"Verify delivery: {request.get('material_name')} from {request.get('vendor_name') or '—'} — qty/invoice/price check pending",
+                )
+        except Exception:
+            pass
     else:
         # Legacy flow
         if total_received >= request["quantity"]:
