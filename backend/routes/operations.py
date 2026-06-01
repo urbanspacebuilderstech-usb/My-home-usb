@@ -1929,6 +1929,22 @@ async def get_monthly_schedule(
         {"$or": stage_query_or}, {"_id": 0}
     ).to_list(20000) if stage_query_or else []
 
+    # Payment Schedule view is for **client income collection only**.
+    # Vendor/Labour-side rows (e.g. labour_rab "RAB-XX · Contractor" entries
+    # auto-inserted when releasing RAB payments) must not appear here — they
+    # belong on the project's Payment Schedule tab + Accounts Cashbook only.
+    def _is_vendor_or_labour_row(stage):
+        cat = (stage.get("category") or "").lower()
+        kind = (stage.get("kind") or "").lower()
+        if cat in ("labour", "vendor", "material", "expense"):
+            return True
+        if kind in ("labour_rab", "vendor_payment", "material_expense"):
+            return True
+        if stage.get("rab_request_id") or stage.get("rab_number") or stage.get("contractor_id") or stage.get("vendor_id"):
+            return True
+        return False
+    stages_cursor = [s for s in stages_cursor if not _is_vendor_or_labour_row(s)]
+
     # 3. Classify each stage into a single effective month
     matching_stages = []
     for stage in stages_cursor:
@@ -2118,7 +2134,15 @@ async def get_available_stages_for_schedule(
     existing_ids = {e["stage_id"] for e in existing}
     
     all_stages = await db.payment_stages.find(
-        {"status": {"$nin": ["paid", "collected"]}}, {"_id": 0}
+        {
+            "status": {"$nin": ["paid", "collected"]},
+            # Client income only — exclude vendor/labour payment rows
+            "category": {"$nin": ["labour", "vendor", "material", "expense"]},
+            "kind": {"$nin": ["labour_rab", "vendor_payment", "material_expense"]},
+            "rab_request_id": {"$in": [None, ""]},
+            "contractor_id": {"$in": [None, ""]},
+        },
+        {"_id": 0}
     ).to_list(5000)
     
     available = [s for s in all_stages if s["stage_id"] not in existing_ids]
