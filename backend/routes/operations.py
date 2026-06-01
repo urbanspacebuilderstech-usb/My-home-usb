@@ -1901,7 +1901,15 @@ async def get_monthly_schedule(
         """Return (month, year) when stage was collected, or None if not collected."""
         if stage.get("status") not in ("paid", "collected"):
             return None, None
-        d = _parse_date(stage.get("paid_at")) or _parse_date(stage.get("collected_at")) or _parse_date(stage.get("updated_at"))
+        # Prefer real collection timestamps, fall back to the stage's planned
+        # date when historical data is missing those fields. Without this fallback
+        # legacy collected stages would have collection_month=None and would be
+        # incorrectly carried forward into the current calendar month.
+        d = (_parse_date(stage.get("paid_at"))
+             or _parse_date(stage.get("collected_at"))
+             or _parse_date(stage.get("updated_at"))
+             or _parse_date(stage.get("expected_payment_date"))
+             or _parse_date(stage.get("due_date")))
         if d:
             return d.month, d.year
         return None, None
@@ -1955,7 +1963,11 @@ async def get_monthly_schedule(
     #        pending with "Last Month Pending" carry badge when applicable.
     TOL = 1.0  # rounding tolerance
     def _last_collection_month(stage):
-        d = _parse_date(stage.get("paid_at")) or _parse_date(stage.get("collected_at")) or _parse_date(stage.get("updated_at"))
+        d = (_parse_date(stage.get("paid_at"))
+             or _parse_date(stage.get("collected_at"))
+             or _parse_date(stage.get("updated_at"))
+             or _parse_date(stage.get("expected_payment_date"))
+             or _parse_date(stage.get("due_date")))
         return (d.month, d.year) if d else (None, None)
 
     matching_stages = []
