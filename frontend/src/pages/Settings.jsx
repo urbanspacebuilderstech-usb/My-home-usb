@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Building2, LogOut, Settings as SettingsIcon, Users, Package, Truck, Save, Building, ArrowDownRight, GitBranch, Headphones } from 'lucide-react';
+import { Building2, LogOut, Settings as SettingsIcon, Users, Package, Truck, Save, Building, ArrowDownRight, GitBranch, Headphones, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
 import { NumericInput } from '../components/NumericInput';
+import ProjectModulePanel from '../components/ProjectModulePanel';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -242,6 +243,11 @@ export default function Settings() {
             {user?.role === 'super_admin' && (
               <TabsTrigger value="cre-module" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-cre-module-tab">
                 <Headphones className="h-3 w-3 sm:h-4 sm:w-4" /> CRE Module
+              </TabsTrigger>
+            )}
+            {user?.role === 'super_admin' && (
+              <TabsTrigger value="project-module" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-project-module-tab">
+                <ShieldCheck className="h-3 w-3 sm:h-4 sm:w-4" /> <span className="hidden sm:inline">Project Management</span> Module
               </TabsTrigger>
             )}
           </TabsList>
@@ -516,6 +522,13 @@ export default function Settings() {
                   </p>
                 </CardContent>
               </Card>
+            </TabsContent>
+          )}
+
+          {/* ────────── Project Management Module (Super Admin) ────────── */}
+          {user?.role === 'super_admin' && (
+            <TabsContent value="project-module">
+              <ProjectModulePanel />
             </TabsContent>
           )}
         </Tabs>

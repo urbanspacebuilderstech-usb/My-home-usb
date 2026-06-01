@@ -1003,6 +1003,9 @@ export default function ProjectDetail() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [user, setUser] = useState(null);
+  // Per-user tab permissions from Settings → Project Management Module.
+  // null = still loading (treat as all-on to avoid flash). Object map = active.
+  const [tabPermissions, setTabPermissions] = useState(null);
   const [loading, setLoading] = useState(true);
   const [projectData, setProjectData] = useState(null);
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'rough-estimate');
@@ -1249,7 +1252,12 @@ export default function ProjectDetail() {
       if (showLoader) setLoading(true);
       const userRes = await axios.get(`${API}/auth/me`);
       setUser(userRes.data);
-      
+
+      // Fetch this user's per-tab permissions in parallel (best effort).
+      axios.get(`${API}/admin/project-module/me`)
+        .then(r => setTabPermissions(r.data || {}))
+        .catch(() => setTabPermissions({})); // fall back to "all visible" on error
+
       // QC users only see Project Stages — lock the activeTab.
       if (userRes.data.role === 'quality_check') {
         setActiveTab('project-stages');
@@ -3833,8 +3841,7 @@ export default function ProjectDetail() {
   // The frontend used to also pre-lock the entire UI, but that hid Send-to-Client,
   // Delete All, edit icons, etc. for Additional Work + Deductions which have their
   // own approval chain. So we no longer pre-gate here — the backend has the say.
-  const isPlanningPerson = user?.role === 'planning_person';
-  const LOCKED_FE_STATUSES = ['pending_planning_head_review', 'pending_gm_review', 'pending_cre_review', 'pending_client_review', 'feedback_received', 'approved'];
+  const isPlanningPerson = user?.role === 'planning_person';  const LOCKED_FE_STATUSES = ['pending_planning_head_review', 'pending_gm_review', 'pending_cre_review', 'pending_client_review', 'feedback_received', 'approved'];
   const isFeLocked = LOCKED_FE_STATUSES.includes(projectData?.project?.fe?.status);
   const canManage = canManageBase;
   const canManageAdditionsDeductions = canManageBase;
@@ -3843,6 +3850,14 @@ export default function ProjectDetail() {
   const isQC = user?.role === 'quality_check';
   // QC sees only the Project Stages tab (no financials, value calc, or income/expense).
   const canSeeFinancials = !isPM && !isQC;
+  // Super-admin-controlled per-tab access (Settings → Project Management Module).
+  // null = still loading → treat as allow-all to avoid flash.
+  // Super Admin always sees everything regardless of stored permissions.
+  const tabAllowed = (key) => {
+    if (isSuperAdmin) return true;
+    if (tabPermissions === null) return true;
+    return tabPermissions[key] !== false;
+  };
 
   if (loading && !projectData) {
     return (
@@ -4381,37 +4396,37 @@ export default function ProjectDetail() {
               <TabsList className="bg-transparent border-0 p-0 h-auto gap-0 w-full justify-between overflow-x-auto flex-nowrap">
                 {/* Order: Estimate → Final Estimate → Payment Schedule → Work Order → Materials →
                     Payment Summary → Team → Construction Stage (CRE) → Project Stages → Documents */}
-                <TabsTrigger value="rough-estimate" className="data-[state=active]:border-b-2 data-[state=active]:border-purple-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
+                {tabAllowed('rough-estimate') && <TabsTrigger value="rough-estimate" className="data-[state=active]:border-b-2 data-[state=active]:border-purple-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
                   Estimate
-                </TabsTrigger>
-                <TabsTrigger value="scope" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
+                </TabsTrigger>}
+                {tabAllowed('scope') && <TabsTrigger value="scope" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
                   Final Estimate
-                </TabsTrigger>
-                {canSeeFinancials && <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
+                </TabsTrigger>}
+                {canSeeFinancials && tabAllowed('payments') && <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
                   Payment Schedule
                 </TabsTrigger>}
-                <TabsTrigger value="labours" className="data-[state=active]:border-b-2 data-[state=active]:border-teal-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-labours">
+                {tabAllowed('labours') && <TabsTrigger value="labours" className="data-[state=active]:border-b-2 data-[state=active]:border-teal-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-labours">
                   Work Order (Labour)
-                </TabsTrigger>
-                <TabsTrigger value="materials" className="data-[state=active]:border-b-2 data-[state=active]:border-orange-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-materials">
+                </TabsTrigger>}
+                {tabAllowed('materials') && <TabsTrigger value="materials" className="data-[state=active]:border-b-2 data-[state=active]:border-orange-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-materials">
                   Materials
-                </TabsTrigger>
-                {canSeeFinancials && <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-4 py-3 text-[15px] font-medium bg-green-50 whitespace-nowrap flex-1 text-center">
+                </TabsTrigger>}
+                {canSeeFinancials && tabAllowed('payment-summary') && <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-4 py-3 text-[15px] font-medium bg-green-50 whitespace-nowrap flex-1 text-center">
                   Payment Summary
                 </TabsTrigger>}
-                <TabsTrigger value="team" className="data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-team">
+                {tabAllowed('team') && <TabsTrigger value="team" className="data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-team">
                   Team
-                </TabsTrigger>
-                <TabsTrigger value="construction-stage" className="data-[state=active]:border-b-2 data-[state=active]:border-rose-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-construction-stage">
+                </TabsTrigger>}
+                {tabAllowed('construction-stage') && <TabsTrigger value="construction-stage" className="data-[state=active]:border-b-2 data-[state=active]:border-rose-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-construction-stage">
                   Pre-Construction Stages
-                </TabsTrigger>
-                <TabsTrigger value="project-stages" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-project-stages">
+                </TabsTrigger>}
+                {tabAllowed('project-stages') && <TabsTrigger value="project-stages" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-project-stages">
                   Stages - Project Stages
-                </TabsTrigger>
+                </TabsTrigger>}
                 {/* Cheques tab moved INSIDE Payment Summary as a sub-tab — kept as a hidden mount-point so /tab=cheques deep links still resolve */}
-                <TabsTrigger value="documents" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
+                {tabAllowed('documents') && <TabsTrigger value="documents" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
                   Documents
-                </TabsTrigger>
+                </TabsTrigger>}
               </TabsList>
               )}
             </CardHeader>

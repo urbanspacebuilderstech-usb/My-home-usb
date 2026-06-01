@@ -9417,3 +9417,126 @@ async def apply_payment_template_to_project(project_id: str, data: ApplyTemplate
     return {"message": f"Applied template '{tpl.get('template_name')}'", "created": len(created), "mode": data.mode}
 
 # ==================== END PAYMENT SCHEDULE TEMPLATES ====================
+
+# ==================== PROJECT MODULE PERMISSIONS (Super Admin) ====================
+# Per-user toggles controlling which Project Detail tabs are visible/accessible.
+# Stored on the user document as `project_tab_permissions: {<tab_key>: bool}`.
+# Missing keys default to TRUE — i.e. existing users see all tabs until explicitly restricted.
+
+PROJECT_TAB_KEYS = [
+    "rough-estimate",       # Estimate
+    "scope",                # Final Estimate
+    "payments",             # Payment Schedule
+    "labours",              # Work Order (Labour)
+    "materials",            # Materials
+    "payment-summary",      # Payment Summary
+    "team",                 # Team
+    "construction-stage",   # Pre-Construction Stages
+    "project-stages",       # Stages - Project Stages
+    "documents",            # Documents
+]
+
+PROJECT_TAB_LABELS = {
+    "rough-estimate": "Estimate",
+    "scope": "Final Estimate",
+    "payments": "Payment Schedule",
+    "labours": "Work Order (Labour)",
+    "materials": "Materials",
+    "payment-summary": "Payment Summary",
+    "team": "Team",
+    "construction-stage": "Pre-Construction Stages",
+    "project-stages": "Stages - Project Stages",
+    "documents": "Documents",
+}
+
+# Roles that ever touch the Project Detail UI. Sales/CRM-only roles are excluded.
+_PROJECT_MODULE_ROLES = {
+    "super_admin", "gm", "general_manager", "project_manager", "planning",
+    "planning_person", "procurement", "accountant", "quality_check",
+    "site_engineer", "site_supervisor", "cre", "client_relations_executive",
+    "architect", "interior_designer",
+}
+
+
+@router.get("/admin/project-module/users")
+async def list_project_module_users(user: User = Depends(get_current_user)):
+    """List every active user that can touch the Project Detail page along
+    with their current per-tab permission overrides. Super Admin only."""
+    if user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="Super Admin only")
+
+    users = await db.users.find(
+        {"is_active": {"$ne": False}},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "role": 1, "designation": 1, "project_tab_permissions": 1, "created_at": 1},
+    ).sort("name", 1).to_list(2000)
+
+    # Always include every project tab key — defaulting to True when missing so
+    # the UI can render a complete toggle list out of the box.
+    enriched = []
+    for u in users:
+        # Surface a friendly bucket — designation > role fallback.
+        u["display_role"] = u.get("designation") or u.get("role")
+        # Hide pure-sales roles entirely; this module is for project management.
+        if u.get("role") not in _PROJECT_MODULE_ROLES:
+            continue
+        perms = u.get("project_tab_permissions") or {}
+        u["project_tab_permissions"] = {k: bool(perms.get(k, True)) for k in PROJECT_TAB_KEYS}
+        enriched.append(u)
+
+    return {
+        "users": enriched,
+        "tabs": [{"key": k, "label": PROJECT_TAB_LABELS[k]} for k in PROJECT_TAB_KEYS],
+    }
+
+
+@router.get("/admin/project-module/me")
+async def get_my_project_tab_permissions(user: User = Depends(get_current_user)):
+    """Endpoint used by ProjectDetail to fetch the current user's effective
+    tab permissions. Super Admin always returns all-true."""
+    if user.role == "super_admin":
+        return {k: True for k in PROJECT_TAB_KEYS}
+    u = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "project_tab_permissions": 1})
+    perms = (u or {}).get("project_tab_permissions") or {}
+    return {k: bool(perms.get(k, True)) for k in PROJECT_TAB_KEYS}
+
+
+@router.put("/admin/project-module/users/{target_user_id}/permissions")
+async def update_project_module_permissions(
+    target_user_id: str,
+    body: dict = Body(...),
+    user: User = Depends(get_current_user),
+):
+    """Save a user's tab toggle map. Requires Super Admin password
+    confirmation in the body (`{password, permissions}`)."""
+    if user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="Super Admin only")
+    from routes.auth import verify_password as _verify_pw
+
+    password = (body.get("password") or "").strip()
+    if not password:
+        raise HTTPException(status_code=400, detail="Super Admin password required")
+    admin_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1, "hashed_password": 1})
+    pw_hash = (admin_doc or {}).get("password_hash") or (admin_doc or {}).get("hashed_password")
+    if not pw_hash or not _verify_pw(password, pw_hash):
+        raise HTTPException(status_code=401, detail="Invalid Super Admin password")
+
+    perms = body.get("permissions") or {}
+    # Only persist known keys to keep the user document clean.
+    clean = {k: bool(perms.get(k, True)) for k in PROJECT_TAB_KEYS}
+
+    target = await db.users.find_one({"user_id": target_user_id}, {"_id": 0, "user_id": 1, "name": 1, "role": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await db.users.update_one(
+        {"user_id": target_user_id},
+        {"$set": {
+            "project_tab_permissions": clean,
+            "project_tab_permissions_updated_at": datetime.now(timezone.utc).isoformat(),
+            "project_tab_permissions_updated_by": user.user_id,
+        }},
+    )
+    await create_audit_log(user.user_id, "update", "user_project_permissions", target_user_id, {"permissions": clean})
+    return {"message": f"Permissions updated for {target.get('name')}", "permissions": clean}
+
+# ==================== END PROJECT MODULE PERMISSIONS ====================
