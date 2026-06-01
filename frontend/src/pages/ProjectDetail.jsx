@@ -573,7 +573,7 @@ function ProjectCashflowTab({ projectId, isAdmin }) {
         <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-rose-50/40">
           <CardContent className="p-3">
             <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 mb-2">Financial Performance</p>
-            <div className="grid grid-cols-3 gap-2 items-stretch">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-stretch">
               {/* Total Income */}
               <div className="rounded-md bg-white/80 border border-emerald-200 p-2.5">
                 <p className="text-[10px] text-gray-500 uppercase">Total Income</p>
@@ -585,6 +585,12 @@ function ProjectCashflowTab({ projectId, isAdmin }) {
                 <p className="text-[10px] text-gray-500 uppercase">Total Expense</p>
                 <p className="text-base font-bold text-rose-600 mt-0.5">{fmtINR(totalExpense)}</p>
                 {totalIncome > 0 && <p className="text-[9px] text-rose-600 mt-0.5">{((totalExpense / totalIncome) * 100).toFixed(1)}% of income</p>}
+              </div>
+              {/* Total Balance = Income − Expense (net cash held) */}
+              <div className={`rounded-md p-2.5 border ${(totalIncome - totalExpense) >= 0 ? 'bg-indigo-50 border-indigo-200' : 'bg-red-50 border-red-200'}`} data-testid="fin-perf-total-balance">
+                <p className="text-[10px] text-gray-500 uppercase">Total Balance</p>
+                <p className={`text-base font-extrabold mt-0.5 ${(totalIncome - totalExpense) >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>{fmtINR(totalIncome - totalExpense)}</p>
+                <p className="text-[9px] text-gray-500 mt-0.5">Income − Expense</p>
               </div>
               {/* Receivable Balance */}
               <div className={`rounded-md p-2.5 ${receivableBalance > 0 ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white'}`}>
