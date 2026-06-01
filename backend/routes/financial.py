@@ -740,10 +740,25 @@ async def approve_income(income_id: str, user: User = Depends(get_current_user))
     # `balance > 0` stays true. We pull the stage to confirm it's an addition
     # and stamp the cost with the cumulative received amount.
     try:
-        inc = await db.income.find_one({"income_id": income_id}, {"_id": 0, "payment_stage_id": 1, "project_id": 1, "amount": 1})
+        inc = await db.income.find_one({"income_id": income_id}, {"_id": 0, "payment_stage_id": 1, "project_id": 1, "amount": 1, "payment_date": 1, "received_date": 1})
         stage_id = inc.get("payment_stage_id") if inc else None
         if stage_id:
-            stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0, "is_addition": 1, "linked_addition_id": 1, "amount_received": 1, "amount": 1, "project_id": 1})
+            stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0, "is_addition": 1, "linked_addition_id": 1, "amount_received": 1, "amount": 1, "project_id": 1, "paid_at": 1, "collected_at": 1})
+            # Always stamp the payment_stages row with the collection timestamp
+            # the moment Accountant approves the income — this is the source of
+            # truth used by the monthly Payment Schedule view to attribute the
+            # collected portion to the correct month (otherwise we have to fall
+            # back to due_date, which loses real cash-flow visibility).
+            if stage:
+                ts = inc.get("payment_date") or inc.get("received_date") or datetime.now(timezone.utc).isoformat()
+                stage_set = {}
+                if not stage.get("paid_at"):
+                    stage_set["paid_at"] = ts
+                if not stage.get("collected_at"):
+                    stage_set["collected_at"] = ts
+                if stage_set:
+                    stage_set["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": stage_set})
             if stage and stage.get("is_addition") and stage.get("linked_addition_id"):
                 cost_id = stage["linked_addition_id"]
                 # Adopt the stage's received total as the cost's income_received.

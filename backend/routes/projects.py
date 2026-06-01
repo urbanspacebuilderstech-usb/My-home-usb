@@ -3097,8 +3097,17 @@ async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInpu
         "payment_date": payment_date,
         "collected_by": user.user_id,
         "collected_by_name": user.name,
-        "remarks": collection.remarks or stage.get("remarks")
+        "remarks": collection.remarks or stage.get("remarks"),
+        # NEW: stamp real collection timestamp so the monthly Payment Schedule
+        # can attribute this row to the correct calendar month even when
+        # `paid_at` was never set by an earlier path.
+        "collected_at": payment_date,
     }
+    # Only stamp `paid_at` (= fully-cleared timestamp) when the stage becomes
+    # fully collected — partial collections should keep paid_at empty so the
+    # balance portion can still carry forward correctly.
+    if new_status == "paid":
+        update_data["paid_at"] = payment_date
     
     await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": update_data})
     
@@ -3304,21 +3313,24 @@ async def collect_payment_bulk(
         else:
             new_status = "pending"
 
-        await db.payment_stages.update_one(
-            {"stage_id": stage_id},
-            {"$set": {
-                "amount_received": new_received,
-                "status": new_status,
-                "workflow_status": "collected",
-                "payment_mode": body.payment_mode,
-                "payment_reference": payment_ref,
-                "payment_date": payment_date,
-                "collected_by": user.user_id,
-                "collected_by_name": user.name,
-                "remarks": body.remarks or st.get("remarks"),
-                "bulk_collection_id": shared_collection_id,
-            }}
-        )
+        stage_update = {
+            "amount_received": new_received,
+            "status": new_status,
+            "workflow_status": "collected",
+            "payment_mode": body.payment_mode,
+            "payment_reference": payment_ref,
+            "payment_date": payment_date,
+            "collected_by": user.user_id,
+            "collected_by_name": user.name,
+            "remarks": body.remarks or st.get("remarks"),
+            "bulk_collection_id": shared_collection_id,
+            # Stamp real collection timestamp so monthly Payment Schedule
+            # attributes this collection to the correct calendar month.
+            "collected_at": payment_date,
+        }
+        if new_status == "paid":
+            stage_update["paid_at"] = payment_date
+        await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": stage_update})
 
         # Income record for each stage
         income_record = {
