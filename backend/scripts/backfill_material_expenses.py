@@ -30,10 +30,19 @@ async def main():
     db = cli[dbname]
     backfilled = 0
     skipped = 0
-    cursor = db.material_requests.find(
-        {"status": {"$in": ["pending_accounts_approval", "pending_balance_payment"]}},
-        {"_id": 0},
-    )
+    rescued = 0
+
+    # 1) Items already at pending_accounts_approval / pending_balance_payment — straight mirror.
+    # 2) "Orphan" pre_paid items: status='delivered' with procurement_verified_at set, but no
+    #    mirrored expense — these were verified under the OLD pre_paid logic that skipped Accountant.
+    #    Revert them to pending_accounts_approval so the Accountant sees + pays them.
+    primary_q = {"status": {"$in": ["pending_accounts_approval", "pending_balance_payment"]}}
+    orphan_q = {
+        "status": "delivered",
+        "payment_mode": "pre_paid",
+        "procurement_verified_at": {"$exists": True, "$ne": None},
+    }
+    cursor = db.material_requests.find({"$or": [primary_q, orphan_q]}, {"_id": 0})
     async for req in cursor:
         rid = req.get("request_id")
         existing = await db.material_expenses.find_one(
@@ -46,6 +55,7 @@ async def main():
         if existing:
             skipped += 1
             continue
+        is_orphan = req.get("status") == "delivered" and req.get("payment_mode") == "pre_paid"
         phase = "balance" if req.get("status") == "pending_balance_payment" else "full"
         amount = float(req.get("total_amount") or req.get("estimated_price") or 0)
         if phase == "balance":
@@ -76,10 +86,18 @@ async def main():
             "description": f"{req.get('material_name','')} ({req.get('quantity','')} {req.get('unit','')})",
             "request_type": "material",
         })
-        await db.material_requests.update_one({"request_id": rid}, {"$set": {"expense_id": exp_id}})
-        print(f"  Backfilled {rid} -> {exp_id}: {req.get('material_name')} ({amount})")
-        backfilled += 1
-    print(f"\nBackfilled: {backfilled}  Skipped (already mirrored): {skipped}")
+        # Roll status back to pending_accounts_approval for orphan pre_paid items.
+        material_request_set = {"expense_id": exp_id}
+        if is_orphan:
+            material_request_set["status"] = "pending_accounts_approval"
+            material_request_set["backfilled_from_delivered"] = True
+            rescued += 1
+        else:
+            backfilled += 1
+        await db.material_requests.update_one({"request_id": rid}, {"$set": material_request_set})
+        tag = "RESCUED" if is_orphan else "MIRRORED"
+        print(f"  [{tag}] {rid} -> {exp_id}: {req.get('material_name')} ({amount})")
+    print(f"\nMirrored: {backfilled}  Rescued (pre_paid orphans): {rescued}  Skipped: {skipped}")
 
 
 if __name__ == "__main__":
