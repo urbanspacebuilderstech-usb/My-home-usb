@@ -109,6 +109,9 @@ class MaterialRequestStatus(str, Enum):
     PO_GENERATED = "po_generated"  # Purchase order generated
     ORDER_PLACED = "order_placed"  # Order placed with vendor
     IN_TRANSIT = "in_transit"  # Material dispatched
+    PROCUREMENT_VERIFYING = "procurement_verifying"  # NEW: SE received → Procurement verifies qty + invoice
+    PROCUREMENT_REJECTED_TO_SE = "procurement_rejected_to_se"  # NEW: Procurement bounced back to SE (re-collect)
+    PROCUREMENT_REJECTED_TO_VENDOR = "procurement_rejected_to_vendor"  # NEW: Procurement raises dispute with vendor
     RECEIVED_PARTIAL = "received_partial"
     RECEIVED_COMPLETED = "received_completed"
     REJECTED = "rejected"
@@ -1666,15 +1669,22 @@ async def initiate_material_receipt(
             "lorry_image_id": data.lorry_image_id,
             "material_image_id": data.material_image_id,
         }
+        # NEW: every payment mode now flows through Procurement verification
+        # before reaching its final next-state. We compute the "post-verify"
+        # destination here, stash it on `pending_next_status`, and set
+        # `status = procurement_verifying`. The procurement /verify endpoint
+        # advances status to whatever we stashed.
+        post_verify_status = None
+        post_verify_extra = {}
         if payment_mode == "advance":
-            update["status"] = "pending_balance_payment"
-            update["next_payment_phase"] = "balance"
+            post_verify_status = "pending_balance_payment"
+            post_verify_extra["next_payment_phase"] = "balance"
         elif payment_mode == "post_delivery":
-            update["status"] = "pending_accounts_approval"
-            update["next_payment_phase"] = "full"
+            post_verify_status = "pending_accounts_approval"
+            post_verify_extra["next_payment_phase"] = "full"
         elif payment_mode == "credit":
-            update["status"] = "delivered"
-            update["delivered_at"] = now_iso
+            post_verify_status = "delivered"
+            post_verify_extra["delivered_at"] = now_iso
             try:
                 credit_days = int(request.get("credit_days") or 30)
             except (TypeError, ValueError):
@@ -1695,11 +1705,16 @@ async def initiate_material_receipt(
                 "status": "pending",
                 "created_at": now_iso,
             })
-            update["credit_ledger_id"] = ledger_id
-            update["credit_due_date"] = due_date
+            post_verify_extra["credit_ledger_id"] = ledger_id
+            post_verify_extra["credit_due_date"] = due_date
         else:  # pre_paid
-            update["status"] = "delivered"
-            update["delivered_at"] = now_iso
+            post_verify_status = "delivered"
+            post_verify_extra["delivered_at"] = now_iso
+
+        update["status"] = "procurement_verifying"
+        update["pending_next_status"] = post_verify_status
+        update["pending_next_extra"] = post_verify_extra
+        update["procurement_verification_pending_since"] = now_iso
         await db.material_requests.update_one({"request_id": data.request_id}, {"$set": update})
     else:
         # Legacy flow
