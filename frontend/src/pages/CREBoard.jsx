@@ -1124,16 +1124,24 @@ export default function CREBoard() {
                 ? allEntries.filter(e => inDateRange(e.expected_payment_date))
                 : allEntries;
               // Classify each entry as collected vs pending.
-              // Fully collected = explicit "paid"/"collected" status AND no pending
-              // approvals. We deliberately do NOT use balance==0 as a fallback because
-              // the backend sometimes carries `status='partial'` even when math says
-              // balance=0 (legacy data where amount equals received but the stage was
-              // actually partial of a larger originally-quoted total).
+              //   Collected when:  (status is paid/collected) OR (workflow_status=collected)
+              //                    OR (math says balance ≤ ₹1 — the stage is fully received)
+              //   …AND there are no open approvals on the stage.
+              // We do NOT treat status='partial' as Collected even when amount==received,
+              // because some legacy rows store status='partial' with corrupt amount fields.
+              // Such rows must be flagged for the user to fix manually.
               const isCollectedEntry = (e) => {
                 const hasPendingApproval = (e.pending_approval_count || 0) > 0;
-                const status = (e.stage_status || e.status || '').toLowerCase();
-                if (status === 'partial' || status === 'pending') return false;
-                return !hasPendingApproval && (status === 'paid' || status === 'collected');
+                if (hasPendingApproval) return false;
+                const s = (e.stage_status || e.status || '').toLowerCase();
+                const ws = (e.workflow_status || '').toLowerCase();
+                if (s === 'paid' || s === 'collected') return true;
+                if (ws === 'collected') {
+                  // workflow says collected — only trust it when math also agrees.
+                  const balance = (e.amount || 0) - (e.amount_received || 0);
+                  return balance <= 1;
+                }
+                return false;
               };
               const pendingEntries = dateFiltered.filter(e => !isCollectedEntry(e));
               const collectedEntries = dateFiltered.filter(e => isCollectedEntry(e));

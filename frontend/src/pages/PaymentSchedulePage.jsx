@@ -56,9 +56,15 @@ export default function PaymentSchedulePage() {
 
   const isCollectedEntry = (e) => {
     const hasPendingApproval = (e.pending_approval_count || 0) > 0;
-    const status = (e.stage_status || e.status || '').toLowerCase();
-    if (status === 'partial' || status === 'pending') return false;
-    return !hasPendingApproval && (status === 'paid' || status === 'collected');
+    if (hasPendingApproval) return false;
+    const s = (e.stage_status || e.status || '').toLowerCase();
+    const ws = (e.workflow_status || '').toLowerCase();
+    if (s === 'paid' || s === 'collected') return true;
+    if (ws === 'collected') {
+      const balance = (e.amount || 0) - (e.amount_received || 0);
+      return balance <= 1;
+    }
+    return false;
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><RefreshCw className="h-6 w-6 animate-spin text-amber-600" /></div>;
