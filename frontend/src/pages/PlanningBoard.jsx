@@ -1776,9 +1776,10 @@ export default function PlanningBoard({ embedded = false }) {
                 {(() => {
                   const allEntries = monthlySchedule.entries || [];
                   const isCollectedEntry = (e) => {
-                    const balance = (e.amount || 0) - (e.amount_received || 0);
                     const hasPendingApproval = (e.pending_approval_count || 0) > 0;
-                    return !hasPendingApproval && (e.status === 'paid' || e.status === 'collected' || (e.amount > 0 && balance <= 1000));
+                    const status = (e.stage_status || e.status || '').toLowerCase();
+                    if (status === 'partial' || status === 'pending') return false;
+                    return !hasPendingApproval && (status === 'paid' || status === 'collected');
                   };
                   const pendingArr = allEntries.filter(e => !isCollectedEntry(e));
                   const collectedArr = allEntries.filter(isCollectedEntry);
@@ -1834,9 +1835,10 @@ export default function PlanningBoard({ embedded = false }) {
                             {(() => {
                               const allEntries = monthlySchedule.entries || [];
                               const isCollectedEntry = (e) => {
-                                const balance = (e.amount || 0) - (e.amount_received || 0);
                                 const hasPendingApproval = (e.pending_approval_count || 0) > 0;
-                                return !hasPendingApproval && (e.status === 'paid' || e.status === 'collected' || (e.amount > 0 && balance <= 1000));
+                                const status = (e.stage_status || e.status || '').toLowerCase();
+                                if (status === 'partial' || status === 'pending') return false;
+                                return !hasPendingApproval && (status === 'paid' || status === 'collected');
                               };
                               const filteredEntries = scheduleSubTab === 'pending'
                                 ? allEntries.filter(e => !isCollectedEntry(e))

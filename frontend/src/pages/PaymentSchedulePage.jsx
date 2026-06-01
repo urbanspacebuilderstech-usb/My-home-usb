@@ -55,9 +55,10 @@ export default function PaymentSchedulePage() {
   const formatCurrency = (a) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(a || 0);
 
   const isCollectedEntry = (e) => {
-    const balance = (e.amount || 0) - (e.amount_received || 0);
     const hasPendingApproval = (e.pending_approval_count || 0) > 0;
-    return !hasPendingApproval && (e.stage_status === 'paid' || e.stage_status === 'collected' || e.status === 'paid' || e.status === 'collected' || (e.amount > 0 && balance <= 1000));
+    const status = (e.stage_status || e.status || '').toLowerCase();
+    if (status === 'partial' || status === 'pending') return false;
+    return !hasPendingApproval && (status === 'paid' || status === 'collected');
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><RefreshCw className="h-6 w-6 animate-spin text-amber-600" /></div>;
