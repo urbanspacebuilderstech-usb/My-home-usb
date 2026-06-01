@@ -2646,6 +2646,72 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
 
     await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
 
+    # Mirror to `material_expenses` so the legacy Accountant Approvals UI + pay
+    # endpoints (which read from that collection) can process this request without
+    # any code changes downstream.
+    if next_status in ("pending_accounts_approval", "pending_balance_payment"):
+        try:
+            phase = "balance" if next_status == "pending_balance_payment" else "full"
+            amount = float(req.get("total_amount") or req.get("estimated_price") or 0)
+            if phase == "balance":
+                amount = float(req.get("balance_amount") or amount)
+            existing_exp = await db.material_expenses.find_one(
+                {"$or": [
+                    {"expense_id": req.get("expense_id")},
+                    {"source_request_id": request_id},
+                ]},
+                {"_id": 0},
+            )
+            if existing_exp:
+                # Refresh in case price/qty changed during verification
+                await db.material_expenses.update_one(
+                    {"expense_id": existing_exp["expense_id"]},
+                    {"$set": {
+                        "status": "pending_accounts_approval",
+                        "final_amount": amount,
+                        "estimated_cost": amount,
+                        "vendor_name": req.get("vendor_name") or "Unknown",
+                        "invoice_no": invoice_no,
+                        "payment_phase": phase,
+                        "updated_at": now,
+                    }},
+                )
+                exp_id = existing_exp["expense_id"]
+            else:
+                exp_id = f"mexp_{uuid.uuid4().hex[:12]}"
+                await db.material_expenses.insert_one({
+                    "expense_id": exp_id,
+                    "source_request_id": request_id,
+                    "project_id": req.get("project_id"),
+                    "project_name": req.get("project_name"),
+                    "material_name": req.get("material_name"),
+                    "quantity": req.get("approved_quantity") or req.get("quantity"),
+                    "unit": req.get("unit"),
+                    "unit_price": req.get("unit_price") or req.get("unit_rate"),
+                    "vendor_id": req.get("vendor_id"),
+                    "vendor_name": req.get("vendor_name") or "Unknown",
+                    "estimated_cost": amount,
+                    "final_amount": amount,
+                    "payment_mode": req.get("payment_mode"),
+                    "payment_phase": phase,
+                    "invoice_no": invoice_no,
+                    "status": "pending_accounts_approval",
+                    "site_engineer_id": req.get("site_engineer_id"),
+                    "site_engineer_name": req.get("site_engineer_name"),
+                    "created_at": now,
+                    "updated_at": now,
+                    "description": f"{req.get('material_name', '')} ({req.get('quantity', '')} {req.get('unit', '')})",
+                    "request_type": "material",
+                })
+                # Back-link so future verifications update the same expense
+                await db.material_requests.update_one(
+                    {"request_id": request_id},
+                    {"$set": {"expense_id": exp_id}},
+                )
+        except Exception as _e:
+            # Don't fail the verify just because mirroring failed; log via audit only.
+            await create_audit_log(user.user_id, "verify_mirror_failed", "material_request", request_id, {"error": str(_e)})
+
     # Notify next handler
     if next_status in ("pending_accounts_approval", "pending_balance_payment"):
         try:
