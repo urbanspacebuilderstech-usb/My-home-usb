@@ -1946,11 +1946,71 @@ async def get_monthly_schedule(
     stages_cursor = [s for s in stages_cursor if not _is_vendor_or_labour_row(s)]
 
     # 3. Classify each stage into a single effective month
+    # NEW (Feb 2026): A **partially-collected** past-due stage is split into TWO
+    # virtual rows:
+    #   (a) `collected_portion`  → pinned to the actual collection month
+    #       (shows e.g. ₹1,500 already received in May)
+    #   (b) `balance_portion`    → in current calendar month (if past due) or
+    #        the planned month (if not yet due). Shows the remaining ₹X as
+    #        pending with "Last Month Pending" carry badge when applicable.
+    TOL = 1.0  # rounding tolerance
+    def _last_collection_month(stage):
+        d = _parse_date(stage.get("paid_at")) or _parse_date(stage.get("collected_at")) or _parse_date(stage.get("updated_at"))
+        return (d.month, d.year) if d else (None, None)
+
     matching_stages = []
     for stage in stages_cursor:
         manual = manual_by_stage.get(stage.get("stage_id"))
         planned_month, planned_year = _planned_month_for_stage(stage, manual)
         if not planned_month:
+            continue
+
+        rec = stage.get("amount_received") or 0
+        amt = stage.get("amount") or 0
+        is_partial_stage = rec > TOL and rec < (amt - TOL)
+
+        if is_partial_stage:
+            balance = amt - rec
+            # Locate the collected portion
+            coll_month, coll_year = _last_collection_month(stage)
+            if coll_month is None:
+                # Fall back to today — better than dropping the collected portion entirely
+                coll_month, coll_year = today_month, today_year
+            # Locate the balance portion
+            due_date = _parse_date(stage.get("expected_payment_date")) or _parse_date(stage.get("due_date"))
+            if due_date and due_date <= today and (planned_year, planned_month) < (today_year, today_month):
+                bal_month, bal_year = today_month, today_year
+                bal_carry = True
+            else:
+                bal_month, bal_year = planned_month, planned_year
+                bal_carry = False
+
+            if coll_month == month and coll_year == year:
+                if (stage.get("stage_id"), month, year) not in hide_keys:
+                    matching_stages.append({
+                        "stage": stage,
+                        "manual_entry": manual,
+                        "planned_month": planned_month,
+                        "planned_year": planned_year,
+                        "is_carryover": False,
+                        "virtual_kind": "collected_portion",
+                        "virtual_amount": rec,
+                        "virtual_received": rec,
+                        "virtual_balance": 0,
+                    })
+            if bal_month == month and bal_year == year:
+                if (stage.get("stage_id"), month, year) not in hide_keys:
+                    matching_stages.append({
+                        "stage": stage,
+                        "manual_entry": manual,
+                        "planned_month": planned_month,
+                        "planned_year": planned_year,
+                        "is_carryover": bal_carry,
+                        "virtual_kind": "balance_portion",
+                        "virtual_amount": balance,
+                        "virtual_received": 0,
+                        "virtual_balance": balance,
+                    })
             continue
 
         collection_month, collection_year = _collection_month_for_stage(stage)
@@ -2062,8 +2122,29 @@ async def get_monthly_schedule(
             if due_date:
                 days_overdue = max(0, (today - due_date).days)
 
+        # If this is a virtual split row (partial collection), override the
+        # money fields to reflect just the portion this row represents.
+        virtual_kind = m.get("virtual_kind")
+        if virtual_kind:
+            disp_amount = m.get("virtual_amount", 0)
+            disp_received = m.get("virtual_received", 0)
+            disp_balance = m.get("virtual_balance", 0)
+            virtual_suffix = "_collected" if virtual_kind == "collected_portion" else "_balance"
+            # Force the row's status so the UI badge reads correctly
+            if virtual_kind == "collected_portion":
+                row_stage_status = "collected"
+            else:
+                row_stage_status = stage.get("status") if stage.get("status") not in ("paid", "collected") else "pending"
+        else:
+            disp_amount = stage.get("amount", 0)
+            disp_received = stage.get("amount_received", 0) or 0
+            disp_balance = max(0, disp_amount - disp_received)
+            virtual_suffix = ""
+            row_stage_status = stage.get("status", "pending")
+
+        entry_id_base = manual.get("entry_id") or f"computed_{stage.get('stage_id')}"
         enriched.append({
-            "entry_id": manual.get("entry_id") or f"computed_{stage.get('stage_id')}",
+            "entry_id": f"{entry_id_base}{virtual_suffix}" if virtual_suffix else entry_id_base,
             "stage_id": stage.get("stage_id"),
             "project_id": stage.get("project_id"),
             "month": month,
@@ -2075,17 +2156,19 @@ async def get_monthly_schedule(
             "stage_name": stage.get("stage_name", ""),
             "stage_label": stage.get("stage_label", ""),
             "percentage": stage.get("percentage", 0),
-            "amount": stage.get("amount", 0),
-            "amount_received": stage.get("amount_received", 0) or 0,
-            "balance_due": max(0, (stage.get("amount", 0) or 0) - (stage.get("amount_received", 0) or 0)),
-            "pending_approval_amount": pending["total"],
-            "pending_approval_count": pending["count"],
-            "stage_status": stage.get("status", "pending"),
+            "amount": disp_amount,
+            "amount_received": disp_received,
+            "balance_due": disp_balance,
+            "pending_approval_amount": pending["total"] if not virtual_kind else 0,
+            "pending_approval_count": pending["count"] if not virtual_kind else 0,
+            "stage_status": row_stage_status,
             "workflow_status": stage.get("workflow_status", "approved"),
             "due_date": stage.get("due_date"),
             "expected_payment_date": stage.get("expected_payment_date") or stage.get("due_date"),
             "requested_at": stage.get("requested_at"),
             "is_addition": manual.get("is_addition") or stage.get("is_addition") or False,
+            "is_partial_split": bool(virtual_kind),
+            "partial_kind": virtual_kind,  # 'collected_portion' or 'balance_portion'
             "project_name": proj.get("name", "Unknown"),
             "client_name": proj.get("client_name", ""),
             "project_value": proj.get("total_value", 0),
