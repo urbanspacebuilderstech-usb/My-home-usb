@@ -2137,16 +2137,23 @@ async def get_monthly_schedule(
         # If this is a virtual split row (partial collection), override the
         # money fields to reflect just the portion this row represents.
         virtual_kind = m.get("virtual_kind")
-        if virtual_kind:
+        if virtual_kind == "collected_portion":
+            # Show the FULL stage picture (amount + received + balance) but pin
+            # this row to the collection month and force "collected" status so
+            # it lands under the Collected sub-tab.
+            disp_amount = stage.get("amount", 0)
+            disp_received = stage.get("amount_received", 0) or 0
+            disp_balance = max(0, disp_amount - disp_received)
+            virtual_suffix = "_collected"
+            row_stage_status = "collected"
+        elif virtual_kind == "balance_portion":
+            # The follow-up row pinned to the planned/carry month — shows ONLY
+            # the outstanding balance so the Pending list stays clean.
             disp_amount = m.get("virtual_amount", 0)
-            disp_received = m.get("virtual_received", 0)
+            disp_received = 0
             disp_balance = m.get("virtual_balance", 0)
-            virtual_suffix = "_collected" if virtual_kind == "collected_portion" else "_balance"
-            # Force the row's status so the UI badge reads correctly
-            if virtual_kind == "collected_portion":
-                row_stage_status = "collected"
-            else:
-                row_stage_status = stage.get("status") if stage.get("status") not in ("paid", "collected") else "pending"
+            virtual_suffix = "_balance"
+            row_stage_status = stage.get("status") if stage.get("status") not in ("paid", "collected") else "pending"
         else:
             disp_amount = stage.get("amount", 0)
             disp_received = stage.get("amount_received", 0) or 0

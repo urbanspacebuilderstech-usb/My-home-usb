@@ -3785,6 +3785,12 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     # Already-collected stages are never reduced below amount_received.
     if total_project_value > 0:
         for stage in payment_stages:
+            # Skip auto-heal for Additional Work stages — they are anchored to
+            # their linked additional_cost.estimated_amount, not to the project
+            # value × percentage formula.  Without this skip, stage.amount keeps
+            # getting reset to amount_received on every full-details fetch.
+            if stage.get("is_addition") or stage.get("linked_addition_id"):
+                continue
             pct = stage.get("percentage")
             try:
                 pct_f = float(pct) if pct not in (None, "") else None
