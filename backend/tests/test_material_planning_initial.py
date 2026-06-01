@@ -82,6 +82,44 @@ def test_planning_initial_approve_routes_to_procurement():
     assert any(x["request_id"] == rid for x in proc_q["requests"])
 
 
+def test_procurement_assign_vendor_goes_to_transit():
+    """After Procurement assigns a vendor, status should go directly to in_transit
+    (skipping the old Planning Pricing review step) so SE can collect immediately.
+    """
+    se = _se_session()
+    pl = _planning_session()
+    pid = _first_project(se)
+    req = _create_request(se, pid, name="TEST-Vendor-Direct")
+    rid = req["request_id"]
+    # 1. Planning approves initial
+    pl.patch(f"{API}/procurement-simple/material-requests/{rid}/planning-initial-approve", json={})
+    # 2. Procurement assigns vendor
+    proc = requests.Session()
+    _login(proc, {"email": "procurement@constructionos.com", "password": "Demo@1234"})
+    vendors = proc.get(f"{API}/vendor-master?category=material").json()
+    vlist = vendors.get("vendors") if isinstance(vendors, dict) else vendors
+    assert vlist, "Need at least one material vendor"
+    v = vlist[0]
+    r = proc.patch(
+        f"{API}/procurement-simple/material-requests/{rid}/assign-vendor",
+        json={
+            "vendor_id": v["vendor_id"],
+            "vendor_name": v.get("name") or v.get("vendor_name"),
+            "unit_price": 100,
+            "approved_quantity": 5,
+            "timeline_type": "days",
+            "timeline_value": 5,
+            "payment_mode": "pre_paid",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "in_transit"
+    # 3. Verify SE sees it as Transit
+    after = se.get(f"{API}/site-engineer/material-requests").json()
+    found = next((x for x in after if x["request_id"] == rid), None)
+    assert found and found["status"] == "in_transit"
+
+
 def test_planning_initial_reject_requires_reason():
     se = _se_session()
     pl = _planning_session()

@@ -93,7 +93,6 @@ export default function ProcurementBoardSimple() {
 const LIFECYCLE_BUCKETS = [
   { key: 'all',                 label: 'All',                 Icon: ListChecks,    cls: 'bg-violet-50 border-violet-200 text-violet-700',  active: 'bg-violet-600 text-white border-violet-600' },
   { key: 'new_request',         label: 'New Request (SE)',    Icon: ClipboardList, cls: 'bg-amber-50 border-amber-200 text-amber-700',     active: 'bg-amber-600 text-white border-amber-600' },
-  { key: 'planning_awaiting',   label: 'Planning Awaiting',   Icon: Send,          cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',  active: 'bg-yellow-600 text-white border-yellow-600' },
   { key: 'revision',            label: 'Revision (Planning)', Icon: FileClock,     cls: 'bg-orange-50 border-orange-200 text-orange-700',  active: 'bg-orange-600 text-white border-orange-600' },
   { key: 'awaiting_accountant', label: 'Awaiting Accountant', Icon: Wallet,        cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white border-cyan-600' },
   { key: 'transit',             label: 'Transit',             Icon: Truck,         cls: 'bg-sky-50 border-sky-200 text-sky-700',           active: 'bg-sky-600 text-white border-sky-600' },
@@ -104,7 +103,9 @@ function bucketForMaterial(req) {
   const status = (req.status || '').toLowerCase();
   if (status === 'planning_initial_pending') return null; // hidden from Procurement view
   if (status === 'requested' || status === 'pm_approved') return 'new_request';
-  if (status === 'procurement_priced') return 'planning_awaiting';
+  // Legacy: 'procurement_priced' (old Planning-Pricing handoff) is no longer produced.
+  // If any in-flight items exist, surface them under transit (they're already vendor-assigned).
+  if (status === 'procurement_priced') return 'transit';
   if (status === 'procurement_revision') return 'revision';
   if (['pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
   if (status === 'in_transit') return 'transit';
@@ -785,7 +786,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
         delivery_delta_hours: deliveryDelta,
         late_delivery_reason: isLate ? lateReason.trim() : '',
       });
-      toast.success('Vendor assigned & forwarded to Planning');
+      toast.success('Sent to Site Engineer for collection');
       onDone();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to assign vendor');
@@ -1077,7 +1078,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
                 <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
               </Button>
               <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={submit} disabled={submitting} data-testid="proc-assign-submit">
-                <Send className="h-3.5 w-3.5 mr-1" /> {submitting ? 'Forwarding…' : (item.status === 'procurement_revision' ? 'Resubmit to Planning' : 'Forward to Planning')}
+                <Send className="h-3.5 w-3.5 mr-1" /> {submitting ? 'Sending…' : 'Send to Site Engineer'}
               </Button>
             </>
           )}

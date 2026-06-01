@@ -27,7 +27,6 @@ const MAT_LIFECYCLE_BUCKETS = [
   { key: 'all',                label: 'All',                 Icon: ListChecks,     cls: 'bg-violet-50 border-violet-200 text-violet-700',  active: 'bg-violet-600 text-white border-violet-600' },
   { key: 'initial_review',     label: 'Initial Review (SE)', Icon: ClipboardCheck, cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',  active: 'bg-yellow-600 text-white border-yellow-600' },
   { key: 'awaiting_procurement', label: 'Awaiting Procurement', Icon: Send,       cls: 'bg-amber-50 border-amber-200 text-amber-700',     active: 'bg-amber-600 text-white border-amber-600' },
-  { key: 'planning_awaiting',  label: 'Planning (Pricing)',  Icon: ClipboardCheck, cls: 'bg-lime-50 border-lime-200 text-lime-700',        active: 'bg-lime-600 text-white border-lime-600' },
   { key: 'revision',           label: 'Revision',            Icon: FileClock,      cls: 'bg-orange-50 border-orange-200 text-orange-700',  active: 'bg-orange-600 text-white border-orange-600' },
   { key: 'awaiting_accountant',label: 'Awaiting Accountant', Icon: Wallet,         cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white border-cyan-600' },
   { key: 'transit',            label: 'Transit',             Icon: Truck,          cls: 'bg-sky-50 border-sky-200 text-sky-700',           active: 'bg-sky-600 text-white border-sky-600' },
@@ -41,7 +40,8 @@ function bucketForMaterial(req) {
   if (status === 'planning_initial_pending') return 'initial_review';
   if (status === 'planning_initial_rejected') return 'revision';
   if (status === 'requested' || status === 'pm_approved') return 'awaiting_procurement';
-  if (status === 'procurement_priced') return 'planning_awaiting';
+  // Legacy: items still at procurement_priced (in-flight pre-update) — show under awaiting_accountant.
+  if (status === 'procurement_priced') return 'awaiting_accountant';
   if (status === 'procurement_revision') return 'revision';
   if (['pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
   if (status === 'in_transit') return 'transit';

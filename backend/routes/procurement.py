@@ -2382,7 +2382,9 @@ async def procurement_simple_queue(
 @router.patch("/procurement-simple/material-requests/{request_id}/assign-vendor")
 async def procurement_simple_assign_vendor(request_id: str, data: dict, user: User = Depends(get_current_user)):
     """Procurement assigns Vendor + Unit Price + Remarks to a SE material request,
-    then forwards it to Planning for final approval (status -> procurement_priced).
+    then sends it directly to the Site Engineer for collection (status -> in_transit).
+    Skips Planning's pricing review — SE can collect immediately. Accountant payment
+    happens after delivery via existing receive-flow rules (per payment_mode).
 
     Body:
       - vendor_id: str (required)
@@ -2475,7 +2477,7 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
                 raise HTTPException(status_code=400, detail="advance_amount must be > 0 and ≤ total")
 
     update = {
-        "status": "procurement_priced",
+        "status": "in_transit",
         "vendor_id": vendor_id,
         "vendor_name": vendor_name,
         "unit_rate": unit_price,
@@ -2490,6 +2492,9 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
         "procurement_priced_by": user.user_id,
         "procurement_priced_by_name": user.name,
         "procurement_priced_at": now,
+        # Procurement-approve also stamps the transit start so SE sees "Collect Material" CTA
+        "transit_started_at": now,
+        "transit_started_by": user.user_id,
         # New phase-1 fields:
         "timeline_type": timeline_type,
         "timeline_value": timeline_value,
@@ -2513,22 +2518,18 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
         raise HTTPException(status_code=400, detail="Late delivery reason is required when delivery exceeds SE's expected timeline")
     await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
 
-    # Notify Planning so it appears in their Materials Approval queue
-    planning = await db.users.find(
-        {"role": {"$in": ["planning", "super_admin"]}, "is_active": {"$ne": False}},
-        {"_id": 0, "user_id": 1},
-    ).to_list(50)
-    for p in planning:
+    # Notify Site Engineer — material is now available to collect
+    if req.get("site_engineer_id"):
         try:
             await create_notification(
-                p["user_id"],
-                f"Material priced & forwarded: {req.get('material_name')} → {vendor_name} (₹{estimated_price:,.0f})",
+                req["site_engineer_id"],
+                f"Material ready to collect: {req.get('material_name')} → {vendor_name} (₹{estimated_price:,.0f})",
             )
         except Exception:
             pass
 
     await create_audit_log(user.user_id, "assign_vendor", "material_request", request_id, update)
-    return {"message": "Vendor assigned & forwarded to Planning", "status": "procurement_priced", "estimated_price": estimated_price}
+    return {"message": "Sent to Site Engineer for collection", "status": "in_transit", "estimated_price": estimated_price}
 
 
 @router.patch("/procurement-simple/material-requests/{request_id}/reject")
