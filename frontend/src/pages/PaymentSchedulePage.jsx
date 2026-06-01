@@ -23,6 +23,7 @@ export default function PaymentSchedulePage() {
   const [schedule, setSchedule] = useState({ entries: [], summary: {} });
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
+  const [subTab, setSubTab] = useState('pending'); // pending | collected | all
   const navigate = useNavigate();
 
   useEffect(() => { init(); }, []);
@@ -53,9 +54,18 @@ export default function PaymentSchedulePage() {
 
   const formatCurrency = (a) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(a || 0);
 
+  const isCollectedEntry = (e) => {
+    const balance = (e.amount || 0) - (e.amount_received || 0);
+    const hasPendingApproval = (e.pending_approval_count || 0) > 0;
+    return !hasPendingApproval && (e.stage_status === 'paid' || e.stage_status === 'collected' || e.status === 'paid' || e.status === 'collected' || (e.amount > 0 && balance <= 1000));
+  };
+
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><RefreshCw className="h-6 w-6 animate-spin text-amber-600" /></div>;
 
-  const entries = schedule.entries || [];
+  const allEntries = schedule.entries || [];
+  const pendingArr = allEntries.filter(e => !isCollectedEntry(e));
+  const collectedArr = allEntries.filter(isCollectedEntry);
+  const entries = subTab === 'pending' ? pendingArr : subTab === 'collected' ? collectedArr : allEntries;
   const sum = schedule.summary || {};
 
   return (
@@ -99,12 +109,39 @@ export default function PaymentSchedulePage() {
           ))}
         </div>
 
+        {/* Sub-tabs: Pending | Collected | All */}
+        <div className="flex gap-2 flex-wrap mb-3" data-testid="acc-ps-subtabs">
+          {[
+            { key: 'pending', label: 'Pending', count: pendingArr.length, activeBg: 'bg-amber-600' },
+            { key: 'collected', label: 'Collected', count: collectedArr.length, activeBg: 'bg-emerald-600' },
+            { key: 'all', label: 'All', count: allEntries.length, activeBg: 'bg-slate-700' },
+          ].map(t => (
+            <button
+              key={t.key}
+              onClick={() => setSubTab(t.key)}
+              data-testid={`acc-ps-subtab-${t.key}`}
+              className={`px-4 py-1.5 text-sm rounded-full border transition-colors flex items-center gap-1.5 ${
+                subTab === t.key
+                  ? `${t.activeBg} text-white border-transparent shadow-sm`
+                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {t.label}
+              {t.count > 0 && (
+                <span className={`${subTab === t.key ? 'bg-white/25 text-white' : 'bg-red-500 text-white'} text-[10px] h-5 min-w-[20px] px-1.5 rounded-full inline-flex items-center justify-center font-semibold`}>
+                  {t.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
         {/* Table */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <IndianRupee className="h-4 w-4 text-green-600" />
-              {MONTH_NAMES[month]} {year} — All Payment Entries ({entries.length})
+              {MONTH_NAMES[month]} {year} — {subTab === 'pending' ? 'Pending' : subTab === 'collected' ? 'Collected' : 'All Payment Entries'} ({entries.length})
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">

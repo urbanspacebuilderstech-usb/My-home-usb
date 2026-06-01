@@ -339,6 +339,7 @@ export default function PlanningBoard({ embedded = false }) {
   const [monthlySchedule, setMonthlySchedule] = useState({ entries: [], summary: {} });
   const [scheduleMonth, setScheduleMonth] = useState(new Date().getMonth() + 1);
   const [scheduleYear, setScheduleYear] = useState(new Date().getFullYear());
+  const [scheduleSubTab, setScheduleSubTab] = useState('pending'); // pending | collected | all
   const [addStagesDialog, setAddStagesDialog] = useState(false);
   const [availableStages, setAvailableStages] = useState([]);
   const [selectedStageIds, setSelectedStageIds] = useState([]);
@@ -1771,6 +1772,46 @@ export default function PlanningBoard({ embedded = false }) {
                   <Card className="border-l-4 border-l-blue-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Collected</p><p className="text-lg font-bold text-blue-700">{monthlySchedule.summary?.collected_count || 0}</p></CardContent></Card>
                 </div>
 
+                {/* Sub-tabs: Pending | Collected | All */}
+                {(() => {
+                  const allEntries = monthlySchedule.entries || [];
+                  const isCollectedEntry = (e) => {
+                    const balance = (e.amount || 0) - (e.amount_received || 0);
+                    const hasPendingApproval = (e.pending_approval_count || 0) > 0;
+                    return !hasPendingApproval && (e.status === 'paid' || e.status === 'collected' || (e.amount > 0 && balance <= 1000));
+                  };
+                  const pendingArr = allEntries.filter(e => !isCollectedEntry(e));
+                  const collectedArr = allEntries.filter(isCollectedEntry);
+                  const counts = { pending: pendingArr.length, collected: collectedArr.length, all: allEntries.length };
+                  return (
+                    <div className="flex gap-2 flex-wrap" data-testid="planning-ps-subtabs">
+                      {[
+                        { key: 'pending', label: 'Pending', count: counts.pending, activeBg: 'bg-amber-600' },
+                        { key: 'collected', label: 'Collected', count: counts.collected, activeBg: 'bg-emerald-600' },
+                        { key: 'all', label: 'All', count: counts.all, activeBg: 'bg-slate-700' },
+                      ].map(t => (
+                        <button
+                          key={t.key}
+                          onClick={() => setScheduleSubTab(t.key)}
+                          data-testid={`planning-ps-subtab-${t.key}`}
+                          className={`px-4 py-1.5 text-sm rounded-full border transition-colors flex items-center gap-1.5 ${
+                            scheduleSubTab === t.key
+                              ? `${t.activeBg} text-white border-transparent shadow-sm`
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700 dark:hover:bg-gray-700'
+                          }`}
+                        >
+                          {t.label}
+                          {t.count > 0 && (
+                            <span className={`${scheduleSubTab === t.key ? 'bg-white/25 text-white' : 'bg-red-500 text-white'} text-[10px] h-5 min-w-[20px] px-1.5 rounded-full inline-flex items-center justify-center font-semibold`}>
+                              {t.count}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
+
                 {/* Schedule Table */}
                 <Card>
                   <CardContent className="p-0">
@@ -1790,9 +1831,21 @@ export default function PlanningBoard({ embedded = false }) {
                             </tr>
                           </thead>
                           <tbody className="divide-y">
-                            {(monthlySchedule.entries || []).length === 0 ? (
-                              <tr><td colSpan="8" className="p-8 text-center text-gray-400">No stages scheduled for {MONTH_NAMES[scheduleMonth]} {scheduleYear}.</td></tr>
-                            ) : (monthlySchedule.entries || []).map((e) => {
+                            {(() => {
+                              const allEntries = monthlySchedule.entries || [];
+                              const isCollectedEntry = (e) => {
+                                const balance = (e.amount || 0) - (e.amount_received || 0);
+                                const hasPendingApproval = (e.pending_approval_count || 0) > 0;
+                                return !hasPendingApproval && (e.status === 'paid' || e.status === 'collected' || (e.amount > 0 && balance <= 1000));
+                              };
+                              const filteredEntries = scheduleSubTab === 'pending'
+                                ? allEntries.filter(e => !isCollectedEntry(e))
+                                : scheduleSubTab === 'collected'
+                                ? allEntries.filter(isCollectedEntry)
+                                : allEntries;
+                              return filteredEntries.length === 0 ? (
+                              <tr><td colSpan="8" className="p-8 text-center text-gray-400">No {scheduleSubTab === 'all' ? '' : scheduleSubTab + ' '}stages for {MONTH_NAMES[scheduleMonth]} {scheduleYear}.</td></tr>
+                            ) : filteredEntries.map((e) => {
                               const balance = (e.amount || 0) - (e.amount_received || 0);
                               const hasPendingApproval = (e.pending_approval_count || 0) > 0;
                               // Derive an effective status from the actual received-vs-amount math
@@ -1924,7 +1977,8 @@ export default function PlanningBoard({ embedded = false }) {
                                 )}
                                 </React.Fragment>
                               );
-                            })}
+                            });
+                            })()}
                           </tbody>
                         </table>
                       </div>
