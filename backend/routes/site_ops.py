@@ -887,6 +887,9 @@ async def create_material_request(
     
     req_dict = request.model_dump()
     req_dict["status"] = req_dict["status"].value
+    # NEW FLOW: SE → Planning Person (initial approval) → Procurement → Planning (price approval) → Accountant → ...
+    # Override the default `requested` so it routes to Planning first instead of Procurement.
+    req_dict["status"] = "planning_initial_pending"
     req_dict["created_at"] = req_dict["created_at"].isoformat()
     req_dict["project_name"] = project["name"] if project else "Unknown"
     req_dict["site_engineer_name"] = user.name
@@ -911,10 +914,10 @@ async def create_material_request(
     await db.material_requests.insert_one(req_dict)
     req_dict.pop("_id", None)
     
-    # Notify PM and Procurement (in-app)
-    pm_users = await db.users.find({"role": {"$in": ["project_manager", "procurement", "planning"]}}, {"_id": 0}).to_list(100)
+    # Notify Planning first (new flow), plus PM/Procurement for awareness.
+    pm_users = await db.users.find({"role": {"$in": ["planning", "planning_person", "project_manager", "procurement"]}}, {"_id": 0}).to_list(100)
     for p in pm_users:
-        await create_notification(p["user_id"], f"New material request: {mat_name} x {data.quantity}")
+        await create_notification(p["user_id"], f"New material request awaiting Planning approval: {mat_name} x {data.quantity}")
     
     # Send email notification (non-blocking)
     try:
@@ -968,10 +971,27 @@ async def update_material_request(
 
     allowed_updates["updated_at"] = datetime.now(timezone.utc).isoformat()
 
+    # If the request was rejected by Planning's initial review, editing auto-resubmits it.
+    if request.get("status") == "planning_initial_rejected":
+        allowed_updates["status"] = "planning_initial_pending"
+        allowed_updates["planning_initial_resubmitted_at"] = allowed_updates["updated_at"]
+
     await db.material_requests.update_one(
         {"request_id": request_id},
         {"$set": allowed_updates}
     )
+
+    # If this is a resubmit after planning-initial rejection, ping Planning again.
+    if allowed_updates.get("status") == "planning_initial_pending" and request.get("status") == "planning_initial_rejected":
+        try:
+            planning_users = await db.users.find(
+                {"role": {"$in": ["planning", "planning_person", "super_admin"]}, "is_active": {"$ne": False}},
+                {"_id": 0, "user_id": 1},
+            ).to_list(50)
+            for p in planning_users:
+                await create_notification(p["user_id"], f"Material request resubmitted by SE: {request.get('material_name')}")
+        except Exception:
+            pass
 
     updated = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
     await create_audit_log(user.user_id, "update", "material_request", request_id, allowed_updates)

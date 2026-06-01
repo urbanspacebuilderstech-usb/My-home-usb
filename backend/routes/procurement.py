@@ -2350,10 +2350,11 @@ async def procurement_simple_queue(
 
     status_map = {
         "pending": ["requested", "pm_approved", "procurement_revision"],
+        "planning_initial": ["planning_initial_pending"],
         "forwarded": ["procurement_priced"],
-        "rejected": ["procurement_rejected"],
+        "rejected": ["procurement_rejected", "planning_initial_rejected"],
         "revision": ["procurement_revision"],
-        "all": ["requested", "pm_approved", "procurement_priced", "procurement_rejected", "procurement_revision"],
+        "all": ["requested", "pm_approved", "procurement_priced", "procurement_rejected", "procurement_revision", "planning_initial_pending", "planning_initial_rejected"],
     }
     target = status_map.get(queue, status_map["pending"])
 
@@ -2600,6 +2601,80 @@ async def procurement_simple_dashboard(user: User = Depends(get_current_user)):
 # =====================================================================
 # PHASE 2 — Planning approval (payment-mode-aware routing)
 # =====================================================================
+@router.patch("/procurement-simple/material-requests/{request_id}/planning-initial-approve")
+async def procurement_simple_planning_initial_approve(request_id: str, data: dict = None, user: User = Depends(get_current_user)):
+    """Planning Person approves a brand-new SE material request (qty/material sanity
+    check) BEFORE it reaches Procurement for pricing. Flips status:
+    `planning_initial_pending` -> `pm_approved` (so Procurement's pending queue picks it up).
+    Planning's pricing review still happens later when status is `procurement_priced`.
+    """
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning / Super Admin can approve")
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req.get("status") not in ("planning_initial_pending", "planning_initial_rejected"):
+        raise HTTPException(status_code=400, detail=f"Cannot initial-approve in status: {req.get('status')}")
+    now = datetime.now(timezone.utc).isoformat()
+    notes = ((data or {}).get("notes") or "").strip()
+    update = {
+        "status": "pm_approved",  # routes to Procurement's pending queue
+        "planning_initial_approved_by": user.user_id,
+        "planning_initial_approved_by_name": user.name,
+        "planning_initial_approved_at": now,
+        "planning_initial_notes": notes,
+    }
+    await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
+    # Notify Procurement
+    procs = await db.users.find({"role": {"$in": ["procurement", "super_admin"]}, "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}).to_list(50)
+    for p in procs:
+        try:
+            await create_notification(p["user_id"], f"Material approved by Planning — assign vendor: {req.get('material_name')} x {req.get('quantity')}")
+        except Exception:
+            pass
+    # Notify SE (visibility)
+    if req.get("site_engineer_id"):
+        try:
+            await create_notification(req["site_engineer_id"], f"Planning approved your material request: {req.get('material_name')} — now with Procurement")
+        except Exception:
+            pass
+    await create_audit_log(user.user_id, "planning_initial_approve", "material_request", request_id, update)
+    return {"message": "Planning initial approval recorded", "status": "pm_approved"}
+
+
+@router.patch("/procurement-simple/material-requests/{request_id}/planning-initial-reject")
+async def procurement_simple_planning_initial_reject(request_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Planning Person rejects a brand-new SE material request before Procurement
+    sees it. Sets status to `planning_initial_rejected` so the SE can edit & resubmit.
+    """
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can reject")
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req.get("status") != "planning_initial_pending":
+        raise HTTPException(status_code=400, detail=f"Cannot reject in status: {req.get('status')}")
+    reason = (data.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Reason is required")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.material_requests.update_one({"request_id": request_id}, {"$set": {
+        "status": "planning_initial_rejected",
+        "planning_initial_rejection_reason": reason,
+        "planning_initial_rejected_by": user.user_id,
+        "planning_initial_rejected_by_name": user.name,
+        "planning_initial_rejected_at": now,
+    }})
+    # Notify SE
+    if req.get("site_engineer_id"):
+        try:
+            await create_notification(req["site_engineer_id"], f"Planning rejected your material request: {req.get('material_name')}. Reason: {reason}")
+        except Exception:
+            pass
+    await create_audit_log(user.user_id, "planning_initial_reject", "material_request", request_id, {"reason": reason})
+    return {"message": "Rejected by Planning", "status": "planning_initial_rejected"}
+
+
 @router.patch("/procurement-simple/material-requests/{request_id}/planning-approve")
 async def procurement_simple_planning_approve(request_id: str, data: dict, user: User = Depends(get_current_user)):
     """Planning approves a Procurement-priced material request and routes it

@@ -102,13 +102,14 @@ const LIFECYCLE_BUCKETS = [
 
 function bucketForMaterial(req) {
   const status = (req.status || '').toLowerCase();
+  if (status === 'planning_initial_pending') return null; // hidden from Procurement view
   if (status === 'requested' || status === 'pm_approved') return 'new_request';
   if (status === 'procurement_priced') return 'planning_awaiting';
   if (status === 'procurement_revision') return 'revision';
   if (['pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
   if (status === 'in_transit') return 'transit';
   if (['delivered', 'completed', 'closed'].includes(status)) return 'delivered';
-  if (['rejected', 'procurement_rejected'].includes(status)) return 'all';
+  if (['rejected', 'procurement_rejected', 'planning_initial_rejected'].includes(status)) return 'all';
   return 'all';
 }
 
@@ -151,20 +152,26 @@ function RequestsTab({ dateRange }) {
     });
   }, [allItems, dateRange]);
 
+  // Filter out items hidden from Procurement (e.g. planning_initial_pending)
+  const procurementVisible = useMemo(
+    () => filteredItems.filter(r => bucketForMaterial(r) !== null),
+    [filteredItems]
+  );
+
   const counts = useMemo(() => {
-    const c = { all: filteredItems.length };
+    const c = { all: procurementVisible.length };
     LIFECYCLE_BUCKETS.forEach(b => { if (b.key !== 'all') c[b.key] = 0; });
-    filteredItems.forEach(r => {
+    procurementVisible.forEach(r => {
       const b = bucketForMaterial(r);
-      c[b] = (c[b] || 0) + 1;
+      if (b) c[b] = (c[b] || 0) + 1;
     });
     return c;
-  }, [filteredItems]);
+  }, [procurementVisible]);
 
   const visibleItems = useMemo(() => {
-    if (bucket === 'all') return filteredItems;
-    return filteredItems.filter(r => bucketForMaterial(r) === bucket);
-  }, [filteredItems, bucket]);
+    if (bucket === 'all') return procurementVisible;
+    return procurementVisible.filter(r => bucketForMaterial(r) === bucket);
+  }, [procurementVisible, bucket]);
 
   const submitReject = async () => {
     if (!rejectDialog.reason.trim()) { toast.error('Reason is required'); return; }

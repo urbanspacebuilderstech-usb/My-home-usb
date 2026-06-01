@@ -24,20 +24,23 @@ const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { 
 // Order: SE → Procurement → Planning → Revision → Accountant → Transit → Delivered.
 // Credit-mode delivered items roll into Delivered — vendor settlement lives in Procurement → Credit Management.
 const MAT_LIFECYCLE_BUCKETS = [
-  { key: 'all',                label: 'All',                Icon: ListChecks,     cls: 'bg-violet-50 border-violet-200 text-violet-700',  active: 'bg-violet-600 text-white border-violet-600' },
-  { key: 'new_request',        label: 'New Request (SE)',   Icon: ClipboardCheck, cls: 'bg-amber-50 border-amber-200 text-amber-700',     active: 'bg-amber-600 text-white border-amber-600' },
-  { key: 'planning_awaiting',  label: 'Planning Awaiting',  Icon: ClipboardCheck, cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',  active: 'bg-yellow-600 text-white border-yellow-600' },
-  { key: 'revision',           label: 'Revision (Planning)',Icon: FileClock,      cls: 'bg-orange-50 border-orange-200 text-orange-700',  active: 'bg-orange-600 text-white border-orange-600' },
-  { key: 'awaiting_accountant',label: 'Awaiting Accountant',Icon: Wallet,         cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white border-cyan-600' },
-  { key: 'transit',            label: 'Transit',            Icon: Truck,          cls: 'bg-sky-50 border-sky-200 text-sky-700',           active: 'bg-sky-600 text-white border-sky-600' },
-  { key: 'delivered',          label: 'Delivered',          Icon: PackageCheck,   cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
+  { key: 'all',                label: 'All',                 Icon: ListChecks,     cls: 'bg-violet-50 border-violet-200 text-violet-700',  active: 'bg-violet-600 text-white border-violet-600' },
+  { key: 'initial_review',     label: 'Initial Review (SE)', Icon: ClipboardCheck, cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',  active: 'bg-yellow-600 text-white border-yellow-600' },
+  { key: 'awaiting_procurement', label: 'Awaiting Procurement', Icon: Send,       cls: 'bg-amber-50 border-amber-200 text-amber-700',     active: 'bg-amber-600 text-white border-amber-600' },
+  { key: 'planning_awaiting',  label: 'Planning (Pricing)',  Icon: ClipboardCheck, cls: 'bg-lime-50 border-lime-200 text-lime-700',        active: 'bg-lime-600 text-white border-lime-600' },
+  { key: 'revision',           label: 'Revision',            Icon: FileClock,      cls: 'bg-orange-50 border-orange-200 text-orange-700',  active: 'bg-orange-600 text-white border-orange-600' },
+  { key: 'awaiting_accountant',label: 'Awaiting Accountant', Icon: Wallet,         cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white border-cyan-600' },
+  { key: 'transit',            label: 'Transit',             Icon: Truck,          cls: 'bg-sky-50 border-sky-200 text-sky-700',           active: 'bg-sky-600 text-white border-sky-600' },
+  { key: 'delivered',          label: 'Delivered',           Icon: PackageCheck,   cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
 ];
 
 // Smart bucketer — credit-mode delivered items now roll into "delivered"
 // (vendor settlement is tracked separately in Procurement → Credit Management).
 function bucketForMaterial(req) {
   const status = (req.status || '').toLowerCase();
-  if (status === 'requested' || status === 'pm_approved') return 'new_request';
+  if (status === 'planning_initial_pending') return 'initial_review';
+  if (status === 'planning_initial_rejected') return 'revision';
+  if (status === 'requested' || status === 'pm_approved') return 'awaiting_procurement';
   if (status === 'procurement_priced') return 'planning_awaiting';
   if (status === 'procurement_revision') return 'revision';
   if (['pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
@@ -86,8 +89,8 @@ export default function PlanningRequestsTab({ projects = [], onCountChange }) {
   // 'all' | 'new' | 'in_progress' | 'awaiting' | 'approved' | 'rejected'
   const [statusFilter, setStatusFilter] = useState('all');
   // Materials use a procurement-style lifecycle bucket filter.
-  // Default = 'planning_awaiting' (the queue Planning needs to action).
-  const [materialBucket, setMaterialBucket] = useState('planning_awaiting');
+  // Default = 'initial_review' (the brand-new SE requests Planning needs to action first).
+  const [materialBucket, setMaterialBucket] = useState('initial_review');
   const [materials, setMaterials] = useState([]);
   const [labourStages, setLabourStages] = useState([]);  // Stage-open requests (mode="stages")
   const [labourPayments, setLabourPayments] = useState([]);  // SE stage payment requests (mode="payments")
@@ -175,7 +178,10 @@ export default function PlanningRequestsTab({ projects = [], onCountChange }) {
 
   // The top tab pill count for Materials = items needing Planning's action only.
   const planningPendingMaterials = useMemo(
-    () => fMaterials.filter(m => (m.status || '').toLowerCase() === 'procurement_priced').length,
+    () => fMaterials.filter(m => {
+      const s = (m.status || '').toLowerCase();
+      return s === 'procurement_priced' || s === 'planning_initial_pending';
+    }).length,
     [fMaterials]
   );
   // Credit settlement entries pending Planning approval
@@ -213,8 +219,12 @@ export default function PlanningRequestsTab({ projects = [], onCountChange }) {
     setProcessing(id);
     try {
       if (type === 'material') {
-        // New flow: items are already `procurement_priced` — use payment-mode-aware planning approval.
-        await axios.patch(`${API}/procurement-simple/material-requests/${id}/planning-approve`, {
+        const reqStatus = (req.status || '').toLowerCase();
+        // Initial Planning approval (before Procurement) uses a different endpoint.
+        const endpoint = reqStatus === 'planning_initial_pending'
+          ? 'planning-initial-approve'
+          : 'planning-approve';
+        await axios.patch(`${API}/procurement-simple/material-requests/${id}/${endpoint}`, {
           notes: extra.notes || '',
         });
       } else if (type === 'labour_stages') {
@@ -244,7 +254,11 @@ export default function PlanningRequestsTab({ projects = [], onCountChange }) {
     setProcessing(id);
     try {
       if (type === 'material') {
-        await axios.patch(`${API}/procurement-simple/material-requests/${id}/planning-reject`, { reason });
+        const reqStatus = (req.status || '').toLowerCase();
+        const endpoint = reqStatus === 'planning_initial_pending'
+          ? 'planning-initial-reject'
+          : 'planning-reject';
+        await axios.patch(`${API}/procurement-simple/material-requests/${id}/${endpoint}`, { reason });
       } else if (type === 'labour_stages') {
         const params = new URLSearchParams({ action: 'reject', reason });
         await axios.patch(`${API}/labour-expenses/${id}/planning-action?${params}`);
@@ -452,7 +466,11 @@ export default function PlanningRequestsTab({ projects = [], onCountChange }) {
           const id = getId(req, 'material');
           setProcessing(id);
           try {
-            await axios.patch(`${API}/procurement-simple/material-requests/${id}/planning-reject`, { reason });
+            const reqStatus = (req.status || '').toLowerCase();
+            const endpoint = reqStatus === 'planning_initial_pending'
+              ? 'planning-initial-reject'
+              : 'planning-reject';
+            await axios.patch(`${API}/procurement-simple/material-requests/${id}/${endpoint}`, { reason });
             toast.success('Rejected');
             setApproveDialog({ open: false, req: null, type: '' });
             loadAll();
@@ -751,15 +769,17 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
               {/* Show Send-for-Revision + Reject only for material requests (Procurement-priced flow). */}
               {type === 'material' && (
                 <>
-                  <Button
-                    variant="outline"
-                    className="text-orange-700 border-orange-300 hover:bg-orange-50"
-                    onClick={() => setMode('revision')}
-                    disabled={processing}
-                    data-testid="planning-revision-btn"
-                  >
-                    <FileText className="h-4 w-4 mr-1" /> Send for Revision
-                  </Button>
+                  {(req.status || '').toLowerCase() !== 'planning_initial_pending' && (
+                    <Button
+                      variant="outline"
+                      className="text-orange-700 border-orange-300 hover:bg-orange-50"
+                      onClick={() => setMode('revision')}
+                      disabled={processing}
+                      data-testid="planning-revision-btn"
+                    >
+                      <FileText className="h-4 w-4 mr-1" /> Send for Revision
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     className="text-red-700 border-red-300 hover:bg-red-50"
@@ -875,7 +895,8 @@ function PlanningMaterialCard({ req, onClick, processing }) {
   const status = (req.status || '').toLowerCase();
   const bucket = bucketForMaterial(req);
   const cardCfg = MAT_LIFECYCLE_BUCKETS.find(b => b.key === bucket);
-  const isActionable = status === 'procurement_priced';
+  const isActionable = status === 'procurement_priced' || status === 'planning_initial_pending';
+  const isInitialReview = status === 'planning_initial_pending';
   const id = req.request_id;
   const isProcessing = processing === id;
   let deliveryLabel = '—';
@@ -942,12 +963,12 @@ function PlanningMaterialCard({ req, onClick, processing }) {
             {isActionable ? (
               <Button
                 size="sm"
-                className="h-8 w-full text-xs gap-1 bg-green-600 hover:bg-green-700 mt-3 sm:mt-0"
+                className={`h-8 w-full text-xs gap-1 mt-3 sm:mt-0 ${isInitialReview ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'}`}
                 disabled={isProcessing}
                 onClick={(e) => { e.stopPropagation(); onClick(); }}
                 data-testid={`planning-mat-card-approve-${id}`}
               >
-                <ThumbsUp className="h-3 w-3" /> Approve
+                <ThumbsUp className="h-3 w-3" /> {isInitialReview ? 'Review' : 'Approve'}
               </Button>
             ) : (
               <Button
