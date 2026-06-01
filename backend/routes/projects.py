@@ -4594,8 +4594,12 @@ async def request_additional_payment(cost_id: str, request: Request, user: User 
         await db.payment_stages.insert_one(stage_doc)
     else:
         # Sync the existing stage to the latest cost amount (in case the addition
-        # was re-priced after the original Req Payment).
-        sync_fields = {"amount": amount, "workflow_status": "requested"}
+        # was re-priced after the original Req Payment). Also re-derive `status`
+        # from the new amount vs amount_received so re-pricing flips a "paid"
+        # stage to "partial" / "pending" automatically.
+        rec = existing_stage.get("amount_received", 0) or 0
+        new_status = "paid" if rec >= amount - 0.5 else ("partial" if rec > 0 else "pending")
+        sync_fields = {"amount": amount, "workflow_status": "requested", "status": new_status}
         if expected_date:
             sync_fields["due_date"] = expected_date
             sync_fields["expected_payment_date"] = expected_date
