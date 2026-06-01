@@ -34,6 +34,7 @@ async def main():
         {"status": {"$in": ["paid", "collected"]}},
         {"_id": 0, "stage_id": 1, "paid_at": 1, "collected_at": 1,
          "due_date": 1, "expected_payment_date": 1, "updated_at": 1,
+         "created_at": 1,
          "amount_received": 1, "amount": 1, "status": 1},
     )
     async for s in cursor:
@@ -43,9 +44,14 @@ async def main():
         if existing_paid or existing_coll:
             untouched += 1
             continue
-        fallback = (s.get("expected_payment_date")
-                    or s.get("due_date")
-                    or s.get("updated_at"))
+        # Order of preference for "when was this collected":
+        #   1) updated_at (best — last edit, usually the collection event)
+        #   2) created_at (close fallback — stage was created-as-collected)
+        #   3) expected_payment_date / due_date (last resort — planned month)
+        fallback = (s.get("updated_at")
+                    or s.get("created_at")
+                    or s.get("expected_payment_date")
+                    or s.get("due_date"))
         if not fallback:
             skipped += 1
             continue
