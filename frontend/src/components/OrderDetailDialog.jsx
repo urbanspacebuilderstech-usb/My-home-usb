@@ -16,6 +16,8 @@ import axios from 'axios';
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const STATUS_CONFIG = {
+  planning_initial_pending: { label: 'Awaiting Planning', color: 'bg-yellow-100 text-yellow-800 border-yellow-300', icon: Clock, step: 1 },
+  planning_initial_rejected: { label: 'Planning Rejected', color: 'bg-rose-100 text-rose-800 border-rose-300', icon: XCircle, step: 1 },
   requested: { label: 'Requested', color: 'bg-yellow-100 text-yellow-800 border-yellow-300', icon: Clock, step: 1 },
   pm_approved: { label: 'PM Approved', color: 'bg-blue-100 text-blue-800 border-blue-300', icon: CheckCircle, step: 2 },
   planning_approved: { label: 'Planning Approved', color: 'bg-amber-50 text-amber-800 border-amber-300', icon: CheckCircle, step: 3 },
@@ -468,22 +470,22 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
           )}
 
           {/* Delivery photos & GPS — visible to Procurement / Planning / Accountant after SE marks received */}
-          {(req.lorry_image_id || req.material_image_id || req.received_at) && !editing && (
+          {(order.lorry_image_id || order.material_image_id || order.received_at) && !editing && (
             <div className="bg-emerald-50/50 rounded-lg p-3 border border-emerald-100" data-testid="order-delivery-photos">
               <h3 className="text-xs sm:text-sm font-semibold text-emerald-800 mb-2 flex items-center gap-2">
                 <Package className="h-4 w-4 text-emerald-600" /> Delivery Photos & Receipt
               </h3>
               <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                {req.lorry_image_id ? (
+                {order.lorry_image_id ? (
                   <a
-                    href={`${API}/files/${req.lorry_image_id}/download`}
+                    href={`${API}/files/${order.lorry_image_id}/download`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block rounded-md overflow-hidden border border-emerald-200 bg-white hover:border-emerald-400 transition-colors"
                     data-testid="lorry-image-link"
                   >
                     <img
-                      src={`${API}/files/${req.lorry_image_id}/download`}
+                      src={`${API}/files/${order.lorry_image_id}/download`}
                       alt="Lorry"
                       className="w-full h-32 sm:h-40 object-cover"
                       onError={(e) => { e.target.style.display = 'none'; }}
@@ -495,16 +497,16 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
                     <p className="text-[11px] text-gray-400">No lorry image</p>
                   </div>
                 )}
-                {req.material_image_id ? (
+                {order.material_image_id ? (
                   <a
-                    href={`${API}/files/${req.material_image_id}/download`}
+                    href={`${API}/files/${order.material_image_id}/download`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block rounded-md overflow-hidden border border-emerald-200 bg-white hover:border-emerald-400 transition-colors"
                     data-testid="material-image-link"
                   >
                     <img
-                      src={`${API}/files/${req.material_image_id}/download`}
+                      src={`${API}/files/${order.material_image_id}/download`}
                       alt="Material"
                       className="w-full h-32 sm:h-40 object-cover"
                       onError={(e) => { e.target.style.display = 'none'; }}
@@ -517,16 +519,16 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
                   </div>
                 )}
               </div>
-              {(req.received_quantity || req.received_at || req.received_by_name) && (
+              {(order.received_quantity || order.received_at || order.received_by_name) && (
                 <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                  {req.received_quantity != null && (
-                    <div><p className="text-[10px] uppercase font-semibold text-gray-500">Received Qty</p><p className="font-medium">{req.received_quantity} {req.unit || ''}</p></div>
+                  {order.received_quantity != null && (
+                    <div><p className="text-[10px] uppercase font-semibold text-gray-500">Received Qty</p><p className="font-medium">{order.received_quantity} {order.unit || ''}</p></div>
                   )}
-                  {req.received_at && (
-                    <div><p className="text-[10px] uppercase font-semibold text-gray-500">Received At</p><p className="font-medium">{formatDate(req.received_at)}</p></div>
+                  {order.received_at && (
+                    <div><p className="text-[10px] uppercase font-semibold text-gray-500">Received At</p><p className="font-medium">{formatDate(order.received_at)}</p></div>
                   )}
-                  {req.received_by_name && (
-                    <div><p className="text-[10px] uppercase font-semibold text-gray-500">Received By</p><p className="font-medium">{req.received_by_name}</p></div>
+                  {order.received_by_name && (
+                    <div><p className="text-[10px] uppercase font-semibold text-gray-500">Received By</p><p className="font-medium">{order.received_by_name}</p></div>
                   )}
                 </div>
               )}
