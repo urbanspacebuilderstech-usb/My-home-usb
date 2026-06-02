@@ -547,7 +547,22 @@ export default function CREBoard() {
     const balance = (stage.amount || 0) - (stage.amount_received || 0);
     setCollectForm({ amount: balance, mode: 'bank_transfer', reference: '', remarks: '', num_cheques: 1, cheque_details: [] });
     setBulkCollectAmount('');
-    setOutstandingStages([]);
+    // Seed the picker with the clicked stage so the Smart Collect block
+    // ALWAYS renders (single-stage projects, additions, legacy rows without
+    // workflow_status, etc.). The API call below will replace this list
+    // with the full FIFO ordering when it returns.
+    const seedStage = {
+      stage_id: stage.stage_id,
+      stage_name: stage.stage_name,
+      stage_number: stage.stage_number,
+      amount: stage.amount || 0,
+      amount_received: stage.amount_received || 0,
+      balance,
+      requested_at: stage.requested_at,
+      expected_payment_date: stage.expected_payment_date,
+      is_addition: !!stage.is_addition,
+    };
+    setOutstandingStages([seedStage]);
     // Pre-select the clicked stage so the picker shows it checked by default.
     // CRE can tick additional stages if the client paid a lump sum.
     setCollectSelectedStageIds(new Set(stage.stage_id ? [stage.stage_id] : []));
@@ -556,9 +571,13 @@ export default function CREBoard() {
     if (stage.project_id) {
       try {
         const res = await axios.get(`${API}/projects/${stage.project_id}/outstanding-stages`);
-        setOutstandingStages(res.data?.stages || []);
+        const apiStages = res.data?.stages || [];
+        // Merge: ensure the clicked stage is in the list even if the API
+        // didn't include it (e.g. workflow_status not set on legacy rows).
+        const hasClicked = apiStages.some(s => s.stage_id === stage.stage_id);
+        setOutstandingStages(hasClicked ? apiStages : [seedStage, ...apiStages]);
       } catch {
-        // Non-blocking — single-stage popup still works if this fails.
+        // Non-blocking — single-stage popup still works because we seeded it.
       }
     }
   };
