@@ -1888,13 +1888,19 @@ async def get_monthly_schedule(
             return None
 
     def _planned_month_for_stage(stage, planned_entry):
-        """Return (planned_month, planned_year) for a stage based on
-        Planning's manual entry (preferred) OR the stage's expected_payment_date."""
-        if planned_entry and planned_entry.get("month") and planned_entry.get("year"):
-            return planned_entry["month"], planned_entry["year"]
+        """Return (planned_month, planned_year) for a stage. The stage's
+        own expected_payment_date / due_date is the authoritative source
+        — it always reflects the latest "Request Payment" date set by
+        SE/Planning. We only fall back to a stored manual_entry (Planning's
+        explicit add-to-month action) when the stage has no date at all.
+        Previously the manual entry took precedence, but that caused stale
+        pins to keep a stage glued to an old month after the expected date
+        was updated."""
         d = _parse_date(stage.get("expected_payment_date")) or _parse_date(stage.get("due_date"))
         if d:
             return d.month, d.year
+        if planned_entry and planned_entry.get("month") and planned_entry.get("year"):
+            return planned_entry["month"], planned_entry["year"]
         return None, None
 
     def _collection_month_for_stage(stage):
