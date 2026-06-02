@@ -101,12 +101,17 @@ export default function CREBoard() {
       .then(r => setWfMenus(r.data?.menus || []))
       .catch(() => setWfMenus([]));
   }, []);
-  // True when the given menu key is enabled for the current role.
-  const wfAllow = (key) => {
-    if (!wfMenus || wfMenus.length === 0) return true;
-    const found = wfMenus.find(m => m.key === key);
-    return found ? !!found.enabled : true;
-  };
+  // Auto-pick the first enabled menu (in the saved order) so the user never
+  // lands on a hidden tab when Super Admin reorders or disables their default.
+  useEffect(() => {
+    if (!wfMenus || wfMenus.length === 0) return;
+    const enabledKeys = wfMenus.filter(m => m.enabled).map(m => m.key);
+    if (enabledKeys.length === 0) return;
+    if (!enabledKeys.includes(activeTab)) {
+      setActiveTab(enabledKeys[0]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wfMenus]);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -859,52 +864,74 @@ export default function CREBoard() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
             <TabsList className="bg-white border shadow-sm">
-              {wfAllow('payment_schedule') && <TabsTrigger value="payment_schedule" className="text-xs sm:text-sm gap-1.5" data-testid="tab-payment-schedule">
-                Payment Schedule {(() => {
-                  const c = (paymentRequests || []).filter(r => inDateRange(r.requested_at || r.created_at)).length;
-                  return c > 0 ? <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{c}</Badge> : null;
-                })()}
-              </TabsTrigger>}
-              {wfAllow('final_estimate') && <TabsTrigger value="final_estimate" className="text-xs sm:text-sm gap-1.5" data-testid="tab-final-estimate">
-                Final Estimate {(() => {
-                  const c = feProjects.filter(p => p.fe?.status !== 'approved').length;
-                  return c > 0 ? <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{c}</Badge> : null;
-                })()}
-              </TabsTrigger>}
-              {wfAllow('pre_construction') && <TabsTrigger value="pre_construction" className="text-xs sm:text-sm gap-1.5" data-testid="tab-pre-construction">
-                Pre-Construction
-              </TabsTrigger>}
-              {wfAllow('cheques') && <TabsTrigger value="cheques" className="text-xs sm:text-sm gap-1.5" data-testid="tab-cheque-management">
-                Cheque Management {(chequeEntries || []).length > 0 && (
-                  <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{chequeEntries.length}</Badge>
-                )}
-              </TabsTrigger>}
-              {wfAllow('dt_requests') && <TabsTrigger value="dt_requests" className="text-xs sm:text-sm gap-1.5" data-testid="tab-dt-requests">
-                DT Requests {(additionalPaymentRequests || []).length > 0 && (
-                  <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{additionalPaymentRequests.length}</Badge>
-                )}
-              </TabsTrigger>}
-              {wfAllow('additional_costs') && <TabsTrigger value="additional_costs" className="text-xs sm:text-sm gap-1.5" data-testid="tab-additional-costs">
-                Additional Costs {(() => {
-                  const c = (additionalCostsQueue || []).filter(r => r.client_approval_status === 'pending_client' || (r.client_approval_status === 'client_approved' && !r.cre_approved)).length;
-                  return c > 0 ? <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{c}</Badge> : null;
-                })()}
-              </TabsTrigger>}
-              {/* Optional tabs — controlled globally by Super Admin via Settings → CRE Module */}
-              {showAllProjectsTab && wfAllow('all_projects') && (
-                <TabsTrigger value="all_projects" className="text-xs sm:text-sm gap-1.5" data-testid="tab-all-projects">
-                  All Projects {projectsInRange.length > 0 && (
-                    <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{projectsInRange.length}</Badge>
-                  )}
-                </TabsTrigger>
-              )}
-              {showIncomeTab && wfAllow('income') && (
-                <TabsTrigger value="income" className="text-xs sm:text-sm gap-1.5" data-testid="tab-income">
-                  Income {(incomeCollected || []).length > 0 && (
-                    <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{incomeCollected.length}</Badge>
-                  )}
-                </TabsTrigger>
-              )}
+              {(() => {
+                // Render tabs in the order saved by Super Admin via Workflow Master.
+                // Each entry must be enabled in workflow + pass the optional CRE Module flag.
+                const ALL_TAB_DEFS = {
+                  payment_schedule: () => (
+                    <TabsTrigger key="payment_schedule" value="payment_schedule" className="text-xs sm:text-sm gap-1.5" data-testid="tab-payment-schedule">
+                      Payment Schedule {(() => {
+                        const c = (paymentRequests || []).filter(r => inDateRange(r.requested_at || r.created_at)).length;
+                        return c > 0 ? <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{c}</Badge> : null;
+                      })()}
+                    </TabsTrigger>
+                  ),
+                  final_estimate: () => (
+                    <TabsTrigger key="final_estimate" value="final_estimate" className="text-xs sm:text-sm gap-1.5" data-testid="tab-final-estimate">
+                      Final Estimate {(() => {
+                        const c = feProjects.filter(p => p.fe?.status !== 'approved').length;
+                        return c > 0 ? <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{c}</Badge> : null;
+                      })()}
+                    </TabsTrigger>
+                  ),
+                  pre_construction: () => (
+                    <TabsTrigger key="pre_construction" value="pre_construction" className="text-xs sm:text-sm gap-1.5" data-testid="tab-pre-construction">
+                      Pre-Construction
+                    </TabsTrigger>
+                  ),
+                  cheques: () => (
+                    <TabsTrigger key="cheques" value="cheques" className="text-xs sm:text-sm gap-1.5" data-testid="tab-cheque-management">
+                      Cheque Management {(chequeEntries || []).length > 0 && (
+                        <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{chequeEntries.length}</Badge>
+                      )}
+                    </TabsTrigger>
+                  ),
+                  dt_requests: () => (
+                    <TabsTrigger key="dt_requests" value="dt_requests" className="text-xs sm:text-sm gap-1.5" data-testid="tab-dt-requests">
+                      DT Requests {(additionalPaymentRequests || []).length > 0 && (
+                        <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{additionalPaymentRequests.length}</Badge>
+                      )}
+                    </TabsTrigger>
+                  ),
+                  additional_costs: () => (
+                    <TabsTrigger key="additional_costs" value="additional_costs" className="text-xs sm:text-sm gap-1.5" data-testid="tab-additional-costs">
+                      Additional Costs {(() => {
+                        const c = (additionalCostsQueue || []).filter(r => r.client_approval_status === 'pending_client' || (r.client_approval_status === 'client_approved' && !r.cre_approved)).length;
+                        return c > 0 ? <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{c}</Badge> : null;
+                      })()}
+                    </TabsTrigger>
+                  ),
+                  all_projects: () => showAllProjectsTab ? (
+                    <TabsTrigger key="all_projects" value="all_projects" className="text-xs sm:text-sm gap-1.5" data-testid="tab-all-projects">
+                      All Projects {projectsInRange.length > 0 && (
+                        <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{projectsInRange.length}</Badge>
+                      )}
+                    </TabsTrigger>
+                  ) : null,
+                  income: () => showIncomeTab ? (
+                    <TabsTrigger key="income" value="income" className="text-xs sm:text-sm gap-1.5" data-testid="tab-income">
+                      Income {(incomeCollected || []).length > 0 && (
+                        <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{incomeCollected.length}</Badge>
+                      )}
+                    </TabsTrigger>
+                  ) : null,
+                };
+                // Use wfMenus order if loaded; otherwise fall back to default order.
+                const ordered = (wfMenus && wfMenus.length > 0)
+                  ? wfMenus.filter(m => m.enabled).map(m => m.key)
+                  : ['payment_schedule', 'final_estimate', 'pre_construction', 'cheques', 'dt_requests', 'additional_costs', 'all_projects', 'income'];
+                return ordered.map(k => ALL_TAB_DEFS[k]?.()).filter(Boolean);
+              })()}
             </TabsList>
           </div>
 
