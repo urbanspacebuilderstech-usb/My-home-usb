@@ -1251,7 +1251,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
                 <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
               </Button>
               <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={submit} disabled={submitting} data-testid="proc-assign-submit">
-                <Send className="h-3.5 w-3.5 mr-1" /> {submitting ? 'Sending…' : 'Send to Site Engineer'}
+                <Send className="h-3.5 w-3.5 mr-1" /> {submitting ? 'Sending…' : (paymentMode === 'advance' ? 'Send for Accountant Approval' : 'Send to Site Engineer')}
               </Button>
             </>
           )}
