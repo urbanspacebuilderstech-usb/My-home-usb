@@ -568,9 +568,17 @@ export default function CREBoard() {
     setCollectSelectedStageIds(new Set(stage.stage_id ? [stage.stage_id] : []));
     setCollectDialog(true);
     // Fetch the project's other pending stages — drives the FIFO preview.
+    // Pass the currently-viewed month so the picker stays in-sync with the
+    // table tab the CRE is on (incl. carry-forward rule on past-due rows).
     if (stage.project_id) {
       try {
-        const res = await axios.get(`${API}/projects/${stage.project_id}/outstanding-stages`);
+        const params = (psMonth && psYear)
+          ? { month: psMonth, year: psYear }
+          : {};
+        const res = await axios.get(
+          `${API}/projects/${stage.project_id}/outstanding-stages`,
+          { params }
+        );
         const apiStages = res.data?.stages || [];
         // Merge: ensure the clicked stage is in the list even if the API
         // didn't include it (e.g. workflow_status not set on legacy rows).

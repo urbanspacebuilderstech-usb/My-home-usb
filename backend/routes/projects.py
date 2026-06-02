@@ -3454,11 +3454,23 @@ async def collect_payment_bulk(
 
 
 @router.get("/projects/{project_id}/outstanding-stages")
-async def get_outstanding_stages(project_id: str, user: User = Depends(get_current_user)):
-    """Pending payment stages (workflow_status='requested') in Planning's FIFO order.
+async def get_outstanding_stages(
+    project_id: str,
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    user: User = Depends(get_current_user),
+):
+    """Pending payment stages in Planning's FIFO order.
 
     Used by the CRE Bulk Collect popup to preview what the next client payment
     will be auto-allocated to.
+
+    Optional month/year params scope the list to a specific calendar month tab:
+    * stages planned for that month  (whether overdue or current)
+    * PLUS uncollected past-due stages carried forward into the CURRENT month
+      (matching the carry-forward rule used by /planning/monthly-schedule).
+    Collected stages are excluded (zero balance filter).
+    Vendor / labour / RAB rows are excluded (they're not client income).
     """
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
@@ -3466,20 +3478,76 @@ async def get_outstanding_stages(project_id: str, user: User = Depends(get_curre
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     stages = await db.payment_stages.find(
-        {
-            "project_id": project_id,
-            # Include EVERY pending stage on this project so the CRE picker
-            # surfaces siblings (additions, regular stages, even rows whose
-            # legacy workflow_status was never stamped). Balance is filtered
-            # below; nothing else gets to drop a stage off the list.
-        },
+        {"project_id": project_id},
         {"_id": 0},
     ).sort([("requested_at", 1), ("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(500)
+
+    # Strip vendor / labour / RAB auto-rows — these aren't client income.
+    def _is_vendor_or_labour_row(s):
+        cat = (s.get("category") or "").lower()
+        kind = (s.get("kind") or "").lower()
+        if cat in ("labour", "vendor", "material", "expense"):
+            return True
+        if kind in ("labour_rab", "vendor_payment", "material_expense"):
+            return True
+        if s.get("rab_request_id") or s.get("rab_number") or s.get("contractor_id") or s.get("vendor_id"):
+            return True
+        sname = (s.get("stage_name") or "").lower()
+        if sname.startswith("rab-") or sname.startswith("rab "):
+            return True
+        return False
+    stages = [s for s in stages if not _is_vendor_or_labour_row(s)]
+
+    # Month scoping helpers (only when month/year provided).
+    today = datetime.now(timezone.utc)
+    today_m, today_y = today.month, today.year
+
+    def _planned_month_year(s):
+        d = None
+        for k in ("expected_payment_date", "due_date", "requested_at", "created_at"):
+            v = s.get(k)
+            if not v:
+                continue
+            try:
+                if isinstance(v, str):
+                    d = datetime.fromisoformat(v.replace("Z", "+00:00"))
+                else:
+                    d = v
+                break
+            except Exception:
+                continue
+        if not d:
+            return (None, None)
+        return (d.month, d.year)
+
     out: List[Dict[str, Any]] = []
     for s in stages:
         bal = (s.get("amount", 0) or 0) - (s.get("amount_received", 0) or 0)
         if bal <= 0.5:
             continue
+
+        is_carryover = False
+        carry_from_m, carry_from_y = None, None
+        if month and year:
+            pm, py = _planned_month_year(s)
+            if pm is None:
+                # No date info → only include when viewing current month (fallback).
+                if (month, year) != (today_m, today_y):
+                    continue
+            else:
+                planned_in_past = (py, pm) < (today_y, today_m)
+                viewing_current = (month, year) == (today_m, today_y)
+                if planned_in_past:
+                    # Uncollected past-due rows carry forward into CURRENT month only.
+                    if not viewing_current:
+                        continue
+                    is_carryover = True
+                    carry_from_m, carry_from_y = pm, py
+                else:
+                    # Planned in current/future → must match the viewing month.
+                    if (pm, py) != (month, year):
+                        continue
+
         out.append({
             "stage_id": s.get("stage_id"),
             "stage_name": s.get("stage_name"),
@@ -3490,6 +3558,9 @@ async def get_outstanding_stages(project_id: str, user: User = Depends(get_curre
             "requested_at": s.get("requested_at"),
             "expected_payment_date": s.get("expected_payment_date"),
             "is_addition": bool(s.get("is_addition")),
+            "is_carryover": is_carryover,
+            "carry_from_month": carry_from_m,
+            "carry_from_year": carry_from_y,
         })
     total = sum(x["balance"] for x in out)
     return {
