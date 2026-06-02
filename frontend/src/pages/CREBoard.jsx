@@ -92,6 +92,21 @@ export default function CREBoard() {
   // We default to hidden and overwrite from backend once loaded.
   const [showAllProjectsTab, setShowAllProjectsTab] = useState(false);
   const [showIncomeTab, setShowIncomeTab] = useState(false);
+
+  // Per-role menu config (Super Admin → Workflow Master Setup → Users).
+  // null = still loading → treat as allow-all to avoid flash.
+  const [wfMenus, setWfMenus] = useState(null);
+  useEffect(() => {
+    axios.get(`${API}/admin/workflow-master/me`)
+      .then(r => setWfMenus(r.data?.menus || []))
+      .catch(() => setWfMenus([]));
+  }, []);
+  // True when the given menu key is enabled for the current role.
+  const wfAllow = (key) => {
+    if (!wfMenus || wfMenus.length === 0) return true;
+    const found = wfMenus.find(m => m.key === key);
+    return found ? !!found.enabled : true;
+  };
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -844,46 +859,46 @@ export default function CREBoard() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
             <TabsList className="bg-white border shadow-sm">
-              <TabsTrigger value="payment_schedule" className="text-xs sm:text-sm gap-1.5" data-testid="tab-payment-schedule">
+              {wfAllow('payment_schedule') && <TabsTrigger value="payment_schedule" className="text-xs sm:text-sm gap-1.5" data-testid="tab-payment-schedule">
                 Payment Schedule {(() => {
                   const c = (paymentRequests || []).filter(r => inDateRange(r.requested_at || r.created_at)).length;
                   return c > 0 ? <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{c}</Badge> : null;
                 })()}
-              </TabsTrigger>
-              <TabsTrigger value="final_estimate" className="text-xs sm:text-sm gap-1.5" data-testid="tab-final-estimate">
+              </TabsTrigger>}
+              {wfAllow('final_estimate') && <TabsTrigger value="final_estimate" className="text-xs sm:text-sm gap-1.5" data-testid="tab-final-estimate">
                 Final Estimate {(() => {
                   const c = feProjects.filter(p => p.fe?.status !== 'approved').length;
                   return c > 0 ? <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{c}</Badge> : null;
                 })()}
-              </TabsTrigger>
-              <TabsTrigger value="pre_construction" className="text-xs sm:text-sm gap-1.5" data-testid="tab-pre-construction">
+              </TabsTrigger>}
+              {wfAllow('pre_construction') && <TabsTrigger value="pre_construction" className="text-xs sm:text-sm gap-1.5" data-testid="tab-pre-construction">
                 Pre-Construction
-              </TabsTrigger>
-              <TabsTrigger value="cheques" className="text-xs sm:text-sm gap-1.5" data-testid="tab-cheque-management">
+              </TabsTrigger>}
+              {wfAllow('cheques') && <TabsTrigger value="cheques" className="text-xs sm:text-sm gap-1.5" data-testid="tab-cheque-management">
                 Cheque Management {(chequeEntries || []).length > 0 && (
                   <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{chequeEntries.length}</Badge>
                 )}
-              </TabsTrigger>
-              <TabsTrigger value="dt_requests" className="text-xs sm:text-sm gap-1.5" data-testid="tab-dt-requests">
+              </TabsTrigger>}
+              {wfAllow('dt_requests') && <TabsTrigger value="dt_requests" className="text-xs sm:text-sm gap-1.5" data-testid="tab-dt-requests">
                 DT Requests {(additionalPaymentRequests || []).length > 0 && (
                   <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{additionalPaymentRequests.length}</Badge>
                 )}
-              </TabsTrigger>
-              <TabsTrigger value="additional_costs" className="text-xs sm:text-sm gap-1.5" data-testid="tab-additional-costs">
+              </TabsTrigger>}
+              {wfAllow('additional_costs') && <TabsTrigger value="additional_costs" className="text-xs sm:text-sm gap-1.5" data-testid="tab-additional-costs">
                 Additional Costs {(() => {
                   const c = (additionalCostsQueue || []).filter(r => r.client_approval_status === 'pending_client' || (r.client_approval_status === 'client_approved' && !r.cre_approved)).length;
                   return c > 0 ? <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{c}</Badge> : null;
                 })()}
-              </TabsTrigger>
+              </TabsTrigger>}
               {/* Optional tabs — controlled globally by Super Admin via Settings → CRE Module */}
-              {showAllProjectsTab && (
+              {showAllProjectsTab && wfAllow('all_projects') && (
                 <TabsTrigger value="all_projects" className="text-xs sm:text-sm gap-1.5" data-testid="tab-all-projects">
                   All Projects {projectsInRange.length > 0 && (
                     <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{projectsInRange.length}</Badge>
                   )}
                 </TabsTrigger>
               )}
-              {showIncomeTab && (
+              {showIncomeTab && wfAllow('income') && (
                 <TabsTrigger value="income" className="text-xs sm:text-sm gap-1.5" data-testid="tab-income">
                   Income {(incomeCollected || []).length > 0 && (
                     <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{incomeCollected.length}</Badge>

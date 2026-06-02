@@ -9550,3 +9550,212 @@ async def update_project_module_permissions(
     return {"message": f"Permissions updated for {target.get('name')}", "permissions": clean}
 
 # ==================== END PROJECT MODULE PERMISSIONS ====================
+
+# ==================== WORKFLOW MASTER (Super Admin) ====================
+# Per-role main menu visibility + order, persisted in db.role_menu_config.
+# Frontend boards read via /admin/workflow-master/me to dynamically hide tabs.
+
+WORKFLOW_ROLE_CATALOG = {
+    "cre": {
+        "label": "CRE",
+        "menus": [
+            {"key": "payment_schedule",   "label": "Payment Schedule"},
+            {"key": "final_estimate",     "label": "Final Estimate"},
+            {"key": "pre_construction",   "label": "Pre Construction"},
+            {"key": "cheques",            "label": "Cheque Management"},
+            {"key": "dt_requests",        "label": "DT Requests"},
+            {"key": "additional_costs",   "label": "Additional Costs"},
+            {"key": "all_projects",       "label": "All Projects"},
+            {"key": "income",             "label": "Income"},
+        ],
+    },
+    "planning": {
+        "label": "Planning",
+        "menus": [
+            {"key": "dashboard",          "label": "Dashboard"},
+            {"key": "approvals",          "label": "Approvals"},
+            {"key": "projects",           "label": "Projects"},
+            {"key": "contractors",        "label": "Contractors"},
+            {"key": "vendors",            "label": "Vendors"},
+            {"key": "materials",          "label": "Materials"},
+        ],
+    },
+    "planning_person": {
+        "label": "Planning Person",
+        "menus": [
+            {"key": "dashboard",          "label": "Dashboard"},
+            {"key": "approvals",          "label": "Approvals"},
+            {"key": "projects",           "label": "Projects"},
+            {"key": "materials",          "label": "Materials"},
+        ],
+    },
+    "procurement": {
+        "label": "Procurement",
+        "menus": [
+            {"key": "requests",           "label": "Material Requests"},
+            {"key": "credit_ledger",      "label": "Credit Ledger"},
+            {"key": "vendors",            "label": "Vendors"},
+            {"key": "purchase_orders",    "label": "Purchase Orders"},
+        ],
+    },
+    "accountant": {
+        "label": "Accountant",
+        "menus": [
+            {"key": "approvals",          "label": "Approvals"},
+            {"key": "cashbook",           "label": "Cashbook"},
+            {"key": "payments",           "label": "Payments"},
+            {"key": "cheques",            "label": "Cheques"},
+            {"key": "vendor_suspense",    "label": "Vendor Suspense"},
+            {"key": "payment_schedule",   "label": "Payment Schedule"},
+        ],
+    },
+    "site_engineer": {
+        "label": "Site Engineer",
+        "menus": [
+            {"key": "my_projects",        "label": "My Projects"},
+            {"key": "work_orders",        "label": "Work Orders"},
+            {"key": "materials",          "label": "Materials"},
+            {"key": "attendance",         "label": "Attendance"},
+            {"key": "dlr",                "label": "DLR"},
+        ],
+    },
+    "project_manager": {
+        "label": "Project Manager",
+        "menus": [
+            {"key": "my_projects",        "label": "My Projects"},
+            {"key": "approvals",          "label": "Approvals"},
+            {"key": "petty_cash",         "label": "Petty Cash"},
+            {"key": "team",               "label": "Team"},
+        ],
+    },
+    "gm": {
+        "label": "General Manager",
+        "menus": [
+            {"key": "dashboard",          "label": "Dashboard"},
+            {"key": "approvals",          "label": "Approvals"},
+            {"key": "projects",           "label": "Projects"},
+            {"key": "reports",            "label": "Reports"},
+        ],
+    },
+    "general_manager": {
+        "label": "General Manager",
+        "menus": [
+            {"key": "dashboard",          "label": "Dashboard"},
+            {"key": "approvals",          "label": "Approvals"},
+            {"key": "projects",           "label": "Projects"},
+            {"key": "reports",            "label": "Reports"},
+        ],
+    },
+    "quality_check": {
+        "label": "Quality Check",
+        "menus": [
+            {"key": "stages",             "label": "Project Stages"},
+        ],
+    },
+    "architect": {
+        "label": "Architect",
+        "menus": [
+            {"key": "projects",           "label": "Projects"},
+            {"key": "documents",          "label": "Documents"},
+        ],
+    },
+    "interior_designer": {
+        "label": "Interior Designer",
+        "menus": [
+            {"key": "projects",           "label": "Projects"},
+            {"key": "documents",          "label": "Documents"},
+        ],
+    },
+}
+
+
+async def _merged_role_config(role: str):
+    """Merge persisted overrides on top of the seeded catalog. Always returns
+    the FULL menu list (with default `enabled=True`) ordered per stored order
+    or seeded order."""
+    seed = WORKFLOW_ROLE_CATALOG.get(role)
+    if not seed:
+        return None
+    saved = await db.role_menu_config.find_one({"role": role}, {"_id": 0})
+    saved_menus = (saved or {}).get("menus") or []
+    saved_map = {m.get("key"): m for m in saved_menus}
+    # Walk in stored order first (for menus that exist in both), then append
+    # any newly-introduced seed keys at the end.
+    seen = set()
+    ordered = []
+    for m in saved_menus:
+        key = m.get("key")
+        seed_entry = next((s for s in seed["menus"] if s["key"] == key), None)
+        if not seed_entry:
+            continue  # stale stored entry, drop it
+        ordered.append({"key": key, "label": seed_entry["label"], "enabled": bool(m.get("enabled", True))})
+        seen.add(key)
+    for s in seed["menus"]:
+        if s["key"] not in seen:
+            override = saved_map.get(s["key"]) or {}
+            ordered.append({"key": s["key"], "label": s["label"], "enabled": bool(override.get("enabled", True))})
+    return {"role": role, "label": seed["label"], "menus": ordered}
+
+
+@router.get("/admin/workflow-master/roles")
+async def workflow_master_list_roles(user: User = Depends(get_current_user)):
+    if user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="Super Admin only")
+    out = []
+    for role_key in WORKFLOW_ROLE_CATALOG.keys():
+        cfg = await _merged_role_config(role_key)
+        if cfg:
+            out.append(cfg)
+    return {"roles": out}
+
+
+@router.get("/admin/workflow-master/me")
+async def workflow_master_my_menus(user: User = Depends(get_current_user)):
+    """Effective menu list for the calling user's role."""
+    cfg = await _merged_role_config(user.role)
+    if not cfg:
+        return {"menus": []}
+    return {"role": cfg["role"], "menus": cfg["menus"]}
+
+
+@router.put("/admin/workflow-master/roles/{role}")
+async def workflow_master_save_role(
+    role: str,
+    body: dict = Body(...),
+    user: User = Depends(get_current_user),
+):
+    if user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="Super Admin only")
+    if role not in WORKFLOW_ROLE_CATALOG:
+        raise HTTPException(status_code=404, detail="Unknown role")
+    password = (body.get("password") or "").strip()
+    if not password:
+        raise HTTPException(status_code=400, detail="Super Admin password required")
+    from routes.auth import verify_password as _verify_pw
+    admin = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1, "hashed_password": 1})
+    pw_hash = (admin or {}).get("password_hash") or (admin or {}).get("hashed_password")
+    if not pw_hash or not _verify_pw(password, pw_hash):
+        raise HTTPException(status_code=401, detail="Invalid Super Admin password")
+
+    incoming = body.get("menus") or []
+    valid_keys = {m["key"] for m in WORKFLOW_ROLE_CATALOG[role]["menus"]}
+    clean = []
+    for m in incoming:
+        k = m.get("key")
+        if k in valid_keys:
+            clean.append({"key": k, "enabled": bool(m.get("enabled", True))})
+
+    await db.role_menu_config.update_one(
+        {"role": role},
+        {"$set": {
+            "role": role,
+            "menus": clean,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": user.user_id,
+        }},
+        upsert=True,
+    )
+    await create_audit_log(user.user_id, "update", "role_menu_config", role, {"menus": clean})
+    return {"message": f"Workflow saved for {WORKFLOW_ROLE_CATALOG[role]['label']}", "menus": clean}
+
+# ==================== END WORKFLOW MASTER ====================
