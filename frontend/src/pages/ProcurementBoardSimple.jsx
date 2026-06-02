@@ -109,7 +109,7 @@ function bucketForMaterial(req) {
   if (status === 'procurement_revision') return 'revision';
   if (status === 'procurement_verifying') return 'verifying';
   if (status === 'procurement_verify_rejected') return 'revision';
-  if (['pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
+  if (['pending_accounts_approval', 'pending_advance_payment', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
   if (status === 'in_transit') return 'transit';
   if (['delivered', 'completed', 'closed'].includes(status)) return 'delivered';
   if (['rejected', 'procurement_rejected', 'planning_initial_rejected'].includes(status)) return 'all';
@@ -118,6 +118,10 @@ function bucketForMaterial(req) {
 
 function RequestsTab({ dateRange }) {
   const [bucket, setBucket] = useState('new_request');
+  // Sub-filter for "Awaiting Accountant" bucket — split Full Amount vs Advance
+  // so Procurement can see what's stuck with the Accountant for advance approval
+  // vs full pre-paid bills, separately.
+  const [awaitingSubTab, setAwaitingSubTab] = useState('all');  // 'all' | 'full' | 'advance'
   const [allItems, setAllItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(null);
@@ -173,9 +177,36 @@ function RequestsTab({ dateRange }) {
   }, [procurementVisible]);
 
   const visibleItems = useMemo(() => {
-    if (bucket === 'all') return procurementVisible;
-    return procurementVisible.filter(r => bucketForMaterial(r) === bucket);
-  }, [procurementVisible, bucket]);
+    let scope;
+    if (bucket === 'all') scope = procurementVisible;
+    else scope = procurementVisible.filter(r => bucketForMaterial(r) === bucket);
+    // Sub-filter the Awaiting Accountant bucket by payment phase. The status
+    // `pending_advance_payment` is unambiguously the advance phase. A request
+    // marked `pending_balance_payment` is the balance leg of an advance flow.
+    // Everything else (pending_accounts_approval on a pre_paid request, or
+    // payment_mode==='pre_paid') is a Full Amount bill.
+    if (bucket === 'awaiting_accountant' && awaitingSubTab !== 'all') {
+      scope = scope.filter(r => {
+        const s = (r.status || '').toLowerCase();
+        const isAdvanceLeg = s === 'pending_advance_payment' || s === 'pending_balance_payment';
+        return awaitingSubTab === 'advance' ? isAdvanceLeg : !isAdvanceLeg;
+      });
+    }
+    return scope;
+  }, [procurementVisible, bucket, awaitingSubTab]);
+
+  // Counts for the Awaiting Accountant sub-tabs.
+  const awaitingCounts = useMemo(() => {
+    const scope = procurementVisible.filter(r => bucketForMaterial(r) === 'awaiting_accountant');
+    let adv = 0;
+    let full = 0;
+    scope.forEach(r => {
+      const s = (r.status || '').toLowerCase();
+      if (s === 'pending_advance_payment' || s === 'pending_balance_payment') adv += 1;
+      else full += 1;
+    });
+    return { all: scope.length, full, advance: adv };
+  }, [procurementVisible]);
 
   const submitReject = async () => {
     if (!rejectDialog.reason.trim()) { toast.error('Reason is required'); return; }
@@ -258,6 +289,33 @@ function RequestsTab({ dateRange }) {
           );
         })}
       </div>
+
+      {/* Awaiting Accountant sub-tab — Full Amount vs Advance */}
+      {bucket === 'awaiting_accountant' && (
+        <div className="flex items-center gap-1.5 flex-wrap" data-testid="proc-awaiting-subtabs">
+          {[
+            { key: 'all', label: 'All', count: awaitingCounts.all },
+            { key: 'full', label: 'Full Amount', count: awaitingCounts.full },
+            { key: 'advance', label: 'Advance', count: awaitingCounts.advance },
+          ].map(t => {
+            const active = awaitingSubTab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setAwaitingSubTab(t.key)}
+                className={`px-3 py-1.5 rounded-full text-[11px] font-medium border transition ${
+                  active
+                    ? 'bg-cyan-600 text-white border-cyan-600 shadow-sm'
+                    : 'bg-white text-cyan-700 border-cyan-200 hover:bg-cyan-50'
+                }`}
+                data-testid={`proc-awaiting-subtab-${t.key}`}
+              >
+                {t.label} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${active ? 'bg-white/20' : 'bg-cyan-100 text-cyan-700'}`}>{t.count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Card-style request list */}
       {loading ? (

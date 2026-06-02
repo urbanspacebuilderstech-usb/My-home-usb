@@ -2355,7 +2355,7 @@ async def procurement_simple_queue(
         "forwarded": ["procurement_priced"],
         "rejected": ["procurement_rejected", "planning_initial_rejected", "procurement_verify_rejected"],
         "revision": ["procurement_revision"],
-        "all": ["requested", "pm_approved", "procurement_priced", "procurement_rejected", "procurement_revision", "planning_initial_pending", "planning_initial_rejected", "procurement_verifying", "procurement_verify_rejected", "in_transit", "pending_accounts_approval", "pending_balance_payment", "delivered"],
+        "all": ["requested", "pm_approved", "procurement_priced", "procurement_rejected", "procurement_revision", "planning_initial_pending", "planning_initial_rejected", "procurement_verifying", "procurement_verify_rejected", "in_transit", "pending_accounts_approval", "pending_advance_payment", "pending_balance_payment", "delivered"],
     }
     target = status_map.get(queue, status_map["pending"])
 
