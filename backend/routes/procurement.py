@@ -2510,6 +2510,53 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
         "delivery_delta_hours": data.get("delivery_delta_hours"),
         "late_delivery_reason": (data.get("late_delivery_reason") or "").strip(),
     }
+    # Advance mode requires Accountant approval BEFORE the material moves to SE
+    # for collection. Status flips to `pending_advance_payment` and the request
+    # appears in Accountant's pending queue; after Accountant pays the advance,
+    # the status auto-advances to `in_transit` (see financial.py pay endpoint).
+    if payment_mode == "advance":
+        update["status"] = "pending_advance_payment"
+        update["next_payment_phase"] = "advance"
+        update["pending_next_status"] = "in_transit"
+        # Don't stamp transit yet — SE shouldn't see Collect until advance is paid.
+        update.pop("transit_started_at", None)
+        update.pop("transit_started_by", None)
+    await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
+
+    # Mirror advance bill to material_expenses so the Accountant Approvals UI
+    # and /approvals/pay endpoint operate on it directly.
+    if payment_mode == "advance":
+        try:
+            exp_id = f"mexp_{uuid.uuid4().hex[:12]}"
+            await db.material_expenses.insert_one({
+                "expense_id": exp_id,
+                "source_request_id": request_id,
+                "project_id": req.get("project_id"),
+                "project_name": req.get("project_name"),
+                "material_name": req.get("material_name"),
+                "quantity": qty,
+                "unit": req.get("unit"),
+                "unit_price": unit_price,
+                "vendor_id": vendor_id,
+                "vendor_name": vendor_name,
+                "estimated_cost": advance_amount,
+                "final_amount": advance_amount,
+                "payment_mode": "advance",
+                "payment_phase": "advance",
+                "status": "pending_accounts_approval",
+                "site_engineer_id": req.get("site_engineer_id"),
+                "site_engineer_name": req.get("site_engineer_name"),
+                "created_at": now,
+                "updated_at": now,
+                "description": f"ADVANCE — {req.get('material_name', '')} ({qty} {req.get('unit', '')})",
+                "request_type": "material",
+            })
+            await db.material_requests.update_one(
+                {"request_id": request_id},
+                {"$set": {"advance_expense_id": exp_id}},
+            )
+        except Exception as _e:
+            await create_audit_log(user.user_id, "advance_mirror_failed", "material_request", request_id, {"error": str(_e)})
     # Validate: if procurement quote is later than SE asked, late_delivery_reason is mandatory.
     try:
         delta = int(update.get("delivery_delta_hours") or 0)
@@ -2519,8 +2566,21 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
         raise HTTPException(status_code=400, detail="Late delivery reason is required when delivery exceeds SE's expected timeline")
     await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
 
-    # Notify Site Engineer — material is now available to collect
-    if req.get("site_engineer_id"):
+    # Notify next role in chain — Accountant for advance approvals, SE otherwise.
+    if payment_mode == "advance":
+        try:
+            acc_users = await db.users.find(
+                {"role": {"$in": ["accountant", "super_admin"]}, "is_active": {"$ne": False}},
+                {"_id": 0, "user_id": 1},
+            ).to_list(50)
+            for u in acc_users:
+                await create_notification(
+                    u["user_id"],
+                    f"Advance payment pending: {req.get('material_name')} → {vendor_name} (Advance ₹{advance_amount:,.0f} of ₹{estimated_price:,.0f})",
+                )
+        except Exception:
+            pass
+    elif req.get("site_engineer_id"):
         try:
             await create_notification(
                 req["site_engineer_id"],
@@ -2530,7 +2590,12 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
             pass
 
     await create_audit_log(user.user_id, "assign_vendor", "material_request", request_id, update)
-    return {"message": "Sent to Site Engineer for collection", "status": "in_transit", "estimated_price": estimated_price}
+    next_status = update["status"]
+    return {
+        "message": "Sent to Accountant for advance approval" if payment_mode == "advance" else "Sent to Site Engineer for collection",
+        "status": next_status,
+        "estimated_price": estimated_price,
+    }
 
 
 @router.patch("/procurement-simple/material-requests/{request_id}/reject")

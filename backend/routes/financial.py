@@ -595,7 +595,7 @@ async def get_unified_approvals(
     # vocabularies, so we keep two maps.
     if sf == "pending":
         income_statuses = ["pending_approval"]
-        material_statuses = ["requested", "planning_approved", "procurement_priced", "pending_accounts_approval"]
+        material_statuses = ["requested", "planning_approved", "procurement_priced", "pending_accounts_approval", "pending_advance_payment", "pending_balance_payment"]
         labour_statuses = ["requested", "planning_approved", "pending_accounts_approval"]
         vendor_statuses = ["requested", "planning_approved", "pending_accounts_approval"]
     elif sf == "approved":
@@ -4535,6 +4535,50 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             "updated_at": now,
         }}
     )
+
+    # 7b. Phase-aware cascade for material requests. The parent `material_requests`
+    # row is what Procurement / SE / Planning see throughout the lifecycle, so we
+    # advance it here based on `payment_phase`:
+    #   • advance  -> parent flips to `in_transit` and SE is notified to collect.
+    #   • balance/full -> parent flips to `delivered`.
+    if req_type == "material":
+        source_req_id = req.get("source_request_id")
+        phase = (req.get("payment_phase") or "full").lower()
+        if source_req_id:
+            parent = await db.material_requests.find_one({"request_id": source_req_id}, {"_id": 0})
+            if parent:
+                parent_update = {"updated_at": now}
+                notify_se_msg = None
+                if phase == "advance":
+                    parent_update.update({
+                        "status": "in_transit",
+                        "transit_started_at": now,
+                        "transit_started_by": user.user_id,
+                        "advance_paid_at": now,
+                        "advance_paid_by": user.user_id,
+                        "advance_paid_by_name": user.name,
+                        "advance_paid_amount": paid_amount,
+                        "next_payment_phase": "balance",
+                    })
+                    notify_se_msg = f"Advance approved — ready to collect: {parent.get('material_name')} → {parent.get('vendor_name', 'Vendor')}"
+                else:  # balance or full
+                    parent_update.update({
+                        "status": "delivered",
+                        "delivered_at": now,
+                        "balance_paid_at": now,
+                        "balance_paid_by": user.user_id,
+                        "balance_paid_by_name": user.name,
+                        "balance_paid_amount": paid_amount,
+                    })
+                await db.material_requests.update_one(
+                    {"request_id": source_req_id},
+                    {"$set": parent_update},
+                )
+                if notify_se_msg and parent.get("site_engineer_id"):
+                    try:
+                        await create_notification(parent["site_engineer_id"], notify_se_msg)
+                    except Exception:
+                        pass
 
     await create_audit_log(user.user_id, "pay", req_type, request_id, {
         "bill_amount": bill_amount, "credit_used": credit_used, "paid_amount": paid_amount,
