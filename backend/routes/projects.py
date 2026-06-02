@@ -3428,17 +3428,10 @@ async def get_outstanding_stages(project_id: str, user: User = Depends(get_curre
     stages = await db.payment_stages.find(
         {
             "project_id": project_id,
-            # Two cases qualify:
-            # 1. workflow_status="requested" — Planning has formally raised
-            #    the request, classic FIFO collection.
-            # 2. is_addition=True — every Additional Work line that has gone
-            #    through Req Payment, regardless of whether the legacy code
-            #    paths set workflow_status correctly. We still skip rows with
-            #    zero balance below.
-            "$or": [
-                {"workflow_status": "requested"},
-                {"is_addition": True},
-            ],
+            # Include EVERY pending stage on this project so the CRE picker
+            # surfaces siblings (additions, regular stages, even rows whose
+            # legacy workflow_status was never stamped). Balance is filtered
+            # below; nothing else gets to drop a stage off the list.
         },
         {"_id": 0},
     ).sort([("requested_at", 1), ("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(500)
