@@ -1975,6 +1975,26 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     
     # Get payment stages (honour user's manual reorder via sort_order)
     payment_stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0}).sort([("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(1000)
+
+    # Project Payment Schedule is for **client income collection only**.
+    # Auto-inserted vendor/labour/RAB rows (e.g. "RAB-XX · Contractor · advance"
+    # rows created by the RAB release flow) live in payment_stages for cashbook
+    # accounting but must NOT surface on the client Payment Schedule UI.
+    def _is_vendor_or_labour_row(s):
+        cat = (s.get("category") or "").lower()
+        kind = (s.get("kind") or "").lower()
+        if cat in ("labour", "vendor", "material", "expense"):
+            return True
+        if kind in ("labour_rab", "vendor_payment", "material_expense"):
+            return True
+        if s.get("rab_request_id") or s.get("rab_number") or s.get("contractor_id") or s.get("vendor_id"):
+            return True
+        sname = (s.get("stage_name") or "").lower()
+        if sname.startswith("rab-") or sname.startswith("rab "):
+            return True
+        return False
+    payment_stages = [s for s in payment_stages if not _is_vendor_or_labour_row(s)]
+
     for stage in payment_stages:
         if isinstance(stage.get("due_date"), str):
             stage["due_date"] = datetime.fromisoformat(stage["due_date"])
