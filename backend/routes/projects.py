@@ -2537,6 +2537,27 @@ async def get_comprehensive_project_view(project_id: str, user: User = Depends(g
 @router.get("/projects/{project_id}/payment-stages")
 async def get_payment_stages(project_id: str, user: User = Depends(get_current_user)):
     stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0}).sort([("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(1000)
+
+    # Project Payment Schedule is for **client income collection only**.
+    # Vendor/Labour-side rows (e.g. labour_rab "RAB-XX · Contractor" entries
+    # auto-inserted when releasing RAB payments) belong on the Operations
+    # cashbook + RAB tab — NOT here. Filter them out.
+    def _is_vendor_or_labour_row(s):
+        cat = (s.get("category") or "").lower()
+        kind = (s.get("kind") or "").lower()
+        if cat in ("labour", "vendor", "material", "expense"):
+            return True
+        if kind in ("labour_rab", "vendor_payment", "material_expense"):
+            return True
+        if s.get("rab_request_id") or s.get("rab_number") or s.get("contractor_id") or s.get("vendor_id"):
+            return True
+        # Stage name explicitly starts with "RAB-" or "labour_rab" sentinel.
+        sname = (s.get("stage_name") or "").lower()
+        if sname.startswith("rab-") or sname.startswith("rab "):
+            return True
+        return False
+    stages = [s for s in stages if not _is_vendor_or_labour_row(s)]
+
     for stage in stages:
         if isinstance(stage.get("due_date"), str):
             stage["due_date"] = datetime.fromisoformat(stage["due_date"])
