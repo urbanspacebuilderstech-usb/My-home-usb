@@ -1717,14 +1717,19 @@ export default function CREBoard() {
             <DialogDescription>{selectedPaymentStage?.project_name} - {selectedPaymentStage?.stage_name}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {/* Top tri-card kept only as a quick at-a-glance header. The
+                full stage breakdown (Pending / Allocated / Remaining /
+                Result) lives in the Smart Collect block below. */}
             <div className="grid grid-cols-3 gap-3 bg-gray-50 p-3 rounded-lg">
               <div><p className="text-xs text-gray-500">Stage Amount</p><p className="font-semibold">{formatCurrency(selectedPaymentStage?.amount)}</p></div>
               <div><p className="text-xs text-gray-500">Already Received</p><p className="font-semibold text-green-600">{formatCurrency(selectedPaymentStage?.amount_received || 0)}</p></div>
               <div><p className="text-xs text-gray-500">Balance</p><p className="font-semibold text-red-600">{formatCurrency((selectedPaymentStage?.amount || 0) - (selectedPaymentStage?.amount_received || 0))}</p></div>
             </div>
 
-            {/* Smart Bulk Collect — auto-distribute FIFO across all pending stages on this project */}
-            {outstandingStages.length > 1 && (
+            {/* Smart Bulk Collect — always shown in CRE Collect so the picker
+                + allocation table is the single source of truth, even when
+                only one stage is outstanding (user request). */}
+            {outstandingStages.length >= 1 && (
               <div className="border border-amber-200 bg-amber-50/40 rounded-lg p-3 space-y-3" data-testid="bulk-collect-section">
                 <div className="flex items-center justify-between gap-2">
                   <div>
