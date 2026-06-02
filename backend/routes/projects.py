@@ -9565,8 +9565,6 @@ WORKFLOW_ROLE_CATALOG = {
             {"key": "cheques",            "label": "Cheque Management"},
             {"key": "dt_requests",        "label": "DT Requests"},
             {"key": "additional_costs",   "label": "Additional Costs"},
-            {"key": "all_projects",       "label": "All Projects"},
-            {"key": "income",             "label": "Income"},
         ],
     },
     "planning": {

@@ -1983,19 +1983,14 @@ async def get_monthly_schedule(
 
         if is_partial_stage:
             balance = amt - rec
-            # Locate the collected portion
+            # Collected portion → real collection month (paid_at/collected_at fall-backs).
             coll_month, coll_year = _last_collection_month(stage)
             if coll_month is None:
-                # Fall back to today — better than dropping the collected portion entirely
                 coll_month, coll_year = today_month, today_year
-            # Locate the balance portion
-            due_date = _parse_date(stage.get("expected_payment_date")) or _parse_date(stage.get("due_date"))
-            if due_date and due_date <= today and (planned_year, planned_month) < (today_year, today_month):
-                bal_month, bal_year = today_month, today_year
-                bal_carry = True
-            else:
-                bal_month, bal_year = planned_month, planned_year
-                bal_carry = False
+            # Balance portion stays in the stage's PLANNED month — same rationale
+            # as fully-uncollected rows above (no auto-pull to today's month).
+            bal_month, bal_year = planned_month, planned_year
+            bal_carry = False
 
             if coll_month == month and coll_year == year:
                 if (stage.get("stage_id"), month, year) not in hide_keys:
@@ -2031,16 +2026,13 @@ async def get_monthly_schedule(
             effective_month, effective_year = collection_month, collection_year
             is_carryover = (collection_month, collection_year) != (planned_month, planned_year)
         else:
-            # UNCOLLECTED — does the due date fall on or before today?
-            due_date = _parse_date(stage.get("expected_payment_date")) or _parse_date(stage.get("due_date"))
-            if due_date and due_date <= today and (planned_year, planned_month) < (today_year, today_month):
-                # Past due AND planned for an earlier month → owns the current calendar month.
-                effective_month, effective_year = today_month, today_year
-                is_carryover = True
-            else:
-                # Either future-dated, or due this current month → keep in planned month.
-                effective_month, effective_year = planned_month, planned_year
-                is_carryover = False
+            # UNCOLLECTED — stays in its planned month regardless of how overdue
+            # it is. The previous behaviour pulled past-due rows forward to the
+            # current calendar month which made Feb's planned stage show up in
+            # Jun — confusing because users expect the monthly view to reflect
+            # what was originally scheduled for that month.
+            effective_month, effective_year = planned_month, planned_year
+            is_carryover = False
 
         if effective_month == month and effective_year == year:
             # Honor hide markers — Planning explicitly suppressed this stage
