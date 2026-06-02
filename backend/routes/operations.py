@@ -2027,10 +2027,15 @@ async def get_monthly_schedule(
             continue
 
         collection_month, collection_year = _collection_month_for_stage(stage)
+        # NOTE (Jun 2026 fix): even fully-collected stages now stay pinned to
+        # their PLANNED month. Previously a stage planned for Aug but collected
+        # in Jun would surface in the Jun tab with a bogus "Carried from Aug"
+        # badge — confusing because nothing can carry forward from the future.
+        # The Collected sub-tab of the planned month will still show these rows
+        # because `stage_status` is computed from the underlying stage.
         if collection_month:
-            # COLLECTED — owns its collection month.
-            effective_month, effective_year = collection_month, collection_year
-            is_carryover = (collection_month, collection_year) != (planned_month, planned_year)
+            effective_month, effective_year = planned_month, planned_year
+            is_carryover = False
         else:
             # UNCOLLECTED — stays in its planned month regardless of how overdue
             # it is. The previous behaviour pulled past-due rows forward to the
