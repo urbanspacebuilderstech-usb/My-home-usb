@@ -9471,8 +9471,8 @@ _PROJECT_MODULE_ROLES = {
 @router.get("/admin/project-module/users")
 async def list_project_module_users(user: User = Depends(get_current_user)):
     """List every active user that can touch the Project Detail page along
-    with their current per-tab permission overrides. Super Admin only."""
-    if user.role != "super_admin":
+    with their current per-tab permission overrides. Super Admin / Super Architect only."""
+    if user.role not in ("super_admin", "super_architect"):
         raise HTTPException(status_code=403, detail="Super Admin only")
 
     users = await db.users.find(
@@ -9518,7 +9518,7 @@ async def update_project_module_permissions(
 ):
     """Save a user's tab toggle map. Requires Super Admin password
     confirmation in the body (`{password, permissions}`)."""
-    if user.role != "super_admin":
+    if user.role not in ("super_admin", "super_architect"):
         raise HTTPException(status_code=403, detail="Super Admin only")
     from routes.auth import verify_password as _verify_pw
 
