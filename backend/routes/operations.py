@@ -2058,44 +2058,45 @@ async def get_monthly_schedule(
                 "is_carryover": is_carryover,
             })
 
-    # 3b. AUTO-HEAL legacy addition stages whose `amount` is 0/None because the
-    # underlying additional_cost was repriced after the Req Payment was raised.
-    # We pull the linked additional_cost and adopt its current amount (and
-    # already-received-against-cost) so the Payment Schedule reflects reality
-    # without needing a manual edit + re-save. We also write the corrected
-    # amount back to the stage so subsequent reads are O(1).
-    addition_ids_needing_heal = [
+    # 3b. AUTO-HEAL addition stages so the Amount column always reflects the
+    # underlying additional cost's full value (qty × price). When CRE/Planning
+    # raises a partial Request Payment, the stage.amount used to be overwritten
+    # with the requested amount, so a ₹2,000 addition collected partially as
+    # ₹500 ended up showing as ₹500/₹500/₹0 instead of ₹2,000/₹500/₹1,500.
+    # Fix: for every addition row, recompute display amount from the linked
+    # cost and treat stage.amount_received as the partial collection figure.
+    # We do NOT persist the change anymore — the request-payment "amount" on
+    # the stage is preserved for audit, but display is decoupled.
+    addition_ids = [
         m["stage"].get("linked_addition_id")
         for m in matching_stages
         if m["stage"].get("is_addition") and m["stage"].get("linked_addition_id")
-        and not (m["stage"].get("amount") or 0)
     ]
-    if addition_ids_needing_heal:
+    if addition_ids:
         cost_docs = await db.additional_costs.find(
-            {"cost_id": {"$in": addition_ids_needing_heal}},
+            {"cost_id": {"$in": addition_ids}},
             {"_id": 0, "cost_id": 1, "estimated_amount": 1, "actual_amount": 1, "qty": 1, "price": 1, "income_received": 1},
         ).to_list(2000)
         cost_map = {c["cost_id"]: c for c in cost_docs}
         for m in matching_stages:
             stage = m["stage"]
-            if not (stage.get("is_addition") and not (stage.get("amount") or 0)):
+            if not stage.get("is_addition"):
                 continue
             cost = cost_map.get(stage.get("linked_addition_id"))
             if not cost:
                 continue
-            healed_amount = (cost.get("estimated_amount") or cost.get("actual_amount") or ((cost.get("qty") or 0) * (cost.get("price") or 0)) or 0)
-            healed_received = cost.get("income_received", 0) or 0
-            if healed_amount:
-                stage["amount"] = healed_amount
-                stage["amount_received"] = healed_received
-                # Persist the fix so this stage no longer shows ₹0.
-                try:
-                    await db.payment_stages.update_one(
-                        {"stage_id": stage.get("stage_id")},
-                        {"$set": {"amount": healed_amount, "amount_received": healed_received}},
-                    )
-                except Exception:
-                    pass
+            cost_total = (((cost.get("qty") or 0) * (cost.get("price") or 0))
+                          or cost.get("estimated_amount")
+                          or cost.get("actual_amount") or 0)
+            cost_received = cost.get("income_received", 0) or 0
+            if cost_total:
+                # Display the cost's full total. Received stays as whatever the
+                # stage tracks (request collected) — fall back to the cost-level
+                # `income_received` if the stage hasn't recorded any approved
+                # collection yet (handles legacy partial-collected additions).
+                stage["amount"] = cost_total
+                if not (stage.get("amount_received") or 0) and cost_received:
+                    stage["amount_received"] = cost_received
 
     # 4. Project + pending-approval lookups
     pid_set = list({m["stage"].get("project_id") for m in matching_stages if m["stage"].get("project_id")})
