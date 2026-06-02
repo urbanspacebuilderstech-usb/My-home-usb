@@ -18,6 +18,11 @@
 ## Demo Access
 - Available via "Demo Access" tab on login page
 
+## Production - Super Architect (www.myhomeusb.com)
+- Email: superarchitect@myhomeusb.com
+- Name: Super Architect
+- Password: SuperArch@2026  (created via seed script; change via Profile → Change Password after login)
+
 ## App URLs
 - Production: https://www.myhomeusb.com
 - Preview: https://crm-onboard-flow.preview.emergentagent.com

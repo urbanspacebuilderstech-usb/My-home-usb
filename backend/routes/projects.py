@@ -9464,7 +9464,7 @@ _PROJECT_MODULE_ROLES = {
     "super_admin", "gm", "general_manager", "project_manager", "planning",
     "planning_person", "procurement", "accountant", "quality_check",
     "site_engineer", "site_supervisor", "cre", "client_relations_executive",
-    "architect", "interior_designer",
+    "architect", "super_architect", "interior_designer",
 }
 
 
@@ -9655,6 +9655,17 @@ WORKFLOW_ROLE_CATALOG = {
         "menus": [
             {"key": "projects",           "label": "Projects"},
             {"key": "documents",          "label": "Documents"},
+        ],
+    },
+    "super_architect": {
+        "label": "Super Architect",
+        "menus": [
+            {"key": "dashboard",          "label": "Dashboard"},
+            {"key": "projects",           "label": "Projects"},
+            {"key": "drawings",           "label": "Drawings"},
+            {"key": "documents",          "label": "Documents"},
+            {"key": "team",               "label": "Team"},
+            {"key": "approvals",          "label": "Approvals"},
         ],
     },
     "interior_designer": {

@@ -26,6 +26,7 @@ class UserRole(str, Enum):
     SALES = "sales"  # CRM Sales
     MARKETING_HEAD = "marketing_head"  # Marketing Head
     ARCHITECT = "architect"  # Architect / Design Team
+    SUPER_ARCHITECT = "super_architect"  # Senior Architect with elevated workspace access
     HR = "hr"  # Human Resources
     QUALITY_CHECK = "quality_check"  # Quality Check / QA on site
     PROSPECT = "prospect"  # Pre-purchase mobile prospect (read-only quote viewer)
