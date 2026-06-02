@@ -1993,10 +1993,19 @@ async def get_monthly_schedule(
             coll_month, coll_year = _last_collection_month(stage)
             if coll_month is None:
                 coll_month, coll_year = today_month, today_year
-            # Balance portion stays in the stage's PLANNED month — same rationale
-            # as fully-uncollected rows above (no auto-pull to today's month).
-            bal_month, bal_year = planned_month, planned_year
-            bal_carry = False
+            # Balance portion: stays in its planned month UNLESS the planned
+            # month is already past (relative to today) — then it carries
+            # forward into the current month so the CRE sees what's still
+            # outstanding without changing tabs. We pin to "today" regardless
+            # of which tab is being viewed so the row never double-counts in
+            # both its planned month and the current month.
+            planned_in_past = (planned_year, planned_month) < (today_year, today_month)
+            if planned_in_past:
+                bal_month, bal_year = today_month, today_year
+                bal_carry = True
+            else:
+                bal_month, bal_year = planned_month, planned_year
+                bal_carry = False
 
             if coll_month == month and coll_year == year:
                 if (stage.get("stage_id"), month, year) not in hide_keys:
@@ -2027,23 +2036,26 @@ async def get_monthly_schedule(
             continue
 
         collection_month, collection_year = _collection_month_for_stage(stage)
-        # NOTE (Jun 2026 fix): even fully-collected stages now stay pinned to
-        # their PLANNED month. Previously a stage planned for Aug but collected
-        # in Jun would surface in the Jun tab with a bogus "Carried from Aug"
-        # badge — confusing because nothing can carry forward from the future.
-        # The Collected sub-tab of the planned month will still show these rows
-        # because `stage_status` is computed from the underlying stage.
+        # Fully-collected stages stay pinned to their PLANNED month (you can't
+        # carry-forward from the future, and a stage collected late still
+        # belongs to the period it was scheduled for).
         if collection_month:
             effective_month, effective_year = planned_month, planned_year
             is_carryover = False
         else:
-            # UNCOLLECTED — stays in its planned month regardless of how overdue
-            # it is. The previous behaviour pulled past-due rows forward to the
-            # current calendar month which made Feb's planned stage show up in
-            # Jun — confusing because users expect the monthly view to reflect
-            # what was originally scheduled for that month.
-            effective_month, effective_year = planned_month, planned_year
-            is_carryover = False
+            # UNCOLLECTED — carry-forward behaviour:
+            # * if the stage's planned month is already in the past, carry it
+            #   forward into the CURRENT calendar month (regardless of which
+            #   tab is being viewed). The row only appears in the current
+            #   month tab so it doesn't double-count in its planned month.
+            # * if planned month is current/future, pin to planned month.
+            planned_in_past = (planned_year, planned_month) < (today_year, today_month)
+            if planned_in_past:
+                effective_month, effective_year = today_month, today_year
+                is_carryover = True
+            else:
+                effective_month, effective_year = planned_month, planned_year
+                is_carryover = False
 
         if effective_month == month and effective_year == year:
             # Honor hide markers — Planning explicitly suppressed this stage
