@@ -13,6 +13,16 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Jun 2, 2026 — Super Architect → Workflow Master Setup Redirect (P0)
+- **Status**: ✅ COMPLETE & TESTED (Playwright smoke: login → /workflow-master → 13 role rows + Edit buttons rendered)
+- **Frontend** (`/app/frontend/src/App.js`): Imported `WorkflowMasterPage`; registered `Route path="/workflow-master"`; added `super_architect: '/workflow-master'` to `getRoleRedirect()`.
+- **Frontend** (`/app/frontend/src/pages/Login.jsx`): Mirror `getRoleRedirect()` updated with `super_architect: '/workflow-master'` so the post-login redirect goes straight to the page (no Finance Board flash).
+- **Frontend** (`/app/frontend/src/pages/Dashboard.jsx`): Added explicit role guard — if `userRes.data?.role === 'super_architect'` → `window.location.replace('/workflow-master')`. Also added the same mapping to the `roleRoutes` lookup that handles direct `/dashboard` URL access.
+- **Backend** (`/app/backend/routes/projects.py`): `GET /admin/workflow-master/roles` and `PUT /admin/workflow-master/roles/{role}` now accept `user.role in ("super_admin", "super_architect")` (was `super_admin` only). Verified live with curl using the seeded preview user — 13 roles returned, 0 → super_architect now full control.
+- **Seed** (preview only): Created `superarchitect@constructionos.com` / `Demo@1234` (role=super_architect) via inline script for testing. Production user `superarchitect@myhomeusb.com` was created in the previous session and is unchanged.
+
+## What's Been Implemented
+
 ### Session — Feb 28, 2026 — Stage 2: Additional Costs 4-Step Approval UI (P0)
 - **Status**: ✅ COMPLETE & TESTED (iteration_161: 9/9 backend, 100% frontend)
 - **Backend** (`/app/backend/routes/projects.py`):

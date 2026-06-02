@@ -9708,7 +9708,7 @@ async def _merged_role_config(role: str):
 
 @router.get("/admin/workflow-master/roles")
 async def workflow_master_list_roles(user: User = Depends(get_current_user)):
-    if user.role != "super_admin":
+    if user.role not in ("super_admin", "super_architect"):
         raise HTTPException(status_code=403, detail="Super Admin only")
     out = []
     for role_key in WORKFLOW_ROLE_CATALOG.keys():
@@ -9733,7 +9733,7 @@ async def workflow_master_save_role(
     body: dict = Body(...),
     user: User = Depends(get_current_user),
 ):
-    if user.role != "super_admin":
+    if user.role not in ("super_admin", "super_architect"):
         raise HTTPException(status_code=403, detail="Super Admin only")
     if role not in WORKFLOW_ROLE_CATALOG:
         raise HTTPException(status_code=404, detail="Unknown role")

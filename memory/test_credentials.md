@@ -14,6 +14,7 @@
 - Planning:    planning@constructionos.com
 - Accountant:  accountant@constructionos.com
 - Site Engineer: engineer@constructionos.com (Vikram Singh)
+- Super Architect: superarchitect@constructionos.com (Super Architect)
 
 ## Demo Access
 - Available via "Demo Access" tab on login page

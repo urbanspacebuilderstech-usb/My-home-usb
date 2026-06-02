@@ -61,6 +61,11 @@ export default function Dashboard() {
         window.location.replace('/qc-dashboard');
         return;
       }
+      // Super Architect lands on the Workflow Master Setup page, not the Finance Board.
+      if (userRes.data?.role === 'super_architect') {
+        window.location.replace('/workflow-master');
+        return;
+      }
       setUser(userRes.data);
       
       // Super Admin's home is the Finance Board (the old dashboard is deprecated).
@@ -78,6 +83,7 @@ export default function Dashboard() {
           planning: '/planning-board', planning_person: '/planning-board', procurement: '/procurement-board-v2',
           cre: '/cre-board', project_manager: '/pm-dashboard', associate_pm: '/pm-dashboard',
           client: '/client-portal', vendor: '/vendor-portal', marketing_head: '/marketing-board',
+          super_architect: '/workflow-master',
           hr: '/hr-portal'
         };
         if (roleRoutes[role]) {

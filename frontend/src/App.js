@@ -77,6 +77,7 @@ import MarketingBoard from '@/pages/MarketingBoard';
 import PMDashboard from '@/pages/PMDashboard';
 import QCDashboard from '@/pages/QCDashboard';
 import ArchitectDashboard from '@/pages/ArchitectDashboard';
+import WorkflowMasterPage from '@/pages/WorkflowMasterPage';
 import SetupWizard from '@/pages/SetupWizard';
 import PaymentSchedulePage from '@/pages/PaymentSchedulePage';
 import ProfilePage from '@/pages/ProfilePage';
@@ -189,6 +190,7 @@ function AppRouter() {
       <Route path="/pm-dashboard" element={<ProtectedRoute><PMDashboard /></ProtectedRoute>} />
       <Route path="/qc-dashboard" element={<ProtectedRoute><QCDashboard /></ProtectedRoute>} />
       <Route path="/architect-dashboard" element={<ProtectedRoute><ArchitectDashboard /></ProtectedRoute>} />
+      <Route path="/workflow-master" element={<ProtectedRoute><WorkflowMasterPage /></ProtectedRoute>} />
       <Route path="/marketing-board" element={<ProtectedRoute><MarketingBoard /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
       <Route path="/" element={<Navigate to="/login" replace />} />
@@ -215,6 +217,7 @@ function getRoleRedirect(role) {
     vendor: '/vendor-portal',
     marketing_head: '/marketing-board',
     architect: '/architect-dashboard',
+    super_architect: '/workflow-master',
     hr: '/hr-portal',
     prospect: '/prospect-app',
     super_admin: '/finance-board'

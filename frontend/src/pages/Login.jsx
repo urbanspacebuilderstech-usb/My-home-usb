@@ -29,6 +29,7 @@ function getRoleRedirect(role) {
     vendor: '/vendor-portal',
     marketing_head: '/marketing-board',
     architect: '/architect-dashboard',
+    super_architect: '/workflow-master',
     hr: '/hr-portal',
     prospect: '/prospect-app',
     super_admin: '/finance-board'
