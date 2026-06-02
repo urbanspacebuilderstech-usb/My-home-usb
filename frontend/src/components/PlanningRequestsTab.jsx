@@ -226,9 +226,16 @@ export default function PlanningRequestsTab({ projects = [], onCountChange }) {
         const endpoint = reqStatus === 'planning_initial_pending'
           ? 'planning-initial-approve'
           : 'planning-approve';
-        await axios.patch(`${API}/procurement-simple/material-requests/${id}/${endpoint}`, {
-          notes: extra.notes || '',
-        });
+        // Initial-review path supports Planning Person edits (description, brand,
+        // quantity, SE expected hours). Pass them straight through.
+        const body = { notes: extra.notes || '' };
+        if (endpoint === 'planning-initial-approve') {
+          if (extra.material_name !== undefined) body.material_name = extra.material_name;
+          if (extra.brand !== undefined) body.brand = extra.brand;
+          if (extra.quantity !== undefined && extra.quantity !== '') body.quantity = extra.quantity;
+          if (extra.se_requested_hours !== undefined && extra.se_requested_hours !== '') body.se_requested_hours = extra.se_requested_hours;
+        }
+        await axios.patch(`${API}/procurement-simple/material-requests/${id}/${endpoint}`, body);
       } else if (type === 'labour_stages') {
         await axios.patch(`${API}/labour-expenses/${id}/planning-action?action=approve`);
       } else if (type === 'labour_payments') {
@@ -525,15 +532,27 @@ export default function PlanningRequestsTab({ projects = [], onCountChange }) {
 function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, processing }) {
   const { open, req, type } = state;
   const [approvedQty, setApprovedQty] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editBrand, setEditBrand] = useState('');
+  const [editSeHours, setEditSeHours] = useState('');
   const [remarks, setRemarks] = useState('');
   // Inline revision/reject prompts so Planning can act without leaving the dialog.
   const [mode, setMode] = useState('review'); // 'review' | 'revision' | 'reject'
   const [revisionRemarks, setRevisionRemarks] = useState('');
   const [rejectReason, setRejectReason] = useState('');
 
+  // Planning Person can edit ALL material fields while the request is still in
+  // initial-review (no Procurement vendor assigned yet).
+  const isInitialMaterialReview = type === 'material'
+    && !req?.vendor_name
+    && (req?.status || '').toLowerCase() === 'planning_initial_pending';
+
   useEffect(() => {
     if (open && req) {
       setApprovedQty(type === 'material' ? String(req.quantity || '') : '');
+      setEditDescription(req.material_name || '');
+      setEditBrand(req.brand || '');
+      setEditSeHours(req.se_requested_hours ? String(req.se_requested_hours) : '');
       setRemarks('');
       setMode('review');
       setRevisionRemarks('');
@@ -548,6 +567,21 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
   const handle = () => {
     const extra = {};
     if (type === 'material' && approvedQty) extra.approved_qty = parseFloat(approvedQty);
+    if (isInitialMaterialReview) {
+      // Pass field edits only when they differ from the original values.
+      if ((editDescription || '').trim() && editDescription.trim() !== (req.material_name || '')) {
+        extra.material_name = editDescription.trim();
+      }
+      if ((editBrand || '') !== (req.brand || '')) {
+        extra.brand = editBrand;
+      }
+      if (approvedQty && parseFloat(approvedQty) !== parseFloat(req.quantity || 0)) {
+        extra.quantity = parseFloat(approvedQty);
+      }
+      if (editSeHours && parseInt(editSeHours, 10) !== parseInt(req.se_requested_hours || 0, 10)) {
+        extra.se_requested_hours = parseInt(editSeHours, 10);
+      }
+    }
     if (type === 'petty') extra.remarks = remarks;
     onSubmit(extra);
   };
@@ -589,7 +623,16 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="bg-gray-50 rounded p-2">
               <p className="text-gray-500 text-[10px] uppercase">Description</p>
-              <p className="font-medium">{getTitle(req, type)}</p>
+              {isInitialMaterialReview ? (
+                <Input
+                  value={editDescription}
+                  onChange={e => setEditDescription(e.target.value)}
+                  className="h-7 text-xs mt-0.5"
+                  data-testid="planning-edit-description"
+                />
+              ) : (
+                <p className="font-medium">{getTitle(req, type)}</p>
+              )}
             </div>
             <div className="bg-gray-50 rounded p-2">
               <p className="text-gray-500 text-[10px] uppercase flex items-center gap-1"><UserIcon className="h-3 w-3" /> Requested by</p>
@@ -599,11 +642,34 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
               <>
                 <div className="bg-gray-50 rounded p-2">
                   <p className="text-gray-500 text-[10px] uppercase">Quantity</p>
-                  <p className="font-medium">{req.quantity} {req.unit || ''}</p>
+                  {isInitialMaterialReview ? (
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <Input
+                        type="number"
+                        min="0"
+                        value={approvedQty}
+                        onChange={e => setApprovedQty(e.target.value)}
+                        className="h-7 text-xs"
+                        data-testid="planning-edit-quantity"
+                      />
+                      <span className="text-[10px] text-gray-500">{req.unit || ''}</span>
+                    </div>
+                  ) : (
+                    <p className="font-medium">{req.quantity} {req.unit || ''}</p>
+                  )}
                 </div>
                 <div className="bg-gray-50 rounded p-2">
                   <p className="text-gray-500 text-[10px] uppercase">Brand</p>
-                  <p className="font-medium">{req.brand || '-'}</p>
+                  {isInitialMaterialReview ? (
+                    <Input
+                      value={editBrand}
+                      onChange={e => setEditBrand(e.target.value)}
+                      className="h-7 text-xs mt-0.5"
+                      data-testid="planning-edit-brand"
+                    />
+                  ) : (
+                    <p className="font-medium">{req.brand || '-'}</p>
+                  )}
                 </div>
                 {/* Procurement-priced fields */}
                 {req.vendor_name && (
@@ -645,7 +711,21 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
                 {req.se_requested_hours && (
                   <div className={`rounded p-2 border ${req.delivery_delta_hours > 0 ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
                     <p className={`text-[10px] uppercase font-semibold ${req.delivery_delta_hours > 0 ? 'text-red-700' : 'text-blue-700'}`}>SE Expected</p>
-                    <p className="font-bold text-sm">{req.se_delivery_choice === '24h' ? '24 hours' : req.se_delivery_choice === '48h' ? '48 hours' : (req.se_expected_delivery ? new Date(req.se_expected_delivery).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : `${req.se_requested_hours}h`)}</p>
+                    {isInitialMaterialReview ? (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <Input
+                          type="number"
+                          min="1"
+                          value={editSeHours}
+                          onChange={e => setEditSeHours(e.target.value)}
+                          className="h-7 text-xs"
+                          data-testid="planning-edit-se-hours"
+                        />
+                        <span className="text-[10px] text-gray-500">hrs</span>
+                      </div>
+                    ) : (
+                      <p className="font-bold text-sm">{req.se_delivery_choice === '24h' ? '24 hours' : req.se_delivery_choice === '48h' ? '48 hours' : (req.se_expected_delivery ? new Date(req.se_expected_delivery).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : `${req.se_requested_hours}h`)}</p>
+                    )}
                     {req.delivery_delta_hours > 0 && (
                       <p className="text-[10px] text-red-700 italic mt-0.5">⚠ +{req.delivery_delta_hours}h late vs SE</p>
                     )}
@@ -698,7 +778,7 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
           </div>
 
           {/* Type-specific inputs */}
-          {type === 'material' && !req.vendor_name && (
+          {type === 'material' && !req.vendor_name && !isInitialMaterialReview && (
             <div>
               <Label className="text-xs font-semibold mb-1 block">Approved Quantity</Label>
               <Input
@@ -711,6 +791,11 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
               />
               <p className="text-[10px] text-gray-400 mt-1">Leave blank to approve full quantity</p>
             </div>
+          )}
+          {isInitialMaterialReview && (
+            <p className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
+              ✏ You can edit the description, brand, quantity and SE expected hours above before approving.
+            </p>
           )}
           {type === 'petty' && (
             <div>

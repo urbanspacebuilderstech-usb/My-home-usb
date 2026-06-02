@@ -2777,10 +2777,11 @@ async def procurement_simple_planning_initial_approve(request_id: str, data: dic
     req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
-    if req.get("status") not in ("planning_initial_pending", "planning_initial_rejected"):
+    if (req.get("status") not in ("planning_initial_pending", "planning_initial_rejected")):
         raise HTTPException(status_code=400, detail=f"Cannot initial-approve in status: {req.get('status')}")
     now = datetime.now(timezone.utc).isoformat()
-    notes = ((data or {}).get("notes") or "").strip()
+    payload = data or {}
+    notes = (payload.get("notes") or "").strip()
     update = {
         "status": "pm_approved",  # routes to Procurement's pending queue
         "planning_initial_approved_by": user.user_id,
@@ -2788,6 +2789,36 @@ async def procurement_simple_planning_initial_approve(request_id: str, data: dic
         "planning_initial_approved_at": now,
         "planning_initial_notes": notes,
     }
+    # Planning Person may correct the request before forwarding to Procurement —
+    # editable fields: material_name (description), brand, quantity,
+    # se_requested_hours / se_delivery_choice. Only persist when supplied.
+    edits = {}
+    if "material_name" in payload and (payload.get("material_name") or "").strip():
+        edits["material_name"] = payload["material_name"].strip()
+    if "brand" in payload:
+        edits["brand"] = (payload.get("brand") or "").strip() or None
+    if "quantity" in payload and payload.get("quantity") not in (None, ""):
+        try:
+            edits["quantity"] = float(payload["quantity"])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid quantity")
+    if "se_requested_hours" in payload and payload.get("se_requested_hours") not in (None, ""):
+        try:
+            hours = int(payload["se_requested_hours"])
+            edits["se_requested_hours"] = hours
+            if hours == 24:
+                edits["se_delivery_choice"] = "24h"
+            elif hours == 48:
+                edits["se_delivery_choice"] = "48h"
+            else:
+                edits["se_delivery_choice"] = "custom"
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid SE expected hours")
+    if edits:
+        edits["planning_edited_at"] = now
+        edits["planning_edited_by"] = user.user_id
+        edits["planning_edited_by_name"] = user.name
+        update.update(edits)
     await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
     # Notify Procurement
     procs = await db.users.find({"role": {"$in": ["procurement", "super_admin"]}, "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}).to_list(50)
