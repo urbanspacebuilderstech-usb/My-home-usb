@@ -387,26 +387,30 @@ function RequestsTab({ dateRange }) {
               {(() => {
                 const orderedQty = Number(verifyDialog.req.approved_quantity || verifyDialog.req.quantity || 0);
                 const totalFromReq = Number(verifyDialog.req.total_amount || verifyDialog.req.estimated_price || verifyDialog.req.estimated_cost || 0);
-                // Derive unit price from total/qty when not explicitly stamped
-                // on the request (some legacy post_delivery rows only carry the
-                // total). This keeps the field non-empty so Procurement always
-                // sees the working value and only types when they want to change it.
+                // Robust unit-price derivation: explicit field → derived from
+                // total/qty (handles legacy rows where total_amount was over-
+                // written with advance value but unit_price was lost).
                 const derivedUnit = orderedQty > 0 ? (totalFromReq / orderedQty) : 0;
-                const baselineUnit = Number(verifyDialog.req.unit_price || verifyDialog.req.unit_rate || derivedUnit || 0);
+                let baselineUnit = Number(verifyDialog.req.unit_price || verifyDialog.req.unit_rate || 0);
+                if (!baselineUnit && derivedUnit) baselineUnit = derivedUnit;
                 const effectiveUnit = verifyDialog.unit_price_override !== '' && !isNaN(parseFloat(verifyDialog.unit_price_override))
                   ? parseFloat(verifyDialog.unit_price_override)
                   : baselineUnit;
-                // Received qty defaults: prefer SE-reported received_quantity,
-                // else fall back to Ordered Qty so Procurement starts from a
-                // sensible value (most deliveries match the order).
-                const baselineRecv = Number(verifyDialog.req.received_quantity ?? orderedQty ?? 0);
+                // Received qty: SE-reported (only when truthy, NOT when 0) →
+                // falls back to Ordered Qty so Procurement always sees a value
+                // to confirm or override.
+                const seReported = Number(verifyDialog.req.received_quantity || 0);
+                const baselineRecv = seReported > 0 ? seReported : orderedQty;
                 const effectiveRecv = verifyDialog.received_qty_override !== '' && !isNaN(parseFloat(verifyDialog.received_qty_override))
                   ? parseFloat(verifyDialog.received_qty_override)
                   : baselineRecv;
                 const liveTotal = effectiveRecv * effectiveUnit;
+                // Always populate the inputs with the best non-zero value —
+                // no more empty placeholder when the underlying record has
+                // missing/zeroed fields.
                 const recvValue = verifyDialog.received_qty_override !== ''
                   ? verifyDialog.received_qty_override
-                  : (baselineRecv || '');
+                  : (baselineRecv ? baselineRecv : '');
                 const unitValue = verifyDialog.unit_price_override !== ''
                   ? verifyDialog.unit_price_override
                   : (baselineUnit ? Number(baselineUnit.toFixed(2)) : '');
