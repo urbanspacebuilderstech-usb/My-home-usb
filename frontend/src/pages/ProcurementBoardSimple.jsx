@@ -385,22 +385,31 @@ function RequestsTab({ dateRange }) {
                   Procurement can correct either before forwarding to Accountant.
                   Total auto-updates from received_qty × unit_price. */}
               {(() => {
-                const baselineUnit = Number(verifyDialog.req.unit_price || verifyDialog.req.unit_rate || 0);
+                const orderedQty = Number(verifyDialog.req.approved_quantity || verifyDialog.req.quantity || 0);
+                const totalFromReq = Number(verifyDialog.req.total_amount || verifyDialog.req.estimated_price || verifyDialog.req.estimated_cost || 0);
+                // Derive unit price from total/qty when not explicitly stamped
+                // on the request (some legacy post_delivery rows only carry the
+                // total). This keeps the field non-empty so Procurement always
+                // sees the working value and only types when they want to change it.
+                const derivedUnit = orderedQty > 0 ? (totalFromReq / orderedQty) : 0;
+                const baselineUnit = Number(verifyDialog.req.unit_price || verifyDialog.req.unit_rate || derivedUnit || 0);
                 const effectiveUnit = verifyDialog.unit_price_override !== '' && !isNaN(parseFloat(verifyDialog.unit_price_override))
                   ? parseFloat(verifyDialog.unit_price_override)
                   : baselineUnit;
-                const baselineRecv = Number(verifyDialog.req.received_quantity ?? (verifyDialog.req.approved_quantity || verifyDialog.req.quantity) ?? 0);
+                // Received qty defaults: prefer SE-reported received_quantity,
+                // else fall back to Ordered Qty so Procurement starts from a
+                // sensible value (most deliveries match the order).
+                const baselineRecv = Number(verifyDialog.req.received_quantity ?? orderedQty ?? 0);
                 const effectiveRecv = verifyDialog.received_qty_override !== '' && !isNaN(parseFloat(verifyDialog.received_qty_override))
                   ? parseFloat(verifyDialog.received_qty_override)
                   : baselineRecv;
                 const liveTotal = effectiveRecv * effectiveUnit;
-                // Pre-fill input value so the field never appears empty.
                 const recvValue = verifyDialog.received_qty_override !== ''
                   ? verifyDialog.received_qty_override
                   : (baselineRecv || '');
                 const unitValue = verifyDialog.unit_price_override !== ''
                   ? verifyDialog.unit_price_override
-                  : (baselineUnit || '');
+                  : (baselineUnit ? Number(baselineUnit.toFixed(2)) : '');
                 return (
                   <div className="grid grid-cols-2 gap-2 bg-gray-50 border rounded p-2 text-xs">
                     <div><span className="text-gray-500">Ordered Qty:</span> <strong>{verifyDialog.req.approved_quantity || verifyDialog.req.quantity} {verifyDialog.req.unit || ''}</strong></div>
