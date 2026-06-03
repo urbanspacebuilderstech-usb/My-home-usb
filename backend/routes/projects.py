@@ -3529,8 +3529,12 @@ async def get_outstanding_stages(
     today_m, today_y = today.month, today.year
 
     def _planned_month_year(s):
+        # Only trust explicit payment-side dates. We deliberately exclude
+        # `created_at` / generic project metadata — those make legacy stages
+        # without an `expected_payment_date` masquerade as "past-due" and get
+        # carried forward into the current month tab.
         d = None
-        for k in ("expected_payment_date", "due_date", "requested_at", "created_at"):
+        for k in ("expected_payment_date", "due_date", "requested_at"):
             v = s.get(k)
             if not v:
                 continue
