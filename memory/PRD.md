@@ -13,6 +13,24 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 3, 2026 — Cheque Suspense Account Flow (P0)
+- **Status**: ✅ COMPLETE & TESTED (`test_cheque_suspense_lifecycle.py` 2/2 PASS)
+- **Backend** (`/app/backend/routes/financial.py`):
+  - Fixed `_request_collection_and_keys` for `petty_cash`: corrected collection name (`petty_cash`, not `petty_cash_requests`); now reads `amount_requested → amount_issued → amount_spent` and uses `requested_by_name` for vendor key (SE-level suspense).
+  - `pay-context` + `pay` endpoints now consistently key petty_cash suspense by `requested_by` (Site Engineer) so SE-level credit rolls forward across multiple petty cash requests.
+  - Extracted `_suspense_key()` helper inside the pay endpoint so debit + credit ledger entries are perfectly mirrored (avoid drift bugs).
+  - **Edge case fix**: when payable=0 (suspense fully covers the bill), payment-method-specific validation is now skipped — Accountant can submit without selecting any cheque/cash/bank.
+- **Frontend** (`/app/frontend/src/components/PayApprovalDialog.jsx`):
+  - `submit()` now detects `fullyCovered = payable <= 0` and short-circuits validation; payload omits cheque_ids/transaction_id/denominations and defaults method to `cash` for the audit trail.
+  - Existing Active/Inactive cheque tabs + search + multi-select + auto excess-to-suspense math preview were already in place — verified end-to-end via test.
+- **Tests**:
+  - `/app/backend/tests/test_cheque_suspense_lifecycle.py` (NEW, 2 cases):
+    1. Over-pay flow: bill ₹90K + ₹100K cheque → ₹10K suspense → next ₹110K expense for same vendor → suspense auto-applied, payable ₹100K via current_account → final balance ₹0.
+    2. Partial-consumption flow: existing ₹10K suspense → small ₹3K bill → consumes ₹3K, leaves ₹7K carry-forward.
+- **User confirmed choices**: vendor_name keyed (b), applies to Material + Labour + Petty-Cash (b), full-consumption + carry-forward (c-i).
+- **Note**: Existing `PayApprovalDialog` UI already shows CRE-opened cheques in Active tab and locked cheques in Inactive tab with "Request to Open" CTA. Backend `GET /api/approvals/{type}/{id}/pay-context` returns both lists. No new UI work needed beyond the fully-covered edge case.
+
+
 ### Session — Jun 2, 2026 — Super Architect → Workflow Master Setup Redirect (P0)
 - **Status**: ✅ COMPLETE & TESTED (Playwright smoke: login → /workflow-master → 13 role rows + Edit buttons rendered)
 - **Frontend** (`/app/frontend/src/App.js`): Imported `WorkflowMasterPage`; registered `Route path="/workflow-master"`; added `super_architect: '/workflow-master'` to `getRoleRedirect()`.

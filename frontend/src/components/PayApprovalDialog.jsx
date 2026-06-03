@@ -89,29 +89,33 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
   };
 
   const submit = async () => {
-    if (method === 'cheque' && chequeIds.length === 0) {
-      toast.error('Please select at least one cheque');
-      return;
-    }
-    if (method === 'cheque' && chequeTotal < payable) {
-      toast.error(`Cheque total ${fmt(chequeTotal)} is less than payable ${fmt(payable)}`);
-      return;
-    }
-    if ((method === 'current_account' || method === 'savings') && !transactionId.trim()) {
-      toast.error('Transaction ID is required');
-      return;
-    }
-    if (method === 'cash' && Math.abs(denomTotal - payable) > 0.5) {
-      toast.error(`Denominations total ${fmt(denomTotal)} ≠ payable ${fmt(payable)}`);
-      return;
+    // Edge case: suspense fully covers the bill — submit with no payment method needed
+    const fullyCovered = payable <= 0;
+    if (!fullyCovered) {
+      if (method === 'cheque' && chequeIds.length === 0) {
+        toast.error('Please select at least one cheque');
+        return;
+      }
+      if (method === 'cheque' && chequeTotal < payable) {
+        toast.error(`Cheque total ${fmt(chequeTotal)} is less than payable ${fmt(payable)}`);
+        return;
+      }
+      if ((method === 'current_account' || method === 'savings') && !transactionId.trim()) {
+        toast.error('Transaction ID is required');
+        return;
+      }
+      if (method === 'cash' && Math.abs(denomTotal - payable) > 0.5) {
+        toast.error(`Denominations total ${fmt(denomTotal)} ≠ payable ${fmt(payable)}`);
+        return;
+      }
     }
 
     const body = {
-      payment_method: method,
+      payment_method: fullyCovered ? 'cash' : method,
       remarks: remarks || null,
-      ...(method === 'cheque' ? { cheque_ids: chequeIds } : {}),
-      ...(method === 'current_account' || method === 'savings' ? { transaction_id: transactionId } : {}),
-      ...(method === 'cash' ? {
+      ...(method === 'cheque' && !fullyCovered ? { cheque_ids: chequeIds } : {}),
+      ...((method === 'current_account' || method === 'savings') && !fullyCovered ? { transaction_id: transactionId } : {}),
+      ...(method === 'cash' && !fullyCovered ? {
         denominations: Object.entries(denoms).filter(([, c]) => Number(c) > 0).map(([n, c]) => ({ note: Number(n), count: Number(c) }))
       } : {}),
     };

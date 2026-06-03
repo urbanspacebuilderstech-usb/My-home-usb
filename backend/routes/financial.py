@@ -4297,9 +4297,12 @@ def _request_collection_and_keys(req_type: str):
                 lambda r: r.get("contractor_name") or "Unknown Contractor",
                 "project_id", "labour")
     if req_type == "petty_cash":
-        return ("petty_cash_requests", "petty_cash_id",
-                lambda r: r.get("amount_issued") or r.get("amount_spent") or 0,
-                lambda r: r.get("site_engineer_name") or r.get("vendor_name") or "Petty Cash",
+        # Petty cash collection is `db.petty_cash` (NOT petty_cash_requests).
+        # Suspense for petty cash is keyed by the requesting Site Engineer
+        # (one SE may have multiple petty cash requests over time).
+        return ("petty_cash", "petty_cash_id",
+                lambda r: r.get("amount_requested") or r.get("amount_issued") or r.get("amount_spent") or 0,
+                lambda r: r.get("requested_by_name") or r.get("site_engineer_name") or r.get("vendor_name") or "Petty Cash",
                 "project_id", "petty_cash")
     raise HTTPException(status_code=400, detail=f"Invalid request type: {req_type}")
 
@@ -4331,9 +4334,10 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
         suspense_query["vendor_name"] = vendor_name
     elif suspense_type == "labour":
         suspense_query["contractor_name"] = vendor_name
-    else:  # petty_cash uses site_engineer_id
-        if req.get("site_engineer_id"):
-            suspense_query["site_engineer_id"] = req["site_engineer_id"]
+    else:  # petty_cash — keyed by Site Engineer (requested_by) so SE-level credit rolls forward
+        se_id = req.get("requested_by") or req.get("site_engineer_id")
+        if se_id:
+            suspense_query["site_engineer_id"] = se_id
         else:
             suspense_query["vendor_name"] = vendor_name
     suspense_entries = await db.suspense_entries.find(suspense_query, {"_id": 0}).to_list(1000)
@@ -4412,9 +4416,10 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
         suspense_query["vendor_name"] = vendor_name
     elif suspense_type == "labour":
         suspense_query["contractor_name"] = vendor_name
-    else:
-        if req.get("site_engineer_id"):
-            suspense_query["site_engineer_id"] = req["site_engineer_id"]
+    else:  # petty_cash — keyed by Site Engineer (requested_by)
+        se_id = req.get("requested_by") or req.get("site_engineer_id")
+        if se_id:
+            suspense_query["site_engineer_id"] = se_id
         else:
             suspense_query["vendor_name"] = vendor_name
     sus_entries = await db.suspense_entries.find(suspense_query, {"_id": 0}).to_list(1000)
@@ -4426,7 +4431,10 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     # 2. Payment-method specific: figure out actual paid amount + create cheque link
     paid_amount = payable
     cheque_docs = []  # list of selected cheque docs (multi-cheque support)
-    if data.payment_method == "cheque":
+    # Edge case: suspense fully covers the bill → no fresh payment method needed
+    if payable <= 0:
+        paid_amount = 0
+    elif data.payment_method == "cheque":
         # Resolve cheque ids (support both single legacy + multi)
         ch_ids = list(data.cheque_ids or [])
         if data.cheque_id and data.cheque_id not in ch_ids:
@@ -4499,14 +4507,24 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     await db.recorded_expenses.insert_one(cashbook_entry)
 
     # 5. Suspense ledger updates
+    # Build the key dict once so credit + debit entries are perfectly mirrored
+    def _suspense_key():
+        if suspense_type == "material":
+            return {"vendor_name": vendor_name}
+        if suspense_type == "labour":
+            return {"contractor_name": vendor_name}
+        # petty_cash → key on Site Engineer (requested_by)
+        se_id = req.get("requested_by") or req.get("site_engineer_id")
+        if se_id:
+            return {"site_engineer_id": se_id, "site_engineer_name": vendor_name}
+        return {"vendor_name": vendor_name}
+
     if credit_used > 0:
         # Debit (reduce) existing balance — record as negative
         await db.suspense_entries.insert_one({
             "entry_id": f"se_{uuid.uuid4().hex[:10]}",
             "type": suspense_type,
-            **({"vendor_name": vendor_name} if suspense_type == "material" else
-               {"contractor_name": vendor_name} if suspense_type == "labour" else
-               ({"site_engineer_id": req.get("site_engineer_id"), "site_engineer_name": vendor_name} if req.get("site_engineer_id") else {"vendor_name": vendor_name})),
+            **_suspense_key(),
             "amount": -credit_used,
             "description": f"Suspense applied to {req_type} bill (request {request_id})",
             "linked_expense_id": expense_id,
@@ -4518,9 +4536,7 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
         await db.suspense_entries.insert_one({
             "entry_id": f"se_{uuid.uuid4().hex[:10]}",
             "type": suspense_type,
-            **({"vendor_name": vendor_name} if suspense_type == "material" else
-               {"contractor_name": vendor_name} if suspense_type == "labour" else
-               ({"site_engineer_id": req.get("site_engineer_id"), "site_engineer_name": vendor_name} if req.get("site_engineer_id") else {"vendor_name": vendor_name})),
+            **_suspense_key(),
             "amount": new_suspense_credit,
             "description": f"Excess from cheque(s) {', '.join(cheque_numbers_used)} on {req_type} bill ({request_id})",
             "linked_expense_id": expense_id,
