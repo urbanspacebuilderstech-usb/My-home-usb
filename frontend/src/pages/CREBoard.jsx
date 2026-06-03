@@ -566,6 +566,8 @@ export default function CREBoard() {
     // Pre-select the clicked stage so the picker shows it checked by default.
     // CRE can tick additional stages if the client paid a lump sum.
     setCollectSelectedStageIds(new Set(stage.stage_id ? [stage.stage_id] : []));
+    // Reset click-order tracker — default stage is always first.
+    setCollectSelectionOrder(stage.stage_id ? [stage.stage_id] : []);
     setCollectDialog(true);
     // Fetch the project's other pending stages — drives the FIFO preview.
     // Pass the currently-viewed month so the picker stays in-sync with the
@@ -595,6 +597,11 @@ export default function CREBoard() {
   // Smart Collect — user may opt to select specific stages to collect against
   // instead of letting FIFO span every pending stage.
   const [collectSelectedStageIds, setCollectSelectedStageIds] = useState(new Set());
+  // Track the order in which CRE ticked stages so the allocation preview &
+  // submit follow the user's click order (default stage stays first). Without
+  // this, allocations were sorted by smallest-balance which surprised users
+  // who expected "stages I clicked first get paid first".
+  const [collectSelectionOrder, setCollectSelectionOrder] = useState([]);
   const computeFIFOAllocation = (amount, stages) => {
     const amt = parseFloat(amount) || 0;
     if (!stages.length) return [];
@@ -636,13 +643,21 @@ export default function CREBoard() {
         // backend only credits those (legacy: empty → FIFO across all pending).
         let manualAllocations = null;
         if (collectSelectedStageIds.size > 0) {
-          // Sort smallest balance first so micro-balances get cleared and the
-          // remainder partially fills the biggest stage (matches preview UX).
-          const scoped = outstandingStages
-            .filter(s => collectSelectedStageIds.has(s.stage_id))
-            .slice()
-            .sort((a, b) => (a.balance || 0) - (b.balance || 0));
-          const plan = computeFIFOAllocation(bulkAmt, scoped);
+          // Honour the CRE's click order — default stage first, then in the
+          // order they ticked the rest. This matches how the user thinks
+          // about distribution: "pay this stage first, leftover to next".
+          const stageById = new Map(outstandingStages.map(s => [s.stage_id, s]));
+          const ordered = collectSelectionOrder
+            .filter(id => collectSelectedStageIds.has(id) && stageById.has(id))
+            .map(id => stageById.get(id));
+          // Any selected stage not yet in the order tracker (edge case from
+          // legacy state) gets appended at the end.
+          outstandingStages.forEach(s => {
+            if (collectSelectedStageIds.has(s.stage_id) && !collectSelectionOrder.includes(s.stage_id)) {
+              ordered.push(s);
+            }
+          });
+          const plan = computeFIFOAllocation(bulkAmt, ordered);
           manualAllocations = plan.filter(p => p.allocated > 0).map(p => ({ stage_id: p.stage_id, amount: p.allocated }));
         }
         const res = await axios.post(`${API}/projects/${selectedPaymentStage.project_id}/collect-payment-bulk`, {
@@ -1801,8 +1816,17 @@ export default function CREBoard() {
                         onChange={(ev) => {
                           // The clicked stage is always pinned — preserve it on toggle-all.
                           const pinned = selectedPaymentStage?.stage_id;
-                          if (ev.target.checked) setCollectSelectedStageIds(new Set(outstandingStages.map(s => s.stage_id)));
-                          else setCollectSelectedStageIds(new Set(pinned ? [pinned] : []));
+                          if (ev.target.checked) {
+                            setCollectSelectedStageIds(new Set(outstandingStages.map(s => s.stage_id)));
+                            // Click-order: default first, then everything else in render order.
+                            setCollectSelectionOrder([
+                              ...(pinned ? [pinned] : []),
+                              ...outstandingStages.map(s => s.stage_id).filter(id => id !== pinned),
+                            ]);
+                          } else {
+                            setCollectSelectedStageIds(new Set(pinned ? [pinned] : []));
+                            setCollectSelectionOrder(pinned ? [pinned] : []);
+                          }
                         }}
                         data-testid="collect-stage-select-all"
                       />
@@ -1822,7 +1846,13 @@ export default function CREBoard() {
                           onChange={(e) => {
                             if (isPinned) return;
                             const next = new Set(collectSelectedStageIds);
-                            if (e.target.checked) next.add(s.stage_id); else next.delete(s.stage_id);
+                            if (e.target.checked) {
+                              next.add(s.stage_id);
+                              setCollectSelectionOrder(prev => prev.includes(s.stage_id) ? prev : [...prev, s.stage_id]);
+                            } else {
+                              next.delete(s.stage_id);
+                              setCollectSelectionOrder(prev => prev.filter(x => x !== s.stage_id));
+                            }
                             setCollectSelectedStageIds(next);
                           }}
                         />
@@ -1842,14 +1872,19 @@ export default function CREBoard() {
                 {parseFloat(bulkCollectAmount) > 0 && (() => {
                   // When the user checks specific stages, restrict FIFO to that subset only.
                   // Empty selection = use all outstanding stages (legacy behavior).
-                  // Also: when CRE manually picks stages, allocate smallest-balance first
-                  // so micro-amounts get cleared and the leftover lands on the biggest stage.
+                  // Selection order = click order so default stage gets paid first,
+                  // remainder spills to subsequently-ticked stages (user-requested).
                   let scoped = outstandingStages;
                   if (collectSelectedStageIds.size > 0) {
-                    scoped = outstandingStages
-                      .filter(s => collectSelectedStageIds.has(s.stage_id))
-                      .slice()
-                      .sort((a, b) => (a.balance || 0) - (b.balance || 0));
+                    const byId = new Map(outstandingStages.map(s => [s.stage_id, s]));
+                    scoped = collectSelectionOrder
+                      .filter(id => collectSelectedStageIds.has(id) && byId.has(id))
+                      .map(id => byId.get(id));
+                    outstandingStages.forEach(s => {
+                      if (collectSelectedStageIds.has(s.stage_id) && !collectSelectionOrder.includes(s.stage_id)) {
+                        scoped.push(s);
+                      }
+                    });
                   }
                   const plan = computeFIFOAllocation(bulkCollectAmount, scoped);
                   if (!plan.length) return null;
