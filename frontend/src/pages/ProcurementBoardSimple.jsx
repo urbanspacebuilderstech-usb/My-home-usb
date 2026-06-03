@@ -39,6 +39,9 @@ import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
 import MetaDateFilter from '../components/MetaDateFilter';
+import { UnitSelect } from '../components/UnitSelect';
+
+const MATERIAL_CATEGORIES = ['cement','sand','steel','bricks','aggregate','tiles','electrical','plumbing','paint','wood','hardware','other'];
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
@@ -1550,7 +1553,7 @@ function MaterialVendorsTab() {
 
   const openAddVendor = () => { setEditing(null); setForm({ name: '', contact_person: '', phone: '', email: '', gst_number: '', address: '', category: 'material', payment_terms: 'full', bank_name: '', account_number: '', ifsc_code: '', upi_id: '', materials_supplied: [], is_active: true }); setAddOpen(true); };
   const openEditVendor = (v) => { setEditing({ ...v, _kind: 'vendor' }); setForm({ ...v }); setAddOpen(true); };
-  const openAddMaterial = () => { setEditing({ _kind: 'material_new' }); setForm({ name: '', category: '', unit: '', standard_rate: '', is_active: true }); setAddOpen(true); };
+  const openAddMaterial = () => { setEditing({ _kind: 'material_new' }); setForm({ name: '', category: 'cement', unit: 'bag', description: '', hsn_code: '', standard_rate: '', is_active: true }); setAddOpen(true); };
   const openEditMaterial = (m) => { setEditing({ ...m, _kind: 'material' }); setForm({ ...m }); setAddOpen(true); };
 
   const toggleVendorActive = async (v) => {
@@ -1722,14 +1725,43 @@ function MaterialVendorsTab() {
             </DialogDescription>
           </DialogHeader>
           {(editing?._kind === 'material' || editing?._kind === 'material_new' || (view === 'materials' && !editing)) ? (
-            <div className="space-y-2 text-sm">
-              <div><Label className="text-xs">Name *</Label><Input value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} className="h-8 text-xs" data-testid="vendor-form-name" /></div>
-              <div className="grid grid-cols-2 gap-2">
-                <div><Label className="text-xs">Category</Label><Input value={form.category || ''} onChange={(e) => setForm({ ...form, category: e.target.value })} className="h-8 text-xs" /></div>
-                <div><Label className="text-xs">Unit</Label><Input value={form.unit || ''} onChange={(e) => setForm({ ...form, unit: e.target.value })} className="h-8 text-xs" placeholder="e.g. kg, cft" /></div>
+            <div className="space-y-4 text-sm">
+              <div>
+                <Label>Name *</Label>
+                <Input value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Material name" className="mt-1" data-testid="vendor-form-name" />
               </div>
-              <div><Label className="text-xs">Standard Rate (₹)</Label><Input type="number" min="0" step="any" value={form.standard_rate ?? ''} onChange={(e) => setForm({ ...form, standard_rate: e.target.value })} className="h-8 text-xs" /></div>
-              <label className="flex items-center gap-2 text-xs text-gray-700 mt-2">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Category</Label>
+                  <Select value={form.category || ''} onValueChange={(v) => setForm({ ...form, category: v })}>
+                    <SelectTrigger className="mt-1" data-testid="material-category-select"><SelectValue placeholder="Select category" /></SelectTrigger>
+                    <SelectContent>
+                      {MATERIAL_CATEGORIES.map(c => (
+                        <SelectItem key={c} value={c}>{c.replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase())}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Unit</Label>
+                  <UnitSelect value={form.unit || ''} onChange={(v) => setForm({ ...form, unit: v })} className="mt-1" data-testid="material-unit-select" />
+                </div>
+              </div>
+              <div>
+                <Label>Description</Label>
+                <Input value={form.description || ''} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Optional" className="mt-1" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>HSN Code</Label>
+                  <Input value={form.hsn_code || ''} onChange={(e) => setForm({ ...form, hsn_code: e.target.value })} placeholder="e.g. 2523" className="mt-1" />
+                </div>
+                <div>
+                  <Label>Standard Rate (₹)</Label>
+                  <Input type="number" min="0" step="any" value={form.standard_rate ?? ''} onChange={(e) => setForm({ ...form, standard_rate: e.target.value })} placeholder="Optional" className="mt-1" />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-gray-700">
                 <input type="checkbox" checked={form.is_active !== false} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} /> Active
               </label>
             </div>
