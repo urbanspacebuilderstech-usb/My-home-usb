@@ -3284,14 +3284,13 @@ async def collect_payment_bulk(
 
     # FIFO order: stages first requested by Planning are paid first.
     # Sort key — `requested_at` ascending, fall back to stage_number/sort_order/created_at.
+    # Fetch EVERY pending stage on the project; balance filter below is the
+    # only gate. Restricting by workflow_status='requested' / is_addition=True
+    # caused the picker to surface stages that the backend then rejected as
+    # "not in pending list" (e.g. carry-forward rows with workflow_status set
+    # to something else like "approved" on legacy data).
     stages = await db.payment_stages.find(
-        {
-            "project_id": project_id,
-            "$or": [
-                {"workflow_status": "requested"},
-                {"is_addition": True},
-            ],
-        },
+        {"project_id": project_id},
         {"_id": 0},
     ).sort([("requested_at", 1), ("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(500)
 
@@ -3319,6 +3318,23 @@ async def collect_payment_bulk(
                 s["amount"] = true_total
                 if not (s.get("amount_received") or 0) and true_recv:
                     s["amount_received"] = true_recv
+
+    # Strip vendor / labour / RAB auto-rows — those aren't client income, but
+    # the broadened query above could otherwise let them through.
+    def _is_vendor_or_labour_row(s):
+        cat = (s.get("category") or "").lower()
+        kind = (s.get("kind") or "").lower()
+        if cat in ("labour", "vendor", "material", "expense"):
+            return True
+        if kind in ("labour_rab", "vendor_payment", "material_expense"):
+            return True
+        if s.get("rab_request_id") or s.get("rab_number") or s.get("contractor_id") or s.get("vendor_id"):
+            return True
+        sname = (s.get("stage_name") or "").lower()
+        if sname.startswith("rab-") or sname.startswith("rab "):
+            return True
+        return False
+    stages = [s for s in stages if not _is_vendor_or_labour_row(s)]
 
     # Exclude already-fully-collected stages
     stages = [s for s in stages if (s.get("amount", 0) - s.get("amount_received", 0)) > 0.5]
