@@ -3498,6 +3498,32 @@ async def get_outstanding_stages(
         return False
     stages = [s for s in stages if not _is_vendor_or_labour_row(s)]
 
+    # Heal addition rows whose `amount` is 0/None on the stage (true total
+    # lives in additional_costs: qty × price, income_received tracks partials).
+    # Without this, the picker drops every addition because balance == 0.
+    addition_ids = [s.get("linked_addition_id") for s in stages
+                    if s.get("is_addition") and s.get("linked_addition_id")]
+    cost_map: Dict[str, Dict[str, Any]] = {}
+    if addition_ids:
+        ac_docs = await db.additional_costs.find(
+            {"cost_id": {"$in": addition_ids}},
+            {"_id": 0, "cost_id": 1, "qty": 1, "price": 1, "estimated_amount": 1, "actual_amount": 1, "income_received": 1},
+        ).to_list(2000)
+        cost_map = {c["cost_id"]: c for c in ac_docs}
+    for s in stages:
+        if not s.get("is_addition"):
+            continue
+        cost = cost_map.get(s.get("linked_addition_id"))
+        if not cost:
+            continue
+        true_total = (((cost.get("qty") or 0) * (cost.get("price") or 0))
+                      or cost.get("estimated_amount") or cost.get("actual_amount") or 0)
+        true_recv = cost.get("income_received", 0) or 0
+        if true_total:
+            s["amount"] = true_total
+            if not (s.get("amount_received") or 0) and true_recv:
+                s["amount_received"] = true_recv
+
     # Month scoping helpers (only when month/year provided).
     today = datetime.now(timezone.utc)
     today_m, today_y = today.month, today.year
