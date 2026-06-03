@@ -3561,22 +3561,23 @@ async def get_outstanding_stages(
         if month and year:
             pm, py = _planned_month_year(s)
             if pm is None:
-                # No date info → only include when viewing current month (fallback).
-                if (month, year) != (today_m, today_y):
+                # No planned date → not eligible for any specific month tab.
+                # (Previously we fell back to current month; that surfaced
+                # legacy stages with missing expected_payment_date in every
+                # Jun tab Collect popup, which is not what users want.)
+                continue
+            planned_in_past = (py, pm) < (today_y, today_m)
+            viewing_current = (month, year) == (today_m, today_y)
+            if planned_in_past:
+                # Uncollected past-due rows carry forward into CURRENT month only.
+                if not viewing_current:
                     continue
+                is_carryover = True
+                carry_from_m, carry_from_y = pm, py
             else:
-                planned_in_past = (py, pm) < (today_y, today_m)
-                viewing_current = (month, year) == (today_m, today_y)
-                if planned_in_past:
-                    # Uncollected past-due rows carry forward into CURRENT month only.
-                    if not viewing_current:
-                        continue
-                    is_carryover = True
-                    carry_from_m, carry_from_y = pm, py
-                else:
-                    # Planned in current/future → must match the viewing month.
-                    if (pm, py) != (month, year):
-                        continue
+                # Planned in current/future → must match the viewing month.
+                if (pm, py) != (month, year):
+                    continue
 
         out.append({
             "stage_id": s.get("stage_id"),
