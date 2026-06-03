@@ -98,7 +98,7 @@ async def get_projects(include_deleted: bool = False, planning_person_id: Option
 
     # Batch addition + deduction totals so the project list cards can show the
     # full financial summary (Scope / Additions / Deductions / Grand Total /
-    # Income / Receivable) without extra round-trips.
+    # Income / Receivable / Pending Dues) without extra round-trips.
     all_additions = await db.additional_costs.find(
         {"project_id": {"$in": project_ids}, "kind": {"$ne": "deduction"}},
         {"_id": 0, "project_id": 1, "qty": 1, "price": 1, "estimated_amount": 1, "actual_amount": 1, "income_received": 1},
@@ -107,6 +107,21 @@ async def get_projects(include_deleted: bool = False, planning_person_id: Option
         {"project_id": {"$in": project_ids}, "kind": "deduction"},
         {"_id": 0, "project_id": 1, "amount": 1, "estimated_amount": 1, "actual_amount": 1},
     ).to_list(10000)
+    # Per-project payment stages so we can compute overdue (pending dues).
+    all_stages = await db.payment_stages.find(
+        {"project_id": {"$in": project_ids}},
+        {"_id": 0, "project_id": 1, "amount": 1, "amount_received": 1, "expected_payment_date": 1, "due_date": 1},
+    ).to_list(10000)
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+    pending_dues_by_project: Dict[str, float] = {}
+    for s in all_stages:
+        bal = (s.get("amount", 0) or 0) - (s.get("amount_received", 0) or 0)
+        if bal <= 0.5:
+            continue
+        d = s.get("expected_payment_date") or s.get("due_date")
+        if d and (d if isinstance(d, str) else d.isoformat()) < today_iso:
+            pid = s["project_id"]
+            pending_dues_by_project[pid] = pending_dues_by_project.get(pid, 0) + bal
     additions_by_project: Dict[str, float] = {}
     additions_income_by_project: Dict[str, float] = {}
     for c in all_additions:
@@ -165,6 +180,7 @@ async def get_projects(include_deleted: bool = False, planning_person_id: Option
         # `total_income` mirrors "received from client" across base stages + additions.
         proj["total_income"] = (proj.get("total_received", 0) or 0) + addn_income
         proj["receivable"] = max(0.0, proj["grand_total"] - proj["total_income"])
+        proj["pending_dues"] = pending_dues_by_project.get(proj["project_id"], 0)
     
     return projects
 

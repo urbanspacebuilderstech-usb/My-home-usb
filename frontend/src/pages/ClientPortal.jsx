@@ -301,7 +301,8 @@ export default function ClientPortal() {
               gt: a.gt + (p.grand_total ?? ((p.total_value || 0) + (p.total_additions || 0) - (p.total_deductions || 0))),
               inc: a.inc + (p.total_income ?? p.total_received ?? 0),
               recv: a.recv + (p.receivable ?? 0),
-            }), { scope: 0, add: 0, ded: 0, gt: 0, inc: 0, recv: 0 });
+              dues: a.dues + (p.pending_dues || 0),
+            }), { scope: 0, add: 0, ded: 0, gt: 0, inc: 0, recv: 0, dues: 0 });
             const card = (label, value, color, testid) => (
               <div className={`rounded-lg border p-3 ${color}`} data-testid={testid}>
                 <p className="text-[10px] sm:text-xs uppercase tracking-wide text-gray-500 font-medium">{label}</p>
@@ -309,13 +310,14 @@ export default function ClientPortal() {
               </div>
             );
             return (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 mb-6" data-testid="client-portfolio-summary">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 sm:gap-3 mb-6" data-testid="client-portfolio-summary">
                 {card('Scope Value',  agg.scope, 'bg-blue-50 border-blue-200',     'client-card-scope')}
                 {card('Additions',    agg.add,   'bg-violet-50 border-violet-200', 'client-card-additions')}
                 {card('Deductions',   agg.ded,   'bg-rose-50 border-rose-200',     'client-card-deductions')}
                 {card('Grand Total',  agg.gt,    'bg-amber-50 border-amber-200',   'client-card-grandtotal')}
                 {card('Total Income', agg.inc,   'bg-emerald-50 border-emerald-200','client-card-income')}
                 {card('Receivable',   agg.recv,  'bg-orange-50 border-orange-200', 'client-card-receivable')}
+                {card('Pending Dues', agg.dues,  'bg-red-50 border-red-200',       'client-card-dues')}
               </div>
             );
           })()}
@@ -484,6 +486,15 @@ export default function ClientPortal() {
           const grandTotal = scope + additionsTotal - deductionsTotal;
           const totalIncome = totalReceived + additionsIncome;
           const receivable = Math.max(0, grandTotal - totalIncome);
+          // Pending Dues = stages whose due date is already past and still
+          // outstanding. Uses paymentStages which the client-side already has.
+          const todayIso = new Date().toISOString().slice(0, 10);
+          const pendingDues = (paymentStages || []).reduce((s, st) => {
+            const bal = (st.amount || 0) - (st.amount_received || 0);
+            if (bal <= 0.5) return s;
+            const d = st.expected_payment_date || st.due_date;
+            return d && d < todayIso ? s + bal : s;
+          }, 0);
           const card = (label, value, color, testid) => (
             <div className={`rounded-lg border p-3 ${color}`} data-testid={testid}>
               <p className="text-[10px] sm:text-xs uppercase tracking-wide text-gray-500 font-medium">{label}</p>
@@ -491,13 +502,14 @@ export default function ClientPortal() {
             </div>
           );
           return (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 mb-6" data-testid="client-project-summary">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 sm:gap-3 mb-6" data-testid="client-project-summary">
               {card('Scope Value',  scope,          'bg-blue-50 border-blue-200',     'client-proj-scope')}
               {card('Additions',    additionsTotal, 'bg-violet-50 border-violet-200', 'client-proj-additions')}
               {card('Deductions',   deductionsTotal,'bg-rose-50 border-rose-200',     'client-proj-deductions')}
               {card('Grand Total',  grandTotal,     'bg-amber-50 border-amber-200',   'client-proj-grandtotal')}
               {card('Total Income', totalIncome,    'bg-emerald-50 border-emerald-200','client-proj-income')}
               {card('Receivable',   receivable,     'bg-orange-50 border-orange-200', 'client-proj-receivable')}
+              {card('Pending Dues', pendingDues,    'bg-red-50 border-red-200',       'client-proj-dues')}
             </div>
           );
         })()}
