@@ -3123,6 +3123,7 @@ class MaterialUpdate(BaseModel):
     unit: Optional[str] = None
     description: Optional[str] = None
     hsn_code: Optional[str] = None
+    standard_rate: Optional[float] = None
     is_active: Optional[bool] = None
 
 

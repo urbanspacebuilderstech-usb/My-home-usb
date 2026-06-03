@@ -1500,16 +1500,22 @@ function MaterialVendorsTab() {
   const [search, setSearch] = useState('');
   const [view, setView] = useState('vendors');
   const [dateRange, setDateRange] = useState(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editing, setEditing] = useState(null);  // vendor or material being edited
+  const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true);
     Promise.all([
-      axios.get(`${API}/vendor-master?category=material`).catch(() => ({ data: [] })),
+      axios.get(`${API}/vendor-master?category=material&active_only=false`).catch(() => ({ data: [] })),
       axios.get(`${API}/materials?active_only=false`).catch(() => ({ data: [] })),
     ]).then(([v, m]) => {
       setVendors(v.data?.vendors || v.data || []);
       setMaterials(m.data || []);
     }).finally(() => setLoading(false));
-  }, []);
+  };
+  useEffect(() => { load(); }, []);
 
   const inDate = (item) => {
     if (!dateRange?.from || !dateRange?.to) return true;
@@ -1518,12 +1524,80 @@ function MaterialVendorsTab() {
     const toTs = new Date(dateRange.to + 'T23:59:59').getTime();
     return t >= fromTs && t <= toTs;
   };
+  // Search supports: free text on name/contact/phone AND magic tokens
+  // "active" / "inactive" to filter by status.
+  const matchesSearch = (item, isVendor) => {
+    if (!search) return true;
+    const q = search.toLowerCase().trim();
+    if (q === 'active') return item.is_active !== false;
+    if (q === 'inactive') return item.is_active === false;
+    const haystack = [
+      item.name, item.vendor_name, item.contact_person, item.phone, item.gst_number, item.address,
+      isVendor ? '' : item.category, isVendor ? '' : item.unit,
+    ].filter(Boolean).join(' ').toLowerCase();
+    return haystack.includes(q);
+  };
   const filteredVendors = useMemo(() =>
-    vendors.filter(v => (!search || (v.name || v.vendor_name || '').toLowerCase().includes(search.toLowerCase())) && inDate(v)),
+    vendors.filter(v => matchesSearch(v, true) && inDate(v)),
   [vendors, search, dateRange]); // eslint-disable-line react-hooks/exhaustive-deps
   const filteredMaterials = useMemo(() =>
-    materials.filter(m => (!search || (m.name || '').toLowerCase().includes(search.toLowerCase())) && inDate(m)),
+    materials.filter(m => matchesSearch(m, false) && inDate(m)),
   [materials, search, dateRange]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openAddVendor = () => { setEditing(null); setForm({ name: '', contact_person: '', phone: '', gst_number: '', address: '', category: 'material', is_active: true }); setAddOpen(true); };
+  const openEditVendor = (v) => { setEditing({ ...v, _kind: 'vendor' }); setForm({ ...v }); setAddOpen(true); };
+  const openAddMaterial = () => { setEditing({ _kind: 'material_new' }); setForm({ name: '', category: '', unit: '', standard_rate: '', is_active: true }); setAddOpen(true); };
+  const openEditMaterial = (m) => { setEditing({ ...m, _kind: 'material' }); setForm({ ...m }); setAddOpen(true); };
+
+  const toggleVendorActive = async (v) => {
+    try {
+      await axios.patch(`${API}/vendor-master/${v.vendor_id}`, { is_active: !(v.is_active !== false) });
+      toast.success(`Vendor ${v.is_active === false ? 'activated' : 'deactivated'}`);
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Toggle failed');
+    }
+  };
+  const toggleMaterialActive = async (m) => {
+    try {
+      await axios.patch(`${API}/materials/${m.material_id}`, { is_active: !(m.is_active !== false) });
+      toast.success(`Material ${m.is_active === false ? 'activated' : 'deactivated'}`);
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Toggle failed');
+    }
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const isMaterial = editing?._kind === 'material' || editing?._kind === 'material_new' || view === 'materials';
+      if (isMaterial) {
+        const payload = { ...form };
+        if (payload.standard_rate !== '' && payload.standard_rate != null) payload.standard_rate = parseFloat(payload.standard_rate);
+        if (editing?.material_id) {
+          await axios.patch(`${API}/materials/${editing.material_id}`, payload);
+        } else {
+          await axios.post(`${API}/materials`, payload);
+        }
+        toast.success('Material saved');
+      } else {
+        const payload = { ...form, category: form.category || 'material' };
+        if (editing?.vendor_id) {
+          await axios.patch(`${API}/vendor-master/${editing.vendor_id}`, payload);
+        } else {
+          await axios.post(`${API}/vendor-master`, payload);
+        }
+        toast.success('Vendor saved');
+      }
+      setAddOpen(false);
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-3" data-testid="proc-vendors-tab">
@@ -1531,7 +1605,10 @@ function MaterialVendorsTab() {
         <h1 className="text-lg sm:text-xl font-bold text-gray-900">Material Vendors</h1>
         <div className="flex items-center gap-2 flex-wrap">
           <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset="last_month" />
-          <Input placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 w-full sm:w-64 text-sm" data-testid="proc-vendors-search" />
+          <Input placeholder='Search… (try "active" or "inactive")' value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 w-full sm:w-72 text-sm" data-testid="proc-vendors-search" />
+          <Button size="sm" className="h-8 bg-amber-600 hover:bg-amber-700 text-xs" onClick={view === 'vendors' ? openAddVendor : openAddMaterial} data-testid="proc-vendors-add-btn">
+            + Add {view === 'vendors' ? 'Vendor' : 'Material'}
+          </Button>
         </div>
       </div>
       <div className="flex gap-1 border-b bg-white rounded-t-lg px-2 pt-1">
@@ -1556,18 +1633,31 @@ function MaterialVendorsTab() {
                       <th className="text-left px-3 py-2 font-semibold text-gray-600">Phone</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-600">GST</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-600">Address</th>
+                      <th className="text-center px-3 py-2 font-semibold text-gray-600">Status</th>
+                      <th className="text-right px-3 py-2 font-semibold text-gray-600">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {filteredVendors.map(v => (
+                    {filteredVendors.map(v => {
+                      const isActive = v.is_active !== false;
+                      return (
                       <tr key={v.vendor_id} className="hover:bg-gray-50" data-testid={`proc-vendor-${v.vendor_id}`}>
                         <td className="px-3 py-2 font-medium">{v.name || v.vendor_name}</td>
                         <td className="px-3 py-2 text-gray-700">{v.contact_person || '—'}</td>
                         <td className="px-3 py-2 text-gray-700">{v.phone || '—'}</td>
                         <td className="px-3 py-2 text-gray-700">{v.gst_number || '—'}</td>
                         <td className="px-3 py-2 text-gray-700 max-w-xs truncate">{v.address || '—'}</td>
+                        <td className="px-3 py-2 text-center">
+                          <button onClick={() => toggleVendorActive(v)} className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`} data-testid={`proc-vendor-toggle-${v.vendor_id}`}>
+                            {isActive ? 'Active' : 'Inactive'}
+                          </button>
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <button onClick={() => openEditVendor(v)} className="text-amber-700 hover:underline text-xs" data-testid={`proc-vendor-edit-${v.vendor_id}`}>Edit</button>
+                        </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1582,17 +1672,30 @@ function MaterialVendorsTab() {
                       <th className="text-left px-3 py-2 font-semibold text-gray-600">Category</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-600">Unit</th>
                       <th className="text-right px-3 py-2 font-semibold text-gray-600">Std Rate</th>
+                      <th className="text-center px-3 py-2 font-semibold text-gray-600">Status</th>
+                      <th className="text-right px-3 py-2 font-semibold text-gray-600">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {filteredMaterials.map(m => (
+                    {filteredMaterials.map(m => {
+                      const isActive = m.is_active !== false;
+                      return (
                       <tr key={m.material_id} className="hover:bg-gray-50" data-testid={`proc-material-${m.material_id}`}>
                         <td className="px-3 py-2 font-medium">{m.name}</td>
                         <td className="px-3 py-2 text-gray-700">{m.category || '—'}</td>
                         <td className="px-3 py-2 text-gray-700">{m.unit || '—'}</td>
                         <td className="px-3 py-2 text-right">{m.standard_rate ? fmt(m.standard_rate) : '—'}</td>
+                        <td className="px-3 py-2 text-center">
+                          <button onClick={() => toggleMaterialActive(m)} className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`} data-testid={`proc-material-toggle-${m.material_id}`}>
+                            {isActive ? 'Active' : 'Inactive'}
+                          </button>
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <button onClick={() => openEditMaterial(m)} className="text-amber-700 hover:underline text-xs" data-testid={`proc-material-edit-${m.material_id}`}>Edit</button>
+                        </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1600,6 +1703,49 @@ function MaterialVendorsTab() {
           )}
         </CardContent>
       </Card>
+
+      {/* Add / Edit Vendor or Material dialog */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-w-md" data-testid="proc-vendor-form-dialog">
+          <DialogHeader>
+            <DialogTitle>
+              {(editing?._kind === 'material' || editing?._kind === 'material_new' || (view === 'materials' && !editing)) ? (editing?.material_id ? 'Edit Material' : 'Add Material') : (editing?.vendor_id ? 'Edit Vendor' : 'Add Vendor')}
+            </DialogTitle>
+          </DialogHeader>
+          {(editing?._kind === 'material' || editing?._kind === 'material_new' || (view === 'materials' && !editing)) ? (
+            <div className="space-y-2 text-sm">
+              <div><Label className="text-xs">Name *</Label><Input value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} className="h-8 text-xs" data-testid="vendor-form-name" /></div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><Label className="text-xs">Category</Label><Input value={form.category || ''} onChange={(e) => setForm({ ...form, category: e.target.value })} className="h-8 text-xs" /></div>
+                <div><Label className="text-xs">Unit</Label><Input value={form.unit || ''} onChange={(e) => setForm({ ...form, unit: e.target.value })} className="h-8 text-xs" placeholder="e.g. kg, cft" /></div>
+              </div>
+              <div><Label className="text-xs">Standard Rate (₹)</Label><Input type="number" min="0" step="any" value={form.standard_rate ?? ''} onChange={(e) => setForm({ ...form, standard_rate: e.target.value })} className="h-8 text-xs" /></div>
+              <label className="flex items-center gap-2 text-xs text-gray-700 mt-2">
+                <input type="checkbox" checked={form.is_active !== false} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} /> Active
+              </label>
+            </div>
+          ) : (
+            <div className="space-y-2 text-sm">
+              <div><Label className="text-xs">Vendor Name *</Label><Input value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} className="h-8 text-xs" data-testid="vendor-form-name" /></div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><Label className="text-xs">Contact Person</Label><Input value={form.contact_person || ''} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} className="h-8 text-xs" /></div>
+                <div><Label className="text-xs">Phone</Label><Input value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="h-8 text-xs" /></div>
+              </div>
+              <div><Label className="text-xs">GST Number</Label><Input value={form.gst_number || ''} onChange={(e) => setForm({ ...form, gst_number: e.target.value })} className="h-8 text-xs" /></div>
+              <div><Label className="text-xs">Address</Label><Input value={form.address || ''} onChange={(e) => setForm({ ...form, address: e.target.value })} className="h-8 text-xs" /></div>
+              <label className="flex items-center gap-2 text-xs text-gray-700 mt-2">
+                <input type="checkbox" checked={form.is_active !== false} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} /> Active
+              </label>
+            </div>
+          )}
+          <DialogFooter>
+            <Button size="sm" variant="ghost" onClick={() => setAddOpen(false)}>Cancel</Button>
+            <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={save} disabled={saving || !form.name} data-testid="vendor-form-save-btn">
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
