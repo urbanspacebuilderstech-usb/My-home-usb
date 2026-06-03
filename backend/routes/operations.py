@@ -2163,11 +2163,13 @@ async def get_monthly_schedule(
             virtual_suffix = "_collected"
             row_stage_status = "collected"
         elif virtual_kind == "balance_portion":
-            # The follow-up row pinned to the planned/carry month — shows ONLY
-            # the outstanding balance so the Pending list stays clean.
-            disp_amount = m.get("virtual_amount", 0)
-            disp_received = 0
-            disp_balance = m.get("virtual_balance", 0)
+            # Carry-forward row — show the FULL stage picture (original amount,
+            # actual received so far, and remaining balance) so users can see
+            # how much of the original stage has already been paid. Previously
+            # the row showed only the balance which obscured partial history.
+            disp_amount = stage.get("amount", 0)
+            disp_received = stage.get("amount_received", 0) or 0
+            disp_balance = max(0, disp_amount - disp_received)
             virtual_suffix = "_balance"
             row_stage_status = stage.get("status") if stage.get("status") not in ("paid", "collected") else "pending"
         else:
