@@ -95,6 +95,30 @@ async def get_projects(include_deleted: bool = False, planning_person_id: Option
     all_expenses = await db.expenses.find(
         {"project_id": {"$in": project_ids}}, {"_id": 0}
     ).to_list(10000)
+
+    # Batch addition + deduction totals so the project list cards can show the
+    # full financial summary (Scope / Additions / Deductions / Grand Total /
+    # Income / Receivable) without extra round-trips.
+    all_additions = await db.additional_costs.find(
+        {"project_id": {"$in": project_ids}, "kind": {"$ne": "deduction"}},
+        {"_id": 0, "project_id": 1, "qty": 1, "price": 1, "estimated_amount": 1, "actual_amount": 1, "income_received": 1},
+    ).to_list(10000)
+    all_deductions_explicit = await db.additional_costs.find(
+        {"project_id": {"$in": project_ids}, "kind": "deduction"},
+        {"_id": 0, "project_id": 1, "amount": 1, "estimated_amount": 1, "actual_amount": 1},
+    ).to_list(10000)
+    additions_by_project: Dict[str, float] = {}
+    additions_income_by_project: Dict[str, float] = {}
+    for c in all_additions:
+        pid = c["project_id"]
+        amt = ((c.get("qty") or 0) * (c.get("price") or 0)) or c.get("estimated_amount") or c.get("actual_amount") or 0
+        additions_by_project[pid] = additions_by_project.get(pid, 0) + (amt or 0)
+        additions_income_by_project[pid] = additions_income_by_project.get(pid, 0) + (c.get("income_received") or 0)
+    deductions_by_project: Dict[str, float] = {}
+    for d in all_deductions_explicit:
+        pid = d["project_id"]
+        amt = d.get("amount") or d.get("estimated_amount") or d.get("actual_amount") or 0
+        deductions_by_project[pid] = deductions_by_project.get(pid, 0) + (amt or 0)
     
     # Group payment stages and expenses by project_id
     stages_by_project = {}
@@ -131,6 +155,16 @@ async def get_projects(include_deleted: bool = False, planning_person_id: Option
         
         # Calculate balance = total_value - total_spent  (or total_received - total_spent for cash flow)
         proj["balance"] = proj.get("total_value", 0) - proj["total_spent"]
+
+        # Financial summary fields (used by the Client Portal aggregate cards
+        # and the Project Detail Financial Performance widget).
+        proj["total_additions"] = additions_by_project.get(proj["project_id"], 0)
+        proj["total_deductions"] = deductions_by_project.get(proj["project_id"], 0)
+        addn_income = additions_income_by_project.get(proj["project_id"], 0)
+        proj["grand_total"] = (proj.get("total_value", 0) or 0) + proj["total_additions"] - proj["total_deductions"]
+        # `total_income` mirrors "received from client" across base stages + additions.
+        proj["total_income"] = (proj.get("total_received", 0) or 0) + addn_income
+        proj["receivable"] = max(0.0, proj["grand_total"] - proj["total_income"])
     
     return projects
 
