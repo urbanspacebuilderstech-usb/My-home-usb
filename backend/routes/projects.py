@@ -3294,6 +3294,32 @@ async def collect_payment_bulk(
         },
         {"_id": 0},
     ).sort([("requested_at", 1), ("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(500)
+
+    # Heal addition rows whose `amount` is 0/None on the stage — true total
+    # lives in additional_costs. Without this, the balance filter below drops
+    # every addition and bulk-collect errors with "stage not in pending list".
+    addition_ids = [s.get("linked_addition_id") for s in stages
+                    if s.get("is_addition") and s.get("linked_addition_id")]
+    if addition_ids:
+        ac_docs = await db.additional_costs.find(
+            {"cost_id": {"$in": addition_ids}},
+            {"_id": 0, "cost_id": 1, "qty": 1, "price": 1, "estimated_amount": 1, "actual_amount": 1, "income_received": 1},
+        ).to_list(2000)
+        cost_map = {c["cost_id"]: c for c in ac_docs}
+        for s in stages:
+            if not s.get("is_addition"):
+                continue
+            cost = cost_map.get(s.get("linked_addition_id"))
+            if not cost:
+                continue
+            true_total = (((cost.get("qty") or 0) * (cost.get("price") or 0))
+                          or cost.get("estimated_amount") or cost.get("actual_amount") or 0)
+            true_recv = cost.get("income_received", 0) or 0
+            if true_total:
+                s["amount"] = true_total
+                if not (s.get("amount_received") or 0) and true_recv:
+                    s["amount_received"] = true_recv
+
     # Exclude already-fully-collected stages
     stages = [s for s in stages if (s.get("amount", 0) - s.get("amount_received", 0)) > 0.5]
     if not stages:
