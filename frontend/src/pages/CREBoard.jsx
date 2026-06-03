@@ -609,18 +609,29 @@ export default function CREBoard() {
     // Always include every input stage in the result so the preview lists
     // exactly the stages the CRE picked. Stages that don't receive money get
     // allocated=0 and post_balance unchanged.
+    //
+    // post_balance is SIGNED so the UI can show:
+    //   negative → still owing (Pending - Allocated)
+    //   zero     → exact match
+    //   positive → excess (more allocated than pending; spills to next stage)
     const result = stages.map(s => {
       if (remaining <= 0.5) {
-        return { ...s, allocated: 0, post_balance: s.balance };
+        return { ...s, allocated: 0, post_balance: -s.balance, signed_remaining: -s.balance };
       }
       const take = Math.min(remaining, s.balance);
       remaining -= take;
-      return { ...s, allocated: take, post_balance: Math.max(0, s.balance - take) };
+      const owed = s.balance - take; // >= 0
+      // For zero-amount-but-selected stages and partial fills, show negative (still owing).
+      return { ...s, allocated: take, post_balance: -owed, signed_remaining: -owed };
     });
     if (remaining > 0.5 && result.length) {
-      // Excess — credit to the last stage (over-collected)
-      result[result.length - 1].allocated += remaining;
-      result[result.length - 1].excess = remaining;
+      // Excess — credit to the LAST stage (last-clicked) and show positive
+      // remaining so the user sees "₹+X carried over / over-collected".
+      const last = result[result.length - 1];
+      last.allocated += remaining;
+      last.excess = remaining;
+      last.post_balance = remaining;          // positive
+      last.signed_remaining = remaining;
     }
     return result;
   };
@@ -1915,12 +1926,18 @@ export default function CREBoard() {
                               </td>
                               <td className="px-2 py-1.5 text-right text-red-600">{formatCurrency(p.balance)}</td>
                               <td className="px-2 py-1.5 text-right font-semibold text-green-700">{formatCurrency(p.allocated)}</td>
-                              <td className="px-2 py-1.5 text-right text-gray-700">{formatCurrency(p.post_balance || 0)}</td>
+                              <td className={`px-2 py-1.5 text-right font-semibold ${p.signed_remaining < 0 ? 'text-red-600' : p.signed_remaining > 0 ? 'text-emerald-600' : 'text-gray-700'}`}>
+                                {p.signed_remaining > 0 ? '+' : ''}{formatCurrency(p.signed_remaining)}
+                              </td>
                               <td className="px-2 py-1.5 text-center">
-                                {p.post_balance === 0 ? (
+                                {p.signed_remaining === 0 ? (
                                   <span className="px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px]">Collected</span>
-                                ) : (
+                                ) : p.signed_remaining > 0 ? (
+                                  <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px]">Excess</span>
+                                ) : p.allocated > 0 ? (
                                   <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px]">Partial</span>
+                                ) : (
+                                  <span className="px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 text-[10px]">Pending</span>
                                 )}
                               </td>
                             </tr>
