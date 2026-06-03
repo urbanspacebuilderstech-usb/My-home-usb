@@ -2690,6 +2690,19 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
     notes = (body.get("notes") or "").strip()
     now = datetime.now(timezone.utc).isoformat()
 
+    # Procurement may correct the SE-reported Received Qty before forwarding
+    # to Accountant. When supplied, recompute total/balance using unit_price.
+    received_qty_override = body.get("received_quantity")
+    if received_qty_override is not None and received_qty_override != "":
+        try:
+            received_qty_override = float(received_qty_override)
+            if received_qty_override < 0:
+                raise ValueError("negative")
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid received_quantity")
+    else:
+        received_qty_override = None
+
     next_status = req.get("pending_next_status") or "pending_accounts_approval"
     extras = req.get("pending_next_extra") or {}
     update = {
@@ -2705,11 +2718,31 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
         "pending_next_status": None,
         "pending_next_extra": None,
     }
+
+    # Apply received-qty correction (with audit) and re-derive total/balance.
+    if received_qty_override is not None and received_qty_override != (req.get("received_quantity") or 0):
+        unit_price = float(req.get("unit_price") or req.get("unit_rate") or 0)
+        new_total = round(received_qty_override * unit_price, 2)
+        advance_paid = float(req.get("advance_paid_amount") or 0)
+        new_balance = max(0.0, new_total - advance_paid)
+        update.update({
+            "received_quantity": received_qty_override,
+            "procurement_corrected_qty": True,
+            "procurement_original_received_qty": req.get("received_quantity"),
+            "total_amount": new_total,
+            "estimated_price": new_total,
+            "estimated_cost": new_total,
+            "balance_amount": new_balance,
+        })
     if isinstance(extras, dict):
         for k, v in extras.items():
             update[k] = v
 
     await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
+
+    # Build a freshly-merged view so the mirror below picks up any qty/total
+    # correction the Procurement just applied.
+    merged = {**req, **update}
 
     # Mirror to `material_expenses` so the legacy Accountant Approvals UI + pay
     # endpoints (which read from that collection) can process this request without
@@ -2717,9 +2750,9 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
     if next_status in ("pending_accounts_approval", "pending_balance_payment"):
         try:
             phase = "balance" if next_status == "pending_balance_payment" else "full"
-            amount = float(req.get("total_amount") or req.get("estimated_price") or 0)
+            amount = float(merged.get("total_amount") or merged.get("estimated_price") or 0)
             if phase == "balance":
-                amount = float(req.get("balance_amount") or amount)
+                amount = float(merged.get("balance_amount") or amount)
             existing_exp = await db.material_expenses.find_one(
                 {"$or": [
                     {"expense_id": req.get("expense_id")},
@@ -2750,7 +2783,7 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
                     "project_id": req.get("project_id"),
                     "project_name": req.get("project_name"),
                     "material_name": req.get("material_name"),
-                    "quantity": req.get("approved_quantity") or req.get("quantity"),
+                    "quantity": merged.get("received_quantity") or merged.get("approved_quantity") or merged.get("quantity"),
                     "unit": req.get("unit"),
                     "unit_price": req.get("unit_price") or req.get("unit_rate"),
                     "vendor_id": req.get("vendor_id"),
