@@ -1753,7 +1753,10 @@ export default function CREBoard() {
 
       {/* ==================== COLLECT PAYMENT DIALOG ==================== */}
       <Dialog open={collectDialog} onOpenChange={setCollectDialog}>
-        <DialogContent className="max-w-xl">
+        {/* Width auto-fits the longest pending-stage row but caps at 4xl so
+            the dialog never overflows on smaller laptops. Height is capped at
+            90vh with vertical scroll so the action footer is always reachable. */}
+        <DialogContent className="w-[min(95vw,56rem)] max-w-[56rem] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><IndianRupee className="h-5 w-5 text-green-600" />Collect Payment</DialogTitle>
             <DialogDescription>{selectedPaymentStage?.project_name} - {selectedPaymentStage?.stage_name}</DialogDescription>
@@ -1858,7 +1861,7 @@ export default function CREBoard() {
                         />
                         <span className="flex-1 text-xs flex items-center gap-1.5 min-w-0">
                           {s.is_addition && <Badge variant="outline" className="text-[9px] bg-violet-50 text-violet-700 border-violet-200 px-1 py-0">ADD</Badge>}
-                          <span className="truncate">{s.stage_name}</span>
+                          <span className="break-words leading-snug">{s.stage_name}</span>
                           {isPinned && <Badge variant="outline" className="text-[9px] bg-amber-50 text-amber-700 border-amber-200 px-1 py-0">DEFAULT</Badge>}
                         </span>
                         <span className="text-xs font-semibold text-red-600 shrink-0">{formatCurrency(s.balance)}</span>
