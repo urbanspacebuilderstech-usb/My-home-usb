@@ -3649,27 +3649,14 @@ function ApprovalsTab() {
         {/* Material Approvals */}
         <TabsContent value="materials">
           {/* Procurement → Planning → Accountant material payments (full / advance / balance).
-              Mounts a lightweight queue separate from the legacy material_expenses approvals below. */}
+              Uses the unified PayApprovalDialog with cheque suspense + CRE-opened cheque picker. */}
           <div className="mb-3" data-testid="approvals-procurement-materials">
-            <AccountantMaterialPayments />
+            <AccountantMaterialPayments onRefresh={() => fetchApprovals(false)} />
           </div>
           {/* Vendor credit ledger settlements awaiting accountant release */}
           <div className="mb-3" data-testid="approvals-credit-settlements">
             <AccountantCreditSettlements />
           </div>
-          <ApprovalExpenseTable
-            items={filteredMaterials}
-            type="material"
-            idField="expense_id"
-            amountField="estimated_cost"
-            altAmountField="final_amount"
-            descField="material_name"
-            processing={processing}
-            getApprovalAction={getApprovalAction}
-            onApprove={handleApproveExpense}
-            onReject={(id) => setRejectDialog({ open: true, type: 'material', id, reason: '' })}
-            onPay={(id) => setPayDialog({ open: true, reqType: 'material', requestId: id })}
-          />
         </TabsContent>
 
         {/* Labour Approvals */}
