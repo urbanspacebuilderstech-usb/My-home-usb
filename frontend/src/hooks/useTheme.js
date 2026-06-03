@@ -15,10 +15,10 @@ function readInitial() {
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
     if (saved === 'dark' || saved === 'light') return saved;
-    // Fall back to system preference on first load.
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      return 'dark';
-    }
+    // No saved preference → DEFAULT to Light Mode. We deliberately ignore the
+    // OS-level `prefers-color-scheme: dark` because most users open the CRM
+    // during business hours and expect the familiar light palette on first
+    // login. The header toggle still lets anyone switch + persist their pick.
   } catch {
     /* localStorage may be blocked in private mode */
   }

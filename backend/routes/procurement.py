@@ -2690,8 +2690,8 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
     notes = (body.get("notes") or "").strip()
     now = datetime.now(timezone.utc).isoformat()
 
-    # Procurement may correct the SE-reported Received Qty before forwarding
-    # to Accountant. When supplied, recompute total/balance using unit_price.
+    # Procurement may correct the SE-reported Received Qty AND/OR Unit Price
+    # before forwarding to Accountant. When supplied, recompute total/balance.
     received_qty_override = body.get("received_quantity")
     if received_qty_override is not None and received_qty_override != "":
         try:
@@ -2702,6 +2702,17 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
             raise HTTPException(status_code=400, detail="Invalid received_quantity")
     else:
         received_qty_override = None
+
+    unit_price_override = body.get("unit_price")
+    if unit_price_override is not None and unit_price_override != "":
+        try:
+            unit_price_override = float(unit_price_override)
+            if unit_price_override < 0:
+                raise ValueError("negative")
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid unit_price")
+    else:
+        unit_price_override = None
 
     next_status = req.get("pending_next_status") or "pending_accounts_approval"
     extras = req.get("pending_next_extra") or {}
@@ -2719,16 +2730,25 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
         "pending_next_extra": None,
     }
 
-    # Apply received-qty correction (with audit) and re-derive total/balance.
-    if received_qty_override is not None and received_qty_override != (req.get("received_quantity") or 0):
-        unit_price = float(req.get("unit_price") or req.get("unit_rate") or 0)
-        new_total = round(received_qty_override * unit_price, 2)
+    # Apply received-qty AND/OR unit-price correction (with audit) and
+    # re-derive total/balance. Effective values fall back to the existing
+    # request fields when a particular override isn't supplied.
+    qty_changed = received_qty_override is not None and received_qty_override != (req.get("received_quantity") or 0)
+    price_changed = unit_price_override is not None and unit_price_override != float(req.get("unit_price") or req.get("unit_rate") or 0)
+    if qty_changed or price_changed:
+        eff_qty = received_qty_override if received_qty_override is not None else float(req.get("received_quantity") or req.get("approved_quantity") or req.get("quantity") or 0)
+        eff_unit = unit_price_override if unit_price_override is not None else float(req.get("unit_price") or req.get("unit_rate") or 0)
+        new_total = round(eff_qty * eff_unit, 2)
         advance_paid = float(req.get("advance_paid_amount") or 0)
         new_balance = max(0.0, new_total - advance_paid)
         update.update({
-            "received_quantity": received_qty_override,
-            "procurement_corrected_qty": True,
+            "received_quantity": eff_qty,
+            "unit_price": eff_unit,
+            "unit_rate": eff_unit,
+            "procurement_corrected_qty": qty_changed,
+            "procurement_corrected_price": price_changed,
             "procurement_original_received_qty": req.get("received_quantity"),
+            "procurement_original_unit_price": req.get("unit_price") or req.get("unit_rate"),
             "total_amount": new_total,
             "estimated_price": new_total,
             "estimated_cost": new_total,
@@ -3540,4 +3560,3 @@ async def procurement_simple_credit_settle(ledger_id: str, data: dict, user: Use
             {"$set": {"paid_amount": entry.get("amount", 0), "balance_amount": 0, "credit_settled_at": now}},
         )
     return {"message": "Credit settled", "expense_id": expense_id}
-

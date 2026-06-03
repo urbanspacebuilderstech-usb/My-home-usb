@@ -126,7 +126,7 @@ function RequestsTab({ dateRange }) {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(null);
   const [rejectDialog, setRejectDialog] = useState({ open: false, req: null, reason: '' });
-  const [verifyDialog, setVerifyDialog] = useState({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '', received_qty_override: '' });
+  const [verifyDialog, setVerifyDialog] = useState({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '', received_qty_override: '', unit_price_override: '' });
   const [submitting, setSubmitting] = useState(false);
 
   const fetchAll = useCallback(async () => {
@@ -242,10 +242,13 @@ function RequestsTab({ dateRange }) {
         if (verifyDialog.received_qty_override !== '' && !isNaN(parseFloat(verifyDialog.received_qty_override))) {
           body.received_quantity = parseFloat(verifyDialog.received_qty_override);
         }
+        if (verifyDialog.unit_price_override !== '' && !isNaN(parseFloat(verifyDialog.unit_price_override))) {
+          body.unit_price = parseFloat(verifyDialog.unit_price_override);
+        }
         await axios.post(`${API}/procurement-simple/material-requests/${req.request_id}/verify-approve`, body);
         toast.success('Delivery verified — sent to Accountant');
       }
-      setVerifyDialog({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '', received_qty_override: '' });
+      setVerifyDialog({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '', received_qty_override: '', unit_price_override: '' });
       fetchAll();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Verification failed');
@@ -365,7 +368,7 @@ function RequestsTab({ dateRange }) {
       </Dialog>
 
       {/* Verify-Delivery Dialog */}
-      <Dialog open={verifyDialog.open} onOpenChange={(o) => !o && setVerifyDialog({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '', received_qty_override: '' })}>
+      <Dialog open={verifyDialog.open} onOpenChange={(o) => !o && setVerifyDialog({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '', received_qty_override: '', unit_price_override: '' })}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="proc-verify-dialog">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-fuchsia-700">
@@ -378,15 +381,26 @@ function RequestsTab({ dateRange }) {
 
           {verifyDialog.req && (
             <div className="space-y-3 text-sm">
-              {/* Quick summary — Received Qty is editable so Procurement can
-                  correct the SE's reported delivery and Total auto-updates. */}
+              {/* Quick summary — Received Qty AND Unit Price are editable so
+                  Procurement can correct either before forwarding to Accountant.
+                  Total auto-updates from received_qty × unit_price. */}
               {(() => {
-                const unitPrice = Number(verifyDialog.req.unit_price || verifyDialog.req.unit_rate || 0);
+                const baselineUnit = Number(verifyDialog.req.unit_price || verifyDialog.req.unit_rate || 0);
+                const effectiveUnit = verifyDialog.unit_price_override !== '' && !isNaN(parseFloat(verifyDialog.unit_price_override))
+                  ? parseFloat(verifyDialog.unit_price_override)
+                  : baselineUnit;
                 const baselineRecv = Number(verifyDialog.req.received_quantity ?? (verifyDialog.req.approved_quantity || verifyDialog.req.quantity) ?? 0);
                 const effectiveRecv = verifyDialog.received_qty_override !== '' && !isNaN(parseFloat(verifyDialog.received_qty_override))
                   ? parseFloat(verifyDialog.received_qty_override)
                   : baselineRecv;
-                const liveTotal = effectiveRecv * unitPrice;
+                const liveTotal = effectiveRecv * effectiveUnit;
+                // Pre-fill input value so the field never appears empty.
+                const recvValue = verifyDialog.received_qty_override !== ''
+                  ? verifyDialog.received_qty_override
+                  : (baselineRecv || '');
+                const unitValue = verifyDialog.unit_price_override !== ''
+                  ? verifyDialog.unit_price_override
+                  : (baselineUnit || '');
                 return (
                   <div className="grid grid-cols-2 gap-2 bg-gray-50 border rounded p-2 text-xs">
                     <div><span className="text-gray-500">Ordered Qty:</span> <strong>{verifyDialog.req.approved_quantity || verifyDialog.req.quantity} {verifyDialog.req.unit || ''}</strong></div>
@@ -396,14 +410,26 @@ function RequestsTab({ dateRange }) {
                         type="number"
                         min="0"
                         step="any"
-                        value={verifyDialog.received_qty_override !== '' ? verifyDialog.received_qty_override : (verifyDialog.req.received_quantity ?? '')}
+                        value={recvValue}
                         onChange={(e) => setVerifyDialog({ ...verifyDialog, received_qty_override: e.target.value })}
                         className="h-6 text-xs px-1 py-0 w-20"
                         data-testid="verify-received-qty-input"
                       />
                       <span className="text-gray-700">{verifyDialog.req.unit || ''}</span>
                     </div>
-                    <div><span className="text-gray-500">Unit Price:</span> <strong>{fmt(unitPrice)}</strong></div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-gray-500 whitespace-nowrap">Unit Price:</span>
+                      <span className="text-gray-700">₹</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={unitValue}
+                        onChange={(e) => setVerifyDialog({ ...verifyDialog, unit_price_override: e.target.value })}
+                        className="h-6 text-xs px-1 py-0 w-24"
+                        data-testid="verify-unit-price-input"
+                      />
+                    </div>
                     <div><span className="text-gray-500">Total:</span> <strong className="text-fuchsia-700" data-testid="verify-live-total">{fmt(liveTotal)}</strong></div>
                     <div className="col-span-2"><span className="text-gray-500">Payment Mode:</span> <strong>{verifyDialog.req.payment_mode || '—'}</strong></div>
                   </div>
