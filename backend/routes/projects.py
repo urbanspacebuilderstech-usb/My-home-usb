@@ -3554,11 +3554,11 @@ async def get_outstanding_stages(
 
         is_carryover = False
         carry_from_m, carry_from_y = None, None
-        # Additions are project-level extras that the CRE often collects
-        # alongside whichever stage triggered the popup — they should appear
-        # in the picker regardless of which month tab is being viewed.
         is_addition = bool(s.get("is_addition"))
-        if month and year and not is_addition:
+        # All rows (regular stages AND additions) are scoped to the viewing
+        # month tab when month/year is provided. Carry-forward rule: past-due
+        # uncollected rows surface in the CURRENT calendar month only.
+        if month and year:
             pm, py = _planned_month_year(s)
             if pm is None:
                 # No date info → only include when viewing current month (fallback).
