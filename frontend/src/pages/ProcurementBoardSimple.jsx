@@ -237,13 +237,19 @@ function RequestsTab({ dateRange }) {
           price_match: verifyDialog.price_match,
           notes: verifyDialog.notes,
         };
-        // Procurement may correct the SE-reported Received Qty before forwarding
-        // to Accountant. Pass it through so backend recomputes balance amounts.
-        if (verifyDialog.received_qty_override !== '' && !isNaN(parseFloat(verifyDialog.received_qty_override))) {
-          body.received_quantity = parseFloat(verifyDialog.received_qty_override);
+        // Procurement may correct the SE-reported Received Qty / Unit Price
+        // before forwarding to Accountant. Only push the override if it's an
+        // actual change vs the current request — avoids logging a "correction"
+        // when the user just confirmed the defaults.
+        const overrideRecv = parseFloat(verifyDialog.received_qty_override);
+        const overrideUnit = parseFloat(verifyDialog.unit_price_override);
+        const reqRecv = Number(req.received_quantity || 0);
+        const reqUnit = Number(req.unit_price || req.unit_rate || 0);
+        if (!isNaN(overrideRecv) && overrideRecv !== reqRecv) {
+          body.received_quantity = overrideRecv;
         }
-        if (verifyDialog.unit_price_override !== '' && !isNaN(parseFloat(verifyDialog.unit_price_override))) {
-          body.unit_price = parseFloat(verifyDialog.unit_price_override);
+        if (!isNaN(overrideUnit) && overrideUnit !== reqUnit) {
+          body.unit_price = overrideUnit;
         }
         await axios.post(`${API}/procurement-simple/material-requests/${req.request_id}/verify-approve`, body);
         toast.success('Delivery verified — sent to Accountant');
@@ -258,7 +264,27 @@ function RequestsTab({ dateRange }) {
   // Card click handler — open the right dialog based on status
   const openCard = (r) => {
     if ((r.status || '').toLowerCase() === 'procurement_verifying') {
-      setVerifyDialog({ open: true, req: r, invoice_no: r.procurement_verify_invoice_no || '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '' });
+      // Compute fallback defaults so the inputs ALWAYS start with a value the
+      // user can simply confirm — no more empty Received Qty / Unit Price.
+      const orderedQty = Number(r.approved_quantity || r.quantity || 0);
+      const totalFromReq = Number(r.total_amount || r.estimated_price || r.estimated_cost || 0);
+      const derivedUnit = orderedQty > 0 ? (totalFromReq / orderedQty) : 0;
+      let dfltUnit = Number(r.unit_price || r.unit_rate || 0);
+      if (!dfltUnit && derivedUnit) dfltUnit = derivedUnit;
+      const seReported = Number(r.received_quantity || 0);
+      const dfltRecv = seReported > 0 ? seReported : orderedQty;
+      setVerifyDialog({
+        open: true,
+        req: r,
+        invoice_no: r.procurement_verify_invoice_no || '',
+        notes: '',
+        qty_match: true,
+        price_match: true,
+        reject_mode: false,
+        reject_reason: '',
+        received_qty_override: dfltRecv ? String(dfltRecv) : '',
+        unit_price_override: dfltUnit ? String(Number(dfltUnit.toFixed(2))) : '',
+      });
     } else {
       setOpen(r);
     }
