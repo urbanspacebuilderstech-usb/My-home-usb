@@ -3156,7 +3156,7 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
         raise HTTPException(status_code=403, detail="Permission denied")
     rows = await db.material_requests.find(
         {"$or": [
-            {"status": {"$in": ["pending_accounts_approval", "pending_balance_payment"]}},
+            {"status": {"$in": ["pending_accounts_approval", "pending_balance_payment", "partially_paid"]}},
             {"cheque_bounced": True},
         ]},
         {"_id": 0},

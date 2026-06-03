@@ -116,7 +116,9 @@ def test_cheque_suspense_overpay_then_consume_next_expense():
         }, timeout=20)
         assert r.status_code == 200, r.text
         result = r.json()
-        assert result["paid_amount"] == 100000
+        # paid_amount = effective amount applied to the bill (= payable)
+        # new_suspense_credit = cheque excess credited to vendor
+        assert result["paid_amount"] == 90000
         assert result["new_suspense_credit"] == 10000
         assert result["credit_used"] == 0
         assert result["payable"] == 90000

@@ -4504,11 +4504,21 @@ class PaymentDenomination(BaseModel):
     note: int
     count: int
 
-class PayApprovalRequest(BaseModel):
-    payment_method: str  # cash / current_account / savings / cheque
+class PaymentLeg(BaseModel):
+    method: str  # cash / current_account / savings / cheque
+    amount: float
     transaction_id: Optional[str] = None
-    cheque_id: Optional[str] = None  # legacy single cheque
-    cheque_ids: Optional[List[str]] = None  # multi-cheque selection
+    cheque_ids: Optional[List[str]] = None
+    denominations: Optional[List[PaymentDenomination]] = None
+
+class PayApprovalRequest(BaseModel):
+    # New multi-leg path (preferred): a single request can split across cheque + cash + bank
+    payment_legs: Optional[List[PaymentLeg]] = None
+    # Legacy single-leg fields (still supported for backward compatibility)
+    payment_method: Optional[str] = None
+    transaction_id: Optional[str] = None
+    cheque_id: Optional[str] = None
+    cheque_ids: Optional[List[str]] = None
     denominations: Optional[List[PaymentDenomination]] = None
     remarks: Optional[str] = None
 
@@ -4604,6 +4614,16 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
     payable = max(0.0, bill_amount - existing_suspense)
     credit_used = min(existing_suspense, bill_amount)
 
+    # Partial payment continuation — if the request already has paid_amount from
+    # a prior partial settlement, the remaining payable shrinks accordingly and
+    # suspense was already consumed in the first call.
+    already_paid = float(req.get("paid_amount") or 0)
+    is_continuation = already_paid > 0 and req.get("status") == "partially_paid"
+    if is_continuation:
+        # Suspense was already credited; do not double-apply.
+        credit_used = 0.0
+        payable = max(0.0, bill_amount - already_paid)
+
     return {
         "request": {
             "id": request_id,
@@ -4612,11 +4632,13 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
             "project_id": project_id,
             "project_name": project_name,
             "bill_amount": bill_amount,
+            "already_paid": already_paid,
+            "is_continuation": is_continuation,
             "description": req.get("material_name") or req.get("labour_type") or req.get("description") or "",
             "current_status": req.get("status"),
         },
         "suspense": {
-            "vendor_balance": existing_suspense,
+            "vendor_balance": existing_suspense if not is_continuation else 0.0,
             "credit_to_apply": credit_used,
         },
         "payable_after_suspense": payable,
@@ -4627,7 +4649,15 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
 
 @router.post("/approvals/{req_type}/{request_id}/pay")
 async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest, user: User = Depends(get_current_user)):
-    """Process payment for an expense approval (material/labour/petty_cash)."""
+    """Process payment for an expense approval (material/labour/petty_cash).
+
+    Supports both single-method (legacy) and multi-leg payments.  When
+    `payment_legs` is supplied the accountant can mix cheque + cash + bank in
+    one call.  Partial payments are allowed: if the total paid across all
+    legs is less than the payable, the request stays in the queue with
+    status='partially_paid' and `paid_amount` accumulates.  Excess (only from
+    cheque legs — cash/bank legs must be exact) flows to vendor suspense.
+    """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
@@ -4641,125 +4671,189 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     bill_amount = float(amount_fn(req) or 0)
     vendor_name = vendor_fn(req)
     project_id = req.get("project_id")
+    already_paid = float(req.get("paid_amount") or 0)
+    is_continuation = already_paid > 0 and req.get("status") == "partially_paid"
 
-    # 1. Existing suspense balance (auto-apply)
-    suspense_query = {"type": suspense_type}
-    if suspense_type == "material":
-        suspense_query["vendor_name"] = vendor_name
-    elif suspense_type == "labour":
-        suspense_query["contractor_name"] = vendor_name
-    else:  # petty_cash — keyed by Site Engineer (requested_by)
-        se_id = req.get("requested_by") or req.get("site_engineer_id")
-        if se_id:
-            suspense_query["site_engineer_id"] = se_id
-        else:
+    # 1. Existing suspense balance — only auto-apply on the FIRST payment call.
+    # On continuation (partial) payments, the original suspense was already
+    # consumed during the first call so we don't re-apply.
+    existing_suspense = 0.0
+    credit_used = 0.0
+    if not is_continuation:
+        suspense_query = {"type": suspense_type}
+        if suspense_type == "material":
             suspense_query["vendor_name"] = vendor_name
-    sus_entries = await db.suspense_entries.find(suspense_query, {"_id": 0}).to_list(1000)
-    existing_suspense = sum(float(e.get("amount", 0) or 0) for e in sus_entries)
+        elif suspense_type == "labour":
+            suspense_query["contractor_name"] = vendor_name
+        else:
+            se_id = req.get("requested_by") or req.get("site_engineer_id")
+            if se_id:
+                suspense_query["site_engineer_id"] = se_id
+            else:
+                suspense_query["vendor_name"] = vendor_name
+        sus_entries = await db.suspense_entries.find(suspense_query, {"_id": 0}).to_list(1000)
+        existing_suspense = sum(float(e.get("amount", 0) or 0) for e in sus_entries)
+        credit_used = min(max(0.0, existing_suspense), bill_amount)
 
-    payable = max(0.0, bill_amount - existing_suspense)
-    credit_used = min(existing_suspense, bill_amount)
+    # Net payable after suspense credit + prior partial payments
+    payable = max(0.0, bill_amount - credit_used - already_paid)
 
-    # 2. Payment-method specific: figure out actual paid amount + create cheque link
-    paid_amount = payable
-    cheque_docs = []  # list of selected cheque docs (multi-cheque support)
-    # Edge case: suspense fully covers the bill → no fresh payment method needed
+    # 2. Normalize input → list of legs.
+    # Fast-path: if there's nothing to pay (suspense fully covered the bill),
+    # skip all leg parsing/validation regardless of what the caller sent.
     if payable <= 0:
-        paid_amount = 0
-    elif data.payment_method == "cheque":
-        # Resolve cheque ids (support both single legacy + multi)
+        legs = []
+    elif data.payment_legs:
+        legs = list(data.payment_legs)
+    elif data.payment_method:
         ch_ids = list(data.cheque_ids or [])
         if data.cheque_id and data.cheque_id not in ch_ids:
             ch_ids.append(data.cheque_id)
-        if not ch_ids:
-            raise HTTPException(status_code=400, detail="At least one cheque must be selected")
-        # Validate each cheque
-        for cid in ch_ids:
-            cd = await db.cheques.find_one({"cheque_id": cid}, {"_id": 0})
-            if not cd:
-                raise HTTPException(status_code=404, detail=f"Cheque {cid} not found")
-            if not cd.get("is_opened"):
-                raise HTTPException(status_code=400, detail=f"Cheque {cd.get('cheque_number')} is not opened by CRE yet")
-            if cd.get("used_for_expense_id"):
-                raise HTTPException(status_code=400, detail=f"Cheque {cd.get('cheque_number')} has already been used")
-            cheque_docs.append(cd)
-        paid_amount = sum(float(c.get("amount", 0) or 0) for c in cheque_docs)
-        if paid_amount < payable:
-            raise HTTPException(status_code=400, detail=f"Total cheque amount ₹{paid_amount:,.0f} is less than payable ₹{payable:,.0f}")
-    elif data.payment_method in ("current_account", "savings"):
-        if not data.transaction_id or not data.transaction_id.strip():
-            raise HTTPException(status_code=400, detail="transaction_id required for bank payment")
-    elif data.payment_method == "cash":
-        if not data.denominations:
-            raise HTTPException(status_code=400, detail="denominations required for cash payment")
-        denom_total = sum(d.note * d.count for d in data.denominations)
-        if abs(denom_total - payable) > 0.5:
-            raise HTTPException(status_code=400, detail=f"Denomination total ₹{denom_total:,.0f} ≠ payable ₹{payable:,.0f}")
+        # For legacy cheque single-method, the leg amount must equal the cheque
+        # face value (cheques are indivisible). Excess flows to suspense.
+        if data.payment_method == "cheque" and ch_ids:
+            ch_face_total = 0.0
+            for cid in ch_ids:
+                _cd = await db.cheques.find_one({"cheque_id": cid}, {"_id": 0, "amount": 1})
+                if _cd:
+                    ch_face_total += float(_cd.get("amount", 0) or 0)
+            legacy_amount = ch_face_total
+        else:
+            legacy_amount = payable
+        legs = [PaymentLeg(
+            method=data.payment_method,
+            amount=legacy_amount,
+            transaction_id=data.transaction_id,
+            cheque_ids=ch_ids or None,
+            denominations=data.denominations,
+        )]
     else:
-        raise HTTPException(status_code=400, detail=f"Invalid payment_method: {data.payment_method}")
+        raise HTTPException(status_code=400, detail="Either payment_legs or payment_method must be supplied")
 
-    # 3. New suspense from over-payment (cheque only — cash/bank pay exact amount)
-    new_suspense_credit = max(0.0, paid_amount - payable) if data.payment_method == "cheque" else 0.0
+    # 3. Validate each leg & compute totals
+    total_leg_amount = 0.0
+    total_cheque_amount = 0.0  # sum of face values of cheques in cheque legs
+    cheque_docs = []  # all selected cheque docs across legs
+    for leg in legs:
+        leg_amount = float(leg.amount or 0)
+        if leg_amount <= 0:
+            raise HTTPException(status_code=400, detail=f"Leg amount must be > 0 (method={leg.method})")
+        if leg.method == "cheque":
+            if not leg.cheque_ids:
+                raise HTTPException(status_code=400, detail="Cheque leg requires at least one cheque_id")
+            for cid in leg.cheque_ids:
+                cd = await db.cheques.find_one({"cheque_id": cid}, {"_id": 0})
+                if not cd:
+                    raise HTTPException(status_code=404, detail=f"Cheque {cid} not found")
+                if not cd.get("is_opened"):
+                    raise HTTPException(status_code=400, detail=f"Cheque {cd.get('cheque_number')} is not opened by CRE yet")
+                if cd.get("used_for_expense_id"):
+                    raise HTTPException(status_code=400, detail=f"Cheque {cd.get('cheque_number')} has already been used")
+                if any(c["cheque_id"] == cid for c in cheque_docs):
+                    raise HTTPException(status_code=400, detail=f"Cheque {cd.get('cheque_number')} selected twice")
+                cheque_docs.append(cd)
+                total_cheque_amount += float(cd.get("amount", 0) or 0)
+            # leg.amount must equal sum of its cheques
+            leg_chq_total = sum(float(c.get("amount", 0) or 0) for c in cheque_docs if c["cheque_id"] in (leg.cheque_ids or []))
+            if abs(leg_chq_total - leg_amount) > 0.5:
+                raise HTTPException(status_code=400, detail=f"Cheque leg amount ₹{leg_amount:,.0f} must match selected cheques total ₹{leg_chq_total:,.0f}")
+        elif leg.method in ("current_account", "savings"):
+            if not leg.transaction_id or not leg.transaction_id.strip():
+                raise HTTPException(status_code=400, detail=f"transaction_id required for {leg.method} leg")
+        elif leg.method == "cash":
+            if not leg.denominations:
+                raise HTTPException(status_code=400, detail="denominations required for cash leg")
+            denom_total = sum(d.note * d.count for d in leg.denominations)
+            if abs(denom_total - leg_amount) > 0.5:
+                raise HTTPException(status_code=400, detail=f"Cash denominations ₹{denom_total:,.0f} ≠ leg amount ₹{leg_amount:,.0f}")
+        else:
+            raise HTTPException(status_code=400, detail=f"Invalid leg method: {leg.method}")
+        total_leg_amount += leg_amount
+
+    # 4. Excess logic: only cheque legs can produce excess (they're indivisible
+    #    face values). Cash/bank legs must equal the amount stated. So the
+    #    accountant's "intended-to-pay" cash+bank+cheque-face-values must NOT
+    #    exceed payable + cheque-allowed-excess.
+    non_cheque_total = sum(float(l.amount or 0) for l in legs if l.method != "cheque")
+    if non_cheque_total > payable + 0.5:
+        raise HTTPException(status_code=400, detail=f"Cash/bank legs total ₹{non_cheque_total:,.0f} exceeds payable ₹{payable:,.0f} — adjust amounts (only cheque excess is allowed to roll to suspense)")
+
+    # 5. Bucket the payment:
+    #   • effective_paid: amount that settles the bill (≤ payable)
+    #   • new_suspense_credit: cheque excess that rolls to vendor suspense
+    if total_leg_amount <= payable:
+        effective_paid = total_leg_amount
+        new_suspense_credit = 0.0
+    else:
+        # Only cheque-leg excess is allowed (validated above)
+        effective_paid = payable
+        new_suspense_credit = total_leg_amount - payable
+
+    is_full_payment = (already_paid + effective_paid + credit_used) >= bill_amount - 0.5
 
     now = datetime.now(timezone.utc).isoformat()
-    expense_id = f"exp_{uuid.uuid4().hex[:12]}"
+    primary_expense_id = f"exp_{uuid.uuid4().hex[:12]}"
 
-    # 4. Insert main expense in cashbook
-    cheque_ids_used = [c["cheque_id"] for c in cheque_docs] if cheque_docs else []
+    # 6. Insert one recorded_expense per leg (clean audit) — first leg uses
+    # `primary_expense_id`, the rest get their own ids but link to primary.
+    cheque_ids_used_all = [c["cheque_id"] for c in cheque_docs] if cheque_docs else []
     cheque_numbers_used = [c.get("cheque_number") for c in cheque_docs] if cheque_docs else []
-    cashbook_entry = {
-        "expense_id": expense_id,
-        "project_id": project_id,
-        "category": suspense_type,
-        "expense_type": suspense_type,
-        "description": req.get("material_name") or req.get("labour_type") or f"{suspense_type} payment",
-        "amount": payable,  # the actual expense booked = payable amount
-        "payment_method": data.payment_method,
-        "transaction_id": data.transaction_id,
-        "cheque_id": cheque_ids_used[0] if cheque_ids_used else None,  # legacy single field
-        "cheque_ids": cheque_ids_used,  # full multi-cheque list
-        "cheque_numbers": cheque_numbers_used,
-        "denominations": [d.model_dump() for d in (data.denominations or [])],
-        "vendor_name": vendor_name,
-        "request_id": request_id,
-        "request_type": req_type,
-        "credit_applied": credit_used,
-        "cheque_amount_paid": paid_amount if data.payment_method == "cheque" else None,
-        "new_suspense_credit": new_suspense_credit,
-        "recorded_by": user.user_id,
-        "recorded_by_name": user.name,
-        "remarks": data.remarks,
-        "status": "approved",
-        "source": "approval",
-        "approval_id": request_id,
-        "created_at": now,
-        "approved_at": now,
-        "approved_by": user.user_id,
-    }
-    await db.recorded_expenses.insert_one(cashbook_entry)
+    leg_expense_ids = []
+    for idx, leg in enumerate(legs):
+        leg_exp_id = primary_expense_id if idx == 0 else f"exp_{uuid.uuid4().hex[:12]}"
+        leg_expense_ids.append(leg_exp_id)
+        leg_cheque_ids = list(leg.cheque_ids or [])
+        await db.recorded_expenses.insert_one({
+            "expense_id": leg_exp_id,
+            "project_id": project_id,
+            "category": suspense_type,
+            "expense_type": suspense_type,
+            "description": req.get("material_name") or req.get("labour_type") or f"{suspense_type} payment",
+            "amount": float(leg.amount),  # cheque legs carry face value; excess is separately credited
+            "payment_method": leg.method,
+            "transaction_id": leg.transaction_id,
+            "cheque_id": leg_cheque_ids[0] if leg_cheque_ids else None,
+            "cheque_ids": leg_cheque_ids,
+            "denominations": [d.model_dump() for d in (leg.denominations or [])],
+            "vendor_name": vendor_name,
+            "request_id": request_id,
+            "request_type": req_type,
+            "credit_applied": credit_used if idx == 0 else 0,
+            "new_suspense_credit": new_suspense_credit if idx == 0 else 0,
+            "leg_index": idx,
+            "leg_count": len(legs),
+            "primary_expense_id": primary_expense_id,
+            "is_partial": not is_full_payment,
+            "recorded_by": user.user_id,
+            "recorded_by_name": user.name,
+            "remarks": data.remarks,
+            "status": "approved",
+            "source": "approval",
+            "approval_id": request_id,
+            "created_at": now,
+            "approved_at": now,
+            "approved_by": user.user_id,
+        })
 
-    # 5. Suspense ledger updates
-    # Build the key dict once so credit + debit entries are perfectly mirrored
+    # 7. Suspense ledger updates — only on the first call so we don't double-debit
     def _suspense_key():
         if suspense_type == "material":
             return {"vendor_name": vendor_name}
         if suspense_type == "labour":
             return {"contractor_name": vendor_name}
-        # petty_cash → key on Site Engineer (requested_by)
         se_id = req.get("requested_by") or req.get("site_engineer_id")
         if se_id:
             return {"site_engineer_id": se_id, "site_engineer_name": vendor_name}
         return {"vendor_name": vendor_name}
 
     if credit_used > 0:
-        # Debit (reduce) existing balance — record as negative
         await db.suspense_entries.insert_one({
             "entry_id": f"se_{uuid.uuid4().hex[:10]}",
             "type": suspense_type,
             **_suspense_key(),
             "amount": -credit_used,
             "description": f"Suspense applied to {req_type} bill (request {request_id})",
-            "linked_expense_id": expense_id,
+            "linked_expense_id": primary_expense_id,
             "linked_request_id": request_id,
             "created_at": now,
             "created_by": user.user_id,
@@ -4771,18 +4865,18 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             **_suspense_key(),
             "amount": new_suspense_credit,
             "description": f"Excess from cheque(s) {', '.join(cheque_numbers_used)} on {req_type} bill ({request_id})",
-            "linked_expense_id": expense_id,
-            "linked_cheque_ids": cheque_ids_used,
+            "linked_expense_id": primary_expense_id,
+            "linked_cheque_ids": cheque_ids_used_all,
             "created_at": now,
             "created_by": user.user_id,
         })
 
-    # 6. Mark all selected cheques used
+    # 8. Mark all selected cheques as used
     for cd in cheque_docs:
         await db.cheques.update_one(
             {"cheque_id": cd["cheque_id"]},
             {"$set": {
-                "used_for_expense_id": expense_id,
+                "used_for_expense_id": primary_expense_id,
                 "used_at": now,
                 "used_by": user.user_id,
                 "used_by_name": user.name,
@@ -4791,26 +4885,32 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             }}
         )
 
-    # 7. Update request status to "paid"
-    await db[coll].update_one(
-        {id_field: request_id},
-        {"$set": {
+    # 9. Update request status — fully paid or partially paid
+    new_total_paid = already_paid + effective_paid
+    request_update = {
+        "paid_amount": new_total_paid,
+        "paid_via_expense_id": primary_expense_id,
+        "updated_at": now,
+    }
+    if is_full_payment:
+        request_update.update({
             "status": "paid",
             "paid_by": user.user_id,
             "paid_by_name": user.name,
             "paid_at": now,
-            "paid_amount": paid_amount,
-            "paid_via_expense_id": expense_id,
-            "updated_at": now,
-        }}
-    )
+            # Clear any cheque-bounce flag once balance is settled afresh
+            "cheque_bounced": False,
+        })
+    else:
+        request_update["status"] = "partially_paid"
+        request_update["last_partial_paid_at"] = now
+        request_update["last_partial_paid_by"] = user.user_id
+        request_update["last_partial_paid_by_name"] = user.name
+        request_update["remaining_balance"] = max(0.0, bill_amount - credit_used - new_total_paid)
+    await db[coll].update_one({id_field: request_id}, {"$set": request_update})
 
-    # 7b. Phase-aware cascade for material requests. The parent `material_requests`
-    # row is what Procurement / SE / Planning see throughout the lifecycle, so we
-    # advance it here based on `payment_phase`:
-    #   • advance  -> parent flips to `in_transit` and SE is notified to collect.
-    #   • balance/full -> parent flips to `delivered`.
-    if req_type == "material":
+    # 10. Phase cascade for material requests — only on FULL payment
+    if req_type == "material" and is_full_payment:
         source_req_id = req.get("source_request_id")
         phase = (req.get("payment_phase") or "full").lower()
         if source_req_id:
@@ -4826,18 +4926,18 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
                         "advance_paid_at": now,
                         "advance_paid_by": user.user_id,
                         "advance_paid_by_name": user.name,
-                        "advance_paid_amount": paid_amount,
+                        "advance_paid_amount": new_total_paid,
                         "next_payment_phase": "balance",
                     })
                     notify_se_msg = f"Advance approved — ready to collect: {parent.get('material_name')} → {parent.get('vendor_name', 'Vendor')}"
-                else:  # balance or full
+                else:
                     parent_update.update({
                         "status": "delivered",
                         "delivered_at": now,
                         "balance_paid_at": now,
                         "balance_paid_by": user.user_id,
                         "balance_paid_by_name": user.name,
-                        "balance_paid_amount": paid_amount,
+                        "balance_paid_amount": new_total_paid,
                     })
                 await db.material_requests.update_one(
                     {"request_id": source_req_id},
@@ -4850,18 +4950,29 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
                         pass
 
     await create_audit_log(user.user_id, "pay", req_type, request_id, {
-        "bill_amount": bill_amount, "credit_used": credit_used, "paid_amount": paid_amount,
-        "new_suspense": new_suspense_credit, "payment_method": data.payment_method,
+        "bill_amount": bill_amount,
+        "already_paid_before": already_paid,
+        "credit_used": credit_used,
+        "effective_paid_this_call": effective_paid,
+        "new_total_paid": new_total_paid,
+        "new_suspense": new_suspense_credit,
+        "is_partial": not is_full_payment,
+        "leg_count": len(legs),
     })
 
     return {
-        "message": "Payment processed",
-        "expense_id": expense_id,
+        "message": "Payment processed" if is_full_payment else "Partial payment recorded",
+        "expense_id": primary_expense_id,
+        "leg_expense_ids": leg_expense_ids,
         "bill_amount": bill_amount,
         "credit_used": credit_used,
         "payable": payable,
-        "paid_amount": paid_amount,
+        "paid_amount": effective_paid,  # this call only (for backward compatibility in tests)
+        "total_paid_so_far": new_total_paid,
+        "remaining_balance": max(0.0, bill_amount - credit_used - new_total_paid),
         "new_suspense_credit": new_suspense_credit,
+        "is_partial": not is_full_payment,
+        "status": "paid" if is_full_payment else "partially_paid",
     }
 
 

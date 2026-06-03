@@ -58,7 +58,7 @@ export default function AccountantMaterialPayments({ onRefresh }) {
           const due = phase === 'balance' ? Math.max(0, total - paid) : (phase === 'advance' ? (req.advance_amount || 0) : total);
           const phaseColor = phase === 'advance' ? 'orange' : phase === 'balance' ? 'cyan' : 'blue';
           return (
-            <Card key={req.request_id} className={`hover:shadow-md transition-shadow border-l-4 ${req.cheque_bounced ? 'ring-1 ring-red-200' : ''}`} style={{ borderLeftColor: req.cheque_bounced ? '#dc2626' : (phaseColor === 'orange' ? '#ea580c' : phaseColor === 'cyan' ? '#0891b2' : '#2563eb') }}>
+            <Card key={req.request_id} className={`hover:shadow-md transition-shadow border-l-4 ${req.cheque_bounced ? 'ring-1 ring-red-200' : ''} ${req.status === 'partially_paid' || req.last_partial_paid_at ? 'ring-1 ring-yellow-200' : ''}`} style={{ borderLeftColor: req.cheque_bounced ? '#dc2626' : (req.last_partial_paid_at || req.status === 'partially_paid') ? '#eab308' : (phaseColor === 'orange' ? '#ea580c' : phaseColor === 'cyan' ? '#0891b2' : '#2563eb') }}>
               <CardContent className="p-3 sm:p-4">
                 {req.cheque_bounced && (
                   <div className="mb-2 bg-red-50 border border-red-200 rounded px-2 py-1.5 text-[11px] text-red-700 flex items-start gap-1.5">
@@ -66,10 +66,19 @@ export default function AccountantMaterialPayments({ onRefresh }) {
                     <span>#{req.bounced_from_cheque_number} · {fmt(req.bounced_from_cheque_amount)} · {req.bounce_reason || 'No reason'}</span>
                   </div>
                 )}
+                {(req.status === 'partially_paid' || req.last_partial_paid_at) && req.remaining_balance > 0 && (
+                  <div className="mb-2 bg-yellow-50 border border-yellow-200 rounded px-2 py-1.5 text-[11px] text-yellow-800 flex items-center justify-between">
+                    <span><span className="font-semibold">Partially Paid:</span> {fmt(req.paid_amount || 0)} of {fmt(total)} paid</span>
+                    <span className="font-bold">Balance: {fmt(req.remaining_balance)}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {req.cheque_bounced && (
                       <Badge className="bg-red-600 text-white text-[10px]">Cheque Bounced</Badge>
+                    )}
+                    {(req.status === 'partially_paid' || req.last_partial_paid_at) && (
+                      <Badge className="bg-yellow-500 text-white text-[10px]">Partially Paid</Badge>
                     )}
                     <Badge variant="outline" className={`text-[10px] capitalize bg-${phaseColor}-50 text-${phaseColor}-700 border-${phaseColor}-200`}>
                       {phase} payment
@@ -77,7 +86,7 @@ export default function AccountantMaterialPayments({ onRefresh }) {
                     <Badge variant="outline" className="text-[10px] capitalize">{(req.payment_mode || '').replace(/_/g, ' ')}</Badge>
                     {req.order_id && <span className="text-[10px] text-gray-400 font-mono">#{req.order_id}</span>}
                   </div>
-                  <span className="text-base font-bold text-emerald-700">{fmt(due)}</span>
+                  <span className="text-base font-bold text-emerald-700">{fmt(req.remaining_balance > 0 ? req.remaining_balance : due)}</span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                   <div>
@@ -99,7 +108,7 @@ export default function AccountantMaterialPayments({ onRefresh }) {
                 </div>
                 <div className="flex justify-end mt-2">
                   <Button size="sm" className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => openPayDialog(req)} data-testid={`acc-mat-release-${req.request_id}`}>
-                    <Wallet className="h-3 w-3" /> Release {phase === 'balance' ? 'Balance' : (phase === 'advance' ? 'Advance' : 'Payment')}
+                    <Wallet className="h-3 w-3" /> {(req.status === 'partially_paid' || req.last_partial_paid_at) ? 'Pay Balance' : `Release ${phase === 'balance' ? 'Balance' : (phase === 'advance' ? 'Advance' : 'Payment')}`}
                   </Button>
                 </div>
               </CardContent>
