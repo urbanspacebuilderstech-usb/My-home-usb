@@ -4343,19 +4343,22 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
     suspense_entries = await db.suspense_entries.find(suspense_query, {"_id": 0}).to_list(1000)
     existing_suspense = sum(float(e.get("amount", 0) or 0) for e in suspense_entries)
 
-    # Active CRE-opened incoming cheques (not yet used for an expense)
+    # All active CRE-opened incoming cheques that haven't been consumed yet.
+    # Status sub-state (issued / received / post_dated / deposited) doesn't matter
+    # for picking — we only exclude terminally-resolved ones (bounced, cancelled, cleared).
+    _excluded_status = ["bounced", "cancelled", "cleared", "rejected"]
     active_cheques = await db.cheques.find({
         "cheque_type": "incoming",
         "is_opened": True,
-        "status": {"$in": ["issued", "post_dated", "deposited"]},
+        "status": {"$nin": _excluded_status},
         "$or": [{"used_for_expense_id": {"$exists": False}}, {"used_for_expense_id": None}],
     }, {"_id": 0}).sort("cheque_date", -1).to_list(200)
 
-    # Inactive (locked) incoming cheques — Accountant can "Request Open"
+    # Inactive (locked / not yet CRE-opened) incoming cheques — Accountant can "Request Open"
     inactive_cheques = await db.cheques.find({
         "cheque_type": "incoming",
-        "is_opened": False,
-        "status": {"$in": ["issued", "post_dated", "deposited"]},
+        "is_opened": {"$ne": True},
+        "status": {"$nin": _excluded_status},
         "$or": [{"used_for_expense_id": {"$exists": False}}, {"used_for_expense_id": None}],
     }, {"_id": 0}).sort("cheque_date", -1).to_list(200)
 
