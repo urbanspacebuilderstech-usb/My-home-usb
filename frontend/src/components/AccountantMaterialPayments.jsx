@@ -58,10 +58,19 @@ export default function AccountantMaterialPayments({ onRefresh }) {
           const due = phase === 'balance' ? Math.max(0, total - paid) : (phase === 'advance' ? (req.advance_amount || 0) : total);
           const phaseColor = phase === 'advance' ? 'orange' : phase === 'balance' ? 'cyan' : 'blue';
           return (
-            <Card key={req.request_id} className="hover:shadow-md transition-shadow border-l-4" style={{ borderLeftColor: phaseColor === 'orange' ? '#ea580c' : phaseColor === 'cyan' ? '#0891b2' : '#2563eb' }}>
+            <Card key={req.request_id} className={`hover:shadow-md transition-shadow border-l-4 ${req.cheque_bounced ? 'ring-1 ring-red-200' : ''}`} style={{ borderLeftColor: req.cheque_bounced ? '#dc2626' : (phaseColor === 'orange' ? '#ea580c' : phaseColor === 'cyan' ? '#0891b2' : '#2563eb') }}>
               <CardContent className="p-3 sm:p-4">
+                {req.cheque_bounced && (
+                  <div className="mb-2 bg-red-50 border border-red-200 rounded px-2 py-1.5 text-[11px] text-red-700 flex items-start gap-1.5">
+                    <span className="font-semibold">⚠ Cheque Bounced:</span>
+                    <span>#{req.bounced_from_cheque_number} · {fmt(req.bounced_from_cheque_amount)} · {req.bounce_reason || 'No reason'}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
                   <div className="flex items-center gap-1.5 flex-wrap">
+                    {req.cheque_bounced && (
+                      <Badge className="bg-red-600 text-white text-[10px]">Cheque Bounced</Badge>
+                    )}
                     <Badge variant="outline" className={`text-[10px] capitalize bg-${phaseColor}-50 text-${phaseColor}-700 border-${phaseColor}-200`}>
                       {phase} payment
                     </Badge>

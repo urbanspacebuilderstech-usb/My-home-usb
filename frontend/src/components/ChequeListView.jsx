@@ -7,7 +7,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
-import { Search, CheckCircle2, Lock, FileText, Loader2, Building2 } from 'lucide-react';
+import { Search, CheckCircle2, Lock, FileText, Loader2, Building2, AlertTriangle } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -42,6 +42,8 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
 
   const canOpen = ['super_admin', 'cre'].includes(userRole);
   const canRequestOpen = ['super_admin', 'accountant'].includes(userRole);
+  const canBounce = ['super_admin', 'accountant'].includes(userRole);
+  const [bounceDialog, setBounceDialog] = useState({ open: false, cheque: null, reason: '', charges: '' });
 
   const fetchCheques = async () => {
     try {
@@ -99,6 +101,29 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
     }
   };
 
+  const handleBounce = async () => {
+    if (!bounceDialog.cheque) return;
+    if (!bounceDialog.reason.trim()) { toast.error('Bounce reason is required'); return; }
+    try {
+      setSubmitting(true);
+      const r = await axios.post(`${API}/accountant/cheques/${bounceDialog.cheque.cheque_id}/bounce`, {
+        reason: bounceDialog.reason.trim(),
+        charges: parseFloat(bounceDialog.charges) || 0,
+      });
+      const parts = [];
+      if (r.data.income_reversed) parts.push('Payment Schedule re-collect row created');
+      if (r.data.expense_reversed) parts.push('Material approval re-opened');
+      toast.success(`Cheque bounced. ${parts.join(' · ') || 'Status updated'}`);
+      setBounceDialog({ open: false, cheque: null, reason: '', charges: '' });
+      fetchCheques();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to bounce cheque');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+
   // Filtering
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -109,9 +134,13 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
         if (!hay.includes(term)) return false;
       }
       // Tab filter
-      if (activeTab === 'open_pending') return c.cheque_type === 'incoming' && !c.is_opened && c.status !== 'cancelled';
-      if (activeTab === 'open_requested') return c.cheque_type === 'incoming' && !c.is_opened && c.open_requested && c.status !== 'cancelled';
-      if (activeTab === 'opened') return c.is_opened;
+      const consumed = !!(c.used_for_expense_id || c.income_id);
+      if (activeTab === 'received') return c.cheque_type === 'incoming' && c.status !== 'bounced';
+      if (activeTab === 'open_pending') return c.cheque_type === 'incoming' && !c.is_opened && c.status !== 'cancelled' && c.status !== 'bounced';
+      if (activeTab === 'open_requested') return c.cheque_type === 'incoming' && !c.is_opened && c.open_requested && c.status !== 'cancelled' && c.status !== 'bounced';
+      if (activeTab === 'opened') return c.is_opened && !consumed && c.status !== 'bounced';
+      if (activeTab === 'issued') return consumed && c.status !== 'bounced';
+      if (activeTab === 'bounced') return c.status === 'bounced';
       if (activeTab === 'incoming') return c.cheque_type === 'incoming';
       if (activeTab === 'outgoing') return c.cheque_type === 'outgoing';
       return true;
@@ -234,16 +263,17 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
             <div className="inline-flex bg-gray-100 rounded-lg p-0.5 flex-wrap">
               {[
                 { k: 'all', label: 'All' },
-                ...(scope === 'accountant' ? [{ k: 'incoming', label: 'Incoming' }, { k: 'outgoing', label: 'Outgoing' }] : []),
-                { k: 'open_pending', label: 'Awaiting CRE' },
-                { k: 'open_requested', label: 'Open Requested' },
+                { k: 'received', label: 'Received' },
                 { k: 'opened', label: 'Opened' },
+                { k: 'open_requested', label: 'Awaiting CRE' },
+                { k: 'issued', label: 'Issued' },
+                { k: 'bounced', label: 'Bounced' },
                 ...(scope === 'cre' ? [{ k: 'by_project', label: 'Project Wise' }] : []),
               ].map(t => (
                 <button
                   key={t.k}
                   onClick={() => setActiveTab(t.k)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${activeTab === t.k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${activeTab === t.k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'} ${t.k === 'bounced' && activeTab !== t.k ? 'text-red-600 hover:text-red-700' : ''}`}
                   data-testid={`cheque-tab-${t.k}`}
                 >
                   {t.label}
@@ -280,9 +310,10 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                   </div>
                   <span className="text-sm font-bold text-violet-700">{fmtMoney(g.total)}</span>
                 </div>
-                <ChequeTable rows={g.rows} canOpen={canOpen} canRequestOpen={canRequestOpen}
+                <ChequeTable rows={g.rows} canOpen={canOpen} canRequestOpen={canRequestOpen} canBounce={canBounce}
                   onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })}
                   onRequestOpen={(c) => setRequestDialog({ open: true, cheque: c, remarks: '' })}
+                  onBounce={(c) => setBounceDialog({ open: true, cheque: c, reason: '', charges: '' })}
                   onAction={onAction} />
               </CardContent>
             </Card>
@@ -297,9 +328,10 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                 <p className="text-sm">No cheques match the current filter</p>
               </div>
             ) : (
-              <ChequeTable rows={filtered} canOpen={canOpen} canRequestOpen={canRequestOpen}
+              <ChequeTable rows={filtered} canOpen={canOpen} canRequestOpen={canRequestOpen} canBounce={canBounce}
                 onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })}
                 onRequestOpen={(c) => setRequestDialog({ open: true, cheque: c, remarks: '' })}
+                onBounce={(c) => setBounceDialog({ open: true, cheque: c, reason: '', charges: '' })}
                 onAction={onAction} />
             )}
           </CardContent>
@@ -383,11 +415,67 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Bounce Cheque dialog (Accountant) — reverses linked income / expense */}
+      <Dialog open={bounceDialog.open} onOpenChange={(open) => !open && setBounceDialog({ open: false, cheque: null, reason: '', charges: '' })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" /> Mark Cheque as Bounced
+            </DialogTitle>
+          </DialogHeader>
+          {bounceDialog.cheque && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2 text-xs bg-red-50 border border-red-200 rounded-lg p-3">
+                <div><span className="text-gray-500">Cheque #</span><p className="font-semibold">{bounceDialog.cheque.cheque_number}</p></div>
+                <div><span className="text-gray-500">Amount</span><p className="font-semibold text-red-700">{fmtMoney(bounceDialog.cheque.amount)}</p></div>
+                <div><span className="text-gray-500">Bank</span><p className="font-medium">{bounceDialog.cheque.bank_name}</p></div>
+                <div><span className="text-gray-500">Party</span><p className="font-medium">{bounceDialog.cheque.party_name}</p></div>
+                <div className="col-span-2"><span className="text-gray-500">Project</span><p className="font-medium">{bounceDialog.cheque.project_name || '-'}</p></div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Bounce Reason <span className="text-red-500">*</span></label>
+                <Textarea
+                  rows={2}
+                  value={bounceDialog.reason}
+                  onChange={(e) => setBounceDialog({ ...bounceDialog, reason: e.target.value })}
+                  placeholder="e.g. Insufficient funds / Signature mismatch / Account closed"
+                  data-testid="cheque-bounce-reason"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Bounce Charges (optional)</label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={bounceDialog.charges}
+                  onChange={(e) => setBounceDialog({ ...bounceDialog, charges: e.target.value })}
+                  placeholder="e.g. 500"
+                  data-testid="cheque-bounce-charges"
+                />
+              </div>
+              <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-800 leading-relaxed">
+                <strong>This action cascades:</strong>
+                <ul className="list-disc list-inside mt-1 space-y-0.5">
+                  <li>If the cheque cleared an income → that income is reversed, project income drops by {fmtMoney(bounceDialog.cheque.amount)}, and a fresh pending row appears in the CRE Payment Schedule for re-collection.</li>
+                  <li>If the cheque paid a vendor → the material/labour expense is reversed and returns to the Accountant Approval queue with a "Cheque Bounced" banner.</li>
+                </ul>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBounceDialog({ open: false, cheque: null, reason: '', charges: '' })} disabled={submitting}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700" onClick={handleBounce} disabled={submitting} data-testid="cheque-bounce-confirm">
+              {submitting ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Bouncing…</> : <><AlertTriangle className="h-4 w-4 mr-1" /> Mark as Bounced</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function ChequeTable({ rows, canOpen, canRequestOpen, onOpenRequest, onRequestOpen, onAction }) {
+function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, onOpenRequest, onRequestOpen, onBounce, onAction }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
@@ -410,8 +498,10 @@ function ChequeTable({ rows, canOpen, canRequestOpen, onOpenRequest, onRequestOp
           {rows.map((c, i) => {
             const sb = STATUS_BADGE[c.status] || { label: c.status, cls: 'bg-gray-100 text-gray-700' };
             const isLockedIncoming = !c.is_opened && c.cheque_type === 'incoming' && c.status !== 'cancelled';
+            const isConsumed = !!(c.used_for_expense_id || c.income_id);
+            const isBounceable = canBounce && isConsumed && c.status !== 'bounced' && c.status !== 'cancelled' && c.status !== 'cleared';
             return (
-              <tr key={c.cheque_id} className={`border-b hover:bg-gray-50 ${c.open_requested && !c.is_opened ? 'bg-blue-50/30' : ''}`} data-testid={`cheque-row-${c.cheque_id}`}>
+              <tr key={c.cheque_id} className={`border-b hover:bg-gray-50 ${c.status === 'bounced' ? 'bg-red-50/40' : c.open_requested && !c.is_opened ? 'bg-blue-50/30' : ''}`} data-testid={`cheque-row-${c.cheque_id}`}>
                 <td className="px-3 py-2 text-gray-500">{i + 1}</td>
                 <td className="px-3 py-2 font-mono font-semibold">{c.cheque_number}</td>
                 <td className="px-3 py-2">{c.bank_name}</td>
@@ -426,6 +516,9 @@ function ChequeTable({ rows, canOpen, canRequestOpen, onOpenRequest, onRequestOp
                 <td className="px-3 py-2 text-gray-600">{fmtDate(c.cheque_date)}</td>
                 <td className="px-3 py-2 text-center">
                   <Badge className={`${sb.cls} text-[10px]`}>{sb.label}</Badge>
+                  {c.status === 'bounced' && c.bounce_reason && (
+                    <p className="text-[9px] text-red-600 italic mt-0.5 max-w-[140px] truncate" title={c.bounce_reason}>{c.bounce_reason}</p>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-center">
                   {c.is_opened ? (
@@ -445,42 +538,57 @@ function ChequeTable({ rows, canOpen, canRequestOpen, onOpenRequest, onRequestOp
                   )}
                 </td>
                 <td className="px-3 py-2 text-center">
-                  {/* CRE: shows Open button on locked incoming */}
-                  {isLockedIncoming && canOpen ? (
-                    <Button
-                      size="sm"
-                      className="h-7 text-[10px] bg-emerald-600 hover:bg-emerald-700"
-                      onClick={() => onOpenRequest(c)}
-                      data-testid={`cheque-open-btn-${c.cheque_id}`}
-                    >
-                      Open
-                    </Button>
-                  ) : isLockedIncoming && canRequestOpen && !c.open_requested ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-[10px] border-blue-300 text-blue-700 hover:bg-blue-50"
-                      onClick={() => onRequestOpen(c)}
-                      data-testid={`cheque-request-btn-${c.cheque_id}`}
-                    >
-                      Request Open
-                    </Button>
-                  ) : isLockedIncoming && c.open_requested ? (
-                    <span className="text-[10px] text-blue-600 italic">Sent to CRE</span>
-                  ) : c.is_opened ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 text-[10px] text-gray-700 hover:bg-gray-100"
-                      onClick={() => onAction && onAction('update_status', c)}
-                      title="Update status"
-                      data-testid={`cheque-update-btn-${c.cheque_id}`}
-                    >
-                      {onAction ? 'Update' : (c.opened_by_name ? `by ${c.opened_by_name.split(' ')[0]}` : '✓')}
-                    </Button>
-                  ) : (
-                    <span className="text-[10px] text-gray-300">—</span>
-                  )}
+                  <div className="flex items-center justify-center gap-1">
+                    {/* CRE: shows Open button on locked incoming */}
+                    {isLockedIncoming && canOpen ? (
+                      <Button
+                        size="sm"
+                        className="h-7 text-[10px] bg-emerald-600 hover:bg-emerald-700"
+                        onClick={() => onOpenRequest(c)}
+                        data-testid={`cheque-open-btn-${c.cheque_id}`}
+                      >
+                        Open
+                      </Button>
+                    ) : isLockedIncoming && canRequestOpen && !c.open_requested ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-[10px] border-blue-300 text-blue-700 hover:bg-blue-50"
+                        onClick={() => onRequestOpen(c)}
+                        data-testid={`cheque-request-btn-${c.cheque_id}`}
+                      >
+                        Request Open
+                      </Button>
+                    ) : isLockedIncoming && c.open_requested ? (
+                      <span className="text-[10px] text-blue-600 italic">Sent to CRE</span>
+                    ) : c.is_opened && !isConsumed ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-[10px] text-gray-700 hover:bg-gray-100"
+                        onClick={() => onAction && onAction('update_status', c)}
+                        title="Update status"
+                        data-testid={`cheque-update-btn-${c.cheque_id}`}
+                      >
+                        {onAction ? 'Update' : (c.opened_by_name ? `by ${c.opened_by_name.split(' ')[0]}` : '✓')}
+                      </Button>
+                    ) : null}
+                    {/* Bounce button for any consumed (Issued) cheque */}
+                    {isBounceable && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-[10px] border-red-300 text-red-700 hover:bg-red-50"
+                        onClick={() => onBounce && onBounce(c)}
+                        data-testid={`cheque-bounce-btn-${c.cheque_id}`}
+                      >
+                        Bounce
+                      </Button>
+                    )}
+                    {!isLockedIncoming && !c.is_opened && !isBounceable && c.status !== 'bounced' && (
+                      <span className="text-[10px] text-gray-300">—</span>
+                    )}
+                  </div>
                 </td>
               </tr>
             );

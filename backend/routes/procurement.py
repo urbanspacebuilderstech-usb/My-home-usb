@@ -3149,12 +3149,17 @@ def fmt_money(n):
 @router.get("/procurement-simple/accountant/queue")
 async def procurement_simple_accountant_queue(user: User = Depends(get_current_user)):
     """Accountant's material payment queue.
-    Returns requests that are awaiting any kind of payment release (full/advance/balance).
+    Returns requests that are awaiting any kind of payment release (full/advance/balance)
+    OR were paid via a cheque that subsequently bounced (cheque_bounced=true).
     """
     if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Permission denied")
     rows = await db.material_requests.find(
-        {"status": {"$in": ["pending_accounts_approval", "pending_balance_payment"]}}, {"_id": 0}
+        {"$or": [
+            {"status": {"$in": ["pending_accounts_approval", "pending_balance_payment"]}},
+            {"cheque_bounced": True},
+        ]},
+        {"_id": 0},
     ).sort("planning_approved_at", -1).to_list(500)
     # Enrich
     project_ids = list({r.get("project_id") for r in rows if r.get("project_id")})

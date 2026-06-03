@@ -72,7 +72,7 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
     # entry is reversed AND the recorded_expenses row's status flips to
     # `under_correction`, so it should disappear from every cashbook total
     # until re-approved.
-    EXCLUDED_EXPENSE_STATUSES = ["under_correction", "rejected", "accountant_rejected", "accounts_rejected"]
+    EXCLUDED_EXPENSE_STATUSES = ["under_correction", "rejected", "accountant_rejected", "accounts_rejected", "cheque_bounced"]
 
     (incomes, recorded_exps, labour_exps, material_reqs, petty_cash_list, projects_list, suspense_txns, petty_requests, suspense_entries, vendor_credits_v2, credit_ledger_v1, labour_open_exps) = await asyncio.gather(
         db.income.find(income_status_filter, {"_id": 0}).sort("created_at", -1).to_list(5000),
@@ -1499,7 +1499,7 @@ async def get_cashbook(
     # Exclude rejected / under-correction expense rows from cashbook + totals.
     # The correction engine flips these statuses when an approved row is
     # pulled back; the row should vanish from cashbook until re-approved.
-    EXCLUDED_EXPENSE_STATUSES = ["under_correction", "rejected", "accountant_rejected", "accounts_rejected"]
+    EXCLUDED_EXPENSE_STATUSES = ["under_correction", "rejected", "accountant_rejected", "accounts_rejected", "cheque_bounced"]
     expense_q = {"status": {"$nin": EXCLUDED_EXPENSE_STATUSES}}
     if project_id:
         expense_q["project_id"] = project_id
@@ -2097,7 +2097,7 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     # project header Total Income card stops counting rejected / under_correction
     # / pending entries. Rejected/under_correction rows still appear in
     # income_entries so the UI can render the per-row correction banner.
-    EXCLUDED_INCOME_STATUSES = ["rejected", "accountant_rejected", "under_correction", "pending_approval"]
+    EXCLUDED_INCOME_STATUSES = ["rejected", "accountant_rejected", "under_correction", "pending_approval", "cheque_bounced"]
     approved_income_entries = [
         e for e in income_entries
         if (e.get("status") or "approved") not in EXCLUDED_INCOME_STATUSES
@@ -4133,6 +4133,235 @@ async def get_uncleared_cheques(user: User = Depends(get_current_user)):
         {"_id": 0}
     ).sort("cheque_date", -1).to_list(200)
 
+    return cheques
+
+
+# ==================== CHEQUE BOUNCE WORKFLOW ====================
+# When an Accountant marks a cheque as bounced, we cascade reversals:
+#  • Incoming side (cheque had income_id / linked payment_stage):
+#       - The income row is flagged status='cheque_bounced' (excluded from totals)
+#       - The original payment_stage row is flagged 'cheque_bounced'
+#       - A NEW pending payment_stage row is cloned for re-collection, with a
+#         bounce banner detailing the old cheque number/amount.
+#  • Expense side (cheque had used_for_expense_id → recorded_expenses):
+#       - The recorded_expense row is flagged status='cheque_bounced'
+#       - The linked material_expenses (approval row) flips back to
+#         'pending_accounts_approval' with cheque_bounced=true + old detail
+#         so it re-appears in the Accountant Materials approval queue.
+#       - Parent material_request gets a cheque_bounced banner.
+
+class ChequeBounceRequest(BaseModel):
+    reason: str
+    charges: float = 0
+
+
+@router.post("/accountant/cheques/{cheque_id}/bounce")
+async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User = Depends(get_current_user)):
+    """Mark a cheque as bounced and cascade reversal on the linked income/expense."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can bounce cheques")
+
+    if not payload.reason or not payload.reason.strip():
+        raise HTTPException(status_code=400, detail="Bounce reason is required")
+
+    cheque = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail="Cheque not found")
+    if cheque.get("status") == "bounced":
+        raise HTTPException(status_code=400, detail="Cheque is already marked as bounced")
+    if cheque.get("status") == "cleared":
+        raise HTTPException(status_code=400, detail="Cheque has already cleared — cannot bounce")
+
+    now = datetime.now(timezone.utc).isoformat()
+    income_id = cheque.get("income_id")
+    expense_id = cheque.get("used_for_expense_id")
+
+    if not income_id and not expense_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Cheque has not been used for income or expense yet — nothing to reverse",
+        )
+
+    # 1. Mark the cheque itself as bounced
+    await db.cheques.update_one(
+        {"cheque_id": cheque_id},
+        {"$set": {
+            "status": "bounced",
+            "bounce_reason": payload.reason.strip(),
+            "bounce_charges": payload.charges,
+            "bounced_at": now,
+            "bounced_by": user.user_id,
+            "bounced_by_name": user.name,
+            "updated_at": now,
+        }}
+    )
+
+    reversal_summary = {"income_reversed": False, "expense_reversed": False}
+
+    # 2a. Income-side reversal
+    if income_id:
+        income = await db.income.find_one({"income_id": income_id}, {"_id": 0})
+        if income:
+            project_id = income.get("project_id")
+            stage_id = income.get("payment_stage_id") or income.get("stage_id")
+            await db.income.update_one(
+                {"income_id": income_id},
+                {"$set": {
+                    "status": "cheque_bounced",
+                    "bounced_at": now,
+                    "bounced_by_cheque_id": cheque_id,
+                    "bounce_reason": payload.reason.strip(),
+                    "updated_at": now,
+                }}
+            )
+            # Mark old stage as bounced and create a fresh pending stage for re-collection
+            if stage_id:
+                old_stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
+                if old_stage:
+                    await db.payment_stages.update_one(
+                        {"stage_id": stage_id},
+                        {"$set": {
+                            "status": "cheque_bounced",
+                            "cheque_bounced": True,
+                            "bounced_at": now,
+                            "bounced_from_cheque_id": cheque_id,
+                            "bounced_from_cheque_number": cheque.get("cheque_number"),
+                            "bounce_reason": payload.reason.strip(),
+                            "updated_at": now,
+                        }}
+                    )
+                    # Clone a fresh pending row
+                    new_stage_id = f"ps_{uuid.uuid4().hex[:12]}"
+                    new_stage = {
+                        **{k: v for k, v in old_stage.items() if k not in (
+                            "stage_id", "collected_amount", "collected_at",
+                            "collected_by", "collected_by_name", "status",
+                            "cheque_id", "cheque_number", "payment_method",
+                            "bounced_at", "bounced_from_cheque_id",
+                            "bounced_from_cheque_number", "bounce_reason",
+                            "cheque_bounced", "created_at",
+                        )},
+                        "stage_id": new_stage_id,
+                        "status": "pending",
+                        "collected_amount": 0,
+                        "amount": old_stage.get("amount", 0),
+                        "cheque_bounced_recollect": True,
+                        "bounced_from_stage_id": stage_id,
+                        "bounced_from_cheque_id": cheque_id,
+                        "bounced_from_cheque_number": cheque.get("cheque_number"),
+                        "bounced_from_cheque_amount": cheque.get("amount"),
+                        "bounce_reason": payload.reason.strip(),
+                        "bounce_banner": f"Re-collect — cheque {cheque.get('cheque_number')} bounced on {now[:10]}",
+                        "created_at": now,
+                        "created_by": user.user_id,
+                    }
+                    await db.payment_stages.insert_one(new_stage)
+                    reversal_summary["new_payment_stage_id"] = new_stage_id
+            reversal_summary["income_reversed"] = True
+            reversal_summary["project_id"] = project_id
+
+    # 2b. Expense-side reversal
+    if expense_id:
+        rec_exp = await db.recorded_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+        if rec_exp:
+            await db.recorded_expenses.update_one(
+                {"expense_id": expense_id},
+                {"$set": {
+                    "status": "cheque_bounced",
+                    "bounced_at": now,
+                    "bounced_by_cheque_id": cheque_id,
+                    "bounce_reason": payload.reason.strip(),
+                    "updated_at": now,
+                }}
+            )
+            # Re-open the approval request row so it appears in the Materials queue again
+            req_id = rec_exp.get("approval_id") or rec_exp.get("request_id")
+            req_type = rec_exp.get("request_type") or rec_exp.get("expense_type") or rec_exp.get("category")
+            if req_id and req_type == "material":
+                await db.material_expenses.update_one(
+                    {"expense_id": req_id},
+                    {"$set": {
+                        "status": "pending_accounts_approval",
+                        "cheque_bounced": True,
+                        "bounced_from_cheque_id": cheque_id,
+                        "bounced_from_cheque_number": cheque.get("cheque_number"),
+                        "bounced_from_cheque_amount": cheque.get("amount"),
+                        "bounce_reason": payload.reason.strip(),
+                        "bounced_at": now,
+                        "paid_via_expense_id": None,
+                        "paid_at": None,
+                        "paid_amount": None,
+                        "updated_at": now,
+                    }}
+                )
+                # Flag parent material_request too
+                mexp = await db.material_expenses.find_one({"expense_id": req_id}, {"_id": 0})
+                if mexp and mexp.get("source_request_id"):
+                    await db.material_requests.update_one(
+                        {"request_id": mexp["source_request_id"]},
+                        {"$set": {
+                            "cheque_bounced": True,
+                            "bounced_from_cheque_id": cheque_id,
+                            "bounced_from_cheque_number": cheque.get("cheque_number"),
+                            "bounced_from_cheque_amount": cheque.get("amount"),
+                            "bounce_reason": payload.reason.strip(),
+                            "bounced_at": now,
+                            "updated_at": now,
+                        }}
+                    )
+            elif req_id and req_type == "labour":
+                await db.labour_expenses.update_one(
+                    {"labour_expense_id": req_id},
+                    {"$set": {
+                        "status": "pending_accounts_approval",
+                        "cheque_bounced": True,
+                        "bounced_from_cheque_id": cheque_id,
+                        "bounced_from_cheque_number": cheque.get("cheque_number"),
+                        "bounce_reason": payload.reason.strip(),
+                        "bounced_at": now,
+                        "paid_via_expense_id": None,
+                        "paid_at": None,
+                        "updated_at": now,
+                    }}
+                )
+            elif req_id and req_type == "petty_cash":
+                await db.petty_cash.update_one(
+                    {"petty_cash_id": req_id},
+                    {"$set": {
+                        "status": "awaiting_accountant",
+                        "cheque_bounced": True,
+                        "bounced_from_cheque_id": cheque_id,
+                        "bounced_from_cheque_number": cheque.get("cheque_number"),
+                        "bounce_reason": payload.reason.strip(),
+                        "bounced_at": now,
+                        "updated_at": now,
+                    }}
+                )
+            reversal_summary["expense_reversed"] = True
+            reversal_summary["expense_project_id"] = rec_exp.get("project_id")
+
+    # 3. Audit log
+    await create_audit_log(user.user_id, "bounce", "cheque", cheque_id, {
+        "cheque_number": cheque.get("cheque_number"),
+        "amount": cheque.get("amount"),
+        "reason": payload.reason.strip(),
+        "charges": payload.charges,
+        **reversal_summary,
+    })
+
+    return {
+        "message": f"Cheque {cheque.get('cheque_number')} marked as bounced",
+        "cheque_id": cheque_id,
+        **reversal_summary,
+    }
+
+
+@router.get("/accountant/cheques/bounced")
+async def list_bounced_cheques(user: User = Depends(get_current_user)):
+    """List all bounced cheques for the dedicated Bounced tab."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.CRE]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    cheques = await db.cheques.find({"status": "bounced"}, {"_id": 0}).sort("bounced_at", -1).to_list(500)
     return cheques
 
 

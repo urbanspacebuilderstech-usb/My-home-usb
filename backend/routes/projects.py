@@ -3884,7 +3884,7 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     # must NEVER inflate the project's Total Income card or the Receivable
     # calculation. The income_records list still returns every row so the UI
     # can show the rejection/correction banner on the per-row view.
-    EXCLUDED_INCOME_STATUSES = ["rejected", "accountant_rejected", "under_correction", "pending_approval"]
+    EXCLUDED_INCOME_STATUSES = ["rejected", "accountant_rejected", "under_correction", "pending_approval", "cheque_bounced"]
     approved_income_total = sum(
         float(i.get("amount", 0) or 0)
         for i in income_records
@@ -4001,7 +4001,7 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     # Project-wide expenses (used by the redesigned strip) — APPROVED only.
     # Exclude rejected / under_correction so the strip stops counting amounts
     # the Accountant has pulled back.
-    EXCLUDED_EXPENSE_STATUSES = ["rejected", "accountant_rejected", "accounts_rejected", "under_correction"]
+    EXCLUDED_EXPENSE_STATUSES = ["rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"]
     project_expenses_list = await db.recorded_expenses.find(
         {"project_id": project_id, "status": {"$nin": EXCLUDED_EXPENSE_STATUSES}},
         {"_id": 0, "amount": 1}
