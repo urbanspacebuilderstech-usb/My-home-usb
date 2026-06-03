@@ -8,6 +8,9 @@ import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import { Checkbox } from '../components/ui/checkbox';
+import { Popover, PopoverTrigger, PopoverContent } from '../components/ui/popover';
 import {
   Package,
   ClipboardList,
@@ -29,7 +32,8 @@ import {
   ListChecks,
   CheckCheck,
   PackageCheck,
-  ThumbsUp
+  ThumbsUp,
+  ChevronDown
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
@@ -1544,7 +1548,7 @@ function MaterialVendorsTab() {
     materials.filter(m => matchesSearch(m, false) && inDate(m)),
   [materials, search, dateRange]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const openAddVendor = () => { setEditing(null); setForm({ name: '', contact_person: '', phone: '', gst_number: '', address: '', category: 'material', is_active: true }); setAddOpen(true); };
+  const openAddVendor = () => { setEditing(null); setForm({ name: '', contact_person: '', phone: '', email: '', gst_number: '', address: '', category: 'material', payment_terms: 'full', bank_name: '', account_number: '', ifsc_code: '', upi_id: '', materials_supplied: [], is_active: true }); setAddOpen(true); };
   const openEditVendor = (v) => { setEditing({ ...v, _kind: 'vendor' }); setForm({ ...v }); setAddOpen(true); };
   const openAddMaterial = () => { setEditing({ _kind: 'material_new' }); setForm({ name: '', category: '', unit: '', standard_rate: '', is_active: true }); setAddOpen(true); };
   const openEditMaterial = (m) => { setEditing({ ...m, _kind: 'material' }); setForm({ ...m }); setAddOpen(true); };
@@ -1706,11 +1710,16 @@ function MaterialVendorsTab() {
 
       {/* Add / Edit Vendor or Material dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="max-w-md" data-testid="proc-vendor-form-dialog">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="proc-vendor-form-dialog">
           <DialogHeader>
             <DialogTitle>
-              {(editing?._kind === 'material' || editing?._kind === 'material_new' || (view === 'materials' && !editing)) ? (editing?.material_id ? 'Edit Material' : 'Add Material') : (editing?.vendor_id ? 'Edit Vendor' : 'Add Vendor')}
+              {(editing?._kind === 'material' || editing?._kind === 'material_new' || (view === 'materials' && !editing)) ? (editing?.material_id ? 'Edit Material' : 'Add Material') : (editing?.vendor_id ? 'Edit Material Vendor' : 'Add Material Vendor')}
             </DialogTitle>
+            <DialogDescription className="text-xs text-gray-500">
+              {(editing?._kind === 'material' || editing?._kind === 'material_new' || (view === 'materials' && !editing))
+                ? 'Define a material item with category, unit and standard rate.'
+                : 'Capture vendor info, banking details, and the materials they sell.'}
+            </DialogDescription>
           </DialogHeader>
           {(editing?._kind === 'material' || editing?._kind === 'material_new' || (view === 'materials' && !editing)) ? (
             <div className="space-y-2 text-sm">
@@ -1725,18 +1734,118 @@ function MaterialVendorsTab() {
               </label>
             </div>
           ) : (
-            <div className="space-y-2 text-sm">
-              <div><Label className="text-xs">Vendor Name *</Label><Input value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} className="h-8 text-xs" data-testid="vendor-form-name" /></div>
-              <div className="grid grid-cols-2 gap-2">
-                <div><Label className="text-xs">Contact Person</Label><Input value={form.contact_person || ''} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} className="h-8 text-xs" /></div>
-                <div><Label className="text-xs">Phone</Label><Input value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="h-8 text-xs" /></div>
-              </div>
-              <div><Label className="text-xs">GST Number</Label><Input value={form.gst_number || ''} onChange={(e) => setForm({ ...form, gst_number: e.target.value })} className="h-8 text-xs" /></div>
-              <div><Label className="text-xs">Address</Label><Input value={form.address || ''} onChange={(e) => setForm({ ...form, address: e.target.value })} className="h-8 text-xs" /></div>
-              <label className="flex items-center gap-2 text-xs text-gray-700 mt-2">
-                <input type="checkbox" checked={form.is_active !== false} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} /> Active
-              </label>
-            </div>
+            <Tabs defaultValue="basic" className="w-full">
+              <TabsList className="grid w-full grid-cols-3" data-testid="vendor-dialog-tabs">
+                <TabsTrigger value="basic" data-testid="vendor-tab-basic">Basic</TabsTrigger>
+                <TabsTrigger value="bank" data-testid="vendor-tab-bank">Bank</TabsTrigger>
+                <TabsTrigger value="materials" data-testid="vendor-tab-materials">Materials they sell</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="basic" className="space-y-4 mt-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div><Label>Company Name <span className="text-red-500">*</span></Label><Input value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" data-testid="vendor-name-input" /></div>
+                  <div><Label>Contact Person</Label><Input value={form.contact_person || ''} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} className="mt-1" /></div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><Label>Phone</Label><Input value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="mt-1" /></div>
+                  <div><Label>Email</Label><Input value={form.email || ''} onChange={(e) => setForm({ ...form, email: e.target.value })} className="mt-1" /></div>
+                </div>
+                <div><Label>Address</Label><Input value={form.address || ''} onChange={(e) => setForm({ ...form, address: e.target.value })} className="mt-1" /></div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><Label>GST Number</Label><Input value={form.gst_number || ''} onChange={(e) => setForm({ ...form, gst_number: e.target.value })} className="mt-1" /></div>
+                  <div>
+                    <Label>Payment Terms</Label>
+                    <Select value={form.payment_terms || 'full'} onValueChange={(v) => setForm({ ...form, payment_terms: v })}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="full">Full</SelectItem>
+                        <SelectItem value="advance">Advance</SelectItem>
+                        <SelectItem value="credit">Credit</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                {form.payment_terms === 'credit' && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><Label>Credit Limit</Label><Input type="number" min="0" step="any" value={form.credit_limit || ''} onChange={(e) => setForm({ ...form, credit_limit: parseFloat(e.target.value) || 0 })} className="mt-1" /></div>
+                    <div><Label>Credit Days</Label><Input type="number" min="0" value={form.credit_days || ''} onChange={(e) => setForm({ ...form, credit_days: parseInt(e.target.value) || 0 })} className="mt-1" /></div>
+                  </div>
+                )}
+                <label className="flex items-center gap-2 text-xs text-gray-700">
+                  <input type="checkbox" checked={form.is_active !== false} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} /> Active
+                </label>
+              </TabsContent>
+
+              <TabsContent value="bank" className="space-y-4 mt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div><Label>Bank Name</Label><Input value={form.bank_name || ''} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} className="mt-1" placeholder="e.g., HDFC Bank" data-testid="vendor-bank-input" /></div>
+                  <div><Label>Account Number</Label><Input value={form.account_number || ''} onChange={(e) => setForm({ ...form, account_number: e.target.value })} className="mt-1" data-testid="vendor-account-input" /></div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div><Label>IFSC Code</Label><Input value={form.ifsc_code || ''} onChange={(e) => setForm({ ...form, ifsc_code: e.target.value.toUpperCase() })} className="mt-1 uppercase" placeholder="e.g., HDFC0001234" data-testid="vendor-ifsc-input" /></div>
+                  <div><Label>UPI ID</Label><Input value={form.upi_id || ''} onChange={(e) => setForm({ ...form, upi_id: e.target.value })} className="mt-1" placeholder="vendor@hdfcbank" /></div>
+                </div>
+                <p className="text-[11px] text-gray-500 italic">Bank details are used when generating payouts and reconciling cheques.</p>
+              </TabsContent>
+
+              <TabsContent value="materials" className="space-y-3 mt-4">
+                <Label>Materials they sell</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button type="button" variant="outline" role="combobox" className="w-full justify-between font-normal h-9" data-testid="vendor-materials-select">
+                      <span className="truncate text-left">
+                        {form.materials_supplied && form.materials_supplied.length > 0
+                          ? form.materials_supplied.map(id => (materials.find(m => m.material_id === id) || {}).name || id).join(', ')
+                          : <span className="text-gray-400">Select material(s)</span>}
+                      </span>
+                      <ChevronDown className="h-4 w-4 opacity-50 shrink-0 ml-2" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                    <div className="max-h-72 overflow-y-auto py-1">
+                      {materials.filter(m => m.is_active !== false).length === 0 && (
+                        <p className="text-[11px] text-gray-400 italic px-3 py-2">
+                          Tip: Add materials under the "Materials" sub-tab.
+                        </p>
+                      )}
+                      {materials.filter(m => m.is_active !== false).map(m => {
+                        const checked = (form.materials_supplied || []).includes(m.material_id);
+                        return (
+                          <label key={m.material_id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm" data-testid={`vendor-material-option-${m.material_id}`}>
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(v) => {
+                                const cur = form.materials_supplied || [];
+                                setForm({ ...form, materials_supplied: v ? [...cur, m.material_id] : cur.filter(id => id !== m.material_id) });
+                              }}
+                            />
+                            <span className="flex-1">{m.name}</span>
+                            {m.unit && <span className="text-[10px] text-gray-400">{m.unit}</span>}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                {form.materials_supplied && form.materials_supplied.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-2">
+                    {form.materials_supplied.map(id => {
+                      const m = materials.find(x => x.material_id === id);
+                      return (
+                        <Badge key={id} variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                          {m?.name || id}
+                          <button
+                            type="button"
+                            onClick={() => setForm({ ...form, materials_supplied: form.materials_supplied.filter(x => x !== id) })}
+                            className="ml-1 text-amber-600 hover:text-amber-800"
+                          >×</button>
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           )}
           <DialogFooter>
             <Button size="sm" variant="ghost" onClick={() => setAddOpen(false)}>Cancel</Button>
