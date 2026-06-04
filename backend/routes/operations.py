@@ -3773,6 +3773,9 @@ async def get_cheques(
     query = {}
     if status:
         query["status"] = status
+    else:
+        # Hide soft-deleted by default
+        query["status"] = {"$ne": "deleted"}
     if cheque_type:
         query["cheque_type"] = cheque_type
     if is_post_dated is not None:
@@ -3905,7 +3908,7 @@ async def get_cre_cheques(project_id: Optional[str] = None, user: User = Depends
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
-    query = {"cheque_type": "incoming"}
+    query = {"cheque_type": "incoming", "status": {"$ne": "deleted"}}
     if project_id:
         query["project_id"] = project_id
 
@@ -3916,7 +3919,7 @@ async def get_cre_cheques(project_id: Optional[str] = None, user: User = Depends
 @router.get("/projects/{project_id}/cheques")
 async def get_project_cheques(project_id: str, user: User = Depends(get_current_user)):
     """List ALL cheques (incoming + outgoing) tied to a project — for the Project Detail Cheques tab."""
-    cheques = await db.cheques.find({"project_id": project_id}, {"_id": 0}).sort("cheque_date", -1).to_list(2000)
+    cheques = await db.cheques.find({"project_id": project_id, "status": {"$ne": "deleted"}}, {"_id": 0}).sort("cheque_date", -1).to_list(2000)
     return cheques
 
 

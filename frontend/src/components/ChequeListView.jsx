@@ -7,7 +7,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
-import { Search, CheckCircle2, Lock, FileText, Loader2, Building2, AlertTriangle, Eye } from 'lucide-react';
+import { Search, CheckCircle2, Lock, FileText, Loader2, Building2, AlertTriangle, Eye, Trash2 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -43,8 +43,28 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
   const canOpen = ['super_admin', 'cre'].includes(userRole);
   const canRequestOpen = ['super_admin', 'accountant'].includes(userRole);
   const canBounce = ['super_admin', 'accountant'].includes(userRole);
+  const canDelete = ['super_admin', 'accountant'].includes(userRole);
   const [bounceDialog, setBounceDialog] = useState({ open: false, cheque: null, reason: '', charges: '' });
   const [usageDialog, setUsageDialog] = useState({ open: false, cheque: null, data: null, loading: false });
+  const [deleteDialog, setDeleteDialog] = useState({ open: false, cheque: null, password: '' });
+
+  const handleDelete = async () => {
+    if (!deleteDialog.cheque) return;
+    if (!deleteDialog.password) { toast.error('Password required'); return; }
+    try {
+      setSubmitting(true);
+      await axios.delete(`${API}/accountant/cheques/${deleteDialog.cheque.cheque_id}`, {
+        data: { password: deleteDialog.password },
+      });
+      toast.success(`Cheque ${deleteDialog.cheque.cheque_number} deleted`);
+      setDeleteDialog({ open: false, cheque: null, password: '' });
+      fetchCheques();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to delete cheque');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const openUsageDialog = async (cheque) => {
     setUsageDialog({ open: true, cheque, data: null, loading: true });
@@ -322,11 +342,12 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                   </div>
                   <span className="text-sm font-bold text-violet-700">{fmtMoney(g.total)}</span>
                 </div>
-                <ChequeTable rows={g.rows} canOpen={canOpen} canRequestOpen={canRequestOpen} canBounce={canBounce}
+                <ChequeTable rows={g.rows} canOpen={canOpen} canRequestOpen={canRequestOpen} canBounce={canBounce} canDelete={canDelete}
                   onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })}
                   onRequestOpen={(c) => setRequestDialog({ open: true, cheque: c, remarks: '' })}
                   onBounce={(c) => setBounceDialog({ open: true, cheque: c, reason: '', charges: '' })}
                   onView={openUsageDialog}
+                  onDelete={(c) => setDeleteDialog({ open: true, cheque: c, password: '' })}
                   onAction={onAction} />
               </CardContent>
             </Card>
@@ -341,11 +362,12 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                 <p className="text-sm">No cheques match the current filter</p>
               </div>
             ) : (
-              <ChequeTable rows={filtered} canOpen={canOpen} canRequestOpen={canRequestOpen} canBounce={canBounce}
+              <ChequeTable rows={filtered} canOpen={canOpen} canRequestOpen={canRequestOpen} canBounce={canBounce} canDelete={canDelete}
                 onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })}
                 onRequestOpen={(c) => setRequestDialog({ open: true, cheque: c, remarks: '' })}
                 onBounce={(c) => setBounceDialog({ open: true, cheque: c, reason: '', charges: '' })}
                 onView={openUsageDialog}
+                onDelete={(c) => setDeleteDialog({ open: true, cheque: c, password: '' })}
                 onAction={onAction} />
             )}
           </CardContent>
@@ -506,11 +528,52 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Cheque dialog — orphan-only, password-confirmed */}
+      <Dialog open={deleteDialog.open} onOpenChange={(o) => !o && setDeleteDialog({ open: false, cheque: null, password: '' })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="h-5 w-5" /> Delete Cheque
+            </DialogTitle>
+          </DialogHeader>
+          {deleteDialog.cheque && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2 text-xs bg-red-50 border border-red-200 rounded-lg p-3">
+                <div><span className="text-gray-500">Cheque #</span><p className="font-semibold">{deleteDialog.cheque.cheque_number}</p></div>
+                <div><span className="text-gray-500">Amount</span><p className="font-semibold text-red-700">{fmtMoney(deleteDialog.cheque.amount)}</p></div>
+                <div><span className="text-gray-500">Bank</span><p className="font-medium">{deleteDialog.cheque.bank_name || '—'}</p></div>
+                <div><span className="text-gray-500">Party</span><p className="font-medium">{deleteDialog.cheque.party_name || '—'}</p></div>
+              </div>
+              <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-800 leading-relaxed">
+                Only <strong>orphan cheques</strong> can be deleted — cheques that reference incomes/expenses that no longer exist. If this cheque is linked to a real collection or payment, you must <strong>Bounce</strong> it instead. Deletion is a <strong>soft delete</strong> (hidden from lists, kept for audit).
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Confirm with your password <span className="text-red-500">*</span></label>
+                <Input
+                  type="password"
+                  value={deleteDialog.password}
+                  onChange={(e) => setDeleteDialog({ ...deleteDialog, password: e.target.value })}
+                  placeholder="Your login password"
+                  autoFocus
+                  data-testid="cheque-delete-password"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialog({ open: false, cheque: null, password: '' })} disabled={submitting}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700" onClick={handleDelete} disabled={submitting || !deleteDialog.password} data-testid="cheque-delete-confirm">
+              {submitting ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Deleting…</> : <><Trash2 className="h-4 w-4 mr-1" /> Delete Cheque</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, onOpenRequest, onRequestOpen, onBounce, onView, onAction }) {
+function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOpenRequest, onRequestOpen, onBounce, onView, onDelete, onAction }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
@@ -631,6 +694,19 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, onOpenRequest, 
                         data-testid={`cheque-view-btn-${c.cheque_id}`}
                       >
                         <Eye className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {/* Delete (orphan only) */}
+                    {canDelete && c.status !== 'deleted' && onDelete && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
+                        title="Delete cheque (orphan only)"
+                        onClick={() => onDelete(c)}
+                        data-testid={`cheque-delete-btn-${c.cheque_id}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     )}
                     {!isLockedIncoming && !c.is_opened && !isBounceable && c.status !== 'bounced' && (

@@ -4395,6 +4395,88 @@ async def list_bounced_cheques(user: User = Depends(get_current_user)):
     return cheques
 
 
+class ChequeDeleteRequest(BaseModel):
+    password: str
+
+
+@router.delete("/accountant/cheques/{cheque_id}")
+async def delete_cheque(cheque_id: str, payload: ChequeDeleteRequest, user: User = Depends(get_current_user)):
+    """Soft-delete an orphan cheque.
+
+    Rules (per user spec):
+      • Only Super Admin and Accountant can delete.
+      • User must re-authenticate with their own password.
+      • Deletion only allowed when the cheque has NO valid linked income or
+        expense — i.e. the cheque is orphaned (references that no longer
+        resolve to existing records, or the cheque was never used).
+      • Soft delete only — sets status='deleted' so audit trail is preserved.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Super Admin or Accountant can delete cheques")
+
+    # 1. Re-verify password
+    from routes.auth import verify_password  # local import to avoid circular
+    db_user = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1, "hashed_password": 1})
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User record not found")
+    stored_hash = db_user.get("password_hash") or db_user.get("hashed_password")
+    if not stored_hash or not verify_password(payload.password, stored_hash):
+        raise HTTPException(status_code=401, detail="Incorrect password — cheque not deleted")
+
+    # 2. Fetch cheque
+    cheque = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail="Cheque not found")
+    if cheque.get("status") == "deleted":
+        raise HTTPException(status_code=400, detail="Cheque already deleted")
+
+    # 3. Orphan check — block delete if ANY linked income/expense actually exists
+    # Income side
+    has_real_income = False
+    if cheque.get("income_id"):
+        if await db.income.find_one({"income_id": cheque["income_id"]}, {"_id": 0, "income_id": 1}):
+            has_real_income = True
+    if not has_real_income:
+        # Look for any income that references back to this cheque
+        if await db.income.find_one({"cheque_id": cheque_id}, {"_id": 0, "income_id": 1}):
+            has_real_income = True
+    if not has_real_income and cheque.get("bulk_collection_id"):
+        if await db.income.find_one({"bulk_collection_id": cheque["bulk_collection_id"]}, {"_id": 0, "income_id": 1}):
+            has_real_income = True
+    # Expense side
+    has_real_expense = False
+    if cheque.get("used_for_expense_id"):
+        if await db.recorded_expenses.find_one({"expense_id": cheque["used_for_expense_id"]}, {"_id": 0, "expense_id": 1}):
+            has_real_expense = True
+
+    if has_real_income or has_real_expense:
+        raise HTTPException(
+            status_code=400,
+            detail="Cheque is linked to an existing income or expense — use Bounce to reverse first, then delete is not needed.",
+        )
+
+    # 4. Soft delete + audit
+    now = datetime.now(timezone.utc).isoformat()
+    await db.cheques.update_one(
+        {"cheque_id": cheque_id},
+        {"$set": {
+            "status": "deleted",
+            "deleted_at": now,
+            "deleted_by": user.user_id,
+            "deleted_by_name": user.name,
+            "updated_at": now,
+        }}
+    )
+    await create_audit_log(user.user_id, "delete", "cheque", cheque_id, {
+        "cheque_number": cheque.get("cheque_number"),
+        "amount": cheque.get("amount"),
+        "party_name": cheque.get("party_name"),
+        "had_orphan_refs": bool(cheque.get("income_id") or cheque.get("used_for_expense_id") or cheque.get("project_id")),
+    })
+
+    return {"message": f"Cheque {cheque.get('cheque_number')} deleted (orphan)", "cheque_id": cheque_id}
+
+
 @router.get("/cheques/{cheque_id}/usage")
 async def get_cheque_usage(cheque_id: str, user: User = Depends(get_current_user)):
     """Return everywhere this cheque touched the books:
