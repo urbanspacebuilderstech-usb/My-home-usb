@@ -1231,19 +1231,34 @@ export default function CREBoard() {
               const isCollectedEntry = (e) => {
                 const hasPendingApproval = (e.pending_approval_count || 0) > 0;
                 if (hasPendingApproval) return false;
+                const balance = (e.amount || 0) - (e.amount_received || 0);
                 const s = (e.stage_status || e.status || '').toLowerCase();
                 const ws = (e.workflow_status || '').toLowerCase();
+                // Only treat as Collected when balance is effectively zero AND
+                // the cached status agrees. This filters out partial-bounce
+                // rows where stage_status may still be "collected" even though
+                // amount_received has been reduced.
+                if (balance > 1) return false;
                 if (s === 'paid' || s === 'collected') return true;
-                if (ws === 'collected') {
-                  // workflow says collected — only trust it when math also agrees.
-                  const balance = (e.amount || 0) - (e.amount_received || 0);
-                  return balance <= 1;
-                }
+                if (ws === 'collected') return true;
                 return false;
               };
+              // Partial = some money received but balance > 0 and no pending approval.
+              const isPartialEntry = (e) => {
+                const hasPendingApproval = (e.pending_approval_count || 0) > 0;
+                if (hasPendingApproval) return false;
+                if (isCollectedEntry(e)) return false;
+                const received = e.amount_received || 0;
+                const balance = (e.amount || 0) - received;
+                return received > 0 && balance > 0;
+              };
+              const partialEntries = dateFiltered.filter(isPartialEntry);
+              const collectedEntries = dateFiltered.filter(isCollectedEntry);
+              // Pending = everything NOT collected (still actionable). Partial rows
+              // ALSO appear here so CRE can finish collecting them.
               const pendingEntries = dateFiltered.filter(e => !isCollectedEntry(e));
-              const collectedEntries = dateFiltered.filter(e => isCollectedEntry(e));
-              const entries = psSubTab === 'pending' ? pendingEntries
+              const entries = psSubTab === 'pending'   ? pendingEntries
+                            : psSubTab === 'partial'   ? partialEntries
                             : psSubTab === 'collected' ? collectedEntries
                             : dateFiltered;
               return (
@@ -1272,6 +1287,7 @@ export default function CREBoard() {
                     <div className="flex gap-2 flex-wrap" data-testid="ps-subtabs">
                       {[
                         { key: 'pending', label: 'Pending', count: pendingEntries.length, activeBg: 'bg-amber-600', dot: 'bg-red-500' },
+                        { key: 'partial', label: 'Partial', count: partialEntries.length, activeBg: 'bg-orange-500', dot: 'bg-red-500' },
                         { key: 'collected', label: 'Collected', count: collectedEntries.length, activeBg: 'bg-emerald-600', dot: 'bg-red-500' },
                         { key: 'all', label: 'All', count: dateFiltered.length, activeBg: 'bg-slate-700', dot: 'bg-red-500' },
                       ].map(t => (
