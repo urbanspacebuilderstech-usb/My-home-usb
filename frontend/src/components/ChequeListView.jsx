@@ -211,21 +211,32 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
   const stats = useMemo(() => {
     const incoming = cheques.filter(c => c.cheque_type === 'incoming');
     const outgoing = cheques.filter(c => c.cheque_type === 'outgoing');
-    const pending = cheques.filter(c => c.cheque_type === 'incoming' && !c.is_opened && c.status !== 'cancelled');
-    const requested = cheques.filter(c => c.cheque_type === 'incoming' && !c.is_opened && c.open_requested && c.status !== 'cancelled');
-    const opened = cheques.filter(c => c.is_opened);
+    // Strict per-tab classifications (must mirror the tab filter logic below)
+    const isAlive = (c) => c.status !== 'cancelled' && c.status !== 'bounced';
+    const isIncoming = (c) => c.cheque_type === 'incoming';
+    const receivedRows  = cheques.filter(c => isIncoming(c) && isAlive(c) && !c.is_opened && !c.open_requested);
+    const awaitingRows  = cheques.filter(c => isIncoming(c) && isAlive(c) && !c.is_opened && !!c.open_requested);
+    const openedRows    = cheques.filter(c => isIncoming(c) && isAlive(c) && c.is_opened && !c.used_for_expense_id);
+    const issuedRows    = cheques.filter(c => !!c.used_for_expense_id && c.status !== 'bounced');
+    const bouncedRows   = cheques.filter(c => c.status === 'bounced');
+    const sumAmt = (arr) => arr.reduce((s, c) => s + (c.amount || 0), 0);
     return {
       total: cheques.length,
-      total_amount: cheques.reduce((s, c) => s + (c.amount || 0), 0),
+      total_amount: sumAmt(cheques),
       incoming_count: incoming.length,
-      incoming_amount: incoming.reduce((s, c) => s + (c.amount || 0), 0),
+      incoming_amount: sumAmt(incoming),
       outgoing_count: outgoing.length,
-      outgoing_amount: outgoing.reduce((s, c) => s + (c.amount || 0), 0),
-      pending_open: pending.length,
-      pending_amount: pending.reduce((s, c) => s + (c.amount || 0), 0),
-      open_requested_count: requested.length,
-      open_requested_amount: requested.reduce((s, c) => s + (c.amount || 0), 0),
-      opened_count: opened.length,
+      outgoing_amount: sumAmt(outgoing),
+      pending_open: receivedRows.length,
+      pending_amount: sumAmt(receivedRows),
+      open_requested_count: awaitingRows.length,
+      open_requested_amount: sumAmt(awaitingRows),
+      opened_count: openedRows.length,
+      opened_amount: sumAmt(openedRows),
+      issued_count: issuedRows.length,
+      issued_amount: sumAmt(issuedRows),
+      bounced_count: bouncedRows.length,
+      bounced_amount: sumAmt(bouncedRows),
     };
   }, [cheques]);
 
@@ -235,71 +246,16 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
 
   return (
     <div className="space-y-3" data-testid={`cheque-list-view-${scope}`}>
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
-        {scope === 'accountant' ? (
-          <>
-            <Card className="border-l-4 border-l-emerald-500">
-              <CardContent className="p-3">
-                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Incoming</p>
-                <p className="text-lg sm:text-xl font-bold text-emerald-700">{stats.incoming_count}</p>
-                <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.incoming_amount)}</p>
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-orange-500">
-              <CardContent className="p-3">
-                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Outgoing</p>
-                <p className="text-lg sm:text-xl font-bold text-orange-700">{stats.outgoing_count}</p>
-                <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.outgoing_amount)}</p>
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-amber-500 cursor-pointer hover:shadow-md" onClick={() => setActiveTab('open_pending')}>
-              <CardContent className="p-3">
-                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Awaiting CRE</p>
-                <p className="text-lg sm:text-xl font-bold text-amber-700">{stats.pending_open}</p>
-                <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.pending_amount)}</p>
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-blue-500 cursor-pointer hover:shadow-md" onClick={() => setActiveTab('open_requested')}>
-              <CardContent className="p-3">
-                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Open Requested</p>
-                <p className="text-lg sm:text-xl font-bold text-blue-700">{stats.open_requested_count}</p>
-                <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.open_requested_amount)}</p>
-              </CardContent>
-            </Card>
-          </>
-        ) : (
-          <>
-            <Card className="border-l-4 border-l-blue-500">
-              <CardContent className="p-3">
-                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Total Cheques</p>
-                <p className="text-lg sm:text-xl font-bold text-blue-700">{stats.total}</p>
-                <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.total_amount)}</p>
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-amber-500">
-              <CardContent className="p-3">
-                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Awaiting CRE Open</p>
-                <p className="text-lg sm:text-xl font-bold text-amber-700">{stats.pending_open}</p>
-                <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.pending_amount)}</p>
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-blue-500 cursor-pointer hover:shadow-md" onClick={() => setActiveTab('open_requested')}>
-              <CardContent className="p-3">
-                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Accountant Requested</p>
-                <p className="text-lg sm:text-xl font-bold text-blue-700">{stats.open_requested_count}</p>
-                <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.open_requested_amount)}</p>
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-emerald-500">
-              <CardContent className="p-3">
-                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Opened by CRE</p>
-                <p className="text-lg sm:text-xl font-bold text-emerald-700">{stats.opened_count}</p>
-              </CardContent>
-            </Card>
-          </>
-        )}
-      </div>
+      {/* Lifecycle Summary — only on the All tab, large amount + cheque count */}
+      {activeTab === 'all' && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 sm:gap-3">
+          <SummaryCard color="amber" label="Received" amount={stats.pending_amount} count={stats.pending_open} onClick={() => setActiveTab('received')} testId="summary-received" />
+          <SummaryCard color="blue" label="Awaiting CRE" amount={stats.open_requested_amount} count={stats.open_requested_count} onClick={() => setActiveTab('open_requested')} testId="summary-awaiting" />
+          <SummaryCard color="emerald" label="Opened" amount={stats.opened_amount} count={stats.opened_count} onClick={() => setActiveTab('opened')} testId="summary-opened" />
+          <SummaryCard color="orange" label="Issued" amount={stats.issued_amount} count={stats.issued_count} onClick={() => setActiveTab('issued')} testId="summary-issued" />
+          <SummaryCard color="red" label="Bounced" amount={stats.bounced_amount} count={stats.bounced_count} onClick={() => setActiveTab('bounced')} testId="summary-bounced" />
+        </div>
+      )}
 
       {/* Filter Bar */}
       <Card>
@@ -307,21 +263,26 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
           <div className="flex flex-wrap gap-2 items-center">
             <div className="inline-flex bg-gray-100 rounded-lg p-0.5 flex-wrap">
               {[
-                { k: 'all', label: 'All' },
-                { k: 'received', label: 'Received' },
-                { k: 'opened', label: 'Opened' },
-                { k: 'open_requested', label: 'Awaiting CRE' },
-                { k: 'issued', label: 'Issued' },
-                { k: 'bounced', label: 'Bounced' },
-                ...(scope === 'cre' ? [{ k: 'by_project', label: 'Project Wise' }] : []),
+                { k: 'all', label: 'All', count: stats.total },
+                { k: 'received', label: 'Received', count: stats.pending_open },
+                { k: 'opened', label: 'Opened', count: stats.opened_count },
+                { k: 'open_requested', label: 'Awaiting CRE', count: stats.open_requested_count },
+                { k: 'issued', label: 'Issued', count: stats.issued_count },
+                { k: 'bounced', label: 'Bounced', count: stats.bounced_count },
+                ...(scope === 'cre' ? [{ k: 'by_project', label: 'Project Wise', count: null }] : []),
               ].map(t => (
                 <button
                   key={t.k}
                   onClick={() => setActiveTab(t.k)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${activeTab === t.k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'} ${t.k === 'bounced' && activeTab !== t.k ? 'text-red-600 hover:text-red-700' : ''}`}
+                  className={`relative px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 ${activeTab === t.k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'} ${t.k === 'bounced' && activeTab !== t.k ? 'text-red-600 hover:text-red-700' : ''}`}
                   data-testid={`cheque-tab-${t.k}`}
                 >
                   {t.label}
+                  {t.count !== null && t.count !== undefined && (
+                    <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] text-[9px] font-bold rounded-full px-1 ${t.count > 0 ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'}`}>
+                      {t.count}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -745,6 +706,31 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOp
   );
 }
 
+
+function SummaryCard({ color = 'blue', label, amount, count, onClick, testId }) {
+  const palette = {
+    amber:   { border: 'border-l-amber-500',   amountClr: 'text-amber-700',   pillBg: 'bg-amber-100',   pillTxt: 'text-amber-700' },
+    blue:    { border: 'border-l-blue-500',    amountClr: 'text-blue-700',    pillBg: 'bg-blue-100',    pillTxt: 'text-blue-700' },
+    emerald: { border: 'border-l-emerald-500', amountClr: 'text-emerald-700', pillBg: 'bg-emerald-100', pillTxt: 'text-emerald-700' },
+    orange:  { border: 'border-l-orange-500',  amountClr: 'text-orange-700',  pillBg: 'bg-orange-100',  pillTxt: 'text-orange-700' },
+    red:     { border: 'border-l-red-500',     amountClr: 'text-red-700',     pillBg: 'bg-red-100',     pillTxt: 'text-red-700' },
+  };
+  const p = palette[color] || palette.blue;
+  return (
+    <Card className={`border-l-4 ${p.border} cursor-pointer hover:shadow-md transition-shadow`} onClick={onClick} data-testid={testId}>
+      <CardContent className="p-3 sm:p-4">
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-[10px] sm:text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{label}</p>
+          <span className={`${p.pillBg} ${p.pillTxt} text-[10px] font-bold px-2 py-0.5 rounded-full min-w-[24px] text-center`}>
+            {count || 0}
+          </span>
+        </div>
+        <p className={`${p.amountClr} text-xl sm:text-2xl font-bold leading-tight`}>{fmtMoney(amount)}</p>
+        <p className="text-[10px] text-gray-400 mt-0.5">{count === 1 ? '1 cheque' : `${count || 0} cheques`}</p>
+      </CardContent>
+    </Card>
+  );
+}
 
 function IncomeRow({ inc }) {
   const isBounced = inc.status === 'cheque_bounced';
