@@ -244,7 +244,10 @@ async def get_all_income(
     ]
     if user.role not in income_access_roles:
         raise HTTPException(status_code=403, detail="Access denied to financial data")
-    query = {}
+    # Exclude bounced incomes by default (consistent with /accountant/overview &
+    # /projects/{id}/income). The bounce cascade already deducted them from
+    # the owning stage so re-listing them here would double-count.
+    query = {"status": {"$ne": "cheque_bounced"}}
     
     if project_id:
         query["project_id"] = project_id
@@ -320,7 +323,13 @@ async def get_project_income(project_id: str, user: User = Depends(get_current_u
     ]
     if user.role not in income_access_roles:
         raise HTTPException(status_code=403, detail="Access denied to financial data")
-    income_entries = await db.income.find({"project_id": project_id}, {"_id": 0}).sort("payment_date", -1).to_list(1000)
+    # Exclude bounced incomes — their amount has already been deducted from the
+    # owning payment stage during the bounce cascade. Showing them here would
+    # double-count or mislead the project Payment Summary cards.
+    income_entries = await db.income.find(
+        {"project_id": project_id, "status": {"$ne": "cheque_bounced"}},
+        {"_id": 0},
+    ).sort("payment_date", -1).to_list(1000)
     
     for entry in income_entries:
         if isinstance(entry.get("payment_date"), str):
@@ -4218,11 +4227,20 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
         }}
     )
 
-    reversal_summary = {"income_reversed": False, "expense_reversed": False, "stages_reverted": 0, "total_income_reversed": 0.0, "new_stage_ids": []}
+    reversal_summary = {"income_reversed": False, "expense_reversed": False, "stages_reverted": 0, "total_income_reversed": 0.0, "new_stage_ids": [], "stages_adjusted": []}
 
-    # 2a. Income-side reversal — loop through EVERY income tied to this cheque.
-    # Each income → its payment_stage → mark old stage bounced + clone a fresh
-    # pending row so CRE can re-collect.
+    # 2a. Income-side reversal — for EVERY income tied to this cheque:
+    #   • Mark the income as `cheque_bounced` (so it disappears from cashbook
+    #     totals and the Project Income endpoint when we filter it out).
+    #   • DEDUCT the income amount from the stage's `amount_received`. The
+    #     SAME stage stays open (no clone). Status is recomputed:
+    #         new_received >= amount  → paid (unchanged)
+    #         new_received >  0       → partial
+    #         else                    → pending
+    #   • Stamp a bounce banner so CRE/Planning know to re-collect that
+    #     portion on the SAME stage row.
+    bounce_amount = float(cheque.get("amount") or 0)
+    stage_deltas = {}  # stage_id -> total reduction
     for income in linked_incomes:
         income_id = income.get("income_id")
         project_id = income.get("project_id")
@@ -4239,56 +4257,64 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
             }}
         )
         if stage_id:
-            old_stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
-            if old_stage:
-                await db.payment_stages.update_one(
-                    {"stage_id": stage_id},
-                    {"$set": {
-                        "status": "cheque_bounced",
-                        "cheque_bounced": True,
-                        "bounced_at": now,
-                        "bounced_from_cheque_id": cheque_id,
-                        "bounced_from_cheque_number": cheque.get("cheque_number"),
-                        "bounce_reason": payload.reason.strip(),
-                        "updated_at": now,
-                    }}
-                )
-                # Clone a fresh pending row for re-collection
-                new_stage_id = f"ps_{uuid.uuid4().hex[:12]}"
-                new_stage = {
-                    **{k: v for k, v in old_stage.items() if k not in (
-                        "stage_id", "collected_amount", "collected_at",
-                        "collected_by", "collected_by_name", "status",
-                        "cheque_id", "cheque_number", "payment_method",
-                        "bounced_at", "bounced_from_cheque_id",
-                        "bounced_from_cheque_number", "bounce_reason",
-                        "cheque_bounced", "created_at",
-                    )},
-                    "stage_id": new_stage_id,
-                    "status": "pending",
-                    "collected_amount": 0,
-                    "amount": old_stage.get("amount", 0),
-                    "cheque_bounced_recollect": True,
-                    "bounced_from_stage_id": stage_id,
-                    "bounced_from_cheque_id": cheque_id,
-                    "bounced_from_cheque_number": cheque.get("cheque_number"),
-                    "bounced_from_cheque_amount": cheque.get("amount"),
-                    "bounce_reason": payload.reason.strip(),
-                    "bounce_banner": f"Re-collect — cheque {cheque.get('cheque_number')} bounced on {now[:10]}",
-                    "created_at": now,
-                    "created_by": user.user_id,
-                }
-                await db.payment_stages.insert_one(new_stage)
-                reversal_summary["new_stage_ids"].append(new_stage_id)
-                reversal_summary["stages_reverted"] += 1
+            stage_deltas[stage_id] = stage_deltas.get(stage_id, 0.0) + income_amount
         reversal_summary["total_income_reversed"] += income_amount
         reversal_summary["project_id"] = project_id
 
+    # Now apply the per-stage reductions
+    for stage_id, reduction in stage_deltas.items():
+        old_stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
+        if not old_stage:
+            continue
+        stage_amount = float(old_stage.get("amount") or 0)
+        old_received = float(old_stage.get("amount_received") or 0)
+        new_received = max(old_received - reduction, 0.0)
+        if new_received >= stage_amount and stage_amount > 0:
+            new_status = "paid"
+            new_workflow = old_stage.get("workflow_status") or "collected"
+            paid_at = old_stage.get("paid_at") or now
+        elif new_received > 0:
+            new_status = "partial"
+            new_workflow = "collected"
+            paid_at = None
+        else:
+            new_status = "pending"
+            new_workflow = "requested" if old_stage.get("requested_at") else "pending"
+            paid_at = None
+        update = {
+            "amount_received": new_received,
+            "status": new_status,
+            "workflow_status": new_workflow,
+            "cheque_bounced": True,
+            "last_bounce_amount": reduction,
+            "last_bounce_cheque_id": cheque_id,
+            "last_bounce_cheque_number": cheque.get("cheque_number"),
+            "bounced_at": now,
+            "bounce_reason": payload.reason.strip(),
+            "bounce_banner": f"₹{reduction:,.0f} bounced — cheque {cheque.get('cheque_number')} on {now[:10]}. Re-collect on the SAME stage.",
+            "updated_at": now,
+        }
+        if paid_at is None:
+            update["paid_at"] = None
+        await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": update})
+        reversal_summary["stages_reverted"] += 1
+        reversal_summary["stages_adjusted"].append({
+            "stage_id": stage_id,
+            "reduction": reduction,
+            "new_received": new_received,
+            "new_status": new_status,
+        })
+
     if linked_incomes:
         reversal_summary["income_reversed"] = True
-        # Legacy key kept for backwards-compat tests
-        if reversal_summary["new_stage_ids"]:
-            reversal_summary["new_payment_stage_id"] = reversal_summary["new_stage_ids"][0]
+    # Legacy keys for older tests/UI — point at the FIRST adjusted stage.
+    if reversal_summary["stages_adjusted"]:
+        reversal_summary["new_payment_stage_id"] = reversal_summary["stages_adjusted"][0]["stage_id"]
+        reversal_summary["new_stage_ids"] = [s["stage_id"] for s in reversal_summary["stages_adjusted"]]
+
+    # (sanity check) — if a single cheque was used to settle multiple stages,
+    # ensure totals stayed consistent. We accept rounding noise.
+    reversal_summary["bounced_amount"] = bounce_amount
 
     # 2b. Expense-side reversal
     if expense_id:

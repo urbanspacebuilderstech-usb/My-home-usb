@@ -132,7 +132,13 @@ def test_cheque_bounce_reverses_material_expense():
         asyncio.get_event_loop().run_until_complete(cleanup())
 
 
-def test_cheque_bounce_reverses_income_and_clones_payment_stage():
+def test_cheque_bounce_reduces_stage_received_in_place():
+    """A bounced cheque should:
+       • Mark the linked income as `cheque_bounced` (so it drops out of cashbook).
+       • DEDUCT its amount from the SAME stage's `amount_received` and recompute
+         status (paid → pending if fully bounced, or partial if it was partially
+         received from other sources).  No new clone stage is created.
+    """
     from motor.motor_asyncio import AsyncIOMotorClient
     cli = AsyncIOMotorClient(os.environ["MONGO_URL"])
     db = cli[os.environ["DB_NAME"]]
@@ -145,16 +151,19 @@ def test_cheque_bounce_reverses_income_and_clones_payment_stage():
 
     async def setup():
         await db.projects.insert_one({"project_id": proj_id, "name": "Income Bounce Test", "is_active": True})
-        # The collected payment stage
+        # Stage that was fully paid (₹1L) via this cheque
         await db.payment_stages.insert_one({
             "stage_id": stage_id,
             "project_id": proj_id,
             "stage_name": "Advance",
             "amount": 100000,
+            "amount_received": 100000,
             "collected_amount": 100000,
-            "status": "collected",
+            "status": "paid",
+            "workflow_status": "collected",
             "payment_method": "cheque",
             "collected_at": now,
+            "paid_at": now,
             "cheque_id": cheque_id,
             "created_at": now,
         })
@@ -198,31 +207,35 @@ def test_cheque_bounce_reverses_income_and_clones_payment_stage():
         assert r.status_code == 200, r.text
         result = r.json()
         assert result["income_reversed"] is True
-        new_stage_id = result.get("new_payment_stage_id")
-        assert new_stage_id, "Expected a new payment_stage to be cloned"
+        assert result["bounced_amount"] == 100000
+        # No clone — the SAME stage is adjusted in place
+        assert result["stages_adjusted"], "Expected stages_adjusted in response"
+        assert result["stages_adjusted"][0]["stage_id"] == stage_id
+        assert result["stages_adjusted"][0]["reduction"] == 100000
+        assert result["stages_adjusted"][0]["new_received"] == 0
+        assert result["stages_adjusted"][0]["new_status"] == "pending"
 
-        # Original stage marked bounced
         async def fetch():
-            old = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
-            new = await db.payment_stages.find_one({"stage_id": new_stage_id}, {"_id": 0})
+            stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
             inc = await db.income.find_one({"income_id": income_id}, {"_id": 0})
-            return old, new, inc
-        old, new, inc = asyncio.get_event_loop().run_until_complete(fetch())
+            # Verify NO clone stage was created
+            clones = await db.payment_stages.find({"project_id": proj_id, "stage_id": {"$ne": stage_id}}, {"_id": 0}).to_list(20)
+            return stage, inc, clones
+        stage, inc, clones = asyncio.get_event_loop().run_until_complete(fetch())
 
-        assert old["status"] == "cheque_bounced"
-        assert old["cheque_bounced"] is True
-        assert old["bounced_from_cheque_id"] == cheque_id
+        # Same stage adjusted in place
+        assert stage["amount_received"] == 0
+        assert stage["status"] == "pending"
+        assert stage["cheque_bounced"] is True
+        assert stage["last_bounce_amount"] == 100000
+        assert stage["last_bounce_cheque_id"] == cheque_id
+        assert stage["paid_at"] is None
 
-        assert new is not None
-        assert new["status"] == "pending"
-        assert new["amount"] == 100000
-        assert new["collected_amount"] == 0
-        assert new["cheque_bounced_recollect"] is True
-        assert new["bounced_from_stage_id"] == stage_id
-        assert new["bounced_from_cheque_id"] == cheque_id
-        assert new["bounced_from_cheque_amount"] == 100000
-
+        # Income marked bounced
         assert inc["status"] == "cheque_bounced"
+
+        # No clone created
+        assert len(clones) == 0, f"Expected no clone stages, found {len(clones)}"
     finally:
         asyncio.get_event_loop().run_until_complete(cleanup())
 
