@@ -55,6 +55,7 @@ import { MultiPaymentInput } from '../components/MultiPaymentInput';
 import { NumericInput } from '../components/NumericInput';
 import ChequeListView from '../components/ChequeListView';
 import CreateClientPortalDialog from '../components/CreateClientPortalDialog';
+import { PaymentStageDetailDialog } from '../components/PaymentStageDetailDialog';
 import CREPreConstruction from './CREPreConstruction';
 import Income from './Income';
 import DTBoard from './DTBoard';
@@ -83,6 +84,8 @@ const PAYMENT_MODES = [
 export default function CREBoard() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
+  // Super-Admin view: open Payment Stage Detail popup (Cashbook/Schedule rows).
+  const [stageDetailDlg, setStageDetailDlg] = useState({ open: false, stageId: null });
   const [loading, setLoading] = useState(true);
   const [dashboard, setDashboard] = useState({});
   const [packages, setPackages] = useState([]);
@@ -1346,7 +1349,11 @@ export default function CREBoard() {
                                 const balance = (e.amount || 0) - (e.amount_received || 0);
                                 const pendingApprovalAmt = e.pending_approval_amount || 0;
                                 const hasPendingApproval = (e.pending_approval_count || 0) > 0;
-                                const isCollected = !hasPendingApproval && (e.stage_status === 'paid' || e.stage_status === 'collected' || balance <= 0);
+                                // "Collected" must require zero balance regardless of stage_status — a
+                                // stage may still be flagged `collected` server-side while the
+                                // amount_received < amount (e.g. cheque-bounce reduction). Use the
+                                // actual money math, not the cached status string.
+                                const isCollected = !hasPendingApproval && balance <= 0 && (e.amount_received || 0) >= (e.amount || 0) && (e.amount || 0) > 0;
                                 const isPartial = !hasPendingApproval && (e.amount_received || 0) > 0 && balance > 0;
                                 let badge;
                                 if (hasPendingApproval) badge = <Badge className="bg-orange-100 text-orange-700 text-[11px] whitespace-nowrap">Pending Accountant Approval</Badge>;
@@ -1395,20 +1402,35 @@ export default function CREBoard() {
                                     <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(balance)}</td>
                                     <td className="px-4 py-2.5 text-center">{badge}</td>
                                     <td className="px-4 py-2.5 text-center">
-                                      {isCollected ? (
-                                        <span className="text-[11px] text-gray-400">—</span>
-                                      ) : hasPendingApproval ? (
-                                        <span className="text-[11px] text-orange-600 font-medium">Awaiting approval</span>
-                                      ) : (
-                                        <Button
-                                          size="sm"
-                                          className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700"
-                                          onClick={() => openCollectDialog({ ...e, stage_id: e.stage_id })}
-                                          data-testid={`ps-collect-${e.entry_id || e.stage_id}`}
-                                        >
-                                          <IndianRupee className="h-3.5 w-3.5 mr-1" /> Collect
-                                        </Button>
-                                      )}
+                                      <div className="inline-flex items-center justify-center gap-1">
+                                        {/* Super-Admin only — view full lifecycle */}
+                                        {user?.role === 'super_admin' && e.stage_id && (
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
+                                            title="View stage details (Super Admin)"
+                                            onClick={() => setStageDetailDlg({ open: true, stageId: e.stage_id })}
+                                            data-testid={`ps-view-${e.entry_id || e.stage_id}`}
+                                          >
+                                            <Eye className="h-4 w-4" />
+                                          </Button>
+                                        )}
+                                        {isCollected ? (
+                                          <span className="text-[11px] text-gray-400">—</span>
+                                        ) : hasPendingApproval ? (
+                                          <span className="text-[11px] text-orange-600 font-medium">Awaiting approval</span>
+                                        ) : (
+                                          <Button
+                                            size="sm"
+                                            className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700"
+                                            onClick={() => openCollectDialog({ ...e, stage_id: e.stage_id })}
+                                            data-testid={`ps-collect-${e.entry_id || e.stage_id}`}
+                                          >
+                                            <IndianRupee className="h-3.5 w-3.5 mr-1" /> Collect
+                                          </Button>
+                                        )}
+                                      </div>
                                     </td>
                                   </tr>
                                 );
@@ -2251,6 +2273,12 @@ export default function CREBoard() {
       </Dialog>
 
       <MobileBottomNav user={user} />
+      {/* Super-Admin stage detail popup */}
+      <PaymentStageDetailDialog
+        open={stageDetailDlg.open}
+        stageId={stageDetailDlg.stageId}
+        onClose={() => setStageDetailDlg({ open: false, stageId: null })}
+      />
     </div>
   );
 }
