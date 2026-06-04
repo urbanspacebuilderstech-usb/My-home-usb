@@ -6780,7 +6780,11 @@ export default function ProjectDetail() {
                       }
                       return filteredStages.map((stage, index) => {
                         const balance = stage.amount - (stage.amount_received || 0);
-                        const isPaid = balance <= 0;
+                        // A stage with amount==0 must NEVER be flagged "Collected"
+                        // — those are placeholder/0% rows that have not been
+                        // assigned a real value yet. Treat them as Pending so
+                        // CRE/Planning realise the amount still needs to be set.
+                        const isPaid = (stage.amount || 0) > 0 && balance <= 0;
                         const isRequested = stage.workflow_status === 'requested' || stage.workflow_status === 'pending_collection';
                         const isPartial = stage.amount_received > 0 && balance > 0;
                         const isCRERejected = stage.workflow_status === 'cre_rejected' || (!!stage.cre_rejection_reason && stage.workflow_status !== 'requested' && stage.workflow_status !== 'collected');

@@ -842,7 +842,10 @@ export default function ClientPortal() {
                     ) : (
                       paymentStages.map((stage, idx) => {
                         const stageBalance = (stage.amount || 0) - (stage.amount_received || 0);
-                        const isPaid = stageBalance <= 0;
+                        // Same fix as ProjectDetail.jsx — 0-amount placeholder
+                        // rows should not be flagged "Collected". They appear
+                        // as Pending until a real amount is configured.
+                        const isPaid = (stage.amount || 0) > 0 && stageBalance <= 0;
                         const isPartial = (stage.amount_received || 0) > 0 && stageBalance > 0;
                         
                         return (
