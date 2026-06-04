@@ -4178,17 +4178,18 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
     # Find ALL income rows linked to this cheque. A single ₹5L cheque could have
     # been used by CRE bulk-collect to settle multiple payment stages — every
     # one of those incomes (and their stages) must be reverted. We match via
-    # three possible links (any one):
-    #   • income.cheque_id == this cheque
-    #   • income.bulk_collection_id == cheque.bulk_collection_id
-    #   • income.payment_reference == cheque_number (string match fallback)
+    # multiple possible links; ANY of these must match. cheque_number alone is
+    # NOT unique across projects so we always scope by project_id.
     or_clauses = [{"cheque_id": cheque_id}]
     if cheque.get("income_id"):
         or_clauses.append({"income_id": cheque["income_id"]})
     if cheque.get("bulk_collection_id"):
         or_clauses.append({"bulk_collection_id": cheque["bulk_collection_id"]})
     if cheque.get("cheque_number"):
-        or_clauses.append({"payment_mode": "cheque", "payment_reference": cheque["cheque_number"]})
+        if cheque.get("project_id"):
+            or_clauses.append({"payment_mode": "cheque", "payment_reference": cheque["cheque_number"], "project_id": cheque["project_id"]})
+        else:
+            or_clauses.append({"payment_mode": "cheque", "payment_reference": cheque["cheque_number"], "amount": cheque.get("amount")})
     linked_incomes = await db.income.find(
         {"$or": or_clauses, "status": {"$nin": ["cheque_bounced", "rejected"]}},
         {"_id": 0},
@@ -4411,16 +4412,24 @@ async def get_cheque_usage(cheque_id: str, user: User = Depends(get_current_user
 
     # Build the same OR-clauses used in the bounce flow so the popup is
     # consistent with what the reversal will actually touch.
+    # IMPORTANT: cheque_number is NOT unique across projects/parties — many
+    # banks recycle the same numbers — so any cheque_number match MUST be
+    # scoped to the same project_id when the cheque carries one.
     or_clauses = [{"cheque_id": cheque_id}]
     if cheque.get("income_id"):
         or_clauses.append({"income_id": cheque["income_id"]})
     if cheque.get("bulk_collection_id"):
         or_clauses.append({"bulk_collection_id": cheque["bulk_collection_id"]})
     if cheque.get("cheque_number"):
-        # Income rows reference the cheque by its number under payment_reference.
-        # Some legacy paths skip payment_mode entirely so we accept any match.
-        or_clauses.append({"payment_reference": cheque["cheque_number"]})
-        or_clauses.append({"cheque_number": cheque["cheque_number"]})
+        # Scope cheque_number match to this cheque's project (if any) so a
+        # ₹1L Mithran cheque #123456 doesn't pull in Abinaya's #123456.
+        if cheque.get("project_id"):
+            or_clauses.append({"payment_reference": cheque["cheque_number"], "project_id": cheque["project_id"]})
+            or_clauses.append({"cheque_number": cheque["cheque_number"], "project_id": cheque["project_id"]})
+        # If the cheque has no project_id at all, fall back to amount-scoped
+        # cheque-number match to avoid grabbing unrelated rows.
+        else:
+            or_clauses.append({"payment_reference": cheque["cheque_number"], "amount": cheque.get("amount")})
 
     incomes = await db.income.find({"$or": or_clauses}, {"_id": 0}).to_list(500)
     incomes = list({inc["income_id"]: inc for inc in incomes if inc.get("income_id")}.values())

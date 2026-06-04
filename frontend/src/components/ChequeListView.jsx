@@ -708,7 +708,7 @@ function ChequeUsageBody({ data }) {
           onClick={() => setTab('used')}
           data-testid="usage-tab-used"
         >
-          Used Details <Badge className={`${tab === 'used' ? 'bg-orange-100 text-orange-700' : 'bg-gray-200 text-gray-600'} text-[9px]`}>{(exp ? 1 : 0) + stages.length}</Badge>
+          Used Details <Badge className={`${tab === 'used' ? 'bg-orange-100 text-orange-700' : 'bg-gray-200 text-gray-600'} text-[9px]`}>{exp ? 1 : 0}</Badge>
         </button>
         <button
           type="button"
