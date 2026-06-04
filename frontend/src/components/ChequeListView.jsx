@@ -7,7 +7,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
-import { Search, CheckCircle2, Lock, FileText, Loader2, Building2, AlertTriangle, Eye, Trash2 } from 'lucide-react';
+import { Search, CheckCircle2, Lock, FileText, Loader2, Building2, AlertTriangle, Eye, Trash2, XCircle } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -594,7 +594,16 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOp
                 <td className="px-3 py-2 text-right font-semibold">{fmtMoney(c.amount)}</td>
                 <td className="px-3 py-2 text-gray-600">{fmtDate(c.cheque_date)}</td>
                 <td className="px-3 py-2 text-center">
-                  {c.is_opened ? (
+                  {c.status === 'bounced' ? (
+                    <>
+                      <Badge className="bg-red-100 text-red-700 text-[10px] gap-1">
+                        <XCircle className="h-3 w-3" /> Bounced
+                      </Badge>
+                      {c.bounce_reason && (
+                        <p className="text-[9px] text-red-600 italic mt-0.5 max-w-[140px] truncate mx-auto" title={c.bounce_reason}>{c.bounce_reason}</p>
+                      )}
+                    </>
+                  ) : c.is_opened ? (
                     <Badge className="bg-emerald-100 text-emerald-700 text-[10px] gap-1" title={c.opened_by_name ? `Opened by ${c.opened_by_name}` : ''}>
                       <CheckCircle2 className="h-3 w-3" /> Opened
                     </Badge>
@@ -608,14 +617,6 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOp
                     <Badge className="bg-amber-100 text-amber-700 text-[10px] gap-1" title="Awaiting open request from Accountant">
                       <Lock className="h-3 w-3" /> Locked
                     </Badge>
-                  )}
-                  {c.status === 'bounced' && (
-                    <>
-                      <Badge className={`${(STATUS_BADGE['bounced']||{}).cls || 'bg-red-100 text-red-700'} text-[10px] ml-1`}>Bounced</Badge>
-                      {c.bounce_reason && (
-                        <p className="text-[9px] text-red-600 italic mt-0.5 max-w-[140px] truncate mx-auto" title={c.bounce_reason}>{c.bounce_reason}</p>
-                      )}
-                    </>
                   )}
                 </td>
                 <td className="px-3 py-2 text-center">
