@@ -4410,24 +4410,40 @@ async def get_cheque_usage(cheque_id: str, user: User = Depends(get_current_user
     if not cheque:
         raise HTTPException(status_code=404, detail="Cheque not found")
 
-    # Build the same OR-clauses used in the bounce flow so the popup is
+    # If the cheque has no project_id but DOES have a party_name, try to resolve
+    # the project by matching the party_name against client_name in projects.
+    # Manually-added cheques sometimes skip project_id but their party_name maps
+    # 1:1 to a project's client.
+    resolved_project_id = cheque.get("project_id")
+    resolved_project_name = None
+    if not resolved_project_id and cheque.get("party_name"):
+        proj_match = await db.projects.find_one(
+            {"$or": [
+                {"client_name": cheque["party_name"]},
+                {"name": {"$regex": f"^{cheque['party_name']}$", "$options": "i"}},
+                {"name": {"$regex": cheque["party_name"], "$options": "i"}},
+            ]},
+            {"_id": 0, "project_id": 1, "name": 1},
+        )
+        if proj_match:
+            resolved_project_id = proj_match["project_id"]
+            resolved_project_name = proj_match["name"]
+
+    # Build the OR-clauses used in the bounce flow so the popup is
     # consistent with what the reversal will actually touch.
     # IMPORTANT: cheque_number is NOT unique across projects/parties — many
     # banks recycle the same numbers — so any cheque_number match MUST be
-    # scoped to the same project_id when the cheque carries one.
+    # scoped to the same project_id when one can be determined.
     or_clauses = [{"cheque_id": cheque_id}]
     if cheque.get("income_id"):
         or_clauses.append({"income_id": cheque["income_id"]})
     if cheque.get("bulk_collection_id"):
         or_clauses.append({"bulk_collection_id": cheque["bulk_collection_id"]})
     if cheque.get("cheque_number"):
-        # Scope cheque_number match to this cheque's project (if any) so a
-        # ₹1L Mithran cheque #123456 doesn't pull in Abinaya's #123456.
-        if cheque.get("project_id"):
-            or_clauses.append({"payment_reference": cheque["cheque_number"], "project_id": cheque["project_id"]})
-            or_clauses.append({"cheque_number": cheque["cheque_number"], "project_id": cheque["project_id"]})
-        # If the cheque has no project_id at all, fall back to amount-scoped
-        # cheque-number match to avoid grabbing unrelated rows.
+        effective_project = resolved_project_id
+        if effective_project:
+            or_clauses.append({"payment_reference": cheque["cheque_number"], "project_id": effective_project})
+            or_clauses.append({"cheque_number": cheque["cheque_number"], "project_id": effective_project})
         else:
             or_clauses.append({"payment_reference": cheque["cheque_number"], "amount": cheque.get("amount")})
 
@@ -4523,26 +4539,59 @@ async def get_cheque_usage(cheque_id: str, user: User = Depends(get_current_user
                 "description": rec_exp.get("description") or (approval.get("material_name") if approval else None),
             }
 
-    # Project name on the cheque itself
-    cheque_project_name = await _proj_name(cheque.get("project_id"))
+    # Project name on the cheque itself — fall back to party_name-resolved project
+    cheque_project_name = await _proj_name(cheque.get("project_id")) or resolved_project_name
 
     total_collected = sum(float(s.get("collected_amount") or 0) for s in enriched_stages)
     total_income = sum(float(i.get("amount") or 0) for i in enriched_incomes)
+
+    # Diagnostic: when nothing was found, surface a list of nearby
+    # candidates (same amount + same party_name) so the user can see if a CRE
+    # collected through a different path (e.g. a deal advance still pending
+    # approval, where the cheque got the income_id back-link only later).
+    candidate_incomes = []
+    if not enriched_incomes and cheque.get("amount"):
+        candidate_query = {"amount": cheque["amount"]}
+        if cheque.get("party_name"):
+            candidate_query["$or"] = [
+                {"description": {"$regex": cheque["party_name"], "$options": "i"}},
+                {"sub_category": {"$regex": cheque["party_name"], "$options": "i"}},
+                {"remarks": {"$regex": cheque["party_name"], "$options": "i"}},
+                {"project_name": {"$regex": cheque["party_name"], "$options": "i"}},
+            ]
+        nearby = await db.income.find(candidate_query, {"_id": 0}).limit(20).to_list(20)
+        for inc in nearby:
+            candidate_incomes.append({
+                "income_id": inc.get("income_id"),
+                "project_name": inc.get("project_name") or await _proj_name(inc.get("project_id")),
+                "amount": inc.get("amount"),
+                "payment_mode": inc.get("payment_mode"),
+                "payment_reference": inc.get("payment_reference"),
+                "payment_date": inc.get("payment_date") or inc.get("created_at"),
+                "collected_by_name": inc.get("collected_by_name"),
+                "category": inc.get("category"),
+                "description": inc.get("description"),
+                "status": inc.get("status"),
+            })
 
     return {
         "cheque": {
             **cheque,
             "project_name": cheque_project_name,
+            "resolved_project_id": resolved_project_id,  # what we used for scoping
+            "creator_name": cheque.get("recorded_by_name") or cheque.get("created_by_name"),
         },
-        "incomes": enriched_incomes,         # NEW: every income row this cheque touched
-        "stages_settled": enriched_stages,   # subset of incomes that map to a payment stage
+        "incomes": enriched_incomes,
+        "stages_settled": enriched_stages,
         "expense": expense_info,
+        "candidate_incomes": candidate_incomes,  # diagnostic — only populated when nothing was found
         "summary": {
             "total_stages_settled": len(enriched_stages),
             "total_collected_amount": total_collected,
             "total_incomes": len(enriched_incomes),
             "total_income_amount": total_income,
             "is_used_for_expense": bool(expense_info),
+            "has_candidates": len(candidate_incomes) > 0,
         },
     }
 

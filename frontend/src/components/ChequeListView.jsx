@@ -654,6 +654,7 @@ function ChequeUsageBody({ data }) {
   const stages = data.stages_settled || [];
   const exp = data.expense;
   const summary = data.summary || {};
+  const candidates = data.candidate_incomes || [];
   const [tab, setTab] = useState('income');
 
   const hasIncome = incomes.length > 0;
@@ -688,6 +689,10 @@ function ChequeUsageBody({ data }) {
             <div><span className="text-gray-500 text-[10px]">Cheque Date</span><p className="font-medium">{fmtDate(c.cheque_date)}</p></div>
             <div><span className="text-gray-500 text-[10px]">Opened By</span><p className="font-medium">{c.opened_by_name || '—'}</p></div>
             <div><span className="text-gray-500 text-[10px]">Used At</span><p className="font-medium">{fmtDate(c.used_at)}</p></div>
+            <div><span className="text-gray-500 text-[10px]">Recorded By</span><p className="font-medium">{c.creator_name || c.recorded_by_name || '—'}</p></div>
+            <div><span className="text-gray-500 text-[10px]">Created At</span><p className="font-medium">{fmtDate(c.created_at)}</p></div>
+            <div><span className="text-gray-500 text-[10px]">Cheque Type</span><p className="font-medium capitalize">{c.cheque_type || '—'}</p></div>
+            <div><span className="text-gray-500 text-[10px]">Source</span><p className="font-medium text-[10px]">{c.income_id ? `Income #${c.income_id.slice(0, 10)}` : (c.used_for_expense_id ? 'Vendor pay' : 'Manual / standalone')}</p></div>
           </div>
         </CardContent>
       </Card>
@@ -729,9 +734,43 @@ function ChequeUsageBody({ data }) {
               <span className="text-xs text-gray-500">Total: <span className="font-bold text-emerald-700">{fmtMoney(summary.total_income_amount)}</span></span>
             </div>
             {incomes.length === 0 ? (
-              <div className="py-6 text-center text-xs text-gray-400">
-                <FileText className="h-6 w-6 mx-auto mb-1 opacity-40" />
-                No income rows linked to this cheque yet. The cheque must first be used to collect an advance, payment stage, or additional cost.
+              <div className="space-y-3">
+                <div className="py-4 text-center text-xs text-gray-400">
+                  <FileText className="h-6 w-6 mx-auto mb-1 opacity-40" />
+                  No income rows are <strong>linked</strong> to this cheque.
+                </div>
+                {candidates.length > 0 ? (
+                  <div className="border border-amber-200 bg-amber-50 rounded-md p-2">
+                    <p className="text-[11px] font-semibold text-amber-700 mb-1.5">⚠ Possible matches (same amount / party — not officially linked)</p>
+                    <table className="w-full text-[11px]">
+                      <thead>
+                        <tr className="border-b text-gray-500">
+                          <th className="text-left px-2 py-1">Project</th>
+                          <th className="text-left px-2 py-1">Category</th>
+                          <th className="text-right px-2 py-1">Amount</th>
+                          <th className="text-left px-2 py-1">Ref / Mode</th>
+                          <th className="text-left px-2 py-1">Date</th>
+                          <th className="text-left px-2 py-1">By</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {candidates.map(cd => (
+                          <tr key={cd.income_id} className="border-b">
+                            <td className="px-2 py-1 text-violet-700">{cd.project_name || '—'}</td>
+                            <td className="px-2 py-1 capitalize">{cd.category || cd.description || '—'}</td>
+                            <td className="px-2 py-1 text-right font-bold">{fmtMoney(cd.amount)}</td>
+                            <td className="px-2 py-1">{cd.payment_mode || '—'}{cd.payment_reference ? ` · ${cd.payment_reference}` : ''}</td>
+                            <td className="px-2 py-1">{fmtDate(cd.payment_date)}</td>
+                            <td className="px-2 py-1">{cd.collected_by_name || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p className="text-[10px] text-amber-700 mt-1 italic">If one of these belongs to this cheque, ask the CRE who collected it to re-record the payment with the correct cheque selected so the link is saved properly.</p>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-gray-500 italic text-center">This cheque appears to be standalone (manually added, not yet used to collect anything).</p>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto">
