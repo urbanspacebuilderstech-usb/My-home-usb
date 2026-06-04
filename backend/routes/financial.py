@@ -4173,10 +4173,31 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
         raise HTTPException(status_code=400, detail="Cheque has already cleared — cannot bounce")
 
     now = datetime.now(timezone.utc).isoformat()
-    income_id = cheque.get("income_id")
     expense_id = cheque.get("used_for_expense_id")
 
-    if not income_id and not expense_id:
+    # Find ALL income rows linked to this cheque. A single ₹5L cheque could have
+    # been used by CRE bulk-collect to settle multiple payment stages — every
+    # one of those incomes (and their stages) must be reverted. We match via
+    # three possible links (any one):
+    #   • income.cheque_id == this cheque
+    #   • income.bulk_collection_id == cheque.bulk_collection_id
+    #   • income.payment_reference == cheque_number (string match fallback)
+    or_clauses = [{"cheque_id": cheque_id}]
+    if cheque.get("income_id"):
+        or_clauses.append({"income_id": cheque["income_id"]})
+    if cheque.get("bulk_collection_id"):
+        or_clauses.append({"bulk_collection_id": cheque["bulk_collection_id"]})
+    if cheque.get("cheque_number"):
+        or_clauses.append({"payment_mode": "cheque", "payment_reference": cheque["cheque_number"]})
+    linked_incomes = await db.income.find(
+        {"$or": or_clauses, "status": {"$nin": ["cheque_bounced", "rejected"]}},
+        {"_id": 0},
+    ).to_list(500)
+    # De-duplicate
+    linked_incomes = {inc["income_id"]: inc for inc in linked_incomes if inc.get("income_id")}.values()
+    linked_incomes = list(linked_incomes)
+
+    if not linked_incomes and not expense_id:
         raise HTTPException(
             status_code=400,
             detail="Cheque has not been used for income or expense yet — nothing to reverse",
@@ -4196,69 +4217,77 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
         }}
     )
 
-    reversal_summary = {"income_reversed": False, "expense_reversed": False}
+    reversal_summary = {"income_reversed": False, "expense_reversed": False, "stages_reverted": 0, "total_income_reversed": 0.0, "new_stage_ids": []}
 
-    # 2a. Income-side reversal
-    if income_id:
-        income = await db.income.find_one({"income_id": income_id}, {"_id": 0})
-        if income:
-            project_id = income.get("project_id")
-            stage_id = income.get("payment_stage_id") or income.get("stage_id")
-            await db.income.update_one(
-                {"income_id": income_id},
-                {"$set": {
-                    "status": "cheque_bounced",
-                    "bounced_at": now,
-                    "bounced_by_cheque_id": cheque_id,
-                    "bounce_reason": payload.reason.strip(),
-                    "updated_at": now,
-                }}
-            )
-            # Mark old stage as bounced and create a fresh pending stage for re-collection
-            if stage_id:
-                old_stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
-                if old_stage:
-                    await db.payment_stages.update_one(
-                        {"stage_id": stage_id},
-                        {"$set": {
-                            "status": "cheque_bounced",
-                            "cheque_bounced": True,
-                            "bounced_at": now,
-                            "bounced_from_cheque_id": cheque_id,
-                            "bounced_from_cheque_number": cheque.get("cheque_number"),
-                            "bounce_reason": payload.reason.strip(),
-                            "updated_at": now,
-                        }}
-                    )
-                    # Clone a fresh pending row
-                    new_stage_id = f"ps_{uuid.uuid4().hex[:12]}"
-                    new_stage = {
-                        **{k: v for k, v in old_stage.items() if k not in (
-                            "stage_id", "collected_amount", "collected_at",
-                            "collected_by", "collected_by_name", "status",
-                            "cheque_id", "cheque_number", "payment_method",
-                            "bounced_at", "bounced_from_cheque_id",
-                            "bounced_from_cheque_number", "bounce_reason",
-                            "cheque_bounced", "created_at",
-                        )},
-                        "stage_id": new_stage_id,
-                        "status": "pending",
-                        "collected_amount": 0,
-                        "amount": old_stage.get("amount", 0),
-                        "cheque_bounced_recollect": True,
-                        "bounced_from_stage_id": stage_id,
+    # 2a. Income-side reversal — loop through EVERY income tied to this cheque.
+    # Each income → its payment_stage → mark old stage bounced + clone a fresh
+    # pending row so CRE can re-collect.
+    for income in linked_incomes:
+        income_id = income.get("income_id")
+        project_id = income.get("project_id")
+        income_amount = float(income.get("amount") or 0)
+        stage_id = income.get("payment_stage_id") or income.get("stage_id")
+        await db.income.update_one(
+            {"income_id": income_id},
+            {"$set": {
+                "status": "cheque_bounced",
+                "bounced_at": now,
+                "bounced_by_cheque_id": cheque_id,
+                "bounce_reason": payload.reason.strip(),
+                "updated_at": now,
+            }}
+        )
+        if stage_id:
+            old_stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
+            if old_stage:
+                await db.payment_stages.update_one(
+                    {"stage_id": stage_id},
+                    {"$set": {
+                        "status": "cheque_bounced",
+                        "cheque_bounced": True,
+                        "bounced_at": now,
                         "bounced_from_cheque_id": cheque_id,
                         "bounced_from_cheque_number": cheque.get("cheque_number"),
-                        "bounced_from_cheque_amount": cheque.get("amount"),
                         "bounce_reason": payload.reason.strip(),
-                        "bounce_banner": f"Re-collect — cheque {cheque.get('cheque_number')} bounced on {now[:10]}",
-                        "created_at": now,
-                        "created_by": user.user_id,
-                    }
-                    await db.payment_stages.insert_one(new_stage)
-                    reversal_summary["new_payment_stage_id"] = new_stage_id
-            reversal_summary["income_reversed"] = True
-            reversal_summary["project_id"] = project_id
+                        "updated_at": now,
+                    }}
+                )
+                # Clone a fresh pending row for re-collection
+                new_stage_id = f"ps_{uuid.uuid4().hex[:12]}"
+                new_stage = {
+                    **{k: v for k, v in old_stage.items() if k not in (
+                        "stage_id", "collected_amount", "collected_at",
+                        "collected_by", "collected_by_name", "status",
+                        "cheque_id", "cheque_number", "payment_method",
+                        "bounced_at", "bounced_from_cheque_id",
+                        "bounced_from_cheque_number", "bounce_reason",
+                        "cheque_bounced", "created_at",
+                    )},
+                    "stage_id": new_stage_id,
+                    "status": "pending",
+                    "collected_amount": 0,
+                    "amount": old_stage.get("amount", 0),
+                    "cheque_bounced_recollect": True,
+                    "bounced_from_stage_id": stage_id,
+                    "bounced_from_cheque_id": cheque_id,
+                    "bounced_from_cheque_number": cheque.get("cheque_number"),
+                    "bounced_from_cheque_amount": cheque.get("amount"),
+                    "bounce_reason": payload.reason.strip(),
+                    "bounce_banner": f"Re-collect — cheque {cheque.get('cheque_number')} bounced on {now[:10]}",
+                    "created_at": now,
+                    "created_by": user.user_id,
+                }
+                await db.payment_stages.insert_one(new_stage)
+                reversal_summary["new_stage_ids"].append(new_stage_id)
+                reversal_summary["stages_reverted"] += 1
+        reversal_summary["total_income_reversed"] += income_amount
+        reversal_summary["project_id"] = project_id
+
+    if linked_incomes:
+        reversal_summary["income_reversed"] = True
+        # Legacy key kept for backwards-compat tests
+        if reversal_summary["new_stage_ids"]:
+            reversal_summary["new_payment_stage_id"] = reversal_summary["new_stage_ids"][0]
 
     # 2b. Expense-side reversal
     if expense_id:
