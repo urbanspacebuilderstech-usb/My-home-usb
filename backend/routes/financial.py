@@ -4417,7 +4417,10 @@ async def get_cheque_usage(cheque_id: str, user: User = Depends(get_current_user
     if cheque.get("bulk_collection_id"):
         or_clauses.append({"bulk_collection_id": cheque["bulk_collection_id"]})
     if cheque.get("cheque_number"):
-        or_clauses.append({"payment_mode": "cheque", "payment_reference": cheque["cheque_number"]})
+        # Income rows reference the cheque by its number under payment_reference.
+        # Some legacy paths skip payment_mode entirely so we accept any match.
+        or_clauses.append({"payment_reference": cheque["cheque_number"]})
+        or_clauses.append({"cheque_number": cheque["cheque_number"]})
 
     incomes = await db.income.find({"$or": or_clauses}, {"_id": 0}).to_list(500)
     incomes = list({inc["income_id"]: inc for inc in incomes if inc.get("income_id")}.values())
