@@ -4969,6 +4969,20 @@ async def request_additional_payment(cost_id: str, request: Request, user: User 
     project = await db.projects.find_one({"project_id": cost["project_id"]}, {"_id": 0}) or {}
     amount = (cost.get("estimated_amount") or cost.get("actual_amount") or ((cost.get("qty") or 0) * (cost.get("price") or 0)) or 0)
     balance = amount - (cost.get("income_received", 0) or 0)
+
+    # Guard: refuse to create a 0-amount payment stage. Otherwise the schedule
+    # shows a ghost "Collected ₹0" row that confuses everyone. Planning must
+    # set qty + price (or estimated_amount) before clicking Req Payment.
+    if amount is None or amount <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Set qty + price (or amount) on this additional cost before requesting payment."
+        )
+    if balance <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="This additional cost is already fully collected — nothing to request."
+        )
     
     now_iso = datetime.now(timezone.utc).isoformat()
     
