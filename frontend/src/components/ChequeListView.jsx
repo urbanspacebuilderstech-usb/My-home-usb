@@ -246,16 +246,14 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
 
   return (
     <div className="space-y-3" data-testid={`cheque-list-view-${scope}`}>
-      {/* Lifecycle Summary — only on the All tab, large amount + cheque count */}
-      {activeTab === 'all' && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 sm:gap-3">
-          <SummaryCard color="amber" label="Received" amount={stats.pending_amount} count={stats.pending_open} onClick={() => setActiveTab('received')} testId="summary-received" />
-          <SummaryCard color="blue" label="Awaiting CRE" amount={stats.open_requested_amount} count={stats.open_requested_count} onClick={() => setActiveTab('open_requested')} testId="summary-awaiting" />
-          <SummaryCard color="emerald" label="Opened" amount={stats.opened_amount} count={stats.opened_count} onClick={() => setActiveTab('opened')} testId="summary-opened" />
-          <SummaryCard color="orange" label="Issued" amount={stats.issued_amount} count={stats.issued_count} onClick={() => setActiveTab('issued')} testId="summary-issued" />
-          <SummaryCard color="red" label="Bounced" amount={stats.bounced_amount} count={stats.bounced_count} onClick={() => setActiveTab('bounced')} testId="summary-bounced" />
-        </div>
-      )}
+      {/* Lifecycle Summary — visible on every tab; click switches tab; current tab is highlighted */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 sm:gap-3">
+        <SummaryCard color="amber"   label="Received"     amount={stats.pending_amount}         count={stats.pending_open}         onClick={() => setActiveTab('received')}       isActive={activeTab === 'received'}       testId="summary-received" />
+        <SummaryCard color="blue"    label="Awaiting CRE" amount={stats.open_requested_amount}  count={stats.open_requested_count} onClick={() => setActiveTab('open_requested')} isActive={activeTab === 'open_requested'} testId="summary-awaiting" />
+        <SummaryCard color="emerald" label="Opened"       amount={stats.opened_amount}          count={stats.opened_count}         onClick={() => setActiveTab('opened')}         isActive={activeTab === 'opened'}         testId="summary-opened" />
+        <SummaryCard color="orange"  label="Issued"       amount={stats.issued_amount}          count={stats.issued_count}         onClick={() => setActiveTab('issued')}         isActive={activeTab === 'issued'}         testId="summary-issued" />
+        <SummaryCard color="red"     label="Bounced"      amount={stats.bounced_amount}         count={stats.bounced_count}        onClick={() => setActiveTab('bounced')}        isActive={activeTab === 'bounced'}        testId="summary-bounced" />
+      </div>
 
       {/* Filter Bar */}
       <Card>
@@ -642,17 +640,8 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOp
                       </Button>
                     ) : isLockedIncoming && c.open_requested ? (
                       <span className="text-[10px] text-blue-600 italic">Sent to CRE</span>
-                    ) : c.is_opened && !isConsumed ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 text-[10px] text-gray-700 hover:bg-gray-100"
-                        onClick={() => onAction && onAction('update_status', c)}
-                        title="Update status"
-                        data-testid={`cheque-update-btn-${c.cheque_id}`}
-                      >
-                        {onAction ? 'Update' : (c.opened_by_name ? `by ${c.opened_by_name.split(' ')[0]}` : '✓')}
-                      </Button>
+                    ) : c.is_opened && c.opened_by_name ? (
+                      <span className="text-[10px] text-emerald-600">by {c.opened_by_name.split(' ')[0]}</span>
                     ) : null}
                     {/* Bounce button for any consumed (Issued) cheque */}
                     {isBounceable && (
@@ -707,17 +696,21 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOp
 }
 
 
-function SummaryCard({ color = 'blue', label, amount, count, onClick, testId }) {
+function SummaryCard({ color = 'blue', label, amount, count, onClick, isActive, testId }) {
   const palette = {
-    amber:   { border: 'border-l-amber-500',   amountClr: 'text-amber-700',   pillBg: 'bg-amber-100',   pillTxt: 'text-amber-700' },
-    blue:    { border: 'border-l-blue-500',    amountClr: 'text-blue-700',    pillBg: 'bg-blue-100',    pillTxt: 'text-blue-700' },
-    emerald: { border: 'border-l-emerald-500', amountClr: 'text-emerald-700', pillBg: 'bg-emerald-100', pillTxt: 'text-emerald-700' },
-    orange:  { border: 'border-l-orange-500',  amountClr: 'text-orange-700',  pillBg: 'bg-orange-100',  pillTxt: 'text-orange-700' },
-    red:     { border: 'border-l-red-500',     amountClr: 'text-red-700',     pillBg: 'bg-red-100',     pillTxt: 'text-red-700' },
+    amber:   { border: 'border-l-amber-500',   amountClr: 'text-amber-700',   pillBg: 'bg-amber-100',   pillTxt: 'text-amber-700',   ringClr: 'ring-amber-400'   },
+    blue:    { border: 'border-l-blue-500',    amountClr: 'text-blue-700',    pillBg: 'bg-blue-100',    pillTxt: 'text-blue-700',    ringClr: 'ring-blue-400'    },
+    emerald: { border: 'border-l-emerald-500', amountClr: 'text-emerald-700', pillBg: 'bg-emerald-100', pillTxt: 'text-emerald-700', ringClr: 'ring-emerald-400' },
+    orange:  { border: 'border-l-orange-500',  amountClr: 'text-orange-700',  pillBg: 'bg-orange-100',  pillTxt: 'text-orange-700',  ringClr: 'ring-orange-400'  },
+    red:     { border: 'border-l-red-500',     amountClr: 'text-red-700',     pillBg: 'bg-red-100',     pillTxt: 'text-red-700',     ringClr: 'ring-red-400'     },
   };
   const p = palette[color] || palette.blue;
   return (
-    <Card className={`border-l-4 ${p.border} cursor-pointer hover:shadow-md transition-shadow`} onClick={onClick} data-testid={testId}>
+    <Card
+      className={`border-l-4 ${p.border} cursor-pointer transition-all ${isActive ? `ring-2 ${p.ringClr} shadow-md` : 'hover:shadow-md'}`}
+      onClick={onClick}
+      data-testid={testId}
+    >
       <CardContent className="p-3 sm:p-4">
         <div className="flex items-center justify-between mb-1">
           <p className="text-[10px] sm:text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{label}</p>
