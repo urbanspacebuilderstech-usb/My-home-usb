@@ -9,10 +9,12 @@ import {
   ArrowRight,
   IndianRupee,
   RefreshCw,
-  Calendar
+  Calendar,
+  Eye
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useNavigate } from 'react-router-dom';
+import { PaymentStageDetailDialog } from '../components/PaymentStageDetailDialog';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -24,6 +26,8 @@ export default function PaymentSchedulePage() {
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
   const [subTab, setSubTab] = useState('pending'); // pending | collected | all
+  // Super-Admin View popup state
+  const [stageDetailDlg, setStageDetailDlg] = useState({ open: false, stageId: null });
   const navigate = useNavigate();
 
   useEffect(() => { init(); }, []);
@@ -162,11 +166,12 @@ export default function PaymentSchedulePage() {
                     <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Received</th>
                     <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
                     <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {entries.length === 0 ? (
-                    <tr><td colSpan="6" className="p-8 text-center text-gray-400">No entries for {MONTH_NAMES[month]} {year}</td></tr>
+                    <tr><td colSpan="7" className="p-8 text-center text-gray-400">No entries for {MONTH_NAMES[month]} {year}</td></tr>
                   ) : entries.map(e => {
                     const balance = (e.amount || 0) - (e.amount_received || 0);
                     const scMap = {
@@ -197,6 +202,20 @@ export default function PaymentSchedulePage() {
                         <td className="px-4 py-2.5 text-center">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${sc.cls}`}>{sc.label}</span>
                         </td>
+                        <td className="px-4 py-2.5 text-center">
+                          {user?.role === 'super_admin' && e.stage_id && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
+                              title="View stage details"
+                              onClick={(ev) => { ev.stopPropagation(); setStageDetailDlg({ open: true, stageId: e.stage_id }); }}
+                              data-testid={`acc-ps-view-${e.entry_id}`}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -209,6 +228,7 @@ export default function PaymentSchedulePage() {
                       <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(sum.total_received)}</td>
                       <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(sum.total_balance)}</td>
                       <td></td>
+                      <td></td>
                     </tr>
                   </tfoot>
                 )}
@@ -218,6 +238,11 @@ export default function PaymentSchedulePage() {
         </Card>
       </div>
       <MobileBottomNav user={user} />
+      <PaymentStageDetailDialog
+        open={stageDetailDlg.open}
+        stageId={stageDetailDlg.stageId}
+        onClose={() => setStageDetailDlg({ open: false, stageId: null })}
+      />
     </div>
   );
 }

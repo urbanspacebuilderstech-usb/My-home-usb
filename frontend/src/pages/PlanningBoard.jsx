@@ -79,6 +79,7 @@ import { NumericInput } from '../components/NumericInput';
 import LabourContractorPaymentSummary from '../components/LabourContractorPaymentSummary';
 
 import { UnitSelect } from '../components/UnitSelect';
+import { PaymentStageDetailDialog } from '../components/PaymentStageDetailDialog';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
@@ -246,6 +247,8 @@ export default function PlanningBoard({ embedded = false }) {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Super-Admin Payment Stage detail popup state (used in the Monthly Schedule)
+  const [stageDetailDlg, setStageDetailDlg] = useState({ open: false, stageId: null });
   // Read ?tab=... from URL so deep links from other pages (e.g. ProjectDetail
   // back-nav) land on the correct module tab.
   const initialTab = (() => {
@@ -1935,7 +1938,23 @@ export default function PlanningBoard({ embedded = false }) {
                                     />
                                   </td>
                                   <td className="px-4 py-2.5 text-center"><Badge variant="outline" className={`text-xs ${cfg.cls}`}>{cfg.label}</Badge></td>
-                                  <td className="px-4 py-2.5 text-center"><Button size="sm" variant="ghost" className="h-7 text-xs text-red-500" onClick={() => handleRemoveScheduleEntry(e.entry_id)} data-testid={`remove-entry-${e.entry_id}`}><Trash2 className="h-3 w-3" /></Button></td>
+                                  <td className="px-4 py-2.5 text-center">
+                                    <div className="inline-flex items-center justify-center gap-1">
+                                      {user?.role === 'super_admin' && e.stage_id && (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
+                                          title="View stage details (Super Admin)"
+                                          onClick={() => setStageDetailDlg({ open: true, stageId: e.stage_id })}
+                                          data-testid={`planning-ps-view-${e.entry_id}`}
+                                        >
+                                          <Eye className="h-3.5 w-3.5" />
+                                        </Button>
+                                      )}
+                                      <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500" onClick={() => handleRemoveScheduleEntry(e.entry_id)} data-testid={`remove-entry-${e.entry_id}`}><Trash2 className="h-3 w-3" /></Button>
+                                    </div>
+                                  </td>
                                 </tr>
                                 {/* Rejection-detail row — shown ONLY when the stage was rejected by CRE
                                     or by Accountant. Lets Planning correct the amount/date and resubmit
@@ -3124,6 +3143,11 @@ export default function PlanningBoard({ embedded = false }) {
       </Dialog>
 
       <MobileBottomNav user={user} />
+      <PaymentStageDetailDialog
+        open={stageDetailDlg.open}
+        stageId={stageDetailDlg.stageId}
+        onClose={() => setStageDetailDlg({ open: false, stageId: null })}
+      />
 
       {/* Contractor Type dialog (add / edit) */}
       <Dialog open={typeDialog.open} onOpenChange={(o) => !o && setTypeDialog({ open: false, editing: null, name: '', description: '' })}>
