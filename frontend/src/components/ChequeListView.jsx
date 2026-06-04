@@ -165,14 +165,27 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
         const hay = `${c.cheque_number} ${c.bank_name} ${c.party_name} ${c.project_name || ''}`.toLowerCase();
         if (!hay.includes(term)) return false;
       }
-      // Tab filter
+      // Tab filter — strict per-tab semantics
       const consumed = !!(c.used_for_expense_id || c.income_id);
-      if (activeTab === 'received') return c.cheque_type === 'incoming' && c.status !== 'bounced';
-      if (activeTab === 'open_pending') return c.cheque_type === 'incoming' && !c.is_opened && c.status !== 'cancelled' && c.status !== 'bounced';
-      if (activeTab === 'open_requested') return c.cheque_type === 'incoming' && !c.is_opened && c.open_requested && c.status !== 'cancelled' && c.status !== 'bounced';
-      if (activeTab === 'opened') return c.is_opened && !consumed && c.status !== 'bounced';
-      if (activeTab === 'issued') return consumed && c.status !== 'bounced';
-      if (activeTab === 'bounced') return c.status === 'bounced';
+      const isIncoming = c.cheque_type === 'incoming';
+      const isAlive = c.status !== 'cancelled' && c.status !== 'bounced';
+      if (activeTab === 'received')
+        // Freshly received, locked, no Request Open yet (the Request Open button shows here)
+        return isIncoming && isAlive && !c.is_opened && !c.open_requested && !consumed;
+      if (activeTab === 'open_pending')
+        // Legacy alias for `received` — still allowed if anyone passes it
+        return isIncoming && isAlive && !c.is_opened && !c.open_requested && !consumed;
+      if (activeTab === 'open_requested' || activeTab === 'awaiting_cre')
+        // Accountant requested open, CRE hasn't acted yet
+        return isIncoming && isAlive && !c.is_opened && !!c.open_requested && !consumed;
+      if (activeTab === 'opened')
+        // CRE opened it, not yet consumed for income/expense
+        return isIncoming && isAlive && c.is_opened && !consumed;
+      if (activeTab === 'issued')
+        // Consumed: either tied to an income (collected) or used to pay a vendor
+        return consumed && c.status !== 'bounced';
+      if (activeTab === 'bounced')
+        return c.status === 'bounced';
       if (activeTab === 'incoming') return c.cheque_type === 'incoming';
       if (activeTab === 'outgoing') return c.cheque_type === 'outgoing';
       return true;
