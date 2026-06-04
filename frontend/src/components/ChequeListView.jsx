@@ -551,6 +551,7 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOp
       <table className="w-full text-xs">
         <thead className="bg-gray-50 border-b">
           <tr>
+            <th className="text-left px-3 py-2 font-medium text-gray-500">Collected Date</th>
             <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
             <th className="text-left px-3 py-2 font-medium text-gray-500">Cheque No</th>
             <th className="text-left px-3 py-2 font-medium text-gray-500">Bank</th>
@@ -581,6 +582,7 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOp
               && c.status !== 'cleared';
             return (
               <tr key={c.cheque_id} className={`border-b hover:bg-gray-50 ${c.status === 'bounced' ? 'bg-red-50/40' : c.open_requested && !c.is_opened ? 'bg-blue-50/30' : ''}`} data-testid={`cheque-row-${c.cheque_id}`}>
+                <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap">{fmtDate(c.received_at || c.created_at)}</td>
                 <td className="px-3 py-2 text-gray-500">{i + 1}</td>
                 <td className="px-3 py-2 font-mono font-semibold">{c.cheque_number}</td>
                 <td className="px-3 py-2">{c.bank_name}</td>
