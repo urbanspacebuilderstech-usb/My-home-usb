@@ -4410,6 +4410,26 @@ async def get_cheque_usage(cheque_id: str, user: User = Depends(get_current_user
     if not cheque:
         raise HTTPException(status_code=404, detail="Cheque not found")
 
+    # Diagnostic flags surfaced to the popup so users understand WHY no
+    # income is linked when the cheque has a dangling reference.
+    diagnostics = {
+        "orphan_income_id": None,
+        "orphan_project_id": None,
+        "orphan_used_for_expense_id": None,
+    }
+    if cheque.get("income_id"):
+        _exists = await db.income.find_one({"income_id": cheque["income_id"]}, {"_id": 0, "income_id": 1})
+        if not _exists:
+            diagnostics["orphan_income_id"] = cheque["income_id"]
+    if cheque.get("project_id"):
+        _exists = await db.projects.find_one({"project_id": cheque["project_id"]}, {"_id": 0, "project_id": 1})
+        if not _exists:
+            diagnostics["orphan_project_id"] = cheque["project_id"]
+    if cheque.get("used_for_expense_id"):
+        _exists = await db.recorded_expenses.find_one({"expense_id": cheque["used_for_expense_id"]}, {"_id": 0, "expense_id": 1})
+        if not _exists:
+            diagnostics["orphan_used_for_expense_id"] = cheque["used_for_expense_id"]
+
     # If the cheque has no project_id but DOES have a party_name, try to resolve
     # the project by matching the party_name against client_name in projects.
     # Manually-added cheques sometimes skip project_id but their party_name maps
@@ -4635,6 +4655,7 @@ async def get_cheque_usage(cheque_id: str, user: User = Depends(get_current_user
         "stages_settled": enriched_stages,
         "expense": expense_info,
         "candidate_incomes": candidate_incomes,  # diagnostic — only populated when nothing was found
+        "diagnostics": diagnostics,
         "summary": {
             "total_stages_settled": len(enriched_stages),
             "total_collected_amount": total_collected,

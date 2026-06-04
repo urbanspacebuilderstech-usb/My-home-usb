@@ -704,6 +704,8 @@ function ChequeUsageBody({ data }) {
   const exp = data.expense;
   const summary = data.summary || {};
   const candidates = data.candidate_incomes || [];
+  const diag = data.diagnostics || {};
+  const hasOrphan = !!(diag.orphan_income_id || diag.orphan_project_id || diag.orphan_used_for_expense_id);
   const [tab, setTab] = useState('income');
 
   const hasIncome = incomes.length > 0;
@@ -795,6 +797,21 @@ function ChequeUsageBody({ data }) {
                   <FileText className="h-6 w-6 mx-auto mb-1 opacity-40" />
                   No income rows are <strong>linked</strong> to this cheque.
                 </div>
+                {hasOrphan && (
+                  <div className="border border-rose-200 bg-rose-50 rounded-md p-2.5 text-[11px] text-rose-700">
+                    <p className="font-semibold mb-1">⚠ Orphaned references detected on this cheque</p>
+                    {diag.orphan_income_id && (
+                      <p>• <span className="font-mono">income_id = {diag.orphan_income_id}</span> — points to a record that no longer exists. The original income was likely deleted, rolled back, or never finalised.</p>
+                    )}
+                    {diag.orphan_project_id && (
+                      <p>• <span className="font-mono">project_id = {diag.orphan_project_id}</span> — the project this cheque was associated with no longer exists.</p>
+                    )}
+                    {diag.orphan_used_for_expense_id && (
+                      <p>• <span className="font-mono">used_for_expense_id = {diag.orphan_used_for_expense_id}</span> — the vendor expense this cheque was endorsed to no longer exists.</p>
+                    )}
+                    <p className="mt-1.5 italic">This cheque is effectively orphaned — re-record the collection/payment to restore a valid link, or mark the cheque as cancelled.</p>
+                  </div>
+                )}
                 {candidates.length > 0 ? (
                   <div className="border border-amber-200 bg-amber-50 rounded-md p-2">
                     <p className="text-[11px] font-semibold text-amber-700 mb-1.5">⚠ Possible matches (same amount + party — not officially linked)</p>
@@ -824,9 +841,9 @@ function ChequeUsageBody({ data }) {
                     </table>
                     <p className="text-[10px] text-amber-700 mt-1 italic">If one of these belongs to this cheque, ask the CRE who collected it to re-record the payment with the correct cheque selected so the link is saved properly.</p>
                   </div>
-                ) : (
+                ) : !hasOrphan ? (
                   <p className="text-[11px] text-gray-500 italic text-center">This cheque appears to be standalone (manually added, not yet used to collect anything).</p>
-                )}
+                ) : null}
               </div>
             ) : (
               <div className="space-y-2">
