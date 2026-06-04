@@ -1343,26 +1343,54 @@ class IncomeReviewRequest(BaseModel):
 
 @router.get("/approvals/income/{income_id}/cheques")
 async def get_income_cheques(income_id: str, user: User = Depends(get_current_user)):
-    """Get all cheques linked to this income entry"""
+    """Cheques tied to a SPECIFIC income approval.
+
+    Strict scoping (was broken before — used to fall back to every project cheque
+    so a fresh approval popup would show every previous-request cheque).
+
+    Order of resolution:
+      1. cheques with cheque.income_id == this income
+      2. cheques with cheque.bulk_collection_id == income.bulk_collection_id
+      3. cheques whose stage_id matches income.payment_stage_id / stage_id AND
+         that were created within the same bulk window
+      4. Empty list — NEVER fall back to project-wide cheques.
+
+    Disabled and bounced cheques are always excluded — they don't need
+    re-verification by the accountant during this approval.
+    """
     income = await db.income.find_one({"income_id": income_id}, {"_id": 0})
     if not income:
         raise HTTPException(status_code=404, detail="Income not found")
-    
-    # First try to find cheques linked directly to the income
+
+    base_filter = {
+        "cheque_type": "incoming",
+        "is_disabled": {"$ne": True},
+        "status": {"$nin": ["bounced", "cancelled", "deleted"]},
+    }
+
+    # 1. Direct income_id link (most reliable, set at create-time)
     cheques = await db.cheques.find(
-        {"income_id": income_id, "cheque_type": "incoming"},
-        {"_id": 0}
+        {**base_filter, "income_id": income_id},
+        {"_id": 0},
     ).sort("created_at", -1).to_list(50)
-    
-    # If no direct link, get all incoming cheques for the project
-    if not cheques:
-        project_id = income.get("project_id")
-        if project_id:
-            cheques = await db.cheques.find(
-                {"project_id": project_id, "cheque_type": "incoming"},
-                {"_id": 0}
-            ).sort("created_at", -1).to_list(50)
-    
+
+    # 2. Bulk collection link (multi-income / multi-cheque scenario)
+    if not cheques and income.get("bulk_collection_id"):
+        cheques = await db.cheques.find(
+            {**base_filter, "bulk_collection_id": income["bulk_collection_id"]},
+            {"_id": 0},
+        ).sort("created_at", -1).to_list(50)
+
+    # 3. Stage-linked cheques (incoming advances that pre-create cheque before income)
+    stage_id = income.get("payment_stage_id") or income.get("stage_id")
+    if not cheques and stage_id:
+        cheques = await db.cheques.find(
+            {**base_filter, "stage_id": stage_id},
+            {"_id": 0},
+        ).sort("created_at", -1).to_list(50)
+
+    # NO project-wide fallback. If the cheque isn't linked, the accountant
+    # should fix the income first (or use Cheque Management to link manually).
     return {"cheques": cheques}
 
 
