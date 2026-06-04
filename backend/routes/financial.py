@@ -4394,6 +4394,117 @@ async def list_bounced_cheques(user: User = Depends(get_current_user)):
     return cheques
 
 
+@router.get("/cheques/{cheque_id}/usage")
+async def get_cheque_usage(cheque_id: str, user: User = Depends(get_current_user)):
+    """Return everywhere this cheque touched the books:
+       • The cheque master record (with bank/party/project/status).
+       • All payment_stages that were settled by it (with project + collected date).
+       • All income rows linked to it (for incoming cheques).
+       • The recorded_expense if the cheque was endorsed to a vendor.
+       • The original approval row (material/labour) if this cheque paid a vendor bill.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.CRE, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    cheque = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail="Cheque not found")
+
+    # Build the same OR-clauses used in the bounce flow so the popup is
+    # consistent with what the reversal will actually touch.
+    or_clauses = [{"cheque_id": cheque_id}]
+    if cheque.get("income_id"):
+        or_clauses.append({"income_id": cheque["income_id"]})
+    if cheque.get("bulk_collection_id"):
+        or_clauses.append({"bulk_collection_id": cheque["bulk_collection_id"]})
+    if cheque.get("cheque_number"):
+        or_clauses.append({"payment_mode": "cheque", "payment_reference": cheque["cheque_number"]})
+
+    incomes = await db.income.find({"$or": or_clauses}, {"_id": 0}).to_list(500)
+    incomes = list({inc["income_id"]: inc for inc in incomes if inc.get("income_id")}.values())
+
+    # Stages linked via the incomes
+    stage_ids = [i.get("payment_stage_id") or i.get("stage_id") for i in incomes if i.get("payment_stage_id") or i.get("stage_id")]
+    stages = []
+    if stage_ids:
+        stages = await db.payment_stages.find({"stage_id": {"$in": stage_ids}}, {"_id": 0}).to_list(500)
+
+    # Enrich each stage with project name + the income that linked it
+    project_cache = {}
+    async def _proj_name(pid):
+        if not pid:
+            return None
+        if pid in project_cache:
+            return project_cache[pid]
+        p = await db.projects.find_one({"project_id": pid}, {"_id": 0, "name": 1})
+        nm = p["name"] if p else None
+        project_cache[pid] = nm
+        return nm
+
+    enriched_stages = []
+    income_by_stage = {i.get("payment_stage_id") or i.get("stage_id"): i for i in incomes}
+    for st in stages:
+        sid = st.get("stage_id")
+        inc = income_by_stage.get(sid)
+        enriched_stages.append({
+            "stage_id": sid,
+            "stage_name": st.get("stage_name"),
+            "stage_label": st.get("stage_label"),
+            "project_id": st.get("project_id"),
+            "project_name": await _proj_name(st.get("project_id")),
+            "amount": st.get("amount"),
+            "collected_amount": (inc.get("amount") if inc else st.get("collected_amount")),
+            "collected_at": (inc.get("payment_date") if inc else None) or st.get("collected_at"),
+            "status": st.get("status"),
+            "cheque_bounced": bool(st.get("cheque_bounced")),
+            "collected_by_name": st.get("collected_by_name") or (inc.get("collected_by_name") if inc else None),
+            "payment_mode": st.get("payment_mode") or (inc.get("payment_mode") if inc else None),
+        })
+
+    # Expense side (if cheque was endorsed to a vendor)
+    expense_info = None
+    if cheque.get("used_for_expense_id"):
+        rec_exp = await db.recorded_expenses.find_one({"expense_id": cheque["used_for_expense_id"]}, {"_id": 0})
+        if rec_exp:
+            req_id = rec_exp.get("approval_id") or rec_exp.get("request_id")
+            req_type = rec_exp.get("request_type") or rec_exp.get("category")
+            approval = None
+            if req_id and req_type == "material":
+                approval = await db.material_expenses.find_one({"expense_id": req_id}, {"_id": 0})
+            elif req_id and req_type == "labour":
+                approval = await db.labour_expenses.find_one({"labour_expense_id": req_id}, {"_id": 0})
+            expense_info = {
+                "expense_id": rec_exp.get("expense_id"),
+                "approval_id": req_id,
+                "request_type": req_type,
+                "vendor_name": rec_exp.get("vendor_name"),
+                "amount": rec_exp.get("amount"),
+                "project_id": rec_exp.get("project_id"),
+                "project_name": await _proj_name(rec_exp.get("project_id")),
+                "paid_at": rec_exp.get("approved_at") or rec_exp.get("created_at"),
+                "status": rec_exp.get("status"),
+                "description": rec_exp.get("description") or (approval.get("material_name") if approval else None),
+            }
+
+    # Project name on the cheque itself
+    cheque_project_name = await _proj_name(cheque.get("project_id"))
+
+    total_collected = sum(float(s.get("collected_amount") or 0) for s in enriched_stages)
+
+    return {
+        "cheque": {
+            **cheque,
+            "project_name": cheque_project_name,
+        },
+        "stages_settled": enriched_stages,  # list of stages this cheque covered
+        "expense": expense_info,
+        "summary": {
+            "total_stages_settled": len(enriched_stages),
+            "total_collected_amount": total_collected,
+            "is_used_for_expense": bool(expense_info),
+        },
+    }
+
+
 
 # ==================== ACCOUNTANT APPROVAL SYSTEM ====================
 

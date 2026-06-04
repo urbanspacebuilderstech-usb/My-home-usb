@@ -7,7 +7,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
-import { Search, CheckCircle2, Lock, FileText, Loader2, Building2, AlertTriangle } from 'lucide-react';
+import { Search, CheckCircle2, Lock, FileText, Loader2, Building2, AlertTriangle, Eye } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -44,6 +44,18 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
   const canRequestOpen = ['super_admin', 'accountant'].includes(userRole);
   const canBounce = ['super_admin', 'accountant'].includes(userRole);
   const [bounceDialog, setBounceDialog] = useState({ open: false, cheque: null, reason: '', charges: '' });
+  const [usageDialog, setUsageDialog] = useState({ open: false, cheque: null, data: null, loading: false });
+
+  const openUsageDialog = async (cheque) => {
+    setUsageDialog({ open: true, cheque, data: null, loading: true });
+    try {
+      const r = await axios.get(`${API}/cheques/${cheque.cheque_id}/usage`);
+      setUsageDialog({ open: true, cheque, data: r.data, loading: false });
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to load cheque details');
+      setUsageDialog({ open: false, cheque: null, data: null, loading: false });
+    }
+  };
 
   const fetchCheques = async () => {
     try {
@@ -314,6 +326,7 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                   onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })}
                   onRequestOpen={(c) => setRequestDialog({ open: true, cheque: c, remarks: '' })}
                   onBounce={(c) => setBounceDialog({ open: true, cheque: c, reason: '', charges: '' })}
+                  onView={openUsageDialog}
                   onAction={onAction} />
               </CardContent>
             </Card>
@@ -332,6 +345,7 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                 onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })}
                 onRequestOpen={(c) => setRequestDialog({ open: true, cheque: c, remarks: '' })}
                 onBounce={(c) => setBounceDialog({ open: true, cheque: c, reason: '', charges: '' })}
+                onView={openUsageDialog}
                 onAction={onAction} />
             )}
           </CardContent>
@@ -471,11 +485,32 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Cheque Usage Detail Dialog — shows everywhere the cheque touched the books */}
+      <Dialog open={usageDialog.open} onOpenChange={(o) => !o && setUsageDialog({ open: false, cheque: null, data: null, loading: false })}>
+        <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-blue-700">
+              <Eye className="h-5 w-5" /> Cheque Usage Details
+            </DialogTitle>
+          </DialogHeader>
+          {usageDialog.loading || !usageDialog.data ? (
+            <div className="py-12 text-center text-gray-400 flex items-center justify-center gap-2">
+              <Loader2 className="h-5 w-5 animate-spin" /> Loading…
+            </div>
+          ) : (
+            <ChequeUsageBody data={usageDialog.data} />
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUsageDialog({ open: false, cheque: null, data: null, loading: false })}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, onOpenRequest, onRequestOpen, onBounce, onAction }) {
+function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, onOpenRequest, onRequestOpen, onBounce, onView, onAction }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
@@ -585,6 +620,19 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, onOpenRequest, 
                         Bounce
                       </Button>
                     )}
+                    {/* View button — always available for any consumed or bounced cheque */}
+                    {(isConsumed || c.status === 'bounced') && onView && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-blue-700 hover:bg-blue-50"
+                        title="View cheque details"
+                        onClick={() => onView(c)}
+                        data-testid={`cheque-view-btn-${c.cheque_id}`}
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                     {!isLockedIncoming && !c.is_opened && !isBounceable && c.status !== 'bounced' && (
                       <span className="text-[10px] text-gray-300">—</span>
                     )}
@@ -595,6 +643,108 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, onOpenRequest, 
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+
+function ChequeUsageBody({ data }) {
+  const c = data.cheque || {};
+  const stages = data.stages_settled || [];
+  const exp = data.expense;
+  const summary = data.summary || {};
+
+  return (
+    <div className="space-y-4">
+      <Card className={`border-2 ${c.status === 'bounced' ? 'bg-red-50 border-red-300' : 'bg-blue-50 border-blue-200'}`}>
+        <CardContent className="p-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-blue-700 uppercase">Cheque Details</p>
+            <Badge className={c.status === 'bounced' ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'}>
+              {c.status === 'bounced' ? 'Bounced' : (c.status || '').replace('_', ' ')}
+            </Badge>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div><span className="text-gray-500 text-[10px]">Cheque #</span><p className="font-mono font-bold">{c.cheque_number}</p></div>
+            <div><span className="text-gray-500 text-[10px]">Bank</span><p className="font-medium">{c.bank_name || '—'}</p></div>
+            <div><span className="text-gray-500 text-[10px]">Party</span><p className="font-medium">{c.party_name || '—'}</p></div>
+            <div><span className="text-gray-500 text-[10px]">Amount</span><p className="font-bold text-blue-700">{fmtMoney(c.amount)}</p></div>
+            <div><span className="text-gray-500 text-[10px]">Project</span><p className="font-medium text-violet-700">{c.project_name || '—'}</p></div>
+            <div><span className="text-gray-500 text-[10px]">Cheque Date</span><p className="font-medium">{fmtDate(c.cheque_date)}</p></div>
+            <div><span className="text-gray-500 text-[10px]">Opened By</span><p className="font-medium">{c.opened_by_name || '—'}</p></div>
+            <div><span className="text-gray-500 text-[10px]">Used At</span><p className="font-medium">{fmtDate(c.used_at)}</p></div>
+          </div>
+          {c.status === 'bounced' && (
+            <div className="mt-2 pt-2 border-t border-red-200 text-xs text-red-700">
+              <span className="font-semibold">Bounce reason:</span> {c.bounce_reason || '—'}
+              {c.bounce_charges > 0 && <span className="ml-2">· Charges: {fmtMoney(c.bounce_charges)}</span>}
+              <span className="ml-2 italic text-red-500">on {fmtDate(c.bounced_at)} by {c.bounced_by_name || '—'}</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-violet-700 uppercase">Payment Stages Settled · {summary.total_stages_settled || 0}</p>
+            <span className="text-xs text-gray-500">Total: <span className="font-bold text-emerald-700">{fmtMoney(summary.total_collected_amount)}</span></span>
+          </div>
+          {stages.length === 0 ? (
+            <p className="text-xs text-gray-400 italic">No payment stages were settled by this cheque.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50">
+                  <tr className="border-b text-gray-500">
+                    <th className="text-left px-2 py-1.5 font-semibold">Project</th>
+                    <th className="text-left px-2 py-1.5 font-semibold">Stage</th>
+                    <th className="text-right px-2 py-1.5 font-semibold">Stage Amt</th>
+                    <th className="text-right px-2 py-1.5 font-semibold">Collected</th>
+                    <th className="text-left px-2 py-1.5 font-semibold">Date</th>
+                    <th className="text-center px-2 py-1.5 font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stages.map(s => (
+                    <tr key={s.stage_id} className={`border-b ${s.cheque_bounced ? 'bg-red-50/40' : ''}`}>
+                      <td className="px-2 py-1.5 text-violet-700">{s.project_name || '—'}</td>
+                      <td className="px-2 py-1.5">{s.stage_name || s.stage_label || '—'}</td>
+                      <td className="px-2 py-1.5 text-right">{fmtMoney(s.amount)}</td>
+                      <td className="px-2 py-1.5 text-right font-bold text-emerald-700">{fmtMoney(s.collected_amount)}</td>
+                      <td className="px-2 py-1.5">{fmtDate(s.collected_at)}</td>
+                      <td className="px-2 py-1.5 text-center">
+                        {s.cheque_bounced ? (
+                          <Badge className="bg-red-100 text-red-700 text-[9px]">Cheque Bounced</Badge>
+                        ) : (
+                          <Badge className="bg-emerald-100 text-emerald-700 text-[9px]">{(s.status || '').replace('_', ' ')}</Badge>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {exp && (
+        <Card>
+          <CardContent className="p-3">
+            <p className="text-xs font-semibold text-orange-700 uppercase mb-2">Endorsed to Vendor</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div><span className="text-gray-500 text-[10px]">Vendor</span><p className="font-medium">{exp.vendor_name || '—'}</p></div>
+              <div><span className="text-gray-500 text-[10px]">Project</span><p className="font-medium text-violet-700">{exp.project_name || '—'}</p></div>
+              <div><span className="text-gray-500 text-[10px]">Description</span><p className="font-medium truncate">{exp.description || '—'}</p></div>
+              <div><span className="text-gray-500 text-[10px]">Amount</span><p className="font-bold text-orange-700">{fmtMoney(exp.amount)}</p></div>
+              <div><span className="text-gray-500 text-[10px]">Paid At</span><p className="font-medium">{fmtDate(exp.paid_at)}</p></div>
+              <div><span className="text-gray-500 text-[10px]">Type</span><p className="capitalize">{exp.request_type || '—'}</p></div>
+              <div><span className="text-gray-500 text-[10px]">Status</span><p className="capitalize">{(exp.status || '').replace('_', ' ')}</p></div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
