@@ -7,7 +7,9 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
-import { Search, CheckCircle2, Lock, FileText, Loader2, Building2, AlertTriangle, Eye, Trash2, XCircle, Ban, RotateCcw } from 'lucide-react';
+import { Search, CheckCircle2, Lock, FileText, Loader2, Building2, AlertTriangle, Eye, Trash2, XCircle, Ban, RotateCcw, ChevronDown, Check } from 'lucide-react';
+import { Popover, PopoverTrigger, PopoverContent } from './ui/popover';
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from './ui/command';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -35,6 +37,8 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
   const [cheques, setCheques] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [projectFilter, setProjectFilter] = useState(''); // '' = All projects
+  const [projectFilterOpen, setProjectFilterOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('all'); // all | open_pending | open_requested | opened | by_project
   const [openDialog, setOpenDialog] = useState({ open: false, cheque: null, remarks: '' });
   const [requestDialog, setRequestDialog] = useState({ open: false, cheque: null, remarks: '' });
@@ -222,6 +226,17 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
   };
 
 
+  // Distinct project list across the loaded cheques (for the searchable dropdown).
+  const projectOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    cheques.forEach(c => {
+      const name = c.project_name || 'Unassigned';
+      if (!seen.has(name)) { seen.add(name); out.push(name); }
+    });
+    return out.sort((a, b) => a.localeCompare(b));
+  }, [cheques]);
+
   // Filtering
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -230,6 +245,11 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
       if (term) {
         const hay = `${c.cheque_number} ${c.bank_name} ${c.party_name} ${c.project_name || ''}`.toLowerCase();
         if (!hay.includes(term)) return false;
+      }
+      // Project filter (if set)
+      if (projectFilter) {
+        const pname = c.project_name || 'Unassigned';
+        if (pname !== projectFilter) return false;
       }
       // The "Disabled" tab is exclusive — only disabled cheques.
       // All other tabs hide disabled cheques.
@@ -260,7 +280,7 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
       if (activeTab === 'outgoing') return c.cheque_type === 'outgoing';
       return true;
     });
-  }, [cheques, search, activeTab]);
+  }, [cheques, search, activeTab, projectFilter]);
 
   // Project-wise grouping (simple: name -> rows)
   const projectGroups = useMemo(() => {
@@ -371,6 +391,62 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                 data-testid="cheque-search-input"
               />
             </div>
+            {/* Searchable Project filter */}
+            <Popover open={projectFilterOpen} onOpenChange={setProjectFilterOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  className={`h-9 min-w-[180px] justify-between px-3 text-xs font-normal ${projectFilter ? 'border-violet-300 bg-violet-50/40 text-violet-800' : ''}`}
+                  data-testid="cheque-project-filter-trigger"
+                >
+                  <span className="flex items-center gap-1.5 truncate">
+                    <Building2 className="h-3.5 w-3.5 opacity-60" />
+                    {projectFilter || 'All Projects'}
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5 opacity-50 shrink-0 ml-1" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Search project…" className="h-8 text-xs" />
+                  <CommandEmpty className="text-xs p-2 text-gray-500">No project matches</CommandEmpty>
+                  <CommandList className="max-h-64">
+                    <CommandItem
+                      value="__all__"
+                      onSelect={() => { setProjectFilter(''); setProjectFilterOpen(false); }}
+                      className="text-xs"
+                      data-testid="cheque-project-filter-all"
+                    >
+                      <Check className={`mr-2 h-3 w-3 ${!projectFilter ? 'opacity-100' : 'opacity-0'}`} />
+                      All Projects
+                    </CommandItem>
+                    {projectOptions.map(p => (
+                      <CommandItem
+                        key={p}
+                        value={p}
+                        onSelect={() => { setProjectFilter(p); setProjectFilterOpen(false); }}
+                        className="text-xs"
+                        data-testid={`cheque-project-filter-item-${p}`}
+                      >
+                        <Check className={`mr-2 h-3 w-3 ${projectFilter === p ? 'opacity-100' : 'opacity-0'}`} />
+                        <span className="truncate">{p}</span>
+                      </CommandItem>
+                    ))}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {projectFilter && (
+              <button
+                onClick={() => setProjectFilter('')}
+                className="h-9 px-2 text-[11px] text-gray-500 hover:text-red-600"
+                data-testid="cheque-project-filter-clear"
+              >
+                Clear
+              </button>
+            )}
           </div>
         </CardContent>
       </Card>
