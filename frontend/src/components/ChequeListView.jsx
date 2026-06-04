@@ -357,13 +357,13 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
           <div className="flex flex-wrap gap-2 items-center">
             <div className="inline-flex bg-gray-100 rounded-lg p-0.5 flex-wrap">
               {[
-                { k: 'all',            label: 'All',          count: stats.total,                badgeColor: 'bg-gray-700 text-white' },
-                { k: 'received',       label: 'Received',     count: stats.pending_open,         badgeColor: 'bg-amber-500 text-white' },
-                { k: 'opened',         label: 'Opened',       count: stats.opened_count,         badgeColor: 'bg-emerald-500 text-white' },
-                { k: 'open_requested', label: 'Awaiting CRE', count: stats.open_requested_count, badgeColor: 'bg-blue-500 text-white' },
-                { k: 'issued',         label: 'Issued',       count: stats.issued_count,         badgeColor: 'bg-orange-500 text-white' },
+                { k: 'all',            label: 'All',          count: stats.total,                badgeColor: 'bg-red-500 text-white' },
+                { k: 'received',       label: 'Received',     count: stats.pending_open,         badgeColor: 'bg-red-500 text-white' },
+                { k: 'opened',         label: 'Opened',       count: stats.opened_count,         badgeColor: 'bg-red-500 text-white' },
+                { k: 'open_requested', label: 'Awaiting CRE', count: stats.open_requested_count, badgeColor: 'bg-red-500 text-white' },
+                { k: 'issued',         label: 'Issued',       count: stats.issued_count,         badgeColor: 'bg-red-500 text-white' },
                 { k: 'bounced',        label: 'Bounced',      count: stats.bounced_count,        badgeColor: 'bg-red-500 text-white' },
-                { k: 'disabled',       label: 'Disabled',     count: stats.disabled_count,       badgeColor: 'bg-gray-500 text-white' },
+                { k: 'disabled',       label: 'Disabled',     count: stats.disabled_count,       badgeColor: 'bg-red-500 text-white' },
                 ...(scope === 'cre' ? [{ k: 'by_project', label: 'Project Wise', count: null }] : []),
               ].map(t => (
                 <button
