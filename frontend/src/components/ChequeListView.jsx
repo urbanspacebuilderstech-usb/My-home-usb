@@ -342,7 +342,7 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                   </div>
                   <span className="text-sm font-bold text-violet-700">{fmtMoney(g.total)}</span>
                 </div>
-                <ChequeTable rows={g.rows} canOpen={canOpen} canRequestOpen={canRequestOpen} canBounce={canBounce} canDelete={canDelete}
+                <ChequeTable rows={g.rows} canOpen={canOpen} canRequestOpen={canRequestOpen} canBounce={canBounce} canDelete={canDelete} activeTab={activeTab}
                   onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })}
                   onRequestOpen={(c) => setRequestDialog({ open: true, cheque: c, remarks: '' })}
                   onBounce={(c) => setBounceDialog({ open: true, cheque: c, reason: '', charges: '' })}
@@ -362,7 +362,7 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                 <p className="text-sm">No cheques match the current filter</p>
               </div>
             ) : (
-              <ChequeTable rows={filtered} canOpen={canOpen} canRequestOpen={canRequestOpen} canBounce={canBounce} canDelete={canDelete}
+              <ChequeTable rows={filtered} canOpen={canOpen} canRequestOpen={canRequestOpen} canBounce={canBounce} canDelete={canDelete} activeTab={activeTab}
                 onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })}
                 onRequestOpen={(c) => setRequestDialog({ open: true, cheque: c, remarks: '' })}
                 onBounce={(c) => setBounceDialog({ open: true, cheque: c, reason: '', charges: '' })}
@@ -573,7 +573,7 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
   );
 }
 
-function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOpenRequest, onRequestOpen, onBounce, onView, onDelete, onAction }) {
+function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOpenRequest, onRequestOpen, onBounce, onView, onDelete, onAction, activeTab }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
@@ -597,7 +597,16 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOp
             const sb = STATUS_BADGE[c.status] || { label: c.status, cls: 'bg-gray-100 text-gray-700' };
             const isLockedIncoming = !c.is_opened && c.cheque_type === 'incoming' && c.status !== 'cancelled';
             const isConsumed = !!(c.used_for_expense_id || c.income_id);
-            const isBounceable = canBounce && isConsumed && c.status !== 'bounced' && c.status !== 'cancelled' && c.status !== 'cleared';
+            // Bounce button is restricted to the explicit "Issued" tab only —
+            // hidden from All, Received, Opened, Awaiting CRE, Bounced and the
+            // project-wise grouping. Bounce-eligibility (consumed + not bounced
+            // /cancelled/cleared) still applies.
+            const isBounceable = canBounce
+              && activeTab === 'issued'
+              && isConsumed
+              && c.status !== 'bounced'
+              && c.status !== 'cancelled'
+              && c.status !== 'cleared';
             return (
               <tr key={c.cheque_id} className={`border-b hover:bg-gray-50 ${c.status === 'bounced' ? 'bg-red-50/40' : c.open_requested && !c.is_opened ? 'bg-blue-50/30' : ''}`} data-testid={`cheque-row-${c.cheque_id}`}>
                 <td className="px-3 py-2 text-gray-500">{i + 1}</td>
