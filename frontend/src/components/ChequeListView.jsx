@@ -7,7 +7,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
-import { Search, CheckCircle2, Lock, FileText, Loader2, Building2, AlertTriangle, Eye, Trash2, XCircle } from 'lucide-react';
+import { Search, CheckCircle2, Lock, FileText, Loader2, Building2, AlertTriangle, Eye, Trash2, XCircle, Ban, RotateCcw } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -44,9 +44,15 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
   const canRequestOpen = ['super_admin', 'accountant'].includes(userRole);
   const canBounce = ['super_admin', 'accountant'].includes(userRole);
   const canDelete = ['super_admin', 'accountant'].includes(userRole);
+  const canDisable = ['super_admin', 'accountant'].includes(userRole);
+  const canRetrieve = userRole === 'super_admin';
+  const canHardDelete = userRole === 'super_admin';
   const [bounceDialog, setBounceDialog] = useState({ open: false, cheque: null, reason: '', charges: '' });
   const [usageDialog, setUsageDialog] = useState({ open: false, cheque: null, data: null, loading: false });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, cheque: null, password: '' });
+  const [disableDialog, setDisableDialog] = useState({ open: false, cheque: null, reason: '', password: '' });
+  const [retrieveDialog, setRetrieveDialog] = useState({ open: false, cheque: null, reason: '', password: '' });
+  const [hardDeleteDialog, setHardDeleteDialog] = useState({ open: false, cheque: null, reason: '', password: '' });
 
   const handleDelete = async () => {
     if (!deleteDialog.cheque) return;
@@ -61,6 +67,66 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
       fetchCheques();
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Failed to delete cheque');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDisable = async () => {
+    if (!disableDialog.cheque) return;
+    if (!disableDialog.reason.trim()) { toast.error('Reason is required'); return; }
+    if (!disableDialog.password) { toast.error('Password required'); return; }
+    try {
+      setSubmitting(true);
+      await axios.post(`${API}/accountant/cheques/${disableDialog.cheque.cheque_id}/disable`, {
+        password: disableDialog.password,
+        reason: disableDialog.reason.trim(),
+      });
+      toast.success(`Cheque ${disableDialog.cheque.cheque_number} disabled`);
+      setDisableDialog({ open: false, cheque: null, reason: '', password: '' });
+      fetchCheques();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to disable cheque');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRetrieve = async () => {
+    if (!retrieveDialog.cheque) return;
+    if (!retrieveDialog.reason.trim()) { toast.error('Reason is required'); return; }
+    if (!retrieveDialog.password) { toast.error('Password required'); return; }
+    try {
+      setSubmitting(true);
+      await axios.post(`${API}/accountant/cheques/${retrieveDialog.cheque.cheque_id}/retrieve`, {
+        password: retrieveDialog.password,
+        reason: retrieveDialog.reason.trim(),
+      });
+      toast.success(`Cheque ${retrieveDialog.cheque.cheque_number} retrieved to Received tab`);
+      setRetrieveDialog({ open: false, cheque: null, reason: '', password: '' });
+      setActiveTab('received');
+      fetchCheques();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to retrieve cheque');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleHardDelete = async () => {
+    if (!hardDeleteDialog.cheque) return;
+    if (!hardDeleteDialog.reason.trim()) { toast.error('Reason is required'); return; }
+    if (!hardDeleteDialog.password) { toast.error('Password required'); return; }
+    try {
+      setSubmitting(true);
+      await axios.delete(`${API}/accountant/cheques/${hardDeleteDialog.cheque.cheque_id}/hard`, {
+        data: { password: hardDeleteDialog.password, reason: hardDeleteDialog.reason.trim() },
+      });
+      toast.success(`Cheque ${hardDeleteDialog.cheque.cheque_number} permanently deleted`);
+      setHardDeleteDialog({ open: false, cheque: null, reason: '', password: '' });
+      fetchCheques();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to permanently delete cheque');
     } finally {
       setSubmitting(false);
     }
@@ -165,6 +231,10 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
         const hay = `${c.cheque_number} ${c.bank_name} ${c.party_name} ${c.project_name || ''}`.toLowerCase();
         if (!hay.includes(term)) return false;
       }
+      // The "Disabled" tab is exclusive — only disabled cheques.
+      // All other tabs hide disabled cheques.
+      if (activeTab === 'disabled') return !!c.is_disabled;
+      if (c.is_disabled) return false;
       // Tab filter — strict per-tab semantics.
       // NOTE: `income_id` is set at cheque creation (back-link to the advance/
       // collection that produced the cheque) so it's NOT a reliable signal of
@@ -209,20 +279,24 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
   }, [filtered]);
 
   const stats = useMemo(() => {
-    const incoming = cheques.filter(c => c.cheque_type === 'incoming');
-    const outgoing = cheques.filter(c => c.cheque_type === 'outgoing');
+    // Disabled cheques are excluded from every "alive" tab/summary and
+    // counted separately in their own bucket.
+    const alive = cheques.filter(c => !c.is_disabled);
+    const disabledRows = cheques.filter(c => !!c.is_disabled);
+    const incoming = alive.filter(c => c.cheque_type === 'incoming');
+    const outgoing = alive.filter(c => c.cheque_type === 'outgoing');
     // Strict per-tab classifications (must mirror the tab filter logic below)
     const isAlive = (c) => c.status !== 'cancelled' && c.status !== 'bounced';
     const isIncoming = (c) => c.cheque_type === 'incoming';
-    const receivedRows  = cheques.filter(c => isIncoming(c) && isAlive(c) && !c.is_opened && !c.open_requested);
-    const awaitingRows  = cheques.filter(c => isIncoming(c) && isAlive(c) && !c.is_opened && !!c.open_requested);
-    const openedRows    = cheques.filter(c => isIncoming(c) && isAlive(c) && c.is_opened && !c.used_for_expense_id);
-    const issuedRows    = cheques.filter(c => !!c.used_for_expense_id && c.status !== 'bounced');
-    const bouncedRows   = cheques.filter(c => c.status === 'bounced');
+    const receivedRows  = alive.filter(c => isIncoming(c) && isAlive(c) && !c.is_opened && !c.open_requested);
+    const awaitingRows  = alive.filter(c => isIncoming(c) && isAlive(c) && !c.is_opened && !!c.open_requested);
+    const openedRows    = alive.filter(c => isIncoming(c) && isAlive(c) && c.is_opened && !c.used_for_expense_id);
+    const issuedRows    = alive.filter(c => !!c.used_for_expense_id && c.status !== 'bounced');
+    const bouncedRows   = alive.filter(c => c.status === 'bounced');
     const sumAmt = (arr) => arr.reduce((s, c) => s + (c.amount || 0), 0);
     return {
-      total: cheques.length,
-      total_amount: sumAmt(cheques),
+      total: alive.length,
+      total_amount: sumAmt(alive),
       incoming_count: incoming.length,
       incoming_amount: sumAmt(incoming),
       outgoing_count: outgoing.length,
@@ -237,6 +311,8 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
       issued_amount: sumAmt(issuedRows),
       bounced_count: bouncedRows.length,
       bounced_amount: sumAmt(bouncedRows),
+      disabled_count: disabledRows.length,
+      disabled_amount: sumAmt(disabledRows),
     };
   }, [cheques]);
 
@@ -267,6 +343,7 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                 { k: 'open_requested', label: 'Awaiting CRE', count: stats.open_requested_count, badgeColor: 'bg-blue-500 text-white' },
                 { k: 'issued',         label: 'Issued',       count: stats.issued_count,         badgeColor: 'bg-orange-500 text-white' },
                 { k: 'bounced',        label: 'Bounced',      count: stats.bounced_count,        badgeColor: 'bg-red-500 text-white' },
+                { k: 'disabled',       label: 'Disabled',     count: stats.disabled_count,       badgeColor: 'bg-gray-500 text-white' },
                 ...(scope === 'cre' ? [{ k: 'by_project', label: 'Project Wise', count: null }] : []),
               ].map(t => (
                 <button
@@ -314,12 +391,15 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                   </div>
                   <span className="text-sm font-bold text-violet-700">{fmtMoney(g.total)}</span>
                 </div>
-                <ChequeTable rows={g.rows} canOpen={canOpen} canRequestOpen={canRequestOpen} canBounce={canBounce} canDelete={canDelete} activeTab={activeTab}
+                <ChequeTable rows={g.rows} canOpen={canOpen} canRequestOpen={canRequestOpen} canBounce={canBounce} canDelete={canDelete} canDisable={canDisable} canRetrieve={canRetrieve} canHardDelete={canHardDelete} activeTab={activeTab}
                   onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })}
                   onRequestOpen={(c) => setRequestDialog({ open: true, cheque: c, remarks: '' })}
                   onBounce={(c) => setBounceDialog({ open: true, cheque: c, reason: '', charges: '' })}
                   onView={openUsageDialog}
                   onDelete={(c) => setDeleteDialog({ open: true, cheque: c, password: '' })}
+                  onDisable={(c) => setDisableDialog({ open: true, cheque: c, reason: '', password: '' })}
+                  onRetrieve={(c) => setRetrieveDialog({ open: true, cheque: c, reason: '', password: '' })}
+                  onHardDelete={(c) => setHardDeleteDialog({ open: true, cheque: c, reason: '', password: '' })}
                   onAction={onAction} />
               </CardContent>
             </Card>
@@ -334,12 +414,15 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                 <p className="text-sm">No cheques match the current filter</p>
               </div>
             ) : (
-              <ChequeTable rows={filtered} canOpen={canOpen} canRequestOpen={canRequestOpen} canBounce={canBounce} canDelete={canDelete} activeTab={activeTab}
+              <ChequeTable rows={filtered} canOpen={canOpen} canRequestOpen={canRequestOpen} canBounce={canBounce} canDelete={canDelete} canDisable={canDisable} canRetrieve={canRetrieve} canHardDelete={canHardDelete} activeTab={activeTab}
                 onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })}
                 onRequestOpen={(c) => setRequestDialog({ open: true, cheque: c, remarks: '' })}
                 onBounce={(c) => setBounceDialog({ open: true, cheque: c, reason: '', charges: '' })}
                 onView={openUsageDialog}
                 onDelete={(c) => setDeleteDialog({ open: true, cheque: c, password: '' })}
+                onDisable={(c) => setDisableDialog({ open: true, cheque: c, reason: '', password: '' })}
+                onRetrieve={(c) => setRetrieveDialog({ open: true, cheque: c, reason: '', password: '' })}
+                onHardDelete={(c) => setHardDeleteDialog({ open: true, cheque: c, reason: '', password: '' })}
                 onAction={onAction} />
             )}
           </CardContent>
@@ -541,11 +624,164 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Disable Cheque dialog — Received-tab only, Super Admin or Accountant */}
+      <Dialog open={disableDialog.open} onOpenChange={(o) => !o && setDisableDialog({ open: false, cheque: null, reason: '', password: '' })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-gray-800">
+              <Ban className="h-5 w-5 text-gray-700" /> Disable Cheque
+            </DialogTitle>
+          </DialogHeader>
+          {disableDialog.cheque && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2 text-xs bg-gray-50 border border-gray-200 rounded-lg p-3">
+                <div><span className="text-gray-500">Cheque #</span><p className="font-semibold">{disableDialog.cheque.cheque_number}</p></div>
+                <div><span className="text-gray-500">Amount</span><p className="font-semibold">{fmtMoney(disableDialog.cheque.amount)}</p></div>
+                <div><span className="text-gray-500">Bank</span><p className="font-medium">{disableDialog.cheque.bank_name || '—'}</p></div>
+                <div><span className="text-gray-500">Party</span><p className="font-medium">{disableDialog.cheque.party_name || '—'}</p></div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Reason <span className="text-red-500">*</span></label>
+                <Textarea
+                  rows={2}
+                  value={disableDialog.reason}
+                  onChange={(e) => setDisableDialog({ ...disableDialog, reason: e.target.value })}
+                  placeholder="e.g. Cheque damaged / Wrong amount written / Party requested replacement"
+                  data-testid="cheque-disable-reason"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Confirm with your password <span className="text-red-500">*</span></label>
+                <Input
+                  type="password"
+                  value={disableDialog.password}
+                  onChange={(e) => setDisableDialog({ ...disableDialog, password: e.target.value })}
+                  placeholder="Your login password"
+                  data-testid="cheque-disable-password"
+                />
+              </div>
+              <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-800">
+                The cheque will be moved to the <strong>Disabled</strong> tab. Only Super Admin can later <strong>Retrieve</strong> it (back to Received) or <strong>Permanently Delete</strong> it.
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDisableDialog({ open: false, cheque: null, reason: '', password: '' })} disabled={submitting}>Cancel</Button>
+            <Button className="bg-gray-700 hover:bg-gray-800" onClick={handleDisable} disabled={submitting || !disableDialog.password || !disableDialog.reason.trim()} data-testid="cheque-disable-confirm">
+              {submitting ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Disabling…</> : <><Ban className="h-4 w-4 mr-1" /> Disable</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Retrieve Cheque dialog — Super Admin only */}
+      <Dialog open={retrieveDialog.open} onOpenChange={(o) => !o && setRetrieveDialog({ open: false, cheque: null, reason: '', password: '' })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-emerald-700">
+              <RotateCcw className="h-5 w-5" /> Retrieve Cheque
+            </DialogTitle>
+          </DialogHeader>
+          {retrieveDialog.cheque && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2 text-xs bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                <div><span className="text-gray-500">Cheque #</span><p className="font-semibold">{retrieveDialog.cheque.cheque_number}</p></div>
+                <div><span className="text-gray-500">Amount</span><p className="font-semibold text-emerald-700">{fmtMoney(retrieveDialog.cheque.amount)}</p></div>
+                <div><span className="text-gray-500">Bank</span><p className="font-medium">{retrieveDialog.cheque.bank_name || '—'}</p></div>
+                <div><span className="text-gray-500">Party</span><p className="font-medium">{retrieveDialog.cheque.party_name || '—'}</p></div>
+                {retrieveDialog.cheque.disable_reason && (
+                  <div className="col-span-2"><span className="text-gray-500">Disable reason</span><p className="font-medium text-gray-700 italic">{retrieveDialog.cheque.disable_reason}</p></div>
+                )}
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Reason for retrieving <span className="text-red-500">*</span></label>
+                <Textarea
+                  rows={2}
+                  value={retrieveDialog.reason}
+                  onChange={(e) => setRetrieveDialog({ ...retrieveDialog, reason: e.target.value })}
+                  placeholder="e.g. Disabled by mistake / Party brought replacement back"
+                  data-testid="cheque-retrieve-reason"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Confirm with your password <span className="text-red-500">*</span></label>
+                <Input
+                  type="password"
+                  value={retrieveDialog.password}
+                  onChange={(e) => setRetrieveDialog({ ...retrieveDialog, password: e.target.value })}
+                  placeholder="Super Admin password"
+                  data-testid="cheque-retrieve-password"
+                />
+              </div>
+              <div className="text-xs bg-emerald-50 border border-emerald-200 rounded p-2 text-emerald-800">
+                The cheque will automatically return to the <strong>Received</strong> tab.
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRetrieveDialog({ open: false, cheque: null, reason: '', password: '' })} disabled={submitting}>Cancel</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={handleRetrieve} disabled={submitting || !retrieveDialog.password || !retrieveDialog.reason.trim()} data-testid="cheque-retrieve-confirm">
+              {submitting ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Retrieving…</> : <><RotateCcw className="h-4 w-4 mr-1" /> Retrieve</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Hard Delete dialog — Super Admin only */}
+      <Dialog open={hardDeleteDialog.open} onOpenChange={(o) => !o && setHardDeleteDialog({ open: false, cheque: null, reason: '', password: '' })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <Trash2 className="h-5 w-5" /> Permanently Delete Cheque
+            </DialogTitle>
+          </DialogHeader>
+          {hardDeleteDialog.cheque && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2 text-xs bg-red-50 border border-red-200 rounded-lg p-3">
+                <div><span className="text-gray-500">Cheque #</span><p className="font-semibold">{hardDeleteDialog.cheque.cheque_number}</p></div>
+                <div><span className="text-gray-500">Amount</span><p className="font-semibold text-red-700">{fmtMoney(hardDeleteDialog.cheque.amount)}</p></div>
+                <div><span className="text-gray-500">Bank</span><p className="font-medium">{hardDeleteDialog.cheque.bank_name || '—'}</p></div>
+                <div><span className="text-gray-500">Party</span><p className="font-medium">{hardDeleteDialog.cheque.party_name || '—'}</p></div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Reason for permanent deletion <span className="text-red-500">*</span></label>
+                <Textarea
+                  rows={2}
+                  value={hardDeleteDialog.reason}
+                  onChange={(e) => setHardDeleteDialog({ ...hardDeleteDialog, reason: e.target.value })}
+                  placeholder="e.g. Created in error / Test data cleanup"
+                  data-testid="cheque-harddelete-reason"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Confirm with your password <span className="text-red-500">*</span></label>
+                <Input
+                  type="password"
+                  value={hardDeleteDialog.password}
+                  onChange={(e) => setHardDeleteDialog({ ...hardDeleteDialog, password: e.target.value })}
+                  placeholder="Super Admin password"
+                  data-testid="cheque-harddelete-password"
+                />
+              </div>
+              <div className="text-xs bg-red-50 border border-red-300 rounded p-2 text-red-800">
+                <strong>This is irreversible.</strong> The cheque record will be completely removed. An audit log is kept.
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHardDeleteDialog({ open: false, cheque: null, reason: '', password: '' })} disabled={submitting}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700" onClick={handleHardDelete} disabled={submitting || !hardDeleteDialog.password || !hardDeleteDialog.reason.trim()} data-testid="cheque-harddelete-confirm">
+              {submitting ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Deleting…</> : <><Trash2 className="h-4 w-4 mr-1" /> Permanently Delete</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOpenRequest, onRequestOpen, onBounce, onView, onDelete, onAction, activeTab }) {
+function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, canDisable, canRetrieve, canHardDelete, onOpenRequest, onRequestOpen, onBounce, onView, onDelete, onDisable, onRetrieve, onHardDelete, onAction, activeTab }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
@@ -578,6 +814,18 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOp
               && c.status !== 'bounced'
               && c.status !== 'cancelled'
               && c.status !== 'cleared';
+            // Disable button — only on the explicit "Received" tab, only for
+            // incoming cheques that are not yet opened/requested/used/bounced.
+            const isDisableable = canDisable
+              && activeTab === 'received'
+              && c.cheque_type === 'incoming'
+              && !c.is_opened
+              && !c.open_requested
+              && !c.used_for_expense_id
+              && c.status !== 'bounced'
+              && c.status !== 'cancelled'
+              && c.status !== 'cleared'
+              && c.status !== 'deleted';
             return (
               <tr key={c.cheque_id} className={`border-b hover:bg-gray-50 ${c.status === 'bounced' ? 'bg-red-50/40' : c.open_requested && !c.is_opened ? 'bg-blue-50/30' : ''}`} data-testid={`cheque-row-${c.cheque_id}`}>
                 <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap">{fmtDate(c.received_at || c.created_at)}</td>
@@ -594,7 +842,16 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOp
                 <td className="px-3 py-2 text-right font-semibold">{fmtMoney(c.amount)}</td>
                 <td className="px-3 py-2 text-gray-600">{fmtDate(c.cheque_date)}</td>
                 <td className="px-3 py-2 text-center">
-                  {c.status === 'bounced' ? (
+                  {c.is_disabled ? (
+                    <>
+                      <Badge className="bg-gray-200 text-gray-700 text-[10px] gap-1">
+                        <Ban className="h-3 w-3" /> Disabled
+                      </Badge>
+                      {c.disable_reason && (
+                        <p className="text-[9px] text-gray-600 italic mt-0.5 max-w-[160px] truncate mx-auto" title={c.disable_reason}>{c.disable_reason}</p>
+                      )}
+                    </>
+                  ) : c.status === 'bounced' ? (
                     <>
                       <Badge className="bg-red-100 text-red-700 text-[10px] gap-1">
                         <XCircle className="h-3 w-3" /> Bounced
@@ -621,71 +878,116 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOp
                 </td>
                 <td className="px-3 py-2 text-center">
                   <div className="flex items-center justify-center gap-1">
-                    {/* CRE: shows Open button on locked incoming */}
-                    {isLockedIncoming && canOpen ? (
-                      <Button
-                        size="sm"
-                        className="h-7 text-[10px] bg-emerald-600 hover:bg-emerald-700"
-                        onClick={() => onOpenRequest(c)}
-                        data-testid={`cheque-open-btn-${c.cheque_id}`}
-                      >
-                        Open
-                      </Button>
-                    ) : isLockedIncoming && canRequestOpen && !c.open_requested ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-[10px] border-blue-300 text-blue-700 hover:bg-blue-50"
-                        onClick={() => onRequestOpen(c)}
-                        data-testid={`cheque-request-btn-${c.cheque_id}`}
-                      >
-                        Request Open
-                      </Button>
-                    ) : isLockedIncoming && c.open_requested ? (
-                      <span className="text-[10px] text-blue-600 italic">Sent to CRE</span>
-                    ) : c.is_opened && c.opened_by_name ? (
-                      <span className="text-[10px] text-emerald-600">by {c.opened_by_name.split(' ')[0]}</span>
-                    ) : null}
-                    {/* Bounce button for any consumed (Issued) cheque */}
-                    {isBounceable && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-[10px] border-red-300 text-red-700 hover:bg-red-50"
-                        onClick={() => onBounce && onBounce(c)}
-                        data-testid={`cheque-bounce-btn-${c.cheque_id}`}
-                      >
-                        Bounce
-                      </Button>
-                    )}
-                    {/* View button — always available for non-locked cheques (incomes may exist even without used_for_expense_id) */}
-                    {onView && c.is_opened && c.status !== 'cancelled' && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 w-7 p-0 text-blue-700 hover:bg-blue-50"
-                        title="View cheque details"
-                        onClick={() => onView(c)}
-                        data-testid={`cheque-view-btn-${c.cheque_id}`}
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                    {/* Delete (orphan only) */}
-                    {canDelete && c.status !== 'deleted' && onDelete && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
-                        title="Delete cheque (orphan only)"
-                        onClick={() => onDelete(c)}
-                        data-testid={`cheque-delete-btn-${c.cheque_id}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                    {!isLockedIncoming && !c.is_opened && !isBounceable && c.status !== 'bounced' && (
-                      <span className="text-[10px] text-gray-300">—</span>
+                    {/* Disabled tab: show Retrieve + Hard Delete (Super Admin only) */}
+                    {activeTab === 'disabled' ? (
+                      <>
+                        {canRetrieve && onRetrieve && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-[10px] border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                            onClick={() => onRetrieve(c)}
+                            data-testid={`cheque-retrieve-btn-${c.cheque_id}`}
+                          >
+                            <RotateCcw className="h-3 w-3 mr-1" /> Retrieve
+                          </Button>
+                        )}
+                        {canHardDelete && onHardDelete && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-[10px] border-red-300 text-red-700 hover:bg-red-50"
+                            onClick={() => onHardDelete(c)}
+                            data-testid={`cheque-harddelete-btn-${c.cheque_id}`}
+                          >
+                            <Trash2 className="h-3 w-3 mr-1" /> Hard Delete
+                          </Button>
+                        )}
+                        {!canRetrieve && !canHardDelete && (
+                          <span className="text-[10px] text-gray-400 italic">Super Admin only</span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {/* CRE: shows Open button on locked incoming */}
+                        {isLockedIncoming && canOpen ? (
+                          <Button
+                            size="sm"
+                            className="h-7 text-[10px] bg-emerald-600 hover:bg-emerald-700"
+                            onClick={() => onOpenRequest(c)}
+                            data-testid={`cheque-open-btn-${c.cheque_id}`}
+                          >
+                            Open
+                          </Button>
+                        ) : isLockedIncoming && canRequestOpen && !c.open_requested ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-[10px] border-blue-300 text-blue-700 hover:bg-blue-50"
+                            onClick={() => onRequestOpen(c)}
+                            data-testid={`cheque-request-btn-${c.cheque_id}`}
+                          >
+                            Request Open
+                          </Button>
+                        ) : isLockedIncoming && c.open_requested ? (
+                          <span className="text-[10px] text-blue-600 italic">Sent to CRE</span>
+                        ) : c.is_opened && c.opened_by_name ? (
+                          <span className="text-[10px] text-emerald-600">by {c.opened_by_name.split(' ')[0]}</span>
+                        ) : null}
+                        {/* Disable button on Received tab only */}
+                        {isDisableable && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-[10px] border-gray-300 text-gray-700 hover:bg-gray-100"
+                            onClick={() => onDisable && onDisable(c)}
+                            data-testid={`cheque-disable-btn-${c.cheque_id}`}
+                          >
+                            <Ban className="h-3 w-3 mr-1" /> Disable
+                          </Button>
+                        )}
+                        {/* Bounce button for any consumed (Issued) cheque */}
+                        {isBounceable && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-[10px] border-red-300 text-red-700 hover:bg-red-50"
+                            onClick={() => onBounce && onBounce(c)}
+                            data-testid={`cheque-bounce-btn-${c.cheque_id}`}
+                          >
+                            Bounce
+                          </Button>
+                        )}
+                        {/* View button — always available for non-locked cheques (incomes may exist even without used_for_expense_id) */}
+                        {onView && c.is_opened && c.status !== 'cancelled' && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-blue-700 hover:bg-blue-50"
+                            title="View cheque details"
+                            onClick={() => onView(c)}
+                            data-testid={`cheque-view-btn-${c.cheque_id}`}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {/* Delete (orphan only) */}
+                        {canDelete && c.status !== 'deleted' && onDelete && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
+                            title="Delete cheque (orphan only)"
+                            onClick={() => onDelete(c)}
+                            data-testid={`cheque-delete-btn-${c.cheque_id}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {!isLockedIncoming && !c.is_opened && !isBounceable && !isDisableable && c.status !== 'bounced' && (
+                          <span className="text-[10px] text-gray-300">—</span>
+                        )}
+                      </>
                     )}
                   </div>
                 </td>

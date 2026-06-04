@@ -4399,6 +4399,21 @@ class ChequeDeleteRequest(BaseModel):
     password: str
 
 
+class ChequeDisableRequest(BaseModel):
+    password: str
+    reason: str
+
+
+class ChequeRetrieveRequest(BaseModel):
+    password: str
+    reason: str
+
+
+class ChequeHardDeleteRequest(BaseModel):
+    password: str
+    reason: str
+
+
 @router.delete("/accountant/cheques/{cheque_id}")
 async def delete_cheque(cheque_id: str, payload: ChequeDeleteRequest, user: User = Depends(get_current_user)):
     """Soft-delete an orphan cheque.
@@ -4475,6 +4490,144 @@ async def delete_cheque(cheque_id: str, payload: ChequeDeleteRequest, user: User
     })
 
     return {"message": f"Cheque {cheque.get('cheque_number')} deleted (orphan)", "cheque_id": cheque_id}
+
+
+async def _verify_user_password(user: User, password: str):
+    """Re-verify the current user's login password. Raises 401 on failure."""
+    from routes.auth import verify_password  # local import to avoid circular
+    db_user = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1, "hashed_password": 1})
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User record not found")
+    stored_hash = db_user.get("password_hash") or db_user.get("hashed_password")
+    if not stored_hash or not verify_password(password, stored_hash):
+        raise HTTPException(status_code=401, detail="Incorrect password")
+
+
+@router.post("/accountant/cheques/{cheque_id}/disable")
+async def disable_cheque(cheque_id: str, payload: ChequeDisableRequest, user: User = Depends(get_current_user)):
+    """Disable a received cheque (Super Admin or Accountant).
+
+    Rules:
+      • Only Super Admin and Accountant may disable.
+      • Allowed only for fresh "Received" cheques — i.e. incoming, not opened,
+        not yet opened-requested, not used for any expense, not bounced.
+      • Requires the user's login password and a written reason.
+      • Sets `is_disabled=True` so the cheque is hidden from all normal tabs
+        and shows up under the dedicated "Disabled" tab.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Super Admin or Accountant can disable cheques")
+    if not (payload.reason or '').strip():
+        raise HTTPException(status_code=400, detail="Reason is required")
+    await _verify_user_password(user, payload.password)
+
+    cheque = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail="Cheque not found")
+    if cheque.get("is_disabled"):
+        raise HTTPException(status_code=400, detail="Cheque is already disabled")
+    if cheque.get("status") in ("deleted", "bounced", "cancelled", "cleared"):
+        raise HTTPException(status_code=400, detail=f"Cheque is {cheque.get('status')} and cannot be disabled")
+    if cheque.get("cheque_type") != "incoming":
+        raise HTTPException(status_code=400, detail="Only incoming cheques can be disabled")
+    if cheque.get("is_opened") or cheque.get("open_requested"):
+        raise HTTPException(status_code=400, detail="Only Received (not yet opened or open-requested) cheques can be disabled")
+    if cheque.get("used_for_expense_id"):
+        raise HTTPException(status_code=400, detail="Cheque is already used for an expense — cannot disable")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.cheques.update_one(
+        {"cheque_id": cheque_id},
+        {"$set": {
+            "is_disabled": True,
+            "disabled_at": now,
+            "disabled_by": user.user_id,
+            "disabled_by_name": user.name,
+            "disable_reason": payload.reason.strip(),
+            "updated_at": now,
+        }}
+    )
+    await create_audit_log(user.user_id, "disable", "cheque", cheque_id, {
+        "cheque_number": cheque.get("cheque_number"),
+        "amount": cheque.get("amount"),
+        "reason": payload.reason.strip(),
+    })
+    return {"message": f"Cheque {cheque.get('cheque_number')} disabled", "cheque_id": cheque_id}
+
+
+@router.post("/accountant/cheques/{cheque_id}/retrieve")
+async def retrieve_cheque(cheque_id: str, payload: ChequeRetrieveRequest, user: User = Depends(get_current_user)):
+    """Retrieve a previously-disabled cheque back to the Received tab.
+
+    Rules:
+      • Super Admin ONLY.
+      • Requires login password + reason.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can retrieve disabled cheques")
+    if not (payload.reason or '').strip():
+        raise HTTPException(status_code=400, detail="Reason is required")
+    await _verify_user_password(user, payload.password)
+
+    cheque = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail="Cheque not found")
+    if not cheque.get("is_disabled"):
+        raise HTTPException(status_code=400, detail="Cheque is not disabled")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.cheques.update_one(
+        {"cheque_id": cheque_id},
+        {"$set": {
+            "is_disabled": False,
+            "retrieved_at": now,
+            "retrieved_by": user.user_id,
+            "retrieved_by_name": user.name,
+            "retrieve_reason": payload.reason.strip(),
+            "updated_at": now,
+        },
+         "$unset": {"disabled_at": "", "disabled_by": "", "disabled_by_name": "", "disable_reason": ""}}
+    )
+    await create_audit_log(user.user_id, "retrieve", "cheque", cheque_id, {
+        "cheque_number": cheque.get("cheque_number"),
+        "amount": cheque.get("amount"),
+        "reason": payload.reason.strip(),
+    })
+    return {"message": f"Cheque {cheque.get('cheque_number')} retrieved to Received tab", "cheque_id": cheque_id}
+
+
+@router.delete("/accountant/cheques/{cheque_id}/hard")
+async def hard_delete_cheque(cheque_id: str, payload: ChequeHardDeleteRequest, user: User = Depends(get_current_user)):
+    """Hard-delete a disabled cheque permanently.
+
+    Rules:
+      • Super Admin ONLY.
+      • Cheque must already be disabled (use /disable first).
+      • Requires login password + reason.
+      • Audit log is written BEFORE the document is removed.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can permanently delete cheques")
+    if not (payload.reason or '').strip():
+        raise HTTPException(status_code=400, detail="Reason is required")
+    await _verify_user_password(user, payload.password)
+
+    cheque = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail="Cheque not found")
+    if not cheque.get("is_disabled"):
+        raise HTTPException(status_code=400, detail="Only disabled cheques can be permanently deleted")
+
+    await create_audit_log(user.user_id, "hard_delete", "cheque", cheque_id, {
+        "cheque_number": cheque.get("cheque_number"),
+        "amount": cheque.get("amount"),
+        "party_name": cheque.get("party_name"),
+        "project_id": cheque.get("project_id"),
+        "reason": payload.reason.strip(),
+        "was_disabled_reason": cheque.get("disable_reason"),
+    })
+    await db.cheques.delete_one({"cheque_id": cheque_id})
+    return {"message": f"Cheque {cheque.get('cheque_number')} permanently deleted", "cheque_id": cheque_id}
 
 
 @router.get("/cheques/{cheque_id}/usage")
