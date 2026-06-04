@@ -450,10 +450,17 @@ async def delete_income_entry(income_id: str, user: User = Depends(get_current_u
       1. Reverse the cashflow_ledger split entry tied to this income_id
          (removes Direct + Indirect allocations).
       2. Roll back any payment_stages.amount_received that was credited
-         from this income (matched by amount + project + stage hint).
-      3. Roll back project.advance_amount if this income was tagged as
+         from this income. Looks up stage via payment_stage_id OR stage_id.
+         If the income was silently partial-bounce-reduced earlier
+         (partial_bounce_deducted > 0), we ADD that back so the stage's
+         received column reflects the original collection.
+      3. If the stage drops to received=0, clear cheque-bounce flags and
+         workflow_status so the row goes back to clean Pending.
+      4. Unlink the cheque that was used to pay this income (status -> open).
+      5. Roll back project.advance_amount if this income was tagged as
          category='advance' / stage='advance_payment'.
-      4. Keep the legacy project.income_project counter in sync.
+      6. Keep the legacy project.income_project counter in sync.
+      7. Audit log the rollback summary.
     """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
@@ -463,7 +470,23 @@ async def delete_income_entry(income_id: str, user: User = Depends(get_current_u
         raise HTTPException(status_code=404, detail="Income entry not found")
 
     amount = float(existing.get("amount", 0) or 0)
+    # If a previous cheque-bounce silently reduced this income, the rollback
+    # must restore the ORIGINAL collected amount (otherwise the cashbook keeps
+    # missing money that was "really" collected before the bounce reduction).
+    partial_ded = float(existing.get("partial_bounce_deducted", 0) or 0)
+    restore_amount = amount + partial_ded
     project_id = existing.get("project_id")
+    summary = {
+        "income_id": income_id,
+        "amount_deleted": amount,
+        "partial_bounce_restored": partial_ded,
+        "rollback_applied": restore_amount,
+        "stage_id": None,
+        "stage_old_received": None,
+        "stage_new_received": None,
+        "stage_new_status": None,
+        "cheque_unlinked": None,
+    }
 
     # 1. Reverse cashflow_ledger split entry
     try:
@@ -472,46 +495,92 @@ async def delete_income_entry(income_id: str, user: User = Depends(get_current_u
     except Exception as e:
         import logging; logging.getLogger(__name__).warning(f"cashflow reverse_allocation failed for income {income_id}: {e}")
 
-    # 2-4. Roll back project + payment_stage state
+    # 2-3. Payment stage rollback (lookup by either payment_stage_id or stage_id)
+    stage_id = existing.get("payment_stage_id") or existing.get("stage_id")
+    if stage_id:
+        stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
+        if stage:
+            stage_amount = float(stage.get("amount", 0) or 0)
+            old_received = float(stage.get("amount_received", 0) or 0)
+            new_received = max(0.0, old_received - restore_amount)
+            # Gate "paid" on amount > 0 — a ₹0 placeholder stage should never
+            # flip back to "paid" just because received drops to 0.
+            if stage_amount > 0 and new_received >= stage_amount:
+                new_status = "paid"
+            elif new_received > 0:
+                new_status = "partial"
+            else:
+                new_status = "pending"
+            set_fields: Dict[str, Any] = {
+                "amount_received": new_received,
+                "status": new_status,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            unset_fields: Dict[str, Any] = {}
+            # If everything has been reversed, clear lifecycle flags so the
+            # row goes back to clean Pending (no bounce banner, no paid_at).
+            if new_received <= 0:
+                set_fields["workflow_status"] = "pending"
+                unset_fields.update({
+                    "cheque_bounced": "",
+                    "last_bounce_amount": "",
+                    "last_bounce_cheque_id": "",
+                    "last_bounce_cheque_number": "",
+                    "bounce_banner": "",
+                    "bounce_reason": "",
+                    "bounced_at": "",
+                    "paid_at": "",
+                    "collected_at": "",
+                    "collected_by": "",
+                    "collected_by_name": "",
+                })
+            elif new_status == "partial":
+                # Partial – clear the "paid_at" if it was set; bounce flags
+                # may still be relevant if a bounce is in progress so leave them.
+                unset_fields["paid_at"] = ""
+            update_doc: Dict[str, Any] = {"$set": set_fields}
+            if unset_fields:
+                update_doc["$unset"] = unset_fields
+            await db.payment_stages.update_one({"stage_id": stage_id}, update_doc)
+            summary.update({
+                "stage_id": stage_id,
+                "stage_old_received": old_received,
+                "stage_new_received": new_received,
+                "stage_new_status": new_status,
+            })
+
+    # 4. Unlink cheque
+    cheque_id = existing.get("cheque_id")
+    if cheque_id:
+        await db.cheques.update_one(
+            {"cheque_id": cheque_id, "income_id": income_id},
+            {"$unset": {"income_id": "", "used_for_expense_id": ""},
+             "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        summary["cheque_unlinked"] = cheque_id
+
+    # 5-6. Project counters
     if project_id:
         project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
         if project:
             update_ops: Dict[str, Any] = {}
-
-            # 2. Payment stage rollback. If this income credits a specific
-            # payment_stage (linked via payment_stage_id or matching amount),
-            # decrement its amount_received and flip status back to 'pending'.
-            stage_id = existing.get("payment_stage_id")
-            if stage_id:
-                stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0, "amount_received": 1, "amount": 1})
-                if stage:
-                    new_received = max(0, float(stage.get("amount_received", 0) or 0) - amount)
-                    new_status = "paid" if new_received >= float(stage.get("amount", 0) or 0) and new_received > 0 else ("partial" if new_received > 0 else "pending")
-                    await db.payment_stages.update_one(
-                        {"stage_id": stage_id},
-                        {"$set": {"amount_received": new_received, "status": new_status}}
-                    )
-
-            # 3. Advance-amount rollback (for income rows that recorded the
-            # lead's onboarding advance).
             category = (existing.get("category") or "").lower()
             stage_label = (existing.get("stage") or "").lower()
             if category in ("advance", "advance_payment") or "advance" in stage_label:
                 cur_advance = float(project.get("advance_amount", 0) or 0)
-                update_ops["advance_amount"] = max(0, cur_advance - amount)
-
-            # 4. Legacy income_project counter
+                update_ops["advance_amount"] = max(0, cur_advance - restore_amount)
             cur_income_project = float(project.get("income_project", 0) or 0)
-            update_ops["income_project"] = max(0, cur_income_project - amount)
+            update_ops["income_project"] = max(0, cur_income_project - restore_amount)
             update_ops["updated_at"] = datetime.now(timezone.utc).isoformat()
-
             if update_ops:
                 await db.projects.update_one({"project_id": project_id}, {"$set": update_ops})
 
     await db.income.delete_one({"income_id": income_id})
-    await create_audit_log(user.user_id, "delete", "income", income_id, {"amount": amount, "rollback": True})
+    await create_audit_log(user.user_id, "delete", "income", income_id, {
+        "amount": amount, "rollback": True, "summary": summary,
+    })
 
-    return {"message": "Income entry deleted and project totals rolled back"}
+    return {"message": "Income entry deleted and project totals rolled back", "summary": summary}
 
 
 @router.delete("/cashbook/expense/{expense_type}/{record_id}")
