@@ -561,13 +561,11 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOp
             <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
             <th className="text-left px-3 py-2 font-medium text-gray-500">Cheque Date</th>
             <th className="text-center px-3 py-2 font-medium text-gray-500">Status</th>
-            <th className="text-center px-3 py-2 font-medium text-gray-500">CRE</th>
             <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((c, i) => {
-            const sb = STATUS_BADGE[c.status] || { label: c.status, cls: 'bg-gray-100 text-gray-700' };
             const isLockedIncoming = !c.is_opened && c.cheque_type === 'incoming' && c.status !== 'cancelled';
             const isConsumed = !!c.used_for_expense_id;  // true vendor-issued check (income_id is set at creation)
             // Bounce button is restricted to the explicit "Issued" tab only —
@@ -596,12 +594,6 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOp
                 <td className="px-3 py-2 text-right font-semibold">{fmtMoney(c.amount)}</td>
                 <td className="px-3 py-2 text-gray-600">{fmtDate(c.cheque_date)}</td>
                 <td className="px-3 py-2 text-center">
-                  <Badge className={`${sb.cls} text-[10px]`}>{sb.label}</Badge>
-                  {c.status === 'bounced' && c.bounce_reason && (
-                    <p className="text-[9px] text-red-600 italic mt-0.5 max-w-[140px] truncate" title={c.bounce_reason}>{c.bounce_reason}</p>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-center">
                   {c.is_opened ? (
                     <Badge className="bg-emerald-100 text-emerald-700 text-[10px] gap-1" title={c.opened_by_name ? `Opened by ${c.opened_by_name}` : ''}>
                       <CheckCircle2 className="h-3 w-3" /> Opened
@@ -616,6 +608,14 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOp
                     <Badge className="bg-amber-100 text-amber-700 text-[10px] gap-1" title="Awaiting open request from Accountant">
                       <Lock className="h-3 w-3" /> Locked
                     </Badge>
+                  )}
+                  {c.status === 'bounced' && (
+                    <>
+                      <Badge className={`${(STATUS_BADGE['bounced']||{}).cls || 'bg-red-100 text-red-700'} text-[10px] ml-1`}>Bounced</Badge>
+                      {c.bounce_reason && (
+                        <p className="text-[9px] text-red-600 italic mt-0.5 max-w-[140px] truncate mx-auto" title={c.bounce_reason}>{c.bounce_reason}</p>
+                      )}
+                    </>
                   )}
                 </td>
                 <td className="px-3 py-2 text-center">
