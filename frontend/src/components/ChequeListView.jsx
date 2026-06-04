@@ -648,6 +648,55 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, onOpenRequest, 
 }
 
 
+function IncomeRow({ inc }) {
+  const isBounced = inc.status === 'cheque_bounced';
+  const role = (inc.collected_by_role || '').replace(/_/g, ' ');
+  const designation = inc.collected_by_designation;
+  const byBlock = (
+    <span className="text-[11px]">
+      {inc.collected_by_name || '—'}
+      {(designation || role) && (
+        <span className="text-gray-500 ml-1">· <span className="capitalize">{designation || role}</span></span>
+      )}
+    </span>
+  );
+  // Header badge per kind
+  let kindBadge = null;
+  let leftLabel = '';
+  if (inc.kind === 'stage') {
+    kindBadge = <Badge className="bg-violet-100 text-violet-700 text-[10px]">Stage</Badge>;
+    leftLabel = `${inc.stage_name || 'Stage'}${inc.stage_month ? ` · ${inc.stage_month}` : ''}`;
+  } else if (inc.kind === 'advance') {
+    kindBadge = <Badge className="bg-blue-100 text-blue-700 text-[10px]">Advance</Badge>;
+    leftLabel = inc.description || inc.category || 'Advance collected';
+  } else {
+    kindBadge = <Badge className="bg-gray-200 text-gray-700 text-[10px]">Manual</Badge>;
+    leftLabel = inc.description || inc.category || 'Manual entry';
+  }
+  return (
+    <div className={`border rounded-md p-2.5 flex items-center justify-between gap-3 ${isBounced ? 'bg-red-50/40 border-red-200' : 'bg-white'}`}>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {kindBadge}
+          <span className="font-medium text-xs">{leftLabel}</span>
+          {isBounced && <Badge className="bg-red-100 text-red-700 text-[9px]">Bounced</Badge>}
+        </div>
+        <div className="text-[11px] text-gray-500 mt-0.5">
+          <span className="text-violet-700">{inc.project_name || '—'}</span>
+          <span className="mx-1.5">·</span>
+          Collected: <span className="text-gray-700">{fmtDate(inc.payment_date)}</span>
+          <span className="mx-1.5">·</span>
+          By {byBlock}
+        </div>
+      </div>
+      <div className="text-right shrink-0">
+        <p className="text-sm font-bold text-emerald-700">{fmtMoney(inc.amount)}</p>
+        {inc.payment_reference && <p className="text-[10px] text-gray-400 font-mono">{inc.payment_reference}</p>}
+      </div>
+    </div>
+  );
+}
+
 function ChequeUsageBody({ data }) {
   const c = data.cheque || {};
   const incomes = data.incomes || [];
@@ -729,9 +778,16 @@ function ChequeUsageBody({ data }) {
       {tab === 'income' && (
         <Card>
           <CardContent className="p-3">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-emerald-700 uppercase">Income Collected · {summary.total_incomes || 0}</p>
-              <span className="text-xs text-gray-500">Total: <span className="font-bold text-emerald-700">{fmtMoney(summary.total_income_amount)}</span></span>
+            <div className="flex items-center justify-between mb-2 pb-2 border-b">
+              <p className="text-sm font-semibold text-emerald-700">Income Collected · {summary.total_incomes || 0}</p>
+              <div className="text-right">
+                <p className="text-[10px] text-gray-500 uppercase">Total Cheque · Linked Income</p>
+                <p className="text-sm font-bold">
+                  <span className="text-blue-700">{fmtMoney(c.amount)}</span>
+                  <span className="text-gray-400 mx-1">·</span>
+                  <span className="text-emerald-700">{fmtMoney(summary.total_income_amount)}</span>
+                </p>
+              </div>
             </div>
             {incomes.length === 0 ? (
               <div className="space-y-3">
@@ -741,7 +797,7 @@ function ChequeUsageBody({ data }) {
                 </div>
                 {candidates.length > 0 ? (
                   <div className="border border-amber-200 bg-amber-50 rounded-md p-2">
-                    <p className="text-[11px] font-semibold text-amber-700 mb-1.5">⚠ Possible matches (same amount / party — not officially linked)</p>
+                    <p className="text-[11px] font-semibold text-amber-700 mb-1.5">⚠ Possible matches (same amount + party — not officially linked)</p>
                     <table className="w-full text-[11px]">
                       <thead>
                         <tr className="border-b text-gray-500">
@@ -773,73 +829,13 @@ function ChequeUsageBody({ data }) {
                 )}
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead className="bg-gray-50">
-                    <tr className="border-b text-gray-500">
-                      <th className="text-left px-2 py-1.5 font-semibold">Project</th>
-                      <th className="text-left px-2 py-1.5 font-semibold">Stage / Category</th>
-                      <th className="text-right px-2 py-1.5 font-semibold">Amount</th>
-                      <th className="text-left px-2 py-1.5 font-semibold">Collected At</th>
-                      <th className="text-left px-2 py-1.5 font-semibold">Collected By</th>
-                      <th className="text-center px-2 py-1.5 font-semibold">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {incomes.map(inc => (
-                      <tr key={inc.income_id} className={`border-b ${inc.status === 'cheque_bounced' ? 'bg-red-50/40' : ''}`}>
-                        <td className="px-2 py-1.5 text-violet-700">{inc.project_name || '—'}</td>
-                        <td className="px-2 py-1.5">
-                          {inc.stage_name || inc.category || '—'}
-                          {inc.stage_id && <span className="text-[9px] text-gray-400 ml-1">·stage</span>}
-                        </td>
-                        <td className="px-2 py-1.5 text-right font-bold text-emerald-700">{fmtMoney(inc.amount)}</td>
-                        <td className="px-2 py-1.5">{fmtDate(inc.payment_date)}</td>
-                        <td className="px-2 py-1.5">{inc.collected_by_name || '—'}</td>
-                        <td className="px-2 py-1.5 text-center">
-                          {inc.status === 'cheque_bounced' ? (
-                            <Badge className="bg-red-100 text-red-700 text-[9px]">Bounced</Badge>
-                          ) : (
-                            <Badge className="bg-emerald-100 text-emerald-700 text-[9px]">{(inc.status || '').replace('_', ' ') || 'collected'}</Badge>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {stages.length > 0 && (
-              <div className="mt-4 pt-3 border-t">
-                <p className="text-xs font-semibold text-violet-700 uppercase mb-2">Payment Stages Affected · {stages.length}</p>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead className="bg-gray-50">
-                      <tr className="border-b text-gray-500">
-                        <th className="text-left px-2 py-1.5">Project</th>
-                        <th className="text-left px-2 py-1.5">Stage</th>
-                        <th className="text-right px-2 py-1.5">Stage Amt</th>
-                        <th className="text-right px-2 py-1.5">Collected</th>
-                        <th className="text-left px-2 py-1.5">Date</th>
-                        <th className="text-center px-2 py-1.5">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {stages.map(s => (
-                        <tr key={s.stage_id} className={`border-b ${s.cheque_bounced ? 'bg-red-50/40' : ''}`}>
-                          <td className="px-2 py-1.5 text-violet-700">{s.project_name || '—'}</td>
-                          <td className="px-2 py-1.5">{s.stage_name || s.stage_label || '—'}</td>
-                          <td className="px-2 py-1.5 text-right">{fmtMoney(s.amount)}</td>
-                          <td className="px-2 py-1.5 text-right font-bold text-emerald-700">{fmtMoney(s.collected_amount)}</td>
-                          <td className="px-2 py-1.5">{fmtDate(s.collected_at)}</td>
-                          <td className="px-2 py-1.5 text-center">
-                            {s.cheque_bounced ? <Badge className="bg-red-100 text-red-700 text-[9px]">Bounced</Badge> : <Badge className="bg-emerald-100 text-emerald-700 text-[9px]">{(s.status || '').replace('_', ' ')}</Badge>}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              <div className="space-y-2">
+                {incomes.map(inc => <IncomeRow key={inc.income_id} inc={inc} />)}
+                {Math.abs((summary.total_income_amount || 0) - (c.amount || 0)) > 0.5 && (
+                  <div className="mt-2 text-[11px] text-amber-700 italic bg-amber-50 border border-amber-200 rounded p-2">
+                    ⚠ Sum of linked income ({fmtMoney(summary.total_income_amount)}) does not equal the cheque amount ({fmtMoney(c.amount)}).
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

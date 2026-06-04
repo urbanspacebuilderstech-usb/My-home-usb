@@ -4441,11 +4441,25 @@ async def get_cheque_usage(cheque_id: str, user: User = Depends(get_current_user
         or_clauses.append({"bulk_collection_id": cheque["bulk_collection_id"]})
     if cheque.get("cheque_number"):
         effective_project = resolved_project_id
-        if effective_project:
-            or_clauses.append({"payment_reference": cheque["cheque_number"], "project_id": effective_project})
-            or_clauses.append({"cheque_number": cheque["cheque_number"], "project_id": effective_project})
-        else:
-            or_clauses.append({"payment_reference": cheque["cheque_number"], "amount": cheque.get("amount")})
+        # STRICT cheque_number fallback: require number + amount + project ALL
+        # to match. cheque_number alone is recycled by banks and short numbers
+        # like "5" leak everywhere; amount + project locks it down.
+        if effective_project and cheque.get("amount") is not None:
+            or_clauses.append({
+                "payment_reference": cheque["cheque_number"],
+                "project_id": effective_project,
+                "amount": cheque["amount"],
+            })
+            or_clauses.append({
+                "cheque_number": cheque["cheque_number"],
+                "project_id": effective_project,
+                "amount": cheque["amount"],
+            })
+        elif cheque.get("amount") is not None:
+            or_clauses.append({
+                "payment_reference": cheque["cheque_number"],
+                "amount": cheque["amount"],
+            })
 
     incomes = await db.income.find({"$or": or_clauses}, {"_id": 0}).to_list(500)
     incomes = list({inc["income_id"]: inc for inc in incomes if inc.get("income_id")}.values())
@@ -4490,14 +4504,43 @@ async def get_cheque_usage(cheque_id: str, user: User = Depends(get_current_user
 
     # Enriched income rows (always shown — covers advance/non-stage incomes too)
     enriched_incomes = []
+    # Cache for user role/designation lookups
+    user_cache = {}
+    async def _user_info(uid):
+        if not uid:
+            return {}
+        if uid in user_cache:
+            return user_cache[uid]
+        u = await db.users.find_one({"user_id": uid}, {"_id": 0, "name": 1, "role": 1, "designation": 1})
+        info = {
+            "name": (u or {}).get("name"),
+            "role": (u or {}).get("role"),
+            "designation": (u or {}).get("designation"),
+        } if u else {}
+        user_cache[uid] = info
+        return info
+
     for inc in incomes:
         sid = inc.get("payment_stage_id") or inc.get("stage_id")
         # If income has a stage, surface that stage name from the stages list
         stage_name = None
+        stage_month = None
         if sid:
             stage_obj = next((s for s in stages if s.get("stage_id") == sid), None)
             if stage_obj:
                 stage_name = stage_obj.get("stage_name") or stage_obj.get("stage_label")
+                stage_month = stage_obj.get("month") or stage_obj.get("scheduled_month") or stage_obj.get("month_key")
+        # Resolve collector role/designation
+        creator_uid = inc.get("collected_by") or inc.get("recorded_by") or inc.get("created_by")
+        user_info = await _user_info(creator_uid) if creator_uid else {}
+        # Infer income category for UI grouping
+        raw_cat = (inc.get("category") or "").lower()
+        if sid:
+            inc_kind = "stage"
+        elif "advance" in raw_cat or "deal" in raw_cat or "booking" in raw_cat:
+            inc_kind = "advance"
+        else:
+            inc_kind = "manual"
         enriched_incomes.append({
             "income_id": inc.get("income_id"),
             "project_id": inc.get("project_id"),
@@ -4508,8 +4551,12 @@ async def get_cheque_usage(cheque_id: str, user: User = Depends(get_current_user
             "payment_date": inc.get("payment_date") or inc.get("created_at"),
             "stage_id": sid,
             "stage_name": stage_name or inc.get("stage") or inc.get("sub_category"),
+            "stage_month": stage_month,
             "category": inc.get("category"),
-            "collected_by_name": inc.get("collected_by_name"),
+            "kind": inc_kind,  # stage / manual / advance
+            "collected_by_name": inc.get("collected_by_name") or user_info.get("name"),
+            "collected_by_role": user_info.get("role"),
+            "collected_by_designation": user_info.get("designation"),
             "status": inc.get("status"),
             "description": inc.get("description"),
         })
@@ -4546,19 +4593,22 @@ async def get_cheque_usage(cheque_id: str, user: User = Depends(get_current_user
     total_income = sum(float(i.get("amount") or 0) for i in enriched_incomes)
 
     # Diagnostic: when nothing was found, surface a list of nearby
-    # candidates (same amount + same party_name) so the user can see if a CRE
-    # collected through a different path (e.g. a deal advance still pending
-    # approval, where the cheque got the income_id back-link only later).
+    # candidates. Strict requirements: BOTH amount AND non-empty party_name
+    # must be set on the cheque — otherwise the scan would blindly match by
+    # amount alone and pull unrelated rows (e.g., a ₹5L SBI cheque with empty
+    # party_name would surface every ₹5L collection in the DB).
     candidate_incomes = []
-    if not enriched_incomes and cheque.get("amount"):
-        candidate_query = {"amount": cheque["amount"]}
-        if cheque.get("party_name"):
-            candidate_query["$or"] = [
-                {"description": {"$regex": cheque["party_name"], "$options": "i"}},
-                {"sub_category": {"$regex": cheque["party_name"], "$options": "i"}},
-                {"remarks": {"$regex": cheque["party_name"], "$options": "i"}},
-                {"project_name": {"$regex": cheque["party_name"], "$options": "i"}},
-            ]
+    party = (cheque.get("party_name") or "").strip()
+    if not enriched_incomes and cheque.get("amount") and party:
+        candidate_query = {
+            "amount": cheque["amount"],
+            "$or": [
+                {"description": {"$regex": party, "$options": "i"}},
+                {"sub_category": {"$regex": party, "$options": "i"}},
+                {"remarks": {"$regex": party, "$options": "i"}},
+                {"project_name": {"$regex": party, "$options": "i"}},
+            ],
+        }
         nearby = await db.income.find(candidate_query, {"_id": 0}).limit(20).to_list(20)
         for inc in nearby:
             candidate_incomes.append({
