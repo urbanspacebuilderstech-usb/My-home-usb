@@ -2007,7 +2007,16 @@ async def get_monthly_schedule(
                 bal_month, bal_year = planned_month, planned_year
                 bal_carry = False
 
-            if coll_month == month and coll_year == year:
+            # ⚡ DEDUPE: if the collected_portion month and the balance_portion
+            # month coincide (very common when the historic collection ALSO
+            # happened in the same calendar month the balance carries to),
+            # we emit only ONE row (the balance portion) so the table doesn't
+            # show two visually identical lines. The single row still carries
+            # both `amount` (₹9.3L) and `amount_received` (₹8L) so the UI can
+            # display "Partial" with the right received/balance figures.
+            same_month = (coll_month == bal_month and coll_year == bal_year)
+
+            if coll_month == month and coll_year == year and not same_month:
                 if (stage.get("stage_id"), month, year) not in hide_keys:
                     matching_stages.append({
                         "stage": stage,
