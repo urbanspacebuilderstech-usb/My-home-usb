@@ -2779,16 +2779,6 @@ function ChequeManagementTab({ projects }) {
         </Card>
       )}
 
-      {/* Add Cheque / Smart Pay action bar */}
-      <div className="flex flex-wrap gap-2 justify-end">
-        <Button size="sm" className="bg-amber-600 hover:bg-amber-700 gap-1 h-8 text-xs" onClick={() => setAddDialog(true)} data-testid="add-cheque-btn">
-          <Plus className="h-3.5 w-3.5" /> Add Cheque
-        </Button>
-        <Button size="sm" variant="outline" className="gap-1 h-8 border-blue-300 text-blue-700 text-xs" onClick={() => setSmartPayDialog(true)} data-testid="smart-pay-btn">
-          <CreditCard className="h-3.5 w-3.5" /> Smart Pay
-        </Button>
-      </div>
-
       {/* New unified Cheque List View — Accountant scope: stats + filters + Request Open workflow */}
       <ChequeListView
         scope="accountant"

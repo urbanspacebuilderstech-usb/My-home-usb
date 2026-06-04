@@ -263,12 +263,12 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
           <div className="flex flex-wrap gap-2 items-center">
             <div className="inline-flex bg-gray-100 rounded-lg p-0.5 flex-wrap">
               {[
-                { k: 'all', label: 'All', count: stats.total },
-                { k: 'received', label: 'Received', count: stats.pending_open },
-                { k: 'opened', label: 'Opened', count: stats.opened_count },
-                { k: 'open_requested', label: 'Awaiting CRE', count: stats.open_requested_count },
-                { k: 'issued', label: 'Issued', count: stats.issued_count },
-                { k: 'bounced', label: 'Bounced', count: stats.bounced_count },
+                { k: 'all',            label: 'All',          count: stats.total,                badgeColor: 'bg-gray-700 text-white' },
+                { k: 'received',       label: 'Received',     count: stats.pending_open,         badgeColor: 'bg-amber-500 text-white' },
+                { k: 'opened',         label: 'Opened',       count: stats.opened_count,         badgeColor: 'bg-emerald-500 text-white' },
+                { k: 'open_requested', label: 'Awaiting CRE', count: stats.open_requested_count, badgeColor: 'bg-blue-500 text-white' },
+                { k: 'issued',         label: 'Issued',       count: stats.issued_count,         badgeColor: 'bg-orange-500 text-white' },
+                { k: 'bounced',        label: 'Bounced',      count: stats.bounced_count,        badgeColor: 'bg-red-500 text-white' },
                 ...(scope === 'cre' ? [{ k: 'by_project', label: 'Project Wise', count: null }] : []),
               ].map(t => (
                 <button
@@ -279,7 +279,7 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                 >
                   {t.label}
                   {t.count !== null && t.count !== undefined && (
-                    <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] text-[9px] font-bold rounded-full px-1 ${t.count > 0 ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-600'}`}>
+                    <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] text-[9px] font-bold rounded-full px-1 ${t.count > 0 ? t.badgeColor : 'bg-gray-300 text-gray-600'}`}>
                       {t.count}
                     </span>
                   )}
