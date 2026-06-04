@@ -4227,39 +4227,72 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
         }}
     )
 
-    reversal_summary = {"income_reversed": False, "expense_reversed": False, "stages_reverted": 0, "total_income_reversed": 0.0, "new_stage_ids": [], "stages_adjusted": []}
+    reversal_summary = {"income_reversed": False, "expense_reversed": False, "stages_reverted": 0, "total_income_reversed": 0.0, "new_stage_ids": [], "stages_adjusted": [], "incomes_adjusted": []}
 
-    # 2a. Income-side reversal — for EVERY income tied to this cheque:
-    #   • Mark the income as `cheque_bounced` (so it disappears from cashbook
-    #     totals and the Project Income endpoint when we filter it out).
-    #   • DEDUCT the income amount from the stage's `amount_received`. The
-    #     SAME stage stays open (no clone). Status is recomputed:
-    #         new_received >= amount  → paid (unchanged)
-    #         new_received >  0       → partial
-    #         else                    → pending
-    #   • Stamp a bounce banner so CRE/Planning know to re-collect that
-    #     portion on the SAME stage row.
+    # 2a. Income-side reversal — DEDUCT the bounced amount from the linked
+    # incomes (newest first). Critical for bulk collections where one cheque
+    # is only a portion of the overall collection:
+    #   • If an income's amount > remaining bounce → reduce that income's
+    #     amount in place; status stays `approved` (still shows in cashbook,
+    #     just with the smaller value).
+    #   • If an income's amount <= remaining bounce → mark the income
+    #     `cheque_bounced` (drops out of cashbook) and carry the remainder to
+    #     the next income.
+    # The same delta is subtracted from each affected stage's `amount_received`
+    # and the stage status is recomputed in-place (no clone row).
     bounce_amount = float(cheque.get("amount") or 0)
+    remaining = bounce_amount
     stage_deltas = {}  # stage_id -> total reduction
-    for income in linked_incomes:
+
+    # Sort newest-first so the "last payment" absorbs the loss
+    ordered_incomes = sorted(linked_incomes, key=lambda i: str(i.get("created_at") or ""), reverse=True)
+
+    for income in ordered_incomes:
+        if remaining <= 0:
+            break
         income_id = income.get("income_id")
         project_id = income.get("project_id")
-        income_amount = float(income.get("amount") or 0)
+        inc_amt = float(income.get("amount") or 0)
         stage_id = income.get("payment_stage_id") or income.get("stage_id")
-        await db.income.update_one(
-            {"income_id": income_id},
-            {"$set": {
-                "status": "cheque_bounced",
+        if inc_amt <= 0:
+            continue
+        if inc_amt <= remaining:
+            # Full bounce of this income
+            deduct = inc_amt
+            new_status = "cheque_bounced"
+            update = {
+                "status": new_status,
                 "bounced_at": now,
                 "bounced_by_cheque_id": cheque_id,
                 "bounce_reason": payload.reason.strip(),
                 "updated_at": now,
-            }}
-        )
+            }
+            remaining -= deduct
+        else:
+            # Partial reduction — keep income visible with smaller amount
+            deduct = remaining
+            new_amt = round(inc_amt - deduct, 2)
+            already = float(income.get("partial_bounce_deducted") or 0)
+            update = {
+                "amount": new_amt,
+                "partial_bounce_deducted": already + deduct,
+                "last_partial_bounce_at": now,
+                "last_partial_bounce_cheque_id": cheque_id,
+                "last_partial_bounce_reason": payload.reason.strip(),
+                "updated_at": now,
+            }
+            remaining = 0
+            new_status = income.get("status")
+        await db.income.update_one({"income_id": income_id}, {"$set": update})
         if stage_id:
-            stage_deltas[stage_id] = stage_deltas.get(stage_id, 0.0) + income_amount
-        reversal_summary["total_income_reversed"] += income_amount
+            stage_deltas[stage_id] = stage_deltas.get(stage_id, 0.0) + deduct
+        reversal_summary["total_income_reversed"] += deduct
         reversal_summary["project_id"] = project_id
+        reversal_summary["incomes_adjusted"].append({
+            "income_id": income_id,
+            "deducted": deduct,
+            "new_status": new_status,
+        })
 
     # Now apply the per-stage reductions
     for stage_id, reduction in stage_deltas.items():
@@ -4305,16 +4338,15 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
             "new_status": new_status,
         })
 
-    if linked_incomes:
+    if reversal_summary["incomes_adjusted"]:
         reversal_summary["income_reversed"] = True
     # Legacy keys for older tests/UI — point at the FIRST adjusted stage.
     if reversal_summary["stages_adjusted"]:
         reversal_summary["new_payment_stage_id"] = reversal_summary["stages_adjusted"][0]["stage_id"]
         reversal_summary["new_stage_ids"] = [s["stage_id"] for s in reversal_summary["stages_adjusted"]]
 
-    # (sanity check) — if a single cheque was used to settle multiple stages,
-    # ensure totals stayed consistent. We accept rounding noise.
     reversal_summary["bounced_amount"] = bounce_amount
+    reversal_summary["unallocated_bounce_remainder"] = remaining  # > 0 means total income < cheque, edge case
 
     # 2b. Expense-side reversal
     if expense_id:
