@@ -165,25 +165,25 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
         const hay = `${c.cheque_number} ${c.bank_name} ${c.party_name} ${c.project_name || ''}`.toLowerCase();
         if (!hay.includes(term)) return false;
       }
-      // Tab filter — strict per-tab semantics
-      const consumed = !!(c.used_for_expense_id || c.income_id);
+      // Tab filter — strict per-tab semantics.
+      // NOTE: `income_id` is set at cheque creation (back-link to the advance/
+      // collection that produced the cheque) so it's NOT a reliable signal of
+      // "issued to a vendor". The only true signal of an out-going Issued cheque
+      // is `used_for_expense_id` (cheque endorsed to pay a vendor bill).
+      // For incoming cheque lifecycle we use the open / open_requested flags.
+      const isVendorIssued = !!c.used_for_expense_id;
       const isIncoming = c.cheque_type === 'incoming';
       const isAlive = c.status !== 'cancelled' && c.status !== 'bounced';
       if (activeTab === 'received')
-        // Freshly received, locked, no Request Open yet (the Request Open button shows here)
-        return isIncoming && isAlive && !c.is_opened && !c.open_requested && !consumed;
+        return isIncoming && isAlive && !c.is_opened && !c.open_requested;
       if (activeTab === 'open_pending')
-        // Legacy alias for `received` — still allowed if anyone passes it
-        return isIncoming && isAlive && !c.is_opened && !c.open_requested && !consumed;
+        return isIncoming && isAlive && !c.is_opened && !c.open_requested;
       if (activeTab === 'open_requested' || activeTab === 'awaiting_cre')
-        // Accountant requested open, CRE hasn't acted yet
-        return isIncoming && isAlive && !c.is_opened && !!c.open_requested && !consumed;
+        return isIncoming && isAlive && !c.is_opened && !!c.open_requested;
       if (activeTab === 'opened')
-        // CRE opened it, not yet consumed for income/expense
-        return isIncoming && isAlive && c.is_opened && !consumed;
+        return isIncoming && isAlive && c.is_opened && !isVendorIssued;
       if (activeTab === 'issued')
-        // Consumed: either tied to an income (collected) or used to pay a vendor
-        return consumed && c.status !== 'bounced';
+        return isVendorIssued && c.status !== 'bounced';
       if (activeTab === 'bounced')
         return c.status === 'bounced';
       if (activeTab === 'incoming') return c.cheque_type === 'incoming';
@@ -609,7 +609,7 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, onOp
           {rows.map((c, i) => {
             const sb = STATUS_BADGE[c.status] || { label: c.status, cls: 'bg-gray-100 text-gray-700' };
             const isLockedIncoming = !c.is_opened && c.cheque_type === 'incoming' && c.status !== 'cancelled';
-            const isConsumed = !!(c.used_for_expense_id || c.income_id);
+            const isConsumed = !!c.used_for_expense_id;  // true vendor-issued check (income_id is set at creation)
             // Bounce button is restricted to the explicit "Issued" tab only —
             // hidden from All, Received, Opened, Awaiting CRE, Bounced and the
             // project-wise grouping. Bounce-eligibility (consumed + not bounced
