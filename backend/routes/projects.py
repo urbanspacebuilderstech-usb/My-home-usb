@@ -2637,6 +2637,173 @@ async def get_payment_stages(project_id: str, user: User = Depends(get_current_u
     return stages
 
 
+@router.get("/payment-stages/{stage_id}/detail")
+async def get_payment_stage_detail(stage_id: str, user: User = Depends(get_current_user)):
+    """Super-Admin-only full detail of a Payment Schedule row.
+
+    Returns:
+      • stage    : the payment_stages doc
+      • project  : minimal project info (name, code, value)
+      • incomes  : all income rows linked to this stage (cleared & pending)
+      • cheques  : all cheque docs whose stage_id matches OR linked via incomes
+      • advance  : if the stage is an advance / linked to client advance income
+      • timeline : ordered list of lifecycle events (created → requested → cre actions → accountant actions → collected → cleared)
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin only")
+
+    stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
+    if not stage:
+        raise HTTPException(status_code=404, detail="Payment stage not found")
+
+    project = await db.projects.find_one(
+        {"project_id": stage.get("project_id")},
+        {"_id": 0, "project_id": 1, "name": 1, "project_code": 1, "client_name": 1, "total_value": 1}
+    )
+
+    # Incomes linked to this stage
+    incomes = await db.income.find(
+        {"payment_stage_id": stage_id}, {"_id": 0}
+    ).sort("created_at", 1).to_list(200)
+
+    # Cheques linked either directly or via any of the incomes
+    income_ids = [i.get("income_id") for i in incomes if i.get("income_id")]
+    cheque_query = {
+        "$or": [
+            {"stage_id": stage_id},
+        ]
+    }
+    if income_ids:
+        cheque_query["$or"].append({"income_id": {"$in": income_ids}})
+    cheques = await db.cheques.find(cheque_query, {"_id": 0}).sort("created_at", 1).to_list(200)
+
+    # Build timeline
+    def _evt(at, kind, label, by_name=None, by_id=None, meta=None):
+        return {
+            "at": at,
+            "kind": kind,
+            "label": label,
+            "by_name": by_name,
+            "by_id": by_id,
+            "meta": meta or {},
+        }
+
+    tl = []
+    # Stage created
+    if stage.get("created_at"):
+        tl.append(_evt(stage.get("created_at"), "created", "Stage created",
+                       by_name=stage.get("created_by_name"), by_id=stage.get("created_by"),
+                       meta={"amount": stage.get("amount"), "percentage": stage.get("percentage")}))
+    # Requested (Planning hits Req Payment)
+    if stage.get("requested_at"):
+        tl.append(_evt(stage.get("requested_at"), "requested", "Payment requested by Planning",
+                       by_name=stage.get("requested_by_name"), by_id=stage.get("requested_by"),
+                       meta={"expected_payment_date": stage.get("expected_payment_date")}))
+    # CRE rejected
+    if stage.get("cre_rejected_at"):
+        tl.append(_evt(stage.get("cre_rejected_at"), "cre_rejected", "Rejected by CRE",
+                       by_name=stage.get("cre_rejected_by_name"), by_id=stage.get("cre_rejected_by"),
+                       meta={"reason": stage.get("cre_rejection_reason")}))
+    # Accountant rejected
+    if stage.get("accountant_rejected_at"):
+        tl.append(_evt(stage.get("accountant_rejected_at"), "accountant_rejected", "Rejected by Accountant",
+                       by_name=stage.get("accountant_rejected_by_name"), by_id=stage.get("accountant_rejected_by"),
+                       meta={"reason": stage.get("accountant_rejection_reason")}))
+    # CRE collected
+    if stage.get("collected_at") or stage.get("payment_date"):
+        tl.append(_evt(stage.get("collected_at") or stage.get("payment_date"),
+                       "collected", "Payment collected by CRE",
+                       by_name=stage.get("collected_by_name"), by_id=stage.get("collected_by"),
+                       meta={"amount_received": stage.get("amount_received"),
+                             "payment_mode": stage.get("payment_mode")}))
+    # Fully paid
+    if stage.get("paid_at") and stage.get("status") == "paid":
+        tl.append(_evt(stage.get("paid_at"), "paid", "Fully cleared",
+                       meta={"amount_received": stage.get("amount_received")}))
+
+    # Per-income events (approval / cheque bounces)
+    for inc in incomes:
+        if inc.get("approved_at"):
+            tl.append(_evt(inc.get("approved_at"), "income_approved",
+                           f"Income approved (₹{(inc.get('amount') or 0):,.0f} via {inc.get('payment_mode') or 'cash'})",
+                           by_name=inc.get("approved_by_name"), by_id=inc.get("approved_by"),
+                           meta={"income_id": inc.get("income_id")}))
+        if inc.get("rejected_at"):
+            tl.append(_evt(inc.get("rejected_at"), "income_rejected",
+                           f"Income rejected",
+                           by_name=inc.get("rejected_by_name"), by_id=inc.get("rejected_by"),
+                           meta={"income_id": inc.get("income_id"), "reason": inc.get("rejection_reason")}))
+
+    # Per-cheque events
+    for c in cheques:
+        if c.get("created_at"):
+            tl.append(_evt(c.get("created_at"), "cheque_received",
+                           f"Cheque #{c.get('cheque_number') or '?'} received (₹{(c.get('amount') or 0):,.0f}, {c.get('bank_name') or ''})",
+                           meta={"cheque_id": c.get("cheque_id")}))
+        if c.get("opened_at"):
+            tl.append(_evt(c.get("opened_at"), "cheque_opened",
+                           f"Cheque #{c.get('cheque_number')} opened by CRE",
+                           by_name=c.get("opened_by_name"),
+                           meta={"cheque_id": c.get("cheque_id")}))
+        if c.get("status") == "bounced" and c.get("bounced_at"):
+            tl.append(_evt(c.get("bounced_at"), "cheque_bounced",
+                           f"Cheque #{c.get('cheque_number')} bounced",
+                           meta={"cheque_id": c.get("cheque_id"), "reason": c.get("bounce_reason")}))
+
+    # Sort timeline by 'at' (None last)
+    def _sortkey(e):
+        v = e.get("at")
+        if not v:
+            return "9999"
+        return str(v)
+    tl.sort(key=_sortkey)
+
+    # Cleaned advance details (if this stage is an advance / has linked advance income)
+    advance = None
+    if stage.get("is_advance") or stage.get("linked_income_id"):
+        adv_income = None
+        if stage.get("linked_income_id"):
+            adv_income = await db.income.find_one({"income_id": stage["linked_income_id"]}, {"_id": 0})
+        advance = {
+            "is_advance": bool(stage.get("is_advance")),
+            "linked_income_id": stage.get("linked_income_id"),
+            "amount": (adv_income or {}).get("amount") or stage.get("amount_received") or 0,
+            "payment_mode": (adv_income or {}).get("payment_mode"),
+            "payment_date": (adv_income or {}).get("payment_date"),
+            "collected_by_name": (adv_income or {}).get("collected_by_name"),
+        }
+
+    # Summary block
+    amt = float(stage.get("amount") or 0)
+    rec = float(stage.get("amount_received") or 0)
+    summary = {
+        "stage_name": stage.get("stage_name"),
+        "stage_label": stage.get("stage_label"),
+        "percentage": stage.get("percentage"),
+        "amount": amt,
+        "amount_received": rec,
+        "balance": max(amt - rec, 0),
+        "status": stage.get("status"),
+        "workflow_status": stage.get("workflow_status"),
+        "expected_payment_date": stage.get("expected_payment_date") or stage.get("due_date"),
+        "payment_mode": stage.get("payment_mode"),
+        "collected_by_name": stage.get("collected_by_name"),
+        "collected_at": stage.get("collected_at") or stage.get("payment_date"),
+        "paid_at": stage.get("paid_at"),
+    }
+
+    return {
+        "stage": stage,
+        "project": project,
+        "summary": summary,
+        "advance": advance,
+        "incomes": incomes,
+        "cheques": cheques,
+        "timeline": tl,
+    }
+
+
+
 @router.post("/payment-stages")
 async def create_payment_stage(stage_input: PaymentStageCreate, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:

@@ -47,7 +47,8 @@ import {
   ChevronDown,
   Copy,
   ExternalLink,
-  Paperclip
+  Paperclip,
+  Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1109,6 +1110,8 @@ export default function ProjectDetail() {
   const [reqPayDialog, setReqPayDialog] = useState({ open: false, stage: null, date: '', submitting: false });
   // Planning Resubmit dialog for CRE/Accountant rejected payment stages
   const [psResubmitDialog, setPsResubmitDialog] = useState({ open: false, stage: null, mode: null, amount: '', remarks: '', submitting: false });
+  // Super-Admin View Stage Detail dialog (full lifecycle: summary, advance, incomes, cheques, timeline)
+  const [stageDetailDialog, setStageDetailDialog] = useState({ open: false, stage: null, data: null, loading: false, tab: 'summary' });
   // Payment Schedule month/year filter (filters by expected_payment_date)
   const [psMonthFilter, setPsMonthFilter] = useState(''); // '' = all, format 'YYYY-MM'
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
@@ -3037,6 +3040,18 @@ export default function ProjectDetail() {
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request payment');
+    }
+  };
+
+  // Super-Admin: open the full lifecycle detail dialog for a payment stage.
+  const openStageDetailDialog = async (stage) => {
+    setStageDetailDialog({ open: true, stage, data: null, loading: true, tab: 'summary' });
+    try {
+      const r = await axios.get(`${API}/payment-stages/${stage.stage_id}/detail`);
+      setStageDetailDialog((d) => ({ ...d, data: r.data, loading: false }));
+    } catch (e) {
+      toast.error(typeof e?.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to load stage details');
+      setStageDetailDialog({ open: false, stage: null, data: null, loading: false, tab: 'summary' });
     }
   };
 
@@ -6960,6 +6975,18 @@ export default function ProjectDetail() {
                             </td>
                             <td className="px-4 py-3 text-center">
                               <div className="flex items-center justify-center gap-1">
+                                {/* Super-Admin only — view full lifecycle detail */}
+                                {isSuperAdmin && (
+                                  <Button
+                                    data-testid={`view-payment-stage-${stage.stage_id}`}
+                                    variant="ghost"
+                                    size="icon"
+                                    title="View stage details (Super Admin)"
+                                    onClick={() => openStageDetailDialog(stage)}
+                                  >
+                                    <Eye className="h-4 w-4 text-blue-600" />
+                                  </Button>
+                                )}
                                 {/* Request Payment - for partial stages always, or pending stages not yet requested */}
                                 {canManage && balance > 0 && !isPaid && (isPartial || (!isRequested)) && (
                                   <Button
@@ -11196,6 +11223,205 @@ export default function ProjectDetail() {
             >
               {delTplDialog.submitting ? 'Deleting…' : 'Delete'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Super-Admin: Payment Stage Lifecycle Detail Dialog */}
+      <Dialog
+        open={stageDetailDialog.open}
+        onOpenChange={(o) => !o && setStageDetailDialog({ open: false, stage: null, data: null, loading: false, tab: 'summary' })}
+      >
+        <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto" data-testid="stage-detail-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-blue-700">
+              <Eye className="h-5 w-5" /> Payment Stage Details
+            </DialogTitle>
+            {stageDetailDialog.data?.summary?.stage_name && (
+              <DialogDescription className="text-xs">
+                {stageDetailDialog.data.summary.stage_label || ''} <span className="font-medium text-gray-700">{stageDetailDialog.data.summary.stage_name}</span>
+                {stageDetailDialog.data?.project?.name && (
+                  <> · <span className="text-violet-700">{stageDetailDialog.data.project.name}</span></>
+                )}
+              </DialogDescription>
+            )}
+          </DialogHeader>
+
+          {stageDetailDialog.loading || !stageDetailDialog.data ? (
+            <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+              <Loader2 className="h-5 w-5 animate-spin" /> Loading…
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Tabs */}
+              <div className="inline-flex bg-gray-100 rounded-lg p-0.5">
+                {[
+                  { k: 'summary',  label: 'Summary' },
+                  { k: 'advance',  label: 'Advance', hidden: !stageDetailDialog.data.advance },
+                  { k: 'incomes',  label: `Incomes (${(stageDetailDialog.data.incomes || []).length})` },
+                  { k: 'cheques',  label: `Cheques (${(stageDetailDialog.data.cheques || []).length})` },
+                  { k: 'timeline', label: `Timeline (${(stageDetailDialog.data.timeline || []).length})` },
+                ].filter(t => !t.hidden).map(t => (
+                  <button
+                    key={t.k}
+                    onClick={() => setStageDetailDialog((d) => ({ ...d, tab: t.k }))}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${stageDetailDialog.tab === t.k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                    data-testid={`stage-detail-tab-${t.k}`}
+                  >{t.label}</button>
+                ))}
+              </div>
+
+              {/* SUMMARY */}
+              {stageDetailDialog.tab === 'summary' && (
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  {Object.entries({
+                    'Stage Name': stageDetailDialog.data.summary.stage_name,
+                    'Stage Label': stageDetailDialog.data.summary.stage_label,
+                    'Percentage': stageDetailDialog.data.summary.percentage != null ? `${stageDetailDialog.data.summary.percentage}%` : '—',
+                    'Amount': `₹${Number(stageDetailDialog.data.summary.amount || 0).toLocaleString('en-IN')}`,
+                    'Received': `₹${Number(stageDetailDialog.data.summary.amount_received || 0).toLocaleString('en-IN')}`,
+                    'Balance': `₹${Number(stageDetailDialog.data.summary.balance || 0).toLocaleString('en-IN')}`,
+                    'Status': stageDetailDialog.data.summary.status,
+                    'Workflow': stageDetailDialog.data.summary.workflow_status || '—',
+                    'Expected Date': stageDetailDialog.data.summary.expected_payment_date ? new Date(stageDetailDialog.data.summary.expected_payment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—',
+                    'Payment Mode': (stageDetailDialog.data.summary.payment_mode || '—').toString().replace(/_/g, ' '),
+                    'Collected By': stageDetailDialog.data.summary.collected_by_name || '—',
+                    'Collected At': stageDetailDialog.data.summary.collected_at ? new Date(stageDetailDialog.data.summary.collected_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—',
+                    'Fully Paid At': stageDetailDialog.data.summary.paid_at ? new Date(stageDetailDialog.data.summary.paid_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—',
+                  }).map(([k, v]) => (
+                    <div key={k} className="rounded-md border bg-gray-50 px-3 py-2">
+                      <p className="text-[10px] text-gray-500 uppercase tracking-wide">{k}</p>
+                      <p className="text-xs font-medium text-gray-800 truncate" title={String(v)}>{v || '—'}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ADVANCE */}
+              {stageDetailDialog.tab === 'advance' && stageDetailDialog.data.advance && (
+                <div className="rounded-lg border bg-emerald-50/40 p-4 text-xs space-y-2">
+                  <p className="font-semibold text-emerald-800">Advance / Client Pre-payment</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><span className="text-gray-500">Amount</span><p className="font-semibold text-emerald-700">₹{Number(stageDetailDialog.data.advance.amount || 0).toLocaleString('en-IN')}</p></div>
+                    <div><span className="text-gray-500">Payment Mode</span><p className="font-medium">{(stageDetailDialog.data.advance.payment_mode || '—').toString().replace(/_/g, ' ')}</p></div>
+                    <div><span className="text-gray-500">Payment Date</span><p className="font-medium">{stageDetailDialog.data.advance.payment_date ? new Date(stageDetailDialog.data.advance.payment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</p></div>
+                    <div><span className="text-gray-500">Collected By</span><p className="font-medium">{stageDetailDialog.data.advance.collected_by_name || '—'}</p></div>
+                  </div>
+                </div>
+              )}
+
+              {/* INCOMES */}
+              {stageDetailDialog.tab === 'incomes' && (
+                <div className="overflow-x-auto rounded border">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left px-3 py-2 text-gray-500">Date</th>
+                        <th className="text-right px-3 py-2 text-gray-500">Amount</th>
+                        <th className="text-left px-3 py-2 text-gray-500">Mode</th>
+                        <th className="text-left px-3 py-2 text-gray-500">Reference</th>
+                        <th className="text-left px-3 py-2 text-gray-500">Status</th>
+                        <th className="text-left px-3 py-2 text-gray-500">Collected By</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(stageDetailDialog.data.incomes || []).length === 0 ? (
+                        <tr><td colSpan={6} className="px-3 py-6 text-center text-gray-400">No income records yet</td></tr>
+                      ) : (
+                        stageDetailDialog.data.incomes.map((inc) => (
+                          <tr key={inc.income_id} className="border-t">
+                            <td className="px-3 py-2">{inc.payment_date ? new Date(inc.payment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                            <td className="px-3 py-2 text-right font-semibold">₹{Number(inc.amount || 0).toLocaleString('en-IN')}</td>
+                            <td className="px-3 py-2">{(inc.payment_mode || '—').toString().replace(/_/g, ' ')}</td>
+                            <td className="px-3 py-2 text-gray-600">{inc.payment_reference || '—'}</td>
+                            <td className="px-3 py-2"><Badge className={`text-[10px] ${inc.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : inc.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{inc.status || '—'}</Badge></td>
+                            <td className="px-3 py-2">{inc.collected_by_name || '—'}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* CHEQUES */}
+              {stageDetailDialog.tab === 'cheques' && (
+                <div className="overflow-x-auto rounded border">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left px-3 py-2 text-gray-500">Cheque #</th>
+                        <th className="text-left px-3 py-2 text-gray-500">Bank</th>
+                        <th className="text-right px-3 py-2 text-gray-500">Amount</th>
+                        <th className="text-left px-3 py-2 text-gray-500">Cheque Date</th>
+                        <th className="text-left px-3 py-2 text-gray-500">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(stageDetailDialog.data.cheques || []).length === 0 ? (
+                        <tr><td colSpan={5} className="px-3 py-6 text-center text-gray-400">No cheque records</td></tr>
+                      ) : (
+                        stageDetailDialog.data.cheques.map((c) => (
+                          <tr key={c.cheque_id} className="border-t">
+                            <td className="px-3 py-2 font-mono font-semibold">{c.cheque_number || '—'}</td>
+                            <td className="px-3 py-2">{c.bank_name || '—'}</td>
+                            <td className="px-3 py-2 text-right font-semibold">₹{Number(c.amount || 0).toLocaleString('en-IN')}</td>
+                            <td className="px-3 py-2">{c.cheque_date ? new Date(c.cheque_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                            <td className="px-3 py-2">
+                              <Badge className={`text-[10px] ${c.status === 'bounced' ? 'bg-red-100 text-red-700' : c.status === 'cleared' || c.is_opened ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                {c.status || '—'}{c.is_opened ? ' · opened' : ''}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* TIMELINE */}
+              {stageDetailDialog.tab === 'timeline' && (
+                <div className="relative pl-5">
+                  <div className="absolute top-0 bottom-0 left-2 w-px bg-gray-200"></div>
+                  {(stageDetailDialog.data.timeline || []).length === 0 ? (
+                    <p className="text-xs text-gray-400 py-6 text-center">No timeline events recorded</p>
+                  ) : (
+                    stageDetailDialog.data.timeline.map((e, idx) => {
+                      const dotCls = {
+                        created: 'bg-gray-400',
+                        requested: 'bg-blue-500',
+                        cre_rejected: 'bg-red-500',
+                        accountant_rejected: 'bg-red-500',
+                        collected: 'bg-amber-500',
+                        paid: 'bg-emerald-500',
+                        income_approved: 'bg-emerald-500',
+                        income_rejected: 'bg-red-500',
+                        cheque_received: 'bg-indigo-500',
+                        cheque_opened: 'bg-emerald-500',
+                        cheque_bounced: 'bg-red-600',
+                      }[e.kind] || 'bg-gray-400';
+                      return (
+                        <div key={idx} className="relative py-2 pl-4">
+                          <span className={`absolute -left-0.5 top-3 h-3 w-3 rounded-full ring-2 ring-white ${dotCls}`}></span>
+                          <p className="text-xs font-medium text-gray-800">{e.label}</p>
+                          <p className="text-[10px] text-gray-500">
+                            {e.at ? new Date(e.at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                            {e.by_name ? <> · by <span className="font-medium text-gray-700">{e.by_name}</span></> : null}
+                          </p>
+                          {e.meta?.reason && <p className="text-[10px] text-red-600 italic mt-0.5">Reason: {e.meta.reason}</p>}
+                          {e.meta?.payment_mode && <p className="text-[10px] text-gray-600 mt-0.5">Mode: {String(e.meta.payment_mode).replace(/_/g, ' ')}</p>}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStageDetailDialog({ open: false, stage: null, data: null, loading: false, tab: 'summary' })}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
