@@ -620,8 +620,8 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, onOpenRequest, 
                         Bounce
                       </Button>
                     )}
-                    {/* View button — always available for any consumed or bounced cheque */}
-                    {(isConsumed || c.status === 'bounced') && onView && (
+                    {/* View button — always available for non-locked cheques (incomes may exist even without used_for_expense_id) */}
+                    {onView && c.is_opened && c.status !== 'cancelled' && (
                       <Button
                         size="sm"
                         variant="ghost"
@@ -650,6 +650,7 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, onOpenRequest, 
 
 function ChequeUsageBody({ data }) {
   const c = data.cheque || {};
+  const incomes = data.incomes || [];
   const stages = data.stages_settled || [];
   const exp = data.expense;
   const summary = data.summary || {};
@@ -684,15 +685,63 @@ function ChequeUsageBody({ data }) {
         </CardContent>
       </Card>
 
+      {/* Income rows — what was actually collected against this cheque (CRE, date, project, stage) */}
       <Card>
         <CardContent className="p-3">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-semibold text-violet-700 uppercase">Payment Stages Settled · {summary.total_stages_settled || 0}</p>
-            <span className="text-xs text-gray-500">Total: <span className="font-bold text-emerald-700">{fmtMoney(summary.total_collected_amount)}</span></span>
+            <p className="text-xs font-semibold text-emerald-700 uppercase">Income Collected · {summary.total_incomes || 0}</p>
+            <span className="text-xs text-gray-500">Total: <span className="font-bold text-emerald-700">{fmtMoney(summary.total_income_amount)}</span></span>
           </div>
-          {stages.length === 0 ? (
-            <p className="text-xs text-gray-400 italic">No payment stages were settled by this cheque.</p>
+          {incomes.length === 0 ? (
+            <p className="text-xs text-gray-400 italic">No income rows linked to this cheque yet.</p>
           ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50">
+                  <tr className="border-b text-gray-500">
+                    <th className="text-left px-2 py-1.5 font-semibold">Project</th>
+                    <th className="text-left px-2 py-1.5 font-semibold">Stage / Category</th>
+                    <th className="text-right px-2 py-1.5 font-semibold">Amount</th>
+                    <th className="text-left px-2 py-1.5 font-semibold">Collected At</th>
+                    <th className="text-left px-2 py-1.5 font-semibold">Collected By</th>
+                    <th className="text-center px-2 py-1.5 font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {incomes.map(inc => (
+                    <tr key={inc.income_id} className={`border-b ${inc.status === 'cheque_bounced' ? 'bg-red-50/40' : ''}`}>
+                      <td className="px-2 py-1.5 text-violet-700">{inc.project_name || '—'}</td>
+                      <td className="px-2 py-1.5">
+                        {inc.stage_name || inc.category || '—'}
+                        {inc.stage_id && <span className="text-[9px] text-gray-400 ml-1">·stage</span>}
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-bold text-emerald-700">{fmtMoney(inc.amount)}</td>
+                      <td className="px-2 py-1.5">{fmtDate(inc.payment_date)}</td>
+                      <td className="px-2 py-1.5">{inc.collected_by_name || '—'}</td>
+                      <td className="px-2 py-1.5 text-center">
+                        {inc.status === 'cheque_bounced' ? (
+                          <Badge className="bg-red-100 text-red-700 text-[9px]">Bounced</Badge>
+                        ) : (
+                          <Badge className="bg-emerald-100 text-emerald-700 text-[9px]">{(inc.status || '').replace('_', ' ') || 'collected'}</Badge>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Payment stages section — only if there ARE stages linked (omit when no stages exist to avoid clutter) */}
+      {stages.length > 0 && (
+        <Card>
+          <CardContent className="p-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-violet-700 uppercase">Payment Stages Settled · {summary.total_stages_settled || 0}</p>
+              <span className="text-xs text-gray-500">Stage Total: <span className="font-bold text-emerald-700">{fmtMoney(summary.total_collected_amount)}</span></span>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead className="bg-gray-50">
@@ -725,9 +774,9 @@ function ChequeUsageBody({ data }) {
                 </tbody>
               </table>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {exp && (
         <Card>

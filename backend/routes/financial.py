@@ -4460,6 +4460,32 @@ async def get_cheque_usage(cheque_id: str, user: User = Depends(get_current_user
             "payment_mode": st.get("payment_mode") or (inc.get("payment_mode") if inc else None),
         })
 
+    # Enriched income rows (always shown — covers advance/non-stage incomes too)
+    enriched_incomes = []
+    for inc in incomes:
+        sid = inc.get("payment_stage_id") or inc.get("stage_id")
+        # If income has a stage, surface that stage name from the stages list
+        stage_name = None
+        if sid:
+            stage_obj = next((s for s in stages if s.get("stage_id") == sid), None)
+            if stage_obj:
+                stage_name = stage_obj.get("stage_name") or stage_obj.get("stage_label")
+        enriched_incomes.append({
+            "income_id": inc.get("income_id"),
+            "project_id": inc.get("project_id"),
+            "project_name": inc.get("project_name") or await _proj_name(inc.get("project_id")),
+            "amount": inc.get("amount"),
+            "payment_mode": inc.get("payment_mode"),
+            "payment_reference": inc.get("payment_reference"),
+            "payment_date": inc.get("payment_date") or inc.get("created_at"),
+            "stage_id": sid,
+            "stage_name": stage_name or inc.get("stage") or inc.get("sub_category"),
+            "category": inc.get("category"),
+            "collected_by_name": inc.get("collected_by_name"),
+            "status": inc.get("status"),
+            "description": inc.get("description"),
+        })
+
     # Expense side (if cheque was endorsed to a vendor)
     expense_info = None
     if cheque.get("used_for_expense_id"):
@@ -4489,17 +4515,21 @@ async def get_cheque_usage(cheque_id: str, user: User = Depends(get_current_user
     cheque_project_name = await _proj_name(cheque.get("project_id"))
 
     total_collected = sum(float(s.get("collected_amount") or 0) for s in enriched_stages)
+    total_income = sum(float(i.get("amount") or 0) for i in enriched_incomes)
 
     return {
         "cheque": {
             **cheque,
             "project_name": cheque_project_name,
         },
-        "stages_settled": enriched_stages,  # list of stages this cheque covered
+        "incomes": enriched_incomes,         # NEW: every income row this cheque touched
+        "stages_settled": enriched_stages,   # subset of incomes that map to a payment stage
         "expense": expense_info,
         "summary": {
             "total_stages_settled": len(enriched_stages),
             "total_collected_amount": total_collected,
+            "total_incomes": len(enriched_incomes),
+            "total_income_amount": total_income,
             "is_used_for_expense": bool(expense_info),
         },
     }
