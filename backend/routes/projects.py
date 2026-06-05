@@ -10293,11 +10293,31 @@ async def create_dlr(project_id: str, wo_id: str, data: DLRCreate, user: User = 
 
 
 @router.get("/projects/{project_id}/work-orders/{wo_id}/dlr")
-async def get_wo_dlr(project_id: str, wo_id: str, date: Optional[str] = None, user: User = Depends(get_current_user)):
-    """Get DLR entries for a specific work order"""
+async def get_wo_dlr(
+    project_id: str,
+    wo_id: str,
+    date: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Get DLR entries for a specific work order.
+
+    Filters:
+      • `date` — exact-day match (legacy, kept for backwards compatibility).
+      • `date_from` / `date_to` — inclusive range (preferred for the UI date
+        picker). When both are absent the full list is returned.
+    """
     query = {"project_id": project_id, "work_order_id": wo_id}
     if date:
         query["date"] = date
+    elif date_from or date_to:
+        rng = {}
+        if date_from:
+            rng["$gte"] = date_from
+        if date_to:
+            rng["$lte"] = date_to
+        query["date"] = rng
     entries = await db.daily_labour_reports.find(query, {"_id": 0}).sort("date", -1).to_list(500)
     return entries
 

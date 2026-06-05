@@ -38,7 +38,8 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
   const [loading, setLoading] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [filterDate, setFilterDate] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [projectStages, setProjectStages] = useState([]);
 
   const rates = labourRates || {};
@@ -61,14 +62,17 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
   const fetchDLR = async () => {
     setLoading(true);
     try {
-      const params = filterDate ? `?date=${filterDate}` : '';
+      const qs = new URLSearchParams();
+      if (dateFrom) qs.set('date_from', dateFrom);
+      if (dateTo) qs.set('date_to', dateTo);
+      const params = qs.toString() ? `?${qs.toString()}` : '';
       const res = await axios.get(`${API}/projects/${projectId}/work-orders/${workOrderId}/dlr${params}`);
       setDlrEntries(res.data || []);
     } catch { setDlrEntries([]); }
     setLoading(false);
   };
 
-  useEffect(() => { if (projectId && workOrderId) fetchDLR(); }, [projectId, workOrderId, filterDate]);
+  useEffect(() => { if (projectId && workOrderId) fetchDLR(); }, [projectId, workOrderId, dateFrom, dateTo]);
 
   // Fetch project stages for the Current Stage dropdown
   useEffect(() => {
@@ -180,9 +184,14 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
           <ClipboardList className="h-4 w-4 text-teal-600" />
           <span className="text-sm font-semibold">Daily Labour Report ({dlrEntries.length})</span>
         </div>
-        <div className="flex items-center gap-2">
-          <Input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="h-8 text-xs w-[140px]" data-testid="dlr-date-filter" />
-          {filterDate && <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setFilterDate('')}>Clear</Button>}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <label className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">From</label>
+          <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-8 text-xs w-[140px]" data-testid="dlr-date-from" />
+          <label className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">To</label>
+          <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-8 text-xs w-[140px]" data-testid="dlr-date-to" />
+          {(dateFrom || dateTo) && (
+            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setDateFrom(''); setDateTo(''); }} data-testid="dlr-date-clear">Clear</Button>
+          )}
           {canRecord && (
             <Button size="sm" className="h-8 text-xs bg-teal-600 hover:bg-teal-700" onClick={openDialog} data-testid="dlr-add-btn">
               <Plus className="h-3 w-3 mr-1" />Record DLR
@@ -195,7 +204,9 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
       {loading ? (
         <p className="text-center text-gray-400 text-xs py-4">Loading...</p>
       ) : dlrEntries.length === 0 ? (
-        <p className="text-center text-gray-400 text-xs py-6" data-testid="dlr-empty">No DLR entries recorded{filterDate ? ` for ${filterDate}` : ''}</p>
+        <p className="text-center text-gray-400 text-xs py-6" data-testid="dlr-empty">
+          No DLR entries{dateFrom || dateTo ? ` between ${dateFrom || '…'} → ${dateTo || '…'}` : ' recorded'}
+        </p>
       ) : (
         <div className="space-y-2">
           {dlrEntries.map(dlr => (
