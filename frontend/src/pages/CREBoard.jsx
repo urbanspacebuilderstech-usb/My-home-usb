@@ -802,8 +802,11 @@ export default function CREBoard() {
     }
   };
 
+  // All Projects tab must list every project in the CRE's scope, regardless
+  // of the global cashbook date range (the date range governs cashflow tabs,
+  // not the master project listing). Date-range count still drives the tab
+  // badge below — see projectsInRange.
   const filteredProjects = projects.filter(p => {
-    if (!inDateRange(p.created_at)) return false;
     if (!projectSearch) return true;
     const s = projectSearch.toLowerCase();
     return (p.name || '').toLowerCase().includes(s) || (p.client_name || '').toLowerCase().includes(s) || (p.location || '').toLowerCase().includes(s);
