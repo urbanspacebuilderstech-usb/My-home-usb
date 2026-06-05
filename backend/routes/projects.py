@@ -967,6 +967,40 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
     
     documents = await db.documents.find({"project_id": project_id}, {"_id": 0}).sort("created_at", -1).to_list(1000)
 
+    # Also include files uploaded via the newer Object-Storage backed
+    # `/api/files/upload` flow (ProjectDetail → "Project Documents" panel
+    # uses category="project-documents"). Those live in db.files and never
+    # made it onto the client portal before — normalise them into the same
+    # shape so the existing UI renders both seamlessly.
+    project_files = await db.files.find(
+        {
+            "project_id": project_id,
+            "category": "project-documents",
+            "is_deleted": {"$ne": True},
+        },
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(1000)
+    existing_doc_keys = {(d.get("file_id"), d.get("title")) for d in documents}
+    for f in project_files:
+        key = (f.get("file_id"), f.get("original_filename"))
+        if key in existing_doc_keys:
+            continue
+        documents.append({
+            "document_id": f.get("file_id"),
+            "project_id": project_id,
+            "file_id": f.get("file_id"),
+            "title": f.get("description") or f.get("original_filename") or "Document",
+            "category": f.get("category") or "project-documents",
+            "uploaded_by_user_id": f.get("uploaded_by"),
+            "uploaded_by_name": f.get("uploaded_by_name"),
+            "content_type": f.get("content_type"),
+            "size": f.get("size"),
+            "created_at": f.get("created_at"),
+            "source": "files",
+            "download_url": f"/api/files/{f.get('file_id')}/download",
+        })
+    documents.sort(key=lambda d: str(d.get("created_at") or ""), reverse=True)
+
     # Additional Work (variations) + Deductions — same data Planning team manages.
     # Additional costs surfaced to the client ONLY when Planning has explicitly
     # shared them. Three signals qualify a row for client visibility:

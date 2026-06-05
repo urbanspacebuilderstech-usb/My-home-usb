@@ -1232,25 +1232,47 @@ export default function ClientPortal() {
                   <p className="text-gray-500">No documents uploaded yet</p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {documents.map((doc) => (
-                    <div key={doc.document_id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <FileText className="h-8 w-8 text-amber-600" />
-                        <div>
-                          <p className="font-medium">{doc.title}</p>
-                          <p className="text-sm text-gray-500">{doc.category}</p>
-                        </div>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => window.open(`${API}/files/${doc.file_id}`, '_blank')}
+                <div className="space-y-3" data-testid="client-documents-list">
+                  {documents.map((doc) => {
+                    const sizeKb = doc.size ? `${Math.round(doc.size / 1024).toLocaleString()} KB` : null;
+                    // db.files-backed rows expose a `source: 'files'` flag and use the
+                    // /files/{id}/download endpoint; legacy db.documents rows use /files/{id}.
+                    const href = doc.source === 'files'
+                      ? `${API}/files/${doc.file_id}/download`
+                      : `${API}/files/${doc.file_id}`;
+                    return (
+                      <div
+                        key={doc.document_id || doc.file_id}
+                        className="flex items-center justify-between p-4 bg-white border rounded-xl hover:shadow-md transition-shadow"
+                        data-testid={`client-doc-${doc.document_id || doc.file_id}`}
                       >
-                        Download
-                      </Button>
-                    </div>
-                  ))}
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
+                            <FileText className="h-5 w-5 text-amber-600" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-gray-900 truncate">{doc.title}</p>
+                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-xs text-gray-500">
+                              <span className="capitalize">{(doc.category || '').replace(/-/g, ' ')}</span>
+                              {sizeKb && <span>{sizeKb}</span>}
+                              {doc.uploaded_by_name && <span>by {doc.uploaded_by_name}</span>}
+                              {doc.created_at && (
+                                <span>{new Date(doc.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => window.open(href, '_blank')}
+                          data-testid={`client-doc-download-${doc.document_id || doc.file_id}`}
+                        >
+                          Download
+                        </Button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </TabsContent>
