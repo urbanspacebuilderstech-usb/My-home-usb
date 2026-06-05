@@ -483,14 +483,14 @@ export default function ClientPortal() {
             </div>
           );
           return (
-            <div className="space-y-4 mb-6" data-testid="client-project-summary">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6 items-stretch" data-testid="client-project-summary">
               {/* Section 1 — Project Value Calculation */}
               <SectionBox
                 title="Project Value Calculation"
                 accent={{ border: 'border-blue-200', bg: 'bg-blue-50/40', text: 'text-blue-700' }}
                 testid="client-section-project-value"
               >
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+                <div className="grid grid-cols-2 gap-2 sm:gap-3">
                   {card('Scope Value',  scope,          'bg-white border-blue-200',   'client-proj-scope')}
                   {card('Additions',    additionsTotal, 'bg-white border-cyan-200',   'client-proj-additions')}
                   {card('Deductions',   deductionsTotal,'bg-white border-orange-200', 'client-proj-deductions')}
@@ -516,7 +516,7 @@ export default function ClientPortal() {
                 accent={{ border: 'border-red-200', bg: 'bg-red-50/40', text: 'text-red-700' }}
                 testid="client-section-pending-dues"
               >
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 sm:gap-3">
+                <div className="grid grid-cols-1 gap-2 sm:gap-3">
                   {card('Pending Dues', pendingDues, 'bg-white border-red-200', 'client-proj-dues')}
                 </div>
               </SectionBox>
