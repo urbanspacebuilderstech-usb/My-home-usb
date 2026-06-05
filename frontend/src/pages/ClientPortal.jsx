@@ -584,6 +584,7 @@ export default function ClientPortal() {
                   { v: 'payments',       label: 'Payment Schedule', Icon: Calendar,        show: true,                                tid: 'cp-tab-payments' },
                   { v: 'additional',     label: 'Additional Work',  Icon: PlusCircle,      show: true,                                tid: 'cp-tab-additional' },
                   { v: 'deductions',     label: 'Deductions',       Icon: MinusCircle,     show: true,                                tid: 'cp-tab-deductions' },
+                  { v: 'income',         label: 'Income Status',    Icon: Receipt,         show: true,                                tid: 'cp-tab-income' },
                   { v: 'scope',          label: 'Scope of Work',    Icon: ListChecks,      show: true,                                tid: 'cp-tab-scope' },
                   { v: 'photos',         label: 'Photos',           Icon: Image,           show: true,                                tid: 'cp-tab-photos' },
                   { v: 'documents',      label: 'Documents',        Icon: FileText,        show: true,                                tid: 'cp-tab-documents' },
@@ -1146,6 +1147,91 @@ export default function ClientPortal() {
                   )}
                 </table>
               </div>
+            </TabsContent>
+
+            {/* Income Status Tab — every recorded incoming payment, with status */}
+            <TabsContent value="income" className="p-0 print:break-inside-avoid" data-testid="cp-income-tab">
+              <div className="hidden print:block p-4 border-b">
+                <h3 className="text-lg font-bold">Income Status</h3>
+              </div>
+              {(() => {
+                const entries = projectData?.income_entries || [];
+                const totalIn = projectData?.total_income || 0;
+                if (entries.length === 0) {
+                  return (
+                    <div className="text-center py-16">
+                      <Receipt className="h-12 w-12 mx-auto text-gray-300 mb-3" />
+                      <p className="text-gray-500 font-medium">No income recorded yet</p>
+                      <p className="text-sm text-gray-400 mt-1">Payments you make will be listed here once recorded.</p>
+                    </div>
+                  );
+                }
+                const STATUS_STYLES = {
+                  approved:           { label: 'Approved',         cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+                  received:           { label: 'Received',         cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+                  verified:           { label: 'Verified',         cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+                  pending_approval:   { label: 'Pending Approval', cls: 'bg-amber-100 text-amber-700 border-amber-200' },
+                  under_correction:   { label: 'Under Review',     cls: 'bg-amber-100 text-amber-700 border-amber-200' },
+                  cheque_bounced:     { label: 'Cheque Bounced',   cls: 'bg-red-100 text-red-700 border-red-200' },
+                  rejected:           { label: 'Rejected',         cls: 'bg-red-100 text-red-700 border-red-200' },
+                  accountant_rejected:{ label: 'Rejected',         cls: 'bg-red-100 text-red-700 border-red-200' },
+                };
+                return (
+                  <>
+                    <div className="px-4 sm:px-6 py-4 border-b bg-gradient-to-r from-emerald-50/40 to-white">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs text-emerald-700 font-semibold uppercase tracking-wide">Total Approved Income</p>
+                          <p className="text-2xl font-bold text-emerald-700 mt-0.5">₹{totalIn.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Entries</p>
+                          <p className="text-2xl font-bold text-gray-900 mt-0.5">{entries.length}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto" data-testid="cp-income-table">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Date</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Description</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase hidden sm:table-cell">Mode</th>
+                            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {entries.map((inc, idx) => {
+                            const st = STATUS_STYLES[inc.status] || { label: (inc.status || 'Unknown').replace(/_/g, ' '), cls: 'bg-gray-100 text-gray-700 border-gray-200' };
+                            const d = inc.payment_date ? new Date(inc.payment_date) : null;
+                            return (
+                              <tr key={inc.income_id || idx} className="hover:bg-gray-50/60" data-testid={`cp-income-row-${inc.income_id || idx}`}>
+                                <td className="px-4 py-3 text-gray-500">{idx + 1}</td>
+                                <td className="px-4 py-3 whitespace-nowrap text-gray-900">
+                                  {d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                                </td>
+                                <td className="px-4 py-3 text-gray-700 min-w-[200px]">
+                                  <p className="truncate max-w-[360px]">{inc.description || inc.category || 'Payment'}</p>
+                                  {inc.reference && (
+                                    <p className="text-[11px] text-gray-400 mt-0.5 truncate">Ref: {inc.reference}</p>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-gray-600 hidden sm:table-cell capitalize">{(inc.payment_mode || '—').replace(/_/g, ' ')}</td>
+                                <td className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">₹{(inc.amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                                <td className="px-4 py-3 text-center">
+                                  <Badge className={`text-xs font-medium border ${st.cls}`}>{st.label}</Badge>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                );
+              })()}
             </TabsContent>
 
             {/* Scope of Work Tab */}

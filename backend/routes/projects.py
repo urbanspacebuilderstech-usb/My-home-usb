@@ -1050,16 +1050,24 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
     raw_income = await db.income.find({"project_id": project_id}, {"_id": 0}).sort("payment_date", -1).to_list(1000)
     income_entries = []
     total_income = 0.0
+    # Only count "approved" rows in the total. Rejected / bounced / pending
+    # rows still appear in the list (with their status) so the client knows
+    # what was raised but reverted.
+    APPROVED_STATES = {"approved", "received", "verified"}
     for e in raw_income:
         amt = float(e.get("amount", 0) or 0)
-        total_income += amt
+        status = (e.get("status") or "approved").lower()
+        if status in APPROVED_STATES:
+            total_income += amt
         income_entries.append({
             "income_id": e.get("income_id"),
             "payment_date": e.get("payment_date"),
             "amount": amt,
             "payment_mode": e.get("payment_mode") or "",
-            "description": e.get("description") or "",
+            "description": e.get("description") or e.get("notes") or "",
             "category": e.get("category") or "",
+            "status": status,
+            "reference": e.get("reference") or e.get("transaction_reference") or "",
         })
 
     # Final estimate scope (scope_items already in result) - normalize legacy field names so frontend reads consistently
