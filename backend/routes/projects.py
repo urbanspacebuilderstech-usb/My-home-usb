@@ -7982,7 +7982,7 @@ async def wo_rab_chain(project_id: str, work_order_id: str, user: User = Depends
 
     rabs = []
     cumulative_released = 0.0
-    for r in flat:
+    for idx, r in enumerate(flat, start=1):
         released = float(r.get("approved_amount") or 0)
         requested = float(r.get("amount") or 0)
         status = r.get("status") or "requested"
@@ -7991,9 +7991,15 @@ async def wo_rab_chain(project_id: str, work_order_id: str, user: User = Depends
         if status == "approved":
             cumulative_released += released
         closing_balance = contract_total - cumulative_released
+        # Display rab number = chronological position. The DB-stored rab_number
+        # can drift when intermediate RABs are deleted (the historic counter
+        # never resets), so we always re-sequence here so the first surviving
+        # RAB is always RAB-01 in every UI/PDF that reads this endpoint.
+        display_rab = f"RAB-{idx:02d}"
         rabs.append({
             "request_id": r.get("request_id"),
-            "rab_number": r.get("rab_number") or "",
+            "rab_number": display_rab,
+            "stored_rab_number": r.get("rab_number") or "",
             "stage_id": r.get("stage_id"),
             "stage_name": r.get("stage_name"),
             "stage_amount": r.get("stage_amount"),
@@ -8065,12 +8071,14 @@ async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, user:
     flat.sort(key=lambda r: str(r.get("requested_at") or ""))
 
     target = None
+    target_index = None
     cumulative = 0.0
-    for r in flat:
+    for idx, r in enumerate(flat, start=1):
         if r.get("status") == "approved":
             cumulative += float(r.get("approved_amount") or 0)
         if r.get("request_id") == request_id:
             target = r
+            target_index = idx
             target_cumulative = cumulative
             break
     if not target:
@@ -8094,7 +8102,7 @@ async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, user:
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
 
-    rab_no = target.get("rab_number") or "RAB"
+    rab_no = f"RAB-{target_index:02d}"
     # Header band
     pdf.set_fill_color(96, 39, 176)  # violet
     pdf.set_text_color(255, 255, 255)

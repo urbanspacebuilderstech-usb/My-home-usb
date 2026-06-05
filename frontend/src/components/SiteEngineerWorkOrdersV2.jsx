@@ -874,7 +874,7 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div className="flex items-center gap-2 min-w-0">
                         <Badge className="bg-violet-600 text-white border-violet-700 font-bold text-[10px] px-2 py-0.5 shrink-0">
-                          {pr.rab_number || `RAB-${String((allRequests.length - i)).padStart(2, '0')}`}
+                          {`RAB-${String((allRequests.length - i)).padStart(2, '0')}`}
                         </Badge>
                         <div className="min-w-0">
                           <p className="font-bold">{fmt(pr.approved_amount || pr.amount)}
