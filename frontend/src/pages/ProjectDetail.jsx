@@ -10279,34 +10279,9 @@ export default function ProjectDetail() {
                                       {/* Planning quick action: open multiple stages at once. Locked stages
                                           stay hidden to SE until Planning unlocks them via this bar OR the
                                           per-row "Open for SE" button. */}
-                                      {['planning', 'super_admin'].includes(user?.role) && wo.status !== 'frozen' && wo.stages.some(s => !s.is_open && s.status !== 'approved') && (
-                                        <div className="flex items-center justify-between gap-2 p-2 bg-violet-50 border border-violet-200 rounded">
-                                          <span className="text-xs text-violet-700">
-                                            <strong>{wo.stages.filter(s => !s.is_open && s.status !== 'approved').length}</strong> stage(s) hidden from Site Engineer
-                                          </span>
-                                          <Button
-                                            size="sm"
-                                            className="h-7 text-xs bg-violet-600 hover:bg-violet-700 text-white gap-1"
-                                            data-testid={`bulk-open-stages-${wo.work_order_id}`}
-                                            onClick={async () => {
-                                              const locked = wo.stages.filter(s => !s.is_open && s.status !== 'approved');
-                                              if (!locked.length) return;
-                                              if (!window.confirm(`Open ${locked.length} stage(s) for the Site Engineer?`)) return;
-                                              try {
-                                                await Promise.all(locked.map(s =>
-                                                  axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${s.stage_id}/open`)
-                                                ));
-                                                toast.success(`Opened ${locked.length} stage(s)`);
-                                                fetchWorkOrders();
-                                              } catch (err) {
-                                                toast.error(err.response?.data?.detail || 'Bulk open failed');
-                                              }
-                                            }}
-                                          >
-                                            <Unlock className="h-3 w-3" /> Open All for SE
-                                          </Button>
-                                        </div>
-                                      )}
+                                      {/* "Open All for SE" bulk banner removed —
+                                          Planning now uses the per-row Lock /
+                                          Unlock button on every stage instead. */}
                                       {wo.stages.map((st, i) => {
                                         const cfg = getStageStatusConfig(st.status, st.is_open);
                                         const showApprove = canApproveStage(st);
@@ -10373,13 +10348,31 @@ export default function ProjectDetail() {
                                                         }
                                                       }}
                                                     >
-                                                      <Unlock className="h-3 w-3" /> Open for SE
+                                                      <Unlock className="h-3 w-3" /> Unlock
                                                     </Button>
                                                   )}
+                                                  {/* Lock — Planning can re-lock any currently-open stage that
+                                                      hasn't been approved yet. Toggles the same is_open flag back
+                                                      to false via the dedicated /lock endpoint. */}
                                                   {['planning', 'super_admin'].includes(user?.role) && st.is_open && st.status !== 'approved' && (
-                                                    <span className="text-[10px] px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium" data-testid={`labour-wo-stage-opened-${st.stage_id}`}>
-                                                      ✓ Open for SE
-                                                    </span>
+                                                    <Button
+                                                      size="sm"
+                                                      variant="outline"
+                                                      className="h-7 text-xs gap-1 text-amber-700 border-amber-300 hover:bg-amber-50"
+                                                      data-testid={`labour-wo-stage-lock-${st.stage_id}`}
+                                                      onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        try {
+                                                          await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${st.stage_id}/lock`);
+                                                          toast.success('Stage locked — hidden from Site Engineer');
+                                                          fetchWorkOrders();
+                                                        } catch (err) {
+                                                          toast.error(err.response?.data?.detail || 'Failed to lock stage');
+                                                        }
+                                                      }}
+                                                    >
+                                                      <Lock className="h-3 w-3" /> Lock
+                                                    </Button>
                                                   )}
                                                   {showApprove && (
                                                     <>

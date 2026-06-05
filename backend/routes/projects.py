@@ -8048,8 +8048,121 @@ async def wo_rab_chain(project_id: str, work_order_id: str, user: User = Depends
     }
 
 
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/rabs/{request_id}/download-otp/send")
+async def wo_rab_download_otp_send(project_id: str, work_order_id: str, request_id: str, user: User = Depends(get_current_user)):
+    """Phase 2 OTP gate: emit a 6-digit One-Time Password to the Planning user
+    who approved this RAB so a signed RAB-XX.pdf cannot be downloaded without
+    Planning verification.
+
+    Flow:
+      • Caller (any authenticated user with access to the RAB) hits this.
+      • System looks up the Planning approver on the RAB (planning_approved_by).
+      • If found, generates a 6-digit OTP, hashes it, stores it with a 10-min
+        TTL in `db.rab_download_otps`, and emails the plain code to the
+        Planning user's registered email.
+      • Caller obtains the OTP from Planning out-of-band and submits it to the
+        PDF endpoint as ?otp=XXXXXX.
+
+    Only RABs that have reached the `approved` (released) state can be gated —
+    earlier states have no signed PDF to release.
+    """
+    wo = await db.project_work_orders.find_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"_id": 0, "stages": 1, "contractor_name": 1, "work_order_number": 1},
+    )
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    target_pr = None
+    for stg in (wo.get("stages") or []):
+        for pr in (stg.get("payment_requests") or []):
+            if pr.get("request_id") == request_id:
+                target_pr = pr
+                break
+        if target_pr:
+            break
+    if not target_pr:
+        raise HTTPException(status_code=404, detail="RAB not found")
+    if (target_pr.get("status") or "") != "approved":
+        raise HTTPException(status_code=400, detail="OTP can only be issued for released RABs")
+
+    planning_user_id = target_pr.get("planning_approved_by")
+    if not planning_user_id:
+        raise HTTPException(status_code=400, detail="No Planning approver recorded for this RAB")
+
+    planning_user = await db.users.find_one(
+        {"user_id": planning_user_id},
+        {"_id": 0, "email": 1, "name": 1},
+    )
+    if not planning_user or not (planning_user.get("email") or "").strip():
+        raise HTTPException(status_code=400, detail="Planning approver has no email on file")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
+
+    otp_code = str(random.randint(100000, 999999))
+    otp_hash = hashlib.sha256(otp_code.encode()).hexdigest()
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+
+    # Replace any prior OTP for this exact RAB so a fresh request always wins.
+    await db.rab_download_otps.delete_many({"request_id": request_id})
+    await db.rab_download_otps.insert_one({
+        "request_id": request_id,
+        "project_id": project_id,
+        "work_order_id": work_order_id,
+        "issued_to_user_id": planning_user_id,
+        "requested_by_user_id": user.user_id,
+        "requested_by_name": user.name,
+        "otp_hash": otp_hash,
+        "expires_at": expires_at.isoformat(),
+        "used": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    planning_email = planning_user["email"]
+    planning_name = planning_user.get("name") or "Planning"
+    rab_label = target_pr.get("rab_number") or "RAB"
+
+    if resend.api_key and planning_email:
+        try:
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [planning_email],
+                "subject": f"{rab_label} Download OTP — {(project or {}).get('name', '')}",
+                "html": f"""
+                <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto;">
+                    <div style="background: #6027B0; padding: 16px; text-align: center;">
+                        <h2 style="margin: 0; color: #FBBF24;">My Home USB</h2>
+                    </div>
+                    <div style="padding: 24px; background: #fff; border: 1px solid #E5E7EB;">
+                        <p style="color: #1F2937;">Hi {planning_name},</p>
+                        <p style="color: #4B5563;"><strong>{user.name}</strong> ({user.role}) has requested to download the signed
+                        <strong>{rab_label}</strong> bill for project <strong>{(project or {}).get('name', '')}</strong>
+                        (WO {wo.get('work_order_number') or work_order_id}, Vendor {wo.get('contractor_name', '-')}).</p>
+                        <div style="text-align: center; margin: 24px 0; padding: 16px; background: #EDE9FE; border-radius: 8px;">
+                            <p style="margin: 0; color: #5B21B6; font-size: 13px;">One-Time Download Code</p>
+                            <p style="margin: 8px 0 0; font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #1F2937;">{otp_code}</p>
+                        </div>
+                        <p style="color: #4B5563; font-size: 13px;">Share this code with {user.name} only if you authorise the download.</p>
+                        <p style="color: #9CA3AF; font-size: 12px;">This OTP expires in 10 minutes and works only once.</p>
+                    </div>
+                </div>
+                """,
+            }
+            await asyncio.to_thread(resend.Emails.send, params)
+            logger.info(f"RAB download OTP emailed to {planning_email} for {rab_label}")
+        except Exception as e:
+            logger.error(f"Failed to send RAB download OTP email: {e}")
+
+    masked = (planning_email[:3] + "***" + planning_email[planning_email.index("@"):]) if "@" in planning_email else "planning email"
+    return {
+        "message": f"OTP sent to Planning ({masked}). Ask them to share the code.",
+        "planning_name": planning_name,
+        "expires_in": 600,
+    }
+
+
 @router.get("/projects/{project_id}/work-orders/{work_order_id}/rabs/{request_id}/pdf")
-async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, user: User = Depends(get_current_user)):
+async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, otp: Optional[str] = Query(default=None), user: User = Depends(get_current_user)):
     """Generate a single-page Running Account Bill PDF for the given RAB.
 
     Pulls the WO + the specific RAB by request_id, walks the WO once to
@@ -8057,6 +8170,9 @@ async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, user:
     builds a PDF with header (vendor/WO/contract totals), the current RAB
     block (stage, requested/released, closing balance), and the approval
     trail (SE → PM → QC → Planning → Accountant timestamps + signatures).
+
+    Phase 2 gate: a valid one-time `otp` (issued via
+    /download-otp/send) is required. Super Admin can bypass for audit/recovery.
     """
     from fpdf import FPDF
     from fastapi.responses import StreamingResponse
@@ -8068,6 +8184,33 @@ async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, user:
     )
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
+
+    # ----- OTP verification (skipped for Super Admin for audit/recovery) -----
+    if user.role != UserRole.SUPER_ADMIN:
+        if not otp or not str(otp).strip():
+            raise HTTPException(status_code=401, detail="OTP required. Request one from Planning.")
+        otp_hash = hashlib.sha256(str(otp).strip().encode()).hexdigest()
+        record = await db.rab_download_otps.find_one({
+            "request_id": request_id,
+            "otp_hash": otp_hash,
+        }, {"_id": 0})
+        if not record:
+            raise HTTPException(status_code=401, detail="Invalid OTP")
+        if record.get("used"):
+            raise HTTPException(status_code=401, detail="OTP has already been used. Request a new one.")
+        try:
+            if datetime.fromisoformat(record["expires_at"]) < datetime.now(timezone.utc):
+                await db.rab_download_otps.delete_many({"request_id": request_id})
+                raise HTTPException(status_code=401, detail="OTP expired. Request a new one.")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=401, detail="OTP expired. Request a new one.")
+        # Single-use — mark as used so the same code can't replay.
+        await db.rab_download_otps.update_one(
+            {"request_id": request_id, "otp_hash": otp_hash},
+            {"$set": {"used": True, "used_at": datetime.now(timezone.utc).isoformat(), "used_by": user.user_id, "used_by_name": user.name}},
+        )
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
 
     # Flatten & sort so we can compute running balance up to THIS RAB
