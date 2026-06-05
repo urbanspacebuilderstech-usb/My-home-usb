@@ -292,36 +292,6 @@ export default function ClientPortal() {
         <div className="max-w-4xl mx-auto px-6 py-8">
           <h2 className="text-2xl font-bold mb-6">My Projects</h2>
 
-          {/* Aggregate Financial Summary — totals across ALL client projects */}
-          {projects.length > 0 && (() => {
-            const agg = projects.reduce((a, p) => ({
-              scope: a.scope + (p.total_value || 0),
-              add: a.add + (p.total_additions || 0),
-              ded: a.ded + (p.total_deductions || 0),
-              gt: a.gt + (p.grand_total ?? ((p.total_value || 0) + (p.total_additions || 0) - (p.total_deductions || 0))),
-              inc: a.inc + (p.total_income ?? p.total_received ?? 0),
-              recv: a.recv + (p.receivable ?? 0),
-              dues: a.dues + (p.pending_dues || 0),
-            }), { scope: 0, add: 0, ded: 0, gt: 0, inc: 0, recv: 0, dues: 0 });
-            const card = (label, value, color, testid) => (
-              <div className={`rounded-lg border p-3 ${color}`} data-testid={testid}>
-                <p className="text-[10px] sm:text-xs uppercase tracking-wide text-gray-500 font-medium">{label}</p>
-                <p className="text-lg sm:text-xl font-bold mt-0.5">₹{(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
-              </div>
-            );
-            return (
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 sm:gap-3 mb-6" data-testid="client-portfolio-summary">
-                {card('Scope Value',  agg.scope, 'bg-blue-50 border-blue-200',     'client-card-scope')}
-                {card('Additions',    agg.add,   'bg-violet-50 border-violet-200', 'client-card-additions')}
-                {card('Deductions',   agg.ded,   'bg-rose-50 border-rose-200',     'client-card-deductions')}
-                {card('Grand Total',  agg.gt,    'bg-amber-50 border-amber-200',   'client-card-grandtotal')}
-                {card('Total Income', agg.inc,   'bg-emerald-50 border-emerald-200','client-card-income')}
-                {card('Receivable',   agg.recv,  'bg-orange-50 border-orange-200', 'client-card-receivable')}
-                {card('Pending Dues', agg.dues,  'bg-red-50 border-red-200',       'client-card-dues')}
-              </div>
-            );
-          })()}
-
           {projects.length === 0 ? (
             <Card className="p-8 text-center">
               <Home className="h-12 w-12 mx-auto text-gray-300 mb-4" />
