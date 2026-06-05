@@ -449,7 +449,7 @@ export default function ClientPortal() {
         </div>
 
         {/* Financial Summary — Scope / Additions / Deductions / Grand Total /
-            Total Income / Receivable. Mirrors the Project Detail (Admin)
+            Total Income / Yet to Receive. Mirrors the Project Detail (Admin)
             Financial Performance card so the client always sees the latest
             figure. We intentionally HIDE Total Expense and Total Balance from
             this view — clients shouldn't see vendor-side spend. */}
@@ -460,11 +460,15 @@ export default function ClientPortal() {
           const deductionsTotal = additionalCosts
             .filter(c => (c.kind || '') === 'deduction')
             .reduce((s, c) => s + (c.amount || c.estimated_amount || c.actual_amount || 0), 0);
-          const additionsIncome = additionalCosts.reduce((s, c) => s + (c.income_received || 0), 0);
           const scope = project.total_value || 0;
           const grandTotal = scope + additionsTotal - deductionsTotal;
-          const totalIncome = totalReceived + additionsIncome;
-          const receivable = Math.max(0, grandTotal - totalIncome);
+          // Use the backend-computed `total_income` (sum of APPROVED rows in
+          // db.income — same source the Planning Board reads). Recomputing
+          // from stage.amount_received + additional_costs.income_received
+          // drifts whenever a stage was auto-healed or an addition recorded
+          // a payment outside the income flow. Single source of truth.
+          const totalIncome = projectData?.total_income ?? 0;
+          const yetToReceive = Math.max(0, grandTotal - totalIncome);
           // Pending Dues = stages whose due date is already past and still
           // outstanding. Uses paymentStages which the client-side already has.
           const todayIso = new Date().toISOString().slice(0, 10);
@@ -516,8 +520,8 @@ export default function ClientPortal() {
                 colSpan="lg:col-span-2"
               >
                 <div className="grid grid-cols-2 gap-2">
-                  {card('Total Income', totalIncome, 'bg-white border-emerald-200 hover:border-emerald-300', 'client-proj-income',      { valueClass: 'text-emerald-700' })}
-                  {card('Receivable',   receivable,  'bg-white border-orange-200 hover:border-orange-300',   'client-proj-receivable',  { valueClass: 'text-orange-700' })}
+                  {card('Total Income',   totalIncome,  'bg-white border-emerald-200 hover:border-emerald-300', 'client-proj-income',      { valueClass: 'text-emerald-700' })}
+                  {card('Yet to Receive', yetToReceive, 'bg-white border-orange-200 hover:border-orange-300',   'client-proj-receivable',  { valueClass: 'text-orange-700' })}
                 </div>
               </SectionBox>
               {/* Pending Dues section removed from the top strip — it now lives
