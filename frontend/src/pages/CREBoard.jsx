@@ -219,6 +219,22 @@ export default function CREBoard() {
   const [psSearch, setPsSearch] = useState('');
   const [psDateFrom, setPsDateFrom] = useState('');
   const [psDateTo, setPsDateTo] = useState('');
+  // Team-based filter (Planning / Site Engineer / Project Manager / Senior SE)
+  const [teamMap, setTeamMap] = useState(null);
+  const [activeTeamRole, setActiveTeamRole] = useState(null);
+  const [activeTeamUserId, setActiveTeamUserId] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    axios.get(`${API}/accountant/team-project-map`)
+      .then(r => { if (!cancelled) setTeamMap(r.data); })
+      .catch(() => { if (!cancelled) setTeamMap(null); });
+    return () => { cancelled = true; };
+  }, []);
+  const teamAllowedProjectIds = (() => {
+    if (!activeTeamRole || !activeTeamUserId || !teamMap) return null;
+    const u = (teamMap.roles?.[activeTeamRole] || []).find(x => x.user_id === activeTeamUserId);
+    return u ? new Set(u.project_ids) : new Set();
+  })();
 
   // Dialogs
   const [createDialog, setCreateDialog] = useState(false);
@@ -1240,6 +1256,8 @@ export default function CREBoard() {
                   const hay = `${e.project_name || ''} ${e.client_name || ''} ${e.stage_name || ''} ${e.stage_label || ''}`.toLowerCase();
                   if (!hay.includes(psSearchTerm)) return false;
                 }
+                // Team filter: only rows whose project_id is in the active user's set.
+                if (teamAllowedProjectIds && !teamAllowedProjectIds.has(e.project_id)) return false;
                 return true;
               });
               // Classify each entry as collected vs pending.
@@ -1302,6 +1320,64 @@ export default function CREBoard() {
                       </div>
                     </CardContent>
                   </Card>
+
+                  {/* Team-Person filter (Planning / Site Engineer / Project Manager / Senior SE) */}
+                  <div className="rounded-lg border bg-white dark:bg-gray-800 p-2.5 space-y-1.5" data-testid="cre-team-filter-card">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[11px] text-gray-500 mr-1">Filter by team:</span>
+                      {[
+                        { k: 'planning_person',  label: 'Planning Person',     pill: 'bg-violet-100 text-violet-700 border-violet-200',   active: 'bg-violet-600' },
+                        { k: 'site_engineer',    label: 'Site Engineer',       pill: 'bg-emerald-100 text-emerald-700 border-emerald-200', active: 'bg-emerald-600' },
+                        { k: 'project_manager',  label: 'Project Manager',     pill: 'bg-amber-100 text-amber-800 border-amber-200',      active: 'bg-amber-600' },
+                        { k: 'sr_site_engineer', label: 'Senior Site Engineer', pill: 'bg-blue-100 text-blue-700 border-blue-200',         active: 'bg-blue-600' },
+                      ].map(r => (
+                        <button
+                          key={r.k}
+                          onClick={() => { setActiveTeamRole(prev => prev === r.k ? null : r.k); setActiveTeamUserId(null); }}
+                          data-testid={`cre-team-role-${r.k}`}
+                          className={`px-2.5 py-0.5 text-[11px] rounded-full border transition-colors ${
+                            activeTeamRole === r.k ? `${r.active} text-white border-transparent` : `${r.pill} hover:opacity-80`
+                          }`}
+                        >
+                          {r.label}
+                          <span className={`ml-1 text-[10px] ${activeTeamRole === r.k ? 'opacity-80' : 'text-gray-500'}`}>
+                            ({(teamMap?.roles?.[r.k] || []).length})
+                          </span>
+                        </button>
+                      ))}
+                      {(activeTeamRole || activeTeamUserId) && (
+                        <button
+                          onClick={() => { setActiveTeamRole(null); setActiveTeamUserId(null); }}
+                          className="text-[11px] text-gray-500 hover:text-red-600 ml-1"
+                          data-testid="cre-team-filter-clear"
+                        >Clear</button>
+                      )}
+                    </div>
+                    {activeTeamRole && (
+                      <div className="pt-1.5 border-t flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[11px] text-gray-500 mr-1">Select person:</span>
+                        {(teamMap?.roles?.[activeTeamRole] || []).length === 0 ? (
+                          <span className="text-[11px] text-gray-400 italic">No users in this role</span>
+                        ) : (
+                          teamMap.roles[activeTeamRole].map(u => (
+                            <button
+                              key={u.user_id}
+                              onClick={() => setActiveTeamUserId(prev => prev === u.user_id ? null : u.user_id)}
+                              data-testid={`cre-team-user-${u.user_id}`}
+                              className={`px-2 py-0.5 text-[11px] rounded-full border transition-colors flex items-center gap-1 ${
+                                activeTeamUserId === u.user_id ? 'bg-gray-900 text-white border-transparent' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                              }`}
+                            >
+                              {u.name}
+                              <span className={`text-[9px] px-1 rounded-full ${activeTeamUserId === u.user_id ? 'bg-white/25' : 'bg-gray-100 text-gray-600'}`}>
+                                {u.project_count}
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
 
                   {/* Sub-tabs + Date filter + Search + Delete Selected */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
