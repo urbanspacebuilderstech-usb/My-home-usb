@@ -214,7 +214,11 @@ export default function CREBoard() {
   const [psYear, setPsYear] = useState(todayPS.getFullYear());
   const [psData, setPsData] = useState({ entries: [], summary: {} });
   const [psLoading, setPsLoading] = useState(false);
-  const [psSubTab, setPsSubTab] = useState('pending'); // pending | collected | all
+  const [psSubTab, setPsSubTab] = useState('pending'); // pending | partial | collected | all
+  // Payment Schedule local quick filters (extra to the global date filter)
+  const [psSearch, setPsSearch] = useState('');
+  const [psDateFrom, setPsDateFrom] = useState('');
+  const [psDateTo, setPsDateTo] = useState('');
 
   // Dialogs
   const [createDialog, setCreateDialog] = useState(false);
@@ -1218,9 +1222,26 @@ export default function CREBoard() {
               const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
               const allEntries = psData.entries || [];
               // Apply global date filter to entries (by expected_payment_date)
-              const dateFiltered = (dateRange.from || dateRange.to)
+              const globallyDateFiltered = (dateRange.from || dateRange.to)
                 ? allEntries.filter(e => inDateRange(e.expected_payment_date))
                 : allEntries;
+              // Local search + date filter (PS-specific) layered on top.
+              const localFrom = psDateFrom ? new Date(psDateFrom + 'T00:00:00') : null;
+              const localTo   = psDateTo   ? new Date(psDateTo   + 'T23:59:59.999') : null;
+              const psSearchTerm = (psSearch || '').trim().toLowerCase();
+              const dateFiltered = globallyDateFiltered.filter(e => {
+                if (localFrom || localTo) {
+                  const d = e.expected_payment_date ? new Date(e.expected_payment_date) : null;
+                  if (!d || Number.isNaN(d.getTime())) return false;
+                  if (localFrom && d < localFrom) return false;
+                  if (localTo && d > localTo) return false;
+                }
+                if (psSearchTerm) {
+                  const hay = `${e.project_name || ''} ${e.client_name || ''} ${e.stage_name || ''} ${e.stage_label || ''}`.toLowerCase();
+                  if (!hay.includes(psSearchTerm)) return false;
+                }
+                return true;
+              });
               // Classify each entry as collected vs pending.
               //   Collected when:  (status is paid/collected) OR (workflow_status=collected)
               //                    OR (math says balance ≤ ₹1 — the stage is fully received)
@@ -1282,9 +1303,9 @@ export default function CREBoard() {
                     </CardContent>
                   </Card>
 
-                  {/* Sub-tabs: Pending | Collected | All + Delete Selected button */}
+                  {/* Sub-tabs + Date filter + Search + Delete Selected */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex gap-2 flex-wrap" data-testid="ps-subtabs">
+                    <div className="flex gap-2 flex-wrap items-center" data-testid="ps-subtabs">
                       {[
                         { key: 'pending', label: 'Pending', count: pendingEntries.length, activeBg: 'bg-amber-600', dot: 'bg-red-500' },
                         { key: 'partial', label: 'Partial', count: partialEntries.length, activeBg: 'bg-orange-500', dot: 'bg-red-500' },
@@ -1309,6 +1330,46 @@ export default function CREBoard() {
                           )}
                         </button>
                       ))}
+                      {/* Inline date range filter — sits right next to the tabs */}
+                      <div className="flex items-center gap-1 ml-2" data-testid="ps-date-filter">
+                        <Calendar className="h-3.5 w-3.5 text-gray-400" />
+                        <input
+                          type="date"
+                          value={psDateFrom}
+                          onChange={(e) => setPsDateFrom(e.target.value)}
+                          className="h-8 text-xs border border-gray-200 rounded px-2 bg-white dark:bg-gray-800 dark:border-gray-700"
+                          data-testid="ps-date-from"
+                          aria-label="From date"
+                        />
+                        <span className="text-gray-400 text-xs">→</span>
+                        <input
+                          type="date"
+                          value={psDateTo}
+                          onChange={(e) => setPsDateTo(e.target.value)}
+                          className="h-8 text-xs border border-gray-200 rounded px-2 bg-white dark:bg-gray-800 dark:border-gray-700"
+                          data-testid="ps-date-to"
+                          aria-label="To date"
+                        />
+                        {(psDateFrom || psDateTo) && (
+                          <button
+                            onClick={() => { setPsDateFrom(''); setPsDateTo(''); }}
+                            className="h-8 px-1 text-[10px] text-gray-500 hover:text-red-600"
+                            data-testid="ps-date-clear"
+                          >Clear</button>
+                        )}
+                      </div>
+                      {/* Inline search box — by project / client / stage */}
+                      <div className="relative ml-1">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                        <input
+                          type="text"
+                          value={psSearch}
+                          onChange={(e) => setPsSearch(e.target.value)}
+                          placeholder="Search project, client, stage…"
+                          className="h-8 w-56 pl-7 pr-2 text-xs border border-gray-200 rounded bg-white dark:bg-gray-800 dark:border-gray-700"
+                          data-testid="ps-search"
+                        />
+                      </div>
                     </div>
                     {/* Delete Selected — only renders when at least one row is checked. */}
                     {psSelected.size > 0 && (
