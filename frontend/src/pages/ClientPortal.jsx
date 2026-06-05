@@ -484,72 +484,9 @@ export default function ClientPortal() {
           );
         })()}
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8 print:break-inside-avoid">
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
-                <Wallet className="h-4 w-4" /> Project Value
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-amber-700">₹{((project.total_value || 0) / 100000).toFixed(2)}L</div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
-                <TrendingUp className="h-4 w-4" /> Amount Received
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-700">₹{(totalReceived / 100000).toFixed(2)}L</div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
-                <IndianRupee className="h-4 w-4" /> Balance Due
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-orange-700">₹{(balance / 100000).toFixed(2)}L</div>
-            </CardContent>
-          </Card>
-
-          <Card
-            className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200 cursor-pointer hover:shadow-md transition-shadow"
-            onClick={() => setActiveTab('payments')}
-            data-testid="pending-dues-card"
-          >
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
-                <Clock className="h-4 w-4" /> Pending Dues
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-baseline gap-2">
-                <div className="text-2xl font-bold text-purple-700">{pendingDueCount}</div>
-                <div className="text-xs text-purple-600">/ {paymentStages.length} stages</div>
-              </div>
-              <div className="text-xs text-gray-500 mt-1.5 truncate">
-                {pendingDueCount > 0 ? (
-                  <>
-                    <span className="font-semibold text-purple-700">₹{(balance / 100000).toFixed(2)}L</span> remaining
-                    {nearestDueDate && (
-                      <span className="ml-1 text-purple-600">· next due {nearestDueDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
-                    )}
-                  </>
-                ) : (
-                  <span className="text-emerald-700 font-medium">All payments cleared</span>
-                )}
-              </div>
-              <div className="text-[10px] text-purple-500 mt-1.5 font-medium hover:text-purple-700">View schedule →</div>
-            </CardContent>
-          </Card>
-        </div>
+        {/* Summary Cards removed per client request — keep the top financial
+            strip (Total Project Value / Total Income / Receivable / Pending Dues)
+            and drop the duplicated 4 gradient tiles below it. */}
 
         {/* Construction Stage Progress */}
         {project.construction_stage && (
