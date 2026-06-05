@@ -4234,6 +4234,24 @@ function ProjectSummaryTab({ overview }) {
   const [filteredData, setFilteredData] = useState(null);
   const [fLoading, setFLoading] = useState(false);
 
+  // Team-based filter — pick role, pick a person, see only their projects.
+  const [teamMap, setTeamMap] = useState(null);            // { roles: {role: [{user_id,name,project_ids}]}, total_live_projects }
+  const [activeRole, setActiveRole] = useState(null);       // 'planning_person' | 'site_engineer' | 'project_manager' | 'sr_site_engineer' | null
+  const [activeUserId, setActiveUserId] = useState(null);   // user_id currently filtered by
+
+  useEffect(() => {
+    let cancelled = false;
+    axios.get(`${API}/accountant/team-project-map`)
+      .then(r => { if (!cancelled) setTeamMap(r.data); })
+      .catch(() => { if (!cancelled) setTeamMap(null); });
+    return () => { cancelled = true; };
+  }, []);
+  const allowedProjectIds = (() => {
+    if (!activeRole || !activeUserId || !teamMap) return null;
+    const list = (teamMap.roles?.[activeRole] || []).find(u => u.user_id === activeUserId);
+    return list ? new Set(list.project_ids) : new Set();
+  })();
+
   useEffect(() => {
     let cancelled = false;
     const fetchFiltered = async () => {
@@ -4255,7 +4273,7 @@ function ProjectSummaryTab({ overview }) {
   }, [projDateFrom, projDateTo]);
 
   // Compute project-wise breakdown from filtered data, fallback to overview for initial render
-  const projects = (() => {
+  const projectsRaw = (() => {
     if (!filteredData) return overview?.project_wise || [];
     const map = {};
     (filteredData.income_entries || []).forEach(i => {
@@ -4273,6 +4291,9 @@ function ProjectSummaryTab({ overview }) {
     Object.values(map).forEach(p => { p.balance = p.income - p.expense; });
     return Object.values(map).sort((a, b) => b.income - a.income);
   })();
+  const projects = allowedProjectIds
+    ? projectsRaw.filter(p => allowedProjectIds.has(p.project_id))
+    : projectsRaw;
 
   const totals = filteredData?.summary
     ? { total_income: filteredData.summary.total_income, total_expense: filteredData.summary.total_expense, net_balance: filteredData.summary.net_balance }
@@ -4294,6 +4315,71 @@ function ProjectSummaryTab({ overview }) {
             />
             {fLoading && <RefreshCw className="h-4 w-4 animate-spin text-amber-600" />}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Team filter — pick a role then a person to filter the table below */}
+      <Card data-testid="team-filter-card">
+        <CardContent className="p-3 space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-xs text-gray-500 mr-1">Filter by:</p>
+            {[
+              { k: 'planning_person',  label: 'Planning Person',     pill: 'bg-violet-100 text-violet-700 border-violet-200',   active: 'bg-violet-600' },
+              { k: 'site_engineer',    label: 'Site Engineer',       pill: 'bg-emerald-100 text-emerald-700 border-emerald-200', active: 'bg-emerald-600' },
+              { k: 'project_manager',  label: 'Project Manager',     pill: 'bg-amber-100 text-amber-800 border-amber-200',      active: 'bg-amber-600' },
+              { k: 'sr_site_engineer', label: 'Senior Site Engineer', pill: 'bg-blue-100 text-blue-700 border-blue-200',         active: 'bg-blue-600' },
+            ].map(r => (
+              <button
+                key={r.k}
+                onClick={() => { setActiveRole(prev => prev === r.k ? null : r.k); setActiveUserId(null); }}
+                data-testid={`team-role-${r.k}`}
+                className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                  activeRole === r.k ? `${r.active} text-white border-transparent` : `${r.pill} hover:opacity-80`
+                }`}
+              >
+                {r.label}
+                <span className={`ml-1.5 text-[10px] ${activeRole === r.k ? 'opacity-80' : 'text-gray-500'}`}>
+                  ({(teamMap?.roles?.[r.k] || []).length})
+                </span>
+              </button>
+            ))}
+            {(activeRole || activeUserId) && (
+              <button
+                onClick={() => { setActiveRole(null); setActiveUserId(null); }}
+                className="text-xs text-gray-500 hover:text-red-600 ml-1"
+                data-testid="team-filter-clear"
+              >Clear</button>
+            )}
+          </div>
+          {activeRole && (
+            <div className="pt-2 border-t flex items-center gap-2 flex-wrap">
+              <p className="text-xs text-gray-500 mr-1">Select person:</p>
+              {(teamMap?.roles?.[activeRole] || []).length === 0 ? (
+                <p className="text-xs text-gray-400 italic">No users in this role</p>
+              ) : (
+                (teamMap.roles[activeRole]).map(u => (
+                  <button
+                    key={u.user_id}
+                    onClick={() => setActiveUserId(prev => prev === u.user_id ? null : u.user_id)}
+                    data-testid={`team-user-${u.user_id}`}
+                    className={`px-2.5 py-1 text-xs rounded-full border transition-colors flex items-center gap-1.5 ${
+                      activeUserId === u.user_id ? 'bg-gray-900 text-white border-transparent' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    {u.name}
+                    <span className={`text-[10px] px-1.5 rounded-full ${activeUserId === u.user_id ? 'bg-white/25' : 'bg-gray-100 text-gray-600'}`}>
+                      {u.project_count}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+          {activeUserId && allowedProjectIds && (
+            <p className="text-[11px] text-gray-500 italic">
+              Showing {projects.length} project{projects.length === 1 ? '' : 's'} handled by this person.
+            </p>
+          )}
         </CardContent>
       </Card>
 

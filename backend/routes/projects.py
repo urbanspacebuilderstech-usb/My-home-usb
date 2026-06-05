@@ -185,6 +185,101 @@ async def get_projects(include_deleted: bool = False, planning_person_id: Option
     return projects
 
 
+# Build a {role -> [{user_id, name, project_ids}]} map so the Accountant
+# Project-Wise dashboard can offer a "filter by person" UX (pick role -> pick
+# person -> see only their projects).
+@router.get("/accountant/team-project-map")
+async def get_team_project_map(user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Live (non-deleted) projects only
+    live_projects = await db.projects.find(
+        {"$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]},
+        {"_id": 0, "project_id": 1, "name": 1,
+         "assigned_planning_person_id": 1, "assigned_planning_person_name": 1,
+         "assigned_se": 1, "assigned_se_name": 1},
+    ).to_list(5000)
+
+    # users grouped by role (4 roles asked: planning + site_engineer + project_manager + sr_site_engineer)
+    role_keys = ["planning", "planning_person", "site_engineer", "project_manager", "sr_site_engineer"]
+    users = await db.users.find(
+        {"role": {"$in": role_keys}, "is_active": {"$ne": False}},
+        {"_id": 0, "user_id": 1, "name": 1, "role": 1},
+    ).sort("name", 1).to_list(2000)
+
+    # Project-level direct fields → planning_person, site_engineer
+    planning_projects: Dict[str, List[str]] = {}
+    se_projects: Dict[str, List[str]] = {}
+    for p in live_projects:
+        pid = p["project_id"]
+        pp_uid = p.get("assigned_planning_person_id")
+        if pp_uid:
+            planning_projects.setdefault(pp_uid, []).append(pid)
+        se_uid = p.get("assigned_se")
+        if se_uid:
+            se_projects.setdefault(se_uid, []).append(pid)
+
+    # Site engineer assignments collection — covers PM / Sr SE membership too
+    assignments = await db.site_engineer_assignments.find(
+        {"is_active": True}, {"_id": 0, "project_id": 1, "user_id": 1, "role": 1},
+    ).to_list(10000)
+    assign_role_projects: Dict[str, Dict[str, List[str]]] = {}  # role -> user_id -> [pids]
+    for a in assignments:
+        r = a.get("role") or "site_engineer"
+        uid = a.get("user_id"); pid = a.get("project_id")
+        if not uid or not pid:
+            continue
+        assign_role_projects.setdefault(r, {}).setdefault(uid, []).append(pid)
+
+    def _normalise_role(r: str) -> str:
+        # collapse legacy role names
+        if r in ("planning", "planning_person"):
+            return "planning_person"
+        if r in ("sr_site_engineer", "senior_site_engineer"):
+            return "sr_site_engineer"
+        return r
+
+    out: Dict[str, List[Dict[str, Any]]] = {
+        "planning_person": [],
+        "site_engineer": [],
+        "project_manager": [],
+        "sr_site_engineer": [],
+    }
+    for u in users:
+        norm = _normalise_role(u.get("role"))
+        if norm not in out:
+            continue
+        pids: List[str] = []
+        if norm == "planning_person":
+            pids = planning_projects.get(u["user_id"], [])
+        elif norm == "site_engineer":
+            pids = list(set(
+                se_projects.get(u["user_id"], [])
+                + assign_role_projects.get("site_engineer", {}).get(u["user_id"], [])
+            ))
+        else:
+            pids = assign_role_projects.get(norm, {}).get(u["user_id"], [])
+            # fall back to ANY role assignment for the same user
+            if not pids:
+                pids = [p for role_map in assign_role_projects.values() for p in role_map.get(u["user_id"], [])]
+        out[norm].append({
+            "user_id": u["user_id"],
+            "name": u.get("name") or "(unknown)",
+            "project_ids": pids,
+            "project_count": len(pids),
+        })
+
+    # Sort each role list by project_count desc, then name
+    for role in out:
+        out[role].sort(key=lambda r: (-r["project_count"], r["name"].lower()))
+
+    return {
+        "roles": out,
+        "total_live_projects": len(live_projects),
+    }
+
+
 @router.post("/projects")
 async def create_project(project: Project, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
