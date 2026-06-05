@@ -9116,12 +9116,12 @@ export default function ProjectDetail() {
                             </div>
                           </div>
                           <Tabs defaultValue="scope" className="w-full">
-                            <TabsList className="w-full rounded-none border-b bg-white">
-                              <TabsTrigger value="scope" className="flex-1 text-xs">Scope ({wo.scope_items?.length || 0})</TabsTrigger>
-                              <TabsTrigger value="stages" className="flex-1 text-xs">Stages ({wo.stages?.length || 0})</TabsTrigger>
-                              <TabsTrigger value="additional" className="flex-1 text-xs">Additional ({wo.additional_work?.length || 0})</TabsTrigger>
-                              <TabsTrigger value="dlr" className="flex-1 text-xs" data-testid="wo-dlr-tab">DLR</TabsTrigger>
-                              <TabsTrigger value="rab" className="flex-1 text-xs" data-testid="wo-rab-tab">RAB</TabsTrigger>
+                            <TabsList className="w-full rounded-none border-b bg-white h-auto p-0 gap-0">
+                              <TabsTrigger value="scope" className="flex-1 text-xs rounded-none border-b-2 border-transparent data-[state=active]:bg-violet-50 data-[state=active]:text-violet-700 data-[state=active]:border-violet-600 data-[state=active]:font-semibold data-[state=active]:shadow-none py-2.5">Scope ({wo.scope_items?.length || 0})</TabsTrigger>
+                              <TabsTrigger value="stages" className="flex-1 text-xs rounded-none border-b-2 border-transparent data-[state=active]:bg-violet-50 data-[state=active]:text-violet-700 data-[state=active]:border-violet-600 data-[state=active]:font-semibold data-[state=active]:shadow-none py-2.5">Stages ({wo.stages?.length || 0})</TabsTrigger>
+                              <TabsTrigger value="additional" className="flex-1 text-xs rounded-none border-b-2 border-transparent data-[state=active]:bg-violet-50 data-[state=active]:text-violet-700 data-[state=active]:border-violet-600 data-[state=active]:font-semibold data-[state=active]:shadow-none py-2.5">Additional ({wo.additional_work?.length || 0})</TabsTrigger>
+                              <TabsTrigger value="dlr" className="flex-1 text-xs rounded-none border-b-2 border-transparent data-[state=active]:bg-violet-50 data-[state=active]:text-violet-700 data-[state=active]:border-violet-600 data-[state=active]:font-semibold data-[state=active]:shadow-none py-2.5" data-testid="wo-dlr-tab">DLR</TabsTrigger>
+                              <TabsTrigger value="rab" className="flex-1 text-xs rounded-none border-b-2 border-transparent data-[state=active]:bg-violet-50 data-[state=active]:text-violet-700 data-[state=active]:border-violet-600 data-[state=active]:font-semibold data-[state=active]:shadow-none py-2.5" data-testid="wo-rab-tab">RAB</TabsTrigger>
                             </TabsList>
                             <TabsContent value="scope" className="p-3">
                               {wo.scope_items?.length > 0 ? (
@@ -10259,12 +10259,12 @@ export default function ProjectDetail() {
                                 </div>
                               </div>
                               <Tabs defaultValue="scope" className="w-full">
-                                <TabsList className="w-full rounded-none border-b bg-white">
-                                  <TabsTrigger value="scope" className="flex-1 text-xs">Scope ({wo.scope_items?.length || 0})</TabsTrigger>
-                                  <TabsTrigger value="stages" className="flex-1 text-xs">Stages ({wo.stages?.length || 0})</TabsTrigger>
-                                  <TabsTrigger value="additional" className="flex-1 text-xs">Additional ({wo.additional_work?.length || 0})</TabsTrigger>
-                                  <TabsTrigger value="dlr" className="flex-1 text-xs" data-testid="labour-wo-dlr-tab">DLR</TabsTrigger>
-                                  <TabsTrigger value="rab" className="flex-1 text-xs" data-testid="labour-wo-rab-tab">RAB</TabsTrigger>
+                                <TabsList className="w-full rounded-none border-b bg-white h-auto p-0 gap-0">
+                                  <TabsTrigger value="scope" className="flex-1 text-xs rounded-none border-b-2 border-transparent data-[state=active]:bg-violet-50 data-[state=active]:text-violet-700 data-[state=active]:border-violet-600 data-[state=active]:font-semibold data-[state=active]:shadow-none py-2.5">Scope ({wo.scope_items?.length || 0})</TabsTrigger>
+                                  <TabsTrigger value="stages" className="flex-1 text-xs rounded-none border-b-2 border-transparent data-[state=active]:bg-violet-50 data-[state=active]:text-violet-700 data-[state=active]:border-violet-600 data-[state=active]:font-semibold data-[state=active]:shadow-none py-2.5">Stages ({wo.stages?.length || 0})</TabsTrigger>
+                                  <TabsTrigger value="additional" className="flex-1 text-xs rounded-none border-b-2 border-transparent data-[state=active]:bg-violet-50 data-[state=active]:text-violet-700 data-[state=active]:border-violet-600 data-[state=active]:font-semibold data-[state=active]:shadow-none py-2.5">Additional ({wo.additional_work?.length || 0})</TabsTrigger>
+                                  <TabsTrigger value="dlr" className="flex-1 text-xs rounded-none border-b-2 border-transparent data-[state=active]:bg-violet-50 data-[state=active]:text-violet-700 data-[state=active]:border-violet-600 data-[state=active]:font-semibold data-[state=active]:shadow-none py-2.5" data-testid="labour-wo-dlr-tab">DLR</TabsTrigger>
+                                  <TabsTrigger value="rab" className="flex-1 text-xs rounded-none border-b-2 border-transparent data-[state=active]:bg-violet-50 data-[state=active]:text-violet-700 data-[state=active]:border-violet-600 data-[state=active]:font-semibold data-[state=active]:shadow-none py-2.5" data-testid="labour-wo-rab-tab">RAB</TabsTrigger>
                                 </TabsList>
                                 <TabsContent value="scope" className="p-3">
                                   {wo.scope_items?.length > 0 ? (
