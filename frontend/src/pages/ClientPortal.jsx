@@ -487,7 +487,7 @@ export default function ClientPortal() {
             </div>
           );
           return (
-            <div className="grid grid-cols-1 lg:grid-cols-7 gap-3 mb-6 items-stretch" data-testid="client-project-summary">
+            <div className="grid grid-cols-1 lg:grid-cols-6 gap-3 mb-6 items-stretch" data-testid="client-project-summary">
               {/* Section 1 — Project Value Calculation (4 cards) */}
               <SectionBox
                 title="Project Value Calculation"
@@ -515,30 +515,9 @@ export default function ClientPortal() {
                   {card('Receivable',   receivable,  'bg-white border-orange-200 hover:border-orange-300',   'client-proj-receivable',  { valueClass: 'text-orange-700' })}
                 </div>
               </SectionBox>
-
-              {/* Section 3 — Pending Dues (1 card, click to view list) */}
-              <SectionBox
-                title="Pending Dues"
-                accent={{ border: 'border-red-200', bg: 'bg-gradient-to-br from-red-50/60 to-red-50/20', text: 'text-red-700' }}
-                testid="client-section-pending-dues"
-                colSpan="lg:col-span-1"
-              >
-                <button
-                  type="button"
-                  onClick={() => setPendingDuesDialog({ open: true })}
-                  className="w-full text-left rounded-lg border bg-white border-red-200 hover:border-red-400 hover:shadow-md transition-all p-2.5 sm:p-3 group cursor-pointer"
-                  data-testid="client-proj-dues-trigger"
-                >
-                  <p className="text-[10px] uppercase tracking-wide font-medium text-gray-500 truncate flex items-center gap-1">
-                    Pending Dues
-                    <span className="text-red-500 group-hover:translate-x-0.5 transition-transform">→</span>
-                  </p>
-                  <p className="text-sm sm:text-base lg:text-lg font-bold mt-1 text-red-700">
-                    ₹{(pendingDues || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                  </p>
-                  <p className="text-[10px] text-red-500 mt-0.5 group-hover:text-red-700">Click to view list</p>
-                </button>
-              </SectionBox>
+              {/* Pending Dues section removed from the top strip — it now lives
+                  inside the Financial Summary card below, with the same
+                  click-to-view-list behaviour. */}
             </div>
           );
         })()}
