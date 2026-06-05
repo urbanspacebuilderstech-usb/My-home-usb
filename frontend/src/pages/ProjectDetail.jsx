@@ -74,6 +74,7 @@ import { UnitSelect } from '../components/UnitSelect';
 import { SortableList, SortableTableRow, DragHandle } from '../components/SortableList';
 import DLRPanel from '../components/DLRPanel';
 import ProjectAttendanceDLR from '../components/ProjectAttendanceDLR';
+import { RABDetailDialog } from '../components/RABDetailDialog';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -1162,6 +1163,8 @@ export default function ProjectDetail() {
 
   // Work Orders
   const [workOrders, setWorkOrders] = useState([]);
+  // RAB chain View popup — opened from Work Order rows + RAB approval queues.
+  const [rabView, setRabView] = useState({ open: false, projectId: null, workOrderId: null, requestId: null });
   const [woDialog, setWoDialog] = useState(false);
   const [editingWo, setEditingWo] = useState(null);
   const [woViewId, setWoViewId] = useState(null);
@@ -9272,6 +9275,15 @@ export default function ProjectDetail() {
                               </>
                             )}
                             {wo.status === 'frozen' && <Lock className="h-4 w-4 text-red-400" />}
+                            {/* View RAB ladder — popup with every RAB raised on this WO. */}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-violet-600 hover:text-violet-800 hover:bg-violet-50"
+                              onClick={() => setRabView({ open: true, projectId, workOrderId: wo.work_order_id, requestId: null })}
+                              title="View RAB chain"
+                              data-testid={`wo-view-rab-${wo.work_order_id}`}
+                            ><Eye className="h-3.5 w-3.5" /></Button>
                             </div>
                           </div>
                         </div>
@@ -10453,6 +10465,14 @@ export default function ProjectDetail() {
                                     <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeleteWo(wo)}><Trash2 className="h-3.5 w-3.5" /></Button>
                                   </>
                                 )}
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0 text-violet-600 hover:text-violet-800 hover:bg-violet-50"
+                                  onClick={() => setRabView({ open: true, projectId, workOrderId: wo.work_order_id, requestId: null })}
+                                  title="View RAB chain"
+                                  data-testid={`labour-wo-view-rab-${wo.work_order_id}`}
+                                ><Eye className="h-3.5 w-3.5" /></Button>
                               </div>
                             </div>
                           </div>);
@@ -11726,6 +11746,15 @@ export default function ProjectDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* RAB chain detail popup — surfaced from every Work Order row. */}
+      <RABDetailDialog
+        open={rabView.open}
+        onOpenChange={(o) => setRabView(v => ({ ...v, open: o }))}
+        projectId={rabView.projectId}
+        workOrderId={rabView.workOrderId}
+        highlightRequestId={rabView.requestId}
+      />
     </div>
   );
 }

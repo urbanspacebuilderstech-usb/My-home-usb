@@ -7938,6 +7938,103 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
     return {"message": "Payment requested successfully", "request_id": payment_req["request_id"], "rab_number": rab_number}
 
 
+@router.get("/projects/{project_id}/work-orders/{work_order_id}/rab-chain")
+async def wo_rab_chain(project_id: str, work_order_id: str, user: User = Depends(get_current_user)):
+    """Return the full RAB ladder for a work order so the View popup can show:
+       header   – vendor / WO / contract total + balance overall
+       per RAB  – number, stage name, requested + released amount, status,
+                  full approval timeline (SE → PM → QC → Planning → Accountant)
+                  and the running closing balance AFTER that RAB cleared.
+
+    Includes ALL payment_requests across every stage of the WO, sorted by
+    requested_at so the chronological RAB-01, RAB-02, ... ladder is intact.
+    """
+    wo = await db.project_work_orders.find_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"_id": 0},
+    )
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
+
+    # Walk every stage's payment_requests and flatten with stage context
+    flat = []
+    for stg in (wo.get("stages") or []):
+        stage_name = stg.get("stage_name") or stg.get("title") or "Stage"
+        stage_amount = float(stg.get("amount") or 0)
+        for pr in (stg.get("payment_requests") or []):
+            flat.append({
+                "stage_id": stg.get("stage_id"),
+                "stage_name": stage_name,
+                "stage_amount": stage_amount,
+                **pr,
+            })
+
+    # Sort chronologically — the rab_number suffix matches insertion order.
+    def _sort_key(r):
+        return str(r.get("requested_at") or "")
+    flat.sort(key=_sort_key)
+
+    contract_total = float(wo.get("total_amount") or wo.get("amount") or sum(
+        float(s.get("amount") or 0) for s in (wo.get("stages") or [])
+    ))
+
+    rabs = []
+    cumulative_released = 0.0
+    for r in flat:
+        released = float(r.get("approved_amount") or 0)
+        requested = float(r.get("amount") or 0)
+        status = r.get("status") or "requested"
+        # Closing balance is computed only on approved RABs — pending requests
+        # don't move the meter until the Accountant releases.
+        if status == "approved":
+            cumulative_released += released
+        closing_balance = contract_total - cumulative_released
+        rabs.append({
+            "request_id": r.get("request_id"),
+            "rab_number": r.get("rab_number") or "",
+            "stage_id": r.get("stage_id"),
+            "stage_name": r.get("stage_name"),
+            "stage_amount": r.get("stage_amount"),
+            "requested_amount": requested,
+            "approved_amount": released,
+            "status": status,
+            "notes": r.get("notes") or "",
+            "dlr_summary": r.get("dlr_summary") or "",
+            "rejection_reason": r.get("rejection_reason"),
+            "rejected_by_role": r.get("rejected_by_role"),
+            "rejected_by_name": r.get("rejected_by_name"),
+            "rejected_at": r.get("rejected_at"),
+            "se_exceeds_balance": r.get("se_exceeds_balance", False),
+            "timeline": [
+                {"role": "Site Engineer", "name": r.get("requested_by_name"), "at": r.get("requested_at"), "notes": r.get("notes") or ""},
+                {"role": "PM",            "name": r.get("pm_approved_by_name"), "at": r.get("pm_approved_at"), "notes": r.get("pm_notes") or ""},
+                {"role": "QC",            "name": r.get("qc_approved_by_name"), "at": r.get("qc_approved_at"), "notes": r.get("qc_notes") or ""},
+                {"role": "Planning",      "name": r.get("planning_approved_by_name"), "at": r.get("planning_approved_at"), "notes": r.get("planning_notes") or ""},
+                {"role": "Accountant",    "name": r.get("released_by_name") or r.get("accountant_approved_by_name"), "at": r.get("released_at") or r.get("accountant_approved_at"), "notes": r.get("release_notes") or ""},
+            ],
+            "released_at": r.get("released_at"),
+            "cumulative_released_after": round(cumulative_released, 2),
+            "closing_balance_after": round(closing_balance, 2),
+        })
+
+    return {
+        "project_id": project_id,
+        "project_name": (project or {}).get("name", ""),
+        "work_order_id": work_order_id,
+        "work_order_number": wo.get("work_order_number") or "",
+        "contractor_id": wo.get("contractor_id"),
+        "contractor_name": wo.get("contractor_name") or "",
+        "scope_of_work": wo.get("scope_of_work") or wo.get("description") or "",
+        "contract_total": round(contract_total, 2),
+        "total_released": round(cumulative_released, 2),
+        "balance_after_all": round(contract_total - cumulative_released, 2),
+        "rab_count": len(rabs),
+        "rabs": rabs,
+    }
+
+
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/finish")
 async def wo_finish_stage(project_id: str, work_order_id: str, stage_id: str, data: dict, user: User = Depends(get_current_user)):
     """Site Engineer marks a stage's WORK as complete with remarks.

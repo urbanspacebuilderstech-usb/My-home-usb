@@ -16,7 +16,8 @@ import { Textarea } from './ui/textarea';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
-import { Banknote, CheckCircle, XCircle, Clock, FileText, Building2, User as UserIcon, Hammer, AlertTriangle, Send } from 'lucide-react';
+import { Banknote, CheckCircle, XCircle, Clock, FileText, Building2, User as UserIcon, Hammer, AlertTriangle, Send, Eye } from 'lucide-react';
+import { RABDetailDialog } from './RABDetailDialog';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (v) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(v || 0);
@@ -37,6 +38,7 @@ export default function RABApprovalQueue({ role, title }) {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('new'); // 'new' | 'forwarded'
   const [decisionDialog, setDecisionDialog] = useState({ open: false, item: null, mode: 'approve', notes: '', reason: '' });
+  const [rabView, setRabView] = useState({ open: false, projectId: null, workOrderId: null, requestId: null });
   const [busy, setBusy] = useState(false);
 
   const fetchItems = useCallback(async () => {
@@ -167,6 +169,13 @@ export default function RABApprovalQueue({ role, title }) {
                 <div className="flex gap-2 pt-1">
                   <Button
                     size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => setRabView({ open: true, projectId: item.project_id, workOrderId: item.work_order_id, requestId: item.request_id })}
+                    data-testid={`rab-view-${item.request_id}`}
+                  ><Eye className="h-3 w-3 mr-1" /> View</Button>
+                  <Button
+                    size="sm"
                     className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700"
                     onClick={() => setDecisionDialog({ open: true, item, mode: 'approve', notes: '', reason: '' })}
                     data-testid={`rab-approve-${item.request_id}`}
@@ -181,9 +190,18 @@ export default function RABApprovalQueue({ role, title }) {
                 </div>
               )}
               {view === 'forwarded' && (
-                <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">
-                  <Send className="h-2.5 w-2.5 mr-0.5" /> With {cfg.nextRole}
-                </Badge>
+                <div className="flex items-center gap-2 pt-1">
+                  <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">
+                    <Send className="h-2.5 w-2.5 mr-0.5" /> With {cfg.nextRole}
+                  </Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => setRabView({ open: true, projectId: item.project_id, workOrderId: item.work_order_id, requestId: item.request_id })}
+                    data-testid={`rab-view-fw-${item.request_id}`}
+                  ><Eye className="h-3 w-3 mr-1" /> View RAB</Button>
+                </div>
               )}
             </div>
           ))
@@ -244,6 +262,15 @@ export default function RABApprovalQueue({ role, title }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* RAB detail popup — same dialog used from Project Detail Work Orders. */}
+      <RABDetailDialog
+        open={rabView.open}
+        onOpenChange={(o) => setRabView(v => ({ ...v, open: o }))}
+        projectId={rabView.projectId}
+        workOrderId={rabView.workOrderId}
+        highlightRequestId={rabView.requestId}
+      />
     </Card>
   );
 }
