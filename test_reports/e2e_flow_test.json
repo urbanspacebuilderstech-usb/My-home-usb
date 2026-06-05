@@ -1,8 +1,8 @@
 {
-  "total": 31,
-  "passed": 31,
-  "failed": 0,
-  "rate": "100%",
+  "total": 30,
+  "passed": 20,
+  "failed": 10,
+  "rate": "67%",
   "results": [
     {
       "step": "Login Pre-Sales",
@@ -42,27 +42,27 @@
     {
       "step": "1. Create Pre-Sales Lead",
       "status": "PASS",
-      "detail": "Lead ID: lead_f3da3477b845"
+      "detail": "Lead ID: lead_681ac1e7879e"
     },
     {
       "step": "2. Auto-Transfer to Sales",
       "status": "PASS",
-      "detail": "Sales Lead: lead_ae1ad0a3d8c9"
+      "detail": "Sales Lead: lead_0877ed6847b1"
     },
     {
       "step": "2. Pre-Sales Complete",
       "status": "PASS",
-      "detail": "Sales Lead: lead_ae1ad0a3d8c9"
+      "detail": "Sales Lead: lead_0877ed6847b1"
     },
     {
       "step": "3. Auto-Create RE Project",
       "status": "PASS",
-      "detail": "RE ID: re_f225bf533914"
+      "detail": "RE ID: re_b1739345265a"
     },
     {
       "step": "3. Sales to RE Request",
       "status": "PASS",
-      "detail": "RE Project: re_f225bf533914"
+      "detail": "RE Project: re_b1739345265a"
     },
     {
       "step": "4a. Update RE Project",
@@ -82,67 +82,62 @@
     {
       "step": "6. Deal Closed \u2192 Project",
       "status": "PASS",
-      "detail": "Project ID: proj_5dc2f3fe349d"
+      "detail": "Project ID: None"
+    },
+    {
+      "step": "6x. Fallback project fetch",
+      "status": "FAIL",
+      "detail": "Project: None"
     },
     {
       "step": "7. Verify Project",
-      "status": "PASS",
-      "detail": "Name: E2E Villa - Hyderabad, Status: planning, Value: 5000000.0"
+      "status": "FAIL",
+      "detail": "{\"detail\":\"Project not found\"}"
     },
     {
       "step": "8. Add Scope: Foundation",
-      "status": "PASS",
-      "detail": "Rate: 800000"
+      "status": "FAIL",
+      "detail": "{\"detail\":[{\"type\":\"string_type\",\"loc\":[\"body\",\"project_id\"],\"msg\":\"Input should be a valid string\","
     },
     {
       "step": "8. Add Scope: Super Structure",
-      "status": "PASS",
-      "detail": "Rate: 2200000"
+      "status": "FAIL",
+      "detail": "{\"detail\":[{\"type\":\"string_type\",\"loc\":[\"body\",\"project_id\"],\"msg\":\"Input should be a valid string\","
     },
     {
       "step": "8. Add Scope: Finishing",
-      "status": "PASS",
-      "detail": "Rate: 2000000"
+      "status": "FAIL",
+      "detail": "{\"detail\":[{\"type\":\"string_type\",\"loc\":[\"body\",\"project_id\"],\"msg\":\"Input should be a valid string\","
     },
     {
       "step": "9. Assign SE to Project",
-      "status": "PASS",
-      "detail": "SE assigned"
+      "status": "FAIL",
+      "detail": "{\"detail\":[{\"type\":\"string_type\",\"loc\":[\"body\",\"project_id\"],\"msg\":\"Input should be a valid string\","
     },
     {
       "step": "10a. Get/Create Material",
       "status": "PASS",
-      "detail": "Material: mat_24b1af7cad62"
+      "detail": "Material: mat_fabdb1ee14"
     },
     {
       "step": "10b. Create Material Request",
-      "status": "PASS",
-      "detail": "Request: mreq_56d9d656f0d4"
-    },
-    {
-      "step": "11. Planning Approve Material",
-      "status": "PASS",
-      "detail": "Approved"
-    },
-    {
-      "step": "12. Accountant Approve Material",
-      "status": "PASS",
-      "detail": "Payment approved"
+      "status": "FAIL",
+      "detail": "{\"detail\":[{\"type\":\"string_type\",\"loc\":[\"body\",\"project_id\"],\"msg\":\"Input should be a valid string\","
     },
     {
       "step": "13. Petty Cash Request",
       "status": "PASS",
-      "detail": "PC ID: pc_a23ca81009cd"
+      "detail": "PC ID: pc_1dd2a2743501"
     },
     {
       "step": "14. Issue Petty Cash",
-      "status": "PASS",
-      "detail": "5000 issued"
+      "status": "FAIL",
+      "detail": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\"],\"msg\":\"Field required\",\"input\":null,\"url\":\"https://error"
     },
     {
       "step": "15. Record PC Expense",
-      "status": "PASS",
-      "detail": "3000 spent"
+      "status": "FAIL",
+      "detail": "{\"detail\":\"Petty cash must be issued before recording expenses\"}"
     },
     {
       "step": "16. Submit PC Settlement",
@@ -156,8 +151,8 @@
     },
     {
       "step": "18. Final Project State",
-      "status": "PASS",
-      "detail": "Name: E2E Villa - Hyderabad, Status: planning, Value: 5000000.0, Expense: 0"
+      "status": "FAIL",
+      "detail": "{\"detail\":\"Project not found\"}"
     }
   ]
 }

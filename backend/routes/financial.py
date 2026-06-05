@@ -2099,7 +2099,27 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
         if sname.startswith("rab-") or sname.startswith("rab "):
             return True
         return False
-    payment_stages = [s for s in payment_stages if not _is_vendor_or_labour_row(s)]
+
+    # Additional-cost driven payment_stages (created when "Req Payment" is
+    # clicked on an Additional Work row) live in payment_stages for income
+    # tracking but must NOT pollute the milestone Payment Schedule — they
+    # belong to the Additions tab. Excluding them here keeps the backend
+    # `payment_schedule_total` / `payment_received` aligned with the rows
+    # the frontend actually renders (which already filters is_addition).
+    def _is_addition_row(s):
+        if s.get("is_addition") is True:
+            return True
+        if s.get("linked_addition_id"):
+            return True
+        sname = (s.get("stage_name") or "")
+        if sname.startswith("Additional:") or sname.startswith("Additional Work"):
+            return True
+        return False
+
+    payment_stages = [
+        s for s in payment_stages
+        if not _is_vendor_or_labour_row(s) and not _is_addition_row(s)
+    ]
 
     for stage in payment_stages:
         if isinstance(stage.get("due_date"), str):
