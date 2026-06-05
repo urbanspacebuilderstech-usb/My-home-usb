@@ -726,6 +726,53 @@ export default function ClientPortal() {
                     </div>
                   </div>
 
+                  {/* Pending Dues — click to open the overdue list dialog. */}
+                  {(() => {
+                    const todayIso = new Date().toISOString().slice(0, 10);
+                    const overdueStages = (paymentStages || []).filter(st => {
+                      const bal = (st.amount || 0) - (st.amount_received || 0);
+                      if (bal <= 0.5) return false;
+                      const d = st.expected_payment_date || st.due_date;
+                      return d && d < todayIso;
+                    });
+                    const overdueAmt = overdueStages.reduce(
+                      (s, st) => s + ((st.amount || 0) - (st.amount_received || 0)),
+                      0
+                    );
+                    const overdueCount = overdueStages.length;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setPendingDuesDialog({ open: true })}
+                        className="w-full text-left flex items-center justify-between rounded-xl bg-white border border-red-200 hover:border-red-400 hover:shadow-md transition-all px-3 py-3 mb-3 group"
+                        data-testid="financial-summary-pending-dues"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
+                            <Clock className="h-4 w-4 text-red-600" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs text-gray-500 flex items-center gap-1">
+                              Pending Dues
+                              <span className="text-red-500 group-hover:translate-x-0.5 transition-transform">→</span>
+                            </p>
+                            <p className="text-sm font-bold text-red-700 truncate">
+                              ₹{(overdueAmt || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                              {overdueCount > 0 && (
+                                <span className="ml-1 text-[11px] font-normal text-gray-500">
+                                  · {overdueCount} overdue
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        <Badge className={`shrink-0 font-semibold ${overdueCount > 0 ? 'bg-red-100 text-red-700 border-red-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
+                          {overdueCount > 0 ? `${overdueCount}` : 'All clear'}
+                        </Badge>
+                      </button>
+                    );
+                  })()}
+
                   {/* Milestones summary */}
                   <div className="flex items-center justify-between rounded-xl bg-white border border-gray-200 px-3 py-3">
                     <div className="flex items-center gap-2">
