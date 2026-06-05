@@ -901,9 +901,18 @@ export default function CREBoard() {
                   ) : null,
                 };
                 // Use wfMenus order if loaded; otherwise fall back to default order.
-                const ordered = (wfMenus && wfMenus.length > 0)
+                let ordered = (wfMenus && wfMenus.length > 0)
                   ? wfMenus.filter(m => m.enabled).map(m => m.key)
                   : ['payment_schedule', 'final_estimate', 'pre_construction', 'cheques', 'dt_requests', 'additional_costs', 'all_projects', 'income'];
+                // Force-include optional tabs when Super Admin has toggled them
+                // ON globally — the per-user workflow menu config may not include
+                // newer keys yet, so we must merge instead of relying solely on it.
+                if (showAllProjectsTab && !ordered.includes('all_projects')) {
+                  ordered = [...ordered, 'all_projects'];
+                }
+                if (showIncomeTab && !ordered.includes('income')) {
+                  ordered = [...ordered, 'income'];
+                }
                 return ordered.map(k => ALL_TAB_DEFS[k]?.()).filter(Boolean);
               })()}
             </TabsList>
