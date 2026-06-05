@@ -119,15 +119,39 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
                     className="rounded-lg border border-violet-300 bg-white p-3 transition-all"
                     data-testid={`rab-card-${rab.rab_number || rab.request_id}`}
                   >
-                    {/* RAB header */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-gray-100">
-                      <div className="flex items-center gap-2">
+                    {/* RAB header — invoice-style: title left, dates right */}
+                    <div className="flex flex-wrap items-start justify-between gap-3 mb-2 pb-2 border-b border-gray-100">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <Badge className="bg-violet-600 text-white border-violet-700 font-bold px-2 py-0.5 text-xs">
                           {rab.rab_number}
                         </Badge>
                         <span className="text-xs font-semibold text-gray-900">{rab.stage_name}</span>
                         <Badge className={`border text-[10px] ${st.cls}`}>{st.label}</Badge>
                       </div>
+                      {/* Invoice-style dates block: aligned to the right, label
+                          above value, with both dates stacked. Released is
+                          shown only when this RAB is actually released. */}
+                      <div className="flex flex-col items-end text-[10px] leading-tight">
+                        {(() => {
+                          const reqAt = rab.timeline?.[0]?.at;
+                          return reqAt ? (
+                            <div className="text-right">
+                              <span className="text-gray-500 uppercase tracking-wider font-medium">Requested</span>
+                              <p className="text-gray-900 font-semibold text-xs">{fmtDate(reqAt)}</p>
+                            </div>
+                          ) : null;
+                        })()}
+                        {rab.released_at && (
+                          <div className="text-right mt-1">
+                            <span className="text-emerald-600 uppercase tracking-wider font-medium">Released</span>
+                            <p className="text-emerald-700 font-bold text-xs">{fmtDate(rab.released_at)}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Download button row */}
+                    <div className="flex justify-end mb-2">
                       <Button
                         variant="outline"
                         size="sm"
