@@ -1048,26 +1048,39 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
 
     # Income entries (read-only, dates + amounts only — no internal fields)
     raw_income = await db.income.find({"project_id": project_id}, {"_id": 0}).sort("payment_date", -1).to_list(1000)
+    # Pre-fetch the stage map so we can tag each income as belonging to the
+    # main milestone schedule OR an Additional Work line.
+    addition_stage_ids = set()
+    raw_stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0, "stage_id": 1, "is_addition": 1, "linked_addition_id": 1, "stage_name": 1}).to_list(2000)
+    for st in raw_stages:
+        sname = st.get("stage_name") or ""
+        if st.get("is_addition") is True or st.get("linked_addition_id") or sname.startswith("Additional:") or sname.startswith("Additional Work"):
+            addition_stage_ids.add(st.get("stage_id"))
+
     income_entries = []
     total_income = 0.0
-    # Only count "approved" rows in the total. Rejected / bounced / pending
-    # rows still appear in the list (with their status) so the client knows
-    # what was raised but reverted.
     APPROVED_STATES = {"approved", "received", "verified"}
     for e in raw_income:
         amt = float(e.get("amount", 0) or 0)
         status = (e.get("status") or "approved").lower()
         if status in APPROVED_STATES:
             total_income += amt
+        # An income is "Direct Transfer" (Additional Work payment) when it's
+        # attached to an Additional-stage OR its description carries the
+        # "Additional:" tag from the bulk collection notes.
+        desc = e.get("description") or e.get("notes") or ""
+        psid = e.get("payment_stage_id")
+        is_additional = (psid in addition_stage_ids) or ("Additional:" in desc) or ("Additional Work" in desc)
         income_entries.append({
             "income_id": e.get("income_id"),
             "payment_date": e.get("payment_date"),
             "amount": amt,
             "payment_mode": e.get("payment_mode") or "",
-            "description": e.get("description") or e.get("notes") or "",
+            "description": desc,
             "category": e.get("category") or "",
             "status": status,
             "reference": e.get("reference") or e.get("transaction_reference") or "",
+            "is_additional": is_additional,
         })
 
     # Final estimate scope (scope_items already in result) - normalize legacy field names so frontend reads consistently

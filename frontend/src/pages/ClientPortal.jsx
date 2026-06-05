@@ -1156,7 +1156,6 @@ export default function ClientPortal() {
               </div>
               {(() => {
                 const entries = projectData?.income_entries || [];
-                const totalIn = projectData?.total_income || 0;
                 if (entries.length === 0) {
                   return (
                     <div className="text-center py-16">
@@ -1176,21 +1175,18 @@ export default function ClientPortal() {
                   rejected:           { label: 'Rejected',         cls: 'bg-red-100 text-red-700 border-red-200' },
                   accountant_rejected:{ label: 'Rejected',         cls: 'bg-red-100 text-red-700 border-red-200' },
                 };
-                return (
-                  <>
-                    <div className="px-4 sm:px-6 py-4 border-b bg-gradient-to-r from-emerald-50/40 to-white">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-xs text-emerald-700 font-semibold uppercase tracking-wide">Total Approved Income</p>
-                          <p className="text-2xl font-bold text-emerald-700 mt-0.5">₹{totalIn.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Entries</p>
-                          <p className="text-2xl font-bold text-gray-900 mt-0.5">{entries.length}</p>
-                        </div>
-                      </div>
+                const APPROVED = new Set(['approved', 'received', 'verified']);
+                const mainEntries = entries.filter(e => !e.is_additional);
+                const additionalEntries = entries.filter(e => e.is_additional);
+                const sumApproved = (list) => list.reduce((s, e) => s + (APPROVED.has(e.status) ? (e.amount || 0) : 0), 0);
+                const renderTable = (list, kind) => (
+                  list.length === 0 ? (
+                    <div className="text-center py-12">
+                      <Receipt className="h-10 w-10 mx-auto text-gray-300 mb-2" />
+                      <p className="text-gray-500 text-sm">No {kind === 'main' ? 'main income' : 'direct-transfer'} entries yet.</p>
                     </div>
-                    <div className="overflow-x-auto" data-testid="cp-income-table">
+                  ) : (
+                    <div className="overflow-x-auto" data-testid={`cp-income-table-${kind}`}>
                       <table className="w-full text-sm">
                         <thead className="bg-gray-50 border-b border-gray-200">
                           <tr>
@@ -1203,7 +1199,7 @@ export default function ClientPortal() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                          {entries.map((inc, idx) => {
+                          {list.map((inc, idx) => {
                             const st = STATUS_STYLES[inc.status] || { label: (inc.status || 'Unknown').replace(/_/g, ' '), cls: 'bg-gray-100 text-gray-700 border-gray-200' };
                             const d = inc.payment_date ? new Date(inc.payment_date) : null;
                             return (
@@ -1229,7 +1225,75 @@ export default function ClientPortal() {
                         </tbody>
                       </table>
                     </div>
-                  </>
+                  )
+                );
+                return (
+                  <Tabs defaultValue="main_income" className="w-full">
+                    <div className="px-4 sm:px-6 pt-4 border-b bg-gradient-to-r from-emerald-50/40 to-white">
+                      <TabsList className="bg-transparent p-0 h-auto gap-2 mb-3">
+                        <TabsTrigger
+                          value="main_income"
+                          data-testid="cp-income-subtab-main"
+                          className="
+                            gap-2 px-4 py-2 text-xs sm:text-sm font-medium
+                            rounded-lg border border-transparent
+                            text-gray-600 bg-transparent
+                            hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-100
+                            data-[state=active]:bg-emerald-600 data-[state=active]:text-white
+                            data-[state=active]:border-emerald-700 data-[state=active]:shadow-md
+                            transition-all
+                          "
+                        >
+                          <Receipt className="h-4 w-4" />
+                          Main Income
+                          <Badge className="ml-1 bg-white/20 text-current border-0 text-[10px]">{mainEntries.length}</Badge>
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="direct_transfer"
+                          data-testid="cp-income-subtab-direct"
+                          className="
+                            gap-2 px-4 py-2 text-xs sm:text-sm font-medium
+                            rounded-lg border border-transparent
+                            text-gray-600 bg-transparent
+                            hover:bg-cyan-50 hover:text-cyan-700 hover:border-cyan-100
+                            data-[state=active]:bg-cyan-600 data-[state=active]:text-white
+                            data-[state=active]:border-cyan-700 data-[state=active]:shadow-md
+                            transition-all
+                          "
+                        >
+                          <ArrowRight className="h-4 w-4" />
+                          Direct Transfer
+                          <Badge className="ml-1 bg-white/20 text-current border-0 text-[10px]">{additionalEntries.length}</Badge>
+                        </TabsTrigger>
+                      </TabsList>
+                    </div>
+                    <TabsContent value="main_income" className="m-0">
+                      <div className="px-4 sm:px-6 py-3 border-b bg-emerald-50/30 flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] text-emerald-700 font-semibold uppercase tracking-wide">Main Income — Approved</p>
+                          <p className="text-xl font-bold text-emerald-700 mt-0.5">₹{sumApproved(mainEntries).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Entries</p>
+                          <p className="text-xl font-bold text-gray-900 mt-0.5">{mainEntries.length}</p>
+                        </div>
+                      </div>
+                      {renderTable(mainEntries, 'main')}
+                    </TabsContent>
+                    <TabsContent value="direct_transfer" className="m-0">
+                      <div className="px-4 sm:px-6 py-3 border-b bg-cyan-50/30 flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] text-cyan-700 font-semibold uppercase tracking-wide">Direct Transfer — Approved</p>
+                          <p className="text-xl font-bold text-cyan-700 mt-0.5">₹{sumApproved(additionalEntries).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Entries</p>
+                          <p className="text-xl font-bold text-gray-900 mt-0.5">{additionalEntries.length}</p>
+                        </div>
+                      </div>
+                      {renderTable(additionalEntries, 'direct')}
+                    </TabsContent>
+                  </Tabs>
                 );
               })()}
             </TabsContent>
