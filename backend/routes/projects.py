@@ -2756,10 +2756,25 @@ async def get_payment_stage_detail(stage_id: str, user: User = Depends(get_curre
         {"_id": 0, "project_id": 1, "name": 1, "project_code": 1, "client_name": 1, "total_value": 1}
     )
 
-    # Incomes linked to this stage
-    incomes = await db.income.find(
-        {"payment_stage_id": stage_id}, {"_id": 0}
-    ).sort("created_at", 1).to_list(200)
+    # Incomes linked to this stage — either by `payment_stage_id` back-reference
+    # OR by the stage's `linked_income_id` (which is how the RE/Sales advance is
+    # attached on convert-deal). Older advances were inserted before the back-ref
+    # was added, so we must also resolve them via linked_income_id to avoid
+    # under-reporting the Incomes(N) count on the Payment Stage Details popup.
+    income_filter = {"$or": [{"payment_stage_id": stage_id}]}
+    if stage.get("linked_income_id"):
+        income_filter["$or"].append({"income_id": stage["linked_income_id"]})
+    raw_incomes = await db.income.find(income_filter, {"_id": 0}).sort("created_at", 1).to_list(200)
+    # Dedupe by income_id (the linked advance may also have payment_stage_id set
+    # on healed rows — keep a single copy).
+    seen_inc = set()
+    incomes = []
+    for i in raw_incomes:
+        iid = i.get("income_id")
+        if iid in seen_inc:
+            continue
+        seen_inc.add(iid)
+        incomes.append(i)
 
     # Cheques linked either directly or via any of the incomes
     income_ids = [i.get("income_id") for i in incomes if i.get("income_id")]
@@ -3154,6 +3169,18 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
     stage_dict.pop("_id", None)
     
     await db.payment_stages.insert_one(stage_dict)
+
+    # Back-reference: also stamp the advance income row with payment_stage_id so
+    # the Payment Stage Details popup, Incomes(N) count, and any self-heal that
+    # reads incomes by stage will all surface this advance. Without this, the
+    # advance stays attached only via stage.linked_income_id (one-way) and gets
+    # under-counted whenever the stage's amount_received drifts.
+    inc_id = stage_dict.get("linked_income_id")
+    if inc_id:
+        await db.income.update_one(
+            {"income_id": inc_id, "payment_stage_id": {"$in": [None, "", False]}},
+            {"$set": {"payment_stage_id": stage_dict["stage_id"]}}
+        )
     
     # Optionally generate remaining schedule from DEFAULT_PAYMENT_SCHEDULE or a saved template
     extra_stages = []

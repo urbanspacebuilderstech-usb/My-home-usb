@@ -2218,7 +2218,57 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
             entry["payment_date"] = datetime.fromisoformat(entry["payment_date"])
         if isinstance(entry.get("created_at"), str):
             entry["created_at"] = datetime.fromisoformat(entry["created_at"])
-    
+
+    # ── SELF-HEAL: amount_received must include the linked advance income ──
+    # When CRE convert-deal creates Stage 01 with `linked_income_id` pointing at
+    # the RE advance, that advance is sometimes NOT counted in the stage's
+    # stored `amount_received` (older bulk-collect runs reset the counter).
+    # Heal here so the Payment Schedule row never shows a phantom balance.
+    EXCLUDED_INC = {"rejected", "accountant_rejected", "under_correction", "pending_approval", "cheque_bounced"}
+    income_by_id = {e.get("income_id"): e for e in income_entries if e.get("income_id")}
+    income_by_stage = {}
+    for e in income_entries:
+        psid = e.get("payment_stage_id")
+        if psid and (e.get("status") or "approved") not in EXCLUDED_INC:
+            income_by_stage.setdefault(psid, []).append(e)
+    for stage in payment_stages:
+        sid = stage.get("stage_id")
+        linked_id = stage.get("linked_income_id")
+        if not linked_id:
+            continue
+        adv_inc = income_by_id.get(linked_id)
+        if not adv_inc:
+            continue
+        if (adv_inc.get("status") or "approved") in EXCLUDED_INC:
+            continue
+        # If advance already back-references this stage, it's already in the
+        # by_stage sum — don't double count.
+        already_linked = adv_inc.get("payment_stage_id") == sid
+        attached_sum = sum((i.get("amount") or 0) for i in income_by_stage.get(sid, []))
+        adv_amount = adv_inc.get("amount") or 0
+        expected_min = attached_sum if already_linked else attached_sum + adv_amount
+        stage_amt = stage.get("amount") or 0
+        # Cap at stage amount so a tiny rounding overshoot doesn't show "over-collected".
+        if expected_min > stage_amt + 0.5:
+            expected_min = stage_amt
+        current = stage.get("amount_received") or 0
+        if expected_min - current > 0.5:
+            new_recv = expected_min
+            new_status = "paid" if new_recv >= stage_amt - 0.5 else ("partial" if new_recv > 0 else "pending")
+            stage["amount_received"] = new_recv
+            stage["status"] = new_status
+            set_doc = {"amount_received": new_recv, "status": new_status}
+            if new_status == "paid":
+                set_doc["paid_at"] = stage.get("paid_at") or adv_inc.get("payment_date") or datetime.now(timezone.utc).isoformat()
+            await db.payment_stages.update_one({"stage_id": sid}, {"$set": set_doc})
+        # Also stamp back-ref on the advance income so Incomes(N) popup includes it.
+        if not already_linked:
+            await db.income.update_one(
+                {"income_id": linked_id, "payment_stage_id": {"$in": [None, "", False]}},
+                {"$set": {"payment_stage_id": sid}}
+            )
+            adv_inc["payment_stage_id"] = sid
+
     # Income summary by payment mode — APPROVED-only across the board so the
     # project header Total Income card stops counting rejected / under_correction
     # / pending entries. Rejected/under_correction rows still appear in
