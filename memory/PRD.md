@@ -13,6 +13,19 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Jun 5, 2026 — RAB Phase 2: Planning OTP Gate on Signed RAB Downloads (P1)
+- **Status**: ✅ COMPLETE & DEPLOYED (curl-tested all 6 paths)
+- **Backend** (`/app/backend/routes/projects.py`):
+  - NEW `POST /api/projects/{pid}/work-orders/{woid}/rabs/{rid}/download-otp/send` — generates 6-digit OTP, SHA-256 hash stored in `db.rab_download_otps` with 10-min TTL, plain code emailed (Resend) to the Planning user who approved THIS RAB (looked up via `planning_approved_by`).
+  - MODIFIED `GET .../rabs/{rid}/pdf` — now accepts `?otp=XXXXXX`. Verifies hash, single-use (sets `used=true` on successful verify), expiry-bounded, then returns the existing FPDF stream. Super Admin bypasses for audit/recovery.
+- **Frontend** (`/app/frontend/src/components/RABDetailDialog.jsx`):
+  - NEW `RabDownloadOtpDialog` — 2-step modal launched from Download button. Step 1: "Send OTP to Planning" → masked email confirmation. Step 2: numeric-only 6-digit input + "Verify & Download" → fetches PDF with `?otp=`.
+  - Download button now shows `ShieldCheck + Download` icons to signal the gate.
+- **Tests (curl, local)**: SA bypass=200/PDF · No OTP=401 · Wrong OTP=401 · Send OTP=200/masked email · Correct OTP=200/PDF · Replay=401 'already used'.
+- **Deployed to VPS**: `git pull && yarn build && pm2 restart backend` — PM2 status online.
+
+
+
 ### Session — Feb 3, 2026 — Cheque Suspense Account Flow (P0)
 - **Status**: ✅ COMPLETE & TESTED (`test_cheque_suspense_lifecycle.py` 2/2 PASS)
 - **Backend** (`/app/backend/routes/financial.py`):
