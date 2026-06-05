@@ -156,7 +156,7 @@ export default function Login() {
       {/* Glassmorphism Card */}
       <div
         data-testid="login-card"
-        className="relative z-10 w-full max-w-md rounded-2xl border border-white/40 shadow-2xl"
+        className="relative z-10 w-full max-w-md rounded-2xl border border-white/40 shadow-2xl [color-scheme:light]"
         style={{
           background: 'rgba(255, 255, 255, 0.55)',
           backdropFilter: 'blur(20px)',
@@ -209,7 +209,7 @@ export default function Login() {
                       placeholder="you@company.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="pl-10 h-11 bg-white/70 border-slate-200/80 focus:border-amber-400 focus:ring-amber-400/20"
+                      className="pl-10 h-11 bg-white/70 border-slate-200/80 text-slate-900 placeholder:text-slate-400 [color-scheme:light] focus:border-amber-400 focus:ring-amber-400/20"
                       required
                     />
                   </div>
@@ -231,7 +231,7 @@ export default function Login() {
                       placeholder="Enter your password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="pl-10 pr-10 h-11 bg-white/70 border-slate-200/80 focus:border-amber-400 focus:ring-amber-400/20"
+                      className="pl-10 pr-10 h-11 bg-white/70 border-slate-200/80 text-slate-900 placeholder:text-slate-400 [color-scheme:light] focus:border-amber-400 focus:ring-amber-400/20"
                       required
                     />
                     <button
@@ -259,7 +259,7 @@ export default function Login() {
                       maxLength={6}
                       value={totpCode}
                       onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      className="h-11 text-center text-xl tracking-[0.4em] font-mono bg-blue-50/50 border-blue-200 focus:border-blue-400 focus:ring-blue-400/20"
+                      className="h-11 text-center text-xl tracking-[0.4em] font-mono bg-blue-50/50 border-blue-200 text-slate-900 placeholder:text-slate-400 [color-scheme:light] focus:border-blue-400 focus:ring-blue-400/20"
                       autoFocus
                     />
                     <p className="text-[10px] text-blue-500 text-center">Enter the 6-digit code from Google Authenticator</p>
