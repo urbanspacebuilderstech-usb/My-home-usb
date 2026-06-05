@@ -75,6 +75,7 @@ import { SortableList, SortableTableRow, DragHandle } from '../components/Sortab
 import DLRPanel from '../components/DLRPanel';
 import ProjectAttendanceDLR from '../components/ProjectAttendanceDLR';
 import { RABDetailDialog } from '../components/RABDetailDialog';
+import WORABTab from '../components/WORABTab';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -9120,6 +9121,7 @@ export default function ProjectDetail() {
                               <TabsTrigger value="stages" className="flex-1 text-xs">Stages ({wo.stages?.length || 0})</TabsTrigger>
                               <TabsTrigger value="additional" className="flex-1 text-xs">Additional ({wo.additional_work?.length || 0})</TabsTrigger>
                               <TabsTrigger value="dlr" className="flex-1 text-xs" data-testid="wo-dlr-tab">DLR</TabsTrigger>
+                              <TabsTrigger value="rab" className="flex-1 text-xs" data-testid="wo-rab-tab">RAB</TabsTrigger>
                             </TabsList>
                             <TabsContent value="scope" className="p-3">
                               {wo.scope_items?.length > 0 ? (
@@ -9230,6 +9232,13 @@ export default function ProjectDetail() {
                                 workOrderId={wo.work_order_id}
                                 labourRates={wo.labour_rates}
                                 canRecord={['site_engineer', 'sr_site_engineer', 'super_admin'].includes(user?.role)}
+                              />
+                            </TabsContent>
+                            <TabsContent value="rab" className="p-3" data-testid="wo-rab-content">
+                              <WORABTab
+                                projectId={projectId}
+                                workOrder={wo}
+                                onOpenRabView={(requestId) => setRabView({ open: true, projectId, workOrderId: wo.work_order_id, requestId })}
                               />
                             </TabsContent>
                           </Tabs>
@@ -10255,6 +10264,7 @@ export default function ProjectDetail() {
                                   <TabsTrigger value="stages" className="flex-1 text-xs">Stages ({wo.stages?.length || 0})</TabsTrigger>
                                   <TabsTrigger value="additional" className="flex-1 text-xs">Additional ({wo.additional_work?.length || 0})</TabsTrigger>
                                   <TabsTrigger value="dlr" className="flex-1 text-xs" data-testid="labour-wo-dlr-tab">DLR</TabsTrigger>
+                                  <TabsTrigger value="rab" className="flex-1 text-xs" data-testid="labour-wo-rab-tab">RAB</TabsTrigger>
                                 </TabsList>
                                 <TabsContent value="scope" className="p-3">
                                   {wo.scope_items?.length > 0 ? (
@@ -10422,6 +10432,13 @@ export default function ProjectDetail() {
                                     workOrderId={wo.work_order_id}
                                     labourRates={wo.labour_rates}
                                     canRecord={['site_engineer', 'sr_site_engineer', 'super_admin'].includes(user?.role)}
+                                  />
+                                </TabsContent>
+                                <TabsContent value="rab" className="p-3" data-testid="labour-wo-rab-content">
+                                  <WORABTab
+                                    projectId={projectId}
+                                    workOrder={wo}
+                                    onOpenRabView={(requestId) => setRabView({ open: true, projectId, workOrderId: wo.work_order_id, requestId })}
                                   />
                                 </TabsContent>
                               </Tabs>
