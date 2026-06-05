@@ -1220,6 +1220,8 @@ export default function ProjectDetail() {
   const [labourSubTab, setLabourSubTab] = useState('workorders');
   const [labourWoViewId, setLabourWoViewId] = useState(null);
   const [expandedWoStages, setExpandedWoStages] = useState({});
+  // Sub-tab inside WO → Stages: In Progress | Open | Locked | All
+  const [stagesBucket, setStagesBucket] = useState('all');
   // Planning: Request Labour Advance (Planning → PM → GM → Accountant)
   const [labourAdvanceDialog, setLabourAdvanceDialog] = useState({ open: false, stage: null, workOrder: null, amount: '', date: '', reason: '' });
   const [labourAdvanceSaving, setLabourAdvanceSaving] = useState(false);
@@ -1940,6 +1942,15 @@ export default function ProjectDetail() {
       rejected: { label: 'Rejected', className: 'bg-red-100 text-red-800 border-red-300' },
     };
     return map[status] || { label: status, className: 'bg-gray-100 text-gray-600' };
+  };
+
+  // Bucket a stage into one of the WO → Stages sub-tabs:
+  //   open       → status='pending' AND is_open=true   (SE can act)
+  //   locked     → status='pending' AND is_open!=true  (Planning needs to unlock)
+  //   in_progress→ anything else (payment workflow has started — in_progress / requested / approved / etc.)
+  const stageBucketOf = (st) => {
+    if (st.status === 'pending') return st.is_open ? 'open' : 'locked';
+    return 'in_progress';
   };
 
   const canApproveStage = (stage) => {
@@ -9131,9 +9142,46 @@ export default function ProjectDetail() {
                               ) : <p className="text-gray-400 text-center py-4 text-sm">No scope items</p>}
                             </TabsContent>
                             <TabsContent value="stages" className="p-3">
-                              {wo.stages?.length > 0 ? (
+                              {wo.stages?.length > 0 ? (() => {
+                                const counts = { in_progress: 0, open: 0, locked: 0, all: wo.stages.length };
+                                wo.stages.forEach(s => { counts[stageBucketOf(s)]++; });
+                                const filteredStages = stagesBucket === 'all'
+                                  ? wo.stages.map((st, i) => ({ st, i }))
+                                  : wo.stages.map((st, i) => ({ st, i })).filter(({ st }) => stageBucketOf(st) === stagesBucket);
+                                return (
                                 <div className="space-y-2">
-                                  {wo.stages.map((st, i) => {
+                                  {/* Sub-tab segmentation: In Progress | Open | Locked | All */}
+                                  <div className="flex items-center gap-1 mb-2 border-b border-gray-100 pb-1.5 overflow-x-auto" data-testid="wo-stages-subtabs">
+                                    {[
+                                      { id: 'in_progress', label: 'In Progress', cnt: counts.in_progress, accent: 'amber' },
+                                      { id: 'open',        label: 'Open',        cnt: counts.open,        accent: 'emerald' },
+                                      { id: 'locked',      label: 'Locked',      cnt: counts.locked,      accent: 'gray' },
+                                      { id: 'all',         label: 'All',         cnt: counts.all,         accent: 'violet' },
+                                    ].map(t => {
+                                      const isActive = stagesBucket === t.id;
+                                      const accentMap = {
+                                        amber:   'border-amber-500 text-amber-700 bg-amber-50',
+                                        emerald: 'border-emerald-500 text-emerald-700 bg-emerald-50',
+                                        gray:    'border-gray-500 text-gray-800 bg-gray-100',
+                                        violet:  'border-violet-600 text-violet-700 bg-violet-50',
+                                      };
+                                      return (
+                                        <button
+                                          key={t.id}
+                                          type="button"
+                                          onClick={() => setStagesBucket(t.id)}
+                                          className={`px-3 py-1.5 text-xs font-medium rounded-md border transition whitespace-nowrap ${isActive ? accentMap[t.accent] + ' shadow-sm' : 'border-transparent text-gray-600 hover:bg-gray-50'}`}
+                                          data-testid={`wo-stages-subtab-${t.id}`}
+                                        >
+                                          {t.label}
+                                          <span className={`ml-1.5 text-[10px] font-semibold ${isActive ? '' : 'text-gray-400'}`}>({t.cnt})</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                  {filteredStages.length === 0 ? (
+                                    <p className="text-gray-400 text-center py-6 text-sm" data-testid="wo-stages-empty">No stages in this bucket.</p>
+                                  ) : filteredStages.map(({ st, i }) => {
                                     const cfg = getStageStatusConfig(st.status, st.is_open);
                                     const showApprove = canApproveStage(st);
                                     const isExpanded = expandedWoStages[st.stage_id];
@@ -9211,13 +9259,14 @@ export default function ProjectDetail() {
                                       </div>
                                     );
                                   })}
-                                  {/* Total summary */}
+                                  {/* Total summary — always reflects ALL stages (not filtered) */}
                                   <div className="flex justify-between items-center px-3 pt-2 border-t">
                                     <span className="text-xs font-bold text-gray-500">Stage Total</span>
                                     <span className="text-sm font-bold">{formatCurrency(wo.stages.reduce((sum, s) => sum + (s.amount || 0), 0))}</span>
                                   </div>
                                 </div>
-                              ) : <p className="text-gray-400 text-center py-4 text-sm">No stages</p>}
+                                );
+                              })() : <p className="text-gray-400 text-center py-4 text-sm">No stages</p>}
                             </TabsContent>
                             <TabsContent value="additional" className="p-3">
                               {wo.additional_work?.length > 0 ? (
@@ -10274,15 +10323,49 @@ export default function ProjectDetail() {
                                   ) : <p className="text-gray-400 text-center py-4 text-sm">No scope items</p>}
                                 </TabsContent>
                                 <TabsContent value="stages" className="p-3">
-                                  {wo.stages?.length > 0 ? (
+                                  {wo.stages?.length > 0 ? (() => {
+                                    const counts = { in_progress: 0, open: 0, locked: 0, all: wo.stages.length };
+                                    wo.stages.forEach(s => { counts[stageBucketOf(s)]++; });
+                                    const filteredStages = stagesBucket === 'all'
+                                      ? wo.stages.map((st, i) => ({ st, i }))
+                                      : wo.stages.map((st, i) => ({ st, i })).filter(({ st }) => stageBucketOf(st) === stagesBucket);
+                                    return (
                                     <div className="space-y-2">
-                                      {/* Planning quick action: open multiple stages at once. Locked stages
-                                          stay hidden to SE until Planning unlocks them via this bar OR the
-                                          per-row "Open for SE" button. */}
+                                      {/* Sub-tab segmentation: In Progress | Open | Locked | All */}
+                                      <div className="flex items-center gap-1 mb-2 border-b border-gray-100 pb-1.5 overflow-x-auto" data-testid="labour-wo-stages-subtabs">
+                                        {[
+                                          { id: 'in_progress', label: 'In Progress', cnt: counts.in_progress, accent: 'amber' },
+                                          { id: 'open',        label: 'Open',        cnt: counts.open,        accent: 'emerald' },
+                                          { id: 'locked',      label: 'Locked',      cnt: counts.locked,      accent: 'gray' },
+                                          { id: 'all',         label: 'All',         cnt: counts.all,         accent: 'violet' },
+                                        ].map(t => {
+                                          const isActive = stagesBucket === t.id;
+                                          const accentMap = {
+                                            amber:   'border-amber-500 text-amber-700 bg-amber-50',
+                                            emerald: 'border-emerald-500 text-emerald-700 bg-emerald-50',
+                                            gray:    'border-gray-500 text-gray-800 bg-gray-100',
+                                            violet:  'border-violet-600 text-violet-700 bg-violet-50',
+                                          };
+                                          return (
+                                            <button
+                                              key={t.id}
+                                              type="button"
+                                              onClick={() => setStagesBucket(t.id)}
+                                              className={`px-3 py-1.5 text-xs font-medium rounded-md border transition whitespace-nowrap ${isActive ? accentMap[t.accent] + ' shadow-sm' : 'border-transparent text-gray-600 hover:bg-gray-50'}`}
+                                              data-testid={`labour-wo-stages-subtab-${t.id}`}
+                                            >
+                                              {t.label}
+                                              <span className={`ml-1.5 text-[10px] font-semibold ${isActive ? '' : 'text-gray-400'}`}>({t.cnt})</span>
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
                                       {/* "Open All for SE" bulk banner removed —
                                           Planning now uses the per-row Lock /
                                           Unlock button on every stage instead. */}
-                                      {wo.stages.map((st, i) => {
+                                      {filteredStages.length === 0 ? (
+                                        <p className="text-gray-400 text-center py-6 text-sm" data-testid="labour-wo-stages-empty">No stages in this bucket.</p>
+                                      ) : filteredStages.map(({ st, i }) => {
                                         const cfg = getStageStatusConfig(st.status, st.is_open);
                                         const showApprove = canApproveStage(st);
                                         const isExp = expandedWoStages[`l_${st.stage_id}`];
@@ -10410,7 +10493,8 @@ export default function ProjectDetail() {
                                         <span className="text-sm font-bold">{formatCurrency(wo.stages.reduce((sum, s) => sum + (s.amount || 0), 0))}</span>
                                       </div>
                                     </div>
-                                  ) : <p className="text-gray-400 text-center py-4 text-sm">No stages</p>}
+                                    );
+                                  })() : <p className="text-gray-400 text-center py-4 text-sm">No stages</p>}
                                 </TabsContent>
                                 <TabsContent value="additional" className="p-3">
                                   {wo.additional_work?.length > 0 ? (
