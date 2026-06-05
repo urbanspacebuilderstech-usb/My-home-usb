@@ -259,7 +259,7 @@ function PackageCard({ pkg }) {
               <ul className="space-y-1.5 text-xs text-gray-700">
                 {(sec.bullets || []).map((b, j) => (
                   <li key={j} className="flex items-start gap-1.5">
-                    <CheckCircle className="h-3 w-3 text-emerald-600 mt-0.5 shrink-0" />
+                    <CheckCircle className="h-3 w-3 text-amber-600 mt-0.5 shrink-0" />
                     <span className="leading-relaxed">{b}</span>
                   </li>
                 ))}
