@@ -58,6 +58,25 @@ const CONSTRUCTION_STAGES = [
   { id: 'finishing', label: 'Finishing', order: 8 }
 ];
 
+// Derive the high-level Phase the project is in based on the planning
+// `current_stage` value. Mirrors the reverse mapping used by Planning's Phase
+// dropdown in ProjectDetail.jsx — keep these two in lock-step so the badge
+// the client sees always matches the option Planning picked.
+const PHASE_STYLES = {
+  pre_construction: { label: 'Pre-Construction', cls: 'bg-blue-100 text-blue-700 border-blue-200' },
+  substructure:     { label: 'Substructure',     cls: 'bg-amber-100 text-amber-700 border-amber-200' },
+  superstructure:   { label: 'Superstructure',   cls: 'bg-violet-100 text-violet-700 border-violet-200' },
+  finishing:        { label: 'Finishing',        cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+};
+function getProjectPhase(project) {
+  const id = (project?.current_stage || project?.construction_stage || 'yet_to_start');
+  if (id === 'yet_to_start') return 'pre_construction';
+  if (['foundation', 'plinth'].includes(id)) return 'substructure';
+  if (['ground_floor', 'first_floor', 'slab', 'superstructure', 'brick_work', 'basement'].includes(id)) return 'superstructure';
+  if (['plastering', 'flooring', 'painting', 'handover', 'completed', 'finishing'].includes(id)) return 'finishing';
+  return 'pre_construction';
+}
+
 export default function ClientPortal() {
   const { projectId } = useParams();
   const navigate = useNavigate();
@@ -437,9 +456,22 @@ export default function ClientPortal() {
           <h2 data-testid="client-portal-title" className="text-xl sm:text-3xl font-bold text-gray-900">{project.name}</h2>
           <div className="flex items-center gap-2 sm:gap-4 mt-2 flex-wrap">
             <span className="text-gray-600">{project.location}</span>
-            <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>
-              {project.status}
-            </Badge>
+            {/* Status badge now mirrors the Planning Phase — so when Planning
+                changes the project Phase to e.g. Pre-Construction, the client
+                immediately sees the same label here. Falls back to project.status
+                only if no current_stage / construction_stage is set yet. */}
+            {(() => {
+              const phaseKey = getProjectPhase(project);
+              const phase = PHASE_STYLES[phaseKey];
+              return (
+                <Badge
+                  className={`font-semibold border ${phase.cls}`}
+                  data-testid="client-portal-phase-badge"
+                >
+                  {phase.label}
+                </Badge>
+              );
+            })()}
             {project.construction_stage && (
               <Badge className="bg-amber-50 text-amber-700">
                 Stage: {CONSTRUCTION_STAGES.find(s => s.id === project.construction_stage)?.label || project.construction_stage}
@@ -707,14 +739,18 @@ export default function ClientPortal() {
                       <div className="flex-1 flex items-center justify-between gap-2 min-w-0">
                         <dt className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Status</dt>
                         <dd>
-                          <Badge className={`capitalize font-semibold px-2.5 py-1 ${
-                            project.status === 'active' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
-                            project.status === 'completed' ? 'bg-blue-100 text-blue-700 border-blue-200' :
-                            project.status === 'in_planning' ? 'bg-amber-100 text-amber-700 border-amber-200' :
-                            'bg-gray-100 text-gray-700 border-gray-200'
-                          }`}>
-                            {(project.status || 'unknown').replace(/_/g, ' ')}
-                          </Badge>
+                          {(() => {
+                            const phaseKey = getProjectPhase(project);
+                            const phase = PHASE_STYLES[phaseKey];
+                            return (
+                              <Badge
+                                className={`font-semibold px-2.5 py-1 border ${phase.cls}`}
+                                data-testid="client-details-phase-badge"
+                              >
+                                {phase.label}
+                              </Badge>
+                            );
+                          })()}
                         </dd>
                       </div>
                     </div>
