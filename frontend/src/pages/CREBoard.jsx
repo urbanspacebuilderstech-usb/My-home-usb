@@ -56,6 +56,7 @@ import { NumericInput } from '../components/NumericInput';
 import ChequeListView from '../components/ChequeListView';
 import CreateClientPortalDialog from '../components/CreateClientPortalDialog';
 import { PaymentStageDetailDialog } from '../components/PaymentStageDetailDialog';
+import { CashbookDateFilter } from '../components/CashbookDateFilter';
 import CREPreConstruction from './CREPreConstruction';
 import Income from './Income';
 import DTBoard from './DTBoard';
@@ -1330,33 +1331,16 @@ export default function CREBoard() {
                           )}
                         </button>
                       ))}
-                      {/* Inline date range filter — sits right next to the tabs */}
-                      <div className="flex items-center gap-1 ml-2" data-testid="ps-date-filter">
-                        <Calendar className="h-3.5 w-3.5 text-gray-400" />
-                        <input
-                          type="date"
-                          value={psDateFrom}
-                          onChange={(e) => setPsDateFrom(e.target.value)}
-                          className="h-8 text-xs border border-gray-200 rounded px-2 bg-white dark:bg-gray-800 dark:border-gray-700"
-                          data-testid="ps-date-from"
-                          aria-label="From date"
+                      {/* Unified date filter — presets + calendar (matches Cashbook UX) */}
+                      <div className="ml-2" data-testid="ps-date-filter">
+                        <CashbookDateFilter
+                          dateFrom={psDateFrom}
+                          dateTo={psDateTo}
+                          setDateFrom={setPsDateFrom}
+                          setDateTo={setPsDateTo}
+                          testIdPrefix="ps"
+                          accent="amber"
                         />
-                        <span className="text-gray-400 text-xs">→</span>
-                        <input
-                          type="date"
-                          value={psDateTo}
-                          onChange={(e) => setPsDateTo(e.target.value)}
-                          className="h-8 text-xs border border-gray-200 rounded px-2 bg-white dark:bg-gray-800 dark:border-gray-700"
-                          data-testid="ps-date-to"
-                          aria-label="To date"
-                        />
-                        {(psDateFrom || psDateTo) && (
-                          <button
-                            onClick={() => { setPsDateFrom(''); setPsDateTo(''); }}
-                            className="h-8 px-1 text-[10px] text-gray-500 hover:text-red-600"
-                            data-testid="ps-date-clear"
-                          >Clear</button>
-                        )}
                       </div>
                       {/* Inline search box — by project / client / stage */}
                       <div className="relative ml-1">
