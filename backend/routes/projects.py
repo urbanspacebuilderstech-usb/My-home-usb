@@ -953,7 +953,25 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
         if sname.startswith("rab-") or sname.startswith("rab "):
             return True
         return False
-    payment_stages = [s for s in payment_stages if not _is_vendor_or_labour_row(s)]
+
+    # Additional-cost driven payment_stages (created when "Req Payment" is
+    # clicked on an Additional Work row) belong on the dedicated Additional
+    # Work tab — not on the master Payment Schedule. Filter them out here so
+    # the client never sees "Additional: …" lines polluting the milestone view.
+    def _is_addition_row(s):
+        if s.get("is_addition") is True:
+            return True
+        if s.get("linked_addition_id"):
+            return True
+        sname = (s.get("stage_name") or "")
+        if sname.startswith("Additional:") or sname.startswith("Additional Work"):
+            return True
+        return False
+
+    payment_stages = [
+        s for s in payment_stages
+        if not _is_vendor_or_labour_row(s) and not _is_addition_row(s)
+    ]
     
     # Get scope items for client view
     scope_items = await db.scope_items.find(
