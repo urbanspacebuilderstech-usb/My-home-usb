@@ -1262,14 +1262,41 @@ export default function ClientPortal() {
                             </div>
                           </div>
                         </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => window.open(href, '_blank')}
-                          data-testid={`client-doc-download-${doc.document_id || doc.file_id}`}
-                        >
-                          Download
-                        </Button>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => window.open(href, '_blank', 'noopener,noreferrer')}
+                            data-testid={`client-doc-view-${doc.document_id || doc.file_id}`}
+                          >
+                            View
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="bg-violet-600 hover:bg-violet-700 text-white"
+                            onClick={async (e) => {
+                              e.preventDefault();
+                              try {
+                                const res = await fetch(href, { credentials: 'include' });
+                                if (!res.ok) throw new Error('Download failed');
+                                const blob = await res.blob();
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = doc.title || 'document';
+                                document.body.appendChild(a);
+                                a.click();
+                                a.remove();
+                                URL.revokeObjectURL(url);
+                              } catch {
+                                window.open(href, '_blank');
+                              }
+                            }}
+                            data-testid={`client-doc-download-${doc.document_id || doc.file_id}`}
+                          >
+                            Download
+                          </Button>
+                        </div>
                       </div>
                     );
                   })}
