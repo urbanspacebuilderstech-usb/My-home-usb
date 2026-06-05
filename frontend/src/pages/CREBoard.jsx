@@ -1340,6 +1340,7 @@ export default function CREBoard() {
                           setDateTo={setPsDateTo}
                           testIdPrefix="ps"
                           accent="amber"
+                          showMonthYear={false}
                         />
                       </div>
                       {/* Inline search box — by project / client / stage */}

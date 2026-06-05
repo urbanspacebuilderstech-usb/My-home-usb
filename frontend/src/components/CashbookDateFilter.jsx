@@ -34,6 +34,7 @@ export function CashbookDateFilter({
   dateFrom, dateTo, setDateFrom, setDateTo,
   testIdPrefix = 'cashbook',
   accent = 'amber',
+  showMonthYear = true,
 }) {
   const today = new Date();
   const currentYear = today.getFullYear();
@@ -191,6 +192,7 @@ export function CashbookDateFilter({
       </Popover>
 
       {/* Month dropdown */}
+      {showMonthYear && (
       <Select value={String(selectedMonth)} onValueChange={handleMonthChange}>
         <SelectTrigger className="h-9 w-[110px] text-xs" data-testid={`${testIdPrefix}-month-select`}>
           <SelectValue placeholder="Month" />
@@ -200,8 +202,10 @@ export function CashbookDateFilter({
           {MONTHS.map(m => <SelectItem key={m.v} value={String(m.v)}>{m.n}</SelectItem>)}
         </SelectContent>
       </Select>
+      )}
 
       {/* Year dropdown */}
+      {showMonthYear && (
       <Select value={String(selectedYear || currentYear)} onValueChange={handleYearChange}>
         <SelectTrigger className="h-9 w-[90px] text-xs" data-testid={`${testIdPrefix}-year-select`}>
           <SelectValue placeholder="Year" />
@@ -210,6 +214,7 @@ export function CashbookDateFilter({
           {yearsList.map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
         </SelectContent>
       </Select>
+      )}
 
       {isActive && (
         <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={clearAll}>
