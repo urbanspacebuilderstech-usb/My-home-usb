@@ -1217,133 +1217,188 @@ export default function ClientPortal() {
                 };
                 const APPROVED = new Set(['approved', 'received', 'verified']);
                 const approvedSum = entries.reduce((s, e) => s + (APPROVED.has(e.status) ? (e.amount || 0) : 0), 0);
-                // Bounced cheques — sourced from Cheque Management (db.cheques).
-                // This is the canonical bounce list with full cheque details
-                // (number, bank, reason, charges) — richer than the db.income
-                // status flag.
                 const bouncedCheques = projectData?.bounced_cheques || [];
                 const bouncedTotal = bouncedCheques.reduce((s, c) => s + (c.amount || 0), 0);
                 return (
-                  <>
-                    {/* Cheque Bounced — dedicated section pulling from Cheque Management */}
-                    {bouncedCheques.length > 0 && (
-                      <div className="mx-4 sm:mx-6 mt-4 rounded-xl border border-red-300 bg-red-50/60 overflow-hidden" data-testid="cp-income-bounce-alert">
-                        <div className="flex items-center gap-3 px-4 py-3 bg-red-100/80 border-b border-red-200">
-                          <div className="w-9 h-9 rounded-lg bg-red-200 flex items-center justify-center shrink-0">
-                            <AlertTriangle className="h-5 w-5 text-red-700" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-bold text-red-900">
-                              Cheque Bounced — {bouncedCheques.length} cheque{bouncedCheques.length > 1 ? 's' : ''} returned
-                            </p>
-                            <p className="text-xs text-red-700 mt-0.5">
-                              Total bounced amount: ₹{bouncedTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })} — please arrange an alternate payment to clear these.
-                            </p>
-                          </div>
-                        </div>
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-xs sm:text-sm">
-                            <thead className="bg-red-50/80">
-                              <tr>
-                                <th className="px-3 py-2 text-left text-[10px] font-semibold text-red-800 uppercase">Cheque No</th>
-                                <th className="px-3 py-2 text-left text-[10px] font-semibold text-red-800 uppercase">Bank</th>
-                                <th className="px-3 py-2 text-left text-[10px] font-semibold text-red-800 uppercase">Cheque Date</th>
-                                <th className="px-3 py-2 text-left text-[10px] font-semibold text-red-800 uppercase">Bounced On</th>
-                                <th className="px-3 py-2 text-left text-[10px] font-semibold text-red-800 uppercase">Reason</th>
-                                <th className="px-3 py-2 text-right text-[10px] font-semibold text-red-800 uppercase">Amount</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-red-200">
-                              {bouncedCheques.map((ch, idx) => {
-                                const cd = ch.cheque_date ? new Date(ch.cheque_date) : null;
-                                const bd = ch.bounced_at ? new Date(ch.bounced_at) : null;
-                                return (
-                                  <tr key={ch.cheque_id || idx} data-testid={`cp-bounced-cheque-${ch.cheque_id || idx}`}>
-                                    <td className="px-3 py-2.5 font-semibold text-red-900 whitespace-nowrap">#{ch.cheque_number || '—'}</td>
-                                    <td className="px-3 py-2.5 text-red-800">{ch.bank_name || '—'}</td>
-                                    <td className="px-3 py-2.5 text-red-700 whitespace-nowrap">
-                                      {cd ? cd.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
-                                    </td>
-                                    <td className="px-3 py-2.5 text-red-700 whitespace-nowrap">
-                                      {bd ? bd.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
-                                    </td>
-                                    <td className="px-3 py-2.5 text-red-700 max-w-[200px] truncate" title={ch.bounce_reason}>{ch.bounce_reason}</td>
-                                    <td className="px-3 py-2.5 text-right font-bold text-red-700 whitespace-nowrap">
-                                      ₹{(ch.amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                                      {ch.bounce_charges > 0 && (
-                                        <div className="text-[10px] font-normal text-red-500 mt-0.5">+ ₹{ch.bounce_charges.toLocaleString('en-IN')} charges</div>
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
+                  <Tabs defaultValue={bouncedCheques.length > 0 ? 'cheque_bounced' : 'amount'} className="w-full">
+                    <div className="px-4 sm:px-6 pt-4 border-b bg-gradient-to-r from-emerald-50/40 to-white">
+                      <TabsList className="bg-transparent p-0 h-auto gap-2 mb-3">
+                        <TabsTrigger
+                          value="amount"
+                          data-testid="cp-income-subtab-amount"
+                          className="
+                            gap-2 px-4 py-2 text-xs sm:text-sm font-medium
+                            rounded-lg border border-transparent
+                            text-gray-600 bg-transparent
+                            hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-100
+                            data-[state=active]:bg-emerald-600 data-[state=active]:text-white
+                            data-[state=active]:border-emerald-700 data-[state=active]:shadow-md
+                            transition-all
+                          "
+                        >
+                          <Receipt className="h-4 w-4" />
+                          Amount
+                          <Badge className="ml-1 bg-white/20 text-current border-0 text-[10px]">{entries.length}</Badge>
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="cheque_bounced"
+                          data-testid="cp-income-subtab-bounced"
+                          className="
+                            gap-2 px-4 py-2 text-xs sm:text-sm font-medium
+                            rounded-lg border border-transparent
+                            text-gray-600 bg-transparent
+                            hover:bg-red-50 hover:text-red-700 hover:border-red-100
+                            data-[state=active]:bg-red-600 data-[state=active]:text-white
+                            data-[state=active]:border-red-700 data-[state=active]:shadow-md
+                            transition-all
+                          "
+                        >
+                          <AlertTriangle className="h-4 w-4" />
+                          Cheque Bounced
+                          <Badge className={`ml-1 border-0 text-[10px] ${bouncedCheques.length > 0 ? 'bg-red-100 text-red-700' : 'bg-white/20 text-current'}`}>{bouncedCheques.length}</Badge>
+                        </TabsTrigger>
+                      </TabsList>
+                    </div>
 
-                    <div className="px-4 sm:px-6 py-4 border-b bg-gradient-to-r from-emerald-50/40 to-white flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs text-emerald-700 font-semibold uppercase tracking-wide">Total Approved Income</p>
-                        <p className="text-2xl font-bold text-emerald-700 mt-0.5">₹{approvedSum.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+                    {/* Amount sub-tab — full income ledger */}
+                    <TabsContent value="amount" className="m-0">
+                      <div className="px-4 sm:px-6 py-4 border-b bg-gradient-to-r from-emerald-50/40 to-white flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs text-emerald-700 font-semibold uppercase tracking-wide">Total Approved Income</p>
+                          <p className="text-2xl font-bold text-emerald-700 mt-0.5">₹{approvedSum.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Entries</p>
+                          <p className="text-2xl font-bold text-gray-900 mt-0.5">{entries.length}</p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Entries</p>
-                        <p className="text-2xl font-bold text-gray-900 mt-0.5">{entries.length}</p>
+                      <div className="overflow-x-auto" data-testid="cp-income-table-all">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 border-b border-gray-200">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
+                              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Date</th>
+                              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Description</th>
+                              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase hidden md:table-cell">Type</th>
+                              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase hidden sm:table-cell">Mode</th>
+                              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                              <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {entries.map((inc, idx) => {
+                              const st = STATUS_STYLES[inc.status] || { label: (inc.status || 'Unknown').replace(/_/g, ' '), cls: 'bg-gray-100 text-gray-700 border-gray-200' };
+                              const d = inc.payment_date ? new Date(inc.payment_date) : null;
+                              const isBounce = inc.status === 'cheque_bounced';
+                              return (
+                                <tr
+                                  key={inc.income_id || idx}
+                                  className={`hover:bg-gray-50/60 ${isBounce ? 'bg-red-50/30' : ''}`}
+                                  data-testid={`cp-income-row-${inc.income_id || idx}`}
+                                >
+                                  <td className="px-4 py-3 text-gray-500">{idx + 1}</td>
+                                  <td className="px-4 py-3 whitespace-nowrap text-gray-900">
+                                    {d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-700 min-w-[200px]">
+                                    <p className="truncate max-w-[360px]">{inc.description || inc.category || 'Payment'}</p>
+                                    {inc.reference && (
+                                      <p className="text-[11px] text-gray-400 mt-0.5 truncate">Ref: {inc.reference}</p>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 hidden md:table-cell">
+                                    <Badge className={`text-[10px] font-medium border ${inc.is_additional ? 'bg-cyan-50 text-cyan-700 border-cyan-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                      {inc.is_additional ? 'Direct Transfer' : 'Main Income'}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-600 hidden sm:table-cell capitalize">{(inc.payment_mode || '—').replace(/_/g, ' ')}</td>
+                                  <td className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">₹{(inc.amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                                  <td className="px-4 py-3 text-center">
+                                    <Badge className={`text-xs font-medium border ${st.cls}`}>{st.label}</Badge>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
-                    </div>
-                    <div className="overflow-x-auto" data-testid="cp-income-table-all">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 border-b border-gray-200">
-                          <tr>
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Date</th>
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Description</th>
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase hidden md:table-cell">Type</th>
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase hidden sm:table-cell">Mode</th>
-                            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
-                            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {entries.map((inc, idx) => {
-                            const st = STATUS_STYLES[inc.status] || { label: (inc.status || 'Unknown').replace(/_/g, ' '), cls: 'bg-gray-100 text-gray-700 border-gray-200' };
-                            const d = inc.payment_date ? new Date(inc.payment_date) : null;
-                            const isBounce = inc.status === 'cheque_bounced';
-                            return (
-                              <tr
-                                key={inc.income_id || idx}
-                                className={`hover:bg-gray-50/60 ${isBounce ? 'bg-red-50/30' : ''}`}
-                                data-testid={`cp-income-row-${inc.income_id || idx}`}
-                              >
-                                <td className="px-4 py-3 text-gray-500">{idx + 1}</td>
-                                <td className="px-4 py-3 whitespace-nowrap text-gray-900">
-                                  {d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
-                                </td>
-                                <td className="px-4 py-3 text-gray-700 min-w-[200px]">
-                                  <p className="truncate max-w-[360px]">{inc.description || inc.category || 'Payment'}</p>
-                                  {inc.reference && (
-                                    <p className="text-[11px] text-gray-400 mt-0.5 truncate">Ref: {inc.reference}</p>
-                                  )}
-                                </td>
-                                <td className="px-4 py-3 hidden md:table-cell">
-                                  <Badge className={`text-[10px] font-medium border ${inc.is_additional ? 'bg-cyan-50 text-cyan-700 border-cyan-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-                                    {inc.is_additional ? 'Direct Transfer' : 'Main Income'}
-                                  </Badge>
-                                </td>
-                                <td className="px-4 py-3 text-gray-600 hidden sm:table-cell capitalize">{(inc.payment_mode || '—').replace(/_/g, ' ')}</td>
-                                <td className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">₹{(inc.amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                                <td className="px-4 py-3 text-center">
-                                  <Badge className={`text-xs font-medium border ${st.cls}`}>{st.label}</Badge>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
+                    </TabsContent>
+
+                    {/* Cheque Bounced sub-tab — pulled from Cheque Management */}
+                    <TabsContent value="cheque_bounced" className="m-0">
+                      {bouncedCheques.length === 0 ? (
+                        <div className="text-center py-16">
+                          <CheckCircle2 className="h-12 w-12 mx-auto text-emerald-500 mb-3" />
+                          <p className="text-emerald-700 font-semibold">No bounced cheques</p>
+                          <p className="text-sm text-gray-500 mt-1">All cheque payments have cleared successfully.</p>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="px-4 sm:px-6 py-4 border-b bg-gradient-to-r from-red-50/60 to-red-100/30 flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-lg bg-red-200 flex items-center justify-center shrink-0">
+                                <AlertTriangle className="h-5 w-5 text-red-700" />
+                              </div>
+                              <div>
+                                <p className="text-xs text-red-700 font-semibold uppercase tracking-wide">Total Bounced</p>
+                                <p className="text-2xl font-bold text-red-700 mt-0.5">₹{bouncedTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Cheques</p>
+                              <p className="text-2xl font-bold text-gray-900 mt-0.5">{bouncedCheques.length}</p>
+                            </div>
+                          </div>
+                          <div className="px-4 sm:px-6 py-3 bg-red-50/40 border-b border-red-100 text-xs sm:text-sm text-red-700">
+                            Please arrange an alternate payment for the bounced cheques listed below.
+                          </div>
+                          <div className="overflow-x-auto" data-testid="cp-bounced-table">
+                            <table className="w-full text-sm">
+                              <thead className="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Cheque No</th>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Bank</th>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase hidden md:table-cell">Cheque Date</th>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Bounced On</th>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Reason</th>
+                                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100">
+                                {bouncedCheques.map((ch, idx) => {
+                                  const cd = ch.cheque_date ? new Date(ch.cheque_date) : null;
+                                  const bd = ch.bounced_at ? new Date(ch.bounced_at) : null;
+                                  return (
+                                    <tr
+                                      key={ch.cheque_id || idx}
+                                      className="hover:bg-red-50/30"
+                                      data-testid={`cp-bounced-row-${ch.cheque_id || idx}`}
+                                    >
+                                      <td className="px-4 py-3 font-semibold text-red-900 whitespace-nowrap">#{ch.cheque_number || '—'}</td>
+                                      <td className="px-4 py-3 text-gray-700">{ch.bank_name || '—'}</td>
+                                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap hidden md:table-cell">
+                                        {cd ? cd.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                                      </td>
+                                      <td className="px-4 py-3 text-red-700 whitespace-nowrap font-medium">
+                                        {bd ? bd.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                                      </td>
+                                      <td className="px-4 py-3 text-gray-700 max-w-[260px] truncate" title={ch.bounce_reason}>{ch.bounce_reason}</td>
+                                      <td className="px-4 py-3 text-right font-bold text-red-700 whitespace-nowrap">
+                                        ₹{(ch.amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                        {ch.bounce_charges > 0 && (
+                                          <div className="text-[10px] font-normal text-red-500 mt-0.5">+ ₹{ch.bounce_charges.toLocaleString('en-IN')} charges</div>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </>
+                      )}
+                    </TabsContent>
+                  </Tabs>
                 );
               })()}
             </TabsContent>
