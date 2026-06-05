@@ -64,13 +64,13 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" data-testid="rab-detail-dialog">
-        <DialogHeader>
+      <DialogContent className="max-w-4xl max-h-[92vh] flex flex-col p-0" data-testid="rab-detail-dialog">
+        <DialogHeader className="px-5 pt-4 pb-2 shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-violet-600" />
             RAB Bill Detail
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-xs">
             Running Account Bill history for this Work Order — every payment request, its approval timeline, and the running closing balance.
           </DialogDescription>
         </DialogHeader>
@@ -82,35 +82,27 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
         )}
 
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700 text-sm">
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700 text-sm mx-5">
             <AlertTriangle className="h-4 w-4 inline mr-1" /> {error}
           </div>
         )}
 
         {data && (
-          <>
-            {/* Header summary */}
-            <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50/60 to-violet-50/20 p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                <Tile icon={Building2} label="Vendor" value={data.contractor_name || '—'} accent="text-violet-700" />
-                <Tile icon={Hash}      label="Work Order" value={data.work_order_number || data.work_order_id?.slice(0, 8)} accent="text-violet-700" />
-                <Tile icon={IndianRupee} label="Contract Total" value={inr(data.contract_total)} accent="text-blue-700" />
-                <Tile icon={CheckCircle2} label="Released So Far" value={inr(data.total_released)} accent="text-emerald-700" />
+          <div className="flex-1 min-h-0 flex flex-col px-5">
+            {/* Header summary — compact 6-tile single row */}
+            <div className="rounded-lg border border-violet-200 bg-gradient-to-br from-violet-50/60 to-violet-50/20 p-2.5 shrink-0">
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                <Tile icon={Building2}    label="Vendor"        value={data.contractor_name || '—'} accent="text-violet-700" />
+                <Tile icon={Hash}         label="Work Order"    value={data.work_order_number || data.work_order_id?.slice(0, 8)} accent="text-violet-700" />
+                <Tile icon={IndianRupee}  label="Contract"      value={inr(data.contract_total)} accent="text-blue-700" />
+                <Tile icon={CheckCircle2} label="Released"      value={inr(data.total_released)} accent="text-emerald-700" />
+                <Tile icon={Clock}        label="Balance"       value={inr(data.balance_after_all)} accent="text-orange-700" />
+                <Tile icon={FileText}     label="RABs"          value={`${data.rab_count}`} accent="text-gray-900" />
               </div>
-              <div className="mt-3 pt-3 border-t border-violet-100 grid grid-cols-2 gap-3">
-                <Tile icon={Clock} label="Balance Remaining" value={inr(data.balance_after_all)} accent="text-orange-700" />
-                <Tile icon={FileText} label="Total RABs" value={`${data.rab_count}`} accent="text-gray-900" />
-              </div>
-              {data.scope_of_work && (
-                <p className="text-xs text-gray-600 mt-3 italic line-clamp-2">{data.scope_of_work}</p>
-              )}
             </div>
 
-            {/* Per-RAB cards — when highlightRequestId is provided we render
-                ONLY that one card (single-RAB view) so clicking View from a
-                Payment Summary row drills into just that RAB, not the whole
-                ladder. Without a highlight the dialog shows the full chain. */}
-            <div className="space-y-3 mt-4" data-testid="rab-detail-list">
+            {/* Per-RAB cards — only one when highlightRequestId is set */}
+            <div className={`mt-2 space-y-2 min-h-0 ${highlightRequestId ? '' : 'overflow-y-auto pr-1'}`} data-testid="rab-detail-list">
               {data.rabs.length === 0 ? (
                 <div className="text-center py-10 text-gray-500">
                   <FileText className="h-10 w-10 mx-auto text-gray-300 mb-2" />
@@ -124,17 +116,17 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
                 return (
                   <div
                     key={rab.request_id}
-                    className="rounded-xl border border-violet-300 bg-white p-4 transition-all"
+                    className="rounded-lg border border-violet-300 bg-white p-3 transition-all"
                     data-testid={`rab-card-${rab.rab_number || rab.request_id}`}
                   >
                     {/* RAB header */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3 pb-3 border-b border-gray-100">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-gray-100">
                       <div className="flex items-center gap-2">
-                        <Badge className="bg-violet-600 text-white border-violet-700 font-bold px-2.5 py-1">
+                        <Badge className="bg-violet-600 text-white border-violet-700 font-bold px-2 py-0.5 text-xs">
                           {rab.rab_number}
                         </Badge>
-                        <span className="text-sm font-semibold text-gray-900">{rab.stage_name}</span>
-                        <Badge className={`border ${st.cls}`}>{st.label}</Badge>
+                        <span className="text-xs font-semibold text-gray-900">{rab.stage_name}</span>
+                        <Badge className={`border text-[10px] ${st.cls}`}>{st.label}</Badge>
                       </div>
                       <Button
                         variant="outline"
@@ -191,18 +183,18 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
               })}
             </div>
 
-            {/* Footer summary */}
-            <div className="mt-4 rounded-xl bg-violet-600 text-white p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <FooterTile label="Contract Total" value={inr(data.contract_total)} />
-              <FooterTile label="Total Released" value={inr(data.total_released)} />
+            {/* Footer summary — pinned at bottom of content area */}
+            <div className="mt-2 rounded-lg bg-violet-600 text-white p-2.5 grid grid-cols-4 gap-2 shrink-0">
+              <FooterTile label="Contract" value={inr(data.contract_total)} />
+              <FooterTile label="Released" value={inr(data.total_released)} />
               <FooterTile label="Balance" value={inr(data.balance_after_all)} />
-              <FooterTile label="RAB Count" value={`${data.rab_count}`} />
+              <FooterTile label="RABs" value={`${data.rab_count}`} />
             </div>
-          </>
+          </div>
         )}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="rab-detail-close">Close</Button>
+        <DialogFooter className="px-5 py-3 border-t shrink-0">
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} data-testid="rab-detail-close">Close</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -254,10 +246,10 @@ function RABCardTabs({ rab, inr, fmtDate }) {
       </TabsList>
 
       <TabsContent value="summary" className="m-0">
-        <div className="rounded-xl border border-orange-200 bg-gradient-to-br from-orange-50 to-white p-4 mb-3">
+        <div className="rounded-lg border border-orange-200 bg-gradient-to-br from-orange-50 to-white p-3 mb-2">
           <p className="text-[10px] uppercase tracking-wider text-orange-700 font-semibold">Closing Balance After {rab.rab_number}</p>
-          <p className="text-2xl sm:text-3xl font-extrabold text-orange-700 mt-1">{inr(rab.closing_balance_after)}</p>
-          <p className="text-[11px] text-orange-600/80 mt-1">Cumulative released: {inr(rab.cumulative_released_after)}</p>
+          <p className="text-xl sm:text-2xl font-extrabold text-orange-700 mt-0.5">{inr(rab.closing_balance_after)}</p>
+          <p className="text-[10px] text-orange-600/80 mt-0.5">Cumulative released: {inr(rab.cumulative_released_after)}</p>
         </div>
         <div className="grid grid-cols-3 gap-2">
           <MiniStat label="Stage Amount" value={inr(rab.stage_amount)} />
@@ -269,7 +261,7 @@ function RABCardTabs({ rab, inr, fmtDate }) {
           />
         </div>
         {rab.notes && (
-          <p className="mt-3 text-xs text-gray-600 italic line-clamp-2 border-l-2 border-violet-200 pl-2">"{rab.notes}"</p>
+          <p className="mt-2 text-[11px] text-gray-600 italic line-clamp-2 border-l-2 border-violet-200 pl-2">"{rab.notes}"</p>
         )}
       </TabsContent>
 
