@@ -448,6 +448,39 @@ export default function ClientPortal() {
           </div>
         </div>
 
+        {/* Top-level Cheque Bounce Alert — visible across all tabs so the
+            client never misses a returned-cheque notification. Clicking the
+            banner jumps to the Income Status tab where full details live. */}
+        {(() => {
+          const bounced = (projectData?.income_entries || []).filter(e => e.status === 'cheque_bounced');
+          if (bounced.length === 0) return null;
+          const bouncedTotal = bounced.reduce((s, e) => s + (e.amount || 0), 0);
+          return (
+            <button
+              type="button"
+              onClick={() => setActiveTab('income')}
+              className="w-full mb-6 group rounded-xl border border-red-300 bg-gradient-to-r from-red-50 to-red-100/50 px-4 py-3 sm:px-5 sm:py-4 flex items-center gap-3 sm:gap-4 hover:shadow-md transition-all text-left"
+              data-testid="cp-global-bounce-alert"
+            >
+              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-lg bg-red-200 flex items-center justify-center shrink-0 animate-pulse">
+                <AlertTriangle className="h-5 w-5 sm:h-6 sm:w-6 text-red-700" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm sm:text-base font-bold text-red-900">
+                  {bounced.length} Cheque{bounced.length > 1 ? 's' : ''} Bounced — Action Required
+                </p>
+                <p className="text-xs sm:text-sm text-red-700 mt-0.5">
+                  Total bounced: ₹{bouncedTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}. Please arrange an alternate payment.
+                </p>
+              </div>
+              <div className="shrink-0 text-red-700 font-medium text-xs sm:text-sm flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+                View details
+                <ArrowRight className="h-4 w-4" />
+              </div>
+            </button>
+          );
+        })()}
+
         {/* Financial Summary — Scope / Additions / Deductions / Grand Total /
             Total Income / Yet to Receive. Mirrors the Project Detail (Admin)
             Financial Performance card so the client always sees the latest
@@ -1182,34 +1215,82 @@ export default function ClientPortal() {
                   accountant_rejected:{ label: 'Rejected',         cls: 'bg-red-100 text-red-700 border-red-200' },
                 };
                 const APPROVED = new Set(['approved', 'received', 'verified']);
-                const mainEntries = entries.filter(e => !e.is_additional);
-                const additionalEntries = entries.filter(e => e.is_additional);
-                const sumApproved = (list) => list.reduce((s, e) => s + (APPROVED.has(e.status) ? (e.amount || 0) : 0), 0);
-                const renderTable = (list, kind) => (
-                  list.length === 0 ? (
-                    <div className="text-center py-12">
-                      <Receipt className="h-10 w-10 mx-auto text-gray-300 mb-2" />
-                      <p className="text-gray-500 text-sm">No {kind === 'main' ? 'main income' : 'direct-transfer'} entries yet.</p>
+                const approvedSum = entries.reduce((s, e) => s + (APPROVED.has(e.status) ? (e.amount || 0) : 0), 0);
+                // Bounced cheque notifications — surface details prominently
+                const bouncedEntries = entries.filter(e => e.status === 'cheque_bounced');
+                const bouncedTotal = bouncedEntries.reduce((s, e) => s + (e.amount || 0), 0);
+                return (
+                  <>
+                    {/* Bounce notification banner */}
+                    {bouncedEntries.length > 0 && (
+                      <div className="mx-4 sm:mx-6 mt-4 rounded-xl border border-red-300 bg-red-50/60 overflow-hidden" data-testid="cp-income-bounce-alert">
+                        <div className="flex items-center gap-3 px-4 py-3 bg-red-100/80 border-b border-red-200">
+                          <div className="w-9 h-9 rounded-lg bg-red-200 flex items-center justify-center shrink-0">
+                            <AlertTriangle className="h-5 w-5 text-red-700" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-red-900">
+                              {bouncedEntries.length} Cheque{bouncedEntries.length > 1 ? 's' : ''} Bounced
+                            </p>
+                            <p className="text-xs text-red-700 mt-0.5">
+                              Total bounced amount: ₹{bouncedTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })} — please arrange an alternate payment.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="divide-y divide-red-200">
+                          {bouncedEntries.map((b, idx) => {
+                            const d = b.payment_date ? new Date(b.payment_date) : null;
+                            return (
+                              <div key={b.income_id || idx} className="px-4 py-2.5 flex items-center justify-between gap-3 text-xs sm:text-sm">
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-medium text-red-900 truncate">{b.description || 'Cheque payment'}</p>
+                                  <p className="text-[11px] text-red-600 mt-0.5">
+                                    {d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                                    {b.reference && <> · Ref: {b.reference}</>}
+                                  </p>
+                                </div>
+                                <p className="font-bold text-red-700 whitespace-nowrap">₹{(b.amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="px-4 sm:px-6 py-4 border-b bg-gradient-to-r from-emerald-50/40 to-white flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs text-emerald-700 font-semibold uppercase tracking-wide">Total Approved Income</p>
+                        <p className="text-2xl font-bold text-emerald-700 mt-0.5">₹{approvedSum.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Entries</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-0.5">{entries.length}</p>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="overflow-x-auto" data-testid={`cp-income-table-${kind}`}>
+                    <div className="overflow-x-auto" data-testid="cp-income-table-all">
                       <table className="w-full text-sm">
                         <thead className="bg-gray-50 border-b border-gray-200">
                           <tr>
                             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
                             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Date</th>
                             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Description</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase hidden md:table-cell">Type</th>
                             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase hidden sm:table-cell">Mode</th>
                             <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
                             <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                          {list.map((inc, idx) => {
+                          {entries.map((inc, idx) => {
                             const st = STATUS_STYLES[inc.status] || { label: (inc.status || 'Unknown').replace(/_/g, ' '), cls: 'bg-gray-100 text-gray-700 border-gray-200' };
                             const d = inc.payment_date ? new Date(inc.payment_date) : null;
+                            const isBounce = inc.status === 'cheque_bounced';
                             return (
-                              <tr key={inc.income_id || idx} className="hover:bg-gray-50/60" data-testid={`cp-income-row-${inc.income_id || idx}`}>
+                              <tr
+                                key={inc.income_id || idx}
+                                className={`hover:bg-gray-50/60 ${isBounce ? 'bg-red-50/30' : ''}`}
+                                data-testid={`cp-income-row-${inc.income_id || idx}`}
+                              >
                                 <td className="px-4 py-3 text-gray-500">{idx + 1}</td>
                                 <td className="px-4 py-3 whitespace-nowrap text-gray-900">
                                   {d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
@@ -1219,6 +1300,11 @@ export default function ClientPortal() {
                                   {inc.reference && (
                                     <p className="text-[11px] text-gray-400 mt-0.5 truncate">Ref: {inc.reference}</p>
                                   )}
+                                </td>
+                                <td className="px-4 py-3 hidden md:table-cell">
+                                  <Badge className={`text-[10px] font-medium border ${inc.is_additional ? 'bg-cyan-50 text-cyan-700 border-cyan-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                    {inc.is_additional ? 'Direct Transfer' : 'Main Income'}
+                                  </Badge>
                                 </td>
                                 <td className="px-4 py-3 text-gray-600 hidden sm:table-cell capitalize">{(inc.payment_mode || '—').replace(/_/g, ' ')}</td>
                                 <td className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">₹{(inc.amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
@@ -1231,75 +1317,7 @@ export default function ClientPortal() {
                         </tbody>
                       </table>
                     </div>
-                  )
-                );
-                return (
-                  <Tabs defaultValue="main_income" className="w-full">
-                    <div className="px-4 sm:px-6 pt-4 border-b bg-gradient-to-r from-emerald-50/40 to-white">
-                      <TabsList className="bg-transparent p-0 h-auto gap-2 mb-3">
-                        <TabsTrigger
-                          value="main_income"
-                          data-testid="cp-income-subtab-main"
-                          className="
-                            gap-2 px-4 py-2 text-xs sm:text-sm font-medium
-                            rounded-lg border border-transparent
-                            text-gray-600 bg-transparent
-                            hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-100
-                            data-[state=active]:bg-emerald-600 data-[state=active]:text-white
-                            data-[state=active]:border-emerald-700 data-[state=active]:shadow-md
-                            transition-all
-                          "
-                        >
-                          <Receipt className="h-4 w-4" />
-                          Main Income
-                          <Badge className="ml-1 bg-white/20 text-current border-0 text-[10px]">{mainEntries.length}</Badge>
-                        </TabsTrigger>
-                        <TabsTrigger
-                          value="direct_transfer"
-                          data-testid="cp-income-subtab-direct"
-                          className="
-                            gap-2 px-4 py-2 text-xs sm:text-sm font-medium
-                            rounded-lg border border-transparent
-                            text-gray-600 bg-transparent
-                            hover:bg-cyan-50 hover:text-cyan-700 hover:border-cyan-100
-                            data-[state=active]:bg-cyan-600 data-[state=active]:text-white
-                            data-[state=active]:border-cyan-700 data-[state=active]:shadow-md
-                            transition-all
-                          "
-                        >
-                          <ArrowRight className="h-4 w-4" />
-                          Direct Transfer
-                          <Badge className="ml-1 bg-white/20 text-current border-0 text-[10px]">{additionalEntries.length}</Badge>
-                        </TabsTrigger>
-                      </TabsList>
-                    </div>
-                    <TabsContent value="main_income" className="m-0">
-                      <div className="px-4 sm:px-6 py-3 border-b bg-emerald-50/30 flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-[11px] text-emerald-700 font-semibold uppercase tracking-wide">Main Income — Approved</p>
-                          <p className="text-xl font-bold text-emerald-700 mt-0.5">₹{sumApproved(mainEntries).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Entries</p>
-                          <p className="text-xl font-bold text-gray-900 mt-0.5">{mainEntries.length}</p>
-                        </div>
-                      </div>
-                      {renderTable(mainEntries, 'main')}
-                    </TabsContent>
-                    <TabsContent value="direct_transfer" className="m-0">
-                      <div className="px-4 sm:px-6 py-3 border-b bg-cyan-50/30 flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-[11px] text-cyan-700 font-semibold uppercase tracking-wide">Direct Transfer — Approved</p>
-                          <p className="text-xl font-bold text-cyan-700 mt-0.5">₹{sumApproved(additionalEntries).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Entries</p>
-                          <p className="text-xl font-bold text-gray-900 mt-0.5">{additionalEntries.length}</p>
-                        </div>
-                      </div>
-                      {renderTable(additionalEntries, 'direct')}
-                    </TabsContent>
-                  </Tabs>
+                  </>
                 );
               })()}
             </TabsContent>
