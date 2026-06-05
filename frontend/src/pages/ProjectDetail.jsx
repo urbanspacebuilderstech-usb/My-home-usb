@@ -1220,7 +1220,7 @@ export default function ProjectDetail() {
   const [labourSubTab, setLabourSubTab] = useState('workorders');
   const [labourWoViewId, setLabourWoViewId] = useState(null);
   const [expandedWoStages, setExpandedWoStages] = useState({});
-  // Sub-tab inside WO → Stages: In Progress | Open | Locked | All
+  // Sub-tab inside WO → Stages: Locked | In Process | All
   const [stagesBucket, setStagesBucket] = useState('all');
   // Planning: Request Labour Advance (Planning → PM → GM → Accountant)
   const [labourAdvanceDialog, setLabourAdvanceDialog] = useState({ open: false, stage: null, workOrder: null, amount: '', date: '', reason: '' });
@@ -1945,12 +1945,11 @@ export default function ProjectDetail() {
   };
 
   // Bucket a stage into one of the WO → Stages sub-tabs:
-  //   open       → status='pending' AND is_open=true   (SE can act)
-  //   locked     → status='pending' AND is_open!=true  (Planning needs to unlock)
-  //   in_progress→ anything else (payment workflow has started — in_progress / requested / approved / etc.)
+  //   locked     → status='pending' AND is_open!=true  (Planning hasn't unlocked yet)
+  //   in_process → everything else (unlocked Open stages + any stage with workflow movement)
   const stageBucketOf = (st) => {
-    if (st.status === 'pending') return st.is_open ? 'open' : 'locked';
-    return 'in_progress';
+    if (st.status === 'pending' && !st.is_open) return 'locked';
+    return 'in_process';
   };
 
   const canApproveStage = (stage) => {
@@ -9143,20 +9142,19 @@ export default function ProjectDetail() {
                             </TabsContent>
                             <TabsContent value="stages" className="p-3">
                               {wo.stages?.length > 0 ? (() => {
-                                const counts = { in_progress: 0, open: 0, locked: 0, all: wo.stages.length };
+                                const counts = { in_process: 0, locked: 0, all: wo.stages.length };
                                 wo.stages.forEach(s => { counts[stageBucketOf(s)]++; });
                                 const filteredStages = stagesBucket === 'all'
                                   ? wo.stages.map((st, i) => ({ st, i }))
                                   : wo.stages.map((st, i) => ({ st, i })).filter(({ st }) => stageBucketOf(st) === stagesBucket);
                                 return (
                                 <div className="space-y-2">
-                                  {/* Sub-tab segmentation: In Progress | Open | Locked | All */}
+                                  {/* Sub-tab segmentation: Locked | In Process | All */}
                                   <div className="flex items-center gap-2 mb-3 pb-1 overflow-x-auto" data-testid="wo-stages-subtabs">
                                     {[
-                                      { id: 'in_progress', label: 'In Progress', cnt: counts.in_progress, base: 'border-amber-300 bg-amber-50 text-amber-800',     active: 'border-amber-600 bg-amber-100 ring-2 ring-amber-300 text-amber-900' },
-                                      { id: 'open',        label: 'Open',        cnt: counts.open,        base: 'border-emerald-300 bg-emerald-50 text-emerald-800', active: 'border-emerald-600 bg-emerald-100 ring-2 ring-emerald-300 text-emerald-900' },
-                                      { id: 'locked',      label: 'Locked',      cnt: counts.locked,      base: 'border-gray-300 bg-gray-50 text-gray-700',          active: 'border-gray-500 bg-gray-200 ring-2 ring-gray-300 text-gray-900' },
-                                      { id: 'all',         label: 'All',         cnt: counts.all,         base: 'border-violet-300 bg-violet-50 text-violet-800',    active: 'border-violet-600 bg-violet-100 ring-2 ring-violet-300 text-violet-900' },
+                                      { id: 'locked',     label: 'Locked',     cnt: counts.locked,     base: 'border-gray-300 bg-gray-50 text-gray-700',          active: 'border-gray-500 bg-gray-200 ring-2 ring-gray-300 text-gray-900' },
+                                      { id: 'in_process', label: 'In Process', cnt: counts.in_process, base: 'border-emerald-300 bg-emerald-50 text-emerald-800', active: 'border-emerald-600 bg-emerald-100 ring-2 ring-emerald-300 text-emerald-900' },
+                                      { id: 'all',        label: 'All',        cnt: counts.all,        base: 'border-violet-300 bg-violet-50 text-violet-800',    active: 'border-violet-600 bg-violet-100 ring-2 ring-violet-300 text-violet-900' },
                                     ].map(t => {
                                       const isActive = stagesBucket === t.id;
                                       return (
@@ -10318,20 +10316,19 @@ export default function ProjectDetail() {
                                 </TabsContent>
                                 <TabsContent value="stages" className="p-3">
                                   {wo.stages?.length > 0 ? (() => {
-                                    const counts = { in_progress: 0, open: 0, locked: 0, all: wo.stages.length };
+                                    const counts = { in_process: 0, locked: 0, all: wo.stages.length };
                                     wo.stages.forEach(s => { counts[stageBucketOf(s)]++; });
                                     const filteredStages = stagesBucket === 'all'
                                       ? wo.stages.map((st, i) => ({ st, i }))
                                       : wo.stages.map((st, i) => ({ st, i })).filter(({ st }) => stageBucketOf(st) === stagesBucket);
                                     return (
                                     <div className="space-y-2">
-                                      {/* Sub-tab segmentation: In Progress | Open | Locked | All */}
+                                      {/* Sub-tab segmentation: Locked | In Process | All */}
                                       <div className="flex items-center gap-2 mb-3 pb-1 overflow-x-auto" data-testid="labour-wo-stages-subtabs">
                                         {[
-                                          { id: 'in_progress', label: 'In Progress', cnt: counts.in_progress, base: 'border-amber-300 bg-amber-50 text-amber-800',     active: 'border-amber-600 bg-amber-100 ring-2 ring-amber-300 text-amber-900' },
-                                          { id: 'open',        label: 'Open',        cnt: counts.open,        base: 'border-emerald-300 bg-emerald-50 text-emerald-800', active: 'border-emerald-600 bg-emerald-100 ring-2 ring-emerald-300 text-emerald-900' },
-                                          { id: 'locked',      label: 'Locked',      cnt: counts.locked,      base: 'border-gray-300 bg-gray-50 text-gray-700',          active: 'border-gray-500 bg-gray-200 ring-2 ring-gray-300 text-gray-900' },
-                                          { id: 'all',         label: 'All',         cnt: counts.all,         base: 'border-violet-300 bg-violet-50 text-violet-800',    active: 'border-violet-600 bg-violet-100 ring-2 ring-violet-300 text-violet-900' },
+                                          { id: 'locked',     label: 'Locked',     cnt: counts.locked,     base: 'border-gray-300 bg-gray-50 text-gray-700',          active: 'border-gray-500 bg-gray-200 ring-2 ring-gray-300 text-gray-900' },
+                                          { id: 'in_process', label: 'In Process', cnt: counts.in_process, base: 'border-emerald-300 bg-emerald-50 text-emerald-800', active: 'border-emerald-600 bg-emerald-100 ring-2 ring-emerald-300 text-emerald-900' },
+                                          { id: 'all',        label: 'All',        cnt: counts.all,        base: 'border-violet-300 bg-violet-50 text-violet-800',    active: 'border-violet-600 bg-violet-100 ring-2 ring-violet-300 text-violet-900' },
                                         ].map(t => {
                                           const isActive = stagesBucket === t.id;
                                           return (
