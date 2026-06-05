@@ -138,10 +138,35 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
                         variant="outline"
                         size="sm"
                         disabled={rab.status !== 'approved'}
-                        title={rab.status !== 'approved' ? 'Available after Accountant release' : 'Download RAB bill (requires Planning OTP)'}
+                        onClick={async () => {
+                          if (rab.status !== 'approved') return;
+                          try {
+                            const r = await fetch(
+                              `${API}/projects/${projectId}/work-orders/${workOrderId}/rabs/${rab.request_id}/pdf`,
+                              { credentials: 'include' }
+                            );
+                            if (!r.ok) throw new Error('Download failed');
+                            const blob = await r.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `${rab.rab_number || 'RAB'}_${(data.contractor_name || 'vendor').replace(/\s+/g, '_')}.pdf`;
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            URL.revokeObjectURL(url);
+                          } catch (e) {
+                            // Fallback to opening in a tab
+                            window.open(
+                              `${API}/projects/${projectId}/work-orders/${workOrderId}/rabs/${rab.request_id}/pdf`,
+                              '_blank'
+                            );
+                          }
+                        }}
+                        title={rab.status !== 'approved' ? 'Available after Accountant release' : 'Download RAB bill (PDF)'}
                         data-testid={`rab-download-${rab.rab_number}`}
                       >
-                        <Download className="h-3.5 w-3.5 mr-1.5" /> Download
+                        <Download className="h-3.5 w-3.5 mr-1.5" /> Download {rab.rab_number}
                       </Button>
                     </div>
 

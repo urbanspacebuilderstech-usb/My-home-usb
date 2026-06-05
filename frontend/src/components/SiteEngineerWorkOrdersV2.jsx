@@ -33,6 +33,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { RABDetailDialog } from './RABDetailDialog';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
@@ -665,6 +666,8 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  // RAB detail popup — opens when SE clicks "View" on a Payment Summary row.
+  const [rabView, setRabView] = useState({ open: false, requestId: null });
 
   // Delete a single payment_request row from the stage's history. Backend
   // enforces permission (PM/Planning/Accountant/Super Admin) and refuses to
@@ -865,19 +868,37 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
             ) : (
               allRequests.slice().reverse().map((pr, i) => {
                 const sb = prStatusBadge(pr.status);
+                const isReleased = pr.status === 'approved';
                 return (
                   <div key={pr.request_id || i} className="border rounded p-2 text-xs" data-testid={`wov2-history-${pr.request_id || i}`}>
                     <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <div>
-                        <p className="font-bold">{fmt(pr.approved_amount || pr.amount)}
-                          {pr.original_amount && pr.original_amount !== pr.amount && (
-                            <span className="text-[10px] text-gray-500 ml-1.5">(req {fmt(pr.original_amount)})</span>
-                          )}
-                        </p>
-                        <p className="text-[10px] text-gray-500">{fmtDate(pr.requested_at)}</p>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Badge className="bg-violet-600 text-white border-violet-700 font-bold text-[10px] px-2 py-0.5 shrink-0">
+                          {pr.rab_number || `RAB-${String((allRequests.length - i)).padStart(2, '0')}`}
+                        </Badge>
+                        <div className="min-w-0">
+                          <p className="font-bold">{fmt(pr.approved_amount || pr.amount)}
+                            {pr.original_amount && pr.original_amount !== pr.amount && (
+                              <span className="text-[10px] text-gray-500 ml-1.5">(req {fmt(pr.original_amount)})</span>
+                            )}
+                          </p>
+                          <p className="text-[10px] text-gray-500">{fmtDate(pr.requested_at)}</p>
+                        </div>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <Badge variant="outline" className={`text-[9px] ${sb.cls}`}>{sb.label}</Badge>
+                        {/* View — opens the full RAB ladder for this WO and
+                            scrolls/highlights the row's RAB inside the popup. */}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-[10px] text-violet-700 border-violet-200 hover:bg-violet-50"
+                          onClick={() => setRabView({ open: true, requestId: pr.request_id })}
+                          data-testid={`wov2-pr-view-${pr.request_id || i}`}
+                          title={isReleased ? 'View RAB bill (downloadable from popup)' : 'View RAB approval chain'}
+                        >
+                          <Eye className="h-3 w-3 mr-0.5" /> View
+                        </Button>
                         {/* Delete affordance — backend (`/payment-requests/{request_id}`)
                             enforces role + whether the row has been released. */}
                         <Button
@@ -910,6 +931,14 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
           </div>
         )}
       </DialogContent>
+      {/* RAB ladder popup — opens from "View" on each Payment Summary row. */}
+      <RABDetailDialog
+        open={rabView.open}
+        onOpenChange={(o) => setRabView(v => ({ ...v, open: o }))}
+        projectId={projectId}
+        workOrderId={wo?.work_order_id}
+        highlightRequestId={rabView.requestId}
+      />
     </Dialog>
   );
 }

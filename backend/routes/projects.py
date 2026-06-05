@@ -8035,6 +8035,156 @@ async def wo_rab_chain(project_id: str, work_order_id: str, user: User = Depends
     }
 
 
+@router.get("/projects/{project_id}/work-orders/{work_order_id}/rabs/{request_id}/pdf")
+async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, user: User = Depends(get_current_user)):
+    """Generate a single-page Running Account Bill PDF for the given RAB.
+
+    Pulls the WO + the specific RAB by request_id, walks the WO once to
+    compute the running closing balance up to and including this RAB, and
+    builds a PDF with header (vendor/WO/contract totals), the current RAB
+    block (stage, requested/released, closing balance), and the approval
+    trail (SE → PM → QC → Planning → Accountant timestamps + signatures).
+    """
+    from fpdf import FPDF
+    from fastapi.responses import StreamingResponse
+    from io import BytesIO
+
+    wo = await db.project_work_orders.find_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"_id": 0},
+    )
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
+
+    # Flatten & sort so we can compute running balance up to THIS RAB
+    flat = []
+    for stg in (wo.get("stages") or []):
+        for pr in (stg.get("payment_requests") or []):
+            flat.append({"stage_name": stg.get("stage_name") or "Stage", "stage_amount": float(stg.get("amount") or 0), **pr})
+    flat.sort(key=lambda r: str(r.get("requested_at") or ""))
+
+    target = None
+    cumulative = 0.0
+    for r in flat:
+        if r.get("status") == "approved":
+            cumulative += float(r.get("approved_amount") or 0)
+        if r.get("request_id") == request_id:
+            target = r
+            target_cumulative = cumulative
+            break
+    if not target:
+        raise HTTPException(status_code=404, detail="RAB not found")
+
+    contract_total = float(wo.get("total_amount") or wo.get("amount") or sum(float(s.get("amount") or 0) for s in (wo.get("stages") or [])))
+    closing = contract_total - target_cumulative
+
+    def _fmt_inr(n):
+        return f"INR {float(n or 0):,.0f}"
+
+    def _fmt_dt(iso):
+        if not iso:
+            return "-"
+        try:
+            return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%d %b %Y %H:%M")
+        except Exception:
+            return str(iso)[:10]
+
+    pdf = FPDF(format="A4", unit="mm")
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    rab_no = target.get("rab_number") or "RAB"
+    # Header band
+    pdf.set_fill_color(96, 39, 176)  # violet
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 12, f"Running Account Bill - {rab_no}", ln=1, fill=True, align="C")
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(2)
+
+    pdf.set_font("Helvetica", "", 9)
+    pdf.cell(0, 5, f"Project: {(project or {}).get('name', '-')}", ln=1)
+    pdf.cell(0, 5, f"Work Order: {wo.get('work_order_number') or work_order_id}", ln=1)
+    pdf.cell(0, 5, f"Vendor: {wo.get('contractor_name', '-')}", ln=1)
+    pdf.cell(0, 5, f"Scope: {(wo.get('scope_of_work') or wo.get('description') or '-')[:120]}", ln=1)
+    pdf.ln(2)
+
+    # Contract summary tile
+    pdf.set_fill_color(243, 244, 246)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.cell(60, 7, "Contract Total", fill=True, border=1)
+    pdf.cell(45, 7, "Released So Far", fill=True, border=1)
+    pdf.cell(45, 7, "Balance After This RAB", fill=True, border=1, ln=1)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(60, 8, _fmt_inr(contract_total), border=1)
+    pdf.cell(45, 8, _fmt_inr(target_cumulative), border=1)
+    pdf.cell(45, 8, _fmt_inr(closing), border=1, ln=1)
+    pdf.ln(4)
+
+    # RAB block
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(0, 7, f"{rab_no} - {target.get('stage_name', '-')}", ln=1)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.cell(50, 6, "Stage Amount", border=1)
+    pdf.cell(50, 6, _fmt_inr(target.get('stage_amount')), border=1, ln=1)
+    pdf.cell(50, 6, "Requested", border=1)
+    pdf.cell(50, 6, _fmt_inr(target.get('amount')), border=1, ln=1)
+    pdf.cell(50, 6, "Released", border=1)
+    pdf.cell(50, 6, _fmt_inr(target.get('approved_amount')) if target.get('status') == 'approved' else 'Pending', border=1, ln=1)
+    pdf.cell(50, 6, "Closing Balance (after this RAB)", border=1)
+    pdf.cell(50, 6, _fmt_inr(closing), border=1, ln=1)
+    if target.get("notes"):
+        pdf.set_font("Helvetica", "I", 8)
+        pdf.multi_cell(0, 5, f"Notes: {target.get('notes')}")
+    pdf.ln(3)
+
+    # Approval trail
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(0, 6, "Approval Trail", ln=1)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_fill_color(243, 244, 246)
+    pdf.cell(35, 6, "Role", fill=True, border=1)
+    pdf.cell(60, 6, "Name", fill=True, border=1)
+    pdf.cell(50, 6, "Approved At", fill=True, border=1)
+    pdf.cell(45, 6, "Signature", fill=True, border=1, ln=1)
+    pdf.set_font("Helvetica", "", 8)
+    trail = [
+        ("Site Engineer", target.get("requested_by_name"),       target.get("requested_at")),
+        ("PM",            target.get("pm_approved_by_name"),      target.get("pm_approved_at")),
+        ("QC",            target.get("qc_approved_by_name"),      target.get("qc_approved_at")),
+        ("Planning",      target.get("planning_approved_by_name"),target.get("planning_approved_at")),
+        ("Accountant",    target.get("released_by_name") or target.get("accountant_approved_by_name"), target.get("released_at") or target.get("accountant_approved_at")),
+    ]
+    for role_name, person, at in trail:
+        pdf.cell(35, 7, role_name, border=1)
+        pdf.cell(60, 7, person or "-", border=1)
+        pdf.cell(50, 7, _fmt_dt(at), border=1)
+        # Signature column: short stylised name as auto-signature when approved.
+        if person and at:
+            pdf.set_font("Helvetica", "I", 9)
+            pdf.cell(45, 7, f"/{person.split()[0][:12]}/", border=1, ln=1)
+            pdf.set_font("Helvetica", "", 8)
+        else:
+            pdf.cell(45, 7, "Pending", border=1, ln=1)
+
+    pdf.ln(6)
+    pdf.set_font("Helvetica", "I", 7)
+    pdf.set_text_color(120, 120, 120)
+    pdf.cell(0, 4, f"Generated on {datetime.now(timezone.utc).strftime('%d %b %Y %H:%M UTC')} by {user.name}", ln=1, align="R")
+
+    # Stream out
+    buf = BytesIO()
+    pdf.output(buf)
+    buf.seek(0)
+    filename = f"{rab_no}_{wo.get('contractor_name','vendor').replace(' ','_')}.pdf"
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/finish")
 async def wo_finish_stage(project_id: str, work_order_id: str, stage_id: str, data: dict, user: User = Depends(get_current_user)):
     """Site Engineer marks a stage's WORK as complete with remarks.
