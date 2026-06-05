@@ -465,50 +465,61 @@ export default function ClientPortal() {
             const d = st.expected_payment_date || st.due_date;
             return d && d < todayIso ? s + bal : s;
           }, 0);
-          const card = (label, value, color, testid) => (
+          const card = (label, value, color, testid, opts = {}) => (
             <div className={`rounded-lg border p-3 ${color}`} data-testid={testid}>
-              <p className="text-[10px] sm:text-xs uppercase tracking-wide text-gray-500 font-medium">{label}</p>
-              <p className="text-base sm:text-xl font-bold mt-0.5">₹{(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+              <p className={`text-[10px] sm:text-xs uppercase tracking-wide font-medium ${opts.labelClass || 'text-gray-500'}`}>{label}</p>
+              <p className={`text-base sm:text-xl font-bold mt-0.5 ${opts.valueClass || ''}`}>₹{(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+            </div>
+          );
+          const SectionBox = ({ title, accent, children, testid }) => (
+            <div
+              className={`rounded-xl border ${accent.border} ${accent.bg} p-4 sm:p-5`}
+              data-testid={testid}
+            >
+              <h3 className={`text-xs sm:text-sm font-semibold ${accent.text} uppercase tracking-wider mb-3`}>
+                {title}
+              </h3>
+              {children}
             </div>
           );
           return (
             <div className="space-y-4 mb-6" data-testid="client-project-summary">
               {/* Section 1 — Project Value Calculation */}
-              <div>
-                <h3 className="text-xs sm:text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <span className="h-1 w-6 rounded-full bg-blue-500"></span>
-                  Project Value Calculation
-                </h3>
+              <SectionBox
+                title="Project Value Calculation"
+                accent={{ border: 'border-blue-200', bg: 'bg-blue-50/40', text: 'text-blue-700' }}
+                testid="client-section-project-value"
+              >
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-                  {card('Scope Value',  scope,          'bg-blue-50 border-blue-200',     'client-proj-scope')}
-                  {card('Additions',    additionsTotal, 'bg-violet-50 border-violet-200', 'client-proj-additions')}
-                  {card('Deductions',   deductionsTotal,'bg-rose-50 border-rose-200',     'client-proj-deductions')}
-                  {card('Grand Total',  grandTotal,     'bg-amber-50 border-amber-200',   'client-proj-grandtotal')}
+                  {card('Scope Value',  scope,          'bg-white border-blue-200',   'client-proj-scope')}
+                  {card('Additions',    additionsTotal, 'bg-white border-cyan-200',   'client-proj-additions')}
+                  {card('Deductions',   deductionsTotal,'bg-white border-orange-200', 'client-proj-deductions')}
+                  {card('Grand Total',  grandTotal,     'bg-violet-600 border-violet-700', 'client-proj-grandtotal', { labelClass: 'text-white/80', valueClass: 'text-white' })}
                 </div>
-              </div>
+              </SectionBox>
 
               {/* Section 2 — Financial Performance */}
-              <div>
-                <h3 className="text-xs sm:text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <span className="h-1 w-6 rounded-full bg-emerald-500"></span>
-                  Financial Performance
-                </h3>
-                <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:max-w-md">
-                  {card('Total Income', totalIncome, 'bg-emerald-50 border-emerald-200', 'client-proj-income')}
-                  {card('Receivable',   receivable,  'bg-orange-50 border-orange-200',   'client-proj-receivable')}
+              <SectionBox
+                title="Financial Performance"
+                accent={{ border: 'border-emerald-200', bg: 'bg-emerald-50/40', text: 'text-emerald-700' }}
+                testid="client-section-financial-performance"
+              >
+                <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                  {card('Total Income', totalIncome, 'bg-white border-emerald-200', 'client-proj-income')}
+                  {card('Receivable',   receivable,  'bg-white border-orange-200',  'client-proj-receivable')}
                 </div>
-              </div>
+              </SectionBox>
 
               {/* Section 3 — Pending Dues */}
-              <div>
-                <h3 className="text-xs sm:text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <span className="h-1 w-6 rounded-full bg-red-500"></span>
-                  Pending Dues
-                </h3>
-                <div className="grid grid-cols-1 gap-2 sm:gap-3 sm:max-w-[14rem]">
-                  {card('Pending Dues', pendingDues, 'bg-red-50 border-red-200', 'client-proj-dues')}
+              <SectionBox
+                title="Pending Dues"
+                accent={{ border: 'border-red-200', bg: 'bg-red-50/40', text: 'text-red-700' }}
+                testid="client-section-pending-dues"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 sm:gap-3">
+                  {card('Pending Dues', pendingDues, 'bg-white border-red-200', 'client-proj-dues')}
                 </div>
-              </div>
+              </SectionBox>
             </div>
           );
         })()}
