@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import {
   Building2,
   Hash,
@@ -123,7 +124,7 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
                 return (
                   <div
                     key={rab.request_id}
-                    className="rounded-xl border border-violet-300 bg-violet-50/30 p-4 transition-all"
+                    className="rounded-xl border border-violet-300 bg-white p-4 transition-all"
                     data-testid={`rab-card-${rab.rab_number || rab.request_id}`}
                   >
                     {/* RAB header */}
@@ -157,7 +158,6 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
                             a.remove();
                             URL.revokeObjectURL(url);
                           } catch (e) {
-                            // Fallback to opening in a tab
                             window.open(
                               `${API}/projects/${projectId}/work-orders/${workOrderId}/rabs/${rab.request_id}/pdf`,
                               '_blank'
@@ -171,48 +171,8 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
                       </Button>
                     </div>
 
-                    {/* Amounts grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-                      <SmallTile label="Stage Amount" value={inr(rab.stage_amount)} />
-                      <SmallTile label="Requested" value={inr(rab.requested_amount)} />
-                      <SmallTile
-                        label="Released"
-                        value={rab.status === 'approved' ? inr(rab.approved_amount) : '—'}
-                        valueClass={rab.status === 'approved' ? 'text-emerald-700' : 'text-gray-400'}
-                      />
-                      <SmallTile
-                        label="Closing Balance"
-                        value={inr(rab.closing_balance_after)}
-                        valueClass="text-orange-700"
-                      />
-                    </div>
-
-                    {/* Approval timeline */}
-                    <div className="bg-gray-50/60 rounded-lg p-3">
-                      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Approval Timeline</p>
-                      <div className="space-y-1.5">
-                        {rab.timeline.map((step, i) => {
-                          const done = !!step.at;
-                          return (
-                            <div key={i} className="flex items-start gap-2 text-xs">
-                              {done ? (
-                                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
-                              ) : (
-                                <Clock className="h-4 w-4 text-gray-300 shrink-0 mt-0.5" />
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex flex-wrap items-baseline gap-1">
-                                  <span className="font-semibold text-gray-700">{step.role}</span>
-                                  {step.name && <span className="text-gray-500">· {step.name}</span>}
-                                </div>
-                                <p className={`text-[11px] ${done ? 'text-gray-600' : 'text-gray-400'}`}>{fmtDate(step.at)}</p>
-                                {step.notes && <p className="text-[11px] text-gray-500 italic mt-0.5 line-clamp-2">"{step.notes}"</p>}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    {/* Summary / Timeline inner tabs */}
+                    <RABCardTabs rab={rab} inr={inr} fmtDate={fmtDate} />
 
                     {rab.status === 'rejected' && rab.rejection_reason && (
                       <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-2.5 flex items-start gap-2">
@@ -269,6 +229,85 @@ const FooterTile = ({ label, value }) => (
   <div>
     <p className="text-[10px] uppercase tracking-wide text-white/70 font-medium">{label}</p>
     <p className="text-base font-bold mt-0.5">{value}</p>
+  </div>
+);
+
+/**
+ * Inner Summary / Timeline tabs for each RAB card. Default Summary shows the
+ * headline closing balance + key amounts; Timeline tab loads only when clicked.
+ */
+function RABCardTabs({ rab, inr, fmtDate }) {
+  const isApproved = rab.status === 'approved';
+  return (
+    <Tabs defaultValue="summary" className="w-full">
+      <TabsList className="bg-gray-50 p-1 h-auto gap-1 mb-3">
+        <TabsTrigger
+          value="summary"
+          className="text-[11px] px-3 py-1.5 data-[state=active]:bg-violet-600 data-[state=active]:text-white"
+          data-testid={`rab-${rab.rab_number}-tab-summary`}
+        >Summary</TabsTrigger>
+        <TabsTrigger
+          value="timeline"
+          className="text-[11px] px-3 py-1.5 data-[state=active]:bg-violet-600 data-[state=active]:text-white"
+          data-testid={`rab-${rab.rab_number}-tab-timeline`}
+        >Timeline</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="summary" className="m-0">
+        <div className="rounded-xl border border-orange-200 bg-gradient-to-br from-orange-50 to-white p-4 mb-3">
+          <p className="text-[10px] uppercase tracking-wider text-orange-700 font-semibold">Closing Balance After {rab.rab_number}</p>
+          <p className="text-2xl sm:text-3xl font-extrabold text-orange-700 mt-1">{inr(rab.closing_balance_after)}</p>
+          <p className="text-[11px] text-orange-600/80 mt-1">Cumulative released: {inr(rab.cumulative_released_after)}</p>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <MiniStat label="Stage Amount" value={inr(rab.stage_amount)} />
+          <MiniStat label="Requested" value={inr(rab.requested_amount)} />
+          <MiniStat
+            label="Released"
+            value={isApproved ? inr(rab.approved_amount) : '—'}
+            valueClass={isApproved ? 'text-emerald-700' : 'text-gray-400'}
+          />
+        </div>
+        {rab.notes && (
+          <p className="mt-3 text-xs text-gray-600 italic line-clamp-2 border-l-2 border-violet-200 pl-2">"{rab.notes}"</p>
+        )}
+      </TabsContent>
+
+      <TabsContent value="timeline" className="m-0">
+        <div className="bg-gray-50/60 rounded-lg p-3">
+          <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Approval Timeline</p>
+          <div className="space-y-1.5">
+            {rab.timeline.map((step, i) => {
+              const done = !!step.at;
+              return (
+                <div key={i} className="flex items-start gap-2 text-xs">
+                  {done ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <Clock className="h-4 w-4 text-gray-300 shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-baseline gap-1">
+                      <span className="font-semibold text-gray-700">{step.role}</span>
+                      {step.name && <span className="text-gray-500">· {step.name}</span>}
+                    </div>
+                    <p className={`text-[11px] ${done ? 'text-gray-600' : 'text-gray-400'}`}>{fmtDate(step.at)}</p>
+                    {step.notes && <p className="text-[11px] text-gray-500 italic mt-0.5 line-clamp-2">"{step.notes}"</p>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+const MiniStat = ({ label, value, valueClass }) => (
+  <div className="rounded-lg border border-gray-200 bg-white p-2">
+    <p className="text-[9px] text-gray-500 uppercase tracking-wide font-medium">{label}</p>
+    <p className={`text-xs sm:text-sm font-bold mt-0.5 ${valueClass || 'text-gray-900'}`}>{value}</p>
   </div>
 );
 
