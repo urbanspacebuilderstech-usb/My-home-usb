@@ -139,6 +139,7 @@ export default function HRPortal() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [resetPwdDialog, setResetPwdDialog] = useState(false);
   const [newPassword, setNewPassword] = useState('');
+  const [showResetPwd, setShowResetPwd] = useState(false);
   const [createUserDialog, setCreateUserDialog] = useState(false);
   const [createUserForm, setCreateUserForm] = useState({ staff_id: '', email: '', password: '', confirm_password: '', role: '', name: '' });
   const [showPassword, setShowPassword] = useState(false);
@@ -1282,10 +1283,31 @@ export default function HRPortal() {
       </Dialog>
 
       {/* ==================== RESET PASSWORD DIALOG ==================== */}
-      <Dialog open={resetPwdDialog} onOpenChange={setResetPwdDialog}>
+      <Dialog open={resetPwdDialog} onOpenChange={(v) => { setResetPwdDialog(v); if (!v) setShowResetPwd(false); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Reset Password</DialogTitle><DialogDescription>Reset password for {selectedUser?.name} ({selectedUser?.email})</DialogDescription></DialogHeader>
-          <div><Label>New Password</Label><Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Min 6 characters" data-testid="input-new-password" /></div>
+          <div>
+            <Label>New Password</Label>
+            <div className="relative">
+              <Input
+                type={showResetPwd ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Min 6 characters"
+                className="pr-10"
+                data-testid="input-new-password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowResetPwd(s => !s)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 p-1"
+                aria-label={showResetPwd ? 'Hide password' : 'Show password'}
+                data-testid="toggle-reset-pwd-visibility"
+              >
+                {showResetPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
           <DialogFooter><Button variant="outline" onClick={() => setResetPwdDialog(false)}>Cancel</Button><Button onClick={handleResetPassword} className="bg-red-600 hover:bg-red-700" data-testid="confirm-reset-pwd">Reset Password</Button></DialogFooter>
         </DialogContent>
       </Dialog>
