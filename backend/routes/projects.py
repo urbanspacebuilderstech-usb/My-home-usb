@@ -2126,6 +2126,10 @@ class ProjectUpdate(BaseModel):
     total_expense: Optional[float] = None
     status: Optional[str] = None
     package_id: Optional[str] = None
+    # Timeline — Client Portal shows these as Start Date / Expected Completion.
+    # Accept YYYY-MM-DD strings from the date picker; backend stores as-is.
+    start_date: Optional[str] = None
+    expected_completion: Optional[str] = None
 
 
 @router.patch("/projects/{project_id}")

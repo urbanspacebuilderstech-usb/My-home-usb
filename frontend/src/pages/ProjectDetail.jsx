@@ -2050,6 +2050,9 @@ export default function ProjectDetail() {
       package_id: p.package_id || '',
       current_stage: p.current_stage || 'yet_to_start',
       status: p.status || 'in_planning',
+      // Normalise to YYYY-MM-DD for the <input type="date"> control.
+      start_date: p.start_date ? String(p.start_date).slice(0, 10) : '',
+      expected_completion: p.expected_completion ? String(p.expected_completion).slice(0, 10) : '',
     });
     fetchPackages();
     setHeaderEditing(true);
@@ -2066,6 +2069,16 @@ export default function ProjectDetail() {
       if (headerForm.client_email !== (p.client_email || '')) payload.client_email = headerForm.client_email;
       if (headerForm.location !== (p.location || '')) payload.location = headerForm.location;
       if (headerForm.package_id !== (p.package_id || '')) payload.package_id = headerForm.package_id || '';
+      // Start Date / Expected Completion — emit ISO string when the form
+      // value differs from the project (compared on YYYY-MM-DD).
+      const pStart = p.start_date ? String(p.start_date).slice(0, 10) : '';
+      const pEnd = p.expected_completion ? String(p.expected_completion).slice(0, 10) : '';
+      if (headerForm.start_date !== pStart) {
+        payload.start_date = headerForm.start_date || null;
+      }
+      if (headerForm.expected_completion !== pEnd) {
+        payload.expected_completion = headerForm.expected_completion || null;
+      }
 
       // Stage goes via its dedicated endpoint so the audit log / stage_history
       // are populated correctly (the generic PATCH /projects/{id} doesn't
@@ -4142,6 +4155,27 @@ export default function ProjectDetail() {
                         </Select>
                       </div>
                     )}
+                    {/* Start Date — surfaces on Client Portal Project Details. */}
+                    <div>
+                      <Label className="text-xs text-gray-500">Start Date</Label>
+                      <Input
+                        type="date"
+                        value={headerForm.start_date || ''}
+                        onChange={(e) => setHeaderForm(f => ({ ...f, start_date: e.target.value }))}
+                        data-testid="header-edit-start-date"
+                      />
+                    </div>
+                    {/* Expected Completion — surfaces on Client Portal Project Details. */}
+                    <div>
+                      <Label className="text-xs text-gray-500">Expected Completion</Label>
+                      <Input
+                        type="date"
+                        value={headerForm.expected_completion || ''}
+                        min={headerForm.start_date || undefined}
+                        onChange={(e) => setHeaderForm(f => ({ ...f, expected_completion: e.target.value }))}
+                        data-testid="header-edit-expected-completion"
+                      />
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Button size="sm" onClick={saveHeaderEdit} disabled={headerSaving} className="bg-indigo-600 hover:bg-indigo-700" data-testid="header-edit-save">
