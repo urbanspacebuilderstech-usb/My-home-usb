@@ -576,43 +576,45 @@ export default function ClientPortal() {
         <Card className="print:shadow-none print:border-0">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <CardHeader className="border-b print:hidden bg-gradient-to-r from-gray-50 via-white to-gray-50 py-3 sm:py-4 px-3 sm:px-4">
-              <TabsList className="bg-transparent p-0 h-auto w-full flex flex-wrap gap-1.5 sm:gap-2 justify-start">
-                {[
-                  { v: 'overview',       label: 'Overview',         Icon: LayoutDashboard, show: true,                                tid: 'cp-tab-overview' },
-                  { v: 'final_estimate', label: 'Final Estimate',   Icon: FileCheck,       show: !!projectData?.final_estimate,       tid: 'cp-tab-final-estimate',
-                    pendingDot: projectData?.final_estimate?.status === 'pending_client_review' },
-                  { v: 'payments',       label: 'Payment Schedule', Icon: Calendar,        show: true,                                tid: 'cp-tab-payments' },
-                  { v: 'additional',     label: 'Additional Work',  Icon: PlusCircle,      show: true,                                tid: 'cp-tab-additional' },
-                  { v: 'deductions',     label: 'Deductions',       Icon: MinusCircle,     show: true,                                tid: 'cp-tab-deductions' },
-                  { v: 'income',         label: 'Income Status',    Icon: Receipt,         show: true,                                tid: 'cp-tab-income' },
-                  { v: 'scope',          label: 'Scope of Work',    Icon: ListChecks,      show: true,                                tid: 'cp-tab-scope' },
-                  { v: 'photos',         label: 'Photos',           Icon: Image,           show: true,                                tid: 'cp-tab-photos' },
-                  { v: 'documents',      label: 'Documents',        Icon: FileText,        show: true,                                tid: 'cp-tab-documents' },
-                ].filter(t => t.show).map(({ v, label, Icon, pendingDot, tid }) => (
-                  <TabsTrigger
-                    key={v}
-                    value={v}
-                    data-testid={tid}
-                    className="
-                      relative gap-2 px-3 sm:px-4 py-2 sm:py-2.5
-                      text-xs sm:text-sm font-medium
-                      rounded-lg border border-transparent
-                      text-gray-600 bg-transparent
-                      hover:bg-violet-50 hover:text-violet-700 hover:border-violet-100
-                      data-[state=active]:bg-violet-600 data-[state=active]:text-white
-                      data-[state=active]:border-violet-700 data-[state=active]:shadow-md
-                      data-[state=active]:hover:bg-violet-700
-                      transition-all
-                    "
-                  >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    <span className="whitespace-nowrap">{label}</span>
-                    {pendingDot && (
-                      <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-amber-500 ring-2 ring-white animate-pulse" />
-                    )}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
+              <div className="overflow-x-auto -mx-3 sm:-mx-4 px-3 sm:px-4 scrollbar-thin">
+                <TabsList className="bg-transparent p-0 h-auto w-max flex flex-nowrap gap-1 sm:gap-1.5 justify-start">
+                  {[
+                    { v: 'overview',       label: 'Overview',         Icon: LayoutDashboard, show: true,                                tid: 'cp-tab-overview' },
+                    { v: 'final_estimate', label: 'Final Estimate',   Icon: FileCheck,       show: !!projectData?.final_estimate,       tid: 'cp-tab-final-estimate',
+                      pendingDot: projectData?.final_estimate?.status === 'pending_client_review' },
+                    { v: 'payments',       label: 'Payment Schedule', Icon: Calendar,        show: true,                                tid: 'cp-tab-payments' },
+                    { v: 'additional',     label: 'Additional Work',  Icon: PlusCircle,      show: true,                                tid: 'cp-tab-additional' },
+                    { v: 'deductions',     label: 'Deductions',       Icon: MinusCircle,     show: true,                                tid: 'cp-tab-deductions' },
+                    { v: 'income',         label: 'Income Status',    Icon: Receipt,         show: true,                                tid: 'cp-tab-income' },
+                    { v: 'scope',          label: 'Scope of Work',    Icon: ListChecks,      show: true,                                tid: 'cp-tab-scope' },
+                    { v: 'photos',         label: 'Photos',           Icon: Image,           show: true,                                tid: 'cp-tab-photos' },
+                    { v: 'documents',      label: 'Documents',        Icon: FileText,        show: true,                                tid: 'cp-tab-documents' },
+                  ].filter(t => t.show).map(({ v, label, Icon, pendingDot, tid }) => (
+                    <TabsTrigger
+                      key={v}
+                      value={v}
+                      data-testid={tid}
+                      className="
+                        relative gap-1.5 px-2.5 lg:px-3 py-2
+                        text-[11px] lg:text-xs font-medium whitespace-nowrap
+                        rounded-lg border border-transparent
+                        text-gray-600 bg-transparent
+                        hover:bg-violet-50 hover:text-violet-700 hover:border-violet-100
+                        data-[state=active]:bg-violet-600 data-[state=active]:text-white
+                        data-[state=active]:border-violet-700 data-[state=active]:shadow-md
+                        data-[state=active]:hover:bg-violet-700
+                        transition-all
+                      "
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
+                      <span>{label}</span>
+                      {pendingDot && (
+                        <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-amber-500 ring-2 ring-white animate-pulse" />
+                      )}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </div>
             </CardHeader>
 
             {/* Overview Tab */}
