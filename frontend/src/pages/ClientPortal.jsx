@@ -628,64 +628,45 @@ export default function ClientPortal() {
                       <p className="text-xs text-gray-500">Site & timeline information</p>
                     </div>
                   </div>
-                  <dl className="space-y-3.5">
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
-                        <Home className="h-3.5 w-3.5 text-gray-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <dt className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Project Name</dt>
-                        <dd className="text-sm font-semibold text-gray-900 truncate">{project.name || '—'}</dd>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
-                        <User className="h-3.5 w-3.5 text-gray-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <dt className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Client</dt>
-                        <dd className="text-sm font-semibold text-gray-900 truncate">{project.client_name || '—'}</dd>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
-                        <MapPin className="h-3.5 w-3.5 text-gray-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <dt className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Location</dt>
-                        <dd className="text-sm font-semibold text-gray-900 truncate">{project.location || '—'}</dd>
-                      </div>
-                    </div>
-                    {project.start_date && (
-                      <div className="flex items-start gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
-                          <Calendar className="h-3.5 w-3.5 text-gray-500" />
+                  <dl className="space-y-2">
+                    {[
+                      { label: 'Project Name', value: project.name || '—', Icon: Home, accent: { bg: 'bg-blue-100', text: 'text-blue-600' } },
+                      { label: 'Client',       value: project.client_name || '—', Icon: User, accent: { bg: 'bg-indigo-100', text: 'text-indigo-600' } },
+                      { label: 'Location',     value: project.location || '—', Icon: MapPin, accent: { bg: 'bg-rose-100', text: 'text-rose-600' } },
+                      project.start_date && {
+                        label: 'Start Date',
+                        value: new Date(project.start_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+                        Icon: Calendar,
+                        accent: { bg: 'bg-emerald-100', text: 'text-emerald-600' },
+                      },
+                      project.expected_completion && {
+                        label: 'Expected Completion',
+                        value: new Date(project.expected_completion).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+                        Icon: CalendarCheck,
+                        accent: { bg: 'bg-amber-100', text: 'text-amber-600' },
+                      },
+                    ].filter(Boolean).map(({ label, value, Icon, accent }) => (
+                      <div
+                        key={label}
+                        className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50/80 transition-colors"
+                      >
+                        <div className={`w-9 h-9 rounded-lg ${accent.bg} flex items-center justify-center shrink-0`}>
+                          <Icon className={`h-4 w-4 ${accent.text}`} />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <dt className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Start Date</dt>
-                          <dd className="text-sm font-semibold text-gray-900">{new Date(project.start_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</dd>
+                          <dt className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">{label}</dt>
+                          <dd className="text-sm font-semibold text-gray-900 truncate mt-0.5">{value}</dd>
                         </div>
                       </div>
-                    )}
-                    {project.expected_completion && (
-                      <div className="flex items-start gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
-                          <CalendarCheck className="h-3.5 w-3.5 text-gray-500" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <dt className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Expected Completion</dt>
-                          <dd className="text-sm font-semibold text-gray-900">{new Date(project.expected_completion).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</dd>
-                        </div>
+                    ))}
+                    <div className="flex items-center gap-3 p-2.5 mt-2 rounded-lg bg-gradient-to-r from-violet-50/50 to-violet-50/20 border border-violet-100">
+                      <div className="w-9 h-9 rounded-lg bg-violet-100 flex items-center justify-center shrink-0">
+                        <AlertCircle className="h-4 w-4 text-violet-600" />
                       </div>
-                    )}
-                    <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
-                      <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
-                        <AlertCircle className="h-3.5 w-3.5 text-gray-500" />
-                      </div>
-                      <div className="flex-1 flex items-center justify-between gap-2">
-                        <dt className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Status</dt>
+                      <div className="flex-1 flex items-center justify-between gap-2 min-w-0">
+                        <dt className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Status</dt>
                         <dd>
-                          <Badge className={`capitalize font-medium ${
+                          <Badge className={`capitalize font-semibold px-2.5 py-1 ${
                             project.status === 'active' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
                             project.status === 'completed' ? 'bg-blue-100 text-blue-700 border-blue-200' :
                             project.status === 'in_planning' ? 'bg-amber-100 text-amber-700 border-amber-200' :
