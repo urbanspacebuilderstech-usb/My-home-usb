@@ -35,6 +35,7 @@ export function CashbookDateFilter({
   testIdPrefix = 'cashbook',
   accent = 'amber',
   showMonthYear = true,
+  numberOfMonths = 2,
 }) {
   const today = new Date();
   const currentYear = today.getFullYear();
@@ -163,7 +164,7 @@ export function CashbookDateFilter({
                     clearAll();
                   }
                 }}
-                numberOfMonths={2}
+                numberOfMonths={numberOfMonths}
                 classNames={{
                   months: 'flex gap-4',
                   month: 'space-y-3',

@@ -834,93 +834,6 @@ export default function CREBoard() {
       <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6">
-        {/* Global Date Range Filter — Meta Ads-style popover (matches Sales/Pre-Sales) */}
-        <div className="flex items-center gap-2 mb-4" data-testid="cre-date-range-filter">
-          <span className="text-[11px] uppercase font-semibold tracking-wide text-gray-500 mr-1">Date:</span>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                className={`h-9 text-xs gap-1.5 rounded-lg shadow-sm ${dateFrom ? 'bg-amber-50 border-amber-400 text-amber-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}
-                data-testid="cre-date-filter-btn"
-              >
-                <Calendar className="h-3.5 w-3.5" />
-                {dateFrom ? (
-                  dateTo && dateFrom !== dateTo ? (
-                    `${new Date(dateFrom).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} - ${new Date(dateTo).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}`
-                  ) : (
-                    new Date(dateFrom).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-                  )
-                ) : 'All Time'}
-                {dateFrom && (
-                  <X
-                    className="h-3 w-3 ml-1 opacity-50 hover:opacity-100"
-                    onClick={(e) => { e.stopPropagation(); setDateFrom(''); setDateTo(''); }}
-                  />
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0 rounded-xl shadow-xl border-0" align="start">
-              <div className="flex">
-                <div className="w-32 border-r bg-gray-50 p-2 space-y-0.5 rounded-l-xl">
-                  {[
-                    { label: 'Today', fn: () => { const d = new Date().toISOString().split('T')[0]; setDateFrom(d); setDateTo(d); } },
-                    { label: 'Yesterday', fn: () => { const d = new Date(); d.setDate(d.getDate() - 1); const s = d.toISOString().split('T')[0]; setDateFrom(s); setDateTo(s); } },
-                    { label: 'Last 7 Days', fn: () => { const e = new Date(); const s = new Date(); s.setDate(s.getDate() - 6); setDateFrom(s.toISOString().split('T')[0]); setDateTo(e.toISOString().split('T')[0]); } },
-                    { label: 'Last 30 Days', fn: () => { const e = new Date(); const s = new Date(); s.setDate(s.getDate() - 29); setDateFrom(s.toISOString().split('T')[0]); setDateTo(e.toISOString().split('T')[0]); } },
-                    { label: 'This Month', fn: () => { const now = new Date(); setDateFrom(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]); setDateTo(new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]); } },
-                    { label: 'Last Month', fn: () => { const now = new Date(); setDateFrom(new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0]); setDateTo(new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0]); } },
-                    { label: 'This Year', fn: () => { const y = new Date().getFullYear(); setDateFrom(new Date(y, 0, 1).toISOString().split('T')[0]); setDateTo(new Date(y, 11, 31).toISOString().split('T')[0]); } },
-                    { label: 'All Time', fn: () => { setDateFrom(''); setDateTo(''); } },
-                  ].map(p => (
-                    <button
-                      key={p.label}
-                      onClick={p.fn}
-                      className={`w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-colors ${p.label === 'All Time' ? 'text-red-500 hover:bg-red-50 mt-2' : 'text-gray-700 hover:bg-amber-50 hover:text-amber-700'}`}
-                      data-testid={`cre-date-preset-${p.label.toLowerCase().replace(/\s/g, '-')}`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="p-3">
-                  <DayPicker
-                    mode="range"
-                    selected={dateFrom ? { from: new Date(dateFrom + 'T00:00:00'), to: dateTo ? new Date(dateTo + 'T00:00:00') : new Date(dateFrom + 'T00:00:00') } : undefined}
-                    onSelect={(range) => {
-                      if (range?.from) {
-                        const from = range.from.toLocaleDateString('en-CA');
-                        const to = range.to ? range.to.toLocaleDateString('en-CA') : '';
-                        setDateFrom(from);
-                        setDateTo(from === to ? '' : to || from);
-                      } else {
-                        setDateFrom('');
-                        setDateTo('');
-                      }
-                    }}
-                    classNames={{
-                      months: 'flex gap-4', month: 'space-y-3',
-                      caption: 'flex justify-center relative items-center h-8',
-                      caption_label: 'text-sm font-semibold text-gray-800',
-                      nav_button: 'h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 inline-flex items-center justify-center rounded-lg hover:bg-gray-100',
-                      table: 'w-full border-collapse', head_row: 'flex',
-                      head_cell: 'text-gray-400 rounded-md w-8 font-normal text-[10px] uppercase',
-                      row: 'flex w-full mt-1', cell: 'relative p-0 text-center text-sm',
-                      day: 'h-8 w-8 p-0 font-normal text-xs rounded-lg hover:bg-amber-50 transition-colors inline-flex items-center justify-center',
-                      day_selected: 'bg-amber-600 text-white hover:bg-amber-700 font-medium',
-                      day_today: 'bg-gray-100 font-semibold text-amber-600',
-                      day_range_middle: 'bg-amber-50 text-amber-700 rounded-none',
-                      day_range_start: 'bg-amber-600 text-white rounded-l-lg rounded-r-none',
-                      day_range_end: 'bg-amber-600 text-white rounded-r-lg rounded-l-none',
-                      day_outside: 'text-gray-300',
-                    }}
-                  />
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
-        </div>
-
         {/* Main Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
@@ -1341,6 +1254,7 @@ export default function CREBoard() {
                           testIdPrefix="ps"
                           accent="amber"
                           showMonthYear={false}
+                          numberOfMonths={1}
                         />
                       </div>
                       {/* Inline search box — by project / client / stage */}
