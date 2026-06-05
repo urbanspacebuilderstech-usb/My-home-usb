@@ -472,14 +472,43 @@ export default function ClientPortal() {
             </div>
           );
           return (
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 sm:gap-3 mb-6" data-testid="client-project-summary">
-              {card('Scope Value',  scope,          'bg-blue-50 border-blue-200',     'client-proj-scope')}
-              {card('Additions',    additionsTotal, 'bg-violet-50 border-violet-200', 'client-proj-additions')}
-              {card('Deductions',   deductionsTotal,'bg-rose-50 border-rose-200',     'client-proj-deductions')}
-              {card('Grand Total',  grandTotal,     'bg-amber-50 border-amber-200',   'client-proj-grandtotal')}
-              {card('Total Income', totalIncome,    'bg-emerald-50 border-emerald-200','client-proj-income')}
-              {card('Receivable',   receivable,     'bg-orange-50 border-orange-200', 'client-proj-receivable')}
-              {card('Pending Dues', pendingDues,    'bg-red-50 border-red-200',       'client-proj-dues')}
+            <div className="space-y-4 mb-6" data-testid="client-project-summary">
+              {/* Section 1 — Project Value Calculation */}
+              <div>
+                <h3 className="text-xs sm:text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <span className="h-1 w-6 rounded-full bg-blue-500"></span>
+                  Project Value Calculation
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+                  {card('Scope Value',  scope,          'bg-blue-50 border-blue-200',     'client-proj-scope')}
+                  {card('Additions',    additionsTotal, 'bg-violet-50 border-violet-200', 'client-proj-additions')}
+                  {card('Deductions',   deductionsTotal,'bg-rose-50 border-rose-200',     'client-proj-deductions')}
+                  {card('Grand Total',  grandTotal,     'bg-amber-50 border-amber-200',   'client-proj-grandtotal')}
+                </div>
+              </div>
+
+              {/* Section 2 — Financial Performance */}
+              <div>
+                <h3 className="text-xs sm:text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <span className="h-1 w-6 rounded-full bg-emerald-500"></span>
+                  Financial Performance
+                </h3>
+                <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:max-w-md">
+                  {card('Total Income', totalIncome, 'bg-emerald-50 border-emerald-200', 'client-proj-income')}
+                  {card('Receivable',   receivable,  'bg-orange-50 border-orange-200',   'client-proj-receivable')}
+                </div>
+              </div>
+
+              {/* Section 3 — Pending Dues */}
+              <div>
+                <h3 className="text-xs sm:text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <span className="h-1 w-6 rounded-full bg-red-500"></span>
+                  Pending Dues
+                </h3>
+                <div className="grid grid-cols-1 gap-2 sm:gap-3 sm:max-w-[14rem]">
+                  {card('Pending Dues', pendingDues, 'bg-red-50 border-red-200', 'client-proj-dues')}
+                </div>
+              </div>
             </div>
           );
         })()}
