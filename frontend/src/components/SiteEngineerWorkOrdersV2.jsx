@@ -797,6 +797,22 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
           >
             Payment Summary {allRequests.length > 0 && <span className="ml-1 text-[10px] opacity-70">({allRequests.length})</span>}
           </button>
+          {/* Pending RAB — every request that's not yet released (in-flight)
+              and not rejected. Lets SE see what's awaiting PM/QC/Planning/
+              Accountant in one glance, with the would-be RAB-XX number. */}
+          {(() => {
+            const pending = allRequests.filter(p => !['approved', 'rejected', 'accountant_rejected'].includes(p.status));
+            if (pending.length === 0) return null;
+            return (
+              <button
+                onClick={() => setSubTab('pending')}
+                className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${subTab === 'pending' ? 'border-orange-600 text-orange-700' : 'border-transparent text-gray-500 hover:text-orange-700'}`}
+                data-testid="wov2-subtab-pending"
+              >
+                Pending RAB <span className="ml-1 text-[10px] opacity-70">({pending.length})</span>
+              </button>
+            );
+          })()}
           {stage.is_open && (
             <button
               onClick={() => setSubTab('request')}
@@ -807,6 +823,75 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
             </button>
           )}
         </div>
+
+        {/* Pending RAB sub-tab — same row UI as Payment Summary but only
+            in-flight items (status not approved/rejected). Numbers still
+            follow the global "skip rejected" sequence so SE knows what
+            number this RAB will get once Accountant releases. */}
+        {subTab === 'pending' && (() => {
+          // Build the same skip-rejected display number sequence used by the
+          // backend (POSITION-among-non-rejected, oldest→newest). Then keep
+          // only the still-in-flight rows.
+          const REJECTED = new Set(['rejected', 'accountant_rejected', 'se_rework_rejected']);
+          const sorted = allRequests.slice().sort((a, b) =>
+            String(a.requested_at || '').localeCompare(String(b.requested_at || ''))
+          );
+          let nextNo = 0;
+          const labeled = sorted.map(p => {
+            if (REJECTED.has(p.status)) return { ...p, displayRab: '—' };
+            nextNo += 1;
+            return { ...p, displayRab: `RAB-${String(nextNo).padStart(2, '0')}` };
+          });
+          const pending = labeled.filter(p => !['approved', 'rejected', 'accountant_rejected'].includes(p.status));
+          if (pending.length === 0) {
+            return (
+              <div className="py-6 text-center text-xs text-gray-400" data-testid="wov2-pending-empty">
+                No pending RABs — everything is either released or returned.
+              </div>
+            );
+          }
+          return (
+            <div className="space-y-2 pt-2" data-testid="wov2-pending-list">
+              {pending.map(pr => {
+                const sb = prStatusBadge(pr.status);
+                return (
+                  <div key={pr.request_id} className="border border-orange-200 bg-orange-50/30 rounded p-2 text-xs">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Badge className="bg-violet-600 text-white border-violet-700 font-bold text-[10px] px-2 py-0.5 shrink-0">
+                          {pr.displayRab}
+                        </Badge>
+                        <div className="min-w-0">
+                          <p className="font-bold">{fmt(pr.amount)}
+                            {pr.original_amount && pr.original_amount !== pr.amount && (
+                              <span className="text-[10px] text-gray-500 ml-1.5">(req {fmt(pr.original_amount)})</span>
+                            )}
+                          </p>
+                          <p className="text-[10px] text-gray-500">{fmtDate(pr.requested_at)}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="outline" className={`text-[9px] ${sb.cls}`}>{sb.label}</Badge>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-[10px] text-violet-700 border-violet-200 hover:bg-violet-50"
+                          onClick={() => setRabView({ open: true, requestId: pr.request_id })}
+                          data-testid={`wov2-pending-view-${pr.request_id}`}
+                        >
+                          <Eye className="h-3 w-3 mr-0.5" /> View
+                        </Button>
+                      </div>
+                    </div>
+                    {pr.notes && (
+                      <p className="mt-1 text-[10px] italic text-gray-600 line-clamp-2">"{pr.notes}"</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {subTab === 'request' && (
           <div className="space-y-2.5 pt-1" data-testid="wov2-request-form">

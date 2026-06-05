@@ -7980,22 +7980,29 @@ async def wo_rab_chain(project_id: str, work_order_id: str, user: User = Depends
         float(s.get("amount") or 0) for s in (wo.get("stages") or [])
     ))
 
+    # Display numbering rule (user spec):
+    #   • Approved RABs are numbered RAB-01, RAB-02, ... in release order.
+    #   • Rejected RABs are NOT counted (they don't take a number).
+    #   • Pending / in-flight RABs occupy the NEXT slot AFTER the last approved
+    #     one in chronological request order (so if the user sees RAB-01 paid
+    #     and a new request goes in, that request shows as RAB-02 — and if a
+    #     later RAB-02 gets rejected, the queue shifts up automatically).
+    REJECTED_STATES = {"rejected", "accountant_rejected", "se_rework_rejected"}
     rabs = []
     cumulative_released = 0.0
-    for idx, r in enumerate(flat, start=1):
+    next_number = 0  # incremented for every non-rejected RAB
+    for r in flat:
+        status = r.get("status") or "requested"
         released = float(r.get("approved_amount") or 0)
         requested = float(r.get("amount") or 0)
-        status = r.get("status") or "requested"
-        # Closing balance is computed only on approved RABs — pending requests
-        # don't move the meter until the Accountant releases.
         if status == "approved":
             cumulative_released += released
         closing_balance = contract_total - cumulative_released
-        # Display rab number = chronological position. The DB-stored rab_number
-        # can drift when intermediate RABs are deleted (the historic counter
-        # never resets), so we always re-sequence here so the first surviving
-        # RAB is always RAB-01 in every UI/PDF that reads this endpoint.
-        display_rab = f"RAB-{idx:02d}"
+        if status in REJECTED_STATES:
+            display_rab = "—"  # rejected RABs don't take a slot
+        else:
+            next_number += 1
+            display_rab = f"RAB-{next_number:02d}"
         rabs.append({
             "request_id": r.get("request_id"),
             "rab_number": display_rab,
@@ -8070,15 +8077,23 @@ async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, user:
             flat.append({"stage_name": stg.get("stage_name") or "Stage", "stage_amount": float(stg.get("amount") or 0), **pr})
     flat.sort(key=lambda r: str(r.get("requested_at") or ""))
 
+    REJECTED_STATES = {"rejected", "accountant_rejected", "se_rework_rejected"}
     target = None
     target_index = None
     cumulative = 0.0
-    for idx, r in enumerate(flat, start=1):
-        if r.get("status") == "approved":
+    next_number = 0
+    for r in flat:
+        status = r.get("status") or "requested"
+        if status == "approved":
             cumulative += float(r.get("approved_amount") or 0)
+        if status not in REJECTED_STATES:
+            next_number += 1
+            this_number = next_number
+        else:
+            this_number = None
         if r.get("request_id") == request_id:
             target = r
-            target_index = idx
+            target_index = this_number or 0
             target_cumulative = cumulative
             break
     if not target:

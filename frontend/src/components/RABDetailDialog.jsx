@@ -105,24 +105,25 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
               )}
             </div>
 
-            {/* Per-RAB cards */}
+            {/* Per-RAB cards — when highlightRequestId is provided we render
+                ONLY that one card (single-RAB view) so clicking View from a
+                Payment Summary row drills into just that RAB, not the whole
+                ladder. Without a highlight the dialog shows the full chain. */}
             <div className="space-y-3 mt-4" data-testid="rab-detail-list">
               {data.rabs.length === 0 ? (
                 <div className="text-center py-10 text-gray-500">
                   <FileText className="h-10 w-10 mx-auto text-gray-300 mb-2" />
                   <p>No RAB raised yet for this Work Order.</p>
                 </div>
-              ) : data.rabs.map((rab) => {
+              ) : (highlightRequestId
+                  ? data.rabs.filter(r => r.request_id === highlightRequestId)
+                  : data.rabs
+                ).map((rab) => {
                 const st = STATUS[rab.status] || { label: rab.status || 'Unknown', cls: 'bg-gray-100 text-gray-700 border-gray-200' };
-                const isHighlighted = highlightRequestId && rab.request_id === highlightRequestId;
                 return (
                   <div
                     key={rab.request_id}
-                    className={`rounded-xl border p-4 transition-all ${
-                      isHighlighted
-                        ? 'border-violet-400 bg-violet-50/40 ring-2 ring-violet-200'
-                        : 'border-gray-200 bg-white hover:border-violet-200'
-                    }`}
+                    className="rounded-xl border border-violet-300 bg-violet-50/30 p-4 transition-all"
                     data-testid={`rab-card-${rab.rab_number || rab.request_id}`}
                   >
                     {/* RAB header */}
