@@ -66,6 +66,10 @@ export default function ClientPortal() {
   // Decision dialog state — proper modal instead of window.prompt
   // `kind` distinguishes the entity ('addition' is default for back-compat; 'deduction' for deductions).
   const [decisionDialog, setDecisionDialog] = useState({ open: false, mode: null, kind: 'addition', costId: null, name: '', text: '', submitting: false });
+  // Pending Dues drill-down modal — opens when client clicks the "Pending Dues"
+  // section on the top financial strip. Lists every payment stage whose
+  // expected_payment_date is in the past and still carries a balance.
+  const [pendingDuesDialog, setPendingDuesDialog] = useState({ open: false });
 
   useEffect(() => {
     fetchUserAndProjects();
@@ -512,16 +516,28 @@ export default function ClientPortal() {
                 </div>
               </SectionBox>
 
-              {/* Section 3 — Pending Dues (1 card) */}
+              {/* Section 3 — Pending Dues (1 card, click to view list) */}
               <SectionBox
                 title="Pending Dues"
                 accent={{ border: 'border-red-200', bg: 'bg-gradient-to-br from-red-50/60 to-red-50/20', text: 'text-red-700' }}
                 testid="client-section-pending-dues"
                 colSpan="lg:col-span-1"
               >
-                <div className="grid grid-cols-1 gap-2">
-                  {card('Pending Dues', pendingDues, 'bg-white border-red-200 hover:border-red-300', 'client-proj-dues', { valueClass: 'text-red-700' })}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setPendingDuesDialog({ open: true })}
+                  className="w-full text-left rounded-lg border bg-white border-red-200 hover:border-red-400 hover:shadow-md transition-all p-2.5 sm:p-3 group cursor-pointer"
+                  data-testid="client-proj-dues-trigger"
+                >
+                  <p className="text-[10px] uppercase tracking-wide font-medium text-gray-500 truncate flex items-center gap-1">
+                    Pending Dues
+                    <span className="text-red-500 group-hover:translate-x-0.5 transition-transform">→</span>
+                  </p>
+                  <p className="text-sm sm:text-base lg:text-lg font-bold mt-1 text-red-700">
+                    ₹{(pendingDues || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  </p>
+                  <p className="text-[10px] text-red-500 mt-0.5 group-hover:text-red-700">Click to view list</p>
+                </button>
               </SectionBox>
             </div>
           );
@@ -692,35 +708,9 @@ export default function ClientPortal() {
                     </div>
                   </div>
 
-                  {/* Mini KPI tiles */}
-                  <div className="grid grid-cols-2 gap-3 mb-4">
-                    <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-3">
-                      <p className="text-[10px] uppercase tracking-wide text-blue-600 font-semibold mb-0.5">Total Project Value</p>
-                      <p className="text-base sm:text-lg font-bold text-blue-900">₹{((project.total_value || 0) / 100000).toFixed(2)}L</p>
-                      <p className="text-[10px] text-blue-500 mt-0.5">₹{(project.total_value || 0).toLocaleString('en-IN')}</p>
-                    </div>
-                    <div className="rounded-xl bg-violet-50 border border-violet-100 px-3 py-3">
-                      <p className="text-[10px] uppercase tracking-wide text-violet-600 font-semibold mb-0.5">Payment Scheduled</p>
-                      <p className="text-base sm:text-lg font-bold text-violet-900">₹{(totalScheduled / 100000).toFixed(2)}L</p>
-                      <p className="text-[10px] text-violet-500 mt-0.5">₹{totalScheduled.toLocaleString('en-IN')}</p>
-                    </div>
-                    <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-3">
-                      <div className="flex items-center gap-1 mb-0.5">
-                        <TrendingUp className="h-3 w-3 text-emerald-600" />
-                        <p className="text-[10px] uppercase tracking-wide text-emerald-600 font-semibold">Received</p>
-                      </div>
-                      <p className="text-base sm:text-lg font-bold text-emerald-700">₹{(totalReceived / 100000).toFixed(2)}L</p>
-                      <p className="text-[10px] text-emerald-500 mt-0.5">₹{totalReceived.toLocaleString('en-IN')}</p>
-                    </div>
-                    <div className="rounded-xl bg-orange-50 border border-orange-100 px-3 py-3">
-                      <div className="flex items-center gap-1 mb-0.5">
-                        <TrendingDown className="h-3 w-3 text-orange-600" />
-                        <p className="text-[10px] uppercase tracking-wide text-orange-600 font-semibold">Balance Due</p>
-                      </div>
-                      <p className="text-base sm:text-lg font-bold text-orange-700">₹{(balance / 100000).toFixed(2)}L</p>
-                      <p className="text-[10px] text-orange-500 mt-0.5">₹{balance.toLocaleString('en-IN')}</p>
-                    </div>
-                  </div>
+                  {/* 4-tile mini KPI grid removed per client request — the
+                      Total Project Value / Payment Scheduled / Received / Balance
+                      Due numbers already live in the top financial strip above. */}
 
                   {/* Progress bar */}
                   <div className="rounded-xl bg-white border border-gray-200 px-3 py-3 mb-3">
@@ -1242,6 +1232,103 @@ export default function ClientPortal() {
         </div>
       </div>
       <MobileBottomNav user={user} />
+
+      {/* Pending Dues drill-down dialog — opens from the top "Pending Dues" tile */}
+      <Dialog open={pendingDuesDialog.open} onOpenChange={(o) => setPendingDuesDialog({ open: o })}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-red-600" /> Pending Dues
+            </DialogTitle>
+            <DialogDescription>
+              Payment stages whose expected payment date has passed and still carry an outstanding balance.
+            </DialogDescription>
+          </DialogHeader>
+          {(() => {
+            const todayIso = new Date().toISOString().slice(0, 10);
+            const overdue = (paymentStages || []).filter(st => {
+              const bal = (st.amount || 0) - (st.amount_received || 0);
+              if (bal <= 0.5) return false;
+              const d = st.expected_payment_date || st.due_date;
+              return d && d < todayIso;
+            }).sort((a, b) => {
+              const da = a.expected_payment_date || a.due_date || '';
+              const db = b.expected_payment_date || b.due_date || '';
+              return da.localeCompare(db);
+            });
+            const totalOverdue = overdue.reduce((s, st) => s + ((st.amount || 0) - (st.amount_received || 0)), 0);
+            if (overdue.length === 0) {
+              return (
+                <div className="py-10 text-center" data-testid="pending-dues-empty">
+                  <CheckCircle2 className="h-10 w-10 mx-auto text-emerald-500 mb-2" />
+                  <p className="font-semibold text-emerald-700">No overdue payments</p>
+                  <p className="text-sm text-gray-500 mt-1">All payment milestones are up to date.</p>
+                </div>
+              );
+            }
+            return (
+              <div className="max-h-[60vh] overflow-y-auto pr-1" data-testid="pending-dues-list">
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <span className="text-xs text-gray-500 font-medium">{overdue.length} overdue stage{overdue.length > 1 ? 's' : ''}</span>
+                  <span className="text-sm font-bold text-red-700">Total: ₹{totalOverdue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                </div>
+                <div className="space-y-2">
+                  {overdue.map((st) => {
+                    const bal = (st.amount || 0) - (st.amount_received || 0);
+                    const expDate = st.expected_payment_date || st.due_date;
+                    const daysOverdue = expDate ? Math.floor((new Date(todayIso) - new Date(expDate)) / 86400000) : 0;
+                    return (
+                      <div
+                        key={st.stage_id}
+                        className="rounded-lg border border-red-200 bg-red-50/40 p-3 flex items-start justify-between gap-3"
+                        data-testid={`pending-dues-row-${st.stage_id}`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-gray-900 truncate">{st.stage_name || st.stage_label || 'Payment Stage'}</p>
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1 text-[11px] text-gray-600">
+                            {expDate && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                Due {new Date(expDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </span>
+                            )}
+                            {daysOverdue > 0 && (
+                              <span className="text-red-700 font-medium">{daysOverdue} day{daysOverdue > 1 ? 's' : ''} overdue</span>
+                            )}
+                            <span>Scheduled: ₹{(st.amount || 0).toLocaleString('en-IN')}</span>
+                            {(st.amount_received || 0) > 0 && (
+                              <span className="text-emerald-700">Paid: ₹{(st.amount_received || 0).toLocaleString('en-IN')}</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-[10px] uppercase tracking-wide text-red-500 font-semibold">Balance</p>
+                          <p className="text-base font-bold text-red-700">₹{bal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setPendingDuesDialog({ open: false }); setActiveTab('payments'); }}
+              data-testid="pending-dues-view-schedule"
+            >
+              View Full Schedule
+            </Button>
+            <Button
+              onClick={() => setPendingDuesDialog({ open: false })}
+              data-testid="pending-dues-close"
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Reject / Review decision dialog — replaces native window.prompt */}
       <Dialog open={decisionDialog.open} onOpenChange={(o) => !decisionDialog.submitting && setDecisionDialog(d => ({ ...d, open: o }))}>
