@@ -1083,6 +1083,48 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
             "is_additional": is_additional,
         })
 
+    # Synthesize Direct Transfer entries from `additional_costs.income_received`.
+    # Some additional-cost payments only bump that counter and never create a
+    # db.income row, which would otherwise leave the Client Portal "Direct
+    # Transfer" tab empty even though Planning Board shows the receipt. To
+    # avoid double-counting, subtract whatever db.income already attributes to
+    # the same additional cost (matched by description containing the cost
+    # name) before synthesising the residual.
+    db_income_by_cost = {}
+    for e in raw_income:
+        if (e.get("status") or "approved").lower() not in APPROVED_STATES:
+            continue
+        d = e.get("description") or e.get("notes") or ""
+        for ac in additional_costs:
+            name = ac.get("name") or ac.get("description") or ""
+            if name and name[:20] and name[:20] in d:
+                db_income_by_cost[ac.get("cost_id")] = db_income_by_cost.get(ac.get("cost_id"), 0) + float(e.get("amount") or 0)
+                break
+    for ac in additional_costs:
+        recv = float(ac.get("income_received") or 0)
+        if recv <= 0.5:
+            continue
+        already = db_income_by_cost.get(ac.get("cost_id"), 0)
+        residual = recv - already
+        if residual <= 0.5:
+            continue
+        label = ac.get("description") or ac.get("name") or "Additional work"
+        synth_amt = round(residual, 2)
+        total_income += synth_amt
+        income_entries.append({
+            "income_id": f"addrcv_{ac.get('cost_id')}",
+            "payment_date": ac.get("client_decided_at") or ac.get("payment_requested_at") or ac.get("created_at"),
+            "amount": synth_amt,
+            "payment_mode": "direct_transfer",
+            "description": f"Direct receipt — {label}",
+            "category": "additional",
+            "status": "approved",
+            "reference": ac.get("cost_id") or "",
+            "is_additional": True,
+        })
+    # Re-sort by payment_date desc so the synth entries land in chronological position
+    income_entries.sort(key=lambda x: str(x.get("payment_date") or ""), reverse=True)
+
     # Final estimate scope (scope_items already in result) - normalize legacy field names so frontend reads consistently
     normalized_scope_items = []
     for it in scope_items:
