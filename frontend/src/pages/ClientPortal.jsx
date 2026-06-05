@@ -449,12 +449,13 @@ export default function ClientPortal() {
         </div>
 
         {/* Top-level Cheque Bounce Alert — visible across all tabs so the
-            client never misses a returned-cheque notification. Clicking the
-            banner jumps to the Income Status tab where full details live. */}
+            client never misses a returned-cheque notification. Sourced from
+            db.cheques (Cheque Management module) — these are the real bounce
+            records, not just db.income status flags. */}
         {(() => {
-          const bounced = (projectData?.income_entries || []).filter(e => e.status === 'cheque_bounced');
-          if (bounced.length === 0) return null;
-          const bouncedTotal = bounced.reduce((s, e) => s + (e.amount || 0), 0);
+          const bouncedCheques = projectData?.bounced_cheques || [];
+          if (bouncedCheques.length === 0) return null;
+          const bouncedTotal = bouncedCheques.reduce((s, c) => s + (c.amount || 0), 0);
           return (
             <button
               type="button"
@@ -467,7 +468,7 @@ export default function ClientPortal() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm sm:text-base font-bold text-red-900">
-                  {bounced.length} Cheque{bounced.length > 1 ? 's' : ''} Bounced — Action Required
+                  {bouncedCheques.length} Cheque{bouncedCheques.length > 1 ? 's' : ''} Bounced — Action Required
                 </p>
                 <p className="text-xs sm:text-sm text-red-700 mt-0.5">
                   Total bounced: ₹{bouncedTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}. Please arrange an alternate payment.
@@ -1216,13 +1217,16 @@ export default function ClientPortal() {
                 };
                 const APPROVED = new Set(['approved', 'received', 'verified']);
                 const approvedSum = entries.reduce((s, e) => s + (APPROVED.has(e.status) ? (e.amount || 0) : 0), 0);
-                // Bounced cheque notifications — surface details prominently
-                const bouncedEntries = entries.filter(e => e.status === 'cheque_bounced');
-                const bouncedTotal = bouncedEntries.reduce((s, e) => s + (e.amount || 0), 0);
+                // Bounced cheques — sourced from Cheque Management (db.cheques).
+                // This is the canonical bounce list with full cheque details
+                // (number, bank, reason, charges) — richer than the db.income
+                // status flag.
+                const bouncedCheques = projectData?.bounced_cheques || [];
+                const bouncedTotal = bouncedCheques.reduce((s, c) => s + (c.amount || 0), 0);
                 return (
                   <>
-                    {/* Bounce notification banner */}
-                    {bouncedEntries.length > 0 && (
+                    {/* Cheque Bounced — dedicated section pulling from Cheque Management */}
+                    {bouncedCheques.length > 0 && (
                       <div className="mx-4 sm:mx-6 mt-4 rounded-xl border border-red-300 bg-red-50/60 overflow-hidden" data-testid="cp-income-bounce-alert">
                         <div className="flex items-center gap-3 px-4 py-3 bg-red-100/80 border-b border-red-200">
                           <div className="w-9 h-9 rounded-lg bg-red-200 flex items-center justify-center shrink-0">
@@ -1230,29 +1234,51 @@ export default function ClientPortal() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-bold text-red-900">
-                              {bouncedEntries.length} Cheque{bouncedEntries.length > 1 ? 's' : ''} Bounced
+                              Cheque Bounced — {bouncedCheques.length} cheque{bouncedCheques.length > 1 ? 's' : ''} returned
                             </p>
                             <p className="text-xs text-red-700 mt-0.5">
-                              Total bounced amount: ₹{bouncedTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })} — please arrange an alternate payment.
+                              Total bounced amount: ₹{bouncedTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })} — please arrange an alternate payment to clear these.
                             </p>
                           </div>
                         </div>
-                        <div className="divide-y divide-red-200">
-                          {bouncedEntries.map((b, idx) => {
-                            const d = b.payment_date ? new Date(b.payment_date) : null;
-                            return (
-                              <div key={b.income_id || idx} className="px-4 py-2.5 flex items-center justify-between gap-3 text-xs sm:text-sm">
-                                <div className="min-w-0 flex-1">
-                                  <p className="font-medium text-red-900 truncate">{b.description || 'Cheque payment'}</p>
-                                  <p className="text-[11px] text-red-600 mt-0.5">
-                                    {d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
-                                    {b.reference && <> · Ref: {b.reference}</>}
-                                  </p>
-                                </div>
-                                <p className="font-bold text-red-700 whitespace-nowrap">₹{(b.amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
-                              </div>
-                            );
-                          })}
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs sm:text-sm">
+                            <thead className="bg-red-50/80">
+                              <tr>
+                                <th className="px-3 py-2 text-left text-[10px] font-semibold text-red-800 uppercase">Cheque No</th>
+                                <th className="px-3 py-2 text-left text-[10px] font-semibold text-red-800 uppercase">Bank</th>
+                                <th className="px-3 py-2 text-left text-[10px] font-semibold text-red-800 uppercase">Cheque Date</th>
+                                <th className="px-3 py-2 text-left text-[10px] font-semibold text-red-800 uppercase">Bounced On</th>
+                                <th className="px-3 py-2 text-left text-[10px] font-semibold text-red-800 uppercase">Reason</th>
+                                <th className="px-3 py-2 text-right text-[10px] font-semibold text-red-800 uppercase">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-red-200">
+                              {bouncedCheques.map((ch, idx) => {
+                                const cd = ch.cheque_date ? new Date(ch.cheque_date) : null;
+                                const bd = ch.bounced_at ? new Date(ch.bounced_at) : null;
+                                return (
+                                  <tr key={ch.cheque_id || idx} data-testid={`cp-bounced-cheque-${ch.cheque_id || idx}`}>
+                                    <td className="px-3 py-2.5 font-semibold text-red-900 whitespace-nowrap">#{ch.cheque_number || '—'}</td>
+                                    <td className="px-3 py-2.5 text-red-800">{ch.bank_name || '—'}</td>
+                                    <td className="px-3 py-2.5 text-red-700 whitespace-nowrap">
+                                      {cd ? cd.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-red-700 whitespace-nowrap">
+                                      {bd ? bd.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-red-700 max-w-[200px] truncate" title={ch.bounce_reason}>{ch.bounce_reason}</td>
+                                    <td className="px-3 py-2.5 text-right font-bold text-red-700 whitespace-nowrap">
+                                      ₹{(ch.amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                      {ch.bounce_charges > 0 && (
+                                        <div className="text-[10px] font-normal text-red-500 mt-0.5">+ ₹{ch.bounce_charges.toLocaleString('en-IN')} charges</div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
                         </div>
                       </div>
                     )}

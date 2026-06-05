@@ -1125,6 +1125,27 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
     # Re-sort by payment_date desc so the synth entries land in chronological position
     income_entries.sort(key=lambda x: str(x.get("payment_date") or ""), reverse=True)
 
+    # Bounced cheques — source of truth lives in db.cheques (Cheque Management
+    # module). We surface them on the Client Portal as a dedicated banner /
+    # detail panel so the client is notified the moment a cheque is returned.
+    bounced_raw = await db.cheques.find(
+        {"project_id": project_id, "status": "bounced"},
+        {"_id": 0},
+    ).sort("bounced_at", -1).to_list(200)
+    bounced_cheques = []
+    for ch in bounced_raw:
+        bounced_cheques.append({
+            "cheque_id": ch.get("cheque_id"),
+            "cheque_number": ch.get("cheque_number") or "",
+            "bank_name": ch.get("bank_name") or "",
+            "amount": float(ch.get("amount") or 0),
+            "cheque_date": ch.get("cheque_date"),
+            "bounced_at": ch.get("bounced_at"),
+            "bounce_reason": ch.get("bounce_reason") or "Not specified",
+            "bounce_charges": float(ch.get("bounce_charges") or 0),
+            "cheque_type": ch.get("cheque_type") or "",
+        })
+
     # Final estimate scope (scope_items already in result) - normalize legacy field names so frontend reads consistently
     normalized_scope_items = []
     for it in scope_items:
@@ -1186,6 +1207,7 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
         "deductions": deductions,
         "income_entries": income_entries,
         "total_income": total_income,
+        "bounced_cheques": bounced_cheques,
         "pre_construction": pre_construction,
         # Final Estimate (gated by GM approval — only surface to client AFTER GM has approved)
         "final_estimate": _build_client_fe_payload(project),
