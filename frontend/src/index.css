@@ -144,3 +144,154 @@ input[inputmode="numeric"]::-webkit-inner-spin-button {
 .crm-scroll-tabs::-webkit-scrollbar-thumb:hover {
   background: #9ca3af;
 }
+
+
+/* ================================================================
+ * PHASE 2 DARK MODE — Global Hardcoded-Utility Overrides
+ * ----------------------------------------------------------------
+ * Most legacy pages use raw Tailwind utilities like `bg-white`,
+ * `text-gray-900`, `border-gray-200`, etc. and never received an
+ * explicit `dark:` variant. Editing every page is impractical,
+ * so we re-map the most common light utilities to dark-friendly
+ * tones when `.dark` is active on <html>.
+ *
+ * IMPORTANT:
+ *   - These overrides ONLY apply when the user opts into dark mode.
+ *   - We avoid `!important` whenever the specificity boost from
+ *     `.dark X` already wins. We keep `!important` ONLY on element
+ *     selectors that lose to inline styles (e.g. autofill).
+ * ================================================================ */
+.dark {
+  color-scheme: dark;
+}
+
+/* --- Light backgrounds → dark equivalents ------------------------- */
+.dark .bg-white { background-color: hsl(222 14% 11%); }
+.dark .bg-gray-50,
+.dark .bg-slate-50,
+.dark .bg-neutral-50,
+.dark .bg-zinc-50,
+.dark .bg-stone-50 { background-color: hsl(222 14% 13%); }
+.dark .bg-gray-100,
+.dark .bg-slate-100,
+.dark .bg-neutral-100,
+.dark .bg-zinc-100,
+.dark .bg-stone-100 { background-color: hsl(222 14% 16%); }
+
+/* Tinted pastel backgrounds (warning/info/success/danger highlight
+ * cards) — keep the hue but drop luminance so they stop blinding
+ * users on dark themes. */
+.dark .bg-amber-50    { background-color: hsl(35 35% 15%); }
+.dark .bg-amber-100   { background-color: hsl(35 35% 18%); }
+.dark .bg-yellow-50   { background-color: hsl(48 35% 14%); }
+.dark .bg-yellow-100  { background-color: hsl(48 35% 17%); }
+.dark .bg-orange-50   { background-color: hsl(24 35% 14%); }
+.dark .bg-orange-100  { background-color: hsl(24 35% 18%); }
+.dark .bg-red-50      { background-color: hsl(0 35% 15%); }
+.dark .bg-red-100     { background-color: hsl(0 35% 18%); }
+.dark .bg-rose-50     { background-color: hsl(350 35% 15%); }
+.dark .bg-rose-100    { background-color: hsl(350 35% 18%); }
+.dark .bg-pink-50     { background-color: hsl(330 35% 15%); }
+.dark .bg-green-50    { background-color: hsl(140 25% 13%); }
+.dark .bg-green-100   { background-color: hsl(140 25% 17%); }
+.dark .bg-emerald-50  { background-color: hsl(160 25% 13%); }
+.dark .bg-emerald-100 { background-color: hsl(160 25% 17%); }
+.dark .bg-teal-50     { background-color: hsl(170 25% 13%); }
+.dark .bg-cyan-50     { background-color: hsl(190 25% 13%); }
+.dark .bg-sky-50      { background-color: hsl(200 30% 14%); }
+.dark .bg-blue-50     { background-color: hsl(217 30% 14%); }
+.dark .bg-blue-100    { background-color: hsl(217 30% 18%); }
+.dark .bg-indigo-50   { background-color: hsl(235 30% 15%); }
+.dark .bg-violet-50   { background-color: hsl(265 30% 15%); }
+.dark .bg-violet-100  { background-color: hsl(265 30% 19%); }
+.dark .bg-purple-50   { background-color: hsl(275 30% 15%); }
+.dark .bg-purple-100  { background-color: hsl(275 30% 18%); }
+.dark .bg-fuchsia-50  { background-color: hsl(295 30% 15%); }
+
+/* --- Dark text on (formerly) light cards → light text ------------- */
+.dark .text-black,
+.dark .text-gray-900,
+.dark .text-gray-800,
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-neutral-900,
+.dark .text-zinc-900,
+.dark .text-stone-900 { color: hsl(0 0% 96%); }
+.dark .text-gray-700,
+.dark .text-slate-700,
+.dark .text-neutral-700,
+.dark .text-zinc-700 { color: hsl(0 0% 86%); }
+.dark .text-gray-600,
+.dark .text-slate-600,
+.dark .text-neutral-600,
+.dark .text-zinc-600 { color: hsl(0 0% 74%); }
+.dark .text-gray-500,
+.dark .text-slate-500,
+.dark .text-neutral-500,
+.dark .text-zinc-500 { color: hsl(0 0% 64%); }
+.dark .text-gray-400,
+.dark .text-slate-400,
+.dark .text-neutral-400,
+.dark .text-zinc-400 { color: hsl(0 0% 58%); }
+
+/* --- Light borders → subtle dark dividers ------------------------- */
+.dark .border-gray-100,
+.dark .border-slate-100,
+.dark .border-neutral-100 { border-color: hsl(222 14% 16%); }
+.dark .border-gray-200,
+.dark .border-slate-200,
+.dark .border-neutral-200,
+.dark .border-zinc-200 { border-color: hsl(222 14% 20%); }
+.dark .border-gray-300,
+.dark .border-slate-300,
+.dark .border-neutral-300 { border-color: hsl(222 14% 24%); }
+.dark .divide-gray-200 > * + * { border-color: hsl(222 14% 20%); }
+.dark .divide-gray-100 > * + * { border-color: hsl(222 14% 16%); }
+
+/* --- Hover states of light backgrounds --------------------------- */
+.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-slate-50:hover { background-color: hsl(222 14% 16%); }
+.dark .hover\:bg-gray-100:hover,
+.dark .hover\:bg-slate-100:hover { background-color: hsl(222 14% 19%); }
+
+/* --- Inputs / textareas / selects forced text colour -------------- */
+.dark input,
+.dark textarea,
+.dark select { color-scheme: dark; }
+.dark input::placeholder,
+.dark textarea::placeholder { color: hsl(0 0% 50%); }
+
+/* Chrome autofill leaks white background — paint it dark. */
+.dark input:-webkit-autofill,
+.dark input:-webkit-autofill:hover,
+.dark input:-webkit-autofill:focus,
+.dark textarea:-webkit-autofill {
+  -webkit-text-fill-color: hsl(0 0% 96%) !important;
+  -webkit-box-shadow: 0 0 0 1000px hsl(222 14% 14%) inset !important;
+  caret-color: hsl(0 0% 96%);
+}
+
+/* --- Translucent / blurred panels (glassmorphism) ----------------- */
+.dark .bg-white\/70,
+.dark .bg-white\/80,
+.dark .bg-white\/90,
+.dark .bg-white\/95 { background-color: hsl(222 14% 13% / 0.85); }
+.dark .bg-white\/50,
+.dark .bg-white\/60 { background-color: hsl(222 14% 13% / 0.65); }
+.dark .bg-white\/20,
+.dark .bg-white\/30,
+.dark .bg-white\/40 { background-color: hsl(222 14% 18% / 0.45); }
+
+/* Shadcn popover / dropdown / dialog content already use --popover.
+ * Ring colours used for focus rings on inputs across the app default
+ * to slate; lighten them so they stay visible in dark. */
+.dark .ring-gray-200,
+.dark .ring-slate-200 { --tw-ring-color: hsl(222 14% 28%); }
+
+/* Light gradients used as page backgrounds (e.g. login) — dim them. */
+.dark .from-white { --tw-gradient-from: hsl(222 14% 11%) var(--tw-gradient-from-position); }
+.dark .to-white   { --tw-gradient-to:   hsl(222 14% 11%) var(--tw-gradient-to-position); }
+.dark .via-white  { --tw-gradient-via:  hsl(222 14% 11%) var(--tw-gradient-via-position); }
+
+/* Body fallback if a page never opts into dark vars. */
+.dark body { background-color: hsl(222 14% 8%); color: hsl(0 0% 96%); }
