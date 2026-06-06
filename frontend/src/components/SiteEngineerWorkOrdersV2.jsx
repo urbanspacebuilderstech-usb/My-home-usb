@@ -21,7 +21,8 @@ import {
   Wallet,
   CheckCheck,
   Hourglass,
-  Trash2
+  Trash2,
+  FileText
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -661,7 +662,7 @@ function WorkCompleteSection({ stage, wo, projectId, fullyPaid, onSaved }) {
 // requests from this UI; Planning owns the stage-open workflow entirely.)
 // =====================================================================
 function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, onSaved }) {
-  const [subTab, setSubTab] = useState('history');
+  const [subTab, setSubTab] = useState('totalrab');
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -692,7 +693,14 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
       const rework = (stage.payment_requests || []).find(p => p.status === 'se_rework');
       setAmount(rework ? String(rework.amount || '') : '');
       setNotes(rework ? (rework.notes || '') : '');
-      setSubTab('history');
+      // Default sub-tab priority: Request RAB (if stage is open & no rejections
+      // to clear first), else Total RAB's history.
+      const hasReleased = (stage.payment_requests || []).some(p => p.status === 'approved');
+      if (stage.is_open && !hasReleased) {
+        setSubTab('request');
+      } else {
+        setSubTab('totalrab');
+      }
     }
   }, [stage]);
 
@@ -788,14 +796,25 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
           </>
         )}
 
-        {/* Sub-tabs */}
+        {/* Sub-tabs — Request RAB first (primary action), then the comprehensive
+            Total RAB's history (released bills with full RAB-card UI), then any
+            Pending RAB chips that are still in-flight. */}
         <div className="flex gap-1 border-b">
+          {stage.is_open && (
+            <button
+              onClick={() => setSubTab('request')}
+              className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${subTab === 'request' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-amber-700'}`}
+              data-testid="wov2-subtab-request"
+            >
+              {reworkPR ? `Resubmit ${reworkPR.rab_number || 'RAB'}` : 'Request RAB'}
+            </button>
+          )}
           <button
-            onClick={() => setSubTab('history')}
-            className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${subTab === 'history' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-amber-700'}`}
-            data-testid="wov2-subtab-history"
+            onClick={() => setSubTab('totalrab')}
+            className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${subTab === 'totalrab' ? 'border-violet-600 text-violet-700' : 'border-transparent text-gray-500 hover:text-violet-700'}`}
+            data-testid="wov2-subtab-totalrab"
           >
-            Payment Summary {allRequests.length > 0 && <span className="ml-1 text-[10px] opacity-70">({allRequests.length})</span>}
+            {"Total RAB's"} {allRequests.length > 0 && <span className="ml-1 text-[10px] opacity-70">({allRequests.length})</span>}
           </button>
           {/* Pending RAB — every request that's not yet released (in-flight)
               and not rejected. Lets SE see what's awaiting PM/QC/Planning/
@@ -813,15 +832,6 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
               </button>
             );
           })()}
-          {stage.is_open && (
-            <button
-              onClick={() => setSubTab('request')}
-              className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${subTab === 'request' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-amber-700'}`}
-              data-testid="wov2-subtab-request"
-            >
-              {reworkPR ? `Resubmit ${reworkPR.rab_number || 'RAB'}` : 'Request RAB'}
-            </button>
-          )}
         </div>
 
         {/* Pending RAB sub-tab — same row UI as Payment Summary but only
@@ -946,69 +956,144 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
           </div>
         )}
 
-        {subTab === 'history' && (
-          <div className="space-y-1.5 max-h-72 overflow-y-auto">
+        {subTab === 'totalrab' && (
+          <div className="space-y-2 max-h-80 overflow-y-auto pr-1" data-testid="wov2-totalrab-list">
             {allRequests.length === 0 ? (
-              <p className="text-center text-xs text-gray-400 py-6">No payment requests yet for this stage</p>
+              <div className="text-center py-8" data-testid="wov2-totalrab-empty">
+                <FileText className="h-6 w-6 text-gray-300 mx-auto mb-1" />
+                <p className="text-xs text-gray-400">No RABs requested yet for this stage</p>
+                {stage.is_open && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 text-xs"
+                    onClick={() => setSubTab('request')}
+                    data-testid="wov2-totalrab-cta-request"
+                  >
+                    <Send className="h-3 w-3 mr-1" /> Request your first RAB
+                  </Button>
+                )}
+              </div>
             ) : (
               allRequests.slice().reverse().map((pr, i) => {
                 const sb = prStatusBadge(pr.status);
                 const isReleased = pr.status === 'approved';
+                const isRejected = ['rejected', 'accountant_rejected', 'se_rework'].includes(pr.status);
+                const rabNum = `RAB-${String((allRequests.length - i)).padStart(2, '0')}`;
+                // Step indicators — visual breadcrumb of the approval ladder
+                // so the SE can see at a glance where a RAB is stuck.
+                const steps = [
+                  { key: 'PM',         at: pr.pm_approved_at,        name: pr.pm_approved_by_name },
+                  { key: 'QC',         at: pr.qc_approved_at,        name: pr.qc_approved_by_name },
+                  { key: 'Planning',   at: pr.planning_approved_at,  name: pr.planning_approved_by_name },
+                  { key: 'Accountant', at: pr.released_at,           name: pr.released_by_name },
+                ];
                 return (
-                  <div key={pr.request_id || i} className="border rounded p-2 text-xs" data-testid={`wov2-history-${pr.request_id || i}`}>
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div
+                    key={pr.request_id || i}
+                    className={`rounded-lg border p-2.5 text-xs ${isReleased ? 'border-emerald-200 bg-emerald-50/30' : isRejected ? 'border-red-200 bg-red-50/30' : 'border-violet-200 bg-violet-50/30'}`}
+                    data-testid={`wov2-totalrab-card-${pr.request_id || i}`}
+                  >
+                    {/* Header row */}
+                    <div className="flex items-start justify-between gap-2 flex-wrap mb-2 pb-2 border-b border-gray-100">
                       <div className="flex items-center gap-2 min-w-0">
-                        <Badge className="bg-violet-600 text-white border-violet-700 font-bold text-[10px] px-2 py-0.5 shrink-0">
-                          {`RAB-${String((allRequests.length - i)).padStart(2, '0')}`}
-                        </Badge>
-                        <div className="min-w-0">
-                          <p className="font-bold">{fmt(pr.approved_amount || pr.amount)}
-                            {pr.original_amount && pr.original_amount !== pr.amount && (
-                              <span className="text-[10px] text-gray-500 ml-1.5">(req {fmt(pr.original_amount)})</span>
-                            )}
-                          </p>
-                          <p className="text-[10px] text-gray-500">{fmtDate(pr.requested_at)}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1.5">
+                        <Badge className="bg-violet-600 text-white border-violet-700 font-bold text-[10px] px-2 py-0.5 shrink-0">{rabNum}</Badge>
                         <Badge variant="outline" className={`text-[9px] ${sb.cls}`}>{sb.label}</Badge>
-                        {/* View — opens the full RAB ladder for this WO and
-                            scrolls/highlights the row's RAB inside the popup. */}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 px-2 text-[10px] text-violet-700 border-violet-200 hover:bg-violet-50"
-                          onClick={() => setRabView({ open: true, requestId: pr.request_id })}
-                          data-testid={`wov2-pr-view-${pr.request_id || i}`}
-                          title={isReleased ? 'View RAB bill (downloadable from popup)' : 'View RAB approval chain'}
-                        >
-                          <Eye className="h-3 w-3 mr-0.5" /> View
-                        </Button>
-                        {/* Delete affordance — backend (`/payment-requests/{request_id}`)
-                            enforces role + whether the row has been released. */}
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 w-6 p-0 text-red-400 hover:text-red-600"
-                          onClick={() => deletePR(pr)}
-                          disabled={deletingId === pr.request_id}
-                          data-testid={`wov2-pr-delete-${pr.request_id || i}`}
-                          title="Delete this entry"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                      </div>
+                      <div className="text-right text-[10px] leading-tight">
+                        <p className="text-gray-500 uppercase tracking-wider">Requested</p>
+                        <p className="text-gray-900 font-semibold">{fmtDate(pr.requested_at)}</p>
+                        {pr.released_at && (
+                          <>
+                            <p className="text-emerald-600 uppercase tracking-wider mt-1">Released</p>
+                            <p className="text-emerald-700 font-bold">{fmtDate(pr.released_at)}</p>
+                          </>
+                        )}
                       </div>
                     </div>
-                    {pr.notes && <p className="text-[11px] text-gray-600 mt-1">📝 {pr.notes}</p>}
+
+                    {/* Headline: amount + closing balance hint */}
+                    <div className="rounded-md border border-orange-200 bg-gradient-to-br from-orange-50 to-white p-2 mb-2">
+                      <p className="text-[9px] uppercase tracking-wider text-orange-700 font-semibold">{isReleased ? 'Released Amount' : 'Requested Amount'}</p>
+                      <p className="text-lg sm:text-xl font-extrabold text-orange-700">
+                        {fmt(isReleased ? (pr.approved_amount || pr.amount) : pr.amount)}
+                      </p>
+                      {pr.original_amount && pr.original_amount !== pr.amount && (
+                        <p className="text-[10px] text-amber-700 mt-0.5">Planning adjusted from {fmt(pr.original_amount)}</p>
+                      )}
+                    </div>
+
+                    {/* Mini stats grid */}
+                    <div className="grid grid-cols-3 gap-1.5 mb-2">
+                      <div className="rounded border border-gray-200 bg-white p-1.5">
+                        <p className="text-[8px] text-gray-500 uppercase tracking-wide font-medium">Stage Amount</p>
+                        <p className="text-[11px] font-bold text-gray-900">{fmt(stage.amount || 0)}</p>
+                      </div>
+                      <div className="rounded border border-gray-200 bg-white p-1.5">
+                        <p className="text-[8px] text-gray-500 uppercase tracking-wide font-medium">Requested</p>
+                        <p className="text-[11px] font-bold text-gray-900">{fmt(pr.amount)}</p>
+                      </div>
+                      <div className="rounded border border-gray-200 bg-white p-1.5">
+                        <p className="text-[8px] text-gray-500 uppercase tracking-wide font-medium">Released</p>
+                        <p className={`text-[11px] font-bold ${isReleased ? 'text-emerald-700' : 'text-gray-400'}`}>
+                          {isReleased ? fmt(pr.approved_amount || pr.amount) : '—'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Approval ladder chips */}
+                    <div className="flex items-center gap-1 flex-wrap mb-2">
+                      {steps.map((s) => {
+                        const done = !!s.at;
+                        return (
+                          <span
+                            key={s.key}
+                            className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border ${done ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-gray-50 text-gray-400'}`}
+                            title={done ? `${s.key}${s.name ? ` · ${s.name}` : ''} · ${fmtDate(s.at)}` : `Awaiting ${s.key}`}
+                          >
+                            {done ? <CheckCheck className="h-2.5 w-2.5" /> : <Clock className="h-2.5 w-2.5" />}
+                            {s.key}
+                          </span>
+                        );
+                      })}
+                    </div>
+
+                    {/* Notes / extras */}
+                    {pr.notes && <p className="text-[11px] text-gray-700 mt-1 italic line-clamp-2 border-l-2 border-violet-200 pl-2">{pr.notes}</p>}
                     {pr.planning_change_reason && (
-                      <p className="text-[11px] text-amber-700 mt-1">Planning: {pr.planning_change_reason}</p>
+                      <p className="text-[10px] text-amber-700 mt-1">Planning note: {pr.planning_change_reason}</p>
                     )}
                     {pr.overflow_to_next_stage > 0 && (
-                      <p className="text-[10px] text-orange-700 mt-1">Overflow {fmt(pr.overflow_to_next_stage)} → "{pr.overflow_target_stage_name}"</p>
+                      <p className="text-[10px] text-orange-700 mt-1">Overflow {fmt(pr.overflow_to_next_stage)} → {pr.overflow_target_stage_name}</p>
                     )}
                     {pr.rejection_reason && (
-                      <p className="text-[11px] text-red-600 mt-1">Rejected: {pr.rejection_reason}</p>
+                      <p className="text-[10px] text-red-600 mt-1">Rejected: {pr.rejection_reason}</p>
                     )}
+
+                    {/* Footer actions */}
+                    <div className="flex items-center justify-end gap-1.5 mt-2 pt-2 border-t border-gray-100">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 px-2 text-[10px] text-violet-700 border-violet-200 hover:bg-violet-50"
+                        onClick={() => setRabView({ open: true, requestId: pr.request_id })}
+                        data-testid={`wov2-pr-view-${pr.request_id || i}`}
+                        title={isReleased ? 'View RAB bill (downloadable from popup)' : 'View RAB approval chain'}
+                      >
+                        <Eye className="h-3 w-3 mr-0.5" /> View
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 p-0 text-red-400 hover:text-red-600"
+                        onClick={() => deletePR(pr)}
+                        disabled={deletingId === pr.request_id}
+                        data-testid={`wov2-pr-delete-${pr.request_id || i}`}
+                        title="Delete this entry"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </div>
                 );
               })
