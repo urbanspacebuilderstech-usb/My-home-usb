@@ -4,7 +4,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Input } from './ui/input';
 import { toast } from 'sonner';
 import {
   Building2,
@@ -18,9 +17,6 @@ import {
   Loader2,
   AlertTriangle,
   Download,
-  ShieldCheck,
-  KeyRound,
-  Mail,
   Eye
 } from 'lucide-react';
 
@@ -49,8 +45,32 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [otpForRab, setOtpForRab] = useState(null); // { rab, ... } when OTP gate is open
   const [focusedRab, setFocusedRab] = useState(null); // stacked single-RAB sub-popup
+
+  // Direct download — OTP gate removed per business request. Backend still
+  // serves the signed PDF over an authenticated session.
+  const downloadRabPdf = async (rab) => {
+    if (!rab || rab.status !== 'approved') return;
+    try {
+      const r = await fetch(
+        `${API}/projects/${projectId}/work-orders/${workOrderId}/rabs/${rab.request_id}/pdf`,
+        { credentials: 'include' }
+      );
+      if (!r.ok) throw new Error('Download failed');
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${rab.rab_number || 'RAB'}_${(data?.contractor_name || 'vendor').replace(/\s+/g, '_')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`${rab.rab_number} downloaded`);
+    } catch (e) {
+      toast.error(e.message || 'Download failed');
+    }
+  };
 
   useEffect(() => {
     if (!open || !projectId || !workOrderId) return;
@@ -166,14 +186,10 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
                         variant="outline"
                         size="sm"
                         disabled={rab.status !== 'approved'}
-                        onClick={() => {
-                          if (rab.status !== 'approved') return;
-                          setOtpForRab(rab);
-                        }}
-                        title={rab.status !== 'approved' ? 'Available after Accountant release' : 'Requires Planning OTP — click to verify and download'}
+                        onClick={() => downloadRabPdf(rab)}
+                        title={rab.status !== 'approved' ? 'Available after Accountant release' : 'Download signed RAB PDF'}
                         data-testid={`rab-download-${rab.rab_number}`}
                       >
-                        <ShieldCheck className="h-3.5 w-3.5 mr-1.5 text-violet-600" />
                         <Download className="h-3.5 w-3.5 mr-1.5" /> Download {rab.rab_number}
                       </Button>
                     </div>
@@ -185,7 +201,7 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
                       fmtDate={fmtDate}
                       releasedSiblings={(data.rabs || []).filter(r => r.status === 'approved' && r.request_id !== rab.request_id)}
                       onView={(target) => setFocusedRab(target)}
-                      onDownload={(target) => setOtpForRab(target)}
+                      onDownload={(target) => downloadRabPdf(target)}
                     />
 
                     {rab.status === 'rejected' && rab.rejection_reason && (
@@ -219,14 +235,6 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} data-testid="rab-detail-close">Close</Button>
         </DialogFooter>
       </DialogContent>
-      <RabDownloadOtpDialog
-        open={!!otpForRab}
-        rab={otpForRab}
-        projectId={projectId}
-        workOrderId={workOrderId}
-        contractorName={data?.contractor_name}
-        onClose={() => setOtpForRab(null)}
-      />
       {/* Stacked sub-popup for a single focused (released) RAB. Parent dialog
           stays mounted underneath so the user can dismiss this view and pick
           another previous RAB without losing context. */}
@@ -236,7 +244,7 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
         inr={inr}
         fmtDate={fmtDate}
         onClose={() => setFocusedRab(null)}
-        onDownload={(target) => setOtpForRab(target)}
+        onDownload={(target) => downloadRabPdf(target)}
       />
     </Dialog>
   );
@@ -389,7 +397,6 @@ function RABCardTabs({ rab, inr, fmtDate, releasedSiblings = [], onView, onDownl
                     onClick={() => onDownload && onDownload(sib)}
                     data-testid={`totalrab-download-${sib.rab_number}`}
                   >
-                    <ShieldCheck className="h-3 w-3 mr-1 text-violet-600" />
                     <Download className="h-3 w-3" />
                   </Button>
                 </div>
@@ -468,7 +475,6 @@ function RABFocusedDialog({ open, rab, inr, fmtDate, onClose, onDownload }) {
                 onClick={() => isApproved && onDownload && onDownload(rab)}
                 data-testid={`focused-rab-download-${rab.rab_number}`}
               >
-                <ShieldCheck className="h-3.5 w-3.5 mr-1.5 text-violet-600" />
                 <Download className="h-3.5 w-3.5 mr-1.5" /> Download {rab.rab_number}
               </Button>
             </div>
@@ -533,156 +539,5 @@ function RABFocusedDialog({ open, rab, inr, fmtDate, onClose, onDownload }) {
   );
 }
 
-/**
- * Phase 2 OTP gate. Pops up over the RAB detail dialog when the user clicks
- * Download on an approved RAB. Two-step flow:
- *   1. Request OTP — emails a 6-digit code to the Planning user who approved
- *      this RAB. The downloader obtains the code from Planning out-of-band.
- *   2. Verify & Download — submits the OTP to /pdf?otp=XXXXXX which returns
- *      the signed PDF on success.
- */
-function RabDownloadOtpDialog({ open, rab, projectId, workOrderId, contractorName, onClose }) {
-  const [otp, setOtp] = useState('');
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [planningInfo, setPlanningInfo] = useState(null);
-  const [verifying, setVerifying] = useState(false);
-
-  useEffect(() => {
-    if (!open) {
-      setOtp(''); setSending(false); setSent(false); setPlanningInfo(null); setVerifying(false);
-    }
-  }, [open]);
-
-  if (!rab) return null;
-
-  const requestOtp = async () => {
-    setSending(true);
-    try {
-      const r = await axios.post(
-        `${API}/projects/${projectId}/work-orders/${workOrderId}/rabs/${rab.request_id}/download-otp/send`
-      );
-      setSent(true);
-      setPlanningInfo(r.data);
-      toast.success(r.data?.message || 'OTP sent to Planning');
-    } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to send OTP');
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const verifyAndDownload = async () => {
-    const code = (otp || '').trim();
-    if (code.length !== 6) {
-      toast.error('Enter the 6-digit OTP');
-      return;
-    }
-    setVerifying(true);
-    try {
-      const r = await fetch(
-        `${API}/projects/${projectId}/work-orders/${workOrderId}/rabs/${rab.request_id}/pdf?otp=${encodeURIComponent(code)}`,
-        { credentials: 'include' }
-      );
-      if (!r.ok) {
-        let msg = 'Download failed';
-        try { const j = await r.json(); msg = j.detail || msg; } catch {}
-        throw new Error(msg);
-      }
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${rab.rab_number || 'RAB'}_${(contractorName || 'vendor').replace(/\s+/g, '_')}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      toast.success(`${rab.rab_number} downloaded`);
-      onClose();
-    } catch (e) {
-      toast.error(e.message || 'Invalid or expired OTP');
-    } finally {
-      setVerifying(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-md" data-testid="rab-otp-dialog">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <ShieldCheck className="h-5 w-5 text-violet-600" />
-            Planning OTP Required
-          </DialogTitle>
-          <DialogDescription className="text-xs">
-            Downloading the signed <strong className="text-violet-700">{rab.rab_number}</strong> bill requires
-            a one-time code from Planning. This protects released bills from unauthorised distribution.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-3">
-          {/* Step 1 — request OTP */}
-          <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3">
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-violet-800">
-                <Mail className="h-3.5 w-3.5" /> Step 1 — Request OTP from Planning
-              </div>
-              {sent && <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">Sent</Badge>}
-            </div>
-            <Button
-              size="sm"
-              variant={sent ? 'outline' : 'default'}
-              className={sent ? '' : 'bg-violet-600 hover:bg-violet-700 text-white'}
-              onClick={requestOtp}
-              disabled={sending}
-              data-testid="rab-otp-send-btn"
-            >
-              {sending ? (<><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Sending…</>)
-                : sent ? 'Resend OTP'
-                : (<><Mail className="h-3.5 w-3.5 mr-1.5" /> Send OTP to Planning</>)}
-            </Button>
-            {sent && planningInfo && (
-              <p className="text-[11px] text-violet-700 mt-2">
-                {planningInfo.message}{planningInfo.planning_name ? ` — ${planningInfo.planning_name}` : ''}
-              </p>
-            )}
-          </div>
-
-          {/* Step 2 — enter & verify */}
-          <div className="rounded-lg border border-gray-200 p-3">
-            <div className="flex items-center gap-2 text-xs font-semibold text-gray-800 mb-2">
-              <KeyRound className="h-3.5 w-3.5 text-gray-600" /> Step 2 — Enter the 6-digit code
-            </div>
-            <Input
-              value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="000000"
-              maxLength={6}
-              inputMode="numeric"
-              className="text-center font-mono text-lg tracking-[0.4em]"
-              data-testid="rab-otp-input"
-            />
-            <p className="text-[10px] text-gray-500 mt-1">OTP is valid for 10 minutes and can be used only once.</p>
-          </div>
-        </div>
-
-        <DialogFooter className="mt-2">
-          <Button variant="ghost" size="sm" onClick={onClose} data-testid="rab-otp-cancel">Cancel</Button>
-          <Button
-            size="sm"
-            className="bg-violet-600 hover:bg-violet-700 text-white"
-            disabled={verifying || (otp || '').length !== 6}
-            onClick={verifyAndDownload}
-            data-testid="rab-otp-verify-btn"
-          >
-            {verifying ? (<><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Verifying…</>)
-              : (<><Download className="h-3.5 w-3.5 mr-1.5" /> Verify & Download</>)}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 export default RABDetailDialog;
