@@ -4560,6 +4560,21 @@ async def get_sheets_config(user: User = Depends(get_current_user)):
     
     config["is_connected"] = bool(tokens and tokens.get("access_token"))
     config["has_credentials"] = bool(GOOGLE_SHEETS_CLIENT_ID and GOOGLE_SHEETS_CLIENT_SECRET)
+
+    # Self-heal: if valid tokens exist but the config still carries a stale
+    # `needs_reconnect: true` from a previous expiry, clear it. Otherwise the
+    # frontend keeps showing the rose "Reconnect Required" banner forever
+    # even after the user has actually reconnected.
+    if config["is_connected"] and config.get("needs_reconnect"):
+        config["needs_reconnect"] = False
+        try:
+            await db.google_sheets_config.update_one(
+                {"user_id": SHARED_SHEETS_KEY},
+                {"$set": {"needs_reconnect": False, "updated_at": datetime.now(timezone.utc).isoformat()}},
+            )
+        except Exception as e:
+            logger.error(f"Failed to self-heal stale needs_reconnect flag: {e}")
+
     config.pop("_id", None)
     return config
 
@@ -4702,16 +4717,19 @@ async def sheets_oauth_callback(code: str, state: str, request: Request, respons
         upsert=True
     )
     
-    # Update config (both per-user and shared)
+    # Update config (both per-user and shared). A successful OAuth handshake
+    # invalidates any stale `needs_reconnect: true` flag from a previous token
+    # expiry — explicitly clear it so the rose "Reconnect Required" banner
+    # doesn't linger after the user actually reconnects.
     now_iso = datetime.now(timezone.utc).isoformat()
     await db.google_sheets_config.update_one(
         {"user_id": user_id},
-        {"$set": {"is_connected": True, "updated_at": now_iso}},
+        {"$set": {"is_connected": True, "needs_reconnect": False, "updated_at": now_iso}},
         upsert=True
     )
     await db.google_sheets_config.update_one(
         {"user_id": SHARED_SHEETS_KEY},
-        {"$set": {"is_connected": True, "updated_at": now_iso}},
+        {"$set": {"is_connected": True, "needs_reconnect": False, "updated_at": now_iso}},
         upsert=True
     )
     
