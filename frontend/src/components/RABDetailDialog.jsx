@@ -20,8 +20,21 @@ import {
   Download,
   ShieldCheck,
   KeyRound,
-  Mail
+  Mail,
+  Eye
 } from 'lucide-react';
+
+// Module-scope status map so the focused sub-popup can reuse it without
+// re-declaring the same lookup.
+const STATUS = {
+  requested:          { label: 'Pending PM',        cls: 'bg-amber-100 text-amber-700 border-amber-200' },
+  pm_approved:        { label: 'Pending QC',        cls: 'bg-blue-100 text-blue-700 border-blue-200' },
+  qc_approved:        { label: 'Pending Planning',  cls: 'bg-violet-100 text-violet-700 border-violet-200' },
+  planning_approved:  { label: 'Pending Accountant',cls: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
+  approved:           { label: 'Released',          cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+  rejected:           { label: 'Rejected',          cls: 'bg-red-100 text-red-700 border-red-200' },
+  se_rework:          { label: 'Returned to SE',    cls: 'bg-orange-100 text-orange-700 border-orange-200' },
+};
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -37,6 +50,7 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [otpForRab, setOtpForRab] = useState(null); // { rab, ... } when OTP gate is open
+  const [focusedRab, setFocusedRab] = useState(null); // stacked single-RAB sub-popup
 
   useEffect(() => {
     if (!open || !projectId || !workOrderId) return;
@@ -56,16 +70,6 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
       return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
         + ' ' + new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
     } catch { return String(iso).slice(0, 10); }
-  };
-
-  const STATUS = {
-    requested:          { label: 'Pending PM',        cls: 'bg-amber-100 text-amber-700 border-amber-200' },
-    pm_approved:        { label: 'Pending QC',        cls: 'bg-blue-100 text-blue-700 border-blue-200' },
-    qc_approved:        { label: 'Pending Planning',  cls: 'bg-violet-100 text-violet-700 border-violet-200' },
-    planning_approved:  { label: 'Pending Accountant',cls: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
-    approved:           { label: 'Released',          cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-    rejected:           { label: 'Rejected',          cls: 'bg-red-100 text-red-700 border-red-200' },
-    se_rework:          { label: 'Returned to SE',    cls: 'bg-orange-100 text-orange-700 border-orange-200' },
   };
 
   return (
@@ -174,8 +178,15 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
                       </Button>
                     </div>
 
-                    {/* Summary / Timeline inner tabs */}
-                    <RABCardTabs rab={rab} inr={inr} fmtDate={fmtDate} />
+                    {/* Summary / Timeline / Total RAB's inner tabs */}
+                    <RABCardTabs
+                      rab={rab}
+                      inr={inr}
+                      fmtDate={fmtDate}
+                      releasedSiblings={(data.rabs || []).filter(r => r.status === 'approved' && r.request_id !== rab.request_id)}
+                      onView={(target) => setFocusedRab(target)}
+                      onDownload={(target) => setOtpForRab(target)}
+                    />
 
                     {rab.status === 'rejected' && rab.rejection_reason && (
                       <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-2.5 flex items-start gap-2">
@@ -216,6 +227,17 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
         contractorName={data?.contractor_name}
         onClose={() => setOtpForRab(null)}
       />
+      {/* Stacked sub-popup for a single focused (released) RAB. Parent dialog
+          stays mounted underneath so the user can dismiss this view and pick
+          another previous RAB without losing context. */}
+      <RABFocusedDialog
+        open={!!focusedRab}
+        rab={focusedRab}
+        inr={inr}
+        fmtDate={fmtDate}
+        onClose={() => setFocusedRab(null)}
+        onDownload={(target) => setOtpForRab(target)}
+      />
     </Dialog>
   );
 }
@@ -244,10 +266,15 @@ const FooterTile = ({ label, value }) => (
 );
 
 /**
- * Inner Summary / Timeline tabs for each RAB card. Default Summary shows the
- * headline closing balance + key amounts; Timeline tab loads only when clicked.
+ * Inner Summary / Timeline / Total RAB's tabs for each RAB card.
+ *  • Summary  → headline closing balance + key amounts
+ *  • Timeline → approval ladder (SE → PM → QC → Planning → Accountant)
+ *  • Total RAB's → list of OTHER released RABs on this WO with stacked View
+ *    and OTP-gated Download. Clicking View opens a focused sub-popup on top
+ *    of the parent so users can drill between historical RABs without losing
+ *    the current context.
  */
-function RABCardTabs({ rab, inr, fmtDate }) {
+function RABCardTabs({ rab, inr, fmtDate, releasedSiblings = [], onView, onDownload }) {
   const isApproved = rab.status === 'approved';
   return (
     <Tabs defaultValue="summary" className="w-full">
@@ -262,6 +289,13 @@ function RABCardTabs({ rab, inr, fmtDate }) {
           className="text-[11px] px-3 py-1.5 data-[state=active]:bg-violet-600 data-[state=active]:text-white"
           data-testid={`rab-${rab.rab_number}-tab-timeline`}
         >Timeline</TabsTrigger>
+        <TabsTrigger
+          value="totalrab"
+          className="text-[11px] px-3 py-1.5 data-[state=active]:bg-violet-600 data-[state=active]:text-white"
+          data-testid={`rab-${rab.rab_number}-tab-totalrab`}
+        >{"Total RAB's"}
+          <span className="ml-1.5 text-[9px] font-bold opacity-80">({releasedSiblings.length})</span>
+        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="summary" className="m-0">
@@ -280,7 +314,7 @@ function RABCardTabs({ rab, inr, fmtDate }) {
           />
         </div>
         {rab.notes && (
-          <p className="mt-2 text-[11px] text-gray-600 italic line-clamp-2 border-l-2 border-violet-200 pl-2">"{rab.notes}"</p>
+          <p className="mt-2 text-[11px] text-gray-600 italic line-clamp-2 border-l-2 border-violet-200 pl-2">&quot;{rab.notes}&quot;</p>
         )}
       </TabsContent>
 
@@ -303,13 +337,66 @@ function RABCardTabs({ rab, inr, fmtDate }) {
                       {step.name && <span className="text-gray-500">· {step.name}</span>}
                     </div>
                     <p className={`text-[11px] ${done ? 'text-gray-600' : 'text-gray-400'}`}>{fmtDate(step.at)}</p>
-                    {step.notes && <p className="text-[11px] text-gray-500 italic mt-0.5 line-clamp-2">"{step.notes}"</p>}
+                    {step.notes && <p className="text-[11px] text-gray-500 italic mt-0.5 line-clamp-2">&quot;{step.notes}&quot;</p>}
                   </div>
                 </div>
               );
             })}
           </div>
         </div>
+      </TabsContent>
+
+      <TabsContent value="totalrab" className="m-0">
+        {releasedSiblings.length === 0 ? (
+          <div className="bg-gray-50/60 rounded-lg p-4 text-center" data-testid={`rab-${rab.rab_number}-totalrab-empty`}>
+            <FileText className="h-5 w-5 text-gray-300 mx-auto mb-1" />
+            <p className="text-xs text-gray-500">No other released RABs yet.</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">Released RABs from this Work Order will appear here.</p>
+          </div>
+        ) : (
+          <div className="space-y-1.5" data-testid={`rab-${rab.rab_number}-totalrab-list`}>
+            {releasedSiblings.map((sib) => (
+              <div
+                key={sib.request_id}
+                className="flex items-center justify-between gap-2 rounded-lg border border-violet-200 bg-violet-50/50 hover:bg-violet-50 px-2.5 py-2 transition"
+                data-testid={`totalrab-row-${sib.rab_number}`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Badge className="bg-violet-600 text-white border-violet-700 font-bold px-2 py-0.5 text-[10px] shrink-0">
+                    {sib.rab_number}
+                  </Badge>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold text-gray-900 truncate">{sib.stage_name}</p>
+                    <p className="text-[10px] text-emerald-700 font-medium">
+                      Released {sib.released_at ? `· ${fmtDate(sib.released_at)}` : ''} · {inr(sib.approved_amount)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-[11px]"
+                    onClick={() => onView && onView(sib)}
+                    data-testid={`totalrab-view-${sib.rab_number}`}
+                  >
+                    <Eye className="h-3 w-3 mr-1" /> View
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-[11px]"
+                    onClick={() => onDownload && onDownload(sib)}
+                    data-testid={`totalrab-download-${sib.rab_number}`}
+                  >
+                    <ShieldCheck className="h-3 w-3 mr-1 text-violet-600" />
+                    <Download className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </TabsContent>
     </Tabs>
   );
@@ -321,6 +408,130 @@ const MiniStat = ({ label, value, valueClass }) => (
     <p className={`text-xs sm:text-sm font-bold mt-0.5 ${valueClass || 'text-gray-900'}`}>{value}</p>
   </div>
 );
+
+/**
+ * Stacked sub-popup that focuses on ONE previously released RAB. Rendered on
+ * top of the parent RABDetailDialog so the user can drill into a historic RAB
+ * (e.g. RAB-02) without losing their position in RAB-03. Closing this dialog
+ * (X icon or Close button) leaves the parent intact.
+ *
+ * UI is intentionally identical to a single RAB card from the parent — same
+ * header (badge/stage/status), same Download button, same Summary + Timeline
+ * tabs — minus the "Total RAB's" tab (no further drill-down).
+ */
+function RABFocusedDialog({ open, rab, inr, fmtDate, onClose, onDownload }) {
+  if (!rab) return null;
+  const st = STATUS[rab.status] || { label: rab.status || 'Unknown', cls: 'bg-gray-100 text-gray-700 border-gray-200' };
+  const isApproved = rab.status === 'approved';
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto p-0" data-testid="rab-focused-dialog">
+        <DialogHeader className="px-5 pt-5 pb-3 border-b">
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <FileText className="h-5 w-5 text-violet-600" />
+            {rab.rab_number} — Bill Detail
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            Released bill snapshot. The parent RAB chain remains open underneath — close this to return.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="p-5 space-y-3">
+          <div className="rounded-lg border border-violet-300 bg-white p-3">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-2 pb-2 border-b border-gray-100">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge className="bg-violet-600 text-white border-violet-700 font-bold px-2 py-0.5 text-xs">{rab.rab_number}</Badge>
+                <span className="text-xs font-semibold text-gray-900">{rab.stage_name}</span>
+                <Badge className={`border text-[10px] ${st.cls}`}>{st.label}</Badge>
+              </div>
+              <div className="flex flex-col items-end text-[10px] leading-tight">
+                {rab.timeline?.[0]?.at && (
+                  <div className="text-right">
+                    <span className="text-gray-500 uppercase tracking-wider font-medium">Requested</span>
+                    <p className="text-gray-900 font-semibold text-xs">{fmtDate(rab.timeline[0].at)}</p>
+                  </div>
+                )}
+                {rab.released_at && (
+                  <div className="text-right mt-1">
+                    <span className="text-emerald-600 uppercase tracking-wider font-medium">Released</span>
+                    <p className="text-emerald-700 font-bold text-xs">{fmtDate(rab.released_at)}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end mb-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!isApproved}
+                onClick={() => isApproved && onDownload && onDownload(rab)}
+                data-testid={`focused-rab-download-${rab.rab_number}`}
+              >
+                <ShieldCheck className="h-3.5 w-3.5 mr-1.5 text-violet-600" />
+                <Download className="h-3.5 w-3.5 mr-1.5" /> Download {rab.rab_number}
+              </Button>
+            </div>
+
+            {/* Summary + Timeline only (no further drill-down). */}
+            <Tabs defaultValue="summary" className="w-full">
+              <TabsList className="bg-gray-50 p-1 h-auto gap-1 mb-3">
+                <TabsTrigger value="summary" className="text-[11px] px-3 py-1.5 data-[state=active]:bg-violet-600 data-[state=active]:text-white">Summary</TabsTrigger>
+                <TabsTrigger value="timeline" className="text-[11px] px-3 py-1.5 data-[state=active]:bg-violet-600 data-[state=active]:text-white">Timeline</TabsTrigger>
+              </TabsList>
+              <TabsContent value="summary" className="m-0">
+                <div className="rounded-lg border border-orange-200 bg-gradient-to-br from-orange-50 to-white p-3 mb-2">
+                  <p className="text-[10px] uppercase tracking-wider text-orange-700 font-semibold">Closing Balance After {rab.rab_number}</p>
+                  <p className="text-xl sm:text-2xl font-extrabold text-orange-700 mt-0.5">{inr(rab.closing_balance_after)}</p>
+                  <p className="text-[10px] text-orange-600/80 mt-0.5">Cumulative released: {inr(rab.cumulative_released_after)}</p>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <MiniStat label="Stage Amount" value={inr(rab.stage_amount)} />
+                  <MiniStat label="Requested" value={inr(rab.requested_amount)} />
+                  <MiniStat
+                    label="Released"
+                    value={isApproved ? inr(rab.approved_amount) : '—'}
+                    valueClass={isApproved ? 'text-emerald-700' : 'text-gray-400'}
+                  />
+                </div>
+                {rab.notes && (
+                  <p className="mt-2 text-[11px] text-gray-600 italic line-clamp-2 border-l-2 border-violet-200 pl-2">&quot;{rab.notes}&quot;</p>
+                )}
+              </TabsContent>
+              <TabsContent value="timeline" className="m-0">
+                <div className="bg-gray-50/60 rounded-lg p-3">
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Approval Timeline</p>
+                  <div className="space-y-1.5">
+                    {(rab.timeline || []).map((step, i) => {
+                      const done = !!step.at;
+                      return (
+                        <div key={i} className="flex items-start gap-2 text-xs">
+                          {done ? <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" /> : <Clock className="h-4 w-4 text-gray-300 shrink-0 mt-0.5" />}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-baseline gap-1">
+                              <span className="font-semibold text-gray-700">{step.role}</span>
+                              {step.name && <span className="text-gray-500">· {step.name}</span>}
+                            </div>
+                            <p className={`text-[11px] ${done ? 'text-gray-600' : 'text-gray-400'}`}>{fmtDate(step.at)}</p>
+                            {step.notes && <p className="text-[11px] text-gray-500 italic mt-0.5 line-clamp-2">&quot;{step.notes}&quot;</p>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </TabsContent>
+            </Tabs>
+          </div>
+        </div>
+
+        <DialogFooter className="px-5 py-3 border-t">
+          <Button variant="outline" size="sm" onClick={onClose} data-testid="rab-focused-close">Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 /**
  * Phase 2 OTP gate. Pops up over the RAB detail dialog when the user clicks
