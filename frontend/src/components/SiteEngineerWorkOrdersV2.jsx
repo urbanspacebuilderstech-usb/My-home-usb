@@ -733,11 +733,20 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   // delete rows that have already been Accountant-released (those need to
   // be reversed via the cashbook).
   const deletePR = async (pr) => {
-    if (!window.confirm(`Delete this ${pr.rab_number || 'payment request'} entry of ₹${(pr.approved_amount || pr.amount || 0).toLocaleString('en-IN')}? This cannot be undone.`)) return;
+    const amt = (pr.approved_amount || pr.amount || 0).toLocaleString('en-IN');
+    if (!window.confirm(`Delete this ${pr.rab_number || 'payment request'} entry of ₹${amt}?\n\nThis will also purge any linked expense and cashbook rows. This cannot be undone.`)) return;
     setDeletingId(pr.request_id);
     try {
-      await axios.delete(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}/payment-requests/${pr.request_id}`);
-      toast.success('Payment request deleted');
+      const r = await axios.delete(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}/payment-requests/${pr.request_id}`);
+      // Surface the cascade purge counts so the SE/PM can see what got
+      // cleaned up alongside the RAB row.
+      const p = r.data?.purged || {};
+      const cleaned = [
+        p.recorded_expenses ? `${p.recorded_expenses} expense` : null,
+        p.labour_expenses ? `${p.labour_expenses} labour-exp` : null,
+        p.cashbook_entries ? `${p.cashbook_entries} cashbook` : null,
+      ].filter(Boolean).join(' · ');
+      toast.success(cleaned ? `${pr.rab_number || 'RAB'} deleted · cleaned ${cleaned}` : `${pr.rab_number || 'RAB'} deleted`);
       onSaved && onSaved();
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Failed to delete');

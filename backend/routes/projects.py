@@ -8799,6 +8799,13 @@ async def delete_stage_payment_request(
     Refuses if the request is already `approved` (released by accountant) —
     in that case the accountant must reverse the cashbook expense first
     (which auto-reverts the PR to `planning_approved`).
+
+    Cascade cleanup: this endpoint also purges every linked downstream row
+    so the cashbook / Expense board never carries orphaned data after a
+    RAB is deleted:
+      • recorded_expenses (manual labour expense ledger)
+      • labour_expenses (vendor-facing breakdown)
+      • cashbook_entries (Main Account ledger)
     """
     if user.role not in [
         UserRole.PROJECT_MANAGER,
@@ -8829,11 +8836,48 @@ async def delete_stage_payment_request(
         {"work_order_id": work_order_id, "stages.stage_id": stage_id},
         {"$pull": {"stages.$.payment_requests": {"request_id": request_id}}},
     )
+
+    # Cascade purge: nuke every downstream row keyed by this RAB's request_id
+    # so the Expense board, Cashbook and Direct Expense tab stay consistent.
+    # Use a forgiving $or so we catch rows that pinned the link under either
+    # `request_id` or one of the legacy field names.
+    link_match = {"$or": [
+        {"request_id": request_id},
+        {"payment_request_id": request_id},
+        {"rab_request_id": request_id},
+        {"source_id": request_id},
+        {"ref_id": request_id},
+    ]}
+    purged = {"recorded_expenses": 0, "labour_expenses": 0, "cashbook_entries": 0}
+    try:
+        r1 = await db.recorded_expenses.delete_many(link_match)
+        purged["recorded_expenses"] = r1.deleted_count
+    except Exception as e:
+        logger.error(f"Failed to purge recorded_expenses for RAB {request_id}: {e}")
+    try:
+        r2 = await db.labour_expenses.delete_many(link_match)
+        purged["labour_expenses"] = r2.deleted_count
+    except Exception as e:
+        logger.error(f"Failed to purge labour_expenses for RAB {request_id}: {e}")
+    try:
+        r3 = await db.cashbook_entries.delete_many(link_match)
+        purged["cashbook_entries"] = r3.deleted_count
+    except Exception as e:
+        logger.error(f"Failed to purge cashbook_entries for RAB {request_id}: {e}")
+
     await create_audit_log(
         user.user_id, "delete", "wo_payment_request", request_id,
-        {"work_order_id": work_order_id, "stage_id": stage_id, "amount": target_pr.get("approved_amount") or target_pr.get("amount")},
+        {
+            "work_order_id": work_order_id,
+            "stage_id": stage_id,
+            "amount": target_pr.get("approved_amount") or target_pr.get("amount"),
+            "purged": purged,
+        },
     )
-    return {"message": "Payment request deleted"}
+    return {
+        "message": "Payment request deleted",
+        "purged": purged,
+    }
 
 
 
