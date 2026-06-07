@@ -74,16 +74,30 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
 
   useEffect(() => { if (projectId && workOrderId) fetchDLR(); }, [projectId, workOrderId, dateFrom, dateTo]);
 
-  // Fetch project stages for the Current Stage dropdown
+  // Fetch the WO's payment-schedule stages and filter to ONLY currently-open
+  // stages — those are the stages the SE is actively working on, so the DPR
+  // dropdown should reflect that scoped list (not the entire project stage
+  // hierarchy). Falls back to the project-level stages if the WO endpoint
+  // is unavailable so the dropdown is never empty.
   useEffect(() => {
     if (!projectId) return;
     (async () => {
       try {
+        if (workOrderId) {
+          const wr = await axios.get(`${API}/projects/${projectId}/work-orders/${workOrderId}`);
+          const stages = (wr.data?.stages || []).filter(s => s.is_open === true).map((s, idx) => ({
+            stage_id: s.stage_id,
+            stage_name: s.name || s.stage_name || `Stage ${idx + 1}`,
+            sl_no: s.sl_no || `S${idx + 1}`,
+            is_section_header: false,
+          }));
+          if (stages.length > 0) { setProjectStages(stages); return; }
+        }
         const res = await axios.get(`${API}/projects/${projectId}/project-stages`);
         setProjectStages(Array.isArray(res.data) ? res.data : []);
       } catch { setProjectStages([]); }
     })();
-  }, [projectId]);
+  }, [projectId, workOrderId]);
 
   const openDialog = () => {
     setForm({
@@ -373,10 +387,10 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
               <p className="text-[11px] font-semibold text-teal-700 uppercase tracking-wide">Daily Progress Report (DPR)</p>
 
               <div>
-                <Label className="text-xs">Current Project Stage <span className="text-red-500">*</span></Label>
+                <Label className="text-xs">Current Project Stage <span className="text-red-500">*</span><span className="text-[10px] font-normal text-gray-500 ml-1">(open stages only)</span></Label>
                 <Select value={form.stage_id} onValueChange={v => setForm(f => ({ ...f, stage_id: v }))}>
                   <SelectTrigger className="mt-1 h-9 text-xs" data-testid="dlr-form-stage">
-                    <SelectValue placeholder={projectStages.length ? "Select current stage..." : "No stages configured for this project"} />
+                    <SelectValue placeholder={projectStages.length ? "Select an open stage..." : "No open stages for this contractor — ask Planning to unlock one"} />
                   </SelectTrigger>
                   <SelectContent>
                     {projectStages
