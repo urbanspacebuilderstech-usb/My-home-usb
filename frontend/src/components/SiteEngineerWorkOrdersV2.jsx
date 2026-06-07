@@ -760,10 +760,13 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
       const rework = (stage.payment_requests || []).find(p => p.status === 'se_rework');
       setAmount(rework ? String(rework.amount || '') : '');
       setNotes(rework ? (rework.notes || '') : '');
-      // Default sub-tab priority: Request RAB (if stage is open & no rejections
-      // to clear first), else Total RAB's history.
+      // Default sub-tab priority: Request RAB (if stage is open, has remaining
+      // balance and no rejections to clear first), else Total RAB's history.
       const hasReleased = (stage.payment_requests || []).some(p => p.status === 'approved');
-      if (stage.is_open && !hasReleased) {
+      const stageReleased = (stage.payment_requests || []).filter(p => p.status === 'approved').reduce((a, p) => a + (p.approved_amount || 0), 0);
+      const stagePending = (stage.payment_requests || []).filter(p => ['requested', 'pm_approved', 'qc_approved', 'planning_approved'].includes(p.status)).reduce((a, p) => a + (p.amount || 0), 0);
+      const stageBalance = Math.max(0, (stage.amount || 0) - stageReleased - stagePending);
+      if (stage.is_open && !hasReleased && stageBalance > 0) {
         setSubTab('request');
       } else {
         setSubTab('totalrab');
@@ -936,7 +939,12 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
             Total RAB's history (released bills with full RAB-card UI), then any
             Pending RAB chips that are still in-flight. */}
         <div className="flex gap-1 border-b">
-          {stage.is_open && (
+          {/* Hide the Request RAB sub-tab once the stage is fully funded —
+              balance==0 means every paise has been released or queued, so
+              raising a new RAB would just bounce off the hard cap. The
+              Resubmit case is exempted because the rework row is already
+              counted in `pending` and replaces itself on submit. */}
+          {stage.is_open && (balance > 0 || reworkPR) && (
             <button
               onClick={() => setSubTab('request')}
               className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${subTab === 'request' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-amber-700'}`}
