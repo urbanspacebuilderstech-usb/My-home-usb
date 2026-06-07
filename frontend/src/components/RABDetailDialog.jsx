@@ -199,6 +199,8 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
                       rab={rab}
                       inr={inr}
                       fmtDate={fmtDate}
+                      projectId={projectId}
+                      workOrderId={workOrderId}
                       releasedSiblings={(data.rabs || []).filter(r => r.status === 'approved' && r.request_id !== rab.request_id)}
                       onView={(target) => setFocusedRab(target)}
                       onDownload={(target) => downloadRabPdf(target)}
@@ -282,10 +284,28 @@ const FooterTile = ({ label, value }) => (
  *    of the parent so users can drill between historical RABs without losing
  *    the current context.
  */
-function RABCardTabs({ rab, inr, fmtDate, releasedSiblings = [], onView, onDownload }) {
+function RABCardTabs({ rab, inr, fmtDate, releasedSiblings = [], onView, onDownload, projectId, workOrderId }) {
   const isApproved = rab.status === 'approved';
+  // Lazy-loaded DLR rollup for this RAB's billing window. Same backend
+  // endpoint as the SE request popup so the data is consistent.
+  const [dlrPreview, setDlrPreview] = useState(null);
+  const [dlrLoading, setDlrLoading] = useState(false);
+  const hasDateWindow = !!(rab.from_date && rab.to_date);
+  // Fetch only when the user opens the DLR tab (defer via state below).
+  const loadDlr = async () => {
+    if (!hasDateWindow || dlrPreview || dlrLoading) return;
+    setDlrLoading(true);
+    try {
+      const r = await axios.get(
+        `${API}/projects/${projectId}/work-orders/${workOrderId}/dlrs-for-rab`,
+        { params: { from_date: rab.from_date, to_date: rab.to_date } }
+      );
+      setDlrPreview(r.data);
+    } catch { setDlrPreview(null); }
+    finally { setDlrLoading(false); }
+  };
   return (
-    <Tabs defaultValue="summary" className="w-full">
+    <Tabs defaultValue="summary" className="w-full" onValueChange={(v) => { if (v === 'dlr') loadDlr(); }}>
       <TabsList className="bg-gray-50 p-1 h-auto gap-1 mb-3">
         <TabsTrigger
           value="summary"
@@ -297,6 +317,13 @@ function RABCardTabs({ rab, inr, fmtDate, releasedSiblings = [], onView, onDownl
           className="text-[11px] px-3 py-1.5 data-[state=active]:bg-violet-600 data-[state=active]:text-white"
           data-testid={`rab-${rab.rab_number}-tab-timeline`}
         >Timeline</TabsTrigger>
+        <TabsTrigger
+          value="dlr"
+          disabled={!hasDateWindow}
+          className="text-[11px] px-3 py-1.5 data-[state=active]:bg-violet-600 data-[state=active]:text-white disabled:opacity-40"
+          data-testid={`rab-${rab.rab_number}-tab-dlr`}
+          title={hasDateWindow ? 'DLR rollup for the billing window' : 'No billing window set for this RAB'}
+        >DLR Report</TabsTrigger>
         <TabsTrigger
           value="totalrab"
           className="text-[11px] px-3 py-1.5 data-[state=active]:bg-violet-600 data-[state=active]:text-white"
@@ -323,6 +350,149 @@ function RABCardTabs({ rab, inr, fmtDate, releasedSiblings = [], onView, onDownl
         </div>
         {rab.notes && (
           <p className="mt-2 text-[11px] text-gray-600 italic line-clamp-2 border-l-2 border-violet-200 pl-2">&quot;{rab.notes}&quot;</p>
+        )}
+        {/* DLR variance banner inside Summary — surfaces the SE-entered
+            reason whenever the released/requested amount drifts from the
+            DLR roll-up of the billing window. Shown only on released or
+            requested rows where a reason was recorded. */}
+        {rab.excess_dlr_reason && (
+          <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/60 p-2" data-testid={`rab-${rab.rab_number}-excess`}>
+            <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">Excess / Variance Reason</p>
+            <p className="text-[11px] text-amber-900 mt-0.5 leading-relaxed">{rab.excess_dlr_reason}</p>
+          </div>
+        )}
+      </TabsContent>
+
+      <TabsContent value="dlr" className="m-0">
+        {/* DLR rollup table for the exact billing window the SE set on
+            the RAB request. Mirrors the Site Engineer's pre-submit view. */}
+        {!hasDateWindow ? (
+          <div className="rounded-lg border border-gray-200 bg-gray-50/60 p-4 text-center">
+            <FileText className="h-5 w-5 text-gray-300 mx-auto mb-1" />
+            <p className="text-xs text-gray-500">No billing window set on this RAB.</p>
+            <p className="text-[10px] text-gray-400">DLR rollup requires both From Date and To Date.</p>
+          </div>
+        ) : dlrLoading ? (
+          <p className="text-[11px] text-gray-500 text-center py-3">Loading DLRs…</p>
+        ) : !dlrPreview ? (
+          <div className="rounded-lg border border-gray-200 bg-gray-50/60 p-4 text-center">
+            <p className="text-[11px] text-gray-500">Click DLR Report tab to load…</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between flex-wrap gap-1">
+              <p className="text-[10px] uppercase tracking-wider text-violet-700 font-bold">
+                Billing window · {fmtDate(rab.from_date)} → {fmtDate(rab.to_date)}
+              </p>
+              <span className="text-[10px] text-violet-700 font-medium">
+                {dlrPreview.days_with_dlr} / {dlrPreview.total_days_in_range} days
+              </span>
+            </div>
+            {dlrPreview.rows.length === 0 ? (
+              <p className="text-[11px] text-gray-500 text-center py-3" data-testid={`rab-${rab.rab_number}-dlr-empty`}>
+                No DLR records logged in this window.
+              </p>
+            ) : (
+              <div className="overflow-x-auto rounded border border-violet-200 bg-white">
+                <table className="w-full text-[10px]">
+                  <thead className="bg-violet-100 text-violet-900">
+                    <tr>
+                      <th className="px-1.5 py-1 text-left">Date</th>
+                      <th className="px-1 py-1 text-left">Day</th>
+                      <th className="px-1 py-1 text-center">Skilled</th>
+                      <th className="px-1 py-1 text-center">Semi-Skilled</th>
+                      <th className="px-1 py-1 text-center">Unskilled</th>
+                      <th className="px-1 py-1 text-center font-bold">Workers</th>
+                      <th className="px-1 py-1 text-right font-bold">Day Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dlrPreview.rows.map((r) => {
+                      const cell = (cnt, rate, amount, colour) => (
+                        cnt > 0 ? (
+                          <div className="leading-tight">
+                            <p className={`font-bold ${colour}`}>{cnt} × {inr(rate)}</p>
+                            <p className="text-emerald-700 font-semibold text-[9px]">= {inr(amount)}</p>
+                          </div>
+                        ) : <span className="text-gray-300">—</span>
+                      );
+                      return (
+                        <tr key={r.report_id} className="border-t border-violet-100">
+                          <td className="px-1.5 py-1 font-medium text-gray-800">
+                            {new Date(r.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                          </td>
+                          <td className="px-1 py-1 text-gray-600">
+                            {new Date(r.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short' })}
+                          </td>
+                          <td className="px-1 py-1 text-center">{cell(r.skilled, r.skilled_rate, r.skilled_cost, 'text-indigo-700')}</td>
+                          <td className="px-1 py-1 text-center">{cell(r.semi_skilled, r.semi_skilled_rate, r.semi_skilled_cost, 'text-blue-700')}</td>
+                          <td className="px-1 py-1 text-center">{cell(r.unskilled, r.unskilled_rate, r.unskilled_cost, 'text-amber-700')}</td>
+                          <td className="px-1 py-1 text-center font-bold text-gray-900">{r.total_workers}</td>
+                          <td className="px-1 py-1 text-right font-bold text-emerald-700">{inr(r.total_cost)}</td>
+                        </tr>
+                      );
+                    })}
+                    <tr className="bg-violet-50 border-t-2 border-violet-300 font-bold">
+                      <td className="px-1.5 py-1 text-violet-900" colSpan={2}>Total · {dlrPreview.days_with_dlr}/{dlrPreview.total_days_in_range} d</td>
+                      <td className="px-1 py-1 text-center">
+                        <div className="leading-tight"><p className="text-indigo-800">{dlrPreview.totals.skilled}</p><p className="text-emerald-700 font-semibold text-[9px]">{inr(dlrPreview.totals.skilled_cost)}</p></div>
+                      </td>
+                      <td className="px-1 py-1 text-center">
+                        <div className="leading-tight"><p className="text-blue-800">{dlrPreview.totals.semi_skilled}</p><p className="text-emerald-700 font-semibold text-[9px]">{inr(dlrPreview.totals.semi_skilled_cost)}</p></div>
+                      </td>
+                      <td className="px-1 py-1 text-center">
+                        <div className="leading-tight"><p className="text-amber-800">{dlrPreview.totals.unskilled}</p><p className="text-emerald-700 font-semibold text-[9px]">{inr(dlrPreview.totals.unskilled_cost)}</p></div>
+                      </td>
+                      <td className="px-1 py-1 text-center text-gray-900">{dlrPreview.totals.total_workers}</td>
+                      <td className="px-1 py-1 text-right text-emerald-800">{inr(dlrPreview.totals.total_cost)}</td>
+                    </tr>
+                    <tr className="bg-emerald-50 border-t border-emerald-200">
+                      <td colSpan={6} className="px-1.5 py-1.5 text-right font-bold text-emerald-900 uppercase tracking-wider text-[10px]">Grand Total</td>
+                      <td className="px-1 py-1.5 text-right font-extrabold text-emerald-800 text-[12px]">{inr(dlrPreview.totals.total_cost)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {/* Variance vs the RAB amount — gives PM / vendor an at-a-glance
+                comparison of authorised payment vs DLR-implied cost. */}
+            {(() => {
+              const dlr = Math.round(dlrPreview.totals.total_cost || 0);
+              const reqAmt = Math.round(isApproved ? (rab.approved_amount || 0) : (rab.requested_amount || 0));
+              const diff = reqAmt - dlr;
+              if (!dlr && !reqAmt) return null;
+              const palette = diff > 0
+                ? { wrap: 'border-amber-200 bg-amber-50/60', title: 'text-amber-800', sub: 'text-amber-700' }
+                : diff < 0
+                ? { wrap: 'border-sky-200 bg-sky-50/60', title: 'text-sky-800', sub: 'text-sky-700' }
+                : { wrap: 'border-emerald-200 bg-emerald-50/60', title: 'text-emerald-800', sub: 'text-emerald-700' };
+              return (
+                <div className={`rounded-lg border p-2 ${palette.wrap}`} data-testid={`rab-${rab.rab_number}-dlr-variance`}>
+                  <div className="grid grid-cols-3 gap-2 text-[10px]">
+                    <div>
+                      <p className="text-gray-500 uppercase tracking-wider font-semibold">{isApproved ? 'Released' : 'Requested'}</p>
+                      <p className="font-bold text-gray-900 text-sm">{inr(reqAmt)}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500 uppercase tracking-wider font-semibold">DLR Total</p>
+                      <p className="font-bold text-emerald-700 text-sm">{inr(dlr)}</p>
+                    </div>
+                    <div>
+                      <p className={`uppercase tracking-wider font-semibold ${palette.title}`}>
+                        {diff > 0 ? '↑ Excess' : diff < 0 ? '↓ Short' : '= Match'}
+                      </p>
+                      <p className={`font-bold text-sm ${palette.title}`}>{inr(Math.abs(diff))}</p>
+                    </div>
+                  </div>
+                  {rab.excess_dlr_reason && (
+                    <p className={`text-[10px] mt-2 ${palette.sub} italic`}>
+                      <span className="font-semibold not-italic">Reason:</span> {rab.excess_dlr_reason}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
         )}
       </TabsContent>
 

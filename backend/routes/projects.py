@@ -8150,6 +8150,12 @@ async def wo_rab_chain(project_id: str, work_order_id: str, user: User = Depends
             "rejected_by_name": r.get("rejected_by_name"),
             "rejected_at": r.get("rejected_at"),
             "se_exceeds_balance": r.get("se_exceeds_balance", False),
+            # New fields for the DLR Report tab & RAB PDF — surface the
+            # billing window and any commentary the SE attached when the
+            # request was raised.
+            "from_date": r.get("from_date"),
+            "to_date": r.get("to_date"),
+            "excess_dlr_reason": r.get("excess_dlr_reason"),
             "timeline": [
                 {"role": "Site Engineer", "name": r.get("requested_by_name"), "at": r.get("requested_at"), "notes": r.get("notes") or ""},
                 {"role": "PM",            "name": r.get("pm_approved_by_name"), "at": r.get("pm_approved_at"), "notes": r.get("pm_notes") or ""},
@@ -8293,6 +8299,64 @@ async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, user:
         pdf.set_font("Helvetica", "I", 8)
         pdf.multi_cell(0, 5, f"Notes: {target.get('notes')}")
     pdf.ln(3)
+
+    # Billing window + DLR rollup section. Mirrors the on-screen RAB popup
+    # so the printed bill carries the same audit context (DLR cost, RAB
+    # amount, variance and the SE-entered excess reason if any).
+    from_d = target.get("from_date")
+    to_d = target.get("to_date")
+    if from_d or to_d:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 6, "Billing Window & DLR", ln=1)
+        pdf.set_font("Helvetica", "", 9)
+        pdf.cell(50, 6, "From Date", border=1)
+        pdf.cell(50, 6, _fmt_dt(from_d) if from_d else "-", border=1)
+        pdf.cell(50, 6, "To Date", border=1)
+        pdf.cell(45, 6, _fmt_dt(to_d) if to_d else "-", border=1, ln=1)
+
+        # Roll the DLRs up server-side so the PDF doesn't depend on the
+        # frontend having fetched them. Same filter as /dlrs-for-rab.
+        dlr_total = 0.0
+        try:
+            if from_d and to_d:
+                dlr_cursor = db.daily_labour_reports.find({
+                    "project_id": project_id,
+                    "date": {"$gte": from_d, "$lte": to_d},
+                    "$or": [
+                        {"work_order_id": work_order_id},
+                        {"work_order_id": None},
+                        {"work_order_id": {"$exists": False}},
+                    ],
+                }, {"_id": 0, "total_cost": 1, "entries": 1})
+                async for d in dlr_cursor:
+                    stored = float(d.get("total_cost") or 0)
+                    if stored:
+                        dlr_total += stored
+                    else:
+                        for e in (d.get("entries") or []):
+                            dlr_total += int(e.get("count") or 0) * float(e.get("rate") or 0)
+        except Exception as e:
+            logger.error(f"PDF DLR rollup failed: {e}")
+            dlr_total = 0.0
+
+        released_amt = float(target.get("approved_amount") or target.get("amount") or 0)
+        variance = released_amt - dlr_total
+        pdf.cell(50, 6, "Released / Requested", border=1)
+        pdf.cell(50, 6, _fmt_inr(released_amt), border=1)
+        pdf.cell(50, 6, "DLR Total", border=1)
+        pdf.cell(45, 6, _fmt_inr(dlr_total), border=1, ln=1)
+
+        label = "Excess (over DLR)" if variance > 0 else ("Short of DLR" if variance < 0 else "Match")
+        pdf.cell(50, 6, label, border=1)
+        pdf.cell(145, 6, _fmt_inr(abs(variance)), border=1, ln=1)
+
+        excess_reason = (target.get("excess_dlr_reason") or "").strip()
+        if excess_reason:
+            pdf.set_font("Helvetica", "B", 9)
+            pdf.cell(0, 6, "Excess / Variance Reason:", ln=1)
+            pdf.set_font("Helvetica", "I", 9)
+            pdf.multi_cell(0, 5, excess_reason)
+        pdf.ln(3)
 
     # Approval trail
     pdf.set_font("Helvetica", "B", 10)
