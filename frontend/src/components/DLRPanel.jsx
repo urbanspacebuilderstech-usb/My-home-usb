@@ -92,6 +92,10 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
             is_section_header: false,
           }));
           if (stages.length > 0) { setProjectStages(stages); return; }
+          // Contractor has NO open stages — leave empty so the picker tells
+          // the SE to ask Planning to unlock one. No project-level fallback.
+          setProjectStages([]);
+          return;
         }
         const res = await axios.get(`${API}/projects/${projectId}/project-stages`);
         setProjectStages(Array.isArray(res.data) ? res.data : []);

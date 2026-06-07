@@ -1720,16 +1720,33 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
     /* eslint-disable-next-line */
   }, [open, workOrder?.work_order_id]);
 
-  // Fetch project stages whenever dialog opens
+  // Fetch the WO's payment-schedule stages and filter to ONLY currently-open
+  // stages — keeps the dropdown scoped to this contractor's actionable work.
+  // Falls back to project-level stages only if the WO endpoint can't supply
+  // any open stage so the picker is never silently empty.
   useEffect(() => {
     if (!open || !projectId) return;
     (async () => {
       try {
+        if (workOrder?.work_order_id) {
+          const wr = await axios.get(`${API}/projects/${projectId}/work-orders/${workOrder.work_order_id}`);
+          const stages = (wr.data?.stages || []).filter(s => s.is_open === true).map((s, idx) => ({
+            stage_id: s.stage_id,
+            stage_name: s.name || s.stage_name || `Stage ${idx + 1}`,
+            sl_no: s.sl_no || `S${idx + 1}`,
+            is_section_header: false,
+          }));
+          if (stages.length > 0) { setProjectStages(stages); return; }
+          // Contractor has NO open stages — leave list empty so the picker
+          // tells the user to ask Planning to unlock one (no project-level fallback).
+          setProjectStages([]);
+          return;
+        }
         const res = await axios.get(`${API}/projects/${projectId}/project-stages`);
         setProjectStages(Array.isArray(res.data) ? res.data : []);
       } catch { setProjectStages([]); }
     })();
-  }, [open, projectId]);
+  }, [open, projectId, workOrder?.work_order_id]);
 
   const calcRow = (r) => (Number(r.count) || 0) * (Number(r.day_value) || 1) * (Number(r.rate_per_day) || 0);
   const totalWorkers = rows.reduce((s, r) => s + (Number(r.count) || 0), 0);
@@ -1837,10 +1854,10 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
           <div className="border-t pt-3 mt-1 space-y-3 bg-teal-50/30 -mx-6 px-6 py-3">
             <p className="text-[11px] font-semibold text-teal-700 uppercase tracking-wide">Daily Progress Report (DPR)</p>
             <div>
-              <Label className="text-xs">Current Project Stage <span className="text-red-500">*</span></Label>
+              <Label className="text-xs">Current Project Stage <span className="text-red-500">*</span><span className="text-[10px] font-normal text-gray-500 ml-1">(open stages only)</span></Label>
               <Select value={stageId} onValueChange={setStageId}>
                 <SelectTrigger className="mt-1 h-9 text-xs" data-testid="wov2-dlr-form-stage">
-                  <SelectValue placeholder={projectStages.length ? "Select current stage..." : "No stages configured for this project"} />
+                  <SelectValue placeholder={projectStages.length ? "Select an open stage..." : "No open stages for this contractor — ask Planning to unlock one"} />
                 </SelectTrigger>
                 <SelectContent>
                   {projectStages
