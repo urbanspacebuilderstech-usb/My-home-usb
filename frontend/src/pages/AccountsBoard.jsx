@@ -1728,13 +1728,24 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
   }
   if (drilldown?.type === 'category') {
     const allowAcctActions = userRole === 'accountant' || userRole === 'super_admin';
+    // Income drilldown (Overall Income card) renders with green styling and
+    // calls the income deletion handler so the same DrilldownView component
+    // is reused for both income & expense rows.
+    const isIncome = drilldown.category === 'overall_income';
     return <DrilldownView
-      title={`${drilldown.label} Expenses`}
+      title={isIncome ? `${drilldown.label} (${drilldown.entries.length})` : `${drilldown.label} (${drilldown.entries.length})`}
       entries={drilldown.entries}
-      type="expense"
+      type={isIncome ? 'income' : 'expense'}
       onBack={() => setDrilldown(null)}
       canDelete={allowAcctActions}
-      onDelete={(e) => { handleDeleteExpense(e); setDrilldown(null); }}
+      onDelete={(e) => {
+        if (isIncome) {
+          handleDeleteIncome(e);
+        } else {
+          handleDeleteExpense(e);
+        }
+        setDrilldown(null);
+      }}
     />;
   }
   if (drilldown?.type === 'mode') {
@@ -1841,9 +1852,19 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
     <div className="space-y-4" data-testid="cashbook-tab">
       {!expenseOnly && (
       <>
-      {/* Top KPI cards: Overall Income / Expense / Balance / Profit */}
+      {/* Top KPI cards: Overall Income / Expense / Balance / Profit
+          Each card is clickable — opens an itemised drilldown showing
+          every contributing row. The Expense card is especially important
+          because the headline number includes the hidden "Other" category
+          rows (e.g. uncategorised manual expenses) that aren't visible on
+          the Direct Expense tab below. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="kpi-cards">
-        <Card className="border-l-4 border-l-green-500 bg-gradient-to-br from-green-50 to-white">
+        <Card
+          className="border-l-4 border-l-green-500 bg-gradient-to-br from-green-50 to-white cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => setDrilldown({ type: 'category', category: 'overall_income', entries: incomeEntries, label: 'Overall Income' })}
+          data-testid="kpi-card-income"
+          title="Click to see all income entries"
+        >
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -1858,7 +1879,12 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-red-500 bg-gradient-to-br from-red-50 to-white">
+        <Card
+          className="border-l-4 border-l-red-500 bg-gradient-to-br from-red-50 to-white cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => setDrilldown({ type: 'category', category: 'overall_expense', entries: allExpenseEntries, label: 'All Expense' })}
+          data-testid="kpi-card-expense"
+          title="Click to see all expense entries (includes Other / uncategorised)"
+        >
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -1877,7 +1903,12 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
           const bal = (totals.total_income || 0) - (totals.total_expense || 0);
           const isPos = bal >= 0;
           return (
-            <Card className={`border-l-4 ${isPos ? 'border-l-blue-500 bg-gradient-to-br from-blue-50 to-white' : 'border-l-orange-500 bg-gradient-to-br from-orange-50 to-white'}`}>
+            <Card
+              className={`border-l-4 ${isPos ? 'border-l-blue-500 bg-gradient-to-br from-blue-50 to-white' : 'border-l-orange-500 bg-gradient-to-br from-orange-50 to-white'} cursor-pointer hover:shadow-md transition-shadow`}
+              onClick={() => setDrilldown({ type: 'category', category: 'overall_expense', entries: allExpenseEntries, label: 'All Expense (Balance contribution)' })}
+              data-testid="kpi-card-balance"
+              title="Click to see expense rows driving the balance"
+            >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1901,7 +1932,12 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
           const profit = lifetimeIncome - lifetimeExpense;
           const isPos = profit >= 0;
           return (
-            <Card className={`border-l-4 ${isPos ? 'border-l-emerald-500 bg-gradient-to-br from-emerald-50 to-white' : 'border-l-rose-500 bg-gradient-to-br from-rose-50 to-white'}`}>
+            <Card
+              className={`border-l-4 ${isPos ? 'border-l-emerald-500 bg-gradient-to-br from-emerald-50 to-white' : 'border-l-rose-500 bg-gradient-to-br from-rose-50 to-white'} cursor-pointer hover:shadow-md transition-shadow`}
+              onClick={() => setDrilldown({ type: 'category', category: 'overall_expense', entries: allExpenseEntries, label: 'All Expense (Profit contribution)' })}
+              data-testid="kpi-card-profit"
+              title="Click to see all expense rows"
+            >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
