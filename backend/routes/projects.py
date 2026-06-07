@@ -7981,7 +7981,14 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
             pending = sum(pr.get("amount", 0) for pr in stage["payment_requests"] if pr.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
             stage_total = stage.get("amount", 0)
             balance = stage_total - released - pending
-            # Note: SE may request more than current stage balance; Planning can approve and overflow will deduct from next stage.
+            # Hard cap: SE can raise multiple RABs but the sum across all
+            # of them must never exceed the stage total. Any prior overflow
+            # behaviour is now explicitly disallowed at the source.
+            if request_amount > balance + 0.01:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Amount ₹{request_amount:,.0f} exceeds remaining stage balance ₹{balance:,.0f} (Total ₹{stage_total:,.0f})."
+                )
             
             # RAB (Running Account Bill) number: increments per Work Order so
             # contractor can be served a single PDF per request. Counts ALL
@@ -8011,6 +8018,11 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
                 # to_date is always SE-chosen. Both are YYYY-MM-DD strings.
                 "from_date": data.get("from_date") or None,
                 "to_date": data.get("to_date") or None,
+                # Optional commentary when the SE-entered amount differs from
+                # the summed DLR cost in the same billing window — purely
+                # informational (no validation), surfaced for PM/Planning when
+                # reviewing the RAB.
+                "excess_dlr_reason": (data.get("excess_dlr_reason") or "").strip() or None,
                 "se_exceeds_balance": request_amount > balance + 0.01,
                 "se_balance_at_request": balance,
             }
@@ -8934,13 +8946,24 @@ async def se_resubmit_labour_payment(project_id: str, work_order_id: str, stage_
                 amt = float(new_amount)
                 if amt <= 0:
                     raise HTTPException(status_code=400, detail="Amount must be positive")
+                # Same stage-balance cap as the initial request. Excludes the
+                # row being resubmitted from the pending tally.
+                released = sum(p.get("approved_amount", 0) for p in (_st.get("payment_requests") or []) if p.get("status") == "approved")
+                pending = sum(p.get("amount", 0) for p in (_st.get("payment_requests") or []) if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"] and p.get("request_id") != pr.get("request_id"))
+                cap = (_st.get("amount", 0) or 0) - released - pending
+                if amt > cap + 0.01:
+                    raise HTTPException(status_code=400, detail=f"Amount ₹{amt:,.0f} exceeds remaining stage balance ₹{cap:,.0f}.")
                 pr["amount"] = amt
+            except HTTPException:
+                raise
             except (ValueError, TypeError):
                 raise HTTPException(status_code=400, detail="Amount must be a number")
         if new_notes is not None:
             pr["notes"] = new_notes
         if new_dlr is not None:
             pr["dlr_summary"] = new_dlr
+        if data.get("excess_dlr_reason") is not None:
+            pr["excess_dlr_reason"] = (data.get("excess_dlr_reason") or "").strip() or None
         # Resubmit can also update the RAB billing window (from/to date) — SE
         # may have picked a wider window after re-running the DLR summary.
         if data.get("from_date") is not None:

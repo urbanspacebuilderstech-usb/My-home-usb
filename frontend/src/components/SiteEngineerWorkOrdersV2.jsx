@@ -673,6 +673,9 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   const [toDate, setToDate] = useState('');
   const [dlrPreview, setDlrPreview] = useState(null); // { rows, totals, ... }
   const [dlrLoading, setDlrLoading] = useState(false);
+  // Optional commentary when the RAB amount differs from the summed DLR cost.
+  // Reference-only — never validated, never required.
+  const [excessReason, setExcessReason] = useState('');
   // RAB detail popup — opens when SE clicks "View" on a Payment Summary row.
   const [rabView, setRabView] = useState({ open: false, requestId: null });
 
@@ -724,6 +727,7 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
       if (rework) {
         setFromDate(toISODate(rework.from_date) || toISODate(stage.opened_at));
         setToDate(toISODate(rework.to_date));
+        setExcessReason(rework.excess_dlr_reason || '');
       } else {
         const priorWithTo = (stage.payment_requests || [])
           .filter(p => p.to_date)
@@ -734,6 +738,7 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
           setFromDate(toISODate(stage.opened_at));
         }
         setToDate('');
+        setExcessReason('');
       }
       setDlrPreview(null);
     }
@@ -775,6 +780,14 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
     if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return; }
     if (!stage.is_open) { toast.error('Stage is not yet opened by Planning'); return; }
     if (fromDate && toDate && fromDate > toDate) { toast.error('From Date must be before To Date'); return; }
+    // Hard cap: SE may raise multiple RABs but the total across them can
+    // never exceed the stage amount. The cap excludes the current rework
+    // row from the pending tally so resubmits are still allowed up to cap.
+    const capCeiling = reworkPR ? (balance + (reworkPR.amount || 0)) : balance;
+    if (amt > capCeiling + 0.01) {
+      toast.error(`Amount ${fmt(amt)} exceeds remaining stage balance ${fmt(capCeiling)} (Total ${fmt(stage.amount || 0)})`);
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = {
@@ -782,6 +795,7 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
         notes,
         from_date: fromDate || null,
         to_date: toDate || null,
+        excess_dlr_reason: excessReason || null,
       };
       if (reworkPR) {
         // Resubmit the existing rejected RAB rather than create a new one
@@ -988,6 +1002,7 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
               <Input
                 type="number"
                 min="1"
+                max={reworkPR ? (balance + (reworkPR.amount || 0)) : balance}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="e.g. 25000"
@@ -995,7 +1010,14 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                 className="mt-1"
                 data-testid="wov2-rab-amount"
               />
-              <p className="text-[10px] text-gray-500 mt-0.5">Stage balance: {fmt(balance)} · Total: {fmt(stage.amount || 0)}</p>
+              <p className="text-[10px] text-gray-500 mt-0.5">
+                Stage balance: <span className={parseFloat(amount || 0) > (reworkPR ? balance + (reworkPR.amount || 0) : balance) + 0.01 ? 'text-red-600 font-bold' : 'text-gray-700 font-semibold'}>{fmt(reworkPR ? balance + (reworkPR.amount || 0) : balance)}</span> · Total: {fmt(stage.amount || 0)}
+              </p>
+              {parseFloat(amount || 0) > (reworkPR ? balance + (reworkPR.amount || 0) : balance) + 0.01 && (
+                <p className="text-[10px] text-red-600 mt-0.5 font-medium" data-testid="wov2-cap-warn">
+                  ⚠ Cannot exceed remaining stage balance. Sum of all RABs must stay within stage total.
+                </p>
+              )}
             </div>
 
             {/* Billing window — From auto-fills (stage opened / next-day after
@@ -1173,6 +1195,48 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                 )}
               </div>
             )}
+
+            {/* DLR variance banner — purely informational. Shown when the
+                RAB amount drifts from the DLR roll-up in the same window.
+                Surfaces an optional "reason" textarea so the SE can leave a
+                quick note for PM (e.g. "weekend overtime", "material
+                advance", etc.) but never blocks submit. */}
+            {dlrPreview && parseFloat(amount || 0) > 0 && Math.round((dlrPreview.totals.total_cost || 0)) !== Math.round(parseFloat(amount || 0)) && (() => {
+              const dlrCost = Math.round(dlrPreview.totals.total_cost || 0);
+              const reqAmt = Math.round(parseFloat(amount || 0));
+              const diff = reqAmt - dlrCost;
+              const isExcess = diff > 0;
+              // Static class strings so Tailwind's JIT keeps them in the build.
+              const palette = isExcess
+                ? { wrap: 'bg-amber-50/60 border-amber-200', title: 'text-amber-800', sub: 'text-amber-700' }
+                : { wrap: 'bg-sky-50/60 border-sky-200', title: 'text-sky-800', sub: 'text-sky-700' };
+              return (
+                <div className={`rounded-lg border p-2 ${palette.wrap}`} data-testid="wov2-dlr-variance">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className={`text-[11px] font-bold ${palette.title} flex items-center gap-1`}>
+                        {isExcess ? '↑' : '↓'} {isExcess ? 'Excess DLR' : 'Short of DLR'}: {fmt(Math.abs(diff))}
+                      </p>
+                      <p className={`text-[10px] ${palette.sub} mt-0.5`}>
+                        Request {fmt(reqAmt)} {isExcess ? '>' : '<'} DLR roll-up {fmt(dlrCost)}
+                      </p>
+                    </div>
+                  </div>
+                  <Label className="text-[10px] font-semibold text-gray-600 mt-1.5 block">
+                    Reason <span className="font-normal text-gray-400">(optional · reference only)</span>
+                  </Label>
+                  <Textarea
+                    rows={2}
+                    value={excessReason}
+                    onChange={(e) => setExcessReason(e.target.value)}
+                    placeholder={isExcess ? 'e.g. Sunday overtime, material advance' : 'e.g. Workers absent · partial day'}
+                    disabled={submitting}
+                    className="text-xs mt-1"
+                    data-testid="wov2-excess-reason"
+                  />
+                </div>
+              );
+            })()}
 
             <div>
               <Label className="text-xs font-semibold">Notes (optional)</Label>
