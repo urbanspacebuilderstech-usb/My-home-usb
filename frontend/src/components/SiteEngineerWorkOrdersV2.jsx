@@ -85,6 +85,9 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
   const [workOrders, setWorkOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null); // selected work order
+  // Global DLR shortcut state — picker dialog open + which WO tab to land on.
+  const [globalDlrOpen, setGlobalDlrOpen] = useState(false);
+  const [initialTab, setInitialTab] = useState(null); // 'dlr' | null
 
   const fetchWOs = async () => {
     setLoading(true);
@@ -159,12 +162,26 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
 
   // ==== DETAIL VIEW ====
   if (selected) {
-    return <WorkOrderDetail wo={selected} projectId={projectId} onBack={() => setSelected(null)} onChange={fetchWOs} />;
+    return <WorkOrderDetail wo={selected} projectId={projectId} onBack={() => { setSelected(null); setInitialTab(null); }} onChange={fetchWOs} initialTab={initialTab} />;
   }
 
   // ==== LIST VIEW: grouped by contractor type ====
   return (
     <div className="space-y-4" data-testid="se-wov2-list">
+      {/* Global DLR shortcut — opens a contractor picker; clicking any
+          contractor jumps straight into that WO's detail view scrolled to
+          the DLR Report tab so the SE can record today's labour without
+          drilling through the list. */}
+      <div className="flex items-center justify-end">
+        <Button
+          size="sm"
+          onClick={() => setGlobalDlrOpen(true)}
+          className="bg-amber-600 hover:bg-amber-700 text-white gap-1"
+          data-testid="se-wov2-global-dlr-btn"
+        >
+          <ClipboardList className="h-3.5 w-3.5" /> Global DLR Report
+        </Button>
+      </div>
       {Object.entries(grouped).map(([type, list]) => (
         <Card key={type} className="overflow-hidden">
           <div className="bg-gradient-to-r from-amber-100 to-amber-50 border-b border-amber-200 px-4 py-2.5">
@@ -197,6 +214,48 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
           </div>
         </Card>
       ))}
+
+      {/* Global DLR — contractor picker dialog. Lists every assigned
+          contractor on this project; selecting one jumps straight to that
+          WO's detail screen scrolled to the DLR Report tab. */}
+      <Dialog open={globalDlrOpen} onOpenChange={setGlobalDlrOpen}>
+        <DialogContent className="max-w-md" data-testid="se-wov2-global-dlr-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <ClipboardList className="h-5 w-5 text-amber-600" /> Record DLR — Pick Contractor
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Select the contractor for whom you want to record today&apos;s Daily Labour Report.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-72 overflow-y-auto rounded border divide-y" data-testid="se-wov2-contractor-list">
+            {workOrders.length === 0 ? (
+              <p className="text-center text-xs text-gray-400 py-6">No contractors assigned to this project.</p>
+            ) : workOrders.map(c => (
+              <button
+                key={c.work_order_id}
+                type="button"
+                onClick={() => {
+                  setInitialTab('dlr');
+                  setSelected(c);
+                  setGlobalDlrOpen(false);
+                }}
+                className="w-full text-left px-3 py-2 hover:bg-amber-50/60 flex items-center justify-between gap-2"
+                data-testid={`se-wov2-contractor-pick-${c.work_order_id}`}
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{c.contractor_name}</p>
+                  <p className="text-[11px] text-gray-500">{c.contractor_type || '—'} · WO {c.work_order_number || c.work_order_id}</p>
+                </div>
+                <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700 shrink-0">Record DLR</Badge>
+              </button>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setGlobalDlrOpen(false)} data-testid="se-wov2-global-dlr-cancel">Cancel</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -204,8 +263,8 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
 // =====================================================================
 // Detail view: header + DLR button + tabs (Scope / Payment Schedule / DLR Report)
 // =====================================================================
-function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
-  const [tab, setTab] = useState('payments');
+function WorkOrderDetail({ wo, projectId, onBack, onChange, initialTab }) {
+  const [tab, setTab] = useState(initialTab || 'payments');
   const [dlrPopupOpen, setDlrPopupOpen] = useState(false);
   const [stageDialog, setStageDialog] = useState(null); // selected stage for detail dialog
   const [suspenseBalance, setSuspenseBalance] = useState(0);
