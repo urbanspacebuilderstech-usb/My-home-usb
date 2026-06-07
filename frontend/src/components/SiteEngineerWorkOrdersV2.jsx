@@ -35,6 +35,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { RABDetailDialog } from './RABDetailDialog';
+import WORABTab from './WORABTab';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
@@ -208,6 +209,8 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
   const [dlrPopupOpen, setDlrPopupOpen] = useState(false);
   const [stageDialog, setStageDialog] = useState(null); // selected stage for detail dialog
   const [suspenseBalance, setSuspenseBalance] = useState(0);
+  // RAB Bill Detail popup launched from the new "Total RAB's" tab.
+  const [rabView, setRabView] = useState({ open: false, requestId: null });
 
   useEffect(() => {
     let alive = true;
@@ -250,8 +253,9 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
 
       {/* Tabs */}
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="w-full grid grid-cols-3">
+        <TabsList className="w-full grid grid-cols-4">
           <TabsTrigger value="payments" data-testid="wov2-tab-payments">Payment Schedule Stages</TabsTrigger>
+          <TabsTrigger value="rab" data-testid="wov2-tab-rab" className="data-[state=active]:bg-violet-600 data-[state=active]:text-white">{"Total RAB's"}</TabsTrigger>
           <TabsTrigger value="scope" data-testid="wov2-tab-scope">Scope of Work</TabsTrigger>
           <TabsTrigger value="dlr" data-testid="wov2-tab-dlr">DLR Report</TabsTrigger>
         </TabsList>
@@ -318,7 +322,28 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
         <TabsContent value="dlr" className="mt-3">
           <DLRReportTab projectId={projectId} workOrderId={wo.work_order_id} />
         </TabsContent>
+
+        {/* TOTAL RAB'S TAB — same component the Super Admin sees in
+            ProjectDetail. Shows All / Released / Requested sub-tabs with the
+            full RAB ladder. Clicking the Eye opens the RAB Bill Detail popup
+            (downloadable PDF, DLR Report tab, Total RAB's drill-down). */}
+        <TabsContent value="rab" className="mt-3">
+          <WORABTab
+            projectId={projectId}
+            workOrder={wo}
+            onOpenRabView={(requestId) => setRabView({ open: true, requestId })}
+          />
+        </TabsContent>
       </Tabs>
+
+      {/* RAB Bill Detail popup (shared with the SE stage popup). */}
+      <RABDetailDialog
+        open={rabView.open}
+        onOpenChange={(v) => setRabView({ open: v, requestId: v ? rabView.requestId : null })}
+        projectId={projectId}
+        workOrderId={wo.work_order_id}
+        highlightRequestId={rabView.requestId}
+      />
 
       {/* DLR Record Popup */}
       <DLRRecordDialog
