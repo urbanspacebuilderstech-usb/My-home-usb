@@ -28,6 +28,7 @@ SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "noreply@myhomeusb.com")
 from core.database import db, fs
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
 from core.models import *
+from core.counters import next_seq
 from security import InputValidator
 from routes.correction_engine import apply_rejection, apply_resubmit, apply_send_for_correction
 
@@ -886,6 +887,7 @@ async def create_material_request(
     )
     
     req_dict = request.model_dump()
+    req_dict["request_number"] = await next_seq("material_request_global")
     req_dict["status"] = req_dict["status"].value
     # NEW FLOW: SE → Planning Person (initial approval) → Procurement → Planning (price approval) → Accountant → ...
     # Override the default `requested` so it routes to Planning first instead of Procurement.

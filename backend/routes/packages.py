@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from core.database import db
 from core.deps import get_current_user
 from core.models import User, UserRole
+from core.counters import next_seq
 
 router = APIRouter()
 
@@ -230,6 +231,7 @@ async def create_rough_estimate(data: RoughEstimateCreate, user: User = Depends(
 
     estimate = {
         "estimate_id": f"re_{uuid.uuid4().hex[:12]}",
+        "estimate_number": await next_seq("rough_estimate_global"),
         "package_id": data.package_id,
         "package_name": pkg.get("name"),
         "name": data.name,

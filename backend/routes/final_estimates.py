@@ -41,6 +41,7 @@ def _ensure_fe(project: dict) -> dict:
     return {
         "status": fe.get("status", "draft"),
         "revision": fe.get("revision", 0),
+        "fe_number": fe.get("fe_number"),
         "public_token": fe.get("public_token"),
         "sent_to_gm_at": fe.get("sent_to_gm_at"),
         "sent_to_gm_by": fe.get("sent_to_gm_by"),
@@ -116,6 +117,10 @@ async def _save_fe_for_planning_head(project_id: str, user: User) -> dict:
     fe["status"] = "pending_planning_head_review"
     fe["saved_by_planning_person_at"] = now
     fe["saved_by_planning_person"] = user.user_id
+    # First-time submission to Planning Head allocates the FE number.
+    if not fe.get("fe_number"):
+        from core.counters import next_seq
+        fe["fe_number"] = await next_seq("final_estimate_global")
     # Bump revision when re-saving after a Planning Head rejection
     if any((r.get("revision") == fe["revision"]) for r in (fe.get("planning_head_rejections") or [])):
         fe["revision"] = (fe.get("revision") or 0) + 1

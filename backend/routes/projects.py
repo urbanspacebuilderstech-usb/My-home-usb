@@ -18,11 +18,11 @@ import random
 import hashlib
 import resend
 from bson import ObjectId
-from pymongo import ReturnDocument
 
 from core.database import db, fs
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
 from core.models import *
+from core.counters import next_seq, backfill_collection
 from security import InputValidator
 
 # Resend (transactional email) — initialised at module load so all email-OTP
@@ -35,74 +35,112 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# ---------------- Work Order Number Counter ----------------
-# Globally-running counter producing `USB-W00001`, `USB-W00002`, ...
-# Each newly-created project work order gets the next sequential number
-# atomically; race-free thanks to MongoDB's $inc upsert pattern.
+# ---------------- Sequential ID assignment ----------------
+# Globally-running counters: WO → `USB-W#####`, Project → `USB-P#####`,
+# FE → `USB-FE####`, RE → `USB-RE####`, Material Request → `USB-MR###`.
+# Implementation lives in `core.counters` (race-safe via Mongo $inc upsert).
 
 async def _next_work_order_number() -> str:
-    res = await db.counters.find_one_and_update(
-        {"_id": "project_work_order_global"},
-        {"$inc": {"seq": 1}},
-        upsert=True,
-        return_document=ReturnDocument.AFTER,
-    )
-    seq = (res or {}).get("seq") or 1
-    return f"USB-W{int(seq):05d}"
-
-
-async def _backfill_work_order_numbers():
-    """One-time backfill: every existing project work order missing
-    `work_order_number` gets one, ordered by created_at (oldest first). The
-    counter is then bumped past the last assigned value so new WOs continue
-    from there. Idempotent — safe to call repeatedly.
-    """
-    try:
-        cursor = db.project_work_orders.find(
-            {"$or": [{"work_order_number": {"$exists": False}}, {"work_order_number": ""}, {"work_order_number": None}]},
-            {"_id": 0, "work_order_id": 1, "created_at": 1},
-        ).sort("created_at", 1)
-        missing = await cursor.to_list(10000)
-        if not missing:
-            return
-        # Highest seq already used elsewhere (so backfill never overlaps)
-        existing_max = 0
-        async for d in db.project_work_orders.find(
-            {"work_order_number": {"$regex": "^USB-W[0-9]+$"}},
-            {"_id": 0, "work_order_number": 1},
-        ):
-            try:
-                n = int((d.get("work_order_number") or "USB-W0")[5:])
-                if n > existing_max:
-                    existing_max = n
-            except Exception:
-                pass
-        ctr = await db.counters.find_one({"_id": "project_work_order_global"}, {"_id": 0, "seq": 1}) or {}
-        start = max(existing_max, int(ctr.get("seq", 0) or 0))
-        for wo in missing:
-            start += 1
-            await db.project_work_orders.update_one(
-                {"work_order_id": wo["work_order_id"]},
-                {"$set": {"work_order_number": f"USB-W{start:05d}"}},
-            )
-        await db.counters.update_one(
-            {"_id": "project_work_order_global"},
-            {"$set": {"seq": start}},
-            upsert=True,
-        )
-        logger.info(f"Backfilled {len(missing)} work_order_number values (last seq={start}).")
-    except Exception as e:
-        logger.warning(f"Work order number backfill skipped: {e}")
+    return await next_seq("project_work_order_global")
 
 
 @router.post("/admin/work-orders/backfill-numbers")
 async def admin_backfill_work_order_numbers(user: User = Depends(get_current_user)):
-    """Manual trigger for the backfill (idempotent). Restricted to Super Admin."""
+    """Manual trigger to backfill `work_order_number` for legacy rows. Idempotent."""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin only")
-    await _backfill_work_order_numbers()
-    ctr = await db.counters.find_one({"_id": "project_work_order_global"}, {"_id": 0, "seq": 1}) or {}
-    return {"ok": True, "current_seq": int(ctr.get("seq", 0) or 0)}
+    n, seq = await backfill_collection(
+        counter_key="project_work_order_global",
+        collection=db.project_work_orders,
+        number_field="work_order_number",
+    )
+    return {"ok": True, "backfilled": n, "current_seq": seq}
+
+
+@router.post("/admin/projects/backfill-numbers")
+async def admin_backfill_project_numbers(user: User = Depends(get_current_user)):
+    """Manual trigger to backfill `project_number` (USB-P#####). Idempotent."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin only")
+    n, seq = await backfill_collection(
+        counter_key="project_global",
+        collection=db.projects,
+        number_field="project_number",
+    )
+    return {"ok": True, "backfilled": n, "current_seq": seq}
+
+
+@router.post("/admin/final-estimates/backfill-numbers")
+async def admin_backfill_fe_numbers(user: User = Depends(get_current_user)):
+    """Backfill `fe.fe_number` (USB-FE####) for every project that has a saved
+    Final Estimate. Idempotent.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin only")
+    from core.counters import COUNTER_FORMATS
+    prefix, width = COUNTER_FORMATS["final_estimate_global"]
+    cursor = db.projects.find(
+        {
+            "fe": {"$exists": True},
+            "fe.status": {"$nin": ["draft", None]},
+            "$or": [
+                {"fe.fe_number": {"$exists": False}},
+                {"fe.fe_number": ""},
+                {"fe.fe_number": None},
+            ],
+        },
+        {"_id": 1, "fe.fe_number": 1, "fe.saved_by_planning_person_at": 1, "created_at": 1},
+    ).sort([("fe.saved_by_planning_person_at", 1), ("created_at", 1)])
+    missing = await cursor.to_list(20000)
+    existing_max = 0
+    async for d in db.projects.find(
+        {"fe.fe_number": {"$regex": f"^{prefix}[0-9]+$"}},
+        {"_id": 0, "fe.fe_number": 1},
+    ):
+        try:
+            n = int(((d.get("fe") or {}).get("fe_number") or f"{prefix}0")[len(prefix):])
+            if n > existing_max:
+                existing_max = n
+        except Exception:
+            pass
+    ctr = await db.counters.find_one({"_id": "final_estimate_global"}, {"_id": 0, "seq": 1}) or {}
+    start = max(existing_max, int(ctr.get("seq", 0) or 0))
+    for doc in missing:
+        start += 1
+        await db.projects.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"fe.fe_number": f"{prefix}{start:0{width}d}"}},
+        )
+    await db.counters.update_one(
+        {"_id": "final_estimate_global"},
+        {"$set": {"seq": start}},
+        upsert=True,
+    )
+    return {"ok": True, "backfilled": len(missing), "current_seq": start}
+
+
+@router.post("/admin/rough-estimates/backfill-numbers")
+async def admin_backfill_re_numbers(user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin only")
+    n, seq = await backfill_collection(
+        counter_key="rough_estimate_global",
+        collection=db.rough_estimates,
+        number_field="estimate_number",
+    )
+    return {"ok": True, "backfilled": n, "current_seq": seq}
+
+
+@router.post("/admin/material-requests/backfill-numbers")
+async def admin_backfill_mr_numbers(user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin only")
+    n, seq = await backfill_collection(
+        counter_key="material_request_global",
+        collection=db.material_requests,
+        number_field="request_number",
+    )
+    return {"ok": True, "backfilled": n, "current_seq": seq}
 
 
 
@@ -357,6 +395,7 @@ async def create_project(project: Project, user: User = Depends(get_current_user
         raise HTTPException(status_code=403, detail="Permission denied")
     
     project_dict = project.model_dump()
+    project_dict["project_number"] = await next_seq("project_global")
     project_dict["start_date"] = project_dict["start_date"].isoformat()
     project_dict["expected_completion"] = project_dict["expected_completion"].isoformat()
     project_dict["created_at"] = project_dict["created_at"].isoformat()
@@ -364,7 +403,10 @@ async def create_project(project: Project, user: User = Depends(get_current_user
     await db.projects.insert_one(project_dict)
     
     await create_audit_log(user.user_id, "create", "project", project.project_id, {"project_name": project.name})
-    return project
+    # Echo the assigned project_number back to the client so the UI can immediately show it.
+    project_response = project.model_dump()
+    project_response["project_number"] = project_dict["project_number"]
+    return project_response
 
 
 @router.get("/projects/{project_id}")

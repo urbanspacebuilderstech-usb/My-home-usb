@@ -273,7 +273,12 @@ export default function PackageManagement() {
                           <div className="flex justify-between items-start">
                             <div>
                               <CardTitle className="text-base">{est.name}</CardTitle>
-                              <Badge variant="outline" className="mt-1">{est.floor_config}</Badge>
+                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                <Badge variant="outline">{est.floor_config}</Badge>
+                                {est.estimate_number && (
+                                  <Badge variant="outline" className="text-[10px] font-mono border-violet-300 text-violet-700 bg-violet-50" data-testid={`re-num-${est.estimate_id}`}>{est.estimate_number}</Badge>
+                                )}
+                              </div>
                             </div>
                             <div className="flex gap-1">
                               <Button size="sm" variant="ghost" onClick={() => openEditEstimate(est)} data-testid={`edit-est-${est.estimate_id}`}><Edit className="h-4 w-4" /></Button>

@@ -3990,7 +3990,14 @@ export default function ProjectDetail() {
         {showTotal && (
           <div className="mb-3 rounded-lg border-2 border-amber-200 bg-gradient-to-br from-amber-50/70 to-white p-3 sm:p-4" data-testid="fe-grand-total-card">
             <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Total Final Estimate Cost</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 flex items-center gap-2">
+                Total Final Estimate Cost
+                {project?.fe?.fe_number && (
+                  <Badge variant="outline" className="text-[10px] font-mono border-amber-400 text-amber-800 bg-white" data-testid="fe-number-badge">
+                    {project.fe.fe_number}
+                  </Badge>
+                )}
+              </div>
               {!isClientApproved && rawFeTotal > 0 && (
                 <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 text-[10px] font-medium" data-testid="fe-pending-client-pill">
                   Pending Client Approval
@@ -4203,6 +4210,11 @@ export default function ProjectDetail() {
                     <h2 data-testid="project-detail-title" className="text-xl sm:text-3xl font-bold text-gray-900 truncate">
                       {project.name}
                     </h2>
+                    {project.project_number && (
+                      <Badge variant="outline" className="text-[11px] font-mono border-violet-300 text-violet-700 bg-violet-50" data-testid="project-number-badge">
+                        {project.project_number}
+                      </Badge>
+                    )}
                     {project.is_critical && (
                       <Badge className="bg-red-600 text-white hover:bg-red-700 gap-1" data-testid="critical-badge">
                         <span className="block h-1.5 w-1.5 rounded-full bg-white" />

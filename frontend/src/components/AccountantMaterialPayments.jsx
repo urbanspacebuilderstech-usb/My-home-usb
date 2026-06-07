@@ -84,6 +84,9 @@ export default function AccountantMaterialPayments({ onRefresh }) {
                       {phase} payment
                     </Badge>
                     <Badge variant="outline" className="text-[10px] capitalize">{(req.payment_mode || '').replace(/_/g, ' ')}</Badge>
+                    {req.request_number && (
+                      <Badge variant="outline" className="text-[10px] font-mono border-violet-300 text-violet-700 bg-violet-50">{req.request_number}</Badge>
+                    )}
                     {req.order_id && <span className="text-[10px] text-gray-400 font-mono">#{req.order_id}</span>}
                   </div>
                   <span className="text-base font-bold text-emerald-700">{fmt(req.remaining_balance > 0 ? req.remaining_balance : due)}</span>
