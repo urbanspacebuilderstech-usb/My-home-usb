@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { toast } from 'sonner';
 import {
   Hammer,
@@ -10,6 +13,9 @@ import {
   CheckCircle2,
   Loader2,
   Workflow as WorkflowIcon,
+  ShieldCheck,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -34,6 +40,11 @@ export default function WorkflowsSubTab() {
   const [mode, setMode] = useState('planning_open');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Password gate — clicking a flow card opens this dialog. The PATCH only
+  // fires after the user re-enters their password (verified server-side).
+  const [pwdGate, setPwdGate] = useState({ open: false, target: null });
+  const [password, setPassword] = useState('');
+  const [showPwd, setShowPwd] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -48,12 +59,27 @@ export default function WorkflowsSubTab() {
     })();
   }, []);
 
-  const save = async (newMode) => {
+  // Click handler on a flow card — instead of saving immediately, open the
+  // password confirmation dialog. Skips when the card is already active.
+  const requestChange = (target) => {
+    if (target === mode) return;
+    setPassword('');
+    setShowPwd(false);
+    setPwdGate({ open: true, target });
+  };
+
+  const confirmAndSave = async () => {
+    if (!password.trim()) { toast.error('Enter your password to confirm'); return; }
     setSaving(true);
     try {
-      await axios.patch(`${API}/settings/workflow`, { wo_stage_flow: newMode });
-      setMode(newMode);
-      toast.success(`Work Order Stage Flow set to ${newMode === 'se_request' ? 'Site Engineer Requests' : 'Planning Opens Directly'}`);
+      await axios.patch(`${API}/settings/workflow`, {
+        wo_stage_flow: pwdGate.target,
+        password: password,
+      });
+      setMode(pwdGate.target);
+      toast.success(`Work Order Stage Flow set to ${pwdGate.target === 'se_request' ? 'Site Engineer Requests' : 'Planning Opens Directly'}`);
+      setPwdGate({ open: false, target: null });
+      setPassword('');
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Failed to save');
     } finally { setSaving(false); }
@@ -83,7 +109,7 @@ export default function WorkflowsSubTab() {
         <FlowCard
           active={mode === 'se_request'}
           disabled={saving}
-          onClick={() => save('se_request')}
+          onClick={() => requestChange('se_request')}
           icon={<SendHorizontal className="h-5 w-5 text-amber-700" />}
           tone="amber"
           title="Site Engineer Requests"
@@ -95,7 +121,7 @@ export default function WorkflowsSubTab() {
         <FlowCard
           active={mode === 'planning_open'}
           disabled={saving}
-          onClick={() => save('planning_open')}
+          onClick={() => requestChange('planning_open')}
           icon={<Hammer className="h-5 w-5 text-emerald-700" />}
           tone="emerald"
           title="Planning Opens Directly"
@@ -117,6 +143,70 @@ export default function WorkflowsSubTab() {
             : 'Site Engineer dashboards hide the Request button on locked stages — they must wait for Planning to unlock.'}
         </p>
       </div>
+
+      {/* Password confirmation gate. Mirrors the HR Reset Password UX —
+          eye toggle for visibility, Enter submits, cancel resets. Backend
+          re-verifies the password before persisting the flow change. */}
+      <Dialog open={pwdGate.open} onOpenChange={(v) => { if (!v) { setPwdGate({ open: false, target: null }); setPassword(''); } }}>
+        <DialogContent className="max-w-sm" data-testid="workflow-pwd-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <ShieldCheck className="h-5 w-5 text-indigo-600" />
+              Confirm Workflow Change
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              You are switching the Work Order Stage Flow to{' '}
+              <strong className="text-indigo-700">
+                {pwdGate.target === 'se_request' ? 'Site Engineer Requests' : 'Planning Opens Directly'}
+              </strong>. Enter your password to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label className="text-xs font-semibold">Your Password</Label>
+            <div className="relative">
+              <Input
+                type={showPwd ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') confirmAndSave(); }}
+                placeholder="Enter your account password"
+                className="pr-10 mt-1"
+                autoFocus
+                disabled={saving}
+                data-testid="workflow-pwd-input"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPwd(s => !s)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 p-1"
+                aria-label={showPwd ? 'Hide password' : 'Show password'}
+                data-testid="workflow-pwd-toggle"
+              >
+                {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-500 mt-1">Verified against your logged-in account. Never stored locally.</p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setPwdGate({ open: false, target: null }); setPassword(''); }}
+              disabled={saving}
+              data-testid="workflow-pwd-cancel"
+            >Cancel</Button>
+            <Button
+              size="sm"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              onClick={confirmAndSave}
+              disabled={saving || !password.trim()}
+              data-testid="workflow-pwd-confirm"
+            >
+              {saving ? (<><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Saving…</>) : 'Confirm & Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

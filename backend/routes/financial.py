@@ -3213,14 +3213,30 @@ async def get_workflow_settings(user: User = Depends(get_current_user)):
 @router.patch("/settings/workflow")
 async def update_workflow_settings(payload: dict, user: User = Depends(get_current_user)):
     """Persist a workflow toggle. Restricted to Super Admin and Super
-    Architect — the two roles that own platform-wide flow decisions."""
-    allowed = (UserRole.SUPER_ADMIN, UserRole.SUPER_ARCHITECT) if hasattr(UserRole, 'SUPER_ARCHITECT') else (UserRole.SUPER_ADMIN,)
+    Architect — the two roles that own platform-wide flow decisions.
+
+    Adds a password-confirmation gate so an accidental toggle from an
+    already-authenticated session can't flip the whole flow silently. The
+    UI surfaces a password dialog before sending the PATCH.
+    """
     role_val = getattr(user.role, 'value', user.role)
     if role_val not in ("super_admin", "super_architect"):
         raise HTTPException(status_code=403, detail="Only Super Admin / Super Architect can change workflow")
     flow = payload.get("wo_stage_flow")
     if flow not in ("se_request", "planning_open"):
         raise HTTPException(status_code=400, detail="wo_stage_flow must be 'se_request' or 'planning_open'")
+
+    # Password confirmation gate — verify the caller's password against the
+    # stored hash before persisting any flow change.
+    password = (payload.get("password") or "").strip()
+    if not password:
+        raise HTTPException(status_code=401, detail="Password required to change workflow")
+    me = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1})
+    stored_hash = (me or {}).get("password_hash")
+    from routes.auth import verify_password  # local import avoids circular
+    if not stored_hash or not verify_password(password, stored_hash):
+        raise HTTPException(status_code=401, detail="Incorrect password")
+
     await db.app_workflow_settings.update_one(
         {"_id": "global"},
         {"$set": {"wo_stage_flow": flow, "updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": user.user_id}},
