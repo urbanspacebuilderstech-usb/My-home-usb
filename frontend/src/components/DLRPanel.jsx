@@ -85,7 +85,13 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
       try {
         if (workOrderId) {
           const wr = await axios.get(`${API}/projects/${projectId}/work-orders/${workOrderId}`);
-          const stages = (wr.data?.stages || []).filter(s => s.is_open === true).map((s, idx) => ({
+          // "Open" means is_open=true AND no payment_request currently in a
+          // non-released approval state. If a RAB is awaiting PM/QC/Planning/
+          // Accountant, the stage is functionally locked and must not appear
+          // in the DLR stage picker — only stages an SE can actively work on.
+          const PENDING_RAB = new Set(['requested', 'pm_approved', 'qc_approved', 'planning_approved']);
+          const isStrictlyOpen = (s) => s.is_open === true && !(s.payment_requests || []).some(p => PENDING_RAB.has(p.status));
+          const stages = (wr.data?.stages || []).filter(isStrictlyOpen).map((s, idx) => ({
             stage_id: s.stage_id,
             stage_name: s.name || s.stage_name || `Stage ${idx + 1}`,
             sl_no: s.sl_no || `S${idx + 1}`,

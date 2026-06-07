@@ -1730,7 +1730,12 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
       try {
         if (workOrder?.work_order_id) {
           const wr = await axios.get(`${API}/projects/${projectId}/work-orders/${workOrder.work_order_id}`);
-          const stages = (wr.data?.stages || []).filter(s => s.is_open === true).map((s, idx) => ({
+          // Only "purely Open" stages — is_open=true AND no RAB in flight.
+          // A stage with an Awaiting-PM RAB is locked from the SE's perspective
+          // until that workflow clears (or gets rejected), so it must be hidden.
+          const PENDING_RAB = new Set(['requested', 'pm_approved', 'qc_approved', 'planning_approved']);
+          const isStrictlyOpen = (s) => s.is_open === true && !(s.payment_requests || []).some(p => PENDING_RAB.has(p.status));
+          const stages = (wr.data?.stages || []).filter(isStrictlyOpen).map((s, idx) => ({
             stage_id: s.stage_id,
             stage_name: s.name || s.stage_name || `Stage ${idx + 1}`,
             sl_no: s.sl_no || `S${idx + 1}`,
