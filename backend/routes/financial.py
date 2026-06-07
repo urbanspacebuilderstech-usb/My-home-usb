@@ -3196,6 +3196,40 @@ async def get_company_settings(user: User = Depends(get_current_user)):
     return settings
 
 
+
+@router.get("/settings/workflow")
+async def get_workflow_settings(user: User = Depends(get_current_user)):
+    """Read the Super Architect's workflow toggles.
+
+    Right now exposes a single toggle — `wo_stage_flow` — controlling whether
+    Site Engineers can request stage open or whether Planning must unlock
+    stages directly. Always returns a sensible default so the UI never
+    crashes on a fresh tenant.
+    """
+    row = await db.app_workflow_settings.find_one({"_id": "global"}, {"_id": 0})
+    return row or {"wo_stage_flow": "planning_open"}
+
+
+@router.patch("/settings/workflow")
+async def update_workflow_settings(payload: dict, user: User = Depends(get_current_user)):
+    """Persist a workflow toggle. Restricted to Super Admin and Super
+    Architect — the two roles that own platform-wide flow decisions."""
+    allowed = (UserRole.SUPER_ADMIN, UserRole.SUPER_ARCHITECT) if hasattr(UserRole, 'SUPER_ARCHITECT') else (UserRole.SUPER_ADMIN,)
+    role_val = getattr(user.role, 'value', user.role)
+    if role_val not in ("super_admin", "super_architect"):
+        raise HTTPException(status_code=403, detail="Only Super Admin / Super Architect can change workflow")
+    flow = payload.get("wo_stage_flow")
+    if flow not in ("se_request", "planning_open"):
+        raise HTTPException(status_code=400, detail="wo_stage_flow must be 'se_request' or 'planning_open'")
+    await db.app_workflow_settings.update_one(
+        {"_id": "global"},
+        {"$set": {"wo_stage_flow": flow, "updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": user.user_id}},
+        upsert=True,
+    )
+    return {"wo_stage_flow": flow}
+
+
+
 @router.get("/settings/cre-module")
 async def get_cre_module_settings(user: User = Depends(get_current_user)):
     """Global CRE Module toggles — controls optional tab visibility on the CRE Board."""

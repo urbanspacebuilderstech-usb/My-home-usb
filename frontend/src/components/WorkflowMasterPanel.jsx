@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import WorkflowsSubTab from './WorkflowsSubTab';
 import { Pencil, GripVertical, ArrowUp, ArrowDown, ShieldCheck, RefreshCw, X, Workflow, Cog, Users as UsersIcon } from 'lucide-react';
 import ProjectModulePanel from './ProjectModulePanel';
 
@@ -54,7 +55,7 @@ export default function WorkflowMasterPanel() {
           </TabsContent>
 
           <TabsContent value="workflows" className="mt-0">
-            <ComingSoon title="Workflows" />
+            <WorkflowsSubTab />
           </TabsContent>
 
           <TabsContent value="functions" className="mt-0">
