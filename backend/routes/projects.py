@@ -10296,6 +10296,7 @@ class DLRCreate(BaseModel):
     stage_id: Optional[str] = None
     stage_name: Optional[str] = None
     work_summary: Optional[str] = ""
+    date_remark: Optional[str] = ""  # required when DLR Date Module is in "custom" mode AND date != today
 
 @router.post("/projects/{project_id}/work-orders/{wo_id}/dlr")
 async def create_dlr(project_id: str, wo_id: str, data: DLRCreate, user: User = Depends(get_current_user)):
@@ -10306,6 +10307,20 @@ async def create_dlr(project_id: str, wo_id: str, data: DLRCreate, user: User = 
     wo = await db.project_work_orders.find_one({"work_order_id": wo_id, "project_id": project_id}, {"_id": 0})
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
+
+    # ---- DLR Date Module enforcement ----
+    # Super Admin sets the mode globally:
+    #   - "ontime": SE may ONLY record DLR for today (date picker locked client-side too)
+    #   - "custom": SE may pick any date but must enter a date_remark explaining the back-date
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_remark = (data.date_remark or "").strip()
+    if user.role != UserRole.SUPER_ADMIN:
+        mode_doc = await db.module_settings.find_one({"module": "dlr_date"}, {"_id": 0}) or {}
+        dlr_mode = mode_doc.get("mode") if mode_doc.get("mode") in ("ontime", "custom") else "ontime"
+        if dlr_mode == "ontime" and data.date != today:
+            raise HTTPException(status_code=400, detail="DLR can only be recorded for today's date. Ask Super Admin to enable Custom DLR mode for back-dated entries.")
+        if dlr_mode == "custom" and data.date != today and not date_remark:
+            raise HTTPException(status_code=400, detail="Date Remark is required when recording DLR for a date other than today.")
 
     # Check duplicate for same date + work order
     existing = await db.daily_labour_reports.find_one({
@@ -10372,6 +10387,7 @@ async def create_dlr(project_id: str, wo_id: str, data: DLRCreate, user: User = 
         "stage_id": stage_id,
         "stage_name": stage_name,
         "work_summary": work_summary,
+        "date_remark": date_remark if data.date != today else "",
         "created_by": user.user_id,
         "created_by_name": user.name,
         "created_at": now,

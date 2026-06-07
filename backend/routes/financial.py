@@ -3290,10 +3290,51 @@ async def update_workflow_settings(payload: dict, user: User = Depends(get_curre
     return {"wo_stage_flow": flow}
 
 
+@router.get("/settings/dlr-date-mode")
+async def get_dlr_date_mode(user: User = Depends(get_current_user)):
+    """Global DLR Date Module — controls whether Site Engineers can only
+    record DLR for today ("ontime") or can pick any date provided they
+    enter a remark explaining the back-date ("custom"). Defaults to "ontime".
+    """
+    doc = await db.module_settings.find_one({"module": "dlr_date"}, {"_id": 0}) or {}
+    mode = doc.get("mode")
+    if mode not in ("ontime", "custom"):
+        mode = "ontime"
+    return {"mode": mode}
+
+
+@router.patch("/settings/dlr-date-mode")
+async def update_dlr_date_mode(payload: dict, user: User = Depends(get_current_user)):
+    """Persist the DLR Date Module mode. Restricted to Super Admin / Super
+    Architect. Password gate prevents accidental flips from an authenticated session.
+    """
+    role_val = getattr(user.role, 'value', user.role)
+    if role_val not in ("super_admin", "super_architect"):
+        raise HTTPException(status_code=403, detail="Only Super Admin / Super Architect can change DLR mode")
+    mode = (payload.get("mode") or "").strip()
+    if mode not in ("ontime", "custom"):
+        raise HTTPException(status_code=400, detail="mode must be 'ontime' or 'custom'")
+
+    password = (payload.get("password") or "").strip()
+    if not password:
+        raise HTTPException(status_code=401, detail="Password required to change DLR mode")
+    me = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1})
+    stored_hash = (me or {}).get("password_hash")
+    from routes.auth import verify_password
+    if not stored_hash or not verify_password(password, stored_hash):
+        raise HTTPException(status_code=401, detail="Incorrect password")
+
+    await db.module_settings.update_one(
+        {"module": "dlr_date"},
+        {"$set": {"mode": mode, "updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": user.user_id}},
+        upsert=True,
+    )
+    return {"mode": mode}
+
+
 
 @router.get("/settings/cre-module")
 async def get_cre_module_settings(user: User = Depends(get_current_user)):
-    """Global CRE Module toggles — controls optional tab visibility on the CRE Board."""
     doc = await db.module_settings.find_one({"module": "cre"}, {"_id": 0}) or {}
     return {
         "show_all_projects_tab": bool(doc.get("show_all_projects_tab", False)),

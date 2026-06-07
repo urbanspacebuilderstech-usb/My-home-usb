@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import WorkflowsSubTab from './WorkflowsSubTab';
 import { Pencil, GripVertical, ArrowUp, ArrowDown, ShieldCheck, RefreshCw, X, Workflow, Cog, Users as UsersIcon } from 'lucide-react';
-import ProjectModulePanel from './ProjectModulePanel';
+import FunctionsSubTab from './FunctionsSubTab';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -59,7 +59,7 @@ export default function WorkflowMasterPanel() {
           </TabsContent>
 
           <TabsContent value="functions" className="mt-0">
-            <ProjectModulePanel />
+            <FunctionsSubTab />
           </TabsContent>
         </Tabs>
       </CardContent>

@@ -1654,6 +1654,11 @@ function DLRReportTab({ projectId, workOrderId }) {
                 </table>
               </div>
               {popup.notes && <p className="text-[11px] text-gray-500 bg-gray-50 border rounded p-2">Note: {popup.notes}</p>}
+              {popup.date_remark && (
+                <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2" data-testid="wov2-dlr-day-popup-remark">
+                  <span className="font-semibold">Back-dated DLR Remark:</span> {popup.date_remark}
+                </p>
+              )}
               <p className="text-[10px] text-gray-400">By {popup.created_by_name || '—'} at {popup.created_at ? new Date(popup.created_at).toLocaleString() : '—'}</p>
             </div>
           )}
@@ -1679,6 +1684,9 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
   const [workSummary, setWorkSummary] = useState('');
   const [projectStages, setProjectStages] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+  const [dlrDateMode, setDlrDateMode] = useState('ontime'); // global Super Admin setting
+  const [dateRemark, setDateRemark] = useState('');
+  const today = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
     if (open) {
@@ -1687,6 +1695,13 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
       setNotes('');
       setStageId('');
       setWorkSummary('');
+      setDateRemark('');
+      // Fetch the global DLR Date Module setting on every open so the SE
+      // sees the latest policy even if Super Admin flipped it minutes ago.
+      axios.get(`${API}/settings/dlr-date-mode`).then(r => {
+        const m = r.data?.mode === 'custom' ? 'custom' : 'ontime';
+        setDlrDateMode(m);
+      }).catch(() => setDlrDateMode('ontime'));
     }
     /* eslint-disable-next-line */
   }, [open, workOrder?.work_order_id]);
@@ -1738,6 +1753,13 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
     if (!date) { toast.error('Select a date'); return; }
     if (!stageId) { toast.error('Select Current Project Stage'); return; }
     if (!workSummary.trim()) { toast.error('Work Summary is required'); return; }
+    // Client-side DLR Date Module enforcement (backend re-validates).
+    if (dlrDateMode === 'ontime' && date !== today) {
+      toast.error('DLR can only be recorded for today\'s date.'); return;
+    }
+    if (dlrDateMode === 'custom' && date !== today && !dateRemark.trim()) {
+      toast.error('Date Remark is required for back-dated DLR.'); return;
+    }
     const missing = valid.filter(r => !Number(r.rate_per_day));
     if (missing.length) {
       toast.error(`Rate not set for: ${missing.map(r => r.label).join(', ')}. Update Work Order rates.`); return;
@@ -1755,6 +1777,7 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
         stage_id: stageId,
         stage_name: selectedStage?.stage_name || '',
         work_summary: workSummary.trim(),
+        date_remark: (dlrDateMode === 'custom' && date !== today) ? dateRemark.trim() : '',
       });
       toast.success('DLR & DPR recorded');
       onSaved();
@@ -1774,9 +1797,37 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
         </DialogHeader>
         <div className="space-y-3">
           <div>
-            <Label className="text-xs">Date</Label>
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="text-sm mt-1" data-testid="wov2-dlr-form-date" />
+            <Label className="text-xs">
+              Date {dlrDateMode === 'ontime' && <span className="text-[10px] text-amber-700 font-normal ml-1">(locked to today by Super Admin)</span>}
+            </Label>
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              max={today}
+              disabled={dlrDateMode === 'ontime'}
+              className={`text-sm mt-1 ${dlrDateMode === 'ontime' ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+              data-testid="wov2-dlr-form-date"
+            />
           </div>
+          {dlrDateMode === 'custom' && date !== today && (
+            <div data-testid="wov2-dlr-date-remark-wrap">
+              <Label className="text-xs">
+                Date Remark <span className="text-red-500">*</span>
+                <span className="text-[10px] font-normal text-gray-500 ml-1">
+                  (required when recording for a date other than today)
+                </span>
+              </Label>
+              <Textarea
+                rows={2}
+                value={dateRemark}
+                onChange={(e) => setDateRemark(e.target.value)}
+                placeholder="Reason for back-dated DLR (e.g. was on leave yesterday, network outage at site...)"
+                className="text-sm mt-1"
+                data-testid="wov2-dlr-form-date-remark"
+              />
+            </div>
+          )}
           <div className="border rounded-lg overflow-hidden">
             <table className="w-full text-xs">
               <thead className="bg-gray-100 border-b">

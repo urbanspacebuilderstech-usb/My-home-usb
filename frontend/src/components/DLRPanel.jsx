@@ -289,6 +289,11 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
                 </div>
               )}
               {dlr.notes && <p className="px-3 py-1.5 text-[11px] text-gray-500 border-t bg-gray-50">Note: {dlr.notes}</p>}
+              {dlr.date_remark && (
+                <p className="px-3 py-1.5 text-[11px] text-amber-800 border-t bg-amber-50" data-testid={`dlr-date-remark-${dlr.dlr_id}`}>
+                  <span className="font-semibold">Back-dated DLR Remark:</span> {dlr.date_remark}
+                </p>
+              )}
               <p className="px-3 py-1 text-[10px] text-gray-400 border-t">By {dlr.created_by_name} at {new Date(dlr.created_at).toLocaleString()}</p>
             </div>
           ))}
