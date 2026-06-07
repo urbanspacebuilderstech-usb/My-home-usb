@@ -74,7 +74,9 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView }) {
             {rab.rab_number}
           </Badge>
         </td>
-        <td className="px-3 py-2.5 text-xs text-gray-700">{rab.stage_name}</td>
+        <td className="px-3 py-2.5 text-xs text-gray-700 max-w-[280px]" title={rab.stage_name}>
+          <span className="block truncate sm:whitespace-normal">{rab.stage_name}</span>
+        </td>
         <td className="px-3 py-2.5 text-xs text-gray-600">{fmtDate(rab.released_at || (rab.timeline?.[0]?.at))}</td>
         <td className="px-3 py-2.5 text-right text-xs font-medium">{inr(rab.requested_amount)}</td>
         <td className="px-3 py-2.5 text-right text-xs font-bold text-emerald-700">
@@ -164,9 +166,10 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView }) {
           {renderTable(rabs, { viewAll: true })}
         </TabsContent>
         <TabsContent value="released" className="mt-3">
-          {/* View button only on the latest released RAB, per request — opens
-              the single-RAB popup where the PDF download lives. */}
-          {renderTable(RELEASED, { lastOnly: true, emptyMsg: 'No released RABs yet.' })}
+          {/* Every released RAB gets a View button — opens its single-RAB
+              popup with PDF download, Summary, Timeline, DLR Report and
+              Total RAB's drill-down. */}
+          {renderTable(RELEASED, { viewAll: true, emptyMsg: 'No released RABs yet.' })}
         </TabsContent>
         <TabsContent value="requested" className="mt-3">
           {renderTable(REQUESTED, { viewAll: true, emptyMsg: 'No pending requests — everything is released or rejected.' })}

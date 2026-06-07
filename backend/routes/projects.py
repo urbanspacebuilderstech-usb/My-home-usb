@@ -8091,7 +8091,7 @@ async def wo_rab_chain(project_id: str, work_order_id: str, user: User = Depends
     # Walk every stage's payment_requests and flatten with stage context
     flat = []
     for stg in (wo.get("stages") or []):
-        stage_name = stg.get("stage_name") or stg.get("title") or "Stage"
+        stage_name = stg.get("name") or stg.get("stage_name") or stg.get("title") or "Stage"
         stage_amount = float(stg.get("amount") or 0)
         for pr in (stg.get("payment_requests") or []):
             flat.append({
