@@ -18,6 +18,7 @@ import random
 import hashlib
 import resend
 from bson import ObjectId
+from pymongo import ReturnDocument
 
 from core.database import db, fs
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
@@ -32,6 +33,76 @@ SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ---------------- Work Order Number Counter ----------------
+# Globally-running counter producing `USB-W00001`, `USB-W00002`, ...
+# Each newly-created project work order gets the next sequential number
+# atomically; race-free thanks to MongoDB's $inc upsert pattern.
+
+async def _next_work_order_number() -> str:
+    res = await db.counters.find_one_and_update(
+        {"_id": "project_work_order_global"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    seq = (res or {}).get("seq") or 1
+    return f"USB-W{int(seq):05d}"
+
+
+async def _backfill_work_order_numbers():
+    """One-time backfill: every existing project work order missing
+    `work_order_number` gets one, ordered by created_at (oldest first). The
+    counter is then bumped past the last assigned value so new WOs continue
+    from there. Idempotent — safe to call repeatedly.
+    """
+    try:
+        cursor = db.project_work_orders.find(
+            {"$or": [{"work_order_number": {"$exists": False}}, {"work_order_number": ""}, {"work_order_number": None}]},
+            {"_id": 0, "work_order_id": 1, "created_at": 1},
+        ).sort("created_at", 1)
+        missing = await cursor.to_list(10000)
+        if not missing:
+            return
+        # Highest seq already used elsewhere (so backfill never overlaps)
+        existing_max = 0
+        async for d in db.project_work_orders.find(
+            {"work_order_number": {"$regex": "^USB-W[0-9]+$"}},
+            {"_id": 0, "work_order_number": 1},
+        ):
+            try:
+                n = int((d.get("work_order_number") or "USB-W0")[5:])
+                if n > existing_max:
+                    existing_max = n
+            except Exception:
+                pass
+        ctr = await db.counters.find_one({"_id": "project_work_order_global"}, {"_id": 0, "seq": 1}) or {}
+        start = max(existing_max, int(ctr.get("seq", 0) or 0))
+        for wo in missing:
+            start += 1
+            await db.project_work_orders.update_one(
+                {"work_order_id": wo["work_order_id"]},
+                {"$set": {"work_order_number": f"USB-W{start:05d}"}},
+            )
+        await db.counters.update_one(
+            {"_id": "project_work_order_global"},
+            {"$set": {"seq": start}},
+            upsert=True,
+        )
+        logger.info(f"Backfilled {len(missing)} work_order_number values (last seq={start}).")
+    except Exception as e:
+        logger.warning(f"Work order number backfill skipped: {e}")
+
+
+@router.post("/admin/work-orders/backfill-numbers")
+async def admin_backfill_work_order_numbers(user: User = Depends(get_current_user)):
+    """Manual trigger for the backfill (idempotent). Restricted to Super Admin."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin only")
+    await _backfill_work_order_numbers()
+    ctr = await db.counters.find_one({"_id": "project_work_order_global"}, {"_id": 0, "seq": 1}) or {}
+    return {"ok": True, "current_seq": int(ctr.get("seq", 0) or 0)}
 
 
 
@@ -7726,6 +7797,7 @@ async def create_project_work_order(project_id: str, data: WorkOrderCreate, user
 
     wo = {
         "work_order_id": f"wo_{uuid.uuid4().hex[:8]}",
+        "work_order_number": await _next_work_order_number(),
         "project_id": project_id,
         "project_name": project.get("name", ""),
         "contractor_id": data.contractor_id,
