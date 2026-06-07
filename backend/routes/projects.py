@@ -143,6 +143,110 @@ async def admin_backfill_mr_numbers(user: User = Depends(get_current_user)):
     return {"ok": True, "backfilled": n, "current_seq": seq}
 
 
+# ---------------- USB Number Lookup (Super Admin global search) ----------------
+@router.get("/admin/lookup")
+async def admin_lookup_by_number(prefix: str, number: str, user: User = Depends(get_current_user)):
+    """Super Admin global search by USB number. Resolves any of:
+        prefix=USB-P  → project (returns project_id + name)
+        prefix=USB-W  → work order (returns project_id, work_order_id, contractor_name)
+        prefix=USB-FE → final estimate (returns project_id + project name)
+        prefix=USB-RE → rough estimate (returns estimate_id + package_id + name)
+        prefix=USB-MR → material request (returns request_id, project_id, material_name)
+    `number` is the bare numeric suffix (e.g. `1` or `00001`). Padding-tolerant.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin only")
+    prefix = (prefix or "").strip().upper()
+    raw = (number or "").strip()
+    if not raw or not prefix:
+        raise HTTPException(status_code=400, detail="prefix and number required")
+    try:
+        n = int(raw.lstrip("0") or "0")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="number must be numeric")
+    if n <= 0:
+        raise HTTPException(status_code=400, detail="number must be positive")
+
+    # Padding widths must match COUNTER_FORMATS
+    width = {"USB-P": 5, "USB-W": 5, "USB-FE": 4, "USB-RE": 4, "USB-MR": 3}.get(prefix)
+    if not width:
+        raise HTTPException(status_code=400, detail="unknown prefix")
+    formatted = f"{prefix}{n:0{width}d}"
+
+    if prefix == "USB-P":
+        doc = await db.projects.find_one({"project_number": formatted}, {"_id": 0, "project_id": 1, "project_number": 1, "name": 1, "status": 1, "client_name": 1})
+        if not doc:
+            raise HTTPException(status_code=404, detail=f"No project found for {formatted}")
+        return {
+            "kind": "project",
+            "number": formatted,
+            "project_id": doc.get("project_id"),
+            "title": doc.get("name"),
+            "subtitle": doc.get("client_name") or "",
+            "status": doc.get("status") or "",
+            "navigate_to": f"/projects/{doc.get('project_id')}",
+        }
+    if prefix == "USB-W":
+        doc = await db.project_work_orders.find_one({"work_order_number": formatted}, {"_id": 0, "work_order_id": 1, "work_order_number": 1, "project_id": 1, "project_name": 1, "contractor_name": 1, "contractor_type": 1, "status": 1, "total_value": 1})
+        if not doc:
+            raise HTTPException(status_code=404, detail=f"No work order found for {formatted}")
+        return {
+            "kind": "work_order",
+            "number": formatted,
+            "project_id": doc.get("project_id"),
+            "work_order_id": doc.get("work_order_id"),
+            "title": doc.get("contractor_name"),
+            "subtitle": f"{doc.get('contractor_type') or '—'} · {doc.get('project_name') or ''}",
+            "status": doc.get("status") or "",
+            "amount": doc.get("total_value") or 0,
+            "navigate_to": f"/projects/{doc.get('project_id')}?wo={doc.get('work_order_id')}",
+        }
+    if prefix == "USB-FE":
+        doc = await db.projects.find_one({"fe.fe_number": formatted}, {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "fe": 1})
+        if not doc:
+            raise HTTPException(status_code=404, detail=f"No final estimate found for {formatted}")
+        fe = doc.get("fe") or {}
+        return {
+            "kind": "final_estimate",
+            "number": formatted,
+            "project_id": doc.get("project_id"),
+            "title": doc.get("name"),
+            "subtitle": f"FE Status: {(fe.get('status') or '').replace('_', ' ').title()}",
+            "status": fe.get("status") or "",
+            "navigate_to": f"/projects/{doc.get('project_id')}?tab=final-estimate",
+        }
+    if prefix == "USB-RE":
+        doc = await db.rough_estimates.find_one({"estimate_number": formatted}, {"_id": 0, "estimate_id": 1, "estimate_number": 1, "package_id": 1, "package_name": 1, "name": 1, "floor_config": 1, "total_value": 1})
+        if not doc:
+            raise HTTPException(status_code=404, detail=f"No rough estimate found for {formatted}")
+        return {
+            "kind": "rough_estimate",
+            "number": formatted,
+            "estimate_id": doc.get("estimate_id"),
+            "package_id": doc.get("package_id"),
+            "title": doc.get("name"),
+            "subtitle": f"{doc.get('package_name') or ''} · {doc.get('floor_config') or ''}",
+            "amount": doc.get("total_value") or 0,
+            "navigate_to": "/packages",
+        }
+    if prefix == "USB-MR":
+        doc = await db.material_requests.find_one({"request_number": formatted}, {"_id": 0, "request_id": 1, "request_number": 1, "project_id": 1, "project_name": 1, "material_name": 1, "quantity": 1, "unit": 1, "status": 1, "estimated_price": 1})
+        if not doc:
+            raise HTTPException(status_code=404, detail=f"No material request found for {formatted}")
+        return {
+            "kind": "material_request",
+            "number": formatted,
+            "project_id": doc.get("project_id"),
+            "request_id": doc.get("request_id"),
+            "title": f"{doc.get('material_name')} · {doc.get('quantity')} {doc.get('unit') or ''}",
+            "subtitle": doc.get("project_name") or "",
+            "status": doc.get("status") or "",
+            "amount": doc.get("estimated_price") or 0,
+            "navigate_to": f"/projects/{doc.get('project_id')}",
+        }
+    raise HTTPException(status_code=400, detail="unknown prefix")
+
+
 
 @router.get("/projects")
 async def get_projects(include_deleted: bool = False, planning_person_id: Optional[str] = None, user: User = Depends(get_current_user)):

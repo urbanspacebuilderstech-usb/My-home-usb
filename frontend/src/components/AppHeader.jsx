@@ -3,6 +3,7 @@ import { Bell, LogOut, UserCircle, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import axios from 'axios';
 import { useTheme } from '../hooks/useTheme';
+import USBLookupBar from './USBLookupBar';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -325,6 +326,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
 
           {/* Right: Theme + Notifs + Profile + User + Logout */}
           <div className="flex items-center gap-2 shrink-0">
+            {role === 'super_admin' && <USBLookupBar />}
             {headerActions}
             <Button
               variant="ghost"
