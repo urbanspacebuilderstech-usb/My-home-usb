@@ -376,9 +376,9 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
 // `bucketsForStage` returns an ARRAY of bucket keys, and counts/filtering use
 // any-match semantics.
 const STAGE_BUCKETS = [
-  { key: 'all',      label: 'All Stages',         Icon: ClipboardList, color: 'violet',  pillBg: 'bg-violet-50 border-violet-200 text-violet-700',   activeBg: 'bg-violet-600 text-white border-violet-600' },
   { key: 'open',     label: 'Open Stage',         Icon: Unlock,        color: 'green',   pillBg: 'bg-green-50 border-green-200 text-green-700',     activeBg: 'bg-green-600 text-white border-green-600' },
   { key: 'locked',   label: 'Locked Stages',      Icon: Lock,          color: 'gray',    pillBg: 'bg-gray-50 border-gray-200 text-gray-700',        activeBg: 'bg-gray-700 text-white border-gray-700' },
+  { key: 'all',      label: 'All Stages',         Icon: ClipboardList, color: 'violet',  pillBg: 'bg-violet-50 border-violet-200 text-violet-700',   activeBg: 'bg-violet-600 text-white border-violet-600' },
   { key: 'request',  label: 'Request Stage',      Icon: FileClock,     color: 'amber',   pillBg: 'bg-amber-50 border-amber-200 text-amber-700',     activeBg: 'bg-amber-600 text-white border-amber-600' },
   { key: 'planning', label: 'Planning Approve',   Icon: ShieldCheck,   color: 'orange',  pillBg: 'bg-orange-50 border-orange-200 text-orange-700',  activeBg: 'bg-orange-600 text-white border-orange-600' },
   { key: 'accountant', label: 'Accountant Approve', Icon: Wallet,      color: 'indigo',  pillBg: 'bg-indigo-50 border-indigo-200 text-indigo-700',  activeBg: 'bg-indigo-600 text-white border-indigo-600' },
