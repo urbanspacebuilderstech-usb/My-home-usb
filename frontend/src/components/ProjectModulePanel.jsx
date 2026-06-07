@@ -159,14 +159,9 @@ export default function ProjectModulePanel() {
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-center">
-                        <div className="inline-flex gap-1.5">
-                          <Button size="sm" variant="outline" onClick={() => openDialog(u, 'view')} className="h-8 px-2.5 gap-1" data-testid={`pm-view-${u.user_id}`}>
-                            <Eye className="h-3.5 w-3.5" /> View
-                          </Button>
-                          <Button size="sm" onClick={() => openDialog(u, 'edit')} className="h-8 px-2.5 gap-1 bg-violet-600 hover:bg-violet-700" data-testid={`pm-edit-${u.user_id}`}>
-                            <Pencil className="h-3.5 w-3.5" /> Edit
-                          </Button>
-                        </div>
+                        <Button size="sm" variant="outline" onClick={() => openDialog(u, 'view')} className="h-8 px-3 gap-1" data-testid={`pm-view-${u.user_id}`}>
+                          <Eye className="h-3.5 w-3.5" /> View
+                        </Button>
                       </td>
                     </tr>
                   );
@@ -190,6 +185,20 @@ export default function ProjectModulePanel() {
               {editing?.user?.name} · <span className="uppercase">{(editing?.user?.role || '').replace('_', ' ')}</span>
             </DialogDescription>
           </DialogHeader>
+
+          {/* Mode toggle — switch in-popup from View to Edit without closing */}
+          {editing?.mode === 'view' && (
+            <div className="flex justify-end -mt-2 mb-1">
+              <Button
+                size="sm"
+                onClick={() => setEditing(e => ({ ...e, mode: 'edit' }))}
+                className="h-8 px-3 gap-1 bg-violet-600 hover:bg-violet-700"
+                data-testid="pm-switch-edit"
+              >
+                <Pencil className="h-3.5 w-3.5" /> Switch to Edit
+              </Button>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             {tabs.map(t => {
