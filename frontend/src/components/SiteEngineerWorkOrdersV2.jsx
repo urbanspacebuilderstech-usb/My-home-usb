@@ -85,9 +85,11 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
   const [workOrders, setWorkOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null); // selected work order
-  // Global DLR shortcut state — picker dialog open + which WO tab to land on.
+  // Global DLR shortcut state — picker dialog open, plus the contractor for
+  // which the Record-DLR popup is currently open. We open the DLR dialog
+  // inline (no navigation) so the SE never leaves the Work Order list.
   const [globalDlrOpen, setGlobalDlrOpen] = useState(false);
-  const [initialTab, setInitialTab] = useState(null); // 'dlr' | null
+  const [dlrFor, setDlrFor] = useState(null); // { work_order_id, contractor_name, ... }
 
   const fetchWOs = async () => {
     setLoading(true);
@@ -162,7 +164,7 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
 
   // ==== DETAIL VIEW ====
   if (selected) {
-    return <WorkOrderDetail wo={selected} projectId={projectId} onBack={() => { setSelected(null); setInitialTab(null); }} onChange={fetchWOs} initialTab={initialTab} />;
+    return <WorkOrderDetail wo={selected} projectId={projectId} onBack={() => setSelected(null)} onChange={fetchWOs} />;
   }
 
   // ==== LIST VIEW: grouped by contractor type ====
@@ -236,9 +238,8 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
                 key={c.work_order_id}
                 type="button"
                 onClick={() => {
-                  setInitialTab('dlr');
-                  setSelected(c);
                   setGlobalDlrOpen(false);
+                  setDlrFor(c);
                 }}
                 className="w-full text-left px-3 py-2 hover:bg-amber-50/60 flex items-center justify-between gap-2"
                 data-testid={`se-wov2-contractor-pick-${c.work_order_id}`}
@@ -256,6 +257,17 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Record DLR popup — mounted at the list-view level so picking a
+          contractor opens this directly without navigating. The popup
+          reuses the same component the detail-view DLR tab uses. */}
+      <DLRRecordDialog
+        open={!!dlrFor}
+        onOpenChange={(v) => { if (!v) setDlrFor(null); }}
+        projectId={projectId}
+        workOrder={dlrFor || {}}
+        onSaved={() => { setDlrFor(null); fetchWOs(); }}
+      />
     </div>
   );
 }
@@ -263,8 +275,8 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
 // =====================================================================
 // Detail view: header + DLR button + tabs (Scope / Payment Schedule / DLR Report)
 // =====================================================================
-function WorkOrderDetail({ wo, projectId, onBack, onChange, initialTab }) {
-  const [tab, setTab] = useState(initialTab || 'payments');
+function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
+  const [tab, setTab] = useState('payments');
   const [dlrPopupOpen, setDlrPopupOpen] = useState(false);
   const [stageDialog, setStageDialog] = useState(null); // selected stage for detail dialog
   const [suspenseBalance, setSuspenseBalance] = useState(0);
@@ -299,13 +311,8 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange, initialTab }) {
               </div>
               <p className="text-xs text-gray-500 mt-0.5">{wo.description || 'Work Order'}</p>
             </div>
-            <Button
-              className="bg-teal-600 hover:bg-teal-700 h-8 text-xs gap-1 shrink-0"
-              onClick={() => setDlrPopupOpen(true)}
-              data-testid="wov2-dlr-record-btn"
-            >
-              <Plus className="h-3 w-3" /> DLR
-            </Button>
+            {/* "+ DLR" button removed — DLR recording is now driven from
+                the Global DLR Report button on the WO list. */}
           </div>
         </div>
       </Card>

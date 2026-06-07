@@ -192,11 +192,9 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
           {(dateFrom || dateTo) && (
             <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setDateFrom(''); setDateTo(''); }} data-testid="dlr-date-clear">Clear</Button>
           )}
-          {canRecord && (
-            <Button size="sm" className="h-8 text-xs bg-teal-600 hover:bg-teal-700" onClick={openDialog} data-testid="dlr-add-btn">
-              <Plus className="h-3 w-3 mr-1" />Record DLR
-            </Button>
-          )}
+          {/* "+ Record DLR" button removed — DLR recording now happens
+              via the Global DLR Report button on the Work Order list (one
+              entry point keeps the SE workflow consistent). */}
         </div>
       </div>
 
