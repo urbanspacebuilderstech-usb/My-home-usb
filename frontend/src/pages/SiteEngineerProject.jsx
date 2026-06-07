@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { 
@@ -122,6 +122,25 @@ export default function SiteEngineerProject() {
   const [vendorSuggestion, setVendorSuggestion] = useState(null);
   const [approvedMaterials, setApprovedMaterials] = useState([]);
   const [materialSearch, setMaterialSearch] = useState('');
+  const [materialDropdownOpen, setMaterialDropdownOpen] = useState(false);
+  const materialDropdownRef = useRef(null);
+
+  // Close the approved-material dropdown on outside click / Escape.
+  useEffect(() => {
+    if (!materialDropdownOpen) return;
+    const onDown = (e) => {
+      if (materialDropdownRef.current && !materialDropdownRef.current.contains(e.target)) {
+        setMaterialDropdownOpen(false);
+      }
+    };
+    const onEsc = (e) => { if (e.key === 'Escape') setMaterialDropdownOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [materialDropdownOpen]);
   const [labourForm, setLabourForm] = useState({ labour_type: '', num_workers: '', num_days: '', rate_per_day: '', remarks: '' });
   const [receiveForm, setReceiveForm] = useState({ received_qty: '', remarks: '', receive_date: new Date().toISOString().split('T')[0], receive_time: new Date().toTimeString().slice(0,5) });
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -1113,77 +1132,104 @@ export default function SiteEngineerProject() {
 
                       {materialForm.is_approved ? (
                         <>
-                          {/* Search & select from approved list */}
-                          <div>
+                          {/* Search & select from approved list — collapsible dropdown */}
+                          <div ref={materialDropdownRef} className="relative">
                             <Label className="text-xs sm:text-sm">Search Approved Material *</Label>
                             <Input
-                              value={materialSearch}
-                              onChange={(e) => setMaterialSearch(e.target.value)}
+                              value={materialForm.material_id ? (materialForm.material_name + (materialForm.brand ? ` · ${materialForm.brand}` : '')) : materialSearch}
+                              onChange={(e) => {
+                                // Typing clears the previous selection and re-opens results
+                                setMaterialSearch(e.target.value);
+                                if (materialForm.material_id) {
+                                  setMaterialForm({ ...materialForm, material_id: '', material_name: '', brand: '', is_locked_from_package: false, locked_estimated_rate: null });
+                                }
+                                setMaterialDropdownOpen(true);
+                              }}
+                              onFocus={() => setMaterialDropdownOpen(true)}
+                              onClick={() => setMaterialDropdownOpen(true)}
                               placeholder="Search by name or brand..."
-                              className="text-sm"
+                              className="text-sm pr-8"
                               data-testid="approved-material-search"
+                              autoComplete="off"
                             />
-                          </div>
+                            {(materialForm.material_id || materialSearch) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMaterialSearch('');
+                                  setMaterialForm({ ...materialForm, material_id: '', material_name: '', brand: '', is_locked_from_package: false, locked_estimated_rate: null });
+                                  setMaterialDropdownOpen(false);
+                                }}
+                                className="absolute right-2 top-[28px] h-7 w-7 flex items-center justify-center text-gray-400 hover:text-red-500"
+                                data-testid="approved-material-clear"
+                                aria-label="Clear"
+                              >×</button>
+                            )}
 
-                          {/* Approved material list — project items first, then full master catalog */}
-                          <div className="max-h-72 overflow-y-auto border rounded-lg divide-y" data-testid="approved-materials-list">
-                            {approvedMaterials
-                              .filter(m => {
-                                const q = materialSearch.toLowerCase();
-                                return !q
-                                  || (m.name || '').toLowerCase().includes(q)
-                                  || (m.brand || '').toLowerCase().includes(q)
-                                  || (m.category || '').toLowerCase().includes(q);
-                              })
-                              .map(mat => {
-                                const isSelected = materialForm.material_id === mat.material_id;
-                                const isProjectApproved = mat.project_approved || mat.source === 'project' || mat.source === 'package';
-                                return (
-                                  <button
-                                    key={mat.material_id}
-                                    type="button"
-                                    className={`w-full text-left px-3 py-2 text-xs sm:text-sm transition-colors ${isSelected ? 'bg-amber-50 border-l-4 border-l-amber-500' : 'hover:bg-gray-50'}`}
-                                    onClick={() => {
-                                      setMaterialForm({
-                                        ...materialForm,
-                                        material_id: mat.material_id,
-                                        material_name: mat.name,
-                                        brand: mat.brand || '',
-                                        unit: mat.unit || 'kg',
-                                        is_locked_from_package: !!mat.is_locked_from_package,
-                                        locked_estimated_rate: mat.locked_estimated_rate ?? null,
-                                      });
-                                      fetchVendorSuggestion(mat.name);
-                                    }}
-                                    data-testid={`approved-mat-${mat.material_id}`}
-                                  >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <div className="flex-1 min-w-0">
-                                        <span className="font-medium">{mat.name}</span>
-                                        {mat.brand && (
-                                          <span className="ml-2 text-[10px] sm:text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-medium">{mat.brand}</span>
-                                        )}
-                                        {isProjectApproved && (
-                                          <span className="ml-1 text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">project</span>
-                                        )}
-                                        {mat.is_locked_from_package && mat.locked_estimated_rate > 0 && (
-                                          <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] sm:text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 font-semibold border border-amber-200" title="Planning-locked price">
-                                            <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 11c0-1.657 1.343-3 3-3s3 1.343 3 3v3H6v-3c0-1.657 1.343-3 3-3s3 1.343 3 3z"/></svg>
-                                            ₹{Number(mat.locked_estimated_rate).toLocaleString('en-IN')}/{mat.unit || 'unit'}
-                                          </span>
-                                        )}
-                                        {!isProjectApproved && mat.category && (
-                                          <span className="ml-1 text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-medium capitalize">{mat.category}</span>
-                                        )}
-                                      </div>
-                                      <span className="text-gray-400 text-xs flex-shrink-0">{mat.unit}</span>
-                                    </div>
-                                    {mat.specification && <p className="text-[10px] text-gray-400 mt-0.5 truncate">{mat.specification}</p>}
-                                  </button>
-                                );
-                              })}
-                            {approvedMaterials.length === 0 && (
-                              <div className="text-center py-4 text-gray-400 text-xs">No materials available — try Custom / Other</div>
+                            {/* Approved material list — only visible when dropdown is open */}
+                            {materialDropdownOpen && (
+                              <div className="absolute z-30 left-0 right-0 mt-1 max-h-72 overflow-y-auto border rounded-lg divide-y bg-white shadow-lg" data-testid="approved-materials-list">
+                                {approvedMaterials
+                                  .filter(m => {
+                                    const q = materialSearch.toLowerCase();
+                                    return !q
+                                      || (m.name || '').toLowerCase().includes(q)
+                                      || (m.brand || '').toLowerCase().includes(q)
+                                      || (m.category || '').toLowerCase().includes(q);
+                                  })
+                                  .map(mat => {
+                                    const isSelected = materialForm.material_id === mat.material_id;
+                                    const isProjectApproved = mat.project_approved || mat.source === 'project' || mat.source === 'package';
+                                    return (
+                                      <button
+                                        key={mat.material_id}
+                                        type="button"
+                                        className={`w-full text-left px-3 py-2 text-xs sm:text-sm transition-colors ${isSelected ? 'bg-amber-50 border-l-4 border-l-amber-500' : 'hover:bg-gray-50'}`}
+                                        onClick={() => {
+                                          setMaterialForm({
+                                            ...materialForm,
+                                            material_id: mat.material_id,
+                                            material_name: mat.name,
+                                            brand: mat.brand || '',
+                                            unit: mat.unit || 'kg',
+                                            is_locked_from_package: !!mat.is_locked_from_package,
+                                            locked_estimated_rate: mat.locked_estimated_rate ?? null,
+                                          });
+                                          setMaterialSearch('');
+                                          setMaterialDropdownOpen(false);
+                                          fetchVendorSuggestion(mat.name);
+                                        }}
+                                        data-testid={`approved-mat-${mat.material_id}`}
+                                      >
+                                        <div className="flex items-center justify-between gap-2">
+                                          <div className="flex-1 min-w-0">
+                                            <span className="font-medium">{mat.name}</span>
+                                            {mat.brand && (
+                                              <span className="ml-2 text-[10px] sm:text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-medium">{mat.brand}</span>
+                                            )}
+                                            {isProjectApproved && (
+                                              <span className="ml-1 text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">project</span>
+                                            )}
+                                            {mat.is_locked_from_package && mat.locked_estimated_rate > 0 && (
+                                              <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] sm:text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 font-semibold border border-amber-200" title="Planning-locked price">
+                                                <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 11c0-1.657 1.343-3 3-3s3 1.343 3 3v3H6v-3c0-1.657 1.343-3 3-3s3 1.343 3 3z"/></svg>
+                                                ₹{Number(mat.locked_estimated_rate).toLocaleString('en-IN')}/{mat.unit || 'unit'}
+                                              </span>
+                                            )}
+                                            {!isProjectApproved && mat.category && (
+                                              <span className="ml-1 text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-medium capitalize">{mat.category}</span>
+                                            )}
+                                          </div>
+                                          <span className="text-gray-400 text-xs flex-shrink-0">{mat.unit}</span>
+                                        </div>
+                                        {mat.specification && <p className="text-[10px] text-gray-400 mt-0.5 truncate">{mat.specification}</p>}
+                                      </button>
+                                    );
+                                  })}
+                                {approvedMaterials.length === 0 && (
+                                  <div className="text-center py-4 text-gray-400 text-xs">No materials available — try Custom / Other</div>
+                                )}
+                              </div>
                             )}
                           </div>
 
