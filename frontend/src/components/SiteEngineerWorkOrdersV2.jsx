@@ -217,46 +217,17 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
         </Card>
       ))}
 
-      {/* Global DLR — contractor picker dialog. Lists every assigned
-          contractor on this project; selecting one jumps straight to that
-          WO's detail screen scrolled to the DLR Report tab. */}
-      <Dialog open={globalDlrOpen} onOpenChange={setGlobalDlrOpen}>
-        <DialogContent className="max-w-md" data-testid="se-wov2-global-dlr-dialog">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <ClipboardList className="h-5 w-5 text-amber-600" /> Record DLR — Pick Contractor
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Select the contractor for whom you want to record today&apos;s Daily Labour Report.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-72 overflow-y-auto rounded border divide-y" data-testid="se-wov2-contractor-list">
-            {workOrders.length === 0 ? (
-              <p className="text-center text-xs text-gray-400 py-6">No contractors assigned to this project.</p>
-            ) : workOrders.map(c => (
-              <button
-                key={c.work_order_id}
-                type="button"
-                onClick={() => {
-                  setGlobalDlrOpen(false);
-                  setDlrFor(c);
-                }}
-                className="w-full text-left px-3 py-2 hover:bg-amber-50/60 flex items-center justify-between gap-2"
-                data-testid={`se-wov2-contractor-pick-${c.work_order_id}`}
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 truncate">{c.contractor_name}</p>
-                  <p className="text-[11px] text-gray-500">{c.contractor_type || '—'} · WO {c.work_order_number || c.work_order_id}</p>
-                </div>
-                <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700 shrink-0">Record DLR</Badge>
-              </button>
-            ))}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setGlobalDlrOpen(false)} data-testid="se-wov2-global-dlr-cancel">Cancel</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Global DLR — Contractor-tabbed dialog. Each contractor becomes its
+          own tab with a stat card, date range + stage dropdown filters, and
+          a list of existing DLR entries. "Record DLR" inside the tab opens
+          the same DLRRecordDialog used everywhere else. */}
+      <GlobalDLRDialog
+        open={globalDlrOpen}
+        onOpenChange={setGlobalDlrOpen}
+        projectId={projectId}
+        workOrders={workOrders}
+        onRecord={(wo) => { setGlobalDlrOpen(false); setDlrFor(wo); }}
+      />
 
       {/* Record DLR popup — mounted at the list-view level so picking a
           contractor opens this directly without navigating. The popup
@@ -1905,5 +1876,244 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+
+// =====================================================================
+// Global DLR Dialog — tabs per contractor, each tab shows a stat card,
+// date range filter, stage dropdown filter (open stages only) and the
+// existing DLR entries scoped to the filter. "Record DLR" inside each
+// tab opens the standard DLRRecordDialog.
+// =====================================================================
+function GlobalDLRDialog({ open, onOpenChange, projectId, workOrders, onRecord }) {
+  const [activeWoId, setActiveWoId] = useState('');
+
+  useEffect(() => {
+    if (open && workOrders.length > 0 && !activeWoId) {
+      setActiveWoId(workOrders[0].work_order_id);
+    }
+    if (!open) setActiveWoId('');
+    /* eslint-disable-next-line */
+  }, [open, workOrders]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="se-wov2-global-dlr-dialog">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ClipboardList className="h-5 w-5 text-amber-600" /> Daily Labour Report
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            Browse DLR entries per contractor, filter by date range or stage, and record new labour.
+          </DialogDescription>
+        </DialogHeader>
+
+        {workOrders.length === 0 ? (
+          <p className="text-center text-xs text-gray-400 py-8">No contractors assigned to this project.</p>
+        ) : (
+          <Tabs value={activeWoId} onValueChange={setActiveWoId} className="w-full">
+            <TabsList className="flex w-full overflow-x-auto justify-start gap-1 h-auto p-1 bg-amber-50">
+              {workOrders.map(wo => (
+                <TabsTrigger
+                  key={wo.work_order_id}
+                  value={wo.work_order_id}
+                  className="text-xs whitespace-nowrap data-[state=active]:bg-amber-600 data-[state=active]:text-white"
+                  data-testid={`se-wov2-contractor-tab-${wo.work_order_id}`}
+                >
+                  {wo.contractor_name}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {workOrders.map(wo => (
+              <TabsContent key={wo.work_order_id} value={wo.work_order_id} className="mt-3">
+                <ContractorDLRCard
+                  projectId={projectId}
+                  workOrder={wo}
+                  onRecord={() => onRecord(wo)}
+                />
+              </TabsContent>
+            ))}
+          </Tabs>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} data-testid="se-wov2-global-dlr-cancel">Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Card shown inside each contractor tab: header stats + filters + DLR list
+function ContractorDLRCard({ projectId, workOrder, onRecord }) {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [stageId, setStageId] = useState('all');
+  const [openStages, setOpenStages] = useState([]);
+
+  const woId = workOrder.work_order_id;
+
+  // Load existing DLR entries (server-side date range filter)
+  const fetchDLR = async () => {
+    setLoading(true);
+    try {
+      const qs = new URLSearchParams();
+      if (dateFrom) qs.set('date_from', dateFrom);
+      if (dateTo) qs.set('date_to', dateTo);
+      const params = qs.toString() ? `?${qs.toString()}` : '';
+      const res = await axios.get(`${API}/projects/${projectId}/work-orders/${woId}/dlr${params}`);
+      setEntries(res.data || []);
+    } catch { setEntries([]); }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchDLR(); /* eslint-disable-next-line */ }, [woId, dateFrom, dateTo]);
+
+  // Open stages for this contractor (same filter rule as DLRRecordDialog)
+  useEffect(() => {
+    (async () => {
+      try {
+        const wr = await axios.get(`${API}/projects/${projectId}/work-orders/${woId}`);
+        const PENDING_RAB = new Set(['requested', 'pm_approved', 'qc_approved', 'planning_approved']);
+        const strictlyOpen = (s) => s.is_open === true && !(s.payment_requests || []).some(p => PENDING_RAB.has(p.status));
+        const stages = (wr.data?.stages || []).filter(strictlyOpen).map((s, idx) => ({
+          stage_id: s.stage_id,
+          stage_name: s.name || s.stage_name || `Stage ${idx + 1}`,
+          sl_no: s.sl_no || `S${idx + 1}`,
+        }));
+        setOpenStages(stages);
+      } catch { setOpenStages([]); }
+    })();
+  }, [projectId, woId]);
+
+  // Client-side stage filter
+  const filtered = useMemo(() => {
+    if (stageId === 'all') return entries;
+    return entries.filter(d => d.stage_id === stageId);
+  }, [entries, stageId]);
+
+  const totalWorkers = filtered.reduce((s, d) => s + (d.total_workers || 0), 0);
+  const totalCost = filtered.reduce((s, d) => s + (d.total_cost || 0), 0);
+  const totalDays = filtered.length;
+
+  const countByType = (dlr, type) => {
+    const e = (dlr.entries || []).find(x => x.type === type);
+    return e ? Number(e.count) || 0 : 0;
+  };
+
+  return (
+    <Card className="border-amber-200">
+      <CardHeader className="p-3 bg-gradient-to-r from-amber-50 to-amber-100 border-b">
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <div>
+            <CardTitle className="text-sm font-bold text-amber-900">{workOrder.contractor_name}</CardTitle>
+            <CardDescription className="text-[11px] text-amber-700">
+              {workOrder.contractor_type || '—'} · WO {workOrder.work_order_number || woId}
+            </CardDescription>
+          </div>
+          <Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white gap-1 h-7 text-xs" onClick={onRecord} data-testid={`se-wov2-record-dlr-${woId}`}>
+            <Plus className="h-3 w-3" /> Record DLR
+          </Button>
+        </div>
+        {/* Stat strip */}
+        <div className="grid grid-cols-3 gap-2 mt-2">
+          <div className="bg-white border border-amber-200 rounded p-2">
+            <p className="text-[10px] text-gray-500 uppercase">Days</p>
+            <p className="text-sm font-bold text-amber-900">{totalDays}</p>
+          </div>
+          <div className="bg-white border border-amber-200 rounded p-2">
+            <p className="text-[10px] text-gray-500 uppercase">Workers</p>
+            <p className="text-sm font-bold text-blue-900">{totalWorkers}</p>
+          </div>
+          <div className="bg-white border border-amber-200 rounded p-2">
+            <p className="text-[10px] text-gray-500 uppercase">Total Cost</p>
+            <p className="text-sm font-bold text-teal-700">{fmt(totalCost)}</p>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="p-3 space-y-3">
+        {/* Filters */}
+        <div className="flex items-end gap-2 flex-wrap">
+          <div>
+            <Label className="text-[10px] uppercase text-gray-500">From</Label>
+            <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-8 text-xs w-[140px]" data-testid={`se-wov2-dlr-from-${woId}`} />
+          </div>
+          <div>
+            <Label className="text-[10px] uppercase text-gray-500">To</Label>
+            <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-8 text-xs w-[140px]" data-testid={`se-wov2-dlr-to-${woId}`} />
+          </div>
+          <div className="flex-1 min-w-[180px]">
+            <Label className="text-[10px] uppercase text-gray-500">Stage (Open)</Label>
+            <Select value={stageId} onValueChange={setStageId}>
+              <SelectTrigger className="h-8 text-xs" data-testid={`se-wov2-dlr-stage-${woId}`}>
+                <SelectValue placeholder="All open stages" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All open stages</SelectItem>
+                {openStages.map(s => (
+                  <SelectItem key={s.stage_id} value={s.stage_id}>
+                    {s.sl_no} {s.stage_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {(dateFrom || dateTo || stageId !== 'all') && (
+            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setDateFrom(''); setDateTo(''); setStageId('all'); }} data-testid={`se-wov2-dlr-clear-${woId}`}>
+              Clear
+            </Button>
+          )}
+        </div>
+
+        {/* DLR entries list */}
+        {loading ? (
+          <p className="text-center text-xs text-gray-400 py-6">Loading...</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-center text-xs text-gray-400 py-6">
+            No DLR records{(dateFrom || dateTo || stageId !== 'all') ? ' for the selected filters' : ''}.
+          </p>
+        ) : (
+          <div className="overflow-x-auto border rounded">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-100 border-b">
+                <tr>
+                  <th className="text-left px-3 py-2 font-semibold text-gray-600">Date</th>
+                  <th className="text-left px-3 py-2 font-semibold text-gray-600">Stage</th>
+                  <th className="text-center px-2 py-2 font-semibold text-blue-700 w-12">Skl</th>
+                  <th className="text-center px-2 py-2 font-semibold text-amber-700 w-12">Semi</th>
+                  <th className="text-center px-2 py-2 font-semibold text-gray-700 w-12">Unsk</th>
+                  <th className="text-center px-2 py-2 font-semibold text-gray-600 w-14">Total</th>
+                  <th className="text-right px-3 py-2 font-semibold text-gray-600 w-24">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {filtered.map(d => (
+                  <tr key={d.dlr_id} className="hover:bg-amber-50/40" data-testid={`se-wov2-dlr-row-${d.dlr_id}`}>
+                    <td className="px-3 py-1.5 font-medium whitespace-nowrap">{fmtDate(d.date)}</td>
+                    <td className="px-3 py-1.5 text-gray-600 truncate max-w-[180px]">{d.stage_name || '—'}</td>
+                    <td className="px-2 py-1.5 text-center text-blue-700">{countByType(d, 'skilled')}</td>
+                    <td className="px-2 py-1.5 text-center text-amber-700">{countByType(d, 'semi_skilled')}</td>
+                    <td className="px-2 py-1.5 text-center text-gray-700">{countByType(d, 'unskilled')}</td>
+                    <td className="px-2 py-1.5 text-center font-bold">{d.total_workers || 0}</td>
+                    <td className="px-3 py-1.5 text-right font-semibold text-teal-700">{fmt(d.total_cost)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="bg-teal-50 border-t-2 border-teal-200">
+                <tr>
+                  <td className="px-3 py-2 font-bold text-teal-900" colSpan={5}>Total</td>
+                  <td className="px-2 py-2 text-center font-bold text-teal-900">{totalWorkers}</td>
+                  <td className="px-3 py-2 text-right font-bold text-teal-900">{fmt(totalCost)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

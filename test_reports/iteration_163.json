@@ -1,0 +1,37 @@
+{
+  "summary": "Tested both backend addition-cost sync (reject/correction/cheque-bounce) and frontend Global DLR Report dialog. Backend: 4/4 pytest pass — `_sync_addition_cost_received` correctly drops `additional_costs.income_received` to 0 and clears `cre_approved` in all three reverse paths, and the forward approve path still stamps it correctly. Frontend: Site Engineer login → Swathi 60L G+2 → Work Order (Labour) tab → Global DLR Report opens the new tabbed dialog with 3 contractor tabs, each tab renders the stat card (Days/Workers/Cost), date range filters, Open-Stage dropdown (correctly listing only currently open stages — 1 row), DLR entries table, and Record DLR which closes the global dialog and opens the existing wov2-dlr-popup.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "SE Project → DLR & DPR landing list", "issues": ["Pre-existing React warning: ProjectDLRDPRList renders rows with duplicate keys (3 rows have data-testid 'dlr-dpr-row-undefined'). Not related to this iteration's changes but worth fixing — id field on DLR rows is missing."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_addition_income_received_sync.py",
+    "/app/test_reports/pytest/addition_income_sync.xml"
+  ],
+  "action_items": [
+    "Optional: investigate why DLR list rows have undefined ids causing the React duplicate-key warning in ProjectDLRDPRList (out of scope for this change-set, but visible in console)."
+  ],
+  "critical_code_review_comments": [
+    "financial.py is ~6260 lines — far exceeds the 700-line guideline. Helper `_sync_addition_cost_received` is a good extraction but the file urgently needs to be split (income approvals, cheque lifecycle, accountant routes, cashflow each into their own modules).",
+    "_sync_addition_cost_received correctly excludes _id via projection and is idempotent — good. Threshold `received < cost_amount - 0.5` to flip `cre_approved=False` is sensible (handles float drift).",
+    "SiteEngineerWorkOrdersV2.jsx is 2120 lines and now hosts GlobalDLRDialog + ContractorDLRCard at the bottom. Recommend extracting them into separate files for readability and to keep this file under 700 lines.",
+    "Open-stage filter in ContractorDLRCard fetches from a single endpoint per WO — fine. Make sure the parent component invalidates entries after a new DLR is recorded (currently relies on the SE re-opening the dialog)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_addition_income_received_sync.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "engineer@constructionos.com / Demo@1234 (Site Engineer — works), admin@constructionos.com / Demo@1234 (Super Admin — works)",
+  "seed_data_creation": "Each backend test seeds + tears down its own TEST_-prefixed project/additional_cost/payment_stage/income/cheque docs. No production data touched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend addition-sync regression suite lives at /app/backend/tests/test_addition_income_received_sync.py (4 tests, all pass in ~57s). Frontend Global DLR Report uses these testids: se-wov2-global-dlr-btn, se-wov2-global-dlr-dialog, se-wov2-contractor-tab-{wo_id}, se-wov2-dlr-from-{wo_id}, se-wov2-dlr-to-{wo_id}, se-wov2-dlr-stage-{wo_id}, se-wov2-record-dlr-{wo_id}, wov2-dlr-popup. Tested project: proj_f66ab2fcaa58 (Swathi 60L G+2) has 3 work orders + 1 open stage.",
+  "rca of the issue": "N/A — both forward and reverse income/cost sync work correctly, and the redesigned Global DLR dialog renders all required testids and wires Record DLR → DLRRecordDialog as expected."
+}

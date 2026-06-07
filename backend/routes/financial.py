@@ -25,6 +25,44 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+# ==================== INTERNAL HELPERS ====================
+
+async def _sync_addition_cost_received(stage_id: str):
+    """Re-sync `additional_costs.income_received` to the linked payment_stage's
+    `amount_received` whenever the stage's received amount changes (income
+    rejected / sent-for-correction / cheque bounced). Without this the
+    Addition row on ProjectDetail keeps showing a stale `income_received`
+    value (and `cre_approved=True`) even though the money has been reversed
+    everywhere else — causing "ghost received" amounts in the Client Portal
+    and Planning boards.
+
+    Idempotent: safe to call repeatedly. Only acts on stages flagged as
+    additions with a linked_addition_id.
+    """
+    if not stage_id:
+        return
+    try:
+        stage = await db.payment_stages.find_one(
+            {"stage_id": stage_id},
+            {"_id": 0, "is_addition": 1, "linked_addition_id": 1, "amount_received": 1, "amount": 1},
+        )
+        if not stage or not stage.get("is_addition") or not stage.get("linked_addition_id"):
+            return
+        cost_id = stage["linked_addition_id"]
+        received = float(stage.get("amount_received", 0) or 0)
+        cost_amount = float(stage.get("amount", 0) or 0)
+        set_doc = {"income_received": received}
+        # If it dropped below the full-collection threshold, clear cre_approved
+        # so the row visibly returns to "With CRE · Payment Schedule" state.
+        if cost_amount and received < cost_amount - 0.5:
+            set_doc["cre_approved"] = False
+            set_doc["cre_approved_at"] = None
+        await db.additional_costs.update_one({"cost_id": cost_id}, {"$set": set_doc})
+    except Exception as e:
+        logger.warning(f"Addition-cost income_received resync skipped for stage {stage_id}: {e}")
+
+
 # ==================== INCOME MODULE ENDPOINTS ====================
 
 class IncomeCreate(BaseModel):
@@ -930,6 +968,8 @@ async def send_income_for_correction(income_id: str, payload: Dict[str, Any] = N
                     {"stage_id": stage_id},
                     {"$set": {"amount_received": new_received, "status": new_status}}
                 )
+            # Mirror the rollback onto linked additional_costs.income_received.
+            await _sync_addition_cost_received(stage_id)
         category = (inc.get("category") or "").lower()
         stage_label = (inc.get("stage") or "").lower()
         if category in ("advance", "advance_payment") or "advance" in stage_label:
@@ -1089,6 +1129,9 @@ async def reject_income(income_id: str, reason: str = "", user: User = Depends(g
                         {"stage_id": stage_id},
                         {"$set": {"amount_received": new_received, "status": new_status}}
                     )
+                # Mirror the rollback onto linked additional_costs.income_received
+                # so the Client Portal / Planning boards don't show ghost amounts.
+                await _sync_addition_cost_received(stage_id)
             # Advance amount rollback if applicable.
             category = (inc.get("category") or "").lower()
             stage_label = (inc.get("stage") or "").lower()
@@ -1134,6 +1177,8 @@ async def reject_income(income_id: str, reason: str = "", user: User = Depends(g
                     "accountant_rejected_by_name": user.name,
                 }}
             )
+            # Mirror the rollback to additional_costs.income_received for addition stages.
+            await _sync_addition_cost_received(payment_stage_id)
             project_name = inc.get("project_name") or "Project"
             stage_name = stage.get("stage_name") or stage.get("stage_label") or "stage"
             notif_count = 0
@@ -4547,6 +4592,8 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
         if paid_at is None:
             update["paid_at"] = None
         await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": update})
+        # Mirror the bounce-driven reduction onto linked additional_costs.income_received.
+        await _sync_addition_cost_received(stage_id)
         reversal_summary["stages_reverted"] += 1
         reversal_summary["stages_adjusted"].append({
             "stage_id": stage_id,
