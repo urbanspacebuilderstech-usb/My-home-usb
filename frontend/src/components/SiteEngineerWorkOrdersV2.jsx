@@ -667,6 +667,12 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  // Billing window for the RAB — From auto-fills (stage open date for RAB-01,
+  // last RAB's to_date + 1 for subsequent), To is always manual.
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [dlrPreview, setDlrPreview] = useState(null); // { rows, totals, ... }
+  const [dlrLoading, setDlrLoading] = useState(false);
   // RAB detail popup — opens when SE clicks "View" on a Payment Summary row.
   const [rabView, setRabView] = useState({ open: false, requestId: null });
 
@@ -701,8 +707,59 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
       } else {
         setSubTab('totalrab');
       }
+      // Auto-fill the From Date for the new/resubmit RAB:
+      //   • RAB-01 (no prior requests on this stage)  → stage.opened_at
+      //   • RAB-02+                                    → max(to_date) of prior + 1 day
+      //   • Resubmit                                   → keep the RAB's existing dates
+      const toISODate = (v) => {
+        if (!v) return '';
+        try { return new Date(v).toISOString().slice(0, 10); } catch { return ''; }
+      };
+      const addDays = (yyyy_mm_dd, n) => {
+        if (!yyyy_mm_dd) return '';
+        const d = new Date(yyyy_mm_dd + 'T00:00:00');
+        d.setDate(d.getDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      if (rework) {
+        setFromDate(toISODate(rework.from_date) || toISODate(stage.opened_at));
+        setToDate(toISODate(rework.to_date));
+      } else {
+        const priorWithTo = (stage.payment_requests || [])
+          .filter(p => p.to_date)
+          .sort((a, b) => (b.to_date || '').localeCompare(a.to_date || ''));
+        if (priorWithTo.length > 0) {
+          setFromDate(addDays(toISODate(priorWithTo[0].to_date), 1));
+        } else {
+          setFromDate(toISODate(stage.opened_at));
+        }
+        setToDate('');
+      }
+      setDlrPreview(null);
     }
   }, [stage]);
+
+  // Re-fetch DLR preview whenever both dates are valid and in the right order.
+  useEffect(() => {
+    if (!stage || !fromDate || !toDate) { setDlrPreview(null); return; }
+    if (fromDate > toDate) { setDlrPreview(null); return; }
+    let cancelled = false;
+    (async () => {
+      setDlrLoading(true);
+      try {
+        const r = await axios.get(
+          `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/dlrs-for-rab`,
+          { params: { from_date: fromDate, to_date: toDate } }
+        );
+        if (!cancelled) setDlrPreview(r.data);
+      } catch {
+        if (!cancelled) setDlrPreview(null);
+      } finally {
+        if (!cancelled) setDlrLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [fromDate, toDate, stage, projectId, wo]);
 
   if (!stage) return null;
 
@@ -717,20 +774,27 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
     const amt = parseFloat(amount || 0);
     if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return; }
     if (!stage.is_open) { toast.error('Stage is not yet opened by Planning'); return; }
+    if (fromDate && toDate && fromDate > toDate) { toast.error('From Date must be before To Date'); return; }
     setSubmitting(true);
     try {
+      const payload = {
+        amount: amt,
+        notes,
+        from_date: fromDate || null,
+        to_date: toDate || null,
+      };
       if (reworkPR) {
         // Resubmit the existing rejected RAB rather than create a new one
         await axios.post(
           `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}/payment-requests/${reworkPR.request_id}/se-resubmit`,
-          { amount: amt, notes },
+          payload,
         );
         toast.success(`${reworkPR.rab_number || 'RAB'} resubmitted — awaiting PM review`);
       } else {
-        const res = await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}/request-payment`, {
-          amount: amt,
-          notes,
-        });
+        const res = await axios.patch(
+          `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}/request-payment`,
+          payload,
+        );
         toast.success(`${res.data?.rab_number || 'RAB'} submitted — awaiting PM review`);
       }
       onSaved();
@@ -933,6 +997,145 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
               />
               <p className="text-[10px] text-gray-500 mt-0.5">Stage balance: {fmt(balance)} · Total: {fmt(stage.amount || 0)}</p>
             </div>
+
+            {/* Billing window — From auto-fills (stage opened / next-day after
+                last RAB), To is always SE-picked. Once both dates are valid we
+                fetch the DLR roll-up below as a billing reference for PM. */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs font-semibold flex items-center gap-1">
+                  <Calendar className="h-3 w-3" /> From Date
+                  <span className="text-[9px] font-normal text-gray-400 ml-1">(auto-filled)</span>
+                </Label>
+                <Input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  disabled={submitting}
+                  className="mt-1 h-9 text-xs"
+                  data-testid="wov2-rab-from-date"
+                />
+                <p className="text-[9px] text-gray-500 mt-0.5">
+                  {allRequests.filter(p => p.to_date).length > 0
+                    ? "Auto: day after last RAB's To Date"
+                    : "Auto: stage open date"}
+                </p>
+              </div>
+              <div>
+                <Label className="text-xs font-semibold flex items-center gap-1">
+                  <Calendar className="h-3 w-3" /> To Date <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  type="date"
+                  value={toDate}
+                  min={fromDate || undefined}
+                  onChange={(e) => setToDate(e.target.value)}
+                  disabled={submitting}
+                  className="mt-1 h-9 text-xs"
+                  data-testid="wov2-rab-to-date"
+                />
+                <p className="text-[9px] text-gray-500 mt-0.5">Manual selection</p>
+              </div>
+            </div>
+
+            {/* DLR Report — loaded once both dates are set. Shows every DLR in
+                the window with skilled / semi-skilled / unskilled headcounts
+                and an Eye affordance to inspect the full report. */}
+            {fromDate && toDate && fromDate <= toDate && (
+              <div className="border rounded-lg p-2 bg-indigo-50/30 border-indigo-200" data-testid="wov2-dlr-preview">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-xs font-semibold text-indigo-800 flex items-center gap-1">
+                    <ClipboardList className="h-3 w-3" /> DLR Report for this Billing Window
+                  </Label>
+                  {dlrPreview && (
+                    <span className="text-[9px] text-indigo-700 font-medium">
+                      {dlrPreview.days_with_dlr} / {dlrPreview.total_days_in_range} days
+                    </span>
+                  )}
+                </div>
+                {dlrLoading ? (
+                  <p className="text-[11px] text-gray-500 text-center py-2">Loading DLRs…</p>
+                ) : (!dlrPreview || dlrPreview.rows.length === 0) ? (
+                  <p className="text-[11px] text-gray-500 text-center py-3" data-testid="wov2-dlr-empty">
+                    No DLR records in this window.
+                  </p>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto rounded border border-indigo-200 bg-white">
+                      <table className="w-full text-[10px]">
+                        <thead className="bg-indigo-100 text-indigo-900">
+                          <tr>
+                            <th className="px-1.5 py-1 text-left">Date</th>
+                            <th className="px-1 py-1 text-left">Day</th>
+                            <th className="px-1.5 py-1 text-left">Work Summary</th>
+                            <th className="px-1 py-1 text-center">Sk</th>
+                            <th className="px-1 py-1 text-center">SS</th>
+                            <th className="px-1 py-1 text-center">Un</th>
+                            <th className="px-1 py-1 text-center font-bold">Total</th>
+                            <th className="px-1 py-1 text-center">View</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dlrPreview.rows.map((r) => (
+                            <tr key={r.report_id} className="border-t border-indigo-100" data-testid={`wov2-dlr-row-${r.report_id}`}>
+                              <td className="px-1.5 py-1 font-medium text-gray-800">
+                                {new Date(r.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                              </td>
+                              <td className="px-1 py-1 text-gray-600">
+                                {new Date(r.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short' })}
+                              </td>
+                              <td className="px-1.5 py-1 text-gray-700 max-w-[140px] truncate" title={r.notes}>{r.notes || '—'}</td>
+                              <td className="px-1 py-1 text-center font-semibold text-indigo-700">{r.skilled}</td>
+                              <td className="px-1 py-1 text-center font-semibold text-blue-700">{r.semi_skilled}</td>
+                              <td className="px-1 py-1 text-center font-semibold text-amber-700">{r.unskilled}</td>
+                              <td className="px-1 py-1 text-center font-bold text-gray-900">{r.total_workers}</td>
+                              <td className="px-1 py-1 text-center">
+                                <button
+                                  type="button"
+                                  className="text-violet-600 hover:text-violet-800"
+                                  title={`View DLR for ${r.date}\n${(r.entries || []).map(e => `${e.type}: ${e.count} × ₹${e.rate || 0}`).join('\n')}`}
+                                  data-testid={`wov2-dlr-view-${r.report_id}`}
+                                  onClick={() => {
+                                    const lines = (r.entries || []).map(e => `• ${e.type}: ${e.count} × ₹${e.rate || 0}/day = ₹${(e.count * (e.rate || 0)).toLocaleString('en-IN')}`).join('\n');
+                                    window.alert(`DLR ${r.date}\nReported by: ${r.reported_by_name || '—'}\n\n${r.notes ? r.notes + '\n\n' : ''}${lines}\n\nTotal: ${r.total_workers} workers · ${fmt(r.total_cost)}`);
+                                  }}
+                                >
+                                  <Eye className="h-3 w-3 inline" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                          {/* Totals footer — sums and average. */}
+                          <tr className="bg-indigo-50 border-t-2 border-indigo-300 font-bold">
+                            <td className="px-1.5 py-1 text-indigo-900" colSpan={3}>
+                              Total · {dlrPreview.days_with_dlr} day{dlrPreview.days_with_dlr === 1 ? '' : 's'}
+                            </td>
+                            <td className="px-1 py-1 text-center text-indigo-800">{dlrPreview.totals.skilled}</td>
+                            <td className="px-1 py-1 text-center text-blue-800">{dlrPreview.totals.semi_skilled}</td>
+                            <td className="px-1 py-1 text-center text-amber-800">{dlrPreview.totals.unskilled}</td>
+                            <td className="px-1 py-1 text-center text-gray-900">{dlrPreview.totals.total_workers}</td>
+                            <td className="px-1 py-1 text-center text-emerald-800">{fmt(dlrPreview.totals.total_cost)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between">
+                      <span className="text-[9px] text-gray-500">Sk · skilled  |  SS · semi-skilled  |  Un · unskilled</span>
+                      <button
+                        type="button"
+                        className="text-[10px] text-indigo-700 hover:underline font-semibold"
+                        onClick={() => setAmount(String(Math.round(dlrPreview.totals.total_cost || 0)))}
+                        data-testid="wov2-dlr-apply-cost"
+                        disabled={!dlrPreview.totals.total_cost}
+                      >
+                        Use DLR cost as RAB amount ({fmt(dlrPreview.totals.total_cost)})
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             <div>
               <Label className="text-xs font-semibold">Notes (optional)</Label>
               <Textarea

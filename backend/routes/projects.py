@@ -7830,6 +7830,93 @@ async def delete_project_work_order(project_id: str, work_order_id: str, user: U
 
 # ==================== WORK ORDER PAYMENT APPROVAL PIPELINE ====================
 
+@router.get("/projects/{project_id}/work-orders/{work_order_id}/dlrs-for-rab")
+async def dlrs_for_rab(
+    project_id: str,
+    work_order_id: str,
+    from_date: str = Query(...),
+    to_date: str = Query(...),
+    user: User = Depends(get_current_user),
+):
+    """Return DLR rows + skilled/semi-skilled/unskilled rollup for a date range.
+
+    Used by the Site Engineer "Request RAB" form: once the SE picks From/To
+    dates, the popup shows every DLR that falls in that window with totals.
+    The window is inclusive on both ends. DLRs that are project-level (no
+    `work_order_id`) are included so legacy data isn't lost.
+    """
+    if from_date > to_date:
+        raise HTTPException(status_code=400, detail="from_date must be <= to_date")
+
+    cursor = db.daily_labour_reports.find(
+        {
+            "project_id": project_id,
+            "date": {"$gte": from_date, "$lte": to_date},
+            "$or": [
+                {"work_order_id": work_order_id},
+                {"work_order_id": None},
+                {"work_order_id": {"$exists": False}},
+            ],
+        },
+        {"_id": 0},
+    ).sort("date", 1)
+    dlrs = await cursor.to_list(500)
+
+    def bucket(t):
+        """Map an arbitrary labour `type` string into one of the three skill
+        buckets the UI expects. Falls back to skilled for ambiguous tags."""
+        if not t:
+            return "skilled"
+        s = str(t).strip().lower()
+        if s in ("unskilled",) or s in ("helper", "labour", "coolie", "labourer", "mazdoor"):
+            return "unskilled"
+        if "semi" in s or s in ("painter helper",):
+            return "semi_skilled"
+        return "skilled"
+
+    rows = []
+    grand = {"skilled": 0, "semi_skilled": 0, "unskilled": 0, "total_workers": 0, "total_cost": 0}
+    for d in dlrs:
+        b = {"skilled": 0, "semi_skilled": 0, "unskilled": 0}
+        for e in (d.get("entries") or []):
+            b[bucket(e.get("type"))] += int(e.get("count") or 0)
+        tot = b["skilled"] + b["semi_skilled"] + b["unskilled"]
+        cost = float(d.get("total_cost") or 0)
+        rows.append({
+            "report_id": d.get("report_id"),
+            "date": d.get("date"),
+            "notes": d.get("notes", ""),
+            "reported_by_name": d.get("reported_by_name"),
+            "skilled": b["skilled"],
+            "semi_skilled": b["semi_skilled"],
+            "unskilled": b["unskilled"],
+            "total_workers": tot,
+            "total_cost": cost,
+            "entries": d.get("entries") or [],
+        })
+        for k in b:
+            grand[k] += b[k]
+        grand["total_workers"] += tot
+        grand["total_cost"] += cost
+
+    # Inclusive day-count between from_date and to_date.
+    try:
+        d1 = datetime.fromisoformat(from_date).date()
+        d2 = datetime.fromisoformat(to_date).date()
+        total_days = (d2 - d1).days + 1
+    except Exception:
+        total_days = len(rows)
+
+    return {
+        "rows": rows,
+        "totals": grand,
+        "from_date": from_date,
+        "to_date": to_date,
+        "days_with_dlr": len(rows),
+        "total_days_in_range": total_days,
+    }
+
+
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/request-payment")
 async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id: str, data: dict, user: User = Depends(get_current_user)):
     """Site Engineer requests PARTIAL payment for a stage. Can be called multiple times until stage total is paid."""
@@ -7893,6 +7980,12 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
                 "rejected_by_role": None, "rejected_by_name": None, "rejection_reason": None, "rejected_at": None,
                 "notes": data.get("notes", ""),
                 "dlr_summary": data.get("dlr_summary", ""),
+                # Period this RAB covers — `from_date` auto-fills from the
+                # stage open date for RAB-01 and from the previous RAB's
+                # to_date + 1 for subsequent ones. The SE may edit from_date.
+                # to_date is always SE-chosen. Both are YYYY-MM-DD strings.
+                "from_date": data.get("from_date") or None,
+                "to_date": data.get("to_date") or None,
                 "se_exceeds_balance": request_amount > balance + 0.01,
                 "se_balance_at_request": balance,
             }
@@ -8823,6 +8916,12 @@ async def se_resubmit_labour_payment(project_id: str, work_order_id: str, stage_
             pr["notes"] = new_notes
         if new_dlr is not None:
             pr["dlr_summary"] = new_dlr
+        # Resubmit can also update the RAB billing window (from/to date) — SE
+        # may have picked a wider window after re-running the DLR summary.
+        if data.get("from_date") is not None:
+            pr["from_date"] = data.get("from_date") or None
+        if data.get("to_date") is not None:
+            pr["to_date"] = data.get("to_date") or None
         pr["status"] = "requested"
         pr["resubmitted_by"] = user.user_id
         pr["resubmitted_by_name"] = user.name
