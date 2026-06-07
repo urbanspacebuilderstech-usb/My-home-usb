@@ -13,6 +13,18 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 7, 2026 — Global DLR Dialog Redesign + Addition Income-Received Rollback (P0/P1)
+- **Status**: ✅ COMPLETE & TESTED (testing_agent_v3_fork iteration_163 — 4/4 backend pytest pass, frontend Global DLR confirmed end-to-end)
+- **Frontend** (`/app/frontend/src/components/SiteEngineerWorkOrdersV2.jsx`):
+  - Replaced the simple "pick contractor" Global DLR dialog with a tabbed `GlobalDLRDialog` (one tab per contractor) + `ContractorDLRCard` (stat strip · From/To date filters · Open-Stage dropdown · existing DLR list · `Record DLR` opens existing DLRRecordDialog).
+  - Stage dropdown lists ONLY currently open stages (is_open=true AND no in-flight RAB), same rule already used by DLRRecordDialog.
+- **Backend** (`/app/backend/routes/financial.py`):
+  - NEW helper `_sync_addition_cost_received(stage_id)` re-syncs `additional_costs.income_received` to the linked payment_stage's `amount_received` (idempotent · clears `cre_approved` when below threshold).
+  - Wired into 3 reverse paths: `reject_income` (both branches), `send_income_for_correction`, `bounce_cheque` (per-stage reduction loop). Fixes the long-standing "ghost income_received" issue in Client Portal / Planning boards.
+- **Tests**: `/app/backend/tests/test_addition_income_received_sync.py` (4 cases — reject/correction/bounce + forward approve regression).
+
+
+
 ### Session — Jun 5, 2026 — RAB Phase 2: Planning OTP Gate on Signed RAB Downloads (P1)
 - **Status**: ✅ COMPLETE & DEPLOYED (curl-tested all 6 paths)
 - **Backend** (`/app/backend/routes/projects.py`):
