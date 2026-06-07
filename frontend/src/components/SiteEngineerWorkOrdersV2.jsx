@@ -433,6 +433,28 @@ function bucketsForStage(stage) {
 function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
   const stages = wo.stages || [];
   const [filterKey, setFilterKey] = useState('all'); // 'all' shows all stages
+  // Workflow mode toggle (set via Super Architect's Workflow Master Setup).
+  //   planning_open → only 3 simple buckets (Open / Locked / All)
+  //   se_request    → full 9-bucket SE-driven lifecycle dashboard
+  const [woStageFlow, setWoStageFlow] = useState('planning_open');
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await axios.get(`${API}/settings/workflow`);
+        if (r.data?.wo_stage_flow) setWoStageFlow(r.data.wo_stage_flow);
+      } catch {/* fall back to default */}
+    })();
+  }, []);
+  // Trim the bucket set when the SE-request flow is OFF — only the 3 core
+  // filters stay visible (no in-flight stage chips since SE can't request).
+  const visibleBuckets = woStageFlow === 'se_request'
+    ? STAGE_BUCKETS
+    : STAGE_BUCKETS.filter(b => ['all', 'open', 'locked'].includes(b.key));
+  // If the active filter no longer exists in the trimmed set, snap back to 'all'.
+  useEffect(() => {
+    if (!visibleBuckets.some(b => b.key === filterKey)) setFilterKey('all');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [woStageFlow]);
   const paidStages = stages.filter(s => {
     const released = (s.payment_requests || []).filter(p => p.status === 'approved').reduce((acc, p) => acc + (p.approved_amount || 0), 0);
     return released >= (s.amount || 0) && (s.amount || 0) > 0;
@@ -474,10 +496,12 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
         <Badge variant="outline" className="text-[10px]">{paidStages}/{stages.length} paid</Badge>
       </CardHeader>
 
-      {/* Lifecycle filter cards — click to filter the list. "All Stages" shows everything. */}
+      {/* Lifecycle filter cards — bucket set depends on the workflow mode:
+            • planning_open → 3 buckets (Open / Locked / All)
+            • se_request    → full 9-bucket SE-driven lifecycle */}
       <div className="px-3 pb-2" data-testid="wov2-stage-filter-cards">
-        <div className="grid grid-cols-3 sm:grid-cols-9 gap-1.5">
-          {STAGE_BUCKETS.map(b => {
+        <div className={`grid gap-1.5 ${visibleBuckets.length === 3 ? 'grid-cols-3' : 'grid-cols-3 sm:grid-cols-9'}`}>
+          {visibleBuckets.map(b => {
             const Icon = b.Icon;
             const active = filterKey === b.key;
             const count = counts[b.key] || 0;
