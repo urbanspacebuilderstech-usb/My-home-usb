@@ -1067,16 +1067,27 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                           <tr>
                             <th className="px-1.5 py-1 text-left">Date</th>
                             <th className="px-1 py-1 text-left">Day</th>
-                            <th className="px-1.5 py-1 text-left">Work Summary</th>
-                            <th className="px-1 py-1 text-center">Sk</th>
-                            <th className="px-1 py-1 text-center">SS</th>
-                            <th className="px-1 py-1 text-center">Un</th>
-                            <th className="px-1 py-1 text-center font-bold">Total</th>
+                            <th className="px-1 py-1 text-center" title="Skilled">Skilled</th>
+                            <th className="px-1 py-1 text-center" title="Semi-Skilled">Semi-Skilled</th>
+                            <th className="px-1 py-1 text-center" title="Unskilled">Unskilled</th>
+                            <th className="px-1 py-1 text-center font-bold">Workers</th>
+                            <th className="px-1 py-1 text-right font-bold">Day Total</th>
                             <th className="px-1 py-1 text-center">View</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {dlrPreview.rows.map((r) => (
+                          {dlrPreview.rows.map((r) => {
+                            // Cell renderer for one skill bucket — shows
+                            // "count × ₹rate = ₹amount" stacked for fast read.
+                            const cell = (count, rate, amount, colour) => (
+                              count > 0 ? (
+                                <div className="leading-tight">
+                                  <p className={`font-bold ${colour}`}>{count} × {fmt(rate)}</p>
+                                  <p className="text-emerald-700 font-semibold text-[9px]">= {fmt(amount)}</p>
+                                </div>
+                              ) : <span className="text-gray-300">—</span>
+                            );
+                            return (
                             <tr key={r.report_id} className="border-t border-indigo-100" data-testid={`wov2-dlr-row-${r.report_id}`}>
                               <td className="px-1.5 py-1 font-medium text-gray-800">
                                 {new Date(r.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
@@ -1084,16 +1095,16 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                               <td className="px-1 py-1 text-gray-600">
                                 {new Date(r.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short' })}
                               </td>
-                              <td className="px-1.5 py-1 text-gray-700 max-w-[140px] truncate" title={r.notes}>{r.notes || '—'}</td>
-                              <td className="px-1 py-1 text-center font-semibold text-indigo-700">{r.skilled}</td>
-                              <td className="px-1 py-1 text-center font-semibold text-blue-700">{r.semi_skilled}</td>
-                              <td className="px-1 py-1 text-center font-semibold text-amber-700">{r.unskilled}</td>
+                              <td className="px-1 py-1 text-center">{cell(r.skilled, r.skilled_rate, r.skilled_cost, 'text-indigo-700')}</td>
+                              <td className="px-1 py-1 text-center">{cell(r.semi_skilled, r.semi_skilled_rate, r.semi_skilled_cost, 'text-blue-700')}</td>
+                              <td className="px-1 py-1 text-center">{cell(r.unskilled, r.unskilled_rate, r.unskilled_cost, 'text-amber-700')}</td>
                               <td className="px-1 py-1 text-center font-bold text-gray-900">{r.total_workers}</td>
+                              <td className="px-1 py-1 text-right font-bold text-emerald-700">{fmt(r.total_cost)}</td>
                               <td className="px-1 py-1 text-center">
                                 <button
                                   type="button"
                                   className="text-violet-600 hover:text-violet-800"
-                                  title={`View DLR for ${r.date}\n${(r.entries || []).map(e => `${e.type}: ${e.count} × ₹${e.rate || 0}`).join('\n')}`}
+                                  title={`View DLR for ${r.date}`}
                                   data-testid={`wov2-dlr-view-${r.report_id}`}
                                   onClick={() => {
                                     const lines = (r.entries || []).map(e => `• ${e.type}: ${e.count} × ₹${e.rate || 0}/day = ₹${(e.count * (e.rate || 0)).toLocaleString('en-IN')}`).join('\n');
@@ -1104,23 +1115,50 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                                 </button>
                               </td>
                             </tr>
-                          ))}
-                          {/* Totals footer — sums and average. */}
+                            );
+                          })}
+                          {/* Grand Total — counts, totals per bucket and the
+                              overall sum across the picked billing window. */}
                           <tr className="bg-indigo-50 border-t-2 border-indigo-300 font-bold">
-                            <td className="px-1.5 py-1 text-indigo-900" colSpan={3}>
-                              Total · {dlrPreview.days_with_dlr} day{dlrPreview.days_with_dlr === 1 ? '' : 's'}
+                            <td className="px-1.5 py-1 text-indigo-900" colSpan={2}>
+                              Total · {dlrPreview.days_with_dlr}/{dlrPreview.total_days_in_range} day{dlrPreview.total_days_in_range === 1 ? '' : 's'}
                             </td>
-                            <td className="px-1 py-1 text-center text-indigo-800">{dlrPreview.totals.skilled}</td>
-                            <td className="px-1 py-1 text-center text-blue-800">{dlrPreview.totals.semi_skilled}</td>
-                            <td className="px-1 py-1 text-center text-amber-800">{dlrPreview.totals.unskilled}</td>
+                            <td className="px-1 py-1 text-center">
+                              <div className="leading-tight">
+                                <p className="text-indigo-800">{dlrPreview.totals.skilled}</p>
+                                <p className="text-emerald-700 font-semibold text-[9px]">{fmt(dlrPreview.totals.skilled_cost)}</p>
+                              </div>
+                            </td>
+                            <td className="px-1 py-1 text-center">
+                              <div className="leading-tight">
+                                <p className="text-blue-800">{dlrPreview.totals.semi_skilled}</p>
+                                <p className="text-emerald-700 font-semibold text-[9px]">{fmt(dlrPreview.totals.semi_skilled_cost)}</p>
+                              </div>
+                            </td>
+                            <td className="px-1 py-1 text-center">
+                              <div className="leading-tight">
+                                <p className="text-amber-800">{dlrPreview.totals.unskilled}</p>
+                                <p className="text-emerald-700 font-semibold text-[9px]">{fmt(dlrPreview.totals.unskilled_cost)}</p>
+                              </div>
+                            </td>
                             <td className="px-1 py-1 text-center text-gray-900">{dlrPreview.totals.total_workers}</td>
-                            <td className="px-1 py-1 text-center text-emerald-800">{fmt(dlrPreview.totals.total_cost)}</td>
+                            <td className="px-1 py-1 text-right text-emerald-800 text-[11px]">{fmt(dlrPreview.totals.total_cost)}</td>
+                            <td />
+                          </tr>
+                          {/* Dedicated Grand Total banner row — single big
+                              figure so PM can verify the billing window. */}
+                          <tr className="bg-emerald-50 border-t border-emerald-200">
+                            <td colSpan={6} className="px-1.5 py-1.5 text-right font-bold text-emerald-900 uppercase tracking-wider text-[10px]">
+                              Grand Total
+                            </td>
+                            <td className="px-1 py-1.5 text-right font-extrabold text-emerald-800 text-[12px]">{fmt(dlrPreview.totals.total_cost)}</td>
+                            <td />
                           </tr>
                         </tbody>
                       </table>
                     </div>
                     <div className="mt-1 flex items-center justify-between">
-                      <span className="text-[9px] text-gray-500">Sk · skilled  |  SS · semi-skilled  |  Un · unskilled</span>
+                      <span className="text-[9px] text-gray-500">Each cell: workers × per-day rate = amount</span>
                       <button
                         type="button"
                         className="text-[10px] text-indigo-700 hover:underline font-semibold"

@@ -7875,13 +7875,29 @@ async def dlrs_for_rab(
         return "skilled"
 
     rows = []
-    grand = {"skilled": 0, "semi_skilled": 0, "unskilled": 0, "total_workers": 0, "total_cost": 0}
+    grand = {
+        "skilled": 0, "semi_skilled": 0, "unskilled": 0,
+        "skilled_cost": 0, "semi_skilled_cost": 0, "unskilled_cost": 0,
+        "total_workers": 0, "total_cost": 0,
+    }
     for d in dlrs:
         b = {"skilled": 0, "semi_skilled": 0, "unskilled": 0}
+        bcost = {"skilled": 0.0, "semi_skilled": 0.0, "unskilled": 0.0}
         for e in (d.get("entries") or []):
-            b[bucket(e.get("type"))] += int(e.get("count") or 0)
+            key = bucket(e.get("type"))
+            cnt = int(e.get("count") or 0)
+            rate = float(e.get("rate") or 0)
+            b[key] += cnt
+            bcost[key] += cnt * rate
         tot = b["skilled"] + b["semi_skilled"] + b["unskilled"]
-        cost = float(d.get("total_cost") or 0)
+        # Prefer stored total_cost when it matches; fall back to computed.
+        stored_cost = float(d.get("total_cost") or 0)
+        computed_cost = bcost["skilled"] + bcost["semi_skilled"] + bcost["unskilled"]
+        cost = stored_cost if stored_cost > 0 else computed_cost
+        # Per-bucket average daily rate (weighted, in case multiple labour
+        # types collapse into the same skill bucket with different rates).
+        def avg_rate(cnt, amt):
+            return round(amt / cnt, 2) if cnt else 0
         rows.append({
             "report_id": d.get("report_id"),
             "date": d.get("date"),
@@ -7890,12 +7906,21 @@ async def dlrs_for_rab(
             "skilled": b["skilled"],
             "semi_skilled": b["semi_skilled"],
             "unskilled": b["unskilled"],
+            "skilled_rate": avg_rate(b["skilled"], bcost["skilled"]),
+            "semi_skilled_rate": avg_rate(b["semi_skilled"], bcost["semi_skilled"]),
+            "unskilled_rate": avg_rate(b["unskilled"], bcost["unskilled"]),
+            "skilled_cost": round(bcost["skilled"], 2),
+            "semi_skilled_cost": round(bcost["semi_skilled"], 2),
+            "unskilled_cost": round(bcost["unskilled"], 2),
             "total_workers": tot,
             "total_cost": cost,
             "entries": d.get("entries") or [],
         })
         for k in b:
             grand[k] += b[k]
+        grand["skilled_cost"] += bcost["skilled"]
+        grand["semi_skilled_cost"] += bcost["semi_skilled"]
+        grand["unskilled_cost"] += bcost["unskilled"]
         grand["total_workers"] += tot
         grand["total_cost"] += cost
 
