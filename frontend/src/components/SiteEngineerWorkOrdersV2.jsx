@@ -412,6 +412,9 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
 // `bucketsForStage` returns an ARRAY of bucket keys, and counts/filtering use
 // any-match semantics.
 const STAGE_BUCKETS = [
+  { key: 'simple_open',      label: 'Open Stage',         Icon: Unlock,        color: 'green',   pillBg: 'bg-green-50 border-green-200 text-green-700',     activeBg: 'bg-green-600 text-white border-green-600' },
+  { key: 'simple_completed', label: 'Completed',          Icon: CheckCheck,    color: 'emerald', pillBg: 'bg-emerald-50 border-emerald-200 text-emerald-700', activeBg: 'bg-emerald-600 text-white border-emerald-600' },
+  { key: 'simple_locked',    label: 'Locked Stages',      Icon: Lock,          color: 'gray',    pillBg: 'bg-gray-50 border-gray-200 text-gray-700',        activeBg: 'bg-gray-700 text-white border-gray-700' },
   { key: 'open',     label: 'Open Stage',         Icon: Unlock,        color: 'green',   pillBg: 'bg-green-50 border-green-200 text-green-700',     activeBg: 'bg-green-600 text-white border-green-600' },
   { key: 'locked',   label: 'Locked Stages',      Icon: Lock,          color: 'gray',    pillBg: 'bg-gray-50 border-gray-200 text-gray-700',        activeBg: 'bg-gray-700 text-white border-gray-700' },
   { key: 'all',      label: 'All Stages',         Icon: ClipboardList, color: 'violet',  pillBg: 'bg-violet-50 border-violet-200 text-violet-700',   activeBg: 'bg-violet-600 text-white border-violet-600' },
@@ -431,6 +434,21 @@ function bucketsForStage(stage) {
   const workComplete = !!stage.work_complete;
   const set = new Set();
   set.add('all');
+
+  // ---- Simple-mode (planning_open flow) buckets ----
+  // These are computed for EVERY stage so the SE / Planning simple view
+  // can group stages by their high-level state without caring about the
+  // RAB approval sub-states. A stage with an Awaiting-Accountant RAB
+  // still belongs in "Open Stage" because Planning has unlocked it for
+  // work — it's just the payment that is in flight.
+  if (fullyPaid) {
+    set.add('simple_completed');
+  } else if (stage.is_open === true) {
+    set.add('simple_open');
+  } else {
+    set.add('simple_locked');
+  }
+
   // Truly finished requires BOTH payment done AND work complete.
   if ((stage.stage_status === 'finished' || stage.finished_at) && workComplete) {
     set.add('finished');
@@ -482,10 +500,11 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
     })();
   }, []);
   // Trim the bucket set when the SE-request flow is OFF — only the 3 core
-  // filters stay visible (no in-flight stage chips since SE can't request).
+  // simple filters stay visible (Open / Completed / Locked + All) without
+  // the in-flight RAB sub-states.
   const visibleBuckets = woStageFlow === 'se_request'
-    ? STAGE_BUCKETS
-    : STAGE_BUCKETS.filter(b => ['all', 'open', 'locked'].includes(b.key));
+    ? STAGE_BUCKETS.filter(b => !b.key.startsWith('simple_'))
+    : STAGE_BUCKETS.filter(b => ['simple_open', 'simple_completed', 'simple_locked', 'all'].includes(b.key));
   // If the active filter no longer exists in the trimmed set, snap back to 'all'.
   useEffect(() => {
     if (!visibleBuckets.some(b => b.key === filterKey)) setFilterKey('all');
@@ -499,7 +518,7 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
   // Pre-bucket every stage once so cards + list filter share the same logic
   const stageBuckets = useMemo(() => stages.map(s => bucketsForStage(s)), [stages]);
   const counts = useMemo(() => {
-    const c = { all: 0, open: 0, locked: 0, request: 0, planning: 0, accountant: 0, finished: 0 };
+    const c = { all: 0, open: 0, locked: 0, request: 0, planning: 0, accountant: 0, finished: 0, simple_open: 0, simple_completed: 0, simple_locked: 0 };
     stageBuckets.forEach(set => set.forEach(k => { c[k] = (c[k] || 0) + 1; }));
     return c;
   }, [stageBuckets]);
