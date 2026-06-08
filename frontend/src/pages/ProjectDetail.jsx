@@ -10386,6 +10386,7 @@ export default function ProjectDetail() {
                                         const balance = Math.max(0, (Number(st.amount) || 0) - released);
                                         const stWithFlag = { ...st, _fullyPaid: (Number(st.amount) || 0) > 0 && released >= (Number(st.amount) || 0) };
                                         const cfg = getStageStatusConfig(st.status, st.is_open, stWithFlag);
+                                        const showApprove = canApproveStage(st);
                                         const isExp = expandedWoStages[`l_${st.stage_id}`];
                                         const isStageOpen = st.is_open === true;
                                         const isCompleted = stWithFlag._fullyPaid;
