@@ -210,10 +210,14 @@ export default function CREBoard() {
   // Payment Collected (ledger)
   const [incomeCollected, setIncomeCollected] = useState([]);
 
-  // CRE Payment Schedule tab — month-wise view (mirrors Planning's schedule)
+  // CRE Payment Schedule tab — defaults to "All Months" so a fresh login
+  // lands on the full pipeline (Pending = N, Partial = N across every
+  // month) instead of just the current month's 1-2 due rows. Switch back
+  // to a single month via Prev/Next or the date selector.
   const todayPS = new Date();
   const [psMonth, setPsMonth] = useState(todayPS.getMonth() + 1);
   const [psYear, setPsYear] = useState(todayPS.getFullYear());
+  const [psAllMonths, setPsAllMonths] = useState(true);
   const [psData, setPsData] = useState({ entries: [], summary: {} });
   const [psLoading, setPsLoading] = useState(false);
   const [psSubTab, setPsSubTab] = useState('pending'); // pending | partial | collected | all
@@ -265,11 +269,14 @@ export default function CREBoard() {
 
   useEffect(() => { fetchData(); }, []);
 
-  // Payment Schedule fetcher (mirrors Planning's monthly schedule)
+  // Payment Schedule fetcher (mirrors Planning's monthly schedule). When
+  // `psAllMonths` is on, ask the backend for every payable stage across
+  // every month so the badge counts reflect the whole pipeline.
   const fetchPaymentSchedule = async (m = psMonth, y = psYear) => {
     setPsLoading(true);
     try {
-      const r = await axios.get(`${API}/planning/monthly-schedule`, { params: { month: m, year: y } });
+      const params = psAllMonths ? { all_months: true } : { month: m, year: y };
+      const r = await axios.get(`${API}/planning/monthly-schedule`, { params });
       setPsData(r.data || { entries: [], summary: {} });
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to load payment schedule');
@@ -277,7 +284,7 @@ export default function CREBoard() {
       setPsLoading(false);
     }
   };
-  useEffect(() => { fetchPaymentSchedule(psMonth, psYear); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [psMonth, psYear]);
+  useEffect(() => { fetchPaymentSchedule(psMonth, psYear); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [psMonth, psYear, psAllMonths]);
 
   // ── Bulk delete on CRE Payment Schedule ──────────────────────────────
   // Backend has a per-entry delete that handles three cases:
@@ -307,10 +314,13 @@ export default function CREBoard() {
   useEffect(() => { setPsSelected(new Set()); }, [psSubTab, psMonth, psYear]);
 
   const shiftPsMonth = (delta) => {
+    // Navigating prev/next implicitly switches off the "all months" view
+    // and zooms into the resulting month.
     let m = psMonth + delta;
     let y = psYear;
     if (m < 1) { m = 12; y -= 1; }
     if (m > 12) { m = 1; y += 1; }
+    setPsAllMonths(false);
     setPsMonth(m);
     setPsYear(y);
   };
@@ -1265,17 +1275,47 @@ export default function CREBoard() {
                             : dateFiltered;
               return (
                 <div className="space-y-4">
-                  {/* Month nav */}
+                  {/* Month nav — when psAllMonths is true the centre label
+                      shows "All Months" with a "This Month" shortcut; Prev/Next
+                      implicitly zoom into a single month. */}
                   <Card>
                     <CardContent className="p-3">
                       <div className="flex items-center justify-between flex-wrap gap-2">
                         <div className="flex items-center gap-3">
                           <Button size="sm" variant="outline" onClick={() => shiftPsMonth(-1)} data-testid="ps-prev-month">‹ Prev</Button>
                           <div className="text-center min-w-[140px]">
-                            <p className="text-lg font-bold text-gray-900" data-testid="ps-current-month">{MONTHS[psMonth - 1]} {psYear}</p>
+                            <p className="text-lg font-bold text-gray-900" data-testid="ps-current-month">
+                              {psAllMonths ? 'All Months' : `${MONTHS[psMonth - 1]} ${psYear}`}
+                            </p>
                             <p className="text-xs text-gray-500">CRE Payment Schedule</p>
                           </div>
                           <Button size="sm" variant="outline" onClick={() => shiftPsMonth(1)} data-testid="ps-next-month">Next ›</Button>
+                          {psAllMonths ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                              onClick={() => {
+                                setPsAllMonths(false);
+                                const t = new Date();
+                                setPsMonth(t.getMonth() + 1);
+                                setPsYear(t.getFullYear());
+                              }}
+                              data-testid="ps-zoom-current"
+                            >
+                              This Month
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-violet-300 text-violet-700 hover:bg-violet-50"
+                              onClick={() => setPsAllMonths(true)}
+                              data-testid="ps-show-all"
+                            >
+                              All Months
+                            </Button>
+                          )}
                         </div>
                         <Button size="sm" variant="outline" onClick={() => fetchPaymentSchedule()} data-testid="ps-refresh">
                           <RefreshCw className="h-4 w-4 mr-1" /> Refresh

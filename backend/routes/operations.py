@@ -1861,8 +1861,9 @@ async def get_payment_schedule_overview(user: User = Depends(get_current_user)):
 
 @router.get("/planning/monthly-schedule")
 async def get_monthly_schedule(
-    month: int = Query(..., ge=1, le=12),
-    year: int = Query(..., ge=2020, le=2050),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    year: Optional[int] = Query(None, ge=2020, le=2050),
+    all_months: bool = Query(False, description="When true, return every payable stage across every month (ignores month/year filter)."),
     user: User = Depends(get_current_user)
 ):
     """Monthly payment schedule with **strict single-step carryover**.
@@ -1874,6 +1875,10 @@ async def get_monthly_schedule(
         - Uncollected stages with due-date PASSED → show in **current calendar month** (carried)
     • Past-due overdue items never appear in their original month after carry.
     • Original `expected_payment_date` is preserved (carryover info is computed, not persisted).
+
+    Set `all_months=true` to bypass the month filter and return every payable
+    stage regardless of effective month — the CRE/Planning boards use this
+    so a fresh login lands on the full pipeline instead of a single month.
     """
     allowed = [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]
     if user.role not in allowed:
@@ -1882,6 +1887,13 @@ async def get_monthly_schedule(
     today = datetime.now(timezone.utc).date()
     today_month = today.month
     today_year = today.year
+    # When month/year are omitted, default to current month so the legacy
+    # carryover/partial-split logic below still has a reference frame. The
+    # `all_months` flag widens the final inclusion check, not these helpers.
+    if month is None:
+        month = today_month
+    if year is None:
+        year = today_year
     is_current_month_view = (month == today_month and year == today_year)
 
     def _parse_date(val):
@@ -2021,8 +2033,8 @@ async def get_monthly_schedule(
             # display "Partial" with the right received/balance figures.
             same_month = (coll_month == bal_month and coll_year == bal_year)
 
-            if coll_month == month and coll_year == year and not same_month:
-                if (stage.get("stage_id"), month, year) not in hide_keys:
+            if all_months or (coll_month == month and coll_year == year and not same_month):
+                if (stage.get("stage_id"), coll_month if all_months else month, coll_year if all_months else year) not in hide_keys:
                     matching_stages.append({
                         "stage": stage,
                         "manual_entry": manual,
@@ -2034,8 +2046,8 @@ async def get_monthly_schedule(
                         "virtual_received": rec,
                         "virtual_balance": 0,
                     })
-            if bal_month == month and bal_year == year:
-                if (stage.get("stage_id"), month, year) not in hide_keys:
+            if all_months or (bal_month == month and bal_year == year):
+                if (stage.get("stage_id"), bal_month if all_months else month, bal_year if all_months else year) not in hide_keys:
                     matching_stages.append({
                         "stage": stage,
                         "manual_entry": manual,
@@ -2071,10 +2083,10 @@ async def get_monthly_schedule(
                 effective_month, effective_year = planned_month, planned_year
                 is_carryover = False
 
-        if effective_month == month and effective_year == year:
+        if all_months or (effective_month == month and effective_year == year):
             # Honor hide markers — Planning explicitly suppressed this stage
             # from this month via the trash icon on the monthly view.
-            if (stage.get("stage_id"), month, year) in hide_keys:
+            if (stage.get("stage_id"), effective_month if all_months else month, effective_year if all_months else year) in hide_keys:
                 continue
             matching_stages.append({
                 "stage": stage,
