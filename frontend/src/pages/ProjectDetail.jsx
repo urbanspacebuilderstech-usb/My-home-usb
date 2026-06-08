@@ -1929,25 +1929,38 @@ export default function ProjectDetail() {
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to open stage'); }
   };
 
-  const getStageStatusConfig = (status, isOpen) => {
-    if (status === 'pending' && isOpen) {
-      return { label: 'Open', className: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
-    }
-    const map = {
-      pending: { label: 'Locked', className: 'bg-gray-100 text-gray-700 border-gray-300' },
-      requested: { label: 'Payment Requested', className: 'bg-amber-100 text-amber-800 border-amber-300' },
-      pm_approved: { label: 'PM Approved', className: 'bg-blue-100 text-blue-800 border-blue-300' },
-      planning_approved: { label: 'Planning Approved', className: 'bg-indigo-100 text-indigo-800 border-indigo-300' },
-      approved: { label: 'Paid', className: 'bg-green-100 text-green-800 border-green-300' },
-      rejected: { label: 'Rejected', className: 'bg-red-100 text-red-800 border-red-300' },
-    };
-    return map[status] || { label: status, className: 'bg-gray-100 text-gray-600' };
+  const handleLockStage = async (woId, stageId) => {
+    try {
+      await axios.patch(`${API}/projects/${projectId}/work-orders/${woId}/stages/${stageId}/lock`);
+      toast.success('Stage locked');
+      fetchWorkOrders();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to lock stage'); }
   };
 
-  // Bucket a stage into one of the WO → Stages sub-tabs:
-  //   in_process → is_open=true   (Planning has unlocked — SE can act / workflow can move)
-  //   locked     → is_open!=true  (still locked — SE cannot act yet)
-  const stageBucketOf = (st) => (st.is_open === true ? 'in_process' : 'locked');
+  // Returns Open / Locked / Completed only — RAB approval sub-states
+  // (Awaiting PM/Planning/Accountant, Paid for one RAB, etc.) are NOT
+  // stage statuses and must not be shown here. They live on the RAB row.
+  const getStageStatusConfig = (status, isOpen, stage) => {
+    if (stage && stage._fullyPaid) {
+      return { label: 'Completed', className: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
+    }
+    if (isOpen) {
+      return { label: 'Open', className: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
+    }
+    return { label: 'Locked', className: 'bg-gray-100 text-gray-700 border-gray-300' };
+  };
+
+  // Bucket a stage into one of: open / locked / completed
+  //   completed → released across all RABs >= stage amount
+  //   open      → is_open=true (regardless of in-flight RABs)
+  //   locked    → otherwise
+  const stageBucketOf = (st) => {
+    const released = (st.payment_requests || []).filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
+    const amount = Number(st.amount) || 0;
+    if (amount > 0 && released >= amount) return 'completed';
+    if (st.is_open === true) return 'open';
+    return 'locked';
+  };
 
   const canApproveStage = (stage) => {
     if (!user) return false;
@@ -9151,19 +9164,20 @@ export default function ProjectDetail() {
                             </TabsContent>
                             <TabsContent value="stages" className="p-3">
                               {wo.stages?.length > 0 ? (() => {
-                                const counts = { in_process: 0, locked: 0, all: wo.stages.length };
+                                const counts = { open: 0, locked: 0, completed: 0, all: wo.stages.length };
                                 wo.stages.forEach(s => { counts[stageBucketOf(s)]++; });
                                 const filteredStages = stagesBucket === 'all'
                                   ? wo.stages.map((st, i) => ({ st, i }))
                                   : wo.stages.map((st, i) => ({ st, i })).filter(({ st }) => stageBucketOf(st) === stagesBucket);
                                 return (
                                 <div className="space-y-2">
-                                  {/* Sub-tab segmentation: In Process | Locked | All */}
+                                  {/* Sub-tab segmentation: Open | Locked | Completed | All */}
                                   <div className="flex items-center gap-2 mb-3 pb-1 overflow-x-auto" data-testid="wo-stages-subtabs">
                                     {[
-                                      { id: 'in_process', label: 'In Process', cnt: counts.in_process, base: 'border-emerald-300 bg-emerald-50 text-emerald-800', active: 'border-emerald-600 bg-emerald-100 ring-2 ring-emerald-300 text-emerald-900' },
-                                      { id: 'locked',     label: 'Locked',     cnt: counts.locked,     base: 'border-gray-300 bg-gray-50 text-gray-700',          active: 'border-gray-500 bg-gray-200 ring-2 ring-gray-300 text-gray-900' },
-                                      { id: 'all',        label: 'All',        cnt: counts.all,        base: 'border-violet-300 bg-violet-50 text-violet-800',    active: 'border-violet-600 bg-violet-100 ring-2 ring-violet-300 text-violet-900' },
+                                      { id: 'open',      label: 'Open',      cnt: counts.open,      base: 'border-emerald-300 bg-emerald-50 text-emerald-800', active: 'border-emerald-600 bg-emerald-100 ring-2 ring-emerald-300 text-emerald-900' },
+                                      { id: 'locked',    label: 'Locked',    cnt: counts.locked,    base: 'border-gray-300 bg-gray-50 text-gray-700',          active: 'border-gray-500 bg-gray-200 ring-2 ring-gray-300 text-gray-900' },
+                                      { id: 'completed', label: 'Completed', cnt: counts.completed, base: 'border-teal-300 bg-teal-50 text-teal-800',          active: 'border-teal-600 bg-teal-100 ring-2 ring-teal-300 text-teal-900' },
+                                      { id: 'all',       label: 'All',       cnt: counts.all,       base: 'border-violet-300 bg-violet-50 text-violet-800',    active: 'border-violet-600 bg-violet-100 ring-2 ring-violet-300 text-violet-900' },
                                     ].map(t => {
                                       const isActive = stagesBucket === t.id;
                                       return (
@@ -9183,12 +9197,19 @@ export default function ProjectDetail() {
                                   {filteredStages.length === 0 ? (
                                     <p className="text-gray-400 text-center py-6 text-sm" data-testid="wo-stages-empty">No stages in this bucket.</p>
                                   ) : filteredStages.map(({ st, i }) => {
-                                    const cfg = getStageStatusConfig(st.status, st.is_open);
+                                    // Compute released + in-approval totals once so the stage
+                                    // header + summary chips stay in sync without duplicating logic.
+                                    const released = (st.payment_requests || []).filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
+                                    const inApproval = (st.payment_requests || []).filter(p => ['requested', 'pm_approved', 'qc_approved', 'planning_approved'].includes(p.status)).reduce((s, p) => s + (p.requested_amount || 0), 0);
+                                    const balance = Math.max(0, (Number(st.amount) || 0) - released);
+                                    const stWithFlag = { ...st, _fullyPaid: (Number(st.amount) || 0) > 0 && released >= (Number(st.amount) || 0) };
+                                    const cfg = getStageStatusConfig(st.status, st.is_open, stWithFlag);
                                     const showApprove = canApproveStage(st);
                                     const isExpanded = expandedWoStages[st.stage_id];
                                     const isStageOpen = st.is_open === true;
+                                    const isCompleted = stWithFlag._fullyPaid;
                                     return (
-                                      <div key={st.stage_id || i} className={`border rounded-lg overflow-hidden ${!isStageOpen && st.status === 'pending' ? 'opacity-70' : ''}`} data-testid={`wo-stage-${st.stage_id}`}>
+                                      <div key={st.stage_id || i} className={`border rounded-lg overflow-hidden`} data-testid={`wo-stage-${st.stage_id}`}>
                                         <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition"
                                           onClick={() => setExpandedWoStages(prev => ({ ...prev, [st.stage_id]: !prev[st.stage_id] }))}
                                           data-testid={`wo-stage-toggle-${st.stage_id}`}>
@@ -9204,29 +9225,31 @@ export default function ProjectDetail() {
                                         </div>
                                         {isExpanded && (
                                           <div className="border-t bg-gray-50/50 p-3 space-y-3">
-                                            <div className="flex flex-wrap gap-3 text-xs">
-                                              <span className="text-gray-500">Amount: <strong>{formatCurrency(st.amount)}</strong></span>
-                                              {st.approved_amount > 0 && <span className="text-green-600">Paid: <strong>{formatCurrency(st.approved_amount)}</strong></span>}
+                                            <div className="text-xs text-gray-500">Amount: <strong>{formatCurrency(st.amount)}</strong></div>
+                                            {/* Summary chips — shown on every stage regardless of lock state */}
+                                            <div className="flex flex-wrap gap-1.5">
+                                              <span className="text-[11px] bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full">Contract <strong>{formatCurrency(st.amount)}</strong></span>
+                                              {released > 0 && <span className="text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">Advance Approved <strong>{formatCurrency(released)}</strong></span>}
+                                              <span className="text-[11px] bg-sky-50 text-sky-700 border border-sky-200 px-2 py-0.5 rounded-full">Balance <strong>{formatCurrency(balance)}</strong></span>
+                                              {inApproval > 0 && <span className="text-[11px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">In Approval <strong>{formatCurrency(inApproval)}</strong></span>}
                                             </div>
-                                            {st.status !== 'pending' && (
-                                              <div className="flex flex-wrap gap-1">
-                                                {st.requested_at && <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">SE Requested</span>}
-                                                {st.pm_approved_at && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">PM OK</span>}
-                                                {st.planning_approved_at && <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">Planning OK</span>}
-                                                {st.accountant_approved_at && <span className="text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded">Paid</span>}
-                                                {st.rejection_reason && <span className="text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded">{st.rejection_reason}</span>}
-                                              </div>
-                                            )}
                                             {isStageOpen && st.opened_by_name && (
                                               <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded">Opened by {st.opened_by_name}</span>
                                             )}
                                             <div className="flex gap-1 flex-wrap pt-1">
-                                              {/* Planning: Open Stage button for locked stages */}
-                                              {st.status === 'pending' && !isStageOpen && ['planning', 'super_admin'].includes(user?.role) && (
-                                                <Button size="sm" className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700" data-testid={`wo-stage-open-${st.stage_id}`}
-                                                  onClick={(e) => { e.stopPropagation(); handleOpenStage(wo.work_order_id, st.stage_id); }}>
-                                                  Open Stage
-                                                </Button>
+                                              {/* Planning: Open/Lock toggle on every stage (except already-completed) */}
+                                              {['planning', 'super_admin'].includes(user?.role) && !isCompleted && (
+                                                isStageOpen ? (
+                                                  <Button size="sm" variant="outline" className="h-7 text-xs border-gray-400 text-gray-700 hover:bg-gray-100" data-testid={`wo-stage-lock-${st.stage_id}`}
+                                                    onClick={(e) => { e.stopPropagation(); handleLockStage(wo.work_order_id, st.stage_id); }}>
+                                                    <Lock className="h-3 w-3 mr-1" /> Lock Stage
+                                                  </Button>
+                                                ) : (
+                                                  <Button size="sm" className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700" data-testid={`wo-stage-open-${st.stage_id}`}
+                                                    onClick={(e) => { e.stopPropagation(); handleOpenStage(wo.work_order_id, st.stage_id); }}>
+                                                    <Unlock className="h-3 w-3 mr-1" /> Open Stage
+                                                  </Button>
+                                                )
                                               )}
                                               {showApprove && (
                                                 <>
@@ -10325,19 +10348,20 @@ export default function ProjectDetail() {
                                 </TabsContent>
                                 <TabsContent value="stages" className="p-3">
                                   {wo.stages?.length > 0 ? (() => {
-                                    const counts = { in_process: 0, locked: 0, all: wo.stages.length };
+                                    const counts = { open: 0, locked: 0, completed: 0, all: wo.stages.length };
                                     wo.stages.forEach(s => { counts[stageBucketOf(s)]++; });
                                     const filteredStages = stagesBucket === 'all'
                                       ? wo.stages.map((st, i) => ({ st, i }))
                                       : wo.stages.map((st, i) => ({ st, i })).filter(({ st }) => stageBucketOf(st) === stagesBucket);
                                     return (
                                     <div className="space-y-2">
-                                      {/* Sub-tab segmentation: In Process | Locked | All */}
+                                      {/* Sub-tab segmentation: Open | Locked | Completed | All */}
                                       <div className="flex items-center gap-2 mb-3 pb-1 overflow-x-auto" data-testid="labour-wo-stages-subtabs">
                                         {[
-                                          { id: 'in_process', label: 'In Process', cnt: counts.in_process, base: 'border-emerald-300 bg-emerald-50 text-emerald-800', active: 'border-emerald-600 bg-emerald-100 ring-2 ring-emerald-300 text-emerald-900' },
-                                          { id: 'locked',     label: 'Locked',     cnt: counts.locked,     base: 'border-gray-300 bg-gray-50 text-gray-700',          active: 'border-gray-500 bg-gray-200 ring-2 ring-gray-300 text-gray-900' },
-                                          { id: 'all',        label: 'All',        cnt: counts.all,        base: 'border-violet-300 bg-violet-50 text-violet-800',    active: 'border-violet-600 bg-violet-100 ring-2 ring-violet-300 text-violet-900' },
+                                          { id: 'open',      label: 'Open',      cnt: counts.open,      base: 'border-emerald-300 bg-emerald-50 text-emerald-800', active: 'border-emerald-600 bg-emerald-100 ring-2 ring-emerald-300 text-emerald-900' },
+                                          { id: 'locked',    label: 'Locked',    cnt: counts.locked,    base: 'border-gray-300 bg-gray-50 text-gray-700',          active: 'border-gray-500 bg-gray-200 ring-2 ring-gray-300 text-gray-900' },
+                                          { id: 'completed', label: 'Completed', cnt: counts.completed, base: 'border-teal-300 bg-teal-50 text-teal-800',          active: 'border-teal-600 bg-teal-100 ring-2 ring-teal-300 text-teal-900' },
+                                          { id: 'all',       label: 'All',       cnt: counts.all,       base: 'border-violet-300 bg-violet-50 text-violet-800',    active: 'border-violet-600 bg-violet-100 ring-2 ring-violet-300 text-violet-900' },
                                         ].map(t => {
                                           const isActive = stagesBucket === t.id;
                                           return (
@@ -10354,15 +10378,17 @@ export default function ProjectDetail() {
                                           );
                                         })}
                                       </div>
-                                      {/* "Open All for SE" bulk banner removed —
-                                          Planning now uses the per-row Lock /
-                                          Unlock button on every stage instead. */}
                                       {filteredStages.length === 0 ? (
                                         <p className="text-gray-400 text-center py-6 text-sm" data-testid="labour-wo-stages-empty">No stages in this bucket.</p>
                                       ) : filteredStages.map(({ st, i }) => {
-                                        const cfg = getStageStatusConfig(st.status, st.is_open);
-                                        const showApprove = canApproveStage(st);
+                                        const released = (st.payment_requests || []).filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
+                                        const inApproval = (st.payment_requests || []).filter(p => ['requested', 'pm_approved', 'qc_approved', 'planning_approved'].includes(p.status)).reduce((s, p) => s + (p.requested_amount || 0), 0);
+                                        const balance = Math.max(0, (Number(st.amount) || 0) - released);
+                                        const stWithFlag = { ...st, _fullyPaid: (Number(st.amount) || 0) > 0 && released >= (Number(st.amount) || 0) };
+                                        const cfg = getStageStatusConfig(st.status, st.is_open, stWithFlag);
                                         const isExp = expandedWoStages[`l_${st.stage_id}`];
+                                        const isStageOpen = st.is_open === true;
+                                        const isCompleted = stWithFlag._fullyPaid;
                                         return (
                                           <div key={st.stage_id || i} className="border rounded-lg overflow-hidden" data-testid={`labour-wo-stage-${st.stage_id}`}>
                                             <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition"
@@ -10379,21 +10405,32 @@ export default function ProjectDetail() {
                                             </div>
                                             {isExp && (
                                               <div className="border-t bg-gray-50/50 p-3 space-y-3">
-                                                <div className="flex flex-wrap gap-3 text-xs">
-                                                  <span className="text-gray-500">Amount: <strong>{formatCurrency(st.amount)}</strong></span>
-                                                  {st.approved_amount > 0 && <span className="text-green-600">Paid: <strong>{formatCurrency(st.approved_amount)}</strong></span>}
+                                                <div className="text-xs text-gray-500">Amount: <strong>{formatCurrency(st.amount)}</strong></div>
+                                                {/* Summary chips — always shown for every stage */}
+                                                <div className="flex flex-wrap gap-1.5 text-[11px]" data-testid={`labour-advance-summary-${st.stage_id}`}>
+                                                  <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">Contract <strong>{formatCurrency(st.amount)}</strong></span>
+                                                  {released > 0 && <span className="px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">Advance Approved <strong>{formatCurrency(released)}</strong></span>}
+                                                  <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">Balance <strong>{formatCurrency(balance)}</strong></span>
+                                                  {inApproval > 0 && (
+                                                    <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">In Approval <strong>{formatCurrency(inApproval)}</strong></span>
+                                                  )}
+                                                  {st.auto_closed_by_advance && (
+                                                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">Auto-Closed</span>
+                                                  )}
                                                 </div>
-                                                {/* Labour Advance Summary (Planning → PM → GM → Accountant) */}
-                                                {(st.advance_approved_total > 0 || st.advance_pending_total > 0) && (
-                                                  <div className="flex flex-wrap gap-1.5 text-[11px]" data-testid={`labour-advance-summary-${st.stage_id}`}>
-                                                    <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">Contract <strong>{formatCurrency(st.amount)}</strong></span>
-                                                    <span className="px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">Advance Approved <strong>{formatCurrency(st.advance_approved_total || 0)}</strong></span>
-                                                    <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">Balance <strong>{formatCurrency(st.advance_balance ?? (st.amount - (st.advance_approved_total || 0)))}</strong></span>
-                                                    {st.advance_pending_total > 0 && (
-                                                      <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">In Approval <strong>{formatCurrency(st.advance_pending_total)}</strong></span>
-                                                    )}
-                                                    {st.auto_closed_by_advance && (
-                                                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">Auto-Closed</span>
+                                                {/* Planning: Open/Lock toggle on every stage (except already-completed) */}
+                                                {['planning', 'super_admin'].includes(user?.role) && !isCompleted && (
+                                                  <div className="flex gap-1 flex-wrap pt-1">
+                                                    {isStageOpen ? (
+                                                      <Button size="sm" variant="outline" className="h-7 text-xs border-gray-400 text-gray-700 hover:bg-gray-100" data-testid={`labour-wo-stage-lock-${st.stage_id}`}
+                                                        onClick={(e) => { e.stopPropagation(); handleLockStage(wo.work_order_id, st.stage_id); }}>
+                                                        <Lock className="h-3 w-3 mr-1" /> Lock Stage
+                                                      </Button>
+                                                    ) : (
+                                                      <Button size="sm" className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700" data-testid={`labour-wo-stage-open-${st.stage_id}`}
+                                                        onClick={(e) => { e.stopPropagation(); handleOpenStage(wo.work_order_id, st.stage_id); }}>
+                                                        <Unlock className="h-3 w-3 mr-1" /> Open Stage
+                                                      </Button>
                                                     )}
                                                   </div>
                                                 )}
