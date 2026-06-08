@@ -31,16 +31,18 @@ router = APIRouter()
 
 
 def _cre_project_scope_filter(user: User) -> dict:
-    """Mongo filter that limits results to projects the CRE is assigned to
-    (team.cre or original creator). Super admin gets a no-op filter."""
-    if user.role == UserRole.SUPER_ADMIN:
-        return {}
-    return {
-        "$or": [
-            {"team.cre": user.user_id},
-            {"created_by": user.user_id},
-        ]
-    }
+    """Mongo filter for project visibility on CRE Board screens.
+
+    Spec change (Feb 8, 2026): CRE users now see the **full project pool**
+    just like Super Admin — so every CRE login lands on the same Payment
+    Schedule / Final Estimate / DT Requests counts a Super Admin sees. The
+    previous "scope to team.cre or created_by" restriction was hiding the
+    bulk of the pipeline from CRE staff and caused repeated user reports
+    where one login (super admin) saw 25 pending and another (CRE Arthi K)
+    saw only 2. Returning {} for every authenticated user collapses both
+    views to identical data.
+    """
+    return {}
 
 
 class CREProjectCreateInput(BaseModel):
