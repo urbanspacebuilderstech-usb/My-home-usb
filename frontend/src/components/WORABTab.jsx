@@ -4,7 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Eye, Loader2, FileText, Clock, CheckCircle2, Search, X } from 'lucide-react';
+import { Eye, Loader2, FileText, Clock, CheckCircle2, Search, X, ShieldCheck, Wallet, AlertCircle, RotateCcw, ClipboardCheck } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -46,14 +46,17 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView }) {
     catch { return String(iso).slice(0, 10); }
   };
 
+  // Status descriptor — each entry doubles as the data for the row-end
+  // pill card: label, palette and a contextual icon that hints at the
+  // next approval owner.
   const STATUS = {
-    requested:          { label: 'Pending PM',         cls: 'bg-amber-100 text-amber-700 border-amber-200' },
-    pm_approved:        { label: 'Pending QC',         cls: 'bg-blue-100 text-blue-700 border-blue-200' },
-    qc_approved:        { label: 'Pending Planning',   cls: 'bg-violet-100 text-violet-700 border-violet-200' },
-    planning_approved:  { label: 'Pending Accountant', cls: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
-    approved:           { label: 'Released',           cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-    rejected:           { label: 'Rejected',           cls: 'bg-red-100 text-red-700 border-red-200' },
-    se_rework:          { label: 'Returned to SE',     cls: 'bg-orange-100 text-orange-700 border-orange-200' },
+    requested:          { label: 'Pending PM',         cls: 'bg-amber-100 text-amber-800 border-amber-300',   Icon: Clock },
+    pm_approved:        { label: 'Pending QC',         cls: 'bg-blue-100 text-blue-800 border-blue-300',      Icon: ClipboardCheck },
+    qc_approved:        { label: 'Pending Planning',   cls: 'bg-violet-100 text-violet-800 border-violet-300', Icon: ShieldCheck },
+    planning_approved:  { label: 'Pending Accountant', cls: 'bg-cyan-100 text-cyan-800 border-cyan-300',      Icon: Wallet },
+    approved:           { label: 'Released',           cls: 'bg-emerald-100 text-emerald-800 border-emerald-300', Icon: CheckCircle2 },
+    rejected:           { label: 'Rejected',           cls: 'bg-red-100 text-red-800 border-red-300',         Icon: AlertCircle },
+    se_rework:          { label: 'Returned to SE',     cls: 'bg-orange-100 text-orange-800 border-orange-300', Icon: RotateCcw },
   };
 
   if (loading) {
@@ -117,7 +120,8 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView }) {
   };
 
   const Row = ({ rab, showView, isLast }) => {
-    const st = STATUS[rab.status] || { label: rab.status || 'Unknown', cls: 'bg-gray-100 text-gray-700 border-gray-200' };
+    const st = STATUS[rab.status] || { label: rab.status || 'Unknown', cls: 'bg-gray-100 text-gray-700 border-gray-200', Icon: AlertCircle };
+    const StatusIcon = st.Icon || AlertCircle;
     return (
       <tr className="hover:bg-gray-50/60" data-testid={`wo-rab-row-${rab.rab_number}`}>
         <td className="px-3 py-2.5">
@@ -131,9 +135,6 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView }) {
           {rab.status === 'approved' ? inr(rab.approved_amount) : <span className="text-gray-400 font-normal">—</span>}
         </td>
         <td className="px-3 py-2.5 text-right text-xs font-medium text-orange-700">{inr(rab.closing_balance_after)}</td>
-        <td className="px-3 py-2.5 text-center">
-          <Badge variant="outline" className={`text-[10px] border ${st.cls}`}>{st.label}</Badge>
-        </td>
         <td className="px-3 py-2.5 text-right">
           {(showView || isLast) ? (
             <Button
@@ -146,6 +147,17 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView }) {
               <Eye className="h-3 w-3 mr-1" /> View
             </Button>
           ) : null}
+        </td>
+        {/* Status pill card — rightmost cell so the workflow stage is the
+            last thing the eye lands on. Icon + label form a compact button-
+            shaped card that mirrors the row's approval-owner intent. */}
+        <td className="px-3 py-2.5 text-right">
+          <span
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border-2 text-[11px] font-semibold whitespace-nowrap shadow-sm ${st.cls}`}
+            data-testid={`wo-rab-status-pill-${rab.rab_number}`}
+          >
+            <StatusIcon className="h-3.5 w-3.5" /> {st.label}
+          </span>
         </td>
       </tr>
     );
@@ -162,8 +174,8 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView }) {
               <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-600 uppercase">Requested</th>
               <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-600 uppercase">Released</th>
               <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-600 uppercase">Closing Bal</th>
-              <th className="px-3 py-2 text-center text-[10px] font-semibold text-gray-600 uppercase">Status</th>
               <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-600 uppercase">Action</th>
+              <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-600 uppercase">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
