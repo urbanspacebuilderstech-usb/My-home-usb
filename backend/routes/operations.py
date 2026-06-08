@@ -1951,16 +1951,22 @@ async def get_monthly_schedule(
 
     # 2. Hydrate every payment_stage that could possibly belong to the requested month
     #    Cast wide net: anything with a planned date OR a manual entry referencing it.
+    #    In all_months mode we drop the date filter entirely so every payment
+    #    stage in the system shows up — otherwise stages that never had a
+    #    planned date silently disappear from the Payment Schedule.
     candidate_stage_ids = set(manual_by_stage.keys())
-    stage_query_or = [
-        {"stage_id": {"$in": list(candidate_stage_ids)}} if candidate_stage_ids else None,
-        {"expected_payment_date": {"$ne": None}},
-        {"due_date": {"$ne": None}},
-    ]
-    stage_query_or = [q for q in stage_query_or if q]
-    stages_cursor = await db.payment_stages.find(
-        {"$or": stage_query_or}, {"_id": 0}
-    ).to_list(20000) if stage_query_or else []
+    if all_months:
+        stages_cursor = await db.payment_stages.find({}, {"_id": 0}).to_list(50000)
+    else:
+        stage_query_or = [
+            {"stage_id": {"$in": list(candidate_stage_ids)}} if candidate_stage_ids else None,
+            {"expected_payment_date": {"$ne": None}},
+            {"due_date": {"$ne": None}},
+        ]
+        stage_query_or = [q for q in stage_query_or if q]
+        stages_cursor = await db.payment_stages.find(
+            {"$or": stage_query_or}, {"_id": 0}
+        ).to_list(20000) if stage_query_or else []
 
     # Payment Schedule view is for **client income collection only**.
     # Vendor/Labour-side rows (e.g. labour_rab "RAB-XX · Contractor" entries
