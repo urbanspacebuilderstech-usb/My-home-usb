@@ -217,7 +217,7 @@ export default function CREBoard() {
   const todayPS = new Date();
   const [psMonth, setPsMonth] = useState(todayPS.getMonth() + 1);
   const [psYear, setPsYear] = useState(todayPS.getFullYear());
-  const [psAllMonths, setPsAllMonths] = useState(true);
+  const [psAllMonths, setPsAllMonths] = useState(false);
   const [psData, setPsData] = useState({ entries: [], summary: {} });
   const [psLoading, setPsLoading] = useState(false);
   const [psSubTab, setPsSubTab] = useState('pending'); // pending | partial | collected | all
