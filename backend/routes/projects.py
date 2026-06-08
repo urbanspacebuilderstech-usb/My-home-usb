@@ -2367,6 +2367,48 @@ async def update_project(project_id: str, update_data: ProjectUpdate, user: User
     return {"message": "Project updated"}
 
 
+@router.post("/admin/projects/bulk-soft-delete")
+async def bulk_soft_delete_projects(body: dict, user: User = Depends(get_current_user)):
+    """Super-Admin-only bulk soft-delete from the CRE Board → All Projects
+    bulk-select UI. Each project is marked `is_deleted=True` (same as the
+    single-delete endpoint) so it disappears from every board, but income,
+    expenses and stages remain in MongoDB and the action is reversible via
+    `/projects/{id}/restore`.
+
+    Body: { "project_ids": ["..."], "confirm": "DELETE" }
+    The `confirm` token must equal the literal string "DELETE" — the UI
+    forces the user to type it. This is a deliberate friction point so a
+    25-row bulk select cannot wipe a board with a single misclick.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can bulk-delete projects")
+    ids = body.get("project_ids") or []
+    confirm = (body.get("confirm") or "").strip()
+    if confirm != "DELETE":
+        raise HTTPException(status_code=400, detail="Confirmation token must be the literal string 'DELETE'")
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=400, detail="project_ids list is required")
+    if len(ids) > 200:
+        raise HTTPException(status_code=400, detail="Bulk delete is capped at 200 projects per request")
+
+    now = datetime.now(timezone.utc).isoformat()
+    result = await db.projects.update_many(
+        {"project_id": {"$in": ids}, "$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]},
+        {"$set": {
+            "is_deleted": True,
+            "deleted_at": now,
+            "deleted_by": user.user_id,
+            "deleted_by_name": user.name,
+            "deleted_reason": "Super Admin bulk delete from CRE Board",
+        }},
+    )
+    # Audit each one individually so the activity log reflects every
+    # project that actually flipped state.
+    for pid in ids:
+        await create_audit_log(user.user_id, "soft_delete", "project", pid, {"bulk": True})
+    return {"ok": True, "soft_deleted": result.modified_count, "requested": len(ids)}
+
+
 @router.delete("/projects/{project_id}")
 async def delete_project(project_id: str, hard: bool = False, user: User = Depends(get_current_user)):
     """Soft-delete a project (default) or permanently delete (Super Admin + no financials).

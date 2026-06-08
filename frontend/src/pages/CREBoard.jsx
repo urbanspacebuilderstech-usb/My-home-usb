@@ -13,6 +13,7 @@ import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
+import { Checkbox } from '../components/ui/checkbox';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
   Building2,
@@ -239,6 +240,13 @@ export default function CREBoard() {
 
   // Search
   const [projectSearch, setProjectSearch] = useState('');
+  // Bulk-select state for the All Projects table — Super Admin only.
+  // `bulkSelected` is a Set of project_id; `bulkDeleteOpen` controls the
+  // type-DELETE confirmation modal so a misclick can't wipe rows.
+  const [bulkSelected, setBulkSelected] = useState(() => new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkConfirmText, setBulkConfirmText] = useState('');
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // Payment Schedule bulk delete — Set of selected entry/computed IDs +
   // confirm dialog state that requires the user to type "delete" to proceed.
@@ -799,6 +807,46 @@ export default function CREBoard() {
         return <Button size="sm" className="bg-purple-600 hover:bg-purple-700 h-7 text-xs" onClick={() => handleMoveToDrawing(project.project_id)}>Move to Drawing</Button>;
       default:
         return <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => window.location.href = `/projects/${project.project_id}`}><Eye className="h-3 w-3 mr-1" />View</Button>;
+    }
+  };
+
+  // ---------- Bulk soft-delete handlers (Super Admin only) ----------
+  const isSuperAdmin = user?.role === 'super_admin';
+
+  const toggleBulkSelect = (pid) => {
+    setBulkSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(pid)) next.delete(pid); else next.add(pid);
+      return next;
+    });
+  };
+
+  const toggleBulkSelectAll = (allIds) => {
+    setBulkSelected(prev => {
+      const allSelected = allIds.length > 0 && allIds.every(id => prev.has(id));
+      if (allSelected) return new Set();
+      return new Set(allIds);
+    });
+  };
+
+  const submitBulkDelete = async () => {
+    if (bulkConfirmText !== 'DELETE') {
+      toast.error('Type the word DELETE (uppercase) to confirm'); return;
+    }
+    const ids = Array.from(bulkSelected);
+    if (!ids.length) { toast.error('No projects selected'); return; }
+    setBulkDeleting(true);
+    try {
+      const r = await axios.post(`${API}/admin/projects/bulk-soft-delete`, { project_ids: ids, confirm: 'DELETE' });
+      toast.success(`Soft-deleted ${r.data?.soft_deleted ?? ids.length} project(s)`);
+      setBulkSelected(new Set());
+      setBulkConfirmText('');
+      setBulkDeleteOpen(false);
+      if (typeof fetchProjects === 'function') fetchProjects();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Bulk delete failed');
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -1441,6 +1489,19 @@ export default function CREBoard() {
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <CardTitle className="text-base flex items-center gap-2"><Building2 className="h-4 w-4 text-amber-600" />All Projects</CardTitle>
                   <div className="flex items-center gap-2">
+                    {/* Super-Admin bulk delete CTA. Only renders when at least
+                        one row is checked so it doesn't clutter the normal flow. */}
+                    {isSuperAdmin && bulkSelected.size > 0 && (
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="h-8 gap-1"
+                        onClick={() => { setBulkConfirmText(''); setBulkDeleteOpen(true); }}
+                        data-testid="bulk-delete-projects-btn"
+                      >
+                        <Trash2 className="h-4 w-4" /> Delete {bulkSelected.size} project{bulkSelected.size > 1 ? 's' : ''}
+                      </Button>
+                    )}
                     <div className="relative">
                       <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
                       <Input placeholder="Search projects..." value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} className="pl-8 h-8 w-48 text-sm" data-testid="project-search" />
@@ -1462,6 +1523,16 @@ export default function CREBoard() {
                     <table className="w-full text-sm" data-testid="projects-table">
                       <thead className="bg-gray-50 dark:bg-gray-800/50 border-y">
                         <tr>
+                          {isSuperAdmin && (
+                            <th className="px-3 py-2.5 w-10">
+                              <Checkbox
+                                checked={filteredProjects.length > 0 && filteredProjects.every(p => bulkSelected.has(p.project_id))}
+                                onCheckedChange={() => toggleBulkSelectAll(filteredProjects.map(p => p.project_id))}
+                                data-testid="bulk-select-all"
+                                aria-label="Select all"
+                              />
+                            </th>
+                          )}
                           <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Project</th>
                           <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Client</th>
                           <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase hidden sm:table-cell">Location</th>
@@ -1471,7 +1542,17 @@ export default function CREBoard() {
                       </thead>
                       <tbody className="divide-y">
                         {filteredProjects.map((p) => (
-                          <tr key={p.project_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50" data-testid={`project-row-${p.project_id}`}>
+                          <tr key={p.project_id} className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 ${bulkSelected.has(p.project_id) ? 'bg-red-50/40' : ''}`} data-testid={`project-row-${p.project_id}`}>
+                            {isSuperAdmin && (
+                              <td className="px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                <Checkbox
+                                  checked={bulkSelected.has(p.project_id)}
+                                  onCheckedChange={() => toggleBulkSelect(p.project_id)}
+                                  data-testid={`bulk-select-${p.project_id}`}
+                                  aria-label={`Select ${p.name}`}
+                                />
+                              </td>
+                            )}
                             <td className="px-4 py-2.5">
                               <p className="font-medium text-gray-900">{p.name}</p>
                               <p className="text-xs text-gray-400">{p.project_code || p.project_id}</p>
@@ -2261,6 +2342,47 @@ export default function CREBoard() {
       </Dialog>
 
       <MobileBottomNav user={user} />
+      {/* Bulk delete confirmation — typing DELETE (uppercase) is required */}
+      <Dialog open={bulkDeleteOpen} onOpenChange={(o) => { if (!o) { setBulkDeleteOpen(false); setBulkConfirmText(''); } }}>
+        <DialogContent className="max-w-md" data-testid="bulk-delete-confirm-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2 text-red-700">
+              <Trash2 className="h-5 w-5" /> Bulk Delete Projects
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              You are about to soft-delete <strong className="text-red-700">{bulkSelected.size}</strong> project{bulkSelected.size > 1 ? 's' : ''}. They&apos;ll disappear from all boards but are reversible via the Super Admin restore endpoint. Income, expenses and stages are preserved.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label className="text-xs">
+              Type <span className="font-mono font-bold text-red-700">DELETE</span> (uppercase) to confirm
+            </Label>
+            <Input
+              value={bulkConfirmText}
+              onChange={(e) => setBulkConfirmText(e.target.value)}
+              placeholder="DELETE"
+              autoFocus
+              className="font-mono"
+              data-testid="bulk-delete-confirm-input"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => { setBulkDeleteOpen(false); setBulkConfirmText(''); }} disabled={bulkDeleting} data-testid="bulk-delete-cancel">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={submitBulkDelete}
+              disabled={bulkDeleting || bulkConfirmText !== 'DELETE'}
+              data-testid="bulk-delete-confirm"
+            >
+              {bulkDeleting ? 'Deleting…' : `Delete ${bulkSelected.size} project${bulkSelected.size > 1 ? 's' : ''}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Super-Admin stage detail popup */}
       <PaymentStageDetailDialog
         open={stageDetailDlg.open}
