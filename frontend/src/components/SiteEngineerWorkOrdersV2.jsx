@@ -217,16 +217,15 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
         </Card>
       ))}
 
-      {/* Global DLR — Contractor-tabbed dialog. Each contractor becomes its
-          own tab with a stat card, date range + stage dropdown filters, and
-          a list of existing DLR entries. "Record DLR" inside the tab opens
-          the same DLRRecordDialog used everywhere else. */}
-      <GlobalDLRDialog
+      {/* Global DLR — single popup with contractor dropdown as the first
+          field. Selecting a contractor reveals labour/stage/work-summary
+          fields driven by that contractor's rates and open stages. */}
+      <DLRRecordDialog
         open={globalDlrOpen}
         onOpenChange={setGlobalDlrOpen}
         projectId={projectId}
         workOrders={workOrders}
-        onRecord={(wo) => { setGlobalDlrOpen(false); setDlrFor(wo); }}
+        onSaved={() => { setGlobalDlrOpen(false); fetchWOs(); }}
       />
 
       {/* Record DLR popup — mounted at the list-view level so picking a
@@ -1751,10 +1750,22 @@ function DLRReportTab({ projectId, workOrderId }) {
 }
 
 // =====================================================================
-// DLR Record Dialog: opened from "DLR" button at the top corner
+// DLR Record Dialog: opened from "DLR" button at the top corner.
+// Modes:
+//   • Per-WO mode — caller passes `workOrder` (locked, no picker shown).
+//   • Global mode — caller passes `workOrders` (list of assigned
+//     contractors on this site); the first field becomes a contractor
+//     dropdown. Selecting a contractor refreshes rates and open stages.
 // =====================================================================
-function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) {
-  const rates = workOrder?.labour_rates || {};
+function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, workOrders, onSaved }) {
+  // Single source of truth for the active contractor — comes from the
+  // explicit `workOrder` prop (per-WO mode) or from the in-dialog dropdown
+  // (Global mode).
+  const isGlobalMode = !workOrder && Array.isArray(workOrders) && workOrders.length > 0;
+  const [selectedWoId, setSelectedWoId] = useState('');
+  const effectiveWO = workOrder || (workOrders || []).find(w => w.work_order_id === selectedWoId) || null;
+
+  const rates = effectiveWO?.labour_rates || {};
   const initRows = () => FIXED_LABOUR_ROWS.map(r => ({
     type: r.type, label: r.label, count: '', day_value: '1',
     rate_per_day: rates[r.type] || 0,
@@ -1773,11 +1784,13 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
   useEffect(() => {
     if (open) {
       setDate(new Date().toISOString().split('T')[0]);
-      setRows(initRows());
       setNotes('');
       setStageId('');
       setWorkSummary('');
       setDateRemark('');
+      // Global mode opens with NO contractor pre-selected so the user is
+      // forced to pick one consciously; per-WO mode is implicit.
+      if (isGlobalMode) setSelectedWoId('');
       // Fetch the global DLR Date Module setting on every open so the SE
       // sees the latest policy even if Super Admin flipped it minutes ago.
       axios.get(`${API}/settings/dlr-date-mode`).then(r => {
@@ -1788,6 +1801,14 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
     /* eslint-disable-next-line */
   }, [open, workOrder?.work_order_id]);
 
+  // Recompute the labour rate rows whenever the active contractor changes
+  // (covers both initial open AND in-dialog contractor switches).
+  useEffect(() => {
+    setRows(initRows());
+    setStageId('');
+    /* eslint-disable-next-line */
+  }, [effectiveWO?.work_order_id]);
+
   // Fetch the WO's payment-schedule stages and filter to ONLY currently-open
   // stages — keeps the dropdown scoped to this contractor's actionable work.
   // Falls back to project-level stages only if the WO endpoint can't supply
@@ -1796,8 +1817,8 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
     if (!open || !projectId) return;
     (async () => {
       try {
-        if (workOrder?.work_order_id) {
-          const wr = await axios.get(`${API}/projects/${projectId}/work-orders/${workOrder.work_order_id}`);
+        if (effectiveWO?.work_order_id) {
+          const wr = await axios.get(`${API}/projects/${projectId}/work-orders/${effectiveWO.work_order_id}`);
           // Only "purely Open" stages — is_open=true AND no RAB in flight.
           // A stage with an Awaiting-PM RAB is locked from the SE's perspective
           // until that workflow clears (or gets rejected), so it must be hidden.
@@ -1810,16 +1831,14 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
             is_section_header: false,
           }));
           if (stages.length > 0) { setProjectStages(stages); return; }
-          // Contractor has NO open stages — leave list empty so the picker
-          // tells the user to ask Planning to unlock one (no project-level fallback).
           setProjectStages([]);
           return;
         }
-        const res = await axios.get(`${API}/projects/${projectId}/project-stages`);
-        setProjectStages(Array.isArray(res.data) ? res.data : []);
+        // Global mode with no contractor chosen yet — show no stages.
+        setProjectStages([]);
       } catch { setProjectStages([]); }
     })();
-  }, [open, projectId, workOrder?.work_order_id]);
+  }, [open, projectId, effectiveWO?.work_order_id]);
 
   const calcRow = (r) => (Number(r.count) || 0) * (Number(r.day_value) || 1) * (Number(r.rate_per_day) || 0);
   const totalWorkers = rows.reduce((s, r) => s + (Number(r.count) || 0), 0);
@@ -1830,6 +1849,7 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
   };
 
   const submit = async () => {
+    if (!effectiveWO?.work_order_id) { toast.error('Select a contractor'); return; }
     const valid = rows.filter(r => Number(r.count) > 0);
     if (!valid.length) { toast.error('Enter worker count for at least one type'); return; }
     if (!date) { toast.error('Select a date'); return; }
@@ -1849,7 +1869,7 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
     const selectedStage = projectStages.find(s => s.stage_id === stageId);
     setSubmitting(true);
     try {
-      await axios.post(`${API}/projects/${projectId}/work-orders/${workOrder.work_order_id}/dlr`, {
+      await axios.post(`${API}/projects/${projectId}/work-orders/${effectiveWO.work_order_id}/dlr`, {
         date,
         entries: valid.map(r => ({
           type: r.type, count: Number(r.count),
@@ -1875,9 +1895,33 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
           <DialogTitle className="text-base flex items-center gap-2">
             <ClipboardList className="h-4 w-4 text-teal-600" /> Record Daily Labour Report
           </DialogTitle>
-          <DialogDescription className="text-xs">{workOrder?.contractor_name}</DialogDescription>
+          <DialogDescription className="text-xs">
+            {effectiveWO?.contractor_name || (isGlobalMode ? 'Pick a contractor assigned to this site to begin.' : '')}
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          {/* Contractor dropdown — only in Global mode (per-WO mode locks
+              the contractor implicitly via the `workOrder` prop). */}
+          {isGlobalMode && (
+            <div>
+              <Label className="text-xs">Contractor *</Label>
+              <Select value={selectedWoId} onValueChange={setSelectedWoId}>
+                <SelectTrigger className="text-sm mt-1" data-testid="wov2-dlr-form-contractor">
+                  <SelectValue placeholder="Select a contractor assigned to this site..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {workOrders.map(w => (
+                    <SelectItem key={w.work_order_id} value={w.work_order_id} data-testid={`wov2-dlr-form-contractor-${w.work_order_id}`}>
+                      {w.contractor_name} <span className="text-gray-400 ml-1">· {w.contractor_type || '—'} · {w.work_order_number || w.work_order_id}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {/* Date row — visible once a contractor is locked (always in
+              per-WO mode; once selected in Global mode). */}
+          {effectiveWO && (
           <div>
             <Label className="text-xs">
               Date {dlrDateMode === 'ontime' && <span className="text-[10px] text-amber-700 font-normal ml-1">(locked to today by Super Admin)</span>}
@@ -1892,6 +1936,11 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
               data-testid="wov2-dlr-form-date"
             />
           </div>
+          )}
+          {/* The full form (labour table, notes, DPR, submit) is gated on a
+              selected contractor. Per-WO mode shows it immediately; Global
+              mode reveals it after the user picks from the dropdown. */}
+          {effectiveWO && (<>
           {dlrDateMode === 'custom' && date !== today && (
             <div data-testid="wov2-dlr-date-remark-wrap">
               <Label className="text-xs">
@@ -2000,10 +2049,11 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
               Labour day rates are not set on this Work Order. Ask Planning to update rates so totals auto-fill.
             </p>
           )}
+          </>)}
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button size="sm" className="bg-teal-600 hover:bg-teal-700" disabled={submitting} onClick={submit} data-testid="wov2-dlr-submit">
+          <Button size="sm" className="bg-teal-600 hover:bg-teal-700" disabled={submitting || !effectiveWO} onClick={submit} data-testid="wov2-dlr-submit">
             {submitting ? 'Saving...' : 'Save DLR'}
           </Button>
         </DialogFooter>
@@ -2013,102 +2063,7 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
 }
 
 
-// =====================================================================
-// Global DLR Dialog — tabs per contractor, each tab shows a stat card,
-// date range filter, stage dropdown filter (open stages only) and the
-// existing DLR entries scoped to the filter. "Record DLR" inside each
-// tab opens the standard DLRRecordDialog.
-// =====================================================================
-function GlobalDLRDialog({ open, onOpenChange, projectId, workOrders, onRecord }) {
-  const [activeWoId, setActiveWoId] = useState('');
+// (GlobalDLRDialog and ContractorDLRCard removed — the Global DLR
+// experience now lives inside DLRRecordDialog itself via the optional
+// `workOrders` prop, which shows a contractor dropdown as the first field.)
 
-  useEffect(() => {
-    if (open && workOrders.length > 0 && !activeWoId) {
-      setActiveWoId(workOrders[0].work_order_id);
-    }
-    if (!open) setActiveWoId('');
-    /* eslint-disable-next-line */
-  }, [open, workOrders]);
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="se-wov2-global-dlr-dialog">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <ClipboardList className="h-5 w-5 text-amber-600" /> Daily Labour Report
-          </DialogTitle>
-          <DialogDescription className="text-xs">
-            Browse DLR entries per contractor, filter by date range or stage, and record new labour.
-          </DialogDescription>
-        </DialogHeader>
-
-        {workOrders.length === 0 ? (
-          <p className="text-center text-xs text-gray-400 py-8">No contractors assigned to this project.</p>
-        ) : (
-          <Tabs value={activeWoId} onValueChange={setActiveWoId} className="w-full">
-            <TabsList className="flex w-full overflow-x-auto justify-start gap-1 h-auto p-1 bg-amber-50">
-              {workOrders.map(wo => (
-                <TabsTrigger
-                  key={wo.work_order_id}
-                  value={wo.work_order_id}
-                  className="text-xs whitespace-nowrap data-[state=active]:bg-amber-600 data-[state=active]:text-white"
-                  data-testid={`se-wov2-contractor-tab-${wo.work_order_id}`}
-                >
-                  {wo.contractor_name}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-            {workOrders.map(wo => (
-              <TabsContent key={wo.work_order_id} value={wo.work_order_id} className="mt-3">
-                <ContractorDLRCard
-                  workOrder={wo}
-                  onRecord={() => onRecord(wo)}
-                />
-              </TabsContent>
-            ))}
-          </Tabs>
-        )}
-
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} data-testid="se-wov2-global-dlr-cancel">Close</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Card shown inside each contractor tab of the Global DLR popup. Minimal
-// by design: identity + single "Record DLR" CTA. The rich summary (stats,
-// filters, history) lives on the Work Order > DLR Report tab so the SE
-// has a focused single-action surface here.
-function ContractorDLRCard({ workOrder, onRecord }) {
-  return (
-    <Card className="border-amber-200">
-      <CardHeader className="p-4 bg-gradient-to-r from-amber-50 to-amber-100 border-b">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <CardTitle className="text-base font-bold text-amber-900">{workOrder.contractor_name}</CardTitle>
-            <CardDescription className="text-[11px] text-amber-700 mt-0.5">
-              {workOrder.contractor_type || '—'} · WO {workOrder.work_order_number || workOrder.work_order_id}
-            </CardDescription>
-          </div>
-          <Button
-            size="sm"
-            className="bg-amber-600 hover:bg-amber-700 text-white gap-1.5"
-            onClick={onRecord}
-            data-testid={`se-wov2-record-dlr-${workOrder.work_order_id}`}
-          >
-            <Plus className="h-4 w-4" /> Record DLR
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="p-4">
-        <p className="text-xs text-gray-500 leading-relaxed">
-          Click <span className="font-semibold text-amber-700">Record DLR</span> to log today&apos;s skilled, semi-skilled and unskilled labour count for this contractor.
-          The full DLR history with date-range and stage filters is available inside this contractor&apos;s
-          <span className="font-medium"> Work Order &rarr; DLR Report</span> tab.
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
