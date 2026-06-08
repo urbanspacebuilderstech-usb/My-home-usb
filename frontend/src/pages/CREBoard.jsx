@@ -212,12 +212,13 @@ export default function CREBoard() {
 
   // CRE Payment Schedule tab — defaults to "All Months" so a fresh login
   // lands on the full pipeline (Pending = N, Partial = N across every
-  // month) instead of just the current month's 1-2 due rows. Switch back
-  // to a single month via Prev/Next or the date selector.
+  // month) including future months like Jul/Aug 2026 instead of just the
+  // current month's 1-2 due rows. Switch to a single month via Prev/Next
+  // or the date selector.
   const todayPS = new Date();
   const [psMonth, setPsMonth] = useState(todayPS.getMonth() + 1);
   const [psYear, setPsYear] = useState(todayPS.getFullYear());
-  const [psAllMonths, setPsAllMonths] = useState(false);
+  const [psAllMonths, setPsAllMonths] = useState(true);
   const [psData, setPsData] = useState({ entries: [], summary: {} });
   const [psLoading, setPsLoading] = useState(false);
   const [psSubTab, setPsSubTab] = useState('pending'); // pending | partial | collected | all
