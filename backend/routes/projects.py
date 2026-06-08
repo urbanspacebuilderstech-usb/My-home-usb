@@ -3156,17 +3156,28 @@ async def get_payment_stage_detail(stage_id: str, user: User = Depends(get_curre
         {"_id": 0, "project_id": 1, "name": 1, "project_code": 1, "client_name": 1, "total_value": 1}
     )
 
-    # Incomes linked to this stage — either by `payment_stage_id` back-reference
-    # OR by the stage's `linked_income_id` (which is how the RE/Sales advance is
-    # attached on convert-deal). Older advances were inserted before the back-ref
-    # was added, so we must also resolve them via linked_income_id to avoid
-    # under-reporting the Incomes(N) count on the Payment Stage Details popup.
-    income_filter = {"$or": [{"payment_stage_id": stage_id}]}
-    if stage.get("linked_income_id"):
-        income_filter["$or"].append({"income_id": stage["linked_income_id"]})
-    raw_incomes = await db.income.find(income_filter, {"_id": 0}).sort("created_at", 1).to_list(200)
-    # Dedupe by income_id (the linked advance may also have payment_stage_id set
-    # on healed rows — keep a single copy).
+    # Incomes linked to this stage — preferred path is the `payment_stage_id`
+    # back-reference. The legacy `stage.linked_income_id` pointer is only
+    # honoured when the referenced income has NO payment_stage_id of its own
+    # (i.e. a pre-back-ref advance). Without that guard, a stale pointer
+    # inflates the Incomes(N) count by pulling incomes that legitimately
+    # belong to a different stage — exactly what bit Mr Achyuth's Stage 01
+    # popup showing two ₹50,000 incomes from another stage.
+    raw_incomes = await db.income.find({"payment_stage_id": stage_id}, {"_id": 0}).sort("created_at", 1).to_list(200)
+    linked_iid = stage.get("linked_income_id")
+    if linked_iid and not any(i.get("income_id") == linked_iid for i in raw_incomes):
+        legacy = await db.income.find_one(
+            {"income_id": linked_iid, "$or": [
+                {"payment_stage_id": {"$exists": False}},
+                {"payment_stage_id": None},
+                {"payment_stage_id": ""},
+                {"payment_stage_id": stage_id},
+            ]},
+            {"_id": 0},
+        )
+        if legacy:
+            raw_incomes.append(legacy)
+    # Dedupe by income_id (paranoia — should be unique by now).
     seen_inc = set()
     incomes = []
     for i in raw_incomes:
