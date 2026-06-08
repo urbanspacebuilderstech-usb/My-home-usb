@@ -10582,13 +10582,24 @@ async def create_dlr(project_id: str, wo_id: str, data: DLRCreate, user: User = 
     if not work_summary:
         raise HTTPException(status_code=400, detail="Work Summary is required")
 
-    # Verify the stage belongs to this project
-    stage_doc = await db.project_stages.find_one(
-        {"stage_id": stage_id, "project_id": project_id}, {"_id": 0, "stage_name": 1}
+    # Verify the stage belongs to this Work Order. DLR is recorded against
+    # the contractor's payment stage (db.payment_stages), NOT the project's
+    # top-level client-side schedule (db.project_stages). Validating against
+    # the wrong collection rejected every legitimate DLR with "Selected
+    # stage does not belong to this project".
+    stage_doc = await db.payment_stages.find_one(
+        {"stage_id": stage_id, "work_order_id": wo_id},
+        {"_id": 0, "name": 1, "stage_name": 1},
     )
     if not stage_doc:
-        raise HTTPException(status_code=400, detail="Selected stage does not belong to this project")
-    stage_name = stage_doc.get("stage_name") or stage_name
+        # Fall back to the project-level schedule for legacy callers that
+        # still send a project_stages id (older mobile builds).
+        stage_doc = await db.project_stages.find_one(
+            {"stage_id": stage_id, "project_id": project_id}, {"_id": 0, "stage_name": 1}
+        )
+    if not stage_doc:
+        raise HTTPException(status_code=400, detail="Selected stage does not belong to this work order")
+    stage_name = stage_doc.get("name") or stage_doc.get("stage_name") or stage_name
 
     dlr = {
         "dlr_id": f"dlr_{uuid.uuid4().hex[:8]}",
