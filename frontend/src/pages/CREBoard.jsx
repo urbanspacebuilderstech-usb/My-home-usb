@@ -838,7 +838,14 @@ export default function CREBoard() {
     setBulkDeleting(true);
     try {
       const r = await axios.post(`${API}/admin/projects/bulk-soft-delete`, { project_ids: ids, confirm: 'DELETE' });
-      toast.success(`Soft-deleted ${r.data?.soft_deleted ?? ids.length} project(s)`);
+      const n = r.data?.soft_deleted ?? 0;
+      if (n === 0) {
+        toast.warning(`No projects deleted — the selected ${ids.length} project${ids.length > 1 ? 's were' : ' was'} already soft-deleted.`);
+      } else if (n < ids.length) {
+        toast.success(`Soft-deleted ${n} project(s) — ${ids.length - n} were already deleted.`);
+      } else {
+        toast.success(`Soft-deleted ${n} project(s)`);
+      }
       setBulkSelected(new Set());
       setBulkConfirmText('');
       setBulkDeleteOpen(false);

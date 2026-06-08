@@ -1159,10 +1159,15 @@ async def get_all_cro_projects(
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
     query = {}
-    # CRE sees only their assigned projects
+    # Hide soft-deleted projects by default (Super Admin can still query the
+    # raw collection via /admin/* endpoints when they need to restore one).
+    # Use $and so a CRE-role $or scope filter can't overwrite this guard.
+    deleted_guard = {"$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]}
     scope = _cre_project_scope_filter(user)
     if scope:
-        query.update(scope)
+        query = {"$and": [deleted_guard, scope]}
+    else:
+        query.update(deleted_guard)
     
     if status:
         statuses = status.split(",")
