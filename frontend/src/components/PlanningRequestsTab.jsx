@@ -5,6 +5,8 @@ import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
+
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
@@ -596,13 +598,21 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-[96vw] sm:max-w-4xl max-h-[92vh] overflow-y-auto" data-testid="planning-review-dialog-v2">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-green-700">
             <Icon className="h-5 w-5" /> Review &amp; Approve — {meta?.label}
+            {req.request_number && (
+              <Badge variant="outline" className="font-mono text-xs bg-blue-50 text-blue-700 border-blue-200 ml-2">{req.request_number}</Badge>
+            )}
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
+        <Tabs defaultValue="details" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-3">
+            <TabsTrigger value="details" data-testid="review-tab-details">Details</TabsTrigger>
+            <TabsTrigger value="timeline" data-testid="review-tab-timeline">Timeline</TabsTrigger>
+          </TabsList>
+          <TabsContent value="details" className="space-y-3 mt-0">
           {/* Header */}
           <Card className={`border-l-4 ${type === 'material' ? 'border-l-blue-500 bg-blue-50' : (type === 'labour_stages' || type === 'labour_payments') ? 'border-l-amber-500 bg-amber-50' : 'border-l-emerald-500 bg-emerald-50'}`}>
             <CardContent className="p-3">
@@ -671,6 +681,33 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
                     <p className="font-medium">{req.brand || '-'}</p>
                   )}
                 </div>
+                {/* Steel specifications — when SE picked a Steel material the
+                    request carries diameter / rod count / calculated weight
+                    metadata. Shown prominently so Planning can verify the
+                    bar size + count before approval. */}
+                {req.steel_specs && (
+                  <div className="bg-slate-50 border border-slate-300 rounded p-2 col-span-2" data-testid="planning-review-steel-specs">
+                    <p className="text-slate-700 text-[10px] uppercase font-semibold flex items-center gap-1">⚙ Steel Specifications</p>
+                    <div className="grid grid-cols-4 gap-2 mt-1.5">
+                      <div>
+                        <p className="text-[9px] uppercase text-gray-500">Diameter</p>
+                        <p className="font-bold text-sm text-slate-800">Ø {req.steel_specs.diameter_mm} mm</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase text-gray-500">No. of Rods</p>
+                        <p className="font-bold text-sm text-slate-800">{req.steel_specs.rod_count} × {req.steel_specs.rod_length_ft || 40} ft</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase text-gray-500">Weight</p>
+                        <p className="font-bold text-sm text-amber-700">{req.steel_specs.calculated_weight_kg} kg</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase text-gray-500">Formula</p>
+                        <p className="text-[10px] text-gray-600">D² ÷ 162 × 12.192 × N</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {/* Procurement-priced fields */}
                 {req.vendor_name && (
                   <div className="bg-amber-50 border border-amber-200 rounded p-2 col-span-2">
@@ -848,7 +885,12 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
               />
             </div>
           )}
-        </div>
+          </TabsContent>
+
+          <TabsContent value="timeline" className="mt-0">
+            <RequestTimeline req={req} type={type} />
+          </TabsContent>
+        </Tabs>
         <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button variant="outline" onClick={onCancel} disabled={processing}>Cancel</Button>
           {mode === 'review' && (
@@ -912,6 +954,63 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+
+// =====================================================================
+// Request Timeline — derives an audit trail purely from timestamps already
+// stored on the request doc. Each detected event renders as a vertical
+// stepper row with timestamp + actor + status colour. No new API needed.
+// =====================================================================
+function RequestTimeline({ req, type }) {
+  if (!req) return null;
+  const events = [];
+
+  const add = (ts, label, actor, color = 'blue', meta = null) => {
+    if (!ts) return;
+    events.push({ ts, label, actor, color, meta });
+  };
+
+  // Material lifecycle events
+  add(req.created_at || req.requested_at, 'Request Created', req.requested_by_name || req.created_by_name, 'gray');
+  add(req.planning_initial_approved_at, 'Planning Head — Initial Approval', req.planning_initial_approved_by_name, 'amber');
+  add(req.planning_initial_rejected_at, 'Planning Head — Rejected at Initial Review', req.planning_initial_rejected_by_name, 'red', req.planning_initial_rejection_reason);
+  add(req.procurement_assigned_at || req.procurement_priced_at, 'Procurement — Vendor & Pricing Submitted', req.procurement_assigned_by_name || req.procurement_priced_by_name, 'orange', req.vendor_name ? `Vendor: ${req.vendor_name}` : null);
+  add(req.revision_sent_at, 'Sent for Revision by Planning', req.revision_sent_by_name, 'orange', req.revision_remarks);
+  add(req.accounts_approved_at, 'Accountant — Payment Approved', req.accounts_approved_by_name, 'cyan');
+  add(req.accounts_rejected_at, 'Accountant — Rejected', req.accounts_rejected_by_name, 'red', req.accounts_rejection_reason);
+  add(req.planning_final_approved_at || req.planning_approved_at, 'Planning Head — Final Approval', req.planning_final_approved_by_name || req.planning_approved_by_name, 'indigo');
+  add(req.po_issued_at, 'Purchase Order Issued', req.po_issued_by_name, 'blue', req.po_number ? `PO: ${req.po_number}` : null);
+  add(req.dispatched_at, 'Dispatched by Vendor', req.dispatched_by_name, 'sky');
+  add(req.received_at || req.delivered_at, 'Goods Received (OTP Verified)', req.received_by_name || req.delivered_by_name, 'green');
+  add(req.paid_at, 'Vendor Payment Released', req.paid_by_name, 'emerald');
+
+  events.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+
+  if (events.length === 0) {
+    return (
+      <div className="text-center py-10 text-gray-400 text-sm">No timeline events recorded yet.</div>
+    );
+  }
+
+  return (
+    <div className="space-y-2" data-testid="planning-review-timeline">
+      <p className="text-xs text-gray-500 italic mb-3">{events.length} events · derived from request audit fields</p>
+      {events.map((e, i) => (
+        <div key={i} className={`flex gap-3 border-l-4 border-l-${e.color}-400 bg-${e.color}-50/40 rounded p-2.5`} data-testid={`timeline-event-${i}`}>
+          <div className={`mt-0.5 h-6 w-6 rounded-full bg-${e.color}-600 text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0`}>{i + 1}</div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs sm:text-sm font-semibold text-gray-800">{e.label}</p>
+            <p className="text-[11px] text-gray-500 flex flex-wrap gap-x-2 gap-y-0.5">
+              {e.actor && <span><span className="font-medium">{e.actor}</span></span>}
+              <span>{new Date(e.ts).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+            </p>
+            {e.meta && <p className="text-[11px] text-gray-600 italic mt-0.5">"{e.meta}"</p>}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
