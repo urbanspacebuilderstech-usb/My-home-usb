@@ -1642,6 +1642,31 @@ export default function SiteEngineerProject() {
                                 </div>
                               </div>
                               <div className="flex items-center gap-1 flex-shrink-0">
+                                {/* Delete: SE can delete their own material request ONLY while
+                                    Planning hasn't approved it yet. Once any approval flag is
+                                    set (planning_initial / PM / procurement / final) the delete
+                                    icon disappears so audit chain is preserved. */}
+                                {(req.status || '').toLowerCase() === 'planning_initial_pending' && (
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      if (!window.confirm(`Delete material request ${req.order_id || req.request_id}? This cannot be undone.`)) return;
+                                      try {
+                                        await axios.delete(`${API}/site-engineer/material-requests/${req.request_id}`);
+                                        toast.success('Material request deleted');
+                                        fetchData(false);
+                                      } catch (err) {
+                                        toast.error(err.response?.data?.detail || 'Failed to delete');
+                                      }
+                                    }}
+                                    className="h-7 w-7 flex items-center justify-center rounded text-red-500 hover:text-red-700 hover:bg-red-50"
+                                    title="Delete request"
+                                    data-testid={`se-mat-delete-${req.request_id}`}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
                                 {isReceivable && (
                                   <Button
                                     size="sm"
