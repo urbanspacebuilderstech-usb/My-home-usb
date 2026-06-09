@@ -287,20 +287,10 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
                 )}
               </div>
 
-              {/* Stage */}
-              <div>
-                <Label className="text-xs text-gray-500">Stage</Label>
-                {editing ? (
-                  <Select value={form.stage} onValueChange={(v) => setForm({...form, stage: v})}>
-                    <SelectTrigger className="text-sm mt-1"><SelectValue placeholder="Select stage" /></SelectTrigger>
-                    <SelectContent>
-                      {STAGE_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <p className="text-sm font-medium mt-0.5" data-testid="detail-stage">{order.stage || order.target_stage_label || order.target_stage_name || order.stage_name || '—'}</p>
-                )}
-              </div>
+              {/* Stage field removed from view popup (Feb 2026). Stages
+                  aren't yet wired into the SE material request workflow so
+                  it was always rendering "—". Re-add when stage selection
+                  becomes mandatory at request creation. */}
 
               {/* Urgency */}
               <div>
@@ -320,22 +310,10 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
                 )}
               </div>
 
-              {/* Required Date */}
-              <div>
-                <Label className="text-xs text-gray-500">Required Date</Label>
-                {editing ? (
-                  <Input type="date" value={form.required_date} onChange={(e) => setForm({...form, required_date: e.target.value})} className="text-sm mt-1" />
-                ) : (
-                  <p className="text-sm font-medium mt-0.5">
-                    {(() => {
-                      const d = order.required_date || order.requested_date;
-                      if (!d) return '—';
-                      try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
-                      catch { return d; }
-                    })()}
-                  </p>
-                )}
-              </div>
+              {/* Required Date removed from view popup (Feb 2026) — the
+                  SE workflow uses Expected Delivery instead, so the field
+                  was always blank. Re-add if a separate "required-by" date
+                  becomes part of the request payload. */}
 
               {/* Expected Delivery — falls back to SE-selected delivery if material request was raised via the SE flow */}
               <div>
