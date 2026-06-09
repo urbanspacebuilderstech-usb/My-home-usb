@@ -142,8 +142,30 @@ export default function CREBoard() {
   // ─── Global Meta-style Date Range Filter (Sales/Pre-Sales-style popover) ───
   // Persisted in localStorage so the chosen range survives refresh/login.
   // Stored as { from: 'YYYY-MM-DD' | '', to: 'YYYY-MM-DD' | '' }.
-  // If user previously cleared the filter ("All Time"), we restore the empty
-  // strings (NOT the default this-month range).
+  //
+  // Feb 2026: Default changed from "current month" → "All Time" (empty).
+  // The old default caused Super Admin / CRE users on different devices to
+  // see wildly different counts (e.g. Payment Schedule = 3 on Laptop A,
+  // = 28 on Laptop B) because each browser auto-persisted its first-load
+  // "this-month" range to localStorage. New users now see the full
+  // pipeline by default and only get filtered when they explicitly pick
+  // a range from the popover.
+  //
+  // One-time migration: if a device had auto-persisted the old "this-month
+  // default" (or any prior auto-default) and the user never explicitly
+  // touched the popover, reset it to All Time. Gated by version flag
+  // `cre_date_filter_v` so we only migrate once per device.
+  try {
+    if (typeof window !== 'undefined' && localStorage.getItem('cre_date_filter_v') !== '2') {
+      // Wipe any auto-persisted range left behind by the old default.
+      // Users who deliberately picked a custom range still lose it once,
+      // but they can re-apply it instantly — far better than confusing,
+      // inconsistent dashboards across devices.
+      localStorage.setItem('cre_date_from', '');
+      localStorage.setItem('cre_date_to', '');
+      localStorage.setItem('cre_date_filter_v', '2');
+    }
+  } catch (e) { /* ignore storage errors */ }
   const _loadDate = (k, fallback) => {
     try {
       const v = localStorage.getItem(`cre_${k}`);
@@ -151,16 +173,8 @@ export default function CREBoard() {
       return v === null ? fallback : v;
     } catch { return fallback; }
   };
-  const [dateFrom, setDateFrom] = useState(() => {
-    const now = new Date();
-    const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-    return _loadDate('date_from', defaultFrom);
-  });
-  const [dateTo, setDateTo] = useState(() => {
-    const now = new Date();
-    const defaultTo = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
-    return _loadDate('date_to', defaultTo);
-  });
+  const [dateFrom, setDateFrom] = useState(() => _loadDate('date_from', ''));
+  const [dateTo, setDateTo] = useState(() => _loadDate('date_to', ''));
   useEffect(() => { try { localStorage.setItem('cre_date_from', dateFrom || ''); } catch (e) { /* ignore quota errors */ } }, [dateFrom]);
   useEffect(() => { try { localStorage.setItem('cre_date_to', dateTo || ''); } catch (e) { /* ignore quota errors */ } }, [dateTo]);
   const dateRange = useMemo(() => ({
