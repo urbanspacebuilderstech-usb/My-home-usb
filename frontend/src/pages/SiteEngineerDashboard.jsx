@@ -50,6 +50,8 @@ import { NumericInput } from '../components/NumericInput';
 import { AppHeader } from '../components/AppHeader';
 import { StatusPill, pillState } from '../components/StatusPill';
 import { CorrectionDialog } from '../components/CorrectionDialog';
+import SrSERequestsTab from '../components/SrSERequestsTab';
+
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -985,7 +987,7 @@ export default function SiteEngineerDashboard() {
         {/* Top-level dashboard tabs — only My Projects, Petty Cash, Attendance.
             Site visits / Work orders / Cashbook / Curing video moved inside the project view. */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">
-          <TabsList className="grid grid-cols-3 w-full h-auto bg-gray-100 p-1 rounded-lg" data-testid="se-dashboard-tabs">
+          <TabsList className={`grid ${user?.role === 'sr_site_engineer' || user?.role === 'super_admin' ? 'grid-cols-4' : 'grid-cols-3'} w-full h-auto bg-gray-100 p-1 rounded-lg`} data-testid="se-dashboard-tabs">
             <TabsTrigger
               value="projects"
               className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow"
@@ -993,6 +995,15 @@ export default function SiteEngineerDashboard() {
             >
               <Building2 className="h-5 w-5" /> My Projects
             </TabsTrigger>
+            {(user?.role === 'sr_site_engineer' || user?.role === 'super_admin') && (
+              <TabsTrigger
+                value="requests"
+                className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-violet-700 data-[state=active]:shadow"
+                data-testid="tab-sr-se-requests"
+              >
+                <ClipboardList className="h-5 w-5" /> Requests
+              </TabsTrigger>
+            )}
             <TabsTrigger
               value="pettycash"
               className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow"
@@ -1013,6 +1024,13 @@ export default function SiteEngineerDashboard() {
               <Clock className="h-5 w-5" /> Attendance
             </TabsTrigger>
           </TabsList>
+
+          {/* Sr. SE — Read-only Requests tab (Material / Labour Payments / Petty Cash) */}
+          {(user?.role === 'sr_site_engineer' || user?.role === 'super_admin') && (
+            <TabsContent value="requests" className="mt-4">
+              <SrSERequestsTab />
+            </TabsContent>
+          )}
 
           {/* Site Visits Tab */}
           <TabsContent value="sitevisits" className="mt-4">
