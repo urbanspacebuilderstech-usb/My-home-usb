@@ -3413,7 +3413,47 @@ async def update_payment_stage(stage_id: str, update_data: PaymentStageUpdate, u
 async def delete_payment_stage(stage_id: str, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    
+
+    # Before deleting, rescue any incomes pointing to this stage so they
+    # don't end up as dangling references (the same bug that orphaned the
+    # ₹50K token advance on Mr Achyuth: a materialized advance stage was
+    # deleted but the linked income's `payment_stage_id` was never cleared,
+    # so it was invisible to every downstream view).
+    #
+    # Strategy:
+    #   1. If the project still has another advance stage (is_advance=True),
+    #      re-link those incomes to it (so the Sales token advance always
+    #      stays in Stage 01, per design rule).
+    #   2. Otherwise, NULL out the payment_stage_id so the self-heal in
+    #      /full-details can pick them up as orphans later.
+    stage_doc = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0, "project_id": 1})
+    if stage_doc:
+        proj_id = stage_doc.get("project_id")
+        if proj_id:
+            replacement = await db.payment_stages.find_one(
+                {"project_id": proj_id, "is_advance": True, "stage_id": {"$ne": stage_id}},
+                {"_id": 0, "stage_id": 1},
+            )
+            replacement_sid = replacement.get("stage_id") if replacement else None
+            if replacement_sid:
+                await db.income.update_many(
+                    {"payment_stage_id": stage_id},
+                    {"$set": {"payment_stage_id": replacement_sid}},
+                )
+                await db.payment_stages.update_one(
+                    {"stage_id": replacement_sid, "linked_income_id": {"$in": [None, "", False]}},
+                    {"$set": {"linked_income_id": (await db.income.find_one(
+                        {"payment_stage_id": replacement_sid, "category": "advance_payment"},
+                        {"_id": 0, "income_id": 1},
+                        sort=[("payment_date", 1)],
+                    ) or {}).get("income_id")}},
+                )
+            else:
+                await db.income.update_many(
+                    {"payment_stage_id": stage_id},
+                    {"$set": {"payment_stage_id": None}},
+                )
+
     await db.payment_stages.delete_one({"stage_id": stage_id})
     await create_audit_log(user.user_id, "delete", "payment_stage", stage_id, {})
     return {"message": "Payment stage deleted"}
@@ -10923,9 +10963,11 @@ async def apply_payment_template_to_project(project_id: str, data: ApplyTemplate
 
     created = []
     now_iso = datetime.now(timezone.utc).isoformat()
+    first_advance_stage_id = None  # Track the FIRST is_advance stage we create
     for r in rows:
         pct = float(r.get("percentage") or 0)
         amount = round((total_value * pct) / 100) if total_value > 0 and pct > 0 else 0
+        is_adv = (r.get("stage_name", "") or "").lower().startswith("advance")
         stage_dict = {
             "stage_id": f"ps_{uuid.uuid4().hex[:10]}",
             "project_id": project_id,
@@ -10936,13 +10978,48 @@ async def apply_payment_template_to_project(project_id: str, data: ApplyTemplate
             "status": "pending",
             "workflow_status": "approved",
             "notes": r.get("notes", ""),
-            "is_advance": (r.get("stage_name", "") or "").lower().startswith("advance"),
+            "is_advance": is_adv,
             "created_by": user.user_id,
             "created_at": now_iso,
         }
         await db.payment_stages.insert_one(stage_dict)
+        if is_adv and not first_advance_stage_id:
+            first_advance_stage_id = stage_dict["stage_id"]
         stage_dict.pop("_id", None)
         created.append(stage_dict)
+
+    # Auto-rescue orphan Sales token advance incomes by linking them to the
+    # newly-created advance stage. Catches two cases on project setup:
+    #   1. Income has NULL payment_stage_id (no materialize was ever called)
+    #   2. Income's payment_stage_id points to a deleted stage (e.g. a
+    #      previously materialized advance stage that was removed via the
+    #      Payment Schedule UI — the original Mr Achyuth bug).
+    if first_advance_stage_id:
+        existing_stage_ids = {
+            s["stage_id"] async for s in db.payment_stages.find(
+                {"project_id": project_id}, {"_id": 0, "stage_id": 1}
+            )
+        }
+        adv_incomes = await db.income.find(
+            {"project_id": project_id, "category": "advance_payment"},
+            {"_id": 0, "income_id": 1, "payment_stage_id": 1, "amount": 1},
+        ).sort("payment_date", 1).to_list(50)
+        # Find first orphan advance income to attach as `linked_income_id`
+        chosen_link_id = None
+        for adv in adv_incomes:
+            psid = adv.get("payment_stage_id")
+            if psid in (None, "", False) or psid not in existing_stage_ids:
+                await db.income.update_one(
+                    {"income_id": adv["income_id"]},
+                    {"$set": {"payment_stage_id": first_advance_stage_id}},
+                )
+                if chosen_link_id is None:
+                    chosen_link_id = adv["income_id"]
+        if chosen_link_id:
+            await db.payment_stages.update_one(
+                {"stage_id": first_advance_stage_id, "linked_income_id": {"$in": [None, "", False]}},
+                {"$set": {"linked_income_id": chosen_link_id}},
+            )
 
     return {"message": f"Applied template '{tpl.get('template_name')}'", "created": len(created), "mode": data.mode}
 

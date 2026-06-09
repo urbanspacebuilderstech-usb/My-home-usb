@@ -2307,12 +2307,29 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
                 set_doc["paid_at"] = stage.get("paid_at") or adv_inc.get("payment_date") or datetime.now(timezone.utc).isoformat()
             await db.payment_stages.update_one({"stage_id": sid}, {"$set": set_doc})
         # Also stamp back-ref on the advance income so Incomes(N) popup includes it.
+        # Rescue BOTH orphan incomes (payment_stage_id=null) AND incomes pointing
+        # to a dangling/deleted stage. The latter is the Mr Achyuth case: a
+        # materialized advance stage was deleted but the income's pointer was
+        # never updated, leaving it invisible to every downstream view.
         if not already_linked:
-            await db.income.update_one(
-                {"income_id": linked_id, "payment_stage_id": {"$in": [None, "", False]}},
-                {"$set": {"payment_stage_id": sid}}
-            )
-            adv_inc["payment_stage_id"] = sid
+            current_psid = adv_inc.get("payment_stage_id")
+            should_relink = False
+            if current_psid in (None, "", False):
+                should_relink = True
+            else:
+                # Check if current target still exists. If not, this income
+                # is pointing to a deleted stage — rescue it.
+                existing = await db.payment_stages.find_one(
+                    {"stage_id": current_psid}, {"_id": 0, "stage_id": 1}
+                )
+                if not existing:
+                    should_relink = True
+            if should_relink:
+                await db.income.update_one(
+                    {"income_id": linked_id},
+                    {"$set": {"payment_stage_id": sid}}
+                )
+                adv_inc["payment_stage_id"] = sid
 
     # Income summary by payment mode — APPROVED-only across the board so the
     # project header Total Income card stops counting rejected / under_correction
