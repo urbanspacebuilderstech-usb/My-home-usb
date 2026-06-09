@@ -1088,6 +1088,71 @@ export default function SiteEngineerDashboard() {
                   </p>
                 </CardContent>
               </Card>
+            ) : (user?.role === 'sr_site_engineer' || user?.role === 'super_admin') ? (
+              /* ===== Sr. Site Engineer / Super Admin — Planning-style table view =====
+                 Compact Project | Client | Phase | Date | View table for
+                 supervisors who need a quick scan across all assigned sites.
+                 Regular site_engineer still gets the touch-friendly card list
+                 below. Clicking a row opens the same default SE project page. */
+              <Card data-testid="sr-se-projects-table-card">
+                <CardContent className="p-0 overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="sr-se-projects-table">
+                    <thead className="bg-amber-50/60 text-gray-700 border-b border-amber-100">
+                      <tr>
+                        <th className="text-left font-semibold px-4 py-2.5">Project</th>
+                        <th className="text-left font-semibold px-4 py-2.5">Client</th>
+                        <th className="text-left font-semibold px-4 py-2.5">Phase</th>
+                        <th className="text-left font-semibold px-4 py-2.5">Date</th>
+                        <th className="text-right font-semibold px-4 py-2.5 w-20">View</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {projects.map((project) => {
+                        const dateStr = project.created_at
+                          ? new Date(project.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                          : '—';
+                        return (
+                          <tr
+                            key={project.project_id}
+                            className="border-b last:border-b-0 hover:bg-amber-50/40 cursor-pointer transition-colors"
+                            onClick={() => window.location.href = `/site-engineer/project/${project.project_id}`}
+                            data-testid={`project-row-${project.project_id}`}
+                          >
+                            <td className="px-4 py-3 font-medium text-gray-900">
+                              <div className="flex items-center gap-2">
+                                <Building2 className="h-4 w-4 text-amber-600 flex-shrink-0" />
+                                <span className="truncate">{project.name}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-gray-700">{project.client_name || '—'}</td>
+                            <td className="px-4 py-3">
+                              <Badge variant="secondary" className="text-[11px] font-normal">
+                                {(project.status || 'unknown').replace(/_/g, ' ')}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-gray-600 text-xs whitespace-nowrap">{dateStr}</td>
+                            <td className="px-4 py-3 text-right">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0 text-amber-700 hover:text-amber-900 hover:bg-amber-100"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  window.location.href = `/site-engineer/project/${project.project_id}`;
+                                }}
+                                data-testid={`project-row-view-${project.project_id}`}
+                                title="Open project"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
             ) : (
               <div className="space-y-3 sm:space-y-4">
                 {projects.map((project) => (
