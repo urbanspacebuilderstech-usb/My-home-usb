@@ -2056,10 +2056,20 @@ async def get_monthly_schedule(
             # show two visually identical lines. The single row still carries
             # both `amount` (₹9.3L) and `amount_received` (₹8L) so the UI can
             # display "Partial" with the right received/balance figures.
+            #
+            # ALL-MONTHS DEDUPE (Feb 2026 follow-up): in `all_months` mode the
+            # two virtual rows always rendered side-by-side with identical
+            # date/amount/received/balance figures, so users saw what looked
+            # like a duplicate row (e.g. Mr Thalib hussain Stage 01 Payment
+            # appeared twice — once plain, once with the carry badge). In
+            # consolidated mode we only emit the **balance_portion** which
+            # already shows the full money picture and (when applicable) the
+            # carry-forward badge. The collected_portion row is only useful
+            # when scoping a specific month tab.
             same_month = (coll_month == bal_month and coll_year == bal_year)
 
-            if all_months or (coll_month == month and coll_year == year and not same_month):
-                if (stage.get("stage_id"), coll_month if all_months else month, coll_year if all_months else year) not in hide_keys:
+            if (not all_months) and (coll_month == month and coll_year == year and not same_month):
+                if (stage.get("stage_id"), month, year) not in hide_keys:
                     matching_stages.append({
                         "stage": stage,
                         "manual_entry": manual,
