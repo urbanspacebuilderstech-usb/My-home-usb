@@ -140,7 +140,13 @@ export default function SiteEngineerProject() {
     { diameter: 8, rod_count: '', weight: 0, remarks: '' },
   ]);
   const resetSteelItems = () => setSteelItems([{ diameter: 8, rod_count: '', weight: 0, remarks: '' }]);
-  const isSteelSelected = (materialForm.category || '').toLowerCase() === 'steel';
+  // Detect Steel from EITHER the category tag (preferred — set by Super
+  // Admin in Material Master) OR the material name (fallback — covers
+  // materials not yet tagged). Both paths flip the dialog into Steel mode.
+  const isSteelSelected = (
+    (materialForm.category || '').toLowerCase() === 'steel' ||
+    (materialForm.material_name || '').toLowerCase().includes('steel')
+  );
   const [vendorSuggestion, setVendorSuggestion] = useState(null);
   const [approvedMaterials, setApprovedMaterials] = useState([]);
   const [materialSearch, setMaterialSearch] = useState('');
@@ -1257,18 +1263,20 @@ export default function SiteEngineerProject() {
                                         type="button"
                                         className={`w-full text-left px-3 py-2 text-xs sm:text-sm transition-colors ${isSelected ? 'bg-amber-50 border-l-4 border-l-amber-500' : 'hover:bg-gray-50'}`}
                                         onClick={() => {
+                                          // Detect Steel via category OR name (fallback if tag missing)
+                                          const steelDetected = (mat.category || '').toLowerCase() === 'steel'
+                                            || (mat.name || '').toLowerCase().includes('steel');
                                           setMaterialForm({
                                             ...materialForm,
                                             material_id: mat.material_id,
                                             material_name: mat.name,
                                             brand: mat.brand || '',
-                                            category: mat.category || '',
-                                            unit: (mat.category || '').toLowerCase() === 'steel' ? 'kg' : (mat.unit || 'kg'),
+                                            category: mat.category || (steelDetected ? 'steel' : ''),
+                                            unit: steelDetected ? 'kg' : (mat.unit || 'kg'),
                                             is_locked_from_package: !!mat.is_locked_from_package,
                                             locked_estimated_rate: mat.locked_estimated_rate ?? null,
                                           });
-                                          // If steel, reset the steel multi-item rows.
-                                          if ((mat.category || '').toLowerCase() === 'steel') resetSteelItems();
+                                          if (steelDetected) resetSteelItems();
                                           setMaterialSearch('');
                                           setMaterialDropdownOpen(false);
                                           fetchVendorSuggestion(mat.name);
