@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+
 import { toast } from 'sonner';
 import axios from 'axios';
 
@@ -235,7 +237,13 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
           </DialogHeader>
         </div>
 
-        <div className="px-4 py-4 sm:px-6 space-y-5">
+        <div className="px-4 py-4 sm:px-6">
+          <Tabs defaultValue="details" className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-4">
+              <TabsTrigger value="details" data-testid="order-tab-details">Details</TabsTrigger>
+              <TabsTrigger value="timeline" data-testid="order-tab-timeline">Timeline</TabsTrigger>
+            </TabsList>
+            <TabsContent value="details" className="space-y-5 mt-0">
           {/* Order Details Section */}
           <div>
             <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-1.5">
@@ -290,7 +298,7 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
                     </SelectContent>
                   </Select>
                 ) : (
-                  <p className="text-sm font-medium mt-0.5" data-testid="detail-stage">{order.stage || '—'}</p>
+                  <p className="text-sm font-medium mt-0.5" data-testid="detail-stage">{order.stage || order.target_stage_label || order.target_stage_name || order.stage_name || '—'}</p>
                 )}
               </div>
 
@@ -318,20 +326,32 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
                 {editing ? (
                   <Input type="date" value={form.required_date} onChange={(e) => setForm({...form, required_date: e.target.value})} className="text-sm mt-1" />
                 ) : (
-                  <p className="text-sm font-medium mt-0.5">{order.required_date || '—'}</p>
+                  <p className="text-sm font-medium mt-0.5">
+                    {(() => {
+                      const d = order.required_date || order.requested_date;
+                      if (!d) return '—';
+                      try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
+                      catch { return d; }
+                    })()}
+                  </p>
                 )}
               </div>
 
-              {/* Expected Delivery */}
+              {/* Expected Delivery — falls back to SE-selected delivery if material request was raised via the SE flow */}
               <div>
                 <Label className="text-xs text-gray-500">Expected Delivery</Label>
                 {editing ? (
                   <Input type="date" value={form.expected_delivery} onChange={(e) => setForm({...form, expected_delivery: e.target.value})} className="text-sm mt-1" />
                 ) : (
                   <p className="text-sm font-medium mt-0.5">
-                    {order.expected_delivery
-                      ? new Date(order.expected_delivery).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-                      : '—'}
+                    {(() => {
+                      const d = order.expected_delivery || order.se_expected_delivery;
+                      if (!d) return '—';
+                      try {
+                        const dt = new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                        return order.se_delivery_choice ? `${dt} · ${order.se_delivery_choice.toUpperCase()}` : dt;
+                      } catch { return d; }
+                    })()}
                   </p>
                 )}
               </div>
@@ -436,8 +456,11 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
             </div>
           )}
 
-          {/* Approval Timeline */}
-          {timeline.length > 0 && (
+          {/* Approval Timeline → moved into the Timeline tab below */}
+            </TabsContent>
+
+            <TabsContent value="timeline" className="mt-0">
+              {timeline.length > 0 ? (
             <div>
               <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-1.5">
                 <Calendar className="h-4 w-4 text-gray-600" /> Approval Timeline
@@ -467,7 +490,11 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
                 </div>
               </div>
             </div>
-          )}
+              ) : (
+                <div className="text-center py-10 text-gray-400 text-sm">No timeline events recorded yet.</div>
+              )}
+            </TabsContent>
+          </Tabs>
 
           {/* Delivery photos & GPS — visible to Procurement / Planning / Accountant after SE marks received */}
           {(order.lorry_image_id || order.material_image_id || order.received_at) && !editing && (
