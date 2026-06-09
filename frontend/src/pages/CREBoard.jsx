@@ -270,13 +270,19 @@ export default function CREBoard() {
 
   useEffect(() => { fetchData(); }, []);
 
-  // Payment Schedule fetcher (mirrors Planning's monthly schedule). When
-  // `psAllMonths` is on, ask the backend for every payable stage across
-  // every month so the badge counts reflect the whole pipeline.
-  const fetchPaymentSchedule = async (m = psMonth, y = psYear) => {
+  // Payment Schedule fetcher (mirrors Planning's monthly schedule).
+  // ALWAYS asks the backend for every payable stage across every month
+  // (`all_months=true` is hard-coded — the toggle UI was removed because
+  // it caused device-to-device inconsistency: one laptop in single-month
+  // mode would see 2 items while another in all-months mode saw 21+
+  // carryovers for the same June 2026 view. The Pending/Partial counts
+  // were never the same. Single source of truth = always all_months.)
+  // We tack on a cache-buster (`_=timestamp`) so any intermediary HTTP
+  // cache (browser, CDN, Nginx proxy) cannot serve a stale response.
+  const fetchPaymentSchedule = async () => {
     setPsLoading(true);
     try {
-      const params = psAllMonths ? { all_months: true } : { month: m, year: y };
+      const params = { all_months: true, _: Date.now() };
       const r = await axios.get(`${API}/planning/monthly-schedule`, { params });
       setPsData(r.data || { entries: [], summary: {} });
     } catch (err) {
@@ -285,7 +291,7 @@ export default function CREBoard() {
       setPsLoading(false);
     }
   };
-  useEffect(() => { fetchPaymentSchedule(psMonth, psYear); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [psMonth, psYear, psAllMonths]);
+  useEffect(() => { fetchPaymentSchedule(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
   // ── Bulk delete on CRE Payment Schedule ──────────────────────────────
   // Backend has a per-entry delete that handles three cases:
@@ -308,23 +314,11 @@ export default function CREBoard() {
     setPsDeleteDialog({ open: false, typed: '', submitting: false });
     if (ok) toast.success(`Removed ${ok} entr${ok === 1 ? 'y' : 'ies'}`);
     if (fail) toast.error(`${fail} failed`);
-    fetchPaymentSchedule(psMonth, psYear);
+    fetchPaymentSchedule();
   };
 
-  // Reset selection whenever sub-tab or month changes (the visible rows differ).
-  useEffect(() => { setPsSelected(new Set()); }, [psSubTab, psMonth, psYear]);
-
-  const shiftPsMonth = (delta) => {
-    // Navigating prev/next implicitly switches off the "all months" view
-    // and zooms into the resulting month.
-    let m = psMonth + delta;
-    let y = psYear;
-    if (m < 1) { m = 12; y -= 1; }
-    if (m > 12) { m = 1; y += 1; }
-    setPsAllMonths(false);
-    setPsMonth(m);
-    setPsYear(y);
-  };
+  // Reset selection whenever sub-tab changes (the visible rows differ).
+  useEffect(() => { setPsSelected(new Set()); }, [psSubTab]);
 
   const fetchData = async (showLoader = true) => {
     try {
@@ -1276,47 +1270,22 @@ export default function CREBoard() {
                             : dateFiltered;
               return (
                 <div className="space-y-4">
-                  {/* Month nav — when psAllMonths is true the centre label
-                      shows "All Months" with a "This Month" shortcut; Prev/Next
-                      implicitly zoom into a single month. */}
+                  {/* Month nav removed (Feb 2026): the schedule now ALWAYS
+                      shows All Months with carryovers, so device-to-device
+                      data is identical. Past-due items pin to the current
+                      calendar month via the carry-forward logic in the
+                      backend. Use the search/date-range filters below to
+                      narrow down a specific window. */}
                   <Card>
                     <CardContent className="p-3">
                       <div className="flex items-center justify-between flex-wrap gap-2">
                         <div className="flex items-center gap-3">
-                          <Button size="sm" variant="outline" onClick={() => shiftPsMonth(-1)} data-testid="ps-prev-month">‹ Prev</Button>
-                          <div className="text-center min-w-[140px]">
+                          <div className="min-w-[180px]">
                             <p className="text-lg font-bold text-gray-900" data-testid="ps-current-month">
-                              {psAllMonths ? 'All Months' : `${MONTHS[psMonth - 1]} ${psYear}`}
+                              All Months · Carryovers Included
                             </p>
-                            <p className="text-xs text-gray-500">CRE Payment Schedule</p>
+                            <p className="text-xs text-gray-500">CRE Payment Schedule · Full Pipeline</p>
                           </div>
-                          <Button size="sm" variant="outline" onClick={() => shiftPsMonth(1)} data-testid="ps-next-month">Next ›</Button>
-                          {psAllMonths ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="border-amber-300 text-amber-700 hover:bg-amber-50"
-                              onClick={() => {
-                                setPsAllMonths(false);
-                                const t = new Date();
-                                setPsMonth(t.getMonth() + 1);
-                                setPsYear(t.getFullYear());
-                              }}
-                              data-testid="ps-zoom-current"
-                            >
-                              This Month
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="border-violet-300 text-violet-700 hover:bg-violet-50"
-                              onClick={() => setPsAllMonths(true)}
-                              data-testid="ps-show-all"
-                            >
-                              All Months
-                            </Button>
-                          )}
                         </div>
                         <Button size="sm" variant="outline" onClick={() => fetchPaymentSchedule()} data-testid="ps-refresh">
                           <RefreshCw className="h-4 w-4 mr-1" /> Refresh
@@ -1428,7 +1397,7 @@ export default function CREBoard() {
                             </thead>
                             <tbody className="divide-y">
                               {entries.length === 0 ? (
-                                <tr><td colSpan="9" className="p-8 text-center text-gray-400">No payments scheduled for {MONTHS[psMonth - 1]} {psYear}.</td></tr>
+                                <tr><td colSpan="9" className="p-8 text-center text-gray-400">No payments in the schedule.</td></tr>
                               ) : entries.map((e) => {
                                 const balance = (e.amount || 0) - (e.amount_received || 0);
                                 const pendingApprovalAmt = e.pending_approval_amount || 0;

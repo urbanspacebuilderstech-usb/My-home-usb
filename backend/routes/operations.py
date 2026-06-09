@@ -2274,7 +2274,12 @@ async def get_monthly_schedule(
     requested_count = sum(1 for e in enriched if e["workflow_status"] in ("requested", "pending_collection"))
     collected_count = sum(1 for e in enriched if e["stage_status"] in ("paid", "collected"))
 
-    return {
+    # Anti-cache headers so no proxy / CDN / browser HTTP cache can serve
+    # a stale payment-schedule snapshot. Different devices were occasionally
+    # showing different totals (Pending 21 on one laptop vs Pending 2 on
+    # another) because of intermediary caching — these headers force every
+    # GET to hit the server.
+    payload = {
         "month": month, "year": year,
         "is_current_month_view": is_current_month_view,
         "entries": enriched,
@@ -2286,8 +2291,17 @@ async def get_monthly_schedule(
             "carryover_count": carryover_count,
             "requested_count": requested_count,
             "collected_count": collected_count,
-        }
+        },
     }
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        content=payload,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @router.get("/planning/monthly-schedule/available-stages")
