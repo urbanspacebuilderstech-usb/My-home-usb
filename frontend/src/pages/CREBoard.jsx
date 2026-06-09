@@ -1467,6 +1467,11 @@ export default function CREBoard() {
                                     </td>
                                     <td className="px-4 py-2.5 text-sm">
                                       {e.stage_name}
+                                      {e.no_date_set && (
+                                        <Badge className="ml-1.5 bg-amber-50 text-amber-700 border-amber-200 text-[10px] align-middle" data-testid="no-date-set-badge">
+                                          ⚠ No Date Set
+                                        </Badge>
+                                      )}
                                       {e.is_carryover && (
                                         <Badge className="ml-1.5 bg-red-50 text-red-700 border-red-200 text-[10px] align-middle" data-testid="last-month-pending-badge">
                                           🔴 Carried from {e.carry_from_month ? `${new Date(2000, e.carry_from_month - 1, 1).toLocaleString('en-IN', { month: 'short' })} ${e.carry_from_year}` : 'earlier'}{e.days_overdue > 0 ? ` · ${e.days_overdue}d overdue` : ''}
@@ -1474,7 +1479,7 @@ export default function CREBoard() {
                                       )}
                                     </td>
                                     <td className="px-4 py-2.5 text-xs text-gray-700">
-                                      {e.expected_payment_date ? new Date(e.expected_payment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
+                                      {e.expected_payment_date ? new Date(e.expected_payment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (e.no_date_set ? <span className="italic text-amber-600">Unscheduled</span> : '-')}
                                     </td>
                                     <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(e.amount)}</td>
                                     <td className="px-4 py-2.5 text-right text-green-600">

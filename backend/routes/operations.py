@@ -2006,6 +2006,23 @@ async def get_monthly_schedule(
         manual = manual_by_stage.get(stage.get("stage_id"))
         planned_month, planned_year = _planned_month_for_stage(stage, manual)
         if not planned_month:
+            # No expected_payment_date, no due_date, no manual pin → the stage
+            # has no scheduled month. Previously these were silently dropped,
+            # making them invisible on the Payment Schedule even though they
+            # exist in the DB. (Feb 2026 Option A): in `all_months` mode we
+            # include them as an "Unscheduled" row so the user sees the full
+            # pipeline. In single-month mode we still skip — they don't belong
+            # to any specific month.
+            if not all_months:
+                continue
+            matching_stages.append({
+                "stage": stage,
+                "manual_entry": manual,
+                "planned_month": None,
+                "planned_year": None,
+                "is_carryover": False,
+                "no_date_set": True,
+            })
             continue
 
         rec = stage.get("amount_received") or 0
@@ -2240,6 +2257,7 @@ async def get_monthly_schedule(
             "is_addition": manual.get("is_addition") or stage.get("is_addition") or False,
             "is_partial_split": bool(virtual_kind),
             "partial_kind": virtual_kind,  # 'collected_portion' or 'balance_portion'
+            "no_date_set": bool(m.get("no_date_set")),
             "project_name": proj.get("name", "Unknown"),
             "client_name": proj.get("client_name", ""),
             "project_value": proj.get("total_value", 0),
