@@ -1217,12 +1217,27 @@ export default function CREBoard() {
             {(() => {
               const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
               const allEntries = psData.entries || [];
-              // CRE Board only shows stages that Planning/SE has actually
-              // REQUESTED + dated. Stages without an expected_payment_date
-              // (`no_date_set=true`, "Unscheduled") are hidden so the CRE
-              // sees only items they can act on. Planning still sees them
-              // via the dedicated Planning Board view.
-              const collectibleEntries = allEntries.filter(e => !e.no_date_set && e.expected_payment_date);
+              // CRE Board shows ONLY entries that have been actively REQUESTED
+              // for payment by Planning Head / Planning Person (or already
+              // collected). Just having an expected_payment_date isn't enough
+              // — the Planning user must have clicked "Request Payment" which
+              // stamps `requested_at` on the stage. Already-collected stages
+              // also show so the CRE can see history. Everything else
+              // (auto-templated dates not yet acted on, no-date stages) stays
+              // hidden until Planning actively requests it.
+              const collectibleEntries = allEntries.filter(e => {
+                if (e.no_date_set) return false;
+                // Already collected / partially collected → keep visible
+                const alreadyTouched =
+                  (e.amount_received || 0) > 0 ||
+                  ["paid", "collected"].includes(e.stage_status);
+                if (alreadyTouched) return true;
+                // Otherwise must be an active Planning-initiated request
+                const requested =
+                  !!e.requested_at ||
+                  ["requested", "pending_collection"].includes(e.workflow_status);
+                return requested;
+              });
               // Apply global date filter to entries (by expected_payment_date)
               const globallyDateFiltered = (dateRange.from || dateRange.to)
                 ? collectibleEntries.filter(e => inDateRange(e.expected_payment_date))
