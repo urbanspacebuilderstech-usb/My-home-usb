@@ -632,8 +632,16 @@ export default function SiteEngineerProject() {
   };
 
   const handleMaterialRequest = async () => {
-    if ((!materialForm.material_id && !materialForm.material_name) || !materialForm.quantity) {
-      toast.error('Please fill material name and quantity');
+    // Skip the legacy "name + quantity" guard when the dialog is in
+    // Steel multi-item mode — those rows have their own validation below.
+    const steelMode = isSteelSelected;
+    if (!steelMode) {
+      if ((!materialForm.material_id && !materialForm.material_name) || !materialForm.quantity) {
+        toast.error('Please fill material name and quantity');
+        return;
+      }
+    } else if (!materialForm.material_id && !materialForm.material_name) {
+      toast.error('Please pick a Steel material');
       return;
     }
 
@@ -1424,6 +1432,22 @@ export default function SiteEngineerProject() {
                           >
                             <Plus className="h-3.5 w-3.5" /> Add Another Item
                           </button>
+                          {/* Steel totals — sums weight & rod count across every row. */}
+                          {(() => {
+                            const validRows = steelItems.filter(r => r.diameter && parseInt(r.rod_count, 10) > 0);
+                            const totalRods = validRows.reduce((s, r) => s + parseInt(r.rod_count, 10), 0);
+                            const totalWeight = validRows.reduce((s, r) => s + calcSteelWeightKg(r.diameter, r.rod_count), 0);
+                            return (
+                              <div className="mt-2 border-2 border-amber-300 rounded-lg bg-amber-50 p-2.5 flex items-center justify-between" data-testid="steel-totals">
+                                <div className="text-xs sm:text-sm text-amber-900 font-semibold">
+                                  Total: <span className="text-base sm:text-lg">{validRows.length}</span> item{validRows.length === 1 ? '' : 's'} · <span className="text-base sm:text-lg">{totalRods}</span> rod{totalRods === 1 ? '' : 's'}
+                                </div>
+                                <div className="text-sm sm:text-base font-bold text-amber-700" data-testid="steel-total-weight">
+                                  {Math.round(totalWeight * 100) / 100} kg
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       ) : (
                         <div className="grid grid-cols-2 gap-2">
