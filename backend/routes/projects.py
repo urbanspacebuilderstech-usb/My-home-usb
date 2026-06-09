@@ -9688,6 +9688,51 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
     use_suspense = float(data.get("use_suspense_amount") or 0)
     cheque_amount_input = data.get("cheque_amount")
 
+    # ── MULTI-MODE PAYMENT SUPPORT (Feb 2026) ─────────────────────────────
+    # If the client passes `payment_entries: [{method, amount, bank_ref?,
+    # cheque_ids?}]` the Accountant is splitting one approval across
+    # multiple modes (e.g. ₹10K cheque + ₹4.4K cash + ₹5K HDFC).
+    # We validate the sum, then iterate: each entry creates its own
+    # recorded_expense + consumes its own cheques. The legacy single-mode
+    # `payment_method` / `cheque_ids` body still works (we synthesize a
+    # single-entry list below).
+    payment_entries_raw = data.get("payment_entries")
+    multi_mode = bool(payment_entries_raw and isinstance(payment_entries_raw, list))
+    if not multi_mode:
+        # Legacy single-mode body → synthesize one entry so downstream loop
+        # handles both code paths uniformly.
+        synth_amount = None
+        if payment_method == "cheque" and cheque_amount_input not in (None, ""):
+            try:
+                synth_amount = float(cheque_amount_input)
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="Invalid cheque amount")
+        payment_entries_list = [{
+            "method": payment_method,
+            "amount": synth_amount,  # may be None → filled later from approved_amount - use_suspense
+            "bank_ref": bank_ref,
+            "cheque_ids": cheque_ids,
+        }]
+    else:
+        payment_entries_list = []
+        for e in payment_entries_raw:
+            m = (e.get("method") or "").lower()
+            m = {"bank": "current_account", "savings": "savings_account"}.get(m, m)
+            if m not in ("cash", "cheque", "current_account", "savings_account"):
+                raise HTTPException(status_code=400, detail=f"Invalid method in entry: {m}")
+            try:
+                a = float(e.get("amount") or 0)
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="Each entry must have a numeric amount")
+            if a <= 0:
+                raise HTTPException(status_code=400, detail="Each entry amount must be > 0")
+            payment_entries_list.append({
+                "method": m,
+                "amount": a,
+                "bank_ref": (e.get("bank_ref") or "").strip(),
+                "cheque_ids": e.get("cheque_ids") or [],
+            })
+
     now = datetime.now(timezone.utc).isoformat()
     target_pr = None
     target_stage = None
@@ -9723,37 +9768,87 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
             raise HTTPException(status_code=400, detail="Cheque amount cannot be less than approved amount")
         cheque_excess = max(0.0, cheque_amount - approved_amount)
 
-    # When Accountant picks pre-opened cheques (new flow), compute cheque_amount
-    # from the sum of the selected cheques and validate. Excess auto-credits suspense.
-    selected_cheque_docs = []
-    if payment_method == "cheque" and cheque_ids:
-        selected_cheque_docs = await db.cheques.find(
-            {"cheque_id": {"$in": cheque_ids}}, {"_id": 0}
-        ).to_list(len(cheque_ids))
-        if len(selected_cheque_docs) != len(cheque_ids):
+    # ── MULTI-MODE VALIDATION & CHEQUE CONSUMPTION ────────────────────────
+    # When `payment_entries` arrived from the client, fill in default amount on
+    # the synthesized single entry (for legacy callers) and validate that the
+    # sum of all entry amounts equals (approved − suspense used). For each
+    # cheque entry, fetch and validate its cheques, auto-compute amount if the
+    # row left it blank (sum of picked cheques).
+    payable_target = approved_amount - use_suspense
+    # Synthesize amount for legacy single-mode call if missing
+    if not multi_mode and payment_entries_list[0]["amount"] is None:
+        payment_entries_list[0]["amount"] = payable_target
+
+    # Pre-fetch every cheque referenced across entries — single bulk query.
+    all_cheque_ids = []
+    for e in payment_entries_list:
+        if e["method"] == "cheque":
+            all_cheque_ids.extend(e["cheque_ids"] or [])
+    if len(all_cheque_ids) != len(set(all_cheque_ids)):
+        raise HTTPException(status_code=400, detail="The same cheque cannot be used across two payment entries")
+    cheques_by_id = {}
+    if all_cheque_ids:
+        docs = await db.cheques.find({"cheque_id": {"$in": all_cheque_ids}}, {"_id": 0}).to_list(len(all_cheque_ids))
+        if len(docs) != len(all_cheque_ids):
             raise HTTPException(status_code=400, detail="One or more selected cheques not found")
-        for ch in selected_cheque_docs:
+        for ch in docs:
             if ch.get("used_for_expense_id"):
                 raise HTTPException(status_code=400, detail=f"Cheque {ch.get('cheque_number')} already used")
             if not ch.get("is_opened"):
                 raise HTTPException(status_code=400, detail=f"Cheque {ch.get('cheque_number')} not yet opened by CRE")
-        sum_cheques = sum(float(ch.get("amount", 0) or 0) for ch in selected_cheque_docs)
-        if sum_cheques < approved_amount - 0.01:
-            raise HTTPException(status_code=400, detail=f"Selected cheques total ₹{sum_cheques:,.0f} < approved ₹{approved_amount:,.0f}")
-        cheque_amount = sum_cheques
-        cheque_excess = max(0.0, sum_cheques - approved_amount)
+            cheques_by_id[ch["cheque_id"]] = ch
+
+    # Auto-sum cheque-row amounts from their picked cheques (multi-mode only).
+    if multi_mode:
+        for e in payment_entries_list:
+            if e["method"] == "cheque" and e["cheque_ids"]:
+                e["amount"] = sum(float(cheques_by_id[cid].get("amount") or 0) for cid in e["cheque_ids"])
+
+    entries_sum = sum(e["amount"] for e in payment_entries_list)
+    if abs(entries_sum - payable_target) > 0.5:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Sum of payment entries (₹{entries_sum:,.0f}) does not match payable (₹{payable_target:,.0f})"
+        )
+
+    # Aggregate cheque excess across all cheque rows (each row may slightly overshoot).
+    selected_cheque_docs = []
+    cheque_no_aggregated = []
+    cheque_amount_total = 0.0
+    for e in payment_entries_list:
+        if e["method"] == "cheque" and e["cheque_ids"]:
+            for cid in e["cheque_ids"]:
+                ch = cheques_by_id[cid]
+                selected_cheque_docs.append(ch)
+                cheque_amount_total += float(ch.get("amount") or 0)
+                if ch.get("cheque_number"):
+                    cheque_no_aggregated.append(ch["cheque_number"])
+    if not multi_mode and payment_method == "cheque" and cheque_ids:
+        # Preserve legacy cheque_excess calc for single-mode-with-cheques path
+        cheque_amount = cheque_amount_total
+        cheque_excess = max(0.0, cheque_amount_total - approved_amount)
         if not cheque_no:
-            cheque_no = ", ".join((ch.get("cheque_number") or "") for ch in selected_cheque_docs)
+            cheque_no = ", ".join(cheque_no_aggregated)
+    elif multi_mode:
+        # Multi-mode: cheque_excess is the overflow above each cheque row's declared amount
+        excess = 0.0
+        for e in payment_entries_list:
+            if e["method"] == "cheque" and e["cheque_ids"]:
+                row_cheque_total = sum(float(cheques_by_id[cid].get("amount") or 0) for cid in e["cheque_ids"])
+                excess += max(0.0, row_cheque_total - e["amount"])
+        cheque_excess = excess
+        cheque_amount = cheque_amount_total
+        cheque_no = ", ".join(cheque_no_aggregated)
 
     # Payment record
     payment_record = {
         "request_id": request_id,
-        "method": payment_method,
+        "method": payment_method if not multi_mode else "multi",
         "approved_amount": approved_amount,
-        "cheque_amount": cheque_amount if payment_method == "cheque" else None,
-        "cheque_no": cheque_no if payment_method == "cheque" else None,
-        "cheque_ids": cheque_ids if payment_method == "cheque" and cheque_ids else None,
-        "bank_ref": bank_ref if payment_method in ("current_account", "savings_account") else None,
+        "cheque_amount": cheque_amount if cheque_amount_total > 0 else None,
+        "cheque_no": cheque_no if cheque_no else None,
+        "cheque_ids": [ch.get("cheque_id") for ch in selected_cheque_docs] or None,
+        "bank_ref": bank_ref if (not multi_mode and payment_method in ("current_account", "savings_account")) else None,
         "use_suspense_amount": use_suspense,
         "suspense_credited": cheque_excess,
         "payment_date": payment_date,
@@ -9761,6 +9856,7 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         "released_by": user.user_id,
         "released_by_name": user.name,
         "released_at": now,
+        "payment_entries": payment_entries_list,  # Always present for downstream consumers
     }
 
     # Mark request approved
