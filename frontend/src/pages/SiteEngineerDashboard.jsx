@@ -1110,14 +1110,10 @@ export default function SiteEngineerDashboard() {
                                 </span>
                               </div>
                             )}
-                            <Button
-                              size="sm"
-                              className="bg-blue-600 hover:bg-blue-700 h-7 text-xs gap-1"
-                              data-testid={`req-material-btn-${project.project_id}`}
-                              onClick={(e) => { e.stopPropagation(); openMatReqDialog(project); }}
-                            >
-                              <Package className="h-3 w-3" /> Request Material
-                            </Button>
+                            {/* Request Material button removed (Feb 2026).
+                                The Site Engineer must enter a project and use
+                                the in-project "+ Request Order" (orange) flow
+                                which now supports Steel auto-calc. */}
                           </div>
                         </div>
                         <ChevronRight className="h-5 w-5 sm:h-6 sm:w-6 text-gray-400 flex-shrink-0" />

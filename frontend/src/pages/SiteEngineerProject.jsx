@@ -118,7 +118,29 @@ export default function SiteEngineerProject() {
   
   const [quickAttPopup, setQuickAttPopup] = useState(false);
   
-  const [materialForm, setMaterialForm] = useState({ material_id: '', material_name: '', brand: '', quantity: '', unit: 'kg', remarks: '', is_approved: true, delivery_choice: '48h', delivery_custom_date: '', emergency_reason: '', is_locked_from_package: false, locked_estimated_rate: null });
+  const [materialForm, setMaterialForm] = useState({ material_id: '', material_name: '', brand: '', category: '', quantity: '', unit: 'kg', remarks: '', is_approved: true, delivery_choice: '48h', delivery_custom_date: '', emergency_reason: '', is_locked_from_package: false, locked_estimated_rate: null });
+  // ── Steel multi-item state (Feb 2026) ─────────────────────────────────
+  // When the selected material has `category === 'steel'` the dialog swaps
+  // the Quantity+Unit block for a Steel-specific UI: diameter dropdown +
+  // rod count + auto-calc weight (kg). Multiple items can be added via
+  // "+ Add Another Item" — each gets its own diameter/rods/weight/remarks
+  // and is submitted as a separate material_request on the backend. The
+  // weight is stored in `quantity` and unit fixed to 'kg' so Planning /
+  // Procurement see standard units.
+  const STEEL_DIAMETERS_MM = [6, 8, 10, 12, 16, 20, 25, 32];
+  const STEEL_ROD_LENGTH_FT = 40;
+  const STEEL_ROD_LENGTH_M = 12.192; // 40 ft → metres
+  const calcSteelWeightKg = (diameterMm, rodCount) => {
+    const D = parseFloat(diameterMm); const N = parseInt(rodCount, 10);
+    if (!D || !N) return 0;
+    // Indian standard: W (kg) = D² ÷ 162 × L(m) × N
+    return Math.round(((D * D) / 162) * STEEL_ROD_LENGTH_M * N * 100) / 100;
+  };
+  const [steelItems, setSteelItems] = useState([
+    { diameter: 8, rod_count: '', weight: 0, remarks: '' },
+  ]);
+  const resetSteelItems = () => setSteelItems([{ diameter: 8, rod_count: '', weight: 0, remarks: '' }]);
+  const isSteelSelected = (materialForm.category || '').toLowerCase() === 'steel';
   const [vendorSuggestion, setVendorSuggestion] = useState(null);
   const [approvedMaterials, setApprovedMaterials] = useState([]);
   const [materialSearch, setMaterialSearch] = useState('');
@@ -635,6 +657,56 @@ export default function SiteEngineerProject() {
     }
 
     try {
+      // ── Steel multi-item submission ────────────────────────────────────
+      // When the SE picked a Steel material, the dialog collected one or
+      // more `steelItems` rows. We POST one material_request per row,
+      // converting each (diameter × rods) into kg via calcSteelWeightKg.
+      if (isSteelSelected) {
+        const validRows = steelItems.filter(r => r.diameter && parseInt(r.rod_count, 10) > 0);
+        if (validRows.length === 0) { toast.error('Add at least one Steel row with rod count'); return; }
+        let okCount = 0;
+        for (const row of validRows) {
+          const w = calcSteelWeightKg(row.diameter, row.rod_count);
+          const itemPayload = {
+            project_id: projectId,
+            quantity: w,
+            unit: 'kg',
+            remarks: row.remarks || materialForm.remarks || null,
+            is_approved_material: materialForm.is_approved,
+            brand: materialForm.brand || null,
+            material_id: materialForm.material_id || undefined,
+            material_name: materialForm.material_name || undefined,
+            se_delivery_choice: materialForm.delivery_choice,
+            se_requested_hours: requestedHours,
+            se_expected_delivery: expectedDeliveryISO,
+            se_emergency_reason: requestedHours < 48 ? materialForm.emergency_reason.trim() : '',
+            steel_specs: {
+              diameter_mm: parseFloat(row.diameter),
+              rod_count: parseInt(row.rod_count, 10),
+              rod_length_ft: STEEL_ROD_LENGTH_FT,
+              rod_length_m: STEEL_ROD_LENGTH_M,
+              calculated_weight_kg: w,
+            },
+          };
+          try {
+            await axios.post(`${API}/site-engineer/material-requests`, itemPayload);
+            okCount += 1;
+          } catch (err) {
+            toast.error(`Item ${okCount + 1} (Ø${row.diameter}mm) failed: ${err.response?.data?.detail || 'submit error'}`);
+          }
+        }
+        if (okCount > 0) {
+          toast.success(`${okCount} steel item${okCount === 1 ? '' : 's'} submitted to Planning`);
+          setMaterialRequestDialog(false);
+          setMaterialForm({ material_id: '', material_name: '', brand: '', category: '', quantity: '', unit: 'kg', remarks: '', is_approved: true, delivery_choice: '48h', delivery_custom_date: '', emergency_reason: '' });
+          resetSteelItems();
+          setVendorSuggestion(null);
+          setMaterialSearch('');
+          fetchData(false);
+        }
+        return;
+      }
+
       const payload = {
         project_id: projectId,
         quantity: parseFloat(materialForm.quantity),
@@ -642,8 +714,6 @@ export default function SiteEngineerProject() {
         remarks: materialForm.remarks || null,
         is_approved_material: materialForm.is_approved,
         brand: materialForm.brand || null,
-        // Phase-1 SE delivery expectation. Procurement will see this and must justify
-        // any quote that exceeds it (late delivery reason).
         se_delivery_choice: materialForm.delivery_choice,
         se_requested_hours: requestedHours,
         se_expected_delivery: expectedDeliveryISO,
@@ -659,7 +729,7 @@ export default function SiteEngineerProject() {
       await axios.post(`${API}/site-engineer/material-requests`, payload);
       toast.success('Material request submitted! Goes to Planning for approval');
       setMaterialRequestDialog(false);
-      setMaterialForm({ material_id: '', material_name: '', brand: '', quantity: '', unit: 'kg', remarks: '', is_approved: true, delivery_choice: '48h', delivery_custom_date: '', emergency_reason: '' });
+      setMaterialForm({ material_id: '', material_name: '', brand: '', category: '', quantity: '', unit: 'kg', remarks: '', is_approved: true, delivery_choice: '48h', delivery_custom_date: '', emergency_reason: '' });
       setVendorSuggestion(null);
       setMaterialSearch('');
       fetchData(false);
@@ -1082,9 +1152,10 @@ export default function SiteEngineerProject() {
                 <Dialog open={materialRequestDialog} onOpenChange={(open) => {
                   setMaterialRequestDialog(open);
                   if (!open) {
-                    setMaterialForm({ material_id: '', material_name: '', brand: '', quantity: '', unit: 'kg', remarks: '', is_approved: true, is_locked_from_package: false, locked_estimated_rate: null });
+                    setMaterialForm({ material_id: '', material_name: '', brand: '', category: '', quantity: '', unit: 'kg', remarks: '', is_approved: true, is_locked_from_package: false, locked_estimated_rate: null });
                     setMaterialSearch('');
                     setVendorSuggestion(null);
+                    resetSteelItems();
                   }
                 }}>
                   <DialogTrigger asChild>
@@ -1110,7 +1181,7 @@ export default function SiteEngineerProject() {
                           type="button"
                           className={`flex-1 px-3 py-2 text-xs sm:text-sm font-medium transition-colors ${materialForm.is_approved ? 'bg-amber-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
                           onClick={() => {
-                            setMaterialForm({ ...materialForm, is_approved: true, material_id: '', material_name: '', brand: '', unit: 'kg', is_locked_from_package: false, locked_estimated_rate: null });
+                            setMaterialForm({ ...materialForm, is_approved: true, material_id: '', material_name: '', brand: '', category: '', unit: 'kg', is_locked_from_package: false, locked_estimated_rate: null });
                             setMaterialSearch('');
                           }}
                           data-testid="toggle-approved-materials"
@@ -1121,7 +1192,7 @@ export default function SiteEngineerProject() {
                           type="button"
                           className={`flex-1 px-3 py-2 text-xs sm:text-sm font-medium transition-colors ${!materialForm.is_approved ? 'bg-amber-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
                           onClick={() => {
-                            setMaterialForm({ ...materialForm, is_approved: false, material_id: '', material_name: '', brand: '', unit: 'kg', is_locked_from_package: false, locked_estimated_rate: null });
+                            setMaterialForm({ ...materialForm, is_approved: false, material_id: '', material_name: '', brand: '', category: '', unit: 'kg', is_locked_from_package: false, locked_estimated_rate: null });
                             setMaterialSearch('');
                           }}
                           data-testid="toggle-custom-material"
@@ -1141,7 +1212,7 @@ export default function SiteEngineerProject() {
                                 // Typing clears the previous selection and re-opens results
                                 setMaterialSearch(e.target.value);
                                 if (materialForm.material_id) {
-                                  setMaterialForm({ ...materialForm, material_id: '', material_name: '', brand: '', is_locked_from_package: false, locked_estimated_rate: null });
+                                  setMaterialForm({ ...materialForm, material_id: '', material_name: '', brand: '', category: '', is_locked_from_package: false, locked_estimated_rate: null });
                                 }
                                 setMaterialDropdownOpen(true);
                               }}
@@ -1157,7 +1228,7 @@ export default function SiteEngineerProject() {
                                 type="button"
                                 onClick={() => {
                                   setMaterialSearch('');
-                                  setMaterialForm({ ...materialForm, material_id: '', material_name: '', brand: '', is_locked_from_package: false, locked_estimated_rate: null });
+                                  setMaterialForm({ ...materialForm, material_id: '', material_name: '', brand: '', category: '', is_locked_from_package: false, locked_estimated_rate: null });
                                   setMaterialDropdownOpen(false);
                                 }}
                                 className="absolute right-2 top-[28px] h-7 w-7 flex items-center justify-center text-gray-400 hover:text-red-500"
@@ -1191,10 +1262,13 @@ export default function SiteEngineerProject() {
                                             material_id: mat.material_id,
                                             material_name: mat.name,
                                             brand: mat.brand || '',
-                                            unit: mat.unit || 'kg',
+                                            category: mat.category || '',
+                                            unit: (mat.category || '').toLowerCase() === 'steel' ? 'kg' : (mat.unit || 'kg'),
                                             is_locked_from_package: !!mat.is_locked_from_package,
                                             locked_estimated_rate: mat.locked_estimated_rate ?? null,
                                           });
+                                          // If steel, reset the steel multi-item rows.
+                                          if ((mat.category || '').toLowerCase() === 'steel') resetSteelItems();
                                           setMaterialSearch('');
                                           setMaterialDropdownOpen(false);
                                           fetchVendorSuggestion(mat.name);
@@ -1274,28 +1348,98 @@ export default function SiteEngineerProject() {
                         </>
                       )}
 
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <Label className="text-xs sm:text-sm">Quantity *</Label>
-                          <NumericInput 
-                            
-                            value={materialForm.quantity}
-                            onChange={(e) => setMaterialForm({...materialForm, quantity: e.target.value})}
-                            placeholder="Enter quantity"
-                            className="text-sm"
-                            data-testid="material-quantity-input"
-                          />
+                      {/* Quantity + Unit OR Steel-specific block (Feb 2026).
+                          When the selected material is tagged with
+                          category="steel", show diameter / rod-count /
+                          auto-calc weight + multi-item rows ("+ Add Another
+                          Item"). All other materials keep the simple
+                          Quantity + Unit input. */}
+                      {isSteelSelected ? (
+                        <div className="space-y-2" data-testid="steel-multi-rows">
+                          {steelItems.map((row, idx) => {
+                            const w = calcSteelWeightKg(row.diameter, row.rod_count);
+                            return (
+                              <div key={idx} className="border rounded-lg p-2.5 bg-slate-50 space-y-2 relative" data-testid={`steel-row-${idx}`}>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-semibold text-slate-700">Item {idx + 1} <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">STEEL</span></span>
+                                  {steelItems.length > 1 && (
+                                    <button type="button" onClick={() => setSteelItems(items => items.filter((_, i) => i !== idx))} className="text-red-500 hover:text-red-700 text-xs" data-testid={`steel-row-${idx}-remove`}>× Remove</button>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-3 gap-2">
+                                  <div>
+                                    <Label className="text-[10px] sm:text-xs">Diameter (mm) *</Label>
+                                    <select
+                                      value={row.diameter}
+                                      onChange={(e) => setSteelItems(items => items.map((it, i) => i === idx ? { ...it, diameter: parseFloat(e.target.value), weight: calcSteelWeightKg(e.target.value, it.rod_count) } : it))}
+                                      className="w-full mt-1 h-9 text-sm border rounded px-2 bg-white"
+                                      data-testid={`steel-row-${idx}-diameter`}
+                                    >
+                                      {STEEL_DIAMETERS_MM.map(d => <option key={d} value={d}>{d} mm</option>)}
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <Label className="text-[10px] sm:text-xs">No. of Rods ({STEEL_ROD_LENGTH_FT} ft) *</Label>
+                                    <NumericInput
+                                      value={row.rod_count}
+                                      onChange={(e) => setSteelItems(items => items.map((it, i) => i === idx ? { ...it, rod_count: e.target.value, weight: calcSteelWeightKg(it.diameter, e.target.value) } : it))}
+                                      placeholder="e.g. 9"
+                                      className="text-sm mt-1"
+                                      data-testid={`steel-row-${idx}-rods`}
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label className="text-[10px] sm:text-xs">Calculated Weight (kg)</Label>
+                                    <div className="mt-1 h-9 px-2 flex items-center text-sm font-semibold rounded border bg-amber-50 text-amber-700" data-testid={`steel-row-${idx}-weight`}>
+                                      {w ? `${w} kg` : '—'}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div>
+                                  <Label className="text-[10px] sm:text-xs">Item Remarks (optional)</Label>
+                                  <Input
+                                    value={row.remarks}
+                                    onChange={(e) => setSteelItems(items => items.map((it, i) => i === idx ? { ...it, remarks: e.target.value } : it))}
+                                    placeholder="Any notes for this item..."
+                                    className="text-sm mt-1"
+                                    data-testid={`steel-row-${idx}-remarks`}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <button
+                            type="button"
+                            onClick={() => setSteelItems(items => [...items, { diameter: 8, rod_count: '', weight: 0, remarks: '' }])}
+                            className="w-full border-2 border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 rounded-lg py-2 text-xs sm:text-sm font-medium flex items-center justify-center gap-1"
+                            data-testid="steel-add-item-btn"
+                          >
+                            <Plus className="h-3.5 w-3.5" /> Add Another Item
+                          </button>
                         </div>
-                        <div>
-                          <Label className="text-xs sm:text-sm flex items-center gap-1">
-                            Unit
-                            {materialForm.is_locked_from_package && (
-                              <svg className="h-3 w-3 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" data-testid="unit-lock-icon"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 11c0-1.657 1.343-3 3-3s3 1.343 3 3v3H6v-3c0-1.657 1.343-3 3-3s3 1.343 3 3z"/></svg>
-                            )}
-                          </Label>
-                          <UnitSelect value={materialForm.unit} onChange={(v) => setMaterialForm({...materialForm, unit: v})} disabled={materialForm.is_locked_from_package} data-testid="material-unit-select" />
+                      ) : (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs sm:text-sm">Quantity *</Label>
+                            <NumericInput 
+                              value={materialForm.quantity}
+                              onChange={(e) => setMaterialForm({...materialForm, quantity: e.target.value})}
+                              placeholder="Enter quantity"
+                              className="text-sm"
+                              data-testid="material-quantity-input"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs sm:text-sm flex items-center gap-1">
+                              Unit
+                              {materialForm.is_locked_from_package && (
+                                <svg className="h-3 w-3 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" data-testid="unit-lock-icon"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 11c0-1.657 1.343-3 3-3s3 1.343 3 3v3H6v-3c0-1.657 1.343-3 3-3s3 1.343 3 3z"/></svg>
+                              )}
+                            </Label>
+                            <UnitSelect value={materialForm.unit} onChange={(v) => setMaterialForm({...materialForm, unit: v})} disabled={materialForm.is_locked_from_package} data-testid="material-unit-select" />
+                          </div>
                         </div>
-                      </div>
+                      )}
                       {vendorSuggestion && (
                         <div className="bg-green-50 border border-green-200 rounded-lg p-2.5 flex items-center gap-2" data-testid="vendor-suggestion-banner">
                           <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />

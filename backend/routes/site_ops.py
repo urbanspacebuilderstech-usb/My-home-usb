@@ -832,6 +832,11 @@ class MaterialRequestCreate(BaseModel):
     se_requested_hours: Optional[int] = 48
     se_expected_delivery: Optional[str] = None  # ISO datetime
     se_emergency_reason: Optional[str] = None
+    # Steel-specific metadata captured by the SE dialog when category=steel.
+    # `quantity` is the auto-calculated weight in kg; this block preserves
+    # the raw selection (diameter, rod count, length) so Procurement can
+    # see exactly what was ordered downstream.
+    steel_specs: Optional[Dict[str, Any]] = None
 
 
 @router.post("/site-engineer/material-requests")
@@ -905,6 +910,13 @@ async def create_material_request(
     req_dict["se_emergency_reason"] = data.se_emergency_reason or ""
     if (data.se_requested_hours or 48) < 48 and not (data.se_emergency_reason or "").strip():
         raise HTTPException(status_code=400, detail="Emergency reason is required for delivery under 48 hours")
+
+    # Steel metadata — preserves the raw SE inputs (diameter mm, rod count,
+    # rod length) so Procurement / Inventory can see exactly what was
+    # ordered downstream. `quantity` itself is the auto-calc weight in kg.
+    if data.steel_specs:
+        req_dict["steel_specs"] = data.steel_specs
+        req_dict["category"] = "steel"
 
     # Auto-lookup assigned vendor for this material category
     vendor_match = await find_assigned_vendor_for_material(data.project_id, mat_name)
