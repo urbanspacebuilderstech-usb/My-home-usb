@@ -678,45 +678,57 @@ export default function SiteEngineerProject() {
       if (isSteelSelected) {
         const validRows = steelItems.filter(r => r.diameter && parseInt(r.rod_count, 10) > 0);
         if (validRows.length === 0) { toast.error('Add at least one Steel row with rod count'); return; }
-        let okCount = 0;
-        for (const row of validRows) {
-          const w = calcSteelWeightKg(row.diameter, row.rod_count);
-          const itemPayload = {
-            project_id: projectId,
-            quantity: w,
-            unit: 'kg',
-            remarks: row.remarks || materialForm.remarks || null,
-            is_approved_material: materialForm.is_approved,
-            brand: materialForm.brand || null,
-            material_id: materialForm.material_id || undefined,
-            material_name: materialForm.material_name || undefined,
-            se_delivery_choice: materialForm.delivery_choice,
-            se_requested_hours: requestedHours,
-            se_expected_delivery: expectedDeliveryISO,
-            se_emergency_reason: requestedHours < 48 ? materialForm.emergency_reason.trim() : '',
-            steel_specs: {
-              diameter_mm: parseFloat(row.diameter),
-              rod_count: parseInt(row.rod_count, 10),
-              rod_length_ft: STEEL_ROD_LENGTH_FT,
-              rod_length_m: STEEL_ROD_LENGTH_M,
-              calculated_weight_kg: w,
-            },
-          };
-          try {
-            await axios.post(`${API}/site-engineer/material-requests`, itemPayload);
-            okCount += 1;
-          } catch (err) {
-            toast.error(`Item ${okCount + 1} (Ø${row.diameter}mm) failed: ${err.response?.data?.detail || 'submit error'}`);
-          }
-        }
-        if (okCount > 0) {
-          toast.success(`${okCount} steel item${okCount === 1 ? '' : 's'} submitted to Planning`);
+        // Group ALL steel items into ONE material request. The request's
+        // quantity = sum of weights; steel_specs.items[] preserves each row
+        // (diameter / rods / weight / remarks) so downstream Planning &
+        // Procurement see the complete breakdown on a single card.
+        const items = validRows.map((row) => ({
+          diameter_mm: parseFloat(row.diameter),
+          rod_count: parseInt(row.rod_count, 10),
+          rod_length_ft: STEEL_ROD_LENGTH_FT,
+          rod_length_m: STEEL_ROD_LENGTH_M,
+          calculated_weight_kg: calcSteelWeightKg(row.diameter, row.rod_count),
+          remarks: row.remarks || '',
+        }));
+        const totalWeight = Math.round(items.reduce((s, i) => s + i.calculated_weight_kg, 0) * 100) / 100;
+        const totalRods = items.reduce((s, i) => s + i.rod_count, 0);
+        const payload = {
+          project_id: projectId,
+          quantity: totalWeight,
+          unit: 'kg',
+          remarks: materialForm.remarks || null,
+          is_approved_material: materialForm.is_approved,
+          brand: materialForm.brand || null,
+          material_id: materialForm.material_id || undefined,
+          material_name: materialForm.material_name || undefined,
+          se_delivery_choice: materialForm.delivery_choice,
+          se_requested_hours: requestedHours,
+          se_expected_delivery: expectedDeliveryISO,
+          se_emergency_reason: requestedHours < 48 ? materialForm.emergency_reason.trim() : '',
+          steel_specs: {
+            items,
+            total_items: items.length,
+            total_rods: totalRods,
+            total_weight_kg: totalWeight,
+            // Legacy single-row mirror for backward compat with the old card UI
+            diameter_mm: items[0].diameter_mm,
+            rod_count: items[0].rod_count,
+            rod_length_ft: STEEL_ROD_LENGTH_FT,
+            rod_length_m: STEEL_ROD_LENGTH_M,
+            calculated_weight_kg: items[0].calculated_weight_kg,
+          },
+        };
+        try {
+          await axios.post(`${API}/site-engineer/material-requests`, payload);
+          toast.success(`Steel request submitted (${items.length} item${items.length === 1 ? '' : 's'}, ${totalWeight} kg) — sent to Planning`);
           setMaterialRequestDialog(false);
           setMaterialForm({ material_id: '', material_name: '', brand: '', category: '', quantity: '', unit: 'kg', remarks: '', is_approved: true, delivery_choice: '48h', delivery_custom_date: '', emergency_reason: '' });
           resetSteelItems();
           setVendorSuggestion(null);
           setMaterialSearch('');
           fetchData(false);
+        } catch (err) {
+          toast.error(err.response?.data?.detail || 'Failed to submit steel request');
         }
         return;
       }
@@ -1630,6 +1642,35 @@ export default function SiteEngineerProject() {
                                   {req.brand && (
                                     <p className="text-blue-600"><strong>Brand:</strong> {req.brand}</p>
                                   )}
+                                  {/* Steel multi-item breakdown — render every row from
+                                      steel_specs.items[] so SE/Planning see the complete
+                                      composition in a single card (was previously one
+                                      card per item which was noisy). Falls back to the
+                                      legacy single-row display for older requests. */}
+                                  {req.steel_specs?.items?.length > 0 ? (
+                                    <div className="mt-1 border border-amber-300 rounded bg-amber-50 p-1.5" data-testid={`se-mat-steel-${req.request_id}`}>
+                                      <p className="text-[10px] font-semibold text-amber-800 uppercase mb-1">
+                                        ⚙ Steel — {req.steel_specs.total_items} item{req.steel_specs.total_items === 1 ? '' : 's'} · {req.steel_specs.total_rods} rods · {req.steel_specs.total_weight_kg} kg
+                                      </p>
+                                      <table className="w-full text-[10px]">
+                                        <thead className="text-gray-500 uppercase">
+                                          <tr><th className="text-left">#</th><th className="text-left">Diameter</th><th className="text-right">Rods (40 ft)</th><th className="text-right">Weight</th></tr>
+                                        </thead>
+                                        <tbody>
+                                          {req.steel_specs.items.map((it, ii) => (
+                                            <tr key={ii} className="border-t border-amber-200">
+                                              <td>{ii + 1}</td>
+                                              <td className="font-semibold text-slate-800">Ø {it.diameter_mm} mm</td>
+                                              <td className="text-right">{it.rod_count}</td>
+                                              <td className="text-right font-semibold text-amber-700">{it.calculated_weight_kg} kg</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  ) : req.steel_specs ? (
+                                    <p className="text-[11px] text-amber-700"><strong>Steel:</strong> Ø{req.steel_specs.diameter_mm}mm × {req.steel_specs.rod_count} rods = {req.steel_specs.calculated_weight_kg} kg</p>
+                                  ) : null}
                                   {(req.assigned_vendor_name || req.vendor_name) && (
                                     <div className="flex items-center gap-1 flex-wrap">
                                       <span className="font-medium text-blue-700">Vendor:</span> {req.vendor_name || req.assigned_vendor_name}

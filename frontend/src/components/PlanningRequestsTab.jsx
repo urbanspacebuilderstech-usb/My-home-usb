@@ -688,24 +688,44 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
                 {req.steel_specs && (
                   <div className="bg-slate-50 border border-slate-300 rounded p-2 col-span-2" data-testid="planning-review-steel-specs">
                     <p className="text-slate-700 text-[10px] uppercase font-semibold flex items-center gap-1">⚙ Steel Specifications</p>
-                    <div className="grid grid-cols-4 gap-2 mt-1.5">
-                      <div>
-                        <p className="text-[9px] uppercase text-gray-500">Diameter</p>
-                        <p className="font-bold text-sm text-slate-800">Ø {req.steel_specs.diameter_mm} mm</p>
+                    {req.steel_specs.items?.length > 0 ? (
+                      <>
+                        <p className="text-[10px] text-slate-600 mt-1">{req.steel_specs.total_items} items · {req.steel_specs.total_rods} rods · <span className="text-amber-700 font-bold">{req.steel_specs.total_weight_kg} kg</span></p>
+                        <table className="w-full text-[11px] mt-1.5">
+                          <thead className="text-[9px] uppercase text-gray-500 border-b border-slate-300"><tr><th className="text-left py-0.5">#</th><th className="text-left">Diameter</th><th className="text-right">Rods × 40 ft</th><th className="text-right">Weight</th><th className="text-left pl-2">Remarks</th></tr></thead>
+                          <tbody>
+                            {req.steel_specs.items.map((it, ii) => (
+                              <tr key={ii} className="border-b border-slate-200 last:border-0">
+                                <td className="py-0.5">{ii + 1}</td>
+                                <td className="font-semibold text-slate-800">Ø {it.diameter_mm} mm</td>
+                                <td className="text-right">{it.rod_count}</td>
+                                <td className="text-right font-semibold text-amber-700">{it.calculated_weight_kg} kg</td>
+                                <td className="pl-2 text-gray-500 italic">{it.remarks || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </>
+                    ) : (
+                      <div className="grid grid-cols-4 gap-2 mt-1.5">
+                        <div>
+                          <p className="text-[9px] uppercase text-gray-500">Diameter</p>
+                          <p className="font-bold text-sm text-slate-800">Ø {req.steel_specs.diameter_mm} mm</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] uppercase text-gray-500">No. of Rods</p>
+                          <p className="font-bold text-sm text-slate-800">{req.steel_specs.rod_count} × {req.steel_specs.rod_length_ft || 40} ft</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] uppercase text-gray-500">Weight</p>
+                          <p className="font-bold text-sm text-amber-700">{req.steel_specs.calculated_weight_kg} kg</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] uppercase text-gray-500">Formula</p>
+                          <p className="text-[10px] text-gray-600">D² ÷ 162 × 12.192 × N</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-[9px] uppercase text-gray-500">No. of Rods</p>
-                        <p className="font-bold text-sm text-slate-800">{req.steel_specs.rod_count} × {req.steel_specs.rod_length_ft || 40} ft</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] uppercase text-gray-500">Weight</p>
-                        <p className="font-bold text-sm text-amber-700">{req.steel_specs.calculated_weight_kg} kg</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] uppercase text-gray-500">Formula</p>
-                        <p className="text-[10px] text-gray-600">D² ÷ 162 × 12.192 × N</p>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 )}
                 {/* Procurement-priced fields */}
