@@ -1217,10 +1217,16 @@ export default function CREBoard() {
             {(() => {
               const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
               const allEntries = psData.entries || [];
+              // CRE Board only shows stages that Planning/SE has actually
+              // REQUESTED + dated. Stages without an expected_payment_date
+              // (`no_date_set=true`, "Unscheduled") are hidden so the CRE
+              // sees only items they can act on. Planning still sees them
+              // via the dedicated Planning Board view.
+              const collectibleEntries = allEntries.filter(e => !e.no_date_set && e.expected_payment_date);
               // Apply global date filter to entries (by expected_payment_date)
               const globallyDateFiltered = (dateRange.from || dateRange.to)
-                ? allEntries.filter(e => inDateRange(e.expected_payment_date))
-                : allEntries;
+                ? collectibleEntries.filter(e => inDateRange(e.expected_payment_date))
+                : collectibleEntries;
               // Local search + date filter (PS-specific) layered on top.
               const localFrom = psDateFrom ? new Date(psDateFrom + 'T00:00:00') : null;
               const localTo   = psDateTo   ? new Date(psDateTo   + 'T23:59:59.999') : null;
