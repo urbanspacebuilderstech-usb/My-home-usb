@@ -9237,8 +9237,8 @@ export default function ProjectDetail() {
                                               <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded">Opened by {st.opened_by_name}</span>
                                             )}
                                             <div className="flex gap-1 flex-wrap pt-1">
-                                              {/* Planning: Open/Lock toggle on every stage (except already-completed) */}
-                                              {['planning', 'super_admin'].includes(user?.role) && !isCompleted && (
+                                              {/* Planning / Planning Person / Super-Admin: Open/Lock toggle on every stage (except already-completed) */}
+                                              {['planning', 'planning_person', 'super_admin'].includes(user?.role) && !isCompleted && (
                                                 isStageOpen ? (
                                                   <Button size="sm" variant="outline" className="h-7 text-xs border-gray-400 text-gray-700 hover:bg-gray-100" data-testid={`wo-stage-lock-${st.stage_id}`}
                                                     onClick={(e) => { e.stopPropagation(); handleLockStage(wo.work_order_id, st.stage_id); }}>
@@ -10419,8 +10419,8 @@ export default function ProjectDetail() {
                                                     <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">Auto-Closed</span>
                                                   )}
                                                 </div>
-                                                {/* Planning: Open/Lock toggle on every stage (except already-completed) */}
-                                                {['planning', 'super_admin'].includes(user?.role) && !isCompleted && (
+                                                {/* Planning / Super-Admin: Open/Lock toggle on every stage (except already-completed) */}
+                                                {['planning', 'planning_person', 'super_admin'].includes(user?.role) && !isCompleted && (
                                                   <div className="flex gap-1 flex-wrap pt-1">
                                                     {isStageOpen ? (
                                                       <Button size="sm" variant="outline" className="h-7 text-xs border-gray-400 text-gray-700 hover:bg-gray-100" data-testid={`labour-wo-stage-lock-${st.stage_id}`}
@@ -10445,50 +10445,6 @@ export default function ProjectDetail() {
                                                   </div>
                                                 )}
                                                 <div className="flex gap-1 flex-wrap pt-1">
-                                                  {/* Planning / Super-Admin: simple Open button. Once opened the
-                                                      stage stays visible to SE — no need for a Lock button afterwards. */}
-                                                  {['planning', 'super_admin'].includes(user?.role) && st.status !== 'approved' && !st.is_open && (
-                                                    <Button
-                                                      size="sm"
-                                                      className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                                                      data-testid={`labour-wo-stage-open-${st.stage_id}`}
-                                                      onClick={async (e) => {
-                                                        e.stopPropagation();
-                                                        try {
-                                                          await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${st.stage_id}/open`);
-                                                          toast.success('Stage opened — visible to Site Engineer');
-                                                          fetchWorkOrders();
-                                                        } catch (err) {
-                                                          toast.error(err.response?.data?.detail || 'Failed to open stage');
-                                                        }
-                                                      }}
-                                                    >
-                                                      <Unlock className="h-3 w-3" /> Unlock
-                                                    </Button>
-                                                  )}
-                                                  {/* Lock — Planning can re-lock any currently-open stage that
-                                                      hasn't been approved yet. Toggles the same is_open flag back
-                                                      to false via the dedicated /lock endpoint. */}
-                                                  {['planning', 'super_admin'].includes(user?.role) && st.is_open && st.status !== 'approved' && (
-                                                    <Button
-                                                      size="sm"
-                                                      variant="outline"
-                                                      className="h-7 text-xs gap-1 text-amber-700 border-amber-300 hover:bg-amber-50"
-                                                      data-testid={`labour-wo-stage-lock-${st.stage_id}`}
-                                                      onClick={async (e) => {
-                                                        e.stopPropagation();
-                                                        try {
-                                                          await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${st.stage_id}/lock`);
-                                                          toast.success('Stage locked — hidden from Site Engineer');
-                                                          fetchWorkOrders();
-                                                        } catch (err) {
-                                                          toast.error(err.response?.data?.detail || 'Failed to lock stage');
-                                                        }
-                                                      }}
-                                                    >
-                                                      <Lock className="h-3 w-3" /> Lock
-                                                    </Button>
-                                                  )}
                                                   {showApprove && (
                                                     <>
                                                       {user?.role === 'accountant' ? (
