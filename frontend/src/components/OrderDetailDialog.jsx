@@ -260,6 +260,48 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
                 )}
               </div>
 
+              {/* ── Steel Breakdown ──────────────────────────────────────────
+                  Mirror of the per-diameter / rod-count table that the SE
+                  material request CARD already shows, so the popup detail
+                  view contains the full steel composition instead of just
+                  the aggregate kg (which was useless to procurement). Falls
+                  back to the legacy single-row format for pre-multi-item
+                  steel requests. */}
+              {order.steel_specs?.items?.length > 0 ? (
+                <div className="col-span-2 border border-amber-300 rounded-md bg-amber-50 p-2.5" data-testid="detail-steel-breakdown">
+                  <p className="text-[11px] font-semibold text-amber-800 uppercase mb-1.5">
+                    ⚙ Steel — {order.steel_specs.total_items} item{order.steel_specs.total_items === 1 ? '' : 's'} · {order.steel_specs.total_rods} rods · {order.steel_specs.total_weight_kg} kg
+                  </p>
+                  <table className="w-full text-[11px]">
+                    <thead className="text-gray-500 uppercase">
+                      <tr>
+                        <th className="text-left py-1 w-6">#</th>
+                        <th className="text-left py-1">Diameter</th>
+                        <th className="text-right py-1">Rods (40 ft)</th>
+                        <th className="text-right py-1">Weight</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {order.steel_specs.items.map((it, ii) => (
+                        <tr key={ii} className="border-t border-amber-200">
+                          <td className="py-1">{ii + 1}</td>
+                          <td className="font-semibold text-slate-800 py-1">Ø {it.diameter_mm} mm</td>
+                          <td className="text-right py-1">{it.rod_count}</td>
+                          <td className="text-right font-semibold text-amber-700 py-1">{it.calculated_weight_kg} kg</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : order.steel_specs ? (
+                <div className="col-span-2 border border-amber-300 rounded-md bg-amber-50 p-2.5" data-testid="detail-steel-breakdown-single">
+                  <p className="text-[11px] text-amber-800">
+                    <strong>⚙ Steel:</strong> Ø{order.steel_specs.diameter_mm}mm × {order.steel_specs.rod_count} rods (40 ft) ={' '}
+                    <span className="font-bold text-amber-700">{order.steel_specs.calculated_weight_kg} kg</span>
+                  </p>
+                </div>
+              ) : null}
+
               {/* Quantity */}
               <div>
                 <Label className="text-xs text-gray-500">Quantity</Label>
