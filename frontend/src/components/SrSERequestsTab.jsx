@@ -15,6 +15,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Package, Hammer, Wallet, Loader2, Search } from 'lucide-react';
+import OrderDetailDialog from './OrderDetailDialog';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
@@ -47,6 +48,10 @@ export default function SrSERequestsTab() {
   const [search, setSearch] = useState('');
   const [data, setData] = useState({ material: [], labour: [], petty: [] });
   const [loading, setLoading] = useState(false);
+  // Selected material request → opens the shared OrderDetailDialog popup.
+  // OrderDetailDialog auto-hides edit affordances when status isn't editable,
+  // so Sr. SE gets a clean read-only view (Details + Timeline tabs).
+  const [selectedMaterial, setSelectedMaterial] = useState(null);
 
   const fetchAll = async () => {
     setLoading(true);
@@ -137,18 +142,41 @@ export default function SrSERequestsTab() {
       {!loading && filtered.length > 0 && (
         <div className="space-y-2" data-testid="sr-se-req-list">
           {filtered.map((r, idx) => (
-            <RequestCard key={r.request_id || r.expense_id || r.payment_request_id || idx} req={r} kind={activeSub} />
+            <RequestCard
+              key={r.request_id || r.expense_id || r.payment_request_id || idx}
+              req={r}
+              kind={activeSub}
+              onMaterialClick={() => setSelectedMaterial(r)}
+            />
           ))}
         </div>
       )}
+
+      {/* Material details popup — reuses the shared OrderDetailDialog with
+          its full Details + Timeline tabs. Since Sr. SE only consumes Material
+          requests with statuses where canEdit=false, the popup renders
+          read-only automatically (no Edit / Approve buttons appear). */}
+      <OrderDetailDialog
+        open={!!selectedMaterial}
+        order={selectedMaterial}
+        onClose={() => setSelectedMaterial(null)}
+        onUpdate={() => { setSelectedMaterial(null); fetchAll(); }}
+      />
     </div>
   );
 }
 
-function RequestCard({ req, kind }) {
+function RequestCard({ req, kind, onMaterialClick }) {
   if (kind === 'material') {
     return (
-      <Card className="border-l-4 border-l-amber-400" data-testid={`mat-req-card-${req.request_id}`}>
+      <Card
+        className="border-l-4 border-l-amber-400 cursor-pointer hover:shadow-md hover:bg-amber-50/40 transition-all"
+        data-testid={`mat-req-card-${req.request_id}`}
+        onClick={onMaterialClick}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onMaterialClick?.(); } }}
+      >
         <CardContent className="p-3 space-y-1.5">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <span className="font-mono text-xs text-gray-500">{req.request_number || req.request_id}</span>
