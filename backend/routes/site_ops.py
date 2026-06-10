@@ -1457,9 +1457,10 @@ async def get_material_requests_for_planning(
     status: Optional[str] = None,
     user: User = Depends(get_current_user)
 ):
-    """Get material requests - accessible to Planning, Procurement, PM, Accountant, Super Admin"""
+    """Get material requests - accessible to Planning, Procurement, PM, Accountant, GM, Super Admin"""
     allowed = [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROCUREMENT, UserRole.SUPER_ADMIN,
-               UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.SR_SITE_ENGINEER]
+               UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.SR_SITE_ENGINEER,
+               UserRole.GENERAL_MANAGER]
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail="Permission denied")
     
