@@ -224,9 +224,6 @@ export default function PMDashboard() {
           <TabsList className="bg-white border shadow-sm mb-3 flex-wrap">
             <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">All Projects</TabsTrigger>
             <TabsTrigger value="requests" className="text-xs sm:text-sm" data-testid="tab-requests">Requests<CountBadge count={requestCount} /></TabsTrigger>
-            <TabsTrigger value="petty_cash" className="text-xs sm:text-sm" data-testid="tab-petty-cash">Petty Cash<CountBadge count={pendingPcCount} /></TabsTrigger>
-            <TabsTrigger value="labour_rab" className="text-xs sm:text-sm" data-testid="tab-labour-rab">Labour RAB</TabsTrigger>
-            <TabsTrigger value="labour_advance" className="text-xs sm:text-sm" data-testid="tab-labour-advance">Labour Advance</TabsTrigger>
             <TabsTrigger value="team" className="text-xs sm:text-sm" data-testid="tab-team">Team ({teamMembers.length})</TabsTrigger>
           </TabsList>
 
@@ -337,20 +334,11 @@ export default function PMDashboard() {
           </TabsContent>
 
 
-          {/* ==================== PETTY CASH ==================== */}
-          <TabsContent value="petty_cash" data-testid="pm-petty-cash-tab">
-            <PMPettyCashTabs pettyCashRequests={pettyCashRequests} onRefresh={() => fetchData(false)} />
-          </TabsContent>
-
-          {/* ==================== LABOUR RAB (Running Account Bill) ==================== */}
-          <TabsContent value="labour_rab">
-            <RABApprovalQueue role="project_manager" />
-          </TabsContent>
-
-          {/* ==================== LABOUR ADVANCE ==================== */}
-          <TabsContent value="labour_advance">
-            <LabourAdvanceQueue role={user?.role || 'project_manager'} />
-          </TabsContent>
+          {/* Top-level Petty Cash / Labour RAB / Labour Advance tabs removed
+              (Feb 2026). Petty Cash and Labour RAB are now nested as
+              sub-tabs inside the Requests tab. Labour Advance is no longer
+              surfaced at the PM dashboard level — accessible via the
+              project drill-down if needed. */}
 
           {/* ==================== TEAM ==================== */}
           <TabsContent value="team">
