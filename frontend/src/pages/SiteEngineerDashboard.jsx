@@ -305,6 +305,8 @@ export default function SiteEngineerDashboard() {
   // Matches against project name, client name, status (Phase), and the
   // formatted date string ("19 May 2026").
   const [projectSearch, setProjectSearch] = useState('');
+  // Active phase filter chip from the KPI strip — empty string = no filter.
+  const [phaseFilter, setPhaseFilter] = useState('');
   const [workOrders, setWorkOrders] = useState([]);
   const [selectedContractor, setSelectedContractor] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1099,37 +1101,100 @@ export default function SiteEngineerDashboard() {
                  supervisors who need a quick scan across all assigned sites.
                  Regular site_engineer still gets the touch-friendly card list
                  below. Clicking a row opens the same default SE project page. */
-              <div className="space-y-3" data-testid="sr-se-projects-block">
-                {/* Search box — filters across project name, client, phase
-                    and formatted date so a supervisor with 20+ sites can
-                    instantly jump to "abinaya" or "in planning" without
-                    scrolling. Live filter (no submit button) for speed. */}
-                <div className="relative max-w-md">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-                  <Input
-                    value={projectSearch}
-                    onChange={(e) => setProjectSearch(e.target.value)}
-                    placeholder="Search project, client, phase or date…"
-                    className="pl-9 h-9 text-sm bg-white border-amber-200 focus-visible:ring-amber-400"
-                    data-testid="sr-se-projects-search"
-                  />
+              <div className="space-y-4" data-testid="sr-se-projects-block">
+                {/* ── KPI strip ─────────────────────────────────────────────
+                    Glance-able project mix counters (Total / In Planning /
+                    In Construction / Completed / Others). Click any chip to
+                    filter the table by that phase. Selected chip is hi-lit
+                    with a deeper amber background; click again to clear.
+
+                    Note (Feb 2026): we keep status strings in raw form
+                    (`in_planning`, `in_construction`, `completed`) and only
+                    humanise them in the badge — that way the click filter
+                    stays consistent across renders.
+                ──────────────────────────────────────────────────────────── */}
+                {(() => {
+                  const counts = projects.reduce((acc, p) => {
+                    const k = (p.status || 'unknown').toLowerCase();
+                    acc[k] = (acc[k] || 0) + 1;
+                    acc.__total += 1;
+                    return acc;
+                  }, { __total: 0 });
+                  const chips = [
+                    { key: '__all', label: 'Total', count: counts.__total, cls: 'bg-gray-900 text-white' },
+                    { key: 'in_planning', label: 'In Planning', count: counts['in_planning'] || 0, cls: 'bg-amber-100 text-amber-800 border border-amber-200' },
+                    { key: 'in_construction', label: 'In Construction', count: counts['in_construction'] || 0, cls: 'bg-blue-100 text-blue-800 border border-blue-200' },
+                    { key: 'completed', label: 'Completed', count: counts['completed'] || 0, cls: 'bg-emerald-100 text-emerald-800 border border-emerald-200' },
+                  ];
+                  return (
+                    <div className="flex flex-wrap gap-2" data-testid="sr-se-kpi-strip">
+                      {chips.map(c => {
+                        const active = (c.key === '__all' && !phaseFilter) || phaseFilter === c.key;
+                        return (
+                          <button
+                            key={c.key}
+                            type="button"
+                            onClick={() => setPhaseFilter(c.key === '__all' ? '' : (phaseFilter === c.key ? '' : c.key))}
+                            className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-medium transition-all hover:scale-[1.02] ${c.cls} ${active ? 'ring-2 ring-offset-1 ring-amber-500' : 'opacity-90 hover:opacity-100'}`}
+                            data-testid={`sr-se-kpi-${c.key}`}
+                          >
+                            <span>{c.label}</span>
+                            <span className={`tabular-nums ${active ? 'font-bold' : 'font-semibold'}`}>{c.count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+
+                {/* Search + filtered-count display.
+                    The little "Showing X of Y" text appears only when a
+                    query or phase filter is active so the row stays clean
+                    in the default state. */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                  <div className="relative w-full sm:max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+                    <Input
+                      value={projectSearch}
+                      onChange={(e) => setProjectSearch(e.target.value)}
+                      placeholder="Search project, client, phase or date…"
+                      className="pl-9 h-9 text-sm bg-white border-amber-200 focus-visible:ring-amber-400"
+                      data-testid="sr-se-projects-search"
+                    />
+                  </div>
+                  {(projectSearch || phaseFilter) && (
+                    <span className="text-xs text-gray-500 sm:ml-1" data-testid="sr-se-filter-count">
+                      Showing <span className="font-semibold text-amber-700">{(() => {
+                        const q = projectSearch.trim().toLowerCase();
+                        return projects.filter(p => {
+                          if (phaseFilter && (p.status || '').toLowerCase() !== phaseFilter) return false;
+                          if (!q) return true;
+                          const dateStr = p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+                          return [p.name, p.client_name, (p.status || '').replace(/_/g, ' '), dateStr].filter(Boolean).join(' ').toLowerCase().includes(q);
+                        }).length;
+                      })()}</span> of {projects.length} projects
+                    </span>
+                  )}
                 </div>
-                <Card data-testid="sr-se-projects-table-card">
+
+                <Card data-testid="sr-se-projects-table-card" className="overflow-hidden shadow-sm">
                   <CardContent className="p-0 overflow-x-auto">
                     <table className="w-full text-sm" data-testid="sr-se-projects-table">
-                      <thead className="bg-amber-50/60 text-gray-700 border-b border-amber-100">
+                      <thead className="bg-gradient-to-r from-amber-50 to-amber-50/40 text-gray-700 border-b border-amber-100">
                         <tr>
-                          <th className="text-left font-semibold px-4 py-2.5">Project</th>
-                          <th className="text-left font-semibold px-4 py-2.5">Client</th>
-                          <th className="text-left font-semibold px-4 py-2.5">Phase</th>
-                          <th className="text-left font-semibold px-4 py-2.5">Date</th>
-                          <th className="text-right font-semibold px-4 py-2.5 w-20">View</th>
+                          <th className="text-left font-semibold px-4 py-3 uppercase text-[11px] tracking-wider">Project</th>
+                          <th className="text-left font-semibold px-4 py-3 uppercase text-[11px] tracking-wider">Client</th>
+                          <th className="text-left font-semibold px-4 py-3 uppercase text-[11px] tracking-wider">Phase</th>
+                          <th className="text-left font-semibold px-4 py-3 uppercase text-[11px] tracking-wider">Date</th>
+                          <th className="text-right font-semibold px-4 py-3 uppercase text-[11px] tracking-wider w-20">View</th>
                         </tr>
                       </thead>
                       <tbody>
                         {(() => {
                           const q = projectSearch.trim().toLowerCase();
-                          const visible = !q ? projects : projects.filter((p) => {
+                          const visible = projects.filter((p) => {
+                            if (phaseFilter && (p.status || '').toLowerCase() !== phaseFilter) return false;
+                            if (!q) return true;
                             const dateStr = p.created_at
                               ? new Date(p.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
                               : '';
@@ -1144,53 +1209,94 @@ export default function SiteEngineerDashboard() {
                           if (visible.length === 0) {
                             return (
                               <tr>
-                                <td colSpan={5} className="text-center text-gray-400 text-sm py-6" data-testid="sr-se-projects-empty">
-                                  No projects match “{projectSearch}”.
+                                <td colSpan={5} className="text-center text-gray-400 text-sm py-8" data-testid="sr-se-projects-empty">
+                                  No projects match the current filter.
                                 </td>
                               </tr>
                             );
                           }
-                          return visible.map((project) => {
-                          const dateStr = project.created_at
-                            ? new Date(project.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-                            : '—';
-                          return (
-                            <tr
-                              key={project.project_id}
-                              className="border-b last:border-b-0 hover:bg-amber-50/40 cursor-pointer transition-colors"
-                              onClick={() => window.location.href = `/site-engineer/project/${project.project_id}`}
-                              data-testid={`project-row-${project.project_id}`}
-                            >
-                              <td className="px-4 py-3 font-medium text-gray-900">
-                                <div className="flex items-center gap-2">
-                                  <Building2 className="h-4 w-4 text-amber-600 flex-shrink-0" />
-                                  <span className="truncate">{project.name}</span>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 text-gray-700">{project.client_name || '—'}</td>
-                              <td className="px-4 py-3">
-                                <Badge variant="secondary" className="text-[11px] font-normal">
-                                  {(project.status || 'unknown').replace(/_/g, ' ')}
-                                </Badge>
-                              </td>
-                              <td className="px-4 py-3 text-gray-600 text-xs whitespace-nowrap">{dateStr}</td>
-                              <td className="px-4 py-3 text-right">
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-8 w-8 p-0 text-amber-700 hover:text-amber-900 hover:bg-amber-100"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    window.location.href = `/site-engineer/project/${project.project_id}`;
-                                  }}
-                                  data-testid={`project-row-view-${project.project_id}`}
-                                  title="Open project"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Button>
-                              </td>
-                            </tr>
-                          );
+                          // Pick a small palette of background tones for the
+                          // initial-avatar so the eye can latch onto a project
+                          // without reading the full name. Hash by project_id
+                          // for stable colouring across renders.
+                          const avatarPalette = [
+                            'bg-amber-200 text-amber-800',
+                            'bg-blue-200 text-blue-800',
+                            'bg-emerald-200 text-emerald-800',
+                            'bg-rose-200 text-rose-800',
+                            'bg-violet-200 text-violet-800',
+                            'bg-cyan-200 text-cyan-800',
+                            'bg-orange-200 text-orange-800',
+                          ];
+                          const phaseTone = (s) => {
+                            const k = (s || '').toLowerCase();
+                            if (k === 'in_planning') return 'bg-amber-100 text-amber-800 border-amber-200';
+                            if (k === 'in_construction') return 'bg-blue-100 text-blue-800 border-blue-200';
+                            if (k === 'completed') return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+                            if (k === 'on_hold' || k === 'cancelled') return 'bg-rose-100 text-rose-800 border-rose-200';
+                            return 'bg-gray-100 text-gray-700 border-gray-200';
+                          };
+                          return visible.map((project, idx) => {
+                            const dateStr = project.created_at
+                              ? new Date(project.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                              : '—';
+                            // Hash project_id → palette index (stable).
+                            let h = 0;
+                            for (const ch of (project.project_id || project.name || '')) h = (h * 31 + ch.charCodeAt(0)) | 0;
+                            const palette = avatarPalette[Math.abs(h) % avatarPalette.length];
+                            const initials = (project.name || '?')
+                              .split(/\s+/)
+                              .filter(Boolean)
+                              .slice(0, 2)
+                              .map(w => w[0].toUpperCase())
+                              .join('') || '?';
+                            return (
+                              <tr
+                                key={project.project_id}
+                                className={`group border-b last:border-b-0 cursor-pointer transition-all ${idx % 2 === 0 ? 'bg-white' : 'bg-amber-50/20'} hover:bg-amber-50/70`}
+                                onClick={() => window.location.href = `/site-engineer/project/${project.project_id}`}
+                                data-testid={`project-row-${project.project_id}`}
+                              >
+                                <td className="px-4 py-3 font-medium text-gray-900">
+                                  <div className="flex items-center gap-3">
+                                    <div className={`h-9 w-9 rounded-full flex items-center justify-center text-[11px] font-bold tracking-wide ${palette} flex-shrink-0 shadow-sm`}>
+                                      {initials}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="truncate font-semibold">{project.name}</div>
+                                      {project.location && (
+                                        <div className="text-[11px] text-gray-500 truncate flex items-center gap-1 mt-0.5">
+                                          <MapPin className="h-3 w-3" />
+                                          {project.location}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 text-gray-700">{project.client_name || '—'}</td>
+                                <td className="px-4 py-3">
+                                  <Badge variant="outline" className={`text-[11px] font-medium ${phaseTone(project.status)}`}>
+                                    {(project.status || 'unknown').replace(/_/g, ' ')}
+                                  </Badge>
+                                </td>
+                                <td className="px-4 py-3 text-gray-600 text-xs whitespace-nowrap">{dateStr}</td>
+                                <td className="px-4 py-3 text-right">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-8 w-8 p-0 text-amber-700 hover:text-amber-900 hover:bg-amber-100 group-hover:bg-amber-100 group-hover:translate-x-0.5 transition-all"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      window.location.href = `/site-engineer/project/${project.project_id}`;
+                                    }}
+                                    data-testid={`project-row-view-${project.project_id}`}
+                                    title="Open project"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            );
                           });
                         })()}
                       </tbody>
