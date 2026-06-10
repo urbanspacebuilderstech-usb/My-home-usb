@@ -1276,21 +1276,16 @@ export default function ProcurementBoardV2() {
               </div>
             </div>
             
-            <div className="grid grid-cols-2 gap-4">
+            {/* Transport row — Discount removed (Feb 2026) per user request.
+                If discounts come back, restore the right column with the
+                <NumericInput value={vendorForm.discount} … /> field. */}
+            <div className="grid grid-cols-1 gap-4">
               <div>
                 <Label>Transport Cost (₹)</Label>
                 <NumericInput
                   
                   value={vendorForm.transport_cost}
                   onChange={(e) => setVendorForm({...vendorForm, transport_cost: e.target.value})}
-                />
-              </div>
-              <div>
-                <Label>Discount (₹)</Label>
-                <NumericInput
-                  
-                  value={vendorForm.discount}
-                  onChange={(e) => setVendorForm({...vendorForm, discount: e.target.value})}
                 />
               </div>
             </div>
