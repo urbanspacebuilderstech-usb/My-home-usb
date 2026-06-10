@@ -14,7 +14,8 @@ import axios from 'axios';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Package, Hammer, Wallet, Loader2, Search } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Package, Hammer, Wallet, Loader2, Search, Calendar, X } from 'lucide-react';
 import OrderDetailDialog from './OrderDetailDialog';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -46,6 +47,10 @@ function StatusPill({ status }) {
 export default function SrSERequestsTab() {
   const [activeSub, setActiveSub] = useState('material');
   const [search, setSearch] = useState('');
+  // Date range filter (applies to all three sub-tabs). Empty strings = no filter.
+  // We resolve the right date field per kind in the filtered useMemo below.
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [data, setData] = useState({ material: [], labour: [], petty: [] });
   const [loading, setLoading] = useState(false);
   // Selected material request → opens the shared OrderDetailDialog popup.
@@ -73,12 +78,38 @@ export default function SrSERequestsTab() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const arr = data[activeSub === 'material' ? 'material' : activeSub === 'labour_payments' ? 'labour' : 'petty'] || [];
-    if (!q) return arr;
+    // ── Date range filter ─────────────────────────────────────────────
+    // Pick the most relevant date field per sub-tab. We try a small list
+    // of fall-backs to be robust against schema differences across the
+    // 3 backend endpoints (material vs labour vs petty cash).
+    const pickDate = (r) => {
+      const k = activeSub;
+      const candidates = k === 'material'
+        ? [r.created_at, r.request_date, r.requested_at, r.date]
+        : k === 'labour_payments'
+          ? [r.created_at, r.request_date, r.payment_date, r.requested_at]
+          : [r.requested_at, r.created_at, r.request_date, r.expense_date, r.date];
+      const v = candidates.find(Boolean);
+      return v ? new Date(v) : null;
+    };
+    const fromTs = dateFrom ? new Date(dateFrom + 'T00:00:00').getTime() : null;
+    const toTs   = dateTo   ? new Date(dateTo   + 'T23:59:59').getTime() : null;
+    const dateOk = (r) => {
+      if (!fromTs && !toTs) return true;
+      const d = pickDate(r);
+      if (!d || isNaN(d.getTime())) return false;
+      const t = d.getTime();
+      if (fromTs && t < fromTs) return false;
+      if (toTs && t > toTs) return false;
+      return true;
+    };
     return arr.filter((r) => {
+      if (!dateOk(r)) return false;
+      if (!q) return true;
       const blob = JSON.stringify(r).toLowerCase();
       return blob.includes(q);
     });
-  }, [data, activeSub, search]);
+  }, [data, activeSub, search, dateFrom, dateTo]);
 
   const subTabs = [
     { id: 'material', label: 'Material', icon: Package, count: data.material.length, color: 'amber' },
@@ -124,6 +155,79 @@ export default function SrSERequestsTab() {
           className="pl-8 h-9 text-sm"
           data-testid="sr-se-req-search"
         />
+      </div>
+
+      {/* ── Date Range Filter ────────────────────────────────────────────
+          Shared across all 3 sub-tabs. Quick-presets (Today / 7d / 30d /
+          This Month) for fast scoping, plus explicit From / To inputs for
+          precise ranges. The "Clear" pill appears only when a range is
+          active so the row stays compact at rest. */}
+      <div className="flex flex-wrap items-center gap-2" data-testid="sr-se-req-daterange">
+        <div className="flex items-center gap-1.5 text-xs text-gray-500 mr-1">
+          <Calendar className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Date:</span>
+        </div>
+        <Input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className="h-8 w-[140px] text-xs"
+          aria-label="From date"
+          data-testid="sr-se-req-date-from"
+        />
+        <span className="text-xs text-gray-400">→</span>
+        <Input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className="h-8 w-[140px] text-xs"
+          aria-label="To date"
+          data-testid="sr-se-req-date-to"
+        />
+        {/* Quick presets — written with date helpers inline to keep the
+            component dependency-free. iso() returns YYYY-MM-DD for input. */}
+        {(() => {
+          const iso = (d) => d.toISOString().split('T')[0];
+          const today = new Date();
+          const todayStr = iso(today);
+          const last7   = new Date(today); last7.setDate(today.getDate() - 6);
+          const last30  = new Date(today); last30.setDate(today.getDate() - 29);
+          const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+          const presets = [
+            { label: 'Today',     from: todayStr, to: todayStr },
+            { label: 'Last 7d',   from: iso(last7), to: todayStr },
+            { label: 'Last 30d',  from: iso(last30), to: todayStr },
+            { label: 'This Month', from: iso(monthStart), to: todayStr },
+          ];
+          return presets.map(p => {
+            const active = dateFrom === p.from && dateTo === p.to;
+            return (
+              <Button
+                key={p.label}
+                type="button"
+                size="sm"
+                variant={active ? 'default' : 'outline'}
+                onClick={() => { setDateFrom(p.from); setDateTo(p.to); }}
+                className={`h-7 px-2 text-[11px] ${active ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600' : 'border-gray-200'}`}
+                data-testid={`sr-se-req-preset-${p.label.toLowerCase().replace(/\s+/g, '-')}`}
+              >
+                {p.label}
+              </Button>
+            );
+          });
+        })()}
+        {(dateFrom || dateTo) && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => { setDateFrom(''); setDateTo(''); }}
+            className="h-7 px-2 text-[11px] text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+            data-testid="sr-se-req-date-clear"
+          >
+            <X className="h-3 w-3 mr-0.5" /> Clear
+          </Button>
+        )}
       </div>
 
       {/* Loading */}
