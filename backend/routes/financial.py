@@ -1164,18 +1164,35 @@ async def reject_income(income_id: str, reason: str = "", user: User = Depends(g
         stage = await db.payment_stages.find_one({"stage_id": payment_stage_id}, {"_id": 0})
         if stage:
             amt = float(inc.get("amount", 0) or 0)
-            new_received = max(0, float(stage.get("amount_received", 0) or 0) - amt)
-            new_status = "paid" if new_received >= float(stage.get("amount", 0) or 0) and new_received > 0 else ("partial" if new_received > 0 else "pending")
-            await db.payment_stages.update_one(
-                {"stage_id": payment_stage_id},
-                {"$set": {
+            # DOUBLE-DECREMENT GUARD (Feb 2026): when `was_approved=True`, the
+            # block above (lines 1108-1131) ALREADY decremented
+            # `amount_received` by this income's amount. Decrementing again
+            # here was driving the Payment Schedule's Received column to ₹0
+            # even when other sibling cheques on the same stage are still
+            # approved (e.g. Mr Sudharsan: 2 rejected + 1 approved cheque
+            # showed Received=₹0 instead of ₹3.44L). Only re-decrement when
+            # we're rejecting from pending_approval (no prior credit reversal).
+            if was_approved:
+                set_payload = {
+                    "workflow_status": "requested",
+                    "accountant_rejection_reason": reason or "Rejected by Accountant",
+                    "accountant_rejected_at": datetime.now(timezone.utc).isoformat(),
+                    "accountant_rejected_by_name": user.name,
+                }
+            else:
+                new_received = max(0, float(stage.get("amount_received", 0) or 0) - amt)
+                new_status = "paid" if new_received >= float(stage.get("amount", 0) or 0) and new_received > 0 else ("partial" if new_received > 0 else "pending")
+                set_payload = {
                     "amount_received": new_received,
                     "status": new_status,
                     "workflow_status": "requested",
                     "accountant_rejection_reason": reason or "Rejected by Accountant",
                     "accountant_rejected_at": datetime.now(timezone.utc).isoformat(),
                     "accountant_rejected_by_name": user.name,
-                }}
+                }
+            await db.payment_stages.update_one(
+                {"stage_id": payment_stage_id},
+                {"$set": set_payload}
             )
             # Mirror the rollback to additional_costs.income_received for addition stages.
             await _sync_addition_cost_received(payment_stage_id)
