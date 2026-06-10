@@ -302,11 +302,37 @@ export default function PMDashboard() {
             </Card>
           </TabsContent>
 
-          {/* ==================== REQUESTS ==================== */}
+          {/* ==================== REQUESTS ====================
+              Feb 2026: split the single stacked list into three nested
+              sub-tabs (Material / Labour RAB / Petty Cash) for cleaner
+              navigation. The top-level Petty Cash / Labour RAB / Labour
+              Advance tabs stay accessible for power-users who want the
+              full-page approval queues. */}
           <TabsContent value="requests">
-            <div className="space-y-4" data-testid="pm-requests-tab">
-              <PMMaterialReadOnlyList items={materialRequests} />
-              <PMLabourReadOnlyList items={labourRequests} />
+            <div className="space-y-3" data-testid="pm-requests-tab">
+              <Tabs defaultValue="material_requests" className="w-full">
+                <TabsList className="bg-amber-50/40 border border-amber-100 rounded-lg p-1 flex flex-wrap">
+                  <TabsTrigger value="material_requests" className="text-xs sm:text-sm data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm" data-testid="pm-req-sub-material">
+                    Material Requests<CountBadge count={materialRequests?.length || 0} />
+                  </TabsTrigger>
+                  <TabsTrigger value="work_order_labour" className="text-xs sm:text-sm data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm" data-testid="pm-req-sub-labour">
+                    Work Order / Labour (RAB)<CountBadge count={labourRequests?.length || 0} />
+                  </TabsTrigger>
+                  <TabsTrigger value="petty_cash" className="text-xs sm:text-sm data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm" data-testid="pm-req-sub-petty">
+                    Petty Cash<CountBadge count={pendingPcCount} />
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="material_requests" className="mt-3">
+                  <PMMaterialReadOnlyList items={materialRequests} />
+                </TabsContent>
+                <TabsContent value="work_order_labour" className="mt-3">
+                  <PMLabourReadOnlyList items={labourRequests} />
+                </TabsContent>
+                <TabsContent value="petty_cash" className="mt-3">
+                  <PMPettyCashTabs pettyCashRequests={pettyCashRequests} onRefresh={() => fetchData(false)} />
+                </TabsContent>
+              </Tabs>
             </div>
           </TabsContent>
 
