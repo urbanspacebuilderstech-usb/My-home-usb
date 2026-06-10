@@ -3210,17 +3210,21 @@ async def get_pm_projects(user: User = Depends(get_current_user)):
 
 @router.get("/pm/material-requests")
 async def get_pm_material_requests(status: Optional[str] = None, user: User = Depends(get_current_user)):
-    """Get material requests pending PM approval"""
+    """Material requests visible to the PM dashboard.
+
+    The PM Requests tab buckets cover the full lifecycle (New Request,
+    Planning Awaiting, Revision, Awaiting Accountant, Transit, Delivered),
+    so by default we return ALL statuses — not just `requested` — and let
+    the frontend bucketise. An explicit `status` query param still scopes
+    the result for callers that want a narrow slice (e.g. notifications)."""
     if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Project Manager can access this")
     
     query = {}
-    if status:
+    if status and status != "all":
         query["status"] = status
-    else:
-        query["status"] = "requested"  # Default: pending PM approval
     
-    requests = await db.material_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    requests = await db.material_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
     
     # Enrich with project name and requester name
     for r in requests:
@@ -3235,17 +3239,17 @@ async def get_pm_material_requests(status: Optional[str] = None, user: User = De
 
 @router.get("/pm/labour-requests")
 async def get_pm_labour_requests(status: Optional[str] = None, user: User = Depends(get_current_user)):
-    """Get labour requests pending PM verification"""
+    """Labour requests visible to the PM dashboard. Returns full lifecycle
+    by default so the bucket strip ("New Request", "Awaiting Accountant",
+    "Released" etc.) can populate; pass `?status=requested` to scope."""
     if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Project Manager can access this")
     
     query = {}
-    if status:
+    if status and status != "all":
         query["status"] = status
-    else:
-        query["status"] = "requested"
     
-    requests = await db.labour_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    requests = await db.labour_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
     
     for r in requests:
         project = await db.projects.find_one({"project_id": r["project_id"]}, {"_id": 0, "name": 1})
