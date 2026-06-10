@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Eye, Package, HardHat, Truck, PackageCheck, FileClock, Wallet, ListChecks, Send, ClipboardList } from 'lucide-react';
+import OrderDetailDialog from './OrderDetailDialog';
 
 const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); } catch { return s || '—'; } };
@@ -32,6 +33,10 @@ function bucketForMaterial(req) {
 
 export function PMMaterialReadOnlyList({ items }) {
   const [bucket, setBucket] = useState('all');
+  // Selected request opens the shared OrderDetailDialog (Details + Timeline
+  // tabs) in read-only mode — PM can audit the full lifecycle of any card
+  // without enabling approval edits.
+  const [selected, setSelected] = useState(null);
   const visibleItems = useMemo(() => {
     if (bucket === 'all') return items;
     return items.filter(r => bucketForMaterial(r) === bucket);
@@ -69,13 +74,21 @@ export function PMMaterialReadOnlyList({ items }) {
           {visibleItems.map(r => {
             const cfg = MATERIAL_BUCKETS.find(b => b.key === bucketForMaterial(r));
             return (
-              <Card key={r.request_id} data-testid={`pm-mat-card-${r.request_id}`}>
+              <Card
+                key={r.request_id}
+                data-testid={`pm-mat-card-${r.request_id}`}
+                className="cursor-pointer hover:shadow-md hover:bg-amber-50/40 hover:border-amber-200 transition-all"
+                onClick={() => setSelected(r)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(r); } }}
+              >
                 <CardContent className="p-3">
                   <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {cfg && <Badge variant="outline" className={`text-[10px] ${cfg.cls}`}>{cfg.label}</Badge>}
                       <span className="text-[10px] text-gray-400 font-mono">#{r.order_id || r.request_id}</span>
-                      <Eye className="h-3 w-3 text-gray-300" />
+                      <Eye className="h-3 w-3 text-amber-500" />
                     </div>
                     {r.total_amount && <span className="text-sm font-semibold text-gray-800">{fmt(r.total_amount)}</span>}
                   </div>
@@ -91,6 +104,18 @@ export function PMMaterialReadOnlyList({ items }) {
           })}
         </div>
       )}
+
+      {/* Detail popup for the selected material request — reuses the shared
+          OrderDetailDialog (Details + Timeline tabs + Steel breakdown). PM
+          statuses (`requested`, `pm_approved`, `procurement_priced`, etc.)
+          aren't in the dialog's editable allow-list, so it renders fully
+          read-only with the standard X close button in the top corner. */}
+      <OrderDetailDialog
+        open={!!selected}
+        order={selected}
+        onClose={() => setSelected(null)}
+        onUpdate={() => setSelected(null)}
+      />
     </div>
   );
 }
