@@ -147,30 +147,33 @@ export default function SrSERequestsTab() {
         })}
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search project, vendor, contractor, status…"
-          className="pl-8 h-9 text-sm"
-          data-testid="sr-se-req-search"
-        />
-      </div>
+      {/* Search + Date filter on the SAME row.
+          Search takes the available width (flex-1); Date pill sits to its
+          right and never grows beyond its content. On narrow screens the
+          row wraps automatically (Date drops below the search). */}
+      <div className="flex flex-wrap items-center gap-2" data-testid="sr-se-req-filterbar">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search project, vendor, contractor, status…"
+            className="pl-8 h-9 text-sm"
+            data-testid="sr-se-req-search"
+          />
+        </div>
 
-      {/* ── Meta-style Date Range Popover ────────────────────────────────
-          Matches the Sales CRM date filter (Sales > Pre-Sales > "Date" pill)
-          for consistency across the app. Left sidebar = quick presets,
-          right pane = full month-grid range picker. Active filter is
-          summarised inline on the trigger button ("01 Jun - 13 Jun").
-      ──────────────────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2" data-testid="sr-se-req-daterange">
+        {/* ── Meta-style Date Range Popover ────────────────────────────────
+            Matches the Sales CRM date filter (Sales > Pre-Sales > "Date" pill)
+            for consistency across the app. Left sidebar = quick presets,
+            right pane = full month-grid range picker. Active filter is
+            summarised inline on the trigger button ("01 Jun - 13 Jun").
+        ──────────────────────────────────────────────────────────────────── */}
         <Popover>
           <PopoverTrigger asChild>
             <Button
               variant="outline"
-              className={`h-8 text-xs gap-1.5 rounded-lg shadow-sm ${dateFrom ? 'bg-amber-50 border-amber-400 text-amber-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}
+              className={`h-9 text-xs gap-1.5 rounded-lg shadow-sm shrink-0 ${dateFrom ? 'bg-amber-50 border-amber-400 text-amber-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}
               data-testid="sr-se-req-date-trigger"
             >
               <Calendar className="h-3.5 w-3.5" />
@@ -189,7 +192,7 @@ export default function SrSERequestsTab() {
               )}
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-0 rounded-xl shadow-xl border-0" align="start">
+          <PopoverContent className="w-auto p-0 rounded-xl shadow-xl border-0" align="end">
             <div className="flex">
               <div className="w-32 border-r bg-gray-50 p-2 space-y-0.5 rounded-l-xl">
                 {[
