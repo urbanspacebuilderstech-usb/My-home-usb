@@ -17,6 +17,7 @@ import { Package, Users, Wallet, ThumbsUp, ThumbsDown, Loader2, CheckCircle2, Al
 import MetaDateFilter, { rangeForPreset } from './MetaDateFilter';
 import PlanningLabourStageRequests from './PlanningLabourStageRequests';
 import RABApprovalQueue from './RABApprovalQueue';
+import OrderDetailDialog from './OrderDetailDialog';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
@@ -88,7 +89,12 @@ const getTitle = (req, type) => {
 };
 const getRequester = (req) => req.requested_by_name || req.site_engineer_name || '-';
 
-export default function PlanningRequestsTab({ projects = [], onCountChange }) {
+export default function PlanningRequestsTab({ projects = [], onCountChange, viewerRole = '' }) {
+  // viewerRole: optional role override. When set to `general_manager` (or any
+  // future read-only role), the Material card action button stays as "View"
+  // even for actionable statuses (procurement_priced, planning_initial_pending).
+  // This keeps GM strictly observational without removing the data from view.
+  const isReadOnlyViewer = viewerRole === 'general_manager';
   const [activeType, setActiveType] = useState('material');
   // 'all' | 'new' | 'in_progress' | 'awaiting' | 'approved' | 'rejected'
   const [statusFilter, setStatusFilter] = useState('all');
@@ -121,6 +127,9 @@ export default function PlanningRequestsTab({ projects = [], onCountChange }) {
   const [approveDialog, setApproveDialog] = useState({ open: false, req: null, type: '' });
   const [rejectDialog, setRejectDialog] = useState({ open: false, req: null, type: '', reason: '' });
   const [processing, setProcessing] = useState(null);
+  // GM-only read-only detail viewer. Used instead of approveDialog so the
+  // viewer never sees Approve / Revise / Reject controls.
+  const [viewDialog, setViewDialog] = useState(null);
 
   const loadAll = async () => {
     try {
@@ -375,8 +384,12 @@ export default function PlanningRequestsTab({ projects = [], onCountChange }) {
           loading={loading}
           bucket={materialBucket}
           setBucket={setMaterialBucket}
-          onApprove={(req) => setApproveDialog({ open: true, req, type: 'material' })}
+          onApprove={(req) => {
+            if (isReadOnlyViewer) setViewDialog(req);
+            else setApproveDialog({ open: true, req, type: 'material' });
+          }}
           processing={processing}
+          readOnly={isReadOnlyViewer}
         />
       )}
 
@@ -448,6 +461,18 @@ export default function PlanningRequestsTab({ projects = [], onCountChange }) {
         </CardContent>
       </Card>
       </>
+      )}
+
+      {/* GM (read-only) detail dialog — bypasses ApproveReviewDialog so no
+          Approve / Revise / Reject controls render. Uses the shared
+          OrderDetailDialog (Details + Timeline tabs + Steel breakdown). */}
+      {isReadOnlyViewer && (
+        <OrderDetailDialog
+          open={!!viewDialog}
+          order={viewDialog}
+          onClose={() => setViewDialog(null)}
+          onUpdate={() => setViewDialog(null)}
+        />
       )}
 
       {/* Approve Review Dialog */}
@@ -1038,7 +1063,7 @@ function RequestTimeline({ req, type }) {
 // =====================================================================
 // Material Lifecycle View — procurement-style cards, Planning's perspective
 // =====================================================================
-function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, processing }) {
+function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, processing, readOnly = false }) {
   const counts = useMemo(() => {
     const c = { all: items.length };
     MAT_LIFECYCLE_BUCKETS.forEach(b => { if (b.key !== 'all') c[b.key] = 0; });
@@ -1089,7 +1114,7 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
       ) : (
         <div className="space-y-2" data-testid="planning-mat-card-list">
           {visibleItems.map(req => (
-            <PlanningMaterialCard key={req.request_id} req={req} onClick={() => onApprove(req)} processing={processing} />
+            <PlanningMaterialCard key={req.request_id} req={req} onClick={() => onApprove(req)} processing={processing} readOnly={readOnly} />
           ))}
         </div>
       )}
@@ -1097,11 +1122,14 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
   );
 }
 
-function PlanningMaterialCard({ req, onClick, processing }) {
+function PlanningMaterialCard({ req, onClick, processing, readOnly = false }) {
   const status = (req.status || '').toLowerCase();
   const bucket = bucketForMaterial(req);
   const cardCfg = MAT_LIFECYCLE_BUCKETS.find(b => b.key === bucket);
-  const isActionable = status === 'procurement_priced' || status === 'planning_initial_pending';
+  // GM (or any explicit read-only viewer) only ever sees a View button —
+  // even for actionable statuses. The card click still opens the dialog
+  // (read-only) so they can audit details.
+  const isActionable = !readOnly && (status === 'procurement_priced' || status === 'planning_initial_pending');
   const isInitialReview = status === 'planning_initial_pending';
   const id = req.request_id;
   const isProcessing = processing === id;

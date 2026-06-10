@@ -1728,7 +1728,7 @@ export default function PlanningBoard({ embedded = false }) {
 
             {/* ---- Dashboard > Requests ---- */}
             {dashSubTab === 'requests' && (
-              <PlanningRequestsTab projects={projects} onCountChange={setPlanningRequestsCount} />
+              <PlanningRequestsTab projects={projects} onCountChange={setPlanningRequestsCount} viewerRole={user?.role} />
             )}
 
             {/* ---- Dashboard > Approvals (Planning Head FE queue) ---- */}
