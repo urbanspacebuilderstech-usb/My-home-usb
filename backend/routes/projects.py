@@ -5854,6 +5854,57 @@ async def request_addition_section_payment(project_id: str, section_id: str, req
     }
 
 
+@router.post("/projects/{project_id}/addition-sections/{section_id}/cancel-payment-request")
+async def cancel_addition_section_payment(project_id: str, section_id: str, user: User = Depends(get_current_user)):
+    """Section-level Undo for a Pay Request. Drops the consolidated
+    payment_stage created via /addition-sections/{section_id}/request-payment
+    and clears `payment_requested` + `linked_stage_id` on every linked row.
+
+    Refused if money has already been collected (`amount_received > 0`) — at
+    that point the section is on the books and correction must go through
+    the formal rejection flow.
+    """
+    if user.role not in [UserRole.PLANNING_PERSON, UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can undo a Pay Request")
+
+    stage = await db.payment_stages.find_one(
+        {"linked_section_id": section_id, "project_id": project_id, "is_section_addition": True},
+        {"_id": 0},
+    )
+    if not stage:
+        raise HTTPException(status_code=404, detail="No active section payment request to undo")
+    if (stage.get("amount_received") or 0) > 0 and user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=423, detail="Money already collected against this section — undo not allowed. Use rejection flow instead.")
+
+    stage_id = stage["stage_id"]
+    cost_ids = stage.get("linked_addition_ids") or []
+
+    await db.payment_stages.delete_one({"stage_id": stage_id})
+    await db.monthly_schedule_entries.delete_many({"stage_id": stage_id})
+    if cost_ids:
+        await db.additional_costs.update_many(
+            {"cost_id": {"$in": cost_ids}},
+            {"$set": {
+                "payment_requested": False,
+                "linked_stage_id": None,
+                "payment_request_cancelled_at": datetime.now(timezone.utc).isoformat(),
+                "payment_request_cancelled_by": user.user_id,
+            }},
+        )
+
+    await create_audit_log(
+        user.user_id,
+        "cancel_section_payment_request",
+        "addition_section",
+        section_id,
+        {"stage_id": stage_id, "rows": len(cost_ids)},
+    )
+
+    return {"message": "Section payment request undone", "section_id": section_id, "rows": len(cost_ids)}
+
+
+
+
 
 # ==================== ADDITIONAL WORK MULTI-STEP APPROVAL ====================
 # Flow: Req Payment (Planning) → Client approves (Client Portal) → CRE approves → Accountant collects.

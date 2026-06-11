@@ -3381,6 +3381,20 @@ export default function ProjectDetail() {
     }
   };
 
+  // Section-level Undo (Feb 2026). One click pulls the entire section's Pay
+  // Request back from CRE — replaces N per-row undo buttons with one button
+  // at the section header.
+  const handleCancelSectionPayment = async (sectionId, sectionTitle) => {
+    if (!window.confirm(`Undo Pay Request for "${sectionTitle}"? It will be removed from the CRE Payment Schedule for all rows in this section.`)) return;
+    try {
+      await axios.post(`${API}/projects/${projectId}/addition-sections/${sectionId}/cancel-payment-request`);
+      toast.success('Section Pay Request undone');
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to undo');
+    }
+  };
+
   const handleCREApproveAddition = async (costId) => {
     if (!window.confirm('Approve this Additional Work for collection? The Accountant will be notified once you confirm.')) return;
     try {
@@ -7524,8 +7538,16 @@ export default function ProjectDetail() {
                   // (gives them visibility into what's been entered). The project-level
                   // rollup elsewhere (Value Cards / Cashflow) continues to count only
                   // client-approved rows — that rule lives on the backend.
+                  //
+                  // Feb 12 2026 — user request: "asdf section ... waiting for account
+                  // approve but shows Received ₹500. Account approve then only show
+                  // Received amount." → count income_received ONLY for rows that have
+                  // been fully accountant-approved (cre_approved flips to true only
+                  // after the linked stage hits stage_received >= amount per the
+                  // backend auto-heal in projects.py). In-flight CRE collections no
+                  // longer leak into the section footer.
                   const total = items.reduce((s, a) => s + (a.estimated_amount || 0), 0);
-                  const received = items.reduce((s, a) => s + (a.income_received || 0), 0);
+                  const received = items.reduce((s, a) => s + (a.cre_approved ? (a.income_received || 0) : 0), 0);
                   return { total, received, balance: total - received };
                 };
                 const ungrouped = additional_costs.filter(c => !c.section_id);
@@ -7533,6 +7555,10 @@ export default function ProjectDetail() {
                 return groups.map((group) => {
                   const items = group.section_id ? additional_costs.filter(c => c.section_id === group.section_id) : ungrouped;
                   const t = sumGroup(items);
+                  // Feb 12 2026 — once a Pay Request has been sent for ANY row in this
+                  // section, hide the "+ Add" button so Planning can't keep adding rows
+                  // to an in-flight section. Also drives the section-level Undo button.
+                  const sectionRequested = items.some(c => c.payment_requested === true && !c.cre_approved && (Number(c.estimated_amount || 0) - Number(c.income_received || 0)) > 0);
                   return (
                     <div key={group.section_id || 'ungrouped'} className={`mb-6 ${group.section_id ? 'border-2 border-indigo-100 rounded-xl p-4 bg-indigo-50/30' : ''}`} data-testid={`addition-group-${group.section_id || 'ungrouped'}`}>
                       {group.section_id && (
@@ -7566,9 +7592,15 @@ export default function ProjectDetail() {
                                   <Plus className="h-3 w-3" /> File
                                   <input type="file" className="hidden" onChange={(e) => { if (e.target.files?.[0]) { handleUploadSectionAttachment(group, e.target.files[0]); e.target.value = ''; } }} />
                                 </label>
-                                <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-200 text-emerald-700" onClick={() => openAddAdditionFor(group.section_id)} data-testid={`add-into-section-${group.section_id}`}>
-                                  <Plus className="h-3 w-3" /> Add
-                                </Button>
+                                {/* Feb 12 2026 — hide "+ Add" once any row in this section has
+                                    an open Pay Request (sectionRequested). Planning shouldn't be
+                                    able to keep appending rows to an in-flight section; they can
+                                    create a NEW section if they need more rows. */}
+                                {!sectionRequested && (
+                                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-200 text-emerald-700" onClick={() => openAddAdditionFor(group.section_id)} data-testid={`add-into-section-${group.section_id}`}>
+                                    <Plus className="h-3 w-3" /> Add
+                                  </Button>
+                                )}
                                 {/* Section-level Pay Request (TOP-RIGHT placement — Feb 2026).
                                     Sits next to + File / + Add so Planning Person / Head sees the
                                     actionable trigger in the same control cluster. Visibility gated
@@ -7583,6 +7615,9 @@ export default function ProjectDetail() {
                                     all `null` in production. */}
                                 {(() => {
                                   if (!['planning_person', 'planning', 'planning_head', 'super_admin'].includes(user?.role)) return null;
+                                  // Feb 12 2026 — once the section is in payment flow,
+                                  // suppress Pay Request (section-level Undo takes over).
+                                  if (sectionRequested) return null;
                                   const computeOpen = (c) => {
                                     const qty = Number(c.qty ?? c.quantity ?? 0);
                                     const price = Number(c.price ?? c.unit_rate ?? 0);
@@ -7622,6 +7657,22 @@ export default function ProjectDetail() {
                                     </Button>
                                   );
                                 })()}
+                                {/* Feb 12 2026 — Section-level Undo. Replaces the N per-row
+                                    Undo buttons inside the table. Visible only when the
+                                    section has an in-flight Pay Request (rows with
+                                    payment_requested === true and cre_approved !== true). */}
+                                {sectionRequested && ['planning_person', 'planning', 'planning_head', 'super_admin'].includes(user?.role) && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2.5 text-xs gap-1 border-amber-500 text-amber-700 hover:bg-amber-50"
+                                    onClick={() => handleCancelSectionPayment(group.section_id, group.title || group.name)}
+                                    data-testid={`section-undo-pay-request-${group.section_id}`}
+                                    title={`Undo Pay Request for "${group.title || group.name}"`}
+                                  >
+                                    <Undo2 className="h-3 w-3" /> Undo
+                                  </Button>
+                                )}
                                 {/* Batch approval chain buttons — show ONE button at a time based on the
                                     most common status in this section. Counts let the user know how many will move. */}
                                 {(() => {
@@ -7983,29 +8034,11 @@ export default function ProjectDetail() {
                                       knows the row is no longer in their hands. The old "Awaiting Client"
                                       legacy state only applies when client never pre-approved. */}
                                   {cost.payment_requested && balance > 0 && (cost.client_approval_status === 'client_approved' || cost.client_approved) && !cost.cre_approved && (
-                                    <>
-                                      <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-medium" data-testid={`add-with-cre-${cost.cost_id}`}>With CRE · Payment Schedule</span>
-                                      {(user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin') && (
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          className="h-7 gap-1 border-amber-500 text-amber-700 hover:bg-amber-50 text-xs"
-                                          onClick={async () => {
-                                            if (!window.confirm(`Undo Req Payment for "${cost.description || cost.name || 'this item'}"? It will be removed from the CRE Payment Schedule and you can request again later.`)) return;
-                                            try {
-                                              await axios.post(`${API}/additional-costs/${cost.cost_id}/cancel-payment-request`);
-                                              toast.success('Req Payment undone');
-                                              fetchData(false);
-                                            } catch (e) { toast.error(e.response?.data?.detail || 'Failed to undo'); }
-                                          }}
-                                          data-testid={`undo-req-payment-${cost.cost_id}`}
-                                          title="Withdraw Req Payment (only allowed before CRE approves / money is collected)"
-                                        >
-                                          <Undo2 className="h-3 w-3" /> Undo
-                                        </Button>
-                                      )}
-                                    </>
+                                    <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-medium" data-testid={`add-with-cre-${cost.cost_id}`}>With CRE · Payment Schedule</span>
                                   )}
+                                  {/* Per-row Undo removed Feb 12 2026 — replaced by ONE
+                                      section-level "Undo" button next to the Pay Request
+                                      button at the top of the section. */}
                                   {cost.payment_requested && balance > 0 && !(cost.client_approval_status === 'client_approved' || cost.client_approved) && !cost.client_rejected && (
                                     <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium">Awaiting Client</span>
                                   )}
