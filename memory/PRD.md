@@ -13,6 +13,18 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — Section Receives Partial Accountant-Approved + Unlock Section Edit (P0)
+- **Status**: ✅ COMPLETE & DEPLOYED to VPS (`main.346ebe52.js` live).
+- **Issue 1 — Section "Received" mirrors accountant-approved amount (incl. partial)**
+  - User report: "work requested by client at the time of execution" section had ₹1,000 collected AND accountant-approved, but section footer showed Received ₹0.
+  - Root cause: previous fix only counted rows where `cre_approved === true` (i.e., fully received). Partial accountant approvals were hidden.
+  - **Backend** (`projects.py` L4680): Auto-heal now reads APPROVED income totals (`db.income` where `status: approved`, `category: payment_collection`) per stage label. Distributes pro-rata across linked rows. `cost.income_received` now strictly reflects accountant-approved money.
+  - **Frontend** (`ProjectDetail.jsx`): Section footer sums `income_received` directly (no more `cre_approved` filter). NEW amber **"Partial · ₹X"** pill added to section header next to existing Pending Client / Client Approved badges.
+- **Issue 2 — Edit option unlocked for additions in PH/GM review**
+  - User report: After creating a section addition and PH approves, Edit button on addition rows was disabled.
+  - Root cause: PATCH `/additional-costs/{cost_id}` and POST `/additional-costs` called `_assert_fe_editable_for_planning_person`, which checks the project's Final Estimate status. FE → client-approved made every addition uneditable.
+  - **Fix** (`projects.py` L4954, L4980): Removed FE-lock entirely from addition CRUD. Replaced with addition-level gating: only `client_approval_status === 'client_approved'` locks (Super Admin override), and `pending_client` locks for non-Planning roles. PP/PH can freely edit draft, ph_review, gm_review, rejected_* rows.
+
 ### Session — Feb 12, 2026 — CRE Payment Schedule: Preserve "Pending Accountant Approval" on Partial Rows (P0)
 - **Status**: ✅ COMPLETE & DEPLOYED.
 - **User report**: asdf row in CRE PS shows **Partial** even though the ₹500 collected is still awaiting accountant approval. User wants "Awaiting Accountant" (existing badge: "Pending Accountant Approval") until accountant approves.
