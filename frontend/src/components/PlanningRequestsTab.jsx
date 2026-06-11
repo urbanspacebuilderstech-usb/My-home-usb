@@ -13,7 +13,7 @@ import { Textarea } from './ui/textarea';
 import { CashbookDateFilter, filterByDateRange } from './CashbookDateFilter';
 import ProjectSearchSelect from './ProjectSearchSelect';
 import RequestStatusFilter, { mapToReqStatus } from './RequestStatusFilter';
-import { Package, Users, Wallet, ThumbsUp, ThumbsDown, Loader2, CheckCircle2, AlertCircle, FileText, Calendar, User as UserIcon, Briefcase, CreditCard, ListChecks, Send, Truck, PackageCheck, FileClock, ClipboardCheck, Banknote } from 'lucide-react';
+import { Package, Users, Wallet, ThumbsUp, ThumbsDown, Loader2, CheckCircle2, AlertCircle, FileText, Calendar, User as UserIcon, Briefcase, CreditCard, ListChecks, Send, Truck, PackageCheck, FileClock, ClipboardCheck, Banknote, Trash2 } from 'lucide-react';
 import MetaDateFilter, { rangeForPreset } from './MetaDateFilter';
 import PlanningLabourStageRequests from './PlanningLabourStageRequests';
 import RABApprovalQueue from './RABApprovalQueue';
@@ -95,6 +95,10 @@ export default function PlanningRequestsTab({ projects = [], onCountChange, view
   // even for actionable statuses (procurement_priced, planning_initial_pending).
   // This keeps GM strictly observational without removing the data from view.
   const isReadOnlyViewer = viewerRole === 'general_manager';
+  // Super Admin gets a Trash icon on EVERY material card so they can purge
+  // delivered / paid / rejected items that should never have made it past
+  // initial review (e.g. test deliveries, mis-categorised orders).
+  const isSuperAdmin = viewerRole === 'super_admin';
   const [activeType, setActiveType] = useState('material');
   // 'all' | 'new' | 'in_progress' | 'awaiting' | 'approved' | 'rejected'
   const [statusFilter, setStatusFilter] = useState('all');
@@ -390,6 +394,16 @@ export default function PlanningRequestsTab({ projects = [], onCountChange, view
           }}
           processing={processing}
           readOnly={isReadOnlyViewer}
+          onDelete={isSuperAdmin ? async (req) => {
+            if (!confirm(`Delete material request ${req.order_id || req.request_id}? This cannot be undone.`)) return;
+            try {
+              await axios.delete(`${API}/site-engineer/material-requests/${req.request_id}`);
+              toast.success('Material request deleted');
+              fetchAll();
+            } catch (e) {
+              toast.error(e?.response?.data?.detail || 'Delete failed');
+            }
+          } : null}
         />
       )}
 
@@ -1063,7 +1077,7 @@ function RequestTimeline({ req, type }) {
 // =====================================================================
 // Material Lifecycle View — procurement-style cards, Planning's perspective
 // =====================================================================
-function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, processing, readOnly = false }) {
+function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, processing, readOnly = false, onDelete = null }) {
   const counts = useMemo(() => {
     const c = { all: items.length };
     MAT_LIFECYCLE_BUCKETS.forEach(b => { if (b.key !== 'all') c[b.key] = 0; });
@@ -1114,7 +1128,7 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
       ) : (
         <div className="space-y-2" data-testid="planning-mat-card-list">
           {visibleItems.map(req => (
-            <PlanningMaterialCard key={req.request_id} req={req} onClick={() => onApprove(req)} processing={processing} readOnly={readOnly} />
+            <PlanningMaterialCard key={req.request_id} req={req} onClick={() => onApprove(req)} processing={processing} readOnly={readOnly} onDelete={onDelete} />
           ))}
         </div>
       )}
@@ -1122,7 +1136,7 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
   );
 }
 
-function PlanningMaterialCard({ req, onClick, processing, readOnly = false }) {
+function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDelete = null }) {
   const status = (req.status || '').toLowerCase();
   const bucket = bucketForMaterial(req);
   const cardCfg = MAT_LIFECYCLE_BUCKETS.find(b => b.key === bucket);
@@ -1193,11 +1207,11 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false }) {
             <p className="text-[10px] uppercase font-semibold text-gray-400">SE</p>
             <p className="font-medium truncate">{req.site_engineer_name || '—'}</p>
           </div>
-          <div className="sm:col-span-1">
+          <div className="sm:col-span-1 flex items-center gap-1.5">
             {isActionable ? (
               <Button
                 size="sm"
-                className={`h-8 w-full text-xs gap-1 mt-3 sm:mt-0 ${isInitialReview ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'}`}
+                className={`h-8 flex-1 text-xs gap-1 mt-3 sm:mt-0 ${isInitialReview ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'}`}
                 disabled={isProcessing}
                 onClick={(e) => { e.stopPropagation(); onClick(); }}
                 data-testid={`planning-mat-card-approve-${id}`}
@@ -1208,11 +1222,27 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false }) {
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 w-full text-xs gap-1 mt-3 sm:mt-0"
+                className="h-8 flex-1 text-xs gap-1 mt-3 sm:mt-0"
                 onClick={(e) => { e.stopPropagation(); onClick(); }}
                 data-testid={`planning-mat-card-view-${id}`}
               >
                 <FileText className="h-3 w-3" /> View
+              </Button>
+            )}
+            {/* Super Admin: Trash button purges the material request via the
+                DELETE endpoint (super_admin bypasses the post-approval lock
+                guard). One-time `confirm()` prompt to prevent fat-finger
+                deletes. Not rendered for any other role. */}
+            {onDelete && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 w-8 p-0 mt-3 sm:mt-0 border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300"
+                onClick={(e) => { e.stopPropagation(); onDelete(req); }}
+                data-testid={`planning-mat-card-delete-${id}`}
+                title="Delete (Super Admin only)"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
               </Button>
             )}
           </div>

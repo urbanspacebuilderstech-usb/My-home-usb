@@ -1031,13 +1031,17 @@ async def delete_material_request(
         raise HTTPException(status_code=404, detail="Material request not found")
 
     # Status guard — only delete while Planning hasn't acted on the request.
+    # Super Admin bypasses this guard (Feb 2026) so they can delete delivered
+    # / paid / rejected material requests from the Planning Requests view —
+    # useful for cleaning up test data and removing obsolete deliveries that
+    # never produced a usable income trail.
     locking_statuses = {
         "planning_initial_approved", "pm_approved", "planning_approved",
         "pending_procurement", "pending_accounts_approval", "pending_planning_final",
         "approved_for_po", "po_issued", "in_transit", "received", "paid",
-        "planning_initial_rejected", "rejected_by_planning", "rejected",
+        "delivered", "planning_initial_rejected", "rejected_by_planning", "rejected",
     }
-    if (req.get("status") or "").lower() in locking_statuses:
+    if user.role != UserRole.SUPER_ADMIN and (req.get("status") or "").lower() in locking_statuses:
         raise HTTPException(status_code=400, detail="Cannot delete — request already moved past initial review")
 
     # Ownership guard (skipped for Super Admin)
