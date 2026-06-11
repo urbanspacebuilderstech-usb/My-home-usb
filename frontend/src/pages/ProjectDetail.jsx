@@ -7888,19 +7888,14 @@ export default function ProjectDetail() {
                                         ✓ Client OK
                                       </span>
                                     ) : (
-                                      // Default: not yet in approval chain. Show "Submit for Review" (new 4-step flow).
-                                      // Planning Person / Planning Head / Super Admin can initiate the chain.
+                                      // Default: not yet in approval chain.
+                                      // Row-level "Submit for Review" button removed (Feb 2026) per user
+                                      // request — Planning now uses the SECTION-level "Submit N for
+                                      // Review" button at the section header, which submits every draft
+                                      // / rejected row in one click. We render a tiny "Draft" pill so
+                                      // the row's status stays legible even without a button.
                                       (user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin') && (
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          className="h-7 gap-1 border-amber-500 text-amber-700 hover:bg-amber-50 text-xs"
-                                          onClick={() => submitAdditionForReview(cost)}
-                                          data-testid={`submit-review-${cost.cost_id}`}
-                                          title="Submit to Planning Head → GM → Client"
-                                        >
-                                          <Send className="h-3 w-3" /> Submit for Review
-                                        </Button>
+                                        <span className="text-[11px] px-2 py-1 rounded-full bg-gray-100 text-gray-600 font-medium" data-testid={`add-draft-${cost.cost_id}`}>Draft</span>
                                       )
                                     )
                                   )}
