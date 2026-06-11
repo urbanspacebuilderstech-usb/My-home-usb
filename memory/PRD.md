@@ -13,6 +13,13 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — CRE Payment Schedule: Preserve "Pending Accountant Approval" on Partial Rows (P0)
+- **Status**: ✅ COMPLETE & DEPLOYED.
+- **User report**: asdf row in CRE PS shows **Partial** even though the ₹500 collected is still awaiting accountant approval. User wants "Awaiting Accountant" (existing badge: "Pending Accountant Approval") until accountant approves.
+- **Root cause** (`/app/backend/routes/operations.py` L2260-2261 in `/planning/monthly-schedule`):
+  - Every partially-collected stage gets split into `collected_portion` + `balance_portion` virtual rows. The code zeroed out `pending_approval_count` for ANY `virtual_kind`, killing the orange badge on the only row actually visible (the balance_portion).
+- **Fix**: Zero out `pending_approval_count` ONLY for `collected_portion` rows. balance_portion + non-virtual rows preserve the count so the frontend can correctly render "Pending Accountant Approval" while income remains in `pending_approval` status.
+
 ### Session — Feb 12, 2026 — Section Pay Request Polish: One Undo, Footer Honors Accountant, Hide Add (P0)
 - **Status**: ✅ COMPLETE & DEPLOYED to VPS (`main.bb78266d.js` live).
 - **User asks** (3 in one message):
