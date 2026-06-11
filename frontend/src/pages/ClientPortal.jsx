@@ -270,6 +270,45 @@ export default function ClientPortal() {
     }
   };
 
+  // Section-batch decision for INDIVIDUAL rows in a section (Feb 2026).
+  // The Client portal historically had per-row Approve / Reject / Review
+  // buttons. After this change the section header drives the batch — this
+  // helper loops the pending rows and applies the chosen action to each.
+  // Reject + Review prompt for a single reason that's applied to all rows.
+  const handleSectionRowBatch = async (rows, decision) => {
+    const pending = rows.filter(c => c.client_approval_status === 'pending_client' || (c.payment_requested && !c.client_approved && !c.client_rejected));
+    if (pending.length === 0) { toast.info('No rows awaiting your decision.'); return; }
+    let reason = null;
+    if (decision === 'reject' || decision === 'review') {
+      reason = window.prompt(
+        decision === 'reject'
+          ? `Reject all ${pending.length} row(s) in this section.\n\nReason (will be shown to Planning):`
+          : `Request a review for all ${pending.length} row(s) in this section.\n\nNote (visible to Planning):`,
+        ''
+      );
+      if (reason === null) return;
+      if (!reason.trim()) { toast.error('Reason is required'); return; }
+    }
+    let failed = 0;
+    for (const c of pending) {
+      const preIsPending = c.client_approval_status === 'pending_client';
+      try {
+        if (decision === 'approve') {
+          if (preIsPending) await axios.post(`${API}/additional-costs/${c.cost_id}/client-decision`, { decision: 'approve' });
+          else await axios.post(`${API}/client-portal/additional-costs/${c.cost_id}/approve`);
+        } else if (decision === 'reject') {
+          if (preIsPending) await axios.post(`${API}/additional-costs/${c.cost_id}/client-decision`, { decision: 'reject', reason: reason.trim() });
+          else await axios.post(`${API}/client-portal/additional-costs/${c.cost_id}/reject`, { reason: reason.trim() });
+        } else if (decision === 'review') {
+          await axios.post(`${API}/client-portal/additional-costs/${c.cost_id}/request-review`, { note: reason.trim() });
+        }
+      } catch { failed += 1; }
+    }
+    if (failed) toast.error(`${failed}/${pending.length} row(s) failed`);
+    else toast.success(`${decision === 'approve' ? 'Approved' : decision === 'reject' ? 'Rejected' : 'Review requested for'} ${pending.length} row(s)`);
+    if (projectId) fetchProjectData(projectId);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
@@ -1016,19 +1055,13 @@ export default function ClientPortal() {
                       <td className="px-3 py-3 text-sm text-gray-600 align-top truncate max-w-[160px]" title={cost.remarks || ''}>{cost.remarks || '—'}</td>
                       <td className="px-3 py-3 text-center align-top whitespace-nowrap">{statusBadge}</td>
                       <td className="px-3 py-3 text-center align-top print:hidden whitespace-nowrap">
-                        {showActions ? (
-                          <div className="flex items-center justify-center gap-1 flex-nowrap">
-                            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 px-2.5" onClick={() => preIsPending ? handlePreApproveAddition(cost.cost_id) : handleClientApproveAddition(cost.cost_id)} data-testid={`client-approve-addn-${cost.cost_id}`}>
-                              <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
-                            </Button>
-                            <Button size="sm" variant="outline" className="border-rose-300 text-rose-700 hover:bg-rose-50 h-8 px-2.5" onClick={() => preIsPending ? handlePreRejectAddition(cost) : handleClientRejectAddition(cost.cost_id)} data-testid={`client-reject-addn-${cost.cost_id}`}>
-                              <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
-                            </Button>
-                            <Button size="sm" variant="outline" className="border-sky-300 text-sky-700 hover:bg-sky-50 h-8 px-2.5" onClick={() => handleClientRequestReview(cost)} data-testid={`client-review-addn-${cost.cost_id}`}>
-                              <MessageSquare className="h-3.5 w-3.5 mr-1" /> Review
-                            </Button>
-                          </div>
-                        ) : (<span className="text-xs text-gray-400">—</span>)}
+                        {/* Per-row Approve / Reject / Review buttons removed (Feb 2026).
+                            Client now uses the SECTION header Approve / Reject / Review
+                            buttons that act on every pending row in the section at once.
+                            The status badge above keeps each row's state visible. */}
+                        {showActions
+                          ? <span className="text-[11px] px-2 py-1 rounded-full bg-violet-50 text-violet-700 font-medium">Awaiting</span>
+                          : <span className="text-xs text-gray-400">—</span>}
                       </td>
                     </tr>
                   );
@@ -1088,19 +1121,35 @@ export default function ClientPortal() {
                                 </div>
                               )}
                             </div>
-                            {s.client_approval_status === 'pending_client' && (
-                              <div className="flex items-center gap-2 print:hidden">
-                                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8" onClick={() => handleSectionDecision(s.section_id, 'approve')} data-testid={`client-section-approve-${s.section_id}`}>
-                                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve Section
-                                </Button>
-                                <Button size="sm" variant="outline" className="h-8 border-rose-300 text-rose-700 hover:bg-rose-50" onClick={() => handleSectionDecision(s.section_id, 'reject')} data-testid={`client-section-reject-${s.section_id}`}>
-                                  <X className="h-3.5 w-3.5 mr-1" /> Reject Section
-                                </Button>
-                              </div>
-                            )}
-                            {s.client_approval_status === 'client_approved' && (
-                              <span className="text-[11px] px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Section Approved</span>
-                            )}
+                            {(() => {
+                              // Show Approve / Reject / Review section buttons whenever
+                              // there's anything pending — either the section itself is
+                              // pending OR any individual row is awaiting client decision.
+                              const sectionPending = s.client_approval_status === 'pending_client';
+                              const pendingRows = items.filter(c => c.client_approval_status === 'pending_client' || (c.payment_requested && !c.client_approved && !c.client_rejected));
+                              const anyPending = sectionPending || pendingRows.length > 0;
+                              if (!anyPending) {
+                                return s.client_approval_status === 'client_approved' ? (
+                                  <span className="text-[11px] px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Section Approved</span>
+                                ) : null;
+                              }
+                              const onApprove = () => sectionPending ? handleSectionDecision(s.section_id, 'approve') : handleSectionRowBatch(items, 'approve');
+                              const onReject  = () => sectionPending ? handleSectionDecision(s.section_id, 'reject')  : handleSectionRowBatch(items, 'reject');
+                              const onReview  = () => handleSectionRowBatch(items, 'review');
+                              return (
+                                <div className="flex items-center gap-2 print:hidden">
+                                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8" onClick={onApprove} data-testid={`client-section-approve-${s.section_id}`}>
+                                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+                                  </Button>
+                                  <Button size="sm" variant="outline" className="h-8 border-rose-300 text-rose-700 hover:bg-rose-50" onClick={onReject} data-testid={`client-section-reject-${s.section_id}`}>
+                                    <X className="h-3.5 w-3.5 mr-1" /> Reject
+                                  </Button>
+                                  <Button size="sm" variant="outline" className="h-8 border-sky-300 text-sky-700 hover:bg-sky-50" onClick={onReview} data-testid={`client-section-review-${s.section_id}`}>
+                                    <MessageSquare className="h-3.5 w-3.5 mr-1" /> Review
+                                  </Button>
+                                </div>
+                              );
+                            })()}
                           </div>
                           <div className="overflow-x-auto">
                             <table className="w-full">
