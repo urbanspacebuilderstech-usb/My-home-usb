@@ -399,7 +399,7 @@ export default function PlanningRequestsTab({ projects = [], onCountChange, view
             try {
               await axios.delete(`${API}/site-engineer/material-requests/${req.request_id}`);
               toast.success('Material request deleted');
-              fetchAll();
+              loadAll();
             } catch (e) {
               toast.error(e?.response?.data?.detail || 'Delete failed');
             }
