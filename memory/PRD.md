@@ -13,6 +13,13 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — Section "Pay Request" Button Visibility Fix (P0)
+- **Status**: ✅ COMPLETE & DEPLOYED to VPS (`main.c9981382.js` live, PM2 backend restarted).
+- **Bug**: Section-level "Pay Request" button in Additional Work section was hidden because production rows stored `balance: 0` explicitly, and the JS fallback `c.balance ?? (quantity * unit_rate)` returned `0` (falsy → button suppressed).
+- **Fix** (`/app/frontend/src/pages/ProjectDetail.jsx` ~L7552): New `computeOpen()` helper computes `max(0, total − received)` using `amount` (or `quantity × unit_rate`) minus any of `income_received|amount_received|received`. Button now visible at TOP-RIGHT of each section for any row whose `client_approval_status === 'client_approved'`, `client_approved === true`, or `payment_requested === true` (with explicit `client_rejected` filtered out).
+- **Yarn build**: succeeded locally (+27B in main bundle), zero new lint errors.
+- **Action for user**: Hard refresh (Ctrl/Cmd + Shift + R) on live site to see the new bundle.
+
 ### Session — Feb 7, 2026 — Global DLR Dialog Redesign + Addition Income-Received Rollback (P0/P1)
 - **Status**: ✅ COMPLETE & TESTED (testing_agent_v3_fork iteration_163 — 4/4 backend pytest pass, frontend Global DLR confirmed end-to-end)
 - **Frontend** (`/app/frontend/src/components/SiteEngineerWorkOrdersV2.jsx`):
