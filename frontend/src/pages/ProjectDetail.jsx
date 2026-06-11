@@ -7558,15 +7558,20 @@ export default function ProjectDetail() {
                                     to sections that have at least one row marked client-approved
                                     (string status, boolean flag, or already in payment pipeline).
                                     Excludes rows explicitly client_rejected and zero-balance rows.
-                                    NOTE Feb 2026: compute `open` from (qty × rate − received) instead
-                                    of trusting `c.balance` — production rows store `balance: 0`
-                                    even when nothing has been received, which caused the button to
-                                    vanish despite valid client-approved rows. */}
+                                    NOTE Feb 2026 (fix #2): the DB stores `qty`/`price`/`estimated_amount`/
+                                    `income_received` — NOT `quantity`/`unit_rate`/`amount`/`balance`
+                                    (those mongoose-style names were a wrong guess). Use the real
+                                    fields the rest of the table already relies on (see L7784) or
+                                    the button stays permanently hidden because the alt fields are
+                                    all `null` in production. */}
                                 {(() => {
                                   if (!['planning_person', 'planning', 'planning_head', 'super_admin'].includes(user?.role)) return null;
                                   const computeOpen = (c) => {
-                                    const tot = Number(c.amount) > 0 ? Number(c.amount) : (Number(c.quantity || 0) * Number(c.unit_rate || 0));
-                                    const recv = Number(c.income_received || c.amount_received || c.received || 0);
+                                    const qty = Number(c.qty ?? c.quantity ?? 0);
+                                    const price = Number(c.price ?? c.unit_rate ?? 0);
+                                    const est = Number(c.estimated_amount ?? c.amount ?? 0);
+                                    const tot = est > 0 ? est : qty * price;
+                                    const recv = Number(c.income_received ?? c.amount_received ?? c.received ?? 0);
                                     return Math.max(0, tot - recv);
                                   };
                                   const approvedItems = items.filter(c => {
@@ -7587,14 +7592,14 @@ export default function ProjectDetail() {
                                         open: true,
                                         mode: 'addition_section',
                                         sectionId: group.section_id,
-                                        sectionName: group.title,
+                                        sectionName: group.title || group.name,
                                         items: approvedItems,
-                                        stage: { stage_id: `section_${group.section_id}`, stage_name: group.title, amount: sectionTotal, amount_received: 0 },
+                                        stage: { stage_id: `section_${group.section_id}`, stage_name: group.title || group.name, amount: sectionTotal, amount_received: 0 },
                                         date: '',
                                         submitting: false,
                                       })}
                                       data-testid={`section-pay-request-${group.section_id}`}
-                                      title={`Send "${group.title}" to CRE Payment Schedule (${approvedItems.length} client-approved row${approvedItems.length === 1 ? '' : 's'}, ₹${sectionTotal.toLocaleString('en-IN')})`}
+                                      title={`Send "${group.title || group.name}" to CRE Payment Schedule (${approvedItems.length} client-approved row${approvedItems.length === 1 ? '' : 's'}, ₹${sectionTotal.toLocaleString('en-IN')})`}
                                     >
                                       <Send className="h-3 w-3" /> Pay Request
                                     </Button>
@@ -7606,21 +7611,12 @@ export default function ProjectDetail() {
                                   const draftN = items.filter(c => !c.approval_status || ['created','rejected'].includes(c.approval_status)).length;
                                   const phN = items.filter(c => c.approval_status === 'ph_review').length;
                                   const gmN = items.filter(c => c.approval_status === 'gm_review').length;
-                                  // Section-level Req Payment (Feb 2026, broadened):
-                                  // We previously required `c.client_approval_status === 'client_approved'`
-                                  // which silently hid the button when the field was stamped under a
-                                  // different value (e.g., older `null` / `approved` / missing). Now we
-                                  // surface the button for ANY row that has an open balance — the
-                                  // backend's per-cost-id payment-request endpoint still enforces the
-                                  // proper approval rules, so this just unblocks the trigger.
-                                  const reqReadyItems = items.filter(c =>
-                                    ((c.balance ?? (c.quantity * c.unit_rate)) > 0)
-                                  );
-                                  const reqReadyN = reqReadyItems.length;
-                                  const reqReadyTotal = reqReadyItems.reduce(
-                                    (sum, c) => sum + (c.balance ?? (c.quantity * c.unit_rate)),
-                                    0
-                                  );
+                                  // Section-level "Req Payment (N)" button removed Feb 12 2026 — its logic
+                                  // referenced non-existent `c.balance` / `c.quantity` / `c.unit_rate`
+                                  // fields (the DB actually uses qty / price / estimated_amount), so it
+                                  // never rendered. The TOP-RIGHT "Pay Request" button above (data-testid
+                                  // `section-pay-request-*`) is the replacement and uses the correct
+                                  // field names.
                                   const isPP = ['planning_person', 'planning', 'planning_head', 'super_admin'].includes(user?.role);
                                   const isPH = ['planning', 'planning_head', 'super_admin'].includes(user?.role);
                                   const isGM = user?.role === 'general_manager' || user?.role === 'super_admin';
@@ -7650,27 +7646,6 @@ export default function ProjectDetail() {
                                             <X className="h-3 w-3" /> Reject
                                           </Button>
                                         </>
-                                      )}
-                                      {reqReadyN > 0 && isPP && (
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-7 px-2 text-xs gap-1 border-green-500 text-green-700 hover:bg-green-50 font-medium"
-                                          onClick={() => setReqPayDialog({
-                                            open: true,
-                                            mode: 'addition_section',
-                                            sectionId: group.section_id,
-                                            sectionName: group.name,
-                                            items: reqReadyItems,
-                                            stage: { stage_id: `section_${group.section_id}`, stage_name: group.name, amount: reqReadyTotal, amount_received: 0 },
-                                            date: '',
-                                            submitting: false,
-                                          })}
-                                          data-testid={`section-req-payment-${group.section_id}`}
-                                          title={`Send the whole "${group.name}" section to CRE as a single Payment Schedule item (₹${reqReadyTotal.toLocaleString('en-IN')})`}
-                                        >
-                                          <Send className="h-3 w-3" /> Req Payment ({reqReadyN})
-                                        </Button>
                                       )}
                                     </>
                                   );
