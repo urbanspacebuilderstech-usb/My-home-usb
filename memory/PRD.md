@@ -13,6 +13,22 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — Section Pay Request Polish: One Undo, Footer Honors Accountant, Hide Add (P0)
+- **Status**: ✅ COMPLETE & DEPLOYED to VPS (`main.bb78266d.js` live).
+- **User asks** (3 in one message):
+  1. *"asdf is waiting for account approve but shows Received ₹500. Account approve then only show received amount."* — Section footer was bleeding `income_received` even before accountant approval.
+  2. *"once I click Pay Request, button hide; one section one undo icon (not per row)."* — Replace N per-row Undo buttons with ONE section-level Undo.
+  3. *"Once request send hide add item button."* — Lock the section so no new rows can be appended once in payment flow.
+- **Fixes**:
+  - **Frontend** (`/app/frontend/src/pages/ProjectDetail.jsx`):
+    - Section footer `received` aggregator now: `Σ (cre_approved ? income_received : 0)` — pending CRE collections no longer count.
+    - New `sectionRequested` flag (any row with `payment_requested && !cre_approved && balance > 0`) drives 3 UI gates: hides Pay Request, hides "+ Add", shows section-level Undo.
+    - New section-level Undo button (`data-testid=section-undo-pay-request-*`) next to Pay Request slot. Calls new backend endpoint.
+    - Per-row Undo button + per-row "With CRE · Undo" UI removed (now just a status pill).
+    - New `handleCancelSectionPayment(sectionId, title)` helper with confirm dialog.
+  - **Backend** (`/app/backend/routes/projects.py`):
+    - NEW `POST /api/projects/{project_id}/addition-sections/{section_id}/cancel-payment-request` — deletes the consolidated section payment_stage and clears `payment_requested` + `linked_stage_id` on every linked row. Refuses if `amount_received > 0` (rejection flow must be used instead). Role-gated to Planning + Super Admin.
+
 ### Session — Feb 12, 2026 — Section Pay Request: Consolidated Single Line in CRE (P0)
 - **Status**: ✅ COMPLETE & DEPLOYED to VPS (bundle `main.4efe9a23.js` live).
 - **User ask**: "in CRE … no need to show in [a] single line item — show only section title and section total amount". Previously the section Pay Request looped over 5 rows and produced 5 stages on the CRE Payment Schedule.
