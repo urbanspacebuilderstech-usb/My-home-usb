@@ -7794,11 +7794,11 @@ export default function ProjectDetail() {
                                         <span className="text-[11px] px-2 py-1 rounded-full bg-rose-100 text-rose-700 font-medium" title={cost.rejection_reason || ''} data-testid={`add-chain-rejected-${cost.cost_id}`}>
                                           Rejected{cost.rejected_at_step ? ` at ${cost.rejected_at_step === 'general_manager' ? 'GM' : 'PH'}` : ''}{cost.rejection_reason ? `: ${cost.rejection_reason.length > 20 ? cost.rejection_reason.slice(0, 20) + '…' : cost.rejection_reason}` : ''}
                                         </span>
-                                        {(user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin') && (
-                                          <Button variant="outline" size="sm" className="h-7 gap-1 border-amber-500 text-amber-700 hover:bg-amber-50 text-xs" onClick={() => submitAdditionForReview(cost)} data-testid={`resubmit-review-${cost.cost_id}`}>
-                                            <Send className="h-3 w-3" /> Resubmit
-                                          </Button>
-                                        )}
+                                        {/* Per-row "Resubmit" button removed (Feb 2026) per user request.
+                                            Rejected rows now flow through the section-level "Submit N for
+                                            Review" button at the section header — that button counts
+                                            both draft AND rejected rows (see draftN computation in
+                                            section header), so users never need a row-level resubmit. */}
                                       </>
                                     ) : null
                                   )}
