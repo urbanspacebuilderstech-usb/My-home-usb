@@ -7573,8 +7573,8 @@ export default function ProjectDetail() {
                                     (sum, c) => sum + (c.balance ?? (c.quantity * c.unit_rate)),
                                     0
                                   );
-                                  const isPP = user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin';
-                                  const isPH = user?.role === 'planning' || user?.role === 'super_admin';
+                                  const isPP = ['planning_person', 'planning', 'planning_head', 'super_admin'].includes(user?.role);
+                                  const isPH = ['planning', 'planning_head', 'super_admin'].includes(user?.role);
                                   const isGM = user?.role === 'general_manager' || user?.role === 'super_admin';
                                   return (
                                     <>
@@ -7676,8 +7676,8 @@ export default function ProjectDetail() {
                                   const draftN = items.filter(c => !c.approval_status || ['created','rejected'].includes(c.approval_status)).length;
                                   const phN = items.filter(c => c.approval_status === 'ph_review').length;
                                   const gmN = items.filter(c => c.approval_status === 'gm_review').length;
-                                  const isPP = user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin';
-                                  const isPH = user?.role === 'planning' || user?.role === 'super_admin';
+                                  const isPP = ['planning_person', 'planning', 'planning_head', 'super_admin'].includes(user?.role);
+                                  const isPH = ['planning', 'planning_head', 'super_admin'].includes(user?.role);
                                   const isGM = user?.role === 'general_manager' || user?.role === 'super_admin';
                                   return (
                                     <>
@@ -7908,11 +7908,24 @@ export default function ProjectDetail() {
                                       // Planning now uses the SECTION-level "Req Payment N" button at the
                                       // section header, which aggregates every client-approved row into a
                                       // single payment_stage carrying the section title + total. The
-                                      // green "✓ Client OK" pill keeps the per-row status legible so
-                                      // Planning still sees which rows are ready in the section.
-                                      <span className="text-[11px] px-2 py-1 rounded-full bg-green-100 text-green-700 font-medium" data-testid={`add-client-approved-${cost.cost_id}`}>
-                                        ✓ Client OK
-                                      </span>
+                                      // per-row pill mirrors the post-client-approval pipeline so
+                                      // Planning can tell at a glance which rows are still waiting on
+                                      // CRE collection vs Accountant approval vs paid.
+                                      (() => {
+                                        const ws = (cost.payment_workflow_status || cost.workflow_status || '').toLowerCase();
+                                        const recv = Number(cost.income_received || cost.amount_received || 0);
+                                        const tot  = Number(cost.balance ?? (cost.quantity * cost.unit_rate) ?? 0);
+                                        if (recv > 0 && recv >= tot - 0.5) {
+                                          return <span className="text-[11px] px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium" data-testid={`add-paid-${cost.cost_id}`}>✓ Paid</span>;
+                                        }
+                                        if (ws === 'pending_approval') {
+                                          return <span className="text-[11px] px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-medium" data-testid={`add-acct-waiting-${cost.cost_id}`}>Account Waiting</span>;
+                                        }
+                                        if (cost.payment_requested) {
+                                          return <span className="text-[11px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium" data-testid={`add-cre-waiting-${cost.cost_id}`}>CRE Waiting</span>;
+                                        }
+                                        return <span className="text-[11px] px-2 py-1 rounded-full bg-green-100 text-green-700 font-medium" data-testid={`add-client-approved-${cost.cost_id}`}>✓ Client OK</span>;
+                                      })()
                                     ) : (
                                       // Default: not yet in approval chain.
                                       // Row-level "Submit for Review" button removed (Feb 2026) per user
