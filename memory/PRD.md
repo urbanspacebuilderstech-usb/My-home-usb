@@ -13,12 +13,24 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — Section Pay Request: Consolidated Single Line in CRE (P0)
+- **Status**: ✅ COMPLETE & DEPLOYED to VPS (bundle `main.4efe9a23.js` live).
+- **User ask**: "in CRE … no need to show in [a] single line item — show only section title and section total amount". Previously the section Pay Request looped over 5 rows and produced 5 stages on the CRE Payment Schedule.
+- **Backend** (`/app/backend/routes/projects.py`):
+  - NEW `POST /api/projects/{project_id}/addition-sections/{section_id}/request-payment` — bundles all client-approved rows with open balance into ONE `payment_stages` doc with `stage_name = section.title`, `amount = Σ balances`, `linked_addition_ids = [cost_ids]`, `is_section_addition = true`. Idempotent on retries.
+  - Forward auto-heal (Project full-details) extended to handle section stages: distributes `amount_received` pro-rata across linked rows.
+- **Backend** (`/app/backend/routes/financial.py`):
+  - `_sync_addition_cost_received` now branches on `is_section_addition` — on reverse paths (income rejected / sent-for-correction / cheque bounced) it re-syncs each linked row pro-rata.
+- **Frontend** (`/app/frontend/src/pages/ProjectDetail.jsx`):
+  - New `handleRequestSectionPayment(sectionId, date)` helper makes a single POST.
+  - `reqPayDialog` submit path for `mode === 'addition_section'` now calls that helper (was looping 5×).
+  - Toast surfaces the bundled count + amount.
+
 ### Session — Feb 12, 2026 — Section "Pay Request" Button Visibility Fix (P0)
-- **Status**: ✅ COMPLETE & DEPLOYED to VPS (`main.c9981382.js` live, PM2 backend restarted).
-- **Bug**: Section-level "Pay Request" button in Additional Work section was hidden because production rows stored `balance: 0` explicitly, and the JS fallback `c.balance ?? (quantity * unit_rate)` returned `0` (falsy → button suppressed).
-- **Fix** (`/app/frontend/src/pages/ProjectDetail.jsx` ~L7552): New `computeOpen()` helper computes `max(0, total − received)` using `amount` (or `quantity × unit_rate`) minus any of `income_received|amount_received|received`. Button now visible at TOP-RIGHT of each section for any row whose `client_approval_status === 'client_approved'`, `client_approved === true`, or `payment_requested === true` (with explicit `client_rejected` filtered out).
-- **Yarn build**: succeeded locally (+27B in main bundle), zero new lint errors.
-- **Action for user**: Hard refresh (Ctrl/Cmd + Shift + R) on live site to see the new bundle.
+- **Status**: ✅ COMPLETE & DEPLOYED.
+- **Round 1 bug**: JS `c.balance ?? (q * r)` returned 0 when DB stored `balance: 0` explicitly → button hidden.
+- **Round 2 bug** (real root cause): DB rows actually use `qty / price / estimated_amount / income_received` — not `quantity / unit_rate / amount / balance`. All those latter names were `null` so `computeOpen` returned 0 for every row.
+- **Fix** (`/app/frontend/src/pages/ProjectDetail.jsx` ~L7565): `computeOpen` now reads `qty`, `price`, `estimated_amount`, `income_received` (the same fields the table totals use at L7784). Removed the duplicate older "Req Payment (N)" button that had the same broken logic. ✅ User confirmed via screenshot that Pay Request button now renders correctly.
 
 ### Session — Feb 7, 2026 — Global DLR Dialog Redesign + Addition Income-Received Rollback (P0/P1)
 - **Status**: ✅ COMPLETE & TESTED (testing_agent_v3_fork iteration_163 — 4/4 backend pytest pass, frontend Global DLR confirmed end-to-end)
