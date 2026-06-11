@@ -7534,10 +7534,22 @@ export default function ProjectDetail() {
                                 CRE to start collecting yet. Backend still validates per
                                 cost_id at click time. */}
                             {(() => {
-                              const approvedItems = items.filter(c =>
-                                c.client_approval_status === 'client_approved'
-                                && (c.balance ?? (c.quantity * c.unit_rate) ?? 0) > 0
-                              );
+                              // Pay Request appears once at least one row in the section is
+                              // "client-approved" via ANY of the supported markers:
+                              //   - `client_approval_status === 'client_approved'` (new strings)
+                              //   - `client_approved === true` (boolean flag set by older flows)
+                              //   - `payment_requested === true` (already in pipeline → keep visible
+                              //     so Planning can re-trigger if needed)
+                              // Excludes rows explicitly client_rejected.
+                              const approvedItems = items.filter(c => {
+                                const rejected = c.client_approval_status === 'client_rejected' || c.client_rejected === true;
+                                if (rejected) return false;
+                                const open = (c.balance ?? (c.quantity * c.unit_rate) ?? 0) > 0;
+                                if (!open) return false;
+                                return c.client_approval_status === 'client_approved'
+                                  || c.client_approved === true
+                                  || c.payment_requested === true;
+                              });
                               if (approvedItems.length === 0) return null;
                               if (!['planning_person', 'planning', 'planning_head', 'super_admin'].includes(user?.role)) return null;
                               const sectionTotal = approvedItems.reduce((sum, c) => sum + (c.balance ?? (c.quantity * c.unit_rate) ?? 0), 0);
