@@ -13,6 +13,11 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — Additional Work: Allow Negative Qty/Rate (P0)
+- **Status**: ✅ COMPLETE & DEPLOYED (`main.e6eb7fb3.js`).
+- **User report**: Entering Qty `-100`, Unit Rate `10` (Total `-₹1,000`) failed validation with "fill at least one row" toast.
+- **Fix** (`/app/frontend/src/pages/ProjectDetail.jsx` `handleBulkAddAddition` L2516): replaced `> 0` checks with `!== 0` so any non-zero (positive or negative) number is accepted. Zero remains blocked. Backend already permissive.
+
 ### Session — Feb 12, 2026 — Accountant Cashbook: Stage Column Shows Full Name (P0)
 - **Status**: ✅ COMPLETE & DEPLOYED.
 - **User report**: Stage column showed just "1" / "2" / "3" for some rows in Accountant > Cashbook > Income. Wanted the descriptive name appended (e.g., "2 Advance payment for Foundation and Plinth Beam Concrete").
