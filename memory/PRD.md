@@ -13,6 +13,13 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — Accountant Cashbook: Stage Column Shows Full Name (P0)
+- **Status**: ✅ COMPLETE & DEPLOYED.
+- **User report**: Stage column showed just "1" / "2" / "3" for some rows in Accountant > Cashbook > Income. Wanted the descriptive name appended (e.g., "2 Advance payment for Foundation and Plinth Beam Concrete").
+- **Fix** (`/app/backend/routes/financial.py` L4248 in `/accountant/cashbook-filtered`):
+  - When income's `stage` field is short/numeric (`isdigit()` or `len ≤ 4`), look up `payment_stages` by `(project_id, stage_label)` and rewrite as `f"{label} {stage_name}"`.
+  - Bulk-loads stage map once for all projects touched. Descriptive entries (`Additional: ...`) untouched.
+
 ### Session — Feb 12, 2026 — Section Receives Partial Accountant-Approved + Unlock Section Edit (P0)
 - **Status**: ✅ COMPLETE & DEPLOYED to VPS (`main.346ebe52.js` live).
 - **Issue 1 — Section "Received" mirrors accountant-approved amount (incl. partial)**
