@@ -4187,9 +4187,27 @@ async def get_cashbook_filtered(
 
     (incomes, recorded_exps, labour_exps, material_reqs, projects_list) = await asyncio.gather(
         db.income.find(income_q, {"_id": 0}).sort("created_at", -1).to_list(2000),
-        db.recorded_expenses.find(expense_q, {"_id": 0}).sort("created_at", -1).to_list(2000),
+        # Recorded (manual) expenses: only show those approved by accountant
+        # or super admin in the Expense list. Pending/rejected stay in queue.
+        # Legacy entries without a status field are surfaced too (backwards-
+        # compatible with pre-approval-flow expenses).
+        db.recorded_expenses.find(
+            {**expense_q, "$or": [
+                {"status": {"$in": ["accounts_approved", "super_admin_approved"]}},
+                {"status": {"$exists": False}},
+                {"status": None},
+            ]},
+            {"_id": 0}
+        ).sort("created_at", -1).to_list(2000),
         db.labour_expenses.find({**expense_q, "status": "accounts_approved"}, {"_id": 0}).sort("created_at", -1).to_list(1000),
-        db.material_requests.find(expense_q, {"_id": 0}).sort("created_at", -1).to_list(1000),
+        # Materials in Expense list should only include those APPROVED by
+        # accountant or already paid. Pending / planning-only / procurement-
+        # priced statuses stay in the Approvals queue. Without this filter
+        # the same material card showed up in both Approvals AND Expense.
+        db.material_requests.find(
+            {**expense_q, "status": {"$in": ["accounts_approved", "approved_for_po", "po_issued", "in_transit", "received", "delivered", "paid"]}},
+            {"_id": 0}
+        ).sort("created_at", -1).to_list(1000),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000),
     )
 
