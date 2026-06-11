@@ -3364,6 +3364,23 @@ export default function ProjectDetail() {
     }
   };
 
+  // Section-level Pay Request (Feb 2026). Bundles all client-approved rows in
+  // the section into a SINGLE payment_stage so CRE sees one line item titled
+  // with the section name + section total — not N rows.
+  const handleRequestSectionPayment = async (sectionId, expectedDate) => {
+    try {
+      const res = await axios.post(
+        `${API}/projects/${projectId}/addition-sections/${sectionId}/request-payment`,
+        { expected_payment_date: expectedDate || null },
+      );
+      toast.success(`Sent to CRE — 1 line item (${res.data?.rows || 0} rows bundled) for ₹${Number(res.data?.amount || 0).toLocaleString('en-IN')}`);
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request section payment');
+      throw error;
+    }
+  };
+
   const handleCREApproveAddition = async (costId) => {
     if (!window.confirm('Approve this Additional Work for collection? The Accountant will be notified once you confirm.')) return;
     try {
@@ -11266,15 +11283,10 @@ export default function ProjectDetail() {
                   if (reqPayDialog.mode === 'addition') {
                     await handleRequestAdditionPayment(reqPayDialog.stage.stage_id, reqPayDialog.date);
                   } else if (reqPayDialog.mode === 'addition_section') {
-                    // Section-level Req Payment: loop over each client-approved
-                    // row in the section and request payment for it. They will
-                    // appear on the CRE Payment Schedule grouped under the
-                    // section name (via section_id stamped on each
-                    // payment_stage by the backend). Toast surfaces the total.
-                    for (const it of (reqPayDialog.items || [])) {
-                      await handleRequestAdditionPayment(it.cost_id, reqPayDialog.date);
-                    }
-                    toast.success(`Section "${reqPayDialog.sectionName}" — sent ${reqPayDialog.items?.length || 0} items to CRE`);
+                    // Section-level Pay Request — single backend call creates ONE
+                    // payment_stage (section title + total). User explicitly asked
+                    // (Feb 12 2026) to see one line item in CRE, not N rows.
+                    await handleRequestSectionPayment(reqPayDialog.sectionId, reqPayDialog.date);
                   } else {
                     await handleRequestPayment(reqPayDialog.stage.stage_id, reqPayDialog.date);
                   }

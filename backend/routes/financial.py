@@ -45,13 +45,46 @@ async def _sync_addition_cost_received(stage_id: str):
     try:
         stage = await db.payment_stages.find_one(
             {"stage_id": stage_id},
-            {"_id": 0, "is_addition": 1, "linked_addition_id": 1, "amount_received": 1, "amount": 1},
+            {"_id": 0, "is_addition": 1, "is_section_addition": 1, "linked_addition_id": 1, "linked_addition_ids": 1, "amount_received": 1, "amount": 1},
         )
-        if not stage or not stage.get("is_addition") or not stage.get("linked_addition_id"):
+        if not stage or not stage.get("is_addition"):
             return
-        cost_id = stage["linked_addition_id"]
         received = float(stage.get("amount_received", 0) or 0)
         cost_amount = float(stage.get("amount", 0) or 0)
+
+        # ─── Section-level stage (Feb 2026): distribute received pro-rata across
+        # every linked addition row so each row's income_received tracks the
+        # section's collection ratio. ────────────────────────────────────────
+        if stage.get("is_section_addition") and stage.get("linked_addition_ids"):
+            cost_ids = stage["linked_addition_ids"]
+            if not cost_ids:
+                return
+            rows = await db.additional_costs.find(
+                {"cost_id": {"$in": cost_ids}},
+                {"_id": 0, "cost_id": 1, "estimated_amount": 1, "actual_amount": 1, "qty": 1, "price": 1},
+            ).to_list(len(cost_ids))
+            totals = {}
+            grand = 0.0
+            for r in rows:
+                amt = float(r.get("estimated_amount") or r.get("actual_amount") or ((r.get("qty") or 0) * (r.get("price") or 0)) or 0)
+                totals[r["cost_id"]] = amt
+                grand += amt
+            if grand <= 0:
+                return
+            for cid in cost_ids:
+                row_total = totals.get(cid, 0)
+                share = (row_total / grand) * received if grand else 0
+                set_doc = {"income_received": share}
+                if row_total and share < row_total - 0.5:
+                    set_doc["cre_approved"] = False
+                    set_doc["cre_approved_at"] = None
+                await db.additional_costs.update_one({"cost_id": cid}, {"$set": set_doc})
+            return
+
+        # ─── Single-row stage (legacy path) ──────────────────────────────────
+        if not stage.get("linked_addition_id"):
+            return
+        cost_id = stage["linked_addition_id"]
         set_doc = {"income_received": received}
         # If it dropped below the full-collection threshold, clear cre_approved
         # so the row visibly returns to "With CRE · Payment Schedule" state.

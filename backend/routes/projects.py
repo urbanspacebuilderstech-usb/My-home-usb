@@ -4683,15 +4683,18 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     try:
         addition_stages = await db.payment_stages.find(
             {"project_id": project_id, "is_addition": True, "amount_received": {"$gt": 0}},
-            {"_id": 0, "linked_addition_id": 1, "amount_received": 1, "amount": 1},
+            {"_id": 0, "linked_addition_id": 1, "linked_addition_ids": 1, "is_section_addition": 1, "amount_received": 1, "amount": 1},
         ).to_list(500)
-        cost_ids = [s.get("linked_addition_id") for s in addition_stages if s.get("linked_addition_id")]
-        if cost_ids:
+        # Single-row addition stages — preserve legacy behavior
+        single_cost_ids = [s.get("linked_addition_id") for s in addition_stages if s.get("linked_addition_id") and not s.get("is_section_addition")]
+        if single_cost_ids:
             existing_costs = await db.additional_costs.find(
-                {"cost_id": {"$in": cost_ids}}, {"_id": 0, "cost_id": 1, "income_received": 1, "cre_approved": 1}
+                {"cost_id": {"$in": single_cost_ids}}, {"_id": 0, "cost_id": 1, "income_received": 1, "cre_approved": 1}
             ).to_list(500)
             cost_state = {c["cost_id"]: c for c in existing_costs}
             for st in addition_stages:
+                if st.get("is_section_addition"):
+                    continue
                 cid = st.get("linked_addition_id")
                 if not cid or cid not in cost_state:
                     continue
@@ -4701,6 +4704,36 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
                 if stage_received > current_received + 0.5:
                     set_doc = {"income_received": stage_received}
                     if stage_received >= (st.get("amount", 0) or 0) - 0.5:
+                        set_doc["cre_approved"] = True
+                    await db.additional_costs.update_one({"cost_id": cid}, {"$set": set_doc})
+        # Section-level addition stages — pro-rata across linked rows
+        for st in addition_stages:
+            if not st.get("is_section_addition"):
+                continue
+            cids = st.get("linked_addition_ids") or []
+            if not cids:
+                continue
+            rows = await db.additional_costs.find(
+                {"cost_id": {"$in": cids}},
+                {"_id": 0, "cost_id": 1, "estimated_amount": 1, "actual_amount": 1, "qty": 1, "price": 1, "income_received": 1, "cre_approved": 1},
+            ).to_list(len(cids))
+            totals = {}
+            grand = 0.0
+            for r in rows:
+                amt = float(r.get("estimated_amount") or r.get("actual_amount") or ((r.get("qty") or 0) * (r.get("price") or 0)) or 0)
+                totals[r["cost_id"]] = amt
+                grand += amt
+            if grand <= 0:
+                continue
+            stage_received = float(st.get("amount_received", 0) or 0)
+            for r in rows:
+                cid = r["cost_id"]
+                row_total = totals.get(cid, 0)
+                share = (row_total / grand) * stage_received if grand else 0
+                current_received = r.get("income_received", 0) or 0
+                if share > current_received + 0.5:
+                    set_doc = {"income_received": share}
+                    if row_total and share >= row_total - 0.5:
                         set_doc["cre_approved"] = True
                     await db.additional_costs.update_one({"cost_id": cid}, {"$set": set_doc})
     except Exception:
@@ -5648,6 +5681,178 @@ async def request_additional_payment(cost_id: str, request: Request, user: User 
     
     await create_audit_log(user.user_id, "request_payment", "additional_cost", cost_id, {"amount": balance, "expected_date": expected_date})
     return {"message": "Payment request sent to CRE", "cost_id": cost_id, "stage_id": stage_id}
+
+
+
+@router.post("/projects/{project_id}/addition-sections/{section_id}/request-payment")
+async def request_addition_section_payment(project_id: str, section_id: str, request: Request, user: User = Depends(get_current_user)):
+    """Section-level Pay Request — bundles every client-approved Additional Work
+    row in a section into a SINGLE payment_stage so the CRE Payment Schedule
+    sees ONE line item (section title + section total) instead of N rows.
+
+    User request (Feb 12 2026):
+      "in CRE work requested by client at the time of execution it is a title
+       amount is this section total amount to show 2,250 in cre no need to
+       show in [a] single line item — show only section title and section
+       total amount."
+    """
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning/PM can request payments")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0}) or {}
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    section = await db.addition_sections.find_one({"section_id": section_id, "project_id": project_id}, {"_id": 0})
+    if not section:
+        raise HTTPException(status_code=404, detail="Section not found")
+
+    # Optional expected payment date
+    expected_date = None
+    try:
+        body = await request.json()
+        if isinstance(body, dict):
+            expected_date = body.get("expected_payment_date") or body.get("due_date")
+    except Exception:
+        body = {}
+
+    # Pull every cost in this section that is (a) client-approved, (b) has open balance,
+    # (c) not already attached to ANOTHER payment stage. The section batch approval
+    # also satisfies the client-approval gate (mirrors per-row endpoint logic).
+    section_client_ok = section.get("client_approval_status") == "client_approved"
+    costs = await db.additional_costs.find({"project_id": project_id, "section_id": section_id}, {"_id": 0}).to_list(1000)
+    if not costs:
+        raise HTTPException(status_code=400, detail="No additional work rows in this section yet")
+
+    # Re-use any existing section stage so this endpoint is idempotent on double-clicks
+    existing_stage = await db.payment_stages.find_one(
+        {"linked_section_id": section_id, "project_id": project_id, "is_section_addition": True},
+        {"_id": 0},
+    )
+
+    eligible = []
+    for c in costs:
+        if (c.get("client_approval_status") != "client_approved") and not section_client_ok:
+            continue
+        amount = c.get("estimated_amount") or c.get("actual_amount") or ((c.get("qty") or 0) * (c.get("price") or 0)) or 0
+        recv = c.get("income_received", 0) or 0
+        balance = float(amount) - float(recv)
+        if balance <= 0:
+            continue
+        # Skip rows already linked to a DIFFERENT (non-section) stage so we don't double-bill
+        existing_stage_id = c.get("linked_stage_id")
+        if existing_stage_id and (not existing_stage or existing_stage_id != existing_stage.get("stage_id")):
+            other = await db.payment_stages.find_one({"stage_id": existing_stage_id}, {"_id": 0, "is_section_addition": 1})
+            if other and not other.get("is_section_addition"):
+                continue
+        eligible.append({"cost_id": c["cost_id"], "balance": balance, "amount": float(amount)})
+
+    if not eligible:
+        raise HTTPException(status_code=400, detail="No client-approved rows with open balance in this section. Approve rows first (or click 'Send to Client') before requesting payment.")
+
+    section_total = sum(e["balance"] for e in eligible)
+    cost_ids = [e["cost_id"] for e in eligible]
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    stage_id = (existing_stage or {}).get("stage_id")
+    section_title = section.get("title") or section.get("name") or "Additional Work"
+    stage_name = section_title[:80]
+
+    if not existing_stage:
+        stage_id = f"ps_{uuid.uuid4().hex[:12]}"
+        stage_doc = {
+            "stage_id": stage_id,
+            "project_id": project_id,
+            "stage_name": stage_name,
+            "percentage": 0,
+            "amount": section_total,
+            "amount_received": 0,
+            "due_date": expected_date,
+            "expected_payment_date": expected_date,
+            "workflow_status": "requested",
+            "status": "pending",
+            "linked_section_id": section_id,
+            "linked_addition_ids": cost_ids,
+            "is_addition": True,
+            "is_section_addition": True,
+            "notes": f"Section payment request — {len(eligible)} row(s)",
+            "created_at": now_iso,
+            "created_by": user.user_id,
+        }
+        await db.payment_stages.insert_one(stage_doc)
+    else:
+        # Re-price the existing section stage based on the latest balances.
+        rec = float(existing_stage.get("amount_received", 0) or 0)
+        new_status = "paid" if rec >= section_total - 0.5 else ("partial" if rec > 0 else "pending")
+        sync_fields = {
+            "amount": section_total,
+            "linked_addition_ids": cost_ids,
+            "stage_name": stage_name,
+            "workflow_status": "requested",
+            "status": new_status,
+        }
+        if expected_date:
+            sync_fields["due_date"] = expected_date
+            sync_fields["expected_payment_date"] = expected_date
+        await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": sync_fields})
+
+    # Stamp each row so the section-table badges flip to "With CRE · Payment Schedule"
+    await db.additional_costs.update_many(
+        {"cost_id": {"$in": cost_ids}},
+        {"$set": {
+            "payment_requested": True,
+            "payment_requested_by": user.user_id,
+            "payment_requested_at": now_iso,
+            "linked_stage_id": stage_id,
+            **({"expected_payment_date": expected_date} if expected_date else {}),
+        }},
+    )
+
+    # Monthly schedule entry (one per section stage)
+    if expected_date:
+        try:
+            dt = datetime.strptime(expected_date, "%Y-%m-%d")
+            await db.monthly_schedule_entries.delete_many({"stage_id": stage_id})
+            await db.monthly_schedule_entries.insert_one({
+                "entry_id": f"mse_{uuid.uuid4().hex[:12]}",
+                "month": dt.month,
+                "year": dt.year,
+                "project_id": project_id,
+                "stage_id": stage_id,
+                "expected_payment_date": expected_date,
+                "is_addition": True,
+                "is_section_addition": True,
+                "linked_section_id": section_id,
+                "added_by": user.user_id,
+                "added_at": now_iso,
+            })
+        except (ValueError, TypeError):
+            pass
+
+    # Notify CRE — single notification per section
+    cre_users = await db.users.find({"role": "cre"}, {"_id": 0, "user_id": 1}).to_list(50)
+    for cre in cre_users:
+        await create_notification(
+            cre["user_id"],
+            f"Section Payment Request: ₹{section_total:,.0f} for {project.get('name', 'Project')} — {section_title}",
+        )
+
+    await create_audit_log(
+        user.user_id,
+        "request_section_payment",
+        "addition_section",
+        section_id,
+        {"amount": section_total, "rows": len(eligible), "expected_date": expected_date, "stage_id": stage_id},
+    )
+
+    return {
+        "message": "Section payment request sent to CRE",
+        "section_id": section_id,
+        "stage_id": stage_id,
+        "amount": section_total,
+        "rows": len(eligible),
+    }
+
 
 
 # ==================== ADDITIONAL WORK MULTI-STEP APPROVAL ====================
