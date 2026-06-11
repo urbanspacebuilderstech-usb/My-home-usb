@@ -2514,9 +2514,17 @@ export default function ProjectDetail() {
   };
 
   const handleBulkAddAddition = async () => {
-    const validItems = bulkAdditionRows.filter(r => r.item_name && parseFloat(r.unit_rate) > 0 && parseFloat(r.quantity) > 0);
+    // Feb 12 2026 — accept negative qty / unit_rate so accountant-style
+    // adjustment rows (e.g. -100 × ₹10 = -₹1,000 deduction-as-addition for
+    // re-work credit) can be entered through the same dialog. Previously
+    // `> 0` blocked negative entries.
+    const validItems = bulkAdditionRows.filter(r => {
+      const q = parseFloat(r.quantity);
+      const u = parseFloat(r.unit_rate);
+      return r.item_name && !isNaN(q) && q !== 0 && !isNaN(u) && u !== 0;
+    });
     if (validItems.length === 0) {
-      toast.error('Please fill at least one row (Name + Qty + Unit Rate)');
+      toast.error('Please fill at least one row (Name + Qty + Unit Rate). Qty / Rate can be negative for adjustment entries but cannot be zero.');
       return;
     }
     
