@@ -7555,18 +7555,15 @@ export default function ProjectDetail() {
                                   const draftN = items.filter(c => !c.approval_status || ['created','rejected'].includes(c.approval_status)).length;
                                   const phN = items.filter(c => c.approval_status === 'ph_review').length;
                                   const gmN = items.filter(c => c.approval_status === 'gm_review').length;
-                                  // Section-level Req Payment (Feb 2026): aggregates every
-                                  // client_approved row in this section into a SINGLE payment_stage
-                                  // titled with the section name and totalling all open balances.
-                                  // We deliberately INCLUDE rows that already have
-                                  // `payment_requested === true` because: (a) most projects toggle
-                                  // this flag once and never reset it, leaving the section button
-                                  // hidden for the lifetime of the project; (b) the backend
-                                  // payment-request endpoint is idempotent — a second call on the
-                                  // same cost_id simply updates the existing stage's date.
+                                  // Section-level Req Payment (Feb 2026, broadened):
+                                  // We previously required `c.client_approval_status === 'client_approved'`
+                                  // which silently hid the button when the field was stamped under a
+                                  // different value (e.g., older `null` / `approved` / missing). Now we
+                                  // surface the button for ANY row that has an open balance — the
+                                  // backend's per-cost-id payment-request endpoint still enforces the
+                                  // proper approval rules, so this just unblocks the trigger.
                                   const reqReadyItems = items.filter(c =>
-                                    c.client_approval_status === 'client_approved'
-                                    && ((c.balance ?? (c.quantity * c.unit_rate)) > 0)
+                                    ((c.balance ?? (c.quantity * c.unit_rate)) > 0)
                                   );
                                   const reqReadyN = reqReadyItems.length;
                                   const reqReadyTotal = reqReadyItems.reduce(
