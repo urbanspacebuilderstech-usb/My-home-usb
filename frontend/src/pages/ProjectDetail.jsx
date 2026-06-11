@@ -7527,6 +7527,38 @@ export default function ProjectDetail() {
                                 <Edit className="h-3 w-3" />
                               </Button>
                             )}
+                            {/* Section-level Pay Request button (Feb 2026).
+                                Placed immediately after the section title on the LEFT per
+                                user request. Always visible to Planning Person / Planning
+                                Head / Super Admin when the section has at least one row —
+                                approval rules are still enforced by the backend at click
+                                time. Clicking opens the month-picker dialog; on confirm,
+                                every row in the section is sent to CRE Payment Schedule
+                                tagged with the section's title and total. */}
+                            {items.length > 0 && ['planning_person', 'planning', 'planning_head', 'super_admin'].includes(user?.role) && (() => {
+                              const sectionTotal = items.reduce((sum, c) => sum + (c.balance ?? (c.quantity * c.unit_rate) ?? 0), 0);
+                              if (sectionTotal <= 0) return null;
+                              return (
+                                <Button
+                                  size="sm"
+                                  className="h-7 px-2.5 gap-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs shadow-sm"
+                                  onClick={() => setReqPayDialog({
+                                    open: true,
+                                    mode: 'addition_section',
+                                    sectionId: group.section_id,
+                                    sectionName: group.title,
+                                    items: items.filter(c => (c.balance ?? (c.quantity * c.unit_rate) ?? 0) > 0),
+                                    stage: { stage_id: `section_${group.section_id}`, stage_name: group.title, amount: sectionTotal, amount_received: 0 },
+                                    date: '',
+                                    submitting: false,
+                                  })}
+                                  data-testid={`section-pay-request-${group.section_id}`}
+                                  title={`Send "${group.title}" to CRE Payment Schedule (₹${sectionTotal.toLocaleString('en-IN')})`}
+                                >
+                                  <Send className="h-3 w-3" /> Pay Request
+                                </Button>
+                              );
+                            })()}
                             <Badge variant="outline" className="text-[10px] bg-white">{items.length} {items.length === 1 ? 'addition' : 'additions'}</Badge>
                           </div>
                           <div className="flex items-center gap-1">
