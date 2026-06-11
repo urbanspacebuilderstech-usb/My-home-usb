@@ -7527,53 +7527,9 @@ export default function ProjectDetail() {
                                 <Edit className="h-3 w-3" />
                               </Button>
                             )}
-                            {/* Section-level Pay Request button (Feb 2026).
-                                Placed immediately after the section title on the LEFT per
-                                user request. Visible ONLY after at least one row has been
-                                client-approved — drafts and rejected rows shouldn't allow
-                                CRE to start collecting yet. Backend still validates per
-                                cost_id at click time. */}
-                            {(() => {
-                              // Pay Request appears once at least one row in the section is
-                              // "client-approved" via ANY of the supported markers:
-                              //   - `client_approval_status === 'client_approved'` (new strings)
-                              //   - `client_approved === true` (boolean flag set by older flows)
-                              //   - `payment_requested === true` (already in pipeline → keep visible
-                              //     so Planning can re-trigger if needed)
-                              // Excludes rows explicitly client_rejected.
-                              const approvedItems = items.filter(c => {
-                                const rejected = c.client_approval_status === 'client_rejected' || c.client_rejected === true;
-                                if (rejected) return false;
-                                const open = (c.balance ?? (c.quantity * c.unit_rate) ?? 0) > 0;
-                                if (!open) return false;
-                                return c.client_approval_status === 'client_approved'
-                                  || c.client_approved === true
-                                  || c.payment_requested === true;
-                              });
-                              if (approvedItems.length === 0) return null;
-                              if (!['planning_person', 'planning', 'planning_head', 'super_admin'].includes(user?.role)) return null;
-                              const sectionTotal = approvedItems.reduce((sum, c) => sum + (c.balance ?? (c.quantity * c.unit_rate) ?? 0), 0);
-                              return (
-                                <Button
-                                  size="sm"
-                                  className="h-7 px-2.5 gap-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs shadow-sm"
-                                  onClick={() => setReqPayDialog({
-                                    open: true,
-                                    mode: 'addition_section',
-                                    sectionId: group.section_id,
-                                    sectionName: group.title,
-                                    items: approvedItems,
-                                    stage: { stage_id: `section_${group.section_id}`, stage_name: group.title, amount: sectionTotal, amount_received: 0 },
-                                    date: '',
-                                    submitting: false,
-                                  })}
-                                  data-testid={`section-pay-request-${group.section_id}`}
-                                  title={`Send "${group.title}" to CRE Payment Schedule (${approvedItems.length} client-approved row${approvedItems.length === 1 ? '' : 's'}, ₹${sectionTotal.toLocaleString('en-IN')})`}
-                                >
-                                  <Send className="h-3 w-3" /> Pay Request
-                                </Button>
-                              );
-                            })()}
+                            {/* Pay Request button moved to TOP-RIGHT (Feb 2026 update) —
+                                lives next to + File / + Add inside the right-side action group
+                                below. Kept this slot empty so the section title row stays clean. */}
                             <Badge variant="outline" className="text-[10px] bg-white">{items.length} {items.length === 1 ? 'addition' : 'additions'}</Badge>
                           </div>
                           <div className="flex items-center gap-1">
@@ -7596,6 +7552,46 @@ export default function ProjectDetail() {
                                 <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-200 text-emerald-700" onClick={() => openAddAdditionFor(group.section_id)} data-testid={`add-into-section-${group.section_id}`}>
                                   <Plus className="h-3 w-3" /> Add
                                 </Button>
+                                {/* Section-level Pay Request (TOP-RIGHT placement — Feb 2026).
+                                    Sits next to + File / + Add so Planning Person / Head sees the
+                                    actionable trigger in the same control cluster. Visibility gated
+                                    to sections that have at least one row marked client-approved
+                                    (string status, boolean flag, or already in payment pipeline).
+                                    Excludes rows explicitly client_rejected and zero-balance rows. */}
+                                {(() => {
+                                  if (!['planning_person', 'planning', 'planning_head', 'super_admin'].includes(user?.role)) return null;
+                                  const approvedItems = items.filter(c => {
+                                    const rejected = c.client_approval_status === 'client_rejected' || c.client_rejected === true;
+                                    if (rejected) return false;
+                                    const open = (c.balance ?? (c.quantity * c.unit_rate) ?? 0) > 0;
+                                    if (!open) return false;
+                                    return c.client_approval_status === 'client_approved'
+                                      || c.client_approved === true
+                                      || c.payment_requested === true;
+                                  });
+                                  if (approvedItems.length === 0) return null;
+                                  const sectionTotal = approvedItems.reduce((sum, c) => sum + (c.balance ?? (c.quantity * c.unit_rate) ?? 0), 0);
+                                  return (
+                                    <Button
+                                      size="sm"
+                                      className="h-7 px-2.5 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                                      onClick={() => setReqPayDialog({
+                                        open: true,
+                                        mode: 'addition_section',
+                                        sectionId: group.section_id,
+                                        sectionName: group.title,
+                                        items: approvedItems,
+                                        stage: { stage_id: `section_${group.section_id}`, stage_name: group.title, amount: sectionTotal, amount_received: 0 },
+                                        date: '',
+                                        submitting: false,
+                                      })}
+                                      data-testid={`section-pay-request-${group.section_id}`}
+                                      title={`Send "${group.title}" to CRE Payment Schedule (${approvedItems.length} client-approved row${approvedItems.length === 1 ? '' : 's'}, ₹${sectionTotal.toLocaleString('en-IN')})`}
+                                    >
+                                      <Send className="h-3 w-3" /> Pay Request
+                                    </Button>
+                                  );
+                                })()}
                                 {/* Batch approval chain buttons — show ONE button at a time based on the
                                     most common status in this section. Counts let the user know how many will move. */}
                                 {(() => {
