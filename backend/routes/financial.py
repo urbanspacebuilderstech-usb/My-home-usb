@@ -4246,6 +4246,44 @@ async def get_cashbook_filtered(
 
     project_map = {p["project_id"]: p["name"] for p in projects_list}
 
+    # Feb 12 2026 — Enrich the Stage column. Some incomes were captured with
+    # just the stage number/label (e.g. "1", "2", "3") because the income
+    # creation flow only stored the label. The cashbook shows that bare number
+    # which is meaningless to the accountant. Look up the actual stage_name
+    # from payment_stages and rewrite the field as "<number> <stage_name>"
+    # (e.g. "2 Advance payment for Foundation and Plinth Beam Concrete").
+    # We touch only incomes whose stage field looks like a label (≤4 chars
+    # or all-digit) so existing descriptive entries are preserved.
+    label_lookups = set()
+    for i in incomes:
+        st = str(i.get("stage") or "").strip()
+        if st and (st.isdigit() or len(st) <= 4) and i.get("project_id"):
+            label_lookups.add((i["project_id"], st))
+    if label_lookups:
+        proj_to_labels = {}
+        for pid, lab in label_lookups:
+            proj_to_labels.setdefault(pid, set()).add(lab)
+        ps_docs = await db.payment_stages.find(
+            {"project_id": {"$in": list(proj_to_labels.keys())}},
+            {"_id": 0, "project_id": 1, "stage_label": 1, "stage_name": 1, "stage_number": 1},
+        ).to_list(5000)
+        stage_name_map = {}
+        for ps in ps_docs:
+            pid = ps.get("project_id")
+            label = str(ps.get("stage_label") or ps.get("stage_number") or "").strip()
+            if not pid or not label:
+                continue
+            name = (ps.get("stage_name") or "").strip()
+            if name:
+                stage_name_map[(pid, label)] = name
+        for i in incomes:
+            st = str(i.get("stage") or "").strip()
+            if not st:
+                continue
+            name = stage_name_map.get((i.get("project_id"), st))
+            if name:
+                i["stage"] = f"{st} {name}"
+
     # Enrich income entries
     for i in incomes:
         i["project_name"] = project_map.get(i.get("project_id"), "Unknown")
