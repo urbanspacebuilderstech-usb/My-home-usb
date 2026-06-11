@@ -7557,20 +7557,28 @@ export default function ProjectDetail() {
                                     actionable trigger in the same control cluster. Visibility gated
                                     to sections that have at least one row marked client-approved
                                     (string status, boolean flag, or already in payment pipeline).
-                                    Excludes rows explicitly client_rejected and zero-balance rows. */}
+                                    Excludes rows explicitly client_rejected and zero-balance rows.
+                                    NOTE Feb 2026: compute `open` from (qty × rate − received) instead
+                                    of trusting `c.balance` — production rows store `balance: 0`
+                                    even when nothing has been received, which caused the button to
+                                    vanish despite valid client-approved rows. */}
                                 {(() => {
                                   if (!['planning_person', 'planning', 'planning_head', 'super_admin'].includes(user?.role)) return null;
+                                  const computeOpen = (c) => {
+                                    const tot = Number(c.amount) > 0 ? Number(c.amount) : (Number(c.quantity || 0) * Number(c.unit_rate || 0));
+                                    const recv = Number(c.income_received || c.amount_received || c.received || 0);
+                                    return Math.max(0, tot - recv);
+                                  };
                                   const approvedItems = items.filter(c => {
                                     const rejected = c.client_approval_status === 'client_rejected' || c.client_rejected === true;
                                     if (rejected) return false;
-                                    const open = (c.balance ?? (c.quantity * c.unit_rate) ?? 0) > 0;
-                                    if (!open) return false;
+                                    if (computeOpen(c) <= 0) return false;
                                     return c.client_approval_status === 'client_approved'
                                       || c.client_approved === true
                                       || c.payment_requested === true;
                                   });
                                   if (approvedItems.length === 0) return null;
-                                  const sectionTotal = approvedItems.reduce((sum, c) => sum + (c.balance ?? (c.quantity * c.unit_rate) ?? 0), 0);
+                                  const sectionTotal = approvedItems.reduce((sum, c) => sum + computeOpen(c), 0);
                                   return (
                                     <Button
                                       size="sm"
