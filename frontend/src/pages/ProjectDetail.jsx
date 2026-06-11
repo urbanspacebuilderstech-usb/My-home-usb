@@ -7529,15 +7529,18 @@ export default function ProjectDetail() {
                             )}
                             {/* Section-level Pay Request button (Feb 2026).
                                 Placed immediately after the section title on the LEFT per
-                                user request. Always visible to Planning Person / Planning
-                                Head / Super Admin when the section has at least one row —
-                                approval rules are still enforced by the backend at click
-                                time. Clicking opens the month-picker dialog; on confirm,
-                                every row in the section is sent to CRE Payment Schedule
-                                tagged with the section's title and total. */}
-                            {items.length > 0 && ['planning_person', 'planning', 'planning_head', 'super_admin'].includes(user?.role) && (() => {
-                              const sectionTotal = items.reduce((sum, c) => sum + (c.balance ?? (c.quantity * c.unit_rate) ?? 0), 0);
-                              if (sectionTotal <= 0) return null;
+                                user request. Visible ONLY after at least one row has been
+                                client-approved — drafts and rejected rows shouldn't allow
+                                CRE to start collecting yet. Backend still validates per
+                                cost_id at click time. */}
+                            {(() => {
+                              const approvedItems = items.filter(c =>
+                                c.client_approval_status === 'client_approved'
+                                && (c.balance ?? (c.quantity * c.unit_rate) ?? 0) > 0
+                              );
+                              if (approvedItems.length === 0) return null;
+                              if (!['planning_person', 'planning', 'planning_head', 'super_admin'].includes(user?.role)) return null;
+                              const sectionTotal = approvedItems.reduce((sum, c) => sum + (c.balance ?? (c.quantity * c.unit_rate) ?? 0), 0);
                               return (
                                 <Button
                                   size="sm"
@@ -7547,13 +7550,13 @@ export default function ProjectDetail() {
                                     mode: 'addition_section',
                                     sectionId: group.section_id,
                                     sectionName: group.title,
-                                    items: items.filter(c => (c.balance ?? (c.quantity * c.unit_rate) ?? 0) > 0),
+                                    items: approvedItems,
                                     stage: { stage_id: `section_${group.section_id}`, stage_name: group.title, amount: sectionTotal, amount_received: 0 },
                                     date: '',
                                     submitting: false,
                                   })}
                                   data-testid={`section-pay-request-${group.section_id}`}
-                                  title={`Send "${group.title}" to CRE Payment Schedule (₹${sectionTotal.toLocaleString('en-IN')})`}
+                                  title={`Send "${group.title}" to CRE Payment Schedule (${approvedItems.length} client-approved row${approvedItems.length === 1 ? '' : 's'}, ₹${sectionTotal.toLocaleString('en-IN')})`}
                                 >
                                   <Send className="h-3 w-3" /> Pay Request
                                 </Button>
