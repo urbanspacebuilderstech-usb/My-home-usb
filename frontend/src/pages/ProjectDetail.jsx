@@ -7518,6 +7518,21 @@ export default function ProjectDetail() {
                                   const draftN = items.filter(c => !c.approval_status || ['created','rejected'].includes(c.approval_status)).length;
                                   const phN = items.filter(c => c.approval_status === 'ph_review').length;
                                   const gmN = items.filter(c => c.approval_status === 'gm_review').length;
+                                  // Section-level Req Payment (Feb 2026): aggregates every
+                                  // client_approved row in this section into a SINGLE payment_stage
+                                  // titled with the section name and totalling all open balances.
+                                  // Filters out rows that already have a payment_stage open
+                                  // (`payment_requested === true`) so we don't double-bill.
+                                  const reqReadyItems = items.filter(c =>
+                                    c.client_approval_status === 'client_approved'
+                                    && !c.payment_requested
+                                    && ((c.balance ?? (c.quantity * c.unit_rate)) > 0)
+                                  );
+                                  const reqReadyN = reqReadyItems.length;
+                                  const reqReadyTotal = reqReadyItems.reduce(
+                                    (sum, c) => sum + (c.balance ?? (c.quantity * c.unit_rate)),
+                                    0
+                                  );
                                   const isPP = user?.role === 'planning_person' || user?.role === 'planning' || user?.role === 'super_admin';
                                   const isPH = user?.role === 'planning' || user?.role === 'super_admin';
                                   const isGM = user?.role === 'general_manager' || user?.role === 'super_admin';
@@ -7536,6 +7551,27 @@ export default function ProjectDetail() {
                                       {gmN > 0 && isGM && (
                                         <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => gmApproveSection(group, items)} data-testid={`section-gm-approve-${group.section_id}`}>
                                           <CheckCircle2 className="h-3 w-3" /> GM Approve ({gmN})
+                                        </Button>
+                                      )}
+                                      {reqReadyN > 0 && isPP && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 px-2 text-xs gap-1 border-green-500 text-green-700 hover:bg-green-50 font-medium"
+                                          onClick={() => setReqPayDialog({
+                                            open: true,
+                                            mode: 'addition_section',
+                                            sectionId: group.section_id,
+                                            sectionName: group.name,
+                                            items: reqReadyItems,
+                                            stage: { stage_id: `section_${group.section_id}`, stage_name: group.name, amount: reqReadyTotal, amount_received: 0 },
+                                            date: '',
+                                            submitting: false,
+                                          })}
+                                          data-testid={`section-req-payment-${group.section_id}`}
+                                          title={`Send the whole "${group.name}" section to CRE as a single Payment Schedule item (₹${reqReadyTotal.toLocaleString('en-IN')})`}
+                                        >
+                                          <Send className="h-3 w-3" /> Req Payment ({reqReadyN})
                                         </Button>
                                       )}
                                     </>
@@ -7842,21 +7878,15 @@ export default function ProjectDetail() {
                                         )}
                                       </>
                                     ) : cost.client_approval_status === 'client_approved' ? (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-7 gap-1 border-green-500 text-green-700 hover:bg-green-50 text-xs"
-                                        onClick={() => setReqPayDialog({
-                                          open: true,
-                                          mode: 'addition',
-                                          stage: { stage_id: cost.cost_id, stage_name: cost.description || cost.name || 'Additional Work', amount: balance, amount_received: 0 },
-                                          date: '',
-                                          submitting: false,
-                                        })}
-                                        data-testid={`req-payment-addition-${cost.cost_id}`}
-                                      >
-                                        <Send className="h-3 w-3" /> Req Payment
-                                      </Button>
+                                      // Row-level "Req Payment" button removed (Feb 2026) per user request.
+                                      // Planning now uses the SECTION-level "Req Payment N" button at the
+                                      // section header, which aggregates every client-approved row into a
+                                      // single payment_stage carrying the section title + total. The
+                                      // green "✓ Client OK" pill keeps the per-row status legible so
+                                      // Planning still sees which rows are ready in the section.
+                                      <span className="text-[11px] px-2 py-1 rounded-full bg-green-100 text-green-700 font-medium" data-testid={`add-client-approved-${cost.cost_id}`}>
+                                        ✓ Client OK
+                                      </span>
                                     ) : (
                                       // Default: not yet in approval chain. Show "Submit for Review" (new 4-step flow).
                                       // Planning Person / Planning Head / Super Admin can initiate the chain.
@@ -11121,9 +11151,11 @@ export default function ProjectDetail() {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-amber-600" />Request {reqPayDialog.mode === 'addition' ? 'Additional Payment' : 'Payment'}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-amber-600" />Request {reqPayDialog.mode === 'addition_section' ? 'Section Payment' : reqPayDialog.mode === 'addition' ? 'Additional Payment' : 'Payment'}</DialogTitle>
             <DialogDescription>
-              {reqPayDialog.mode === 'addition'
+              {reqPayDialog.mode === 'addition_section'
+                ? `Send all ${reqPayDialog.items?.length || 0} client-approved rows under "${reqPayDialog.sectionName}" to CRE as a single Payment Schedule entry. Pick the month it should be collected.`
+                : reqPayDialog.mode === 'addition'
                 ? 'Pick the month/date this additional charge should be collected. It will appear in the project Payment Schedule and CRE\'s month filter.'
                 : 'Choose the month and date when you expect this payment to be collected. CRE can then prioritize and filter requests by month.'}
             </DialogDescription>
@@ -11176,6 +11208,16 @@ export default function ProjectDetail() {
                 try {
                   if (reqPayDialog.mode === 'addition') {
                     await handleRequestAdditionPayment(reqPayDialog.stage.stage_id, reqPayDialog.date);
+                  } else if (reqPayDialog.mode === 'addition_section') {
+                    // Section-level Req Payment: loop over each client-approved
+                    // row in the section and request payment for it. They will
+                    // appear on the CRE Payment Schedule grouped under the
+                    // section name (via section_id stamped on each
+                    // payment_stage by the backend). Toast surfaces the total.
+                    for (const it of (reqPayDialog.items || [])) {
+                      await handleRequestAdditionPayment(it.cost_id, reqPayDialog.date);
+                    }
+                    toast.success(`Section "${reqPayDialog.sectionName}" — sent ${reqPayDialog.items?.length || 0} items to CRE`);
                   } else {
                     await handleRequestPayment(reqPayDialog.stage.stage_id, reqPayDialog.date);
                   }
