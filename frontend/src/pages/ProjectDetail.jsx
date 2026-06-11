@@ -7539,15 +7539,15 @@ export default function ProjectDetail() {
                   // rollup elsewhere (Value Cards / Cashflow) continues to count only
                   // client-approved rows — that rule lives on the backend.
                   //
-                  // Feb 12 2026 — user request: "asdf section ... waiting for account
-                  // approve but shows Received ₹500. Account approve then only show
-                  // Received amount." → count income_received ONLY for rows that have
-                  // been fully accountant-approved (cre_approved flips to true only
-                  // after the linked stage hits stage_received >= amount per the
-                  // backend auto-heal in projects.py). In-flight CRE collections no
-                  // longer leak into the section footer.
+                  // Feb 12 2026 — `income_received` is now backed by the SUM of
+                  // accountant-approved income entries (see auto-heal in
+                  // /app/backend/routes/projects.py L4680). It no longer reflects
+                  // CRE-collected-but-pending-approval money, so we can use it
+                  // directly here. Earlier we filtered by `cre_approved` which
+                  // hid partial accountant approvals (e.g. ₹1,000 of ₹2,250)
+                  // — user explicitly asked for partial approvals to surface.
                   const total = items.reduce((s, a) => s + (a.estimated_amount || 0), 0);
-                  const received = items.reduce((s, a) => s + (a.cre_approved ? (a.income_received || 0) : 0), 0);
+                  const received = items.reduce((s, a) => s + (a.income_received || 0), 0);
                   return { total, received, balance: total - received };
                 };
                 const ungrouped = additional_costs.filter(c => !c.section_id);
@@ -7726,6 +7726,20 @@ export default function ProjectDetail() {
                                 )}
                                 {group.client_approval_status === 'client_rejected' && (
                                   <span className="inline-flex items-center text-[10px] px-2 py-1 rounded-full bg-rose-100 text-rose-700 font-semibold" title={group.client_rejection_reason || ''}>Rejected</span>
+                                )}
+                                {/* Feb 12 2026 — Section-level Partial pill. Surfaces when
+                                    accountant has approved some (but not all) of the section's
+                                    Pay Request. Sits alongside Pending Client / Client Approved
+                                    so the planner can see payment progress at a glance without
+                                    scanning each row's Received column. */}
+                                {t.received > 0 && t.received < t.total && (
+                                  <span
+                                    className="inline-flex items-center text-[10px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-semibold"
+                                    title={`Accountant approved ₹${t.received.toLocaleString('en-IN')} of ₹${t.total.toLocaleString('en-IN')}`}
+                                    data-testid={`section-partial-${group.section_id}`}
+                                  >
+                                    Partial · ₹{t.received.toLocaleString('en-IN')}
+                                  </span>
                                 )}
                                 <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => handleDeleteSection(group)} data-testid={`delete-section-${group.section_id}`}>
                                   <Trash2 className="h-3.5 w-3.5" />

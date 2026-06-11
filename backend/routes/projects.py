@@ -4676,16 +4676,41 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     ).to_list(500)
     deductions_total = sum(d.get("amount", 0) for d in deductions_list)
 
-    # AUTO-HEAL: sync additional_costs.income_received from their linked
-    # payment_stages so the UI exits "With CRE · Payment Schedule" once the
-    # accountant has approved the income. We touch only additions where the
-    # linked stage has received money but the cost hasn't been updated yet.
+    # AUTO-HEAL: sync additional_costs.income_received from APPROVED income
+    # entries (not raw stage.amount_received). The stage's amount_received
+    # bumps as soon as CRE marks the collection — even while the income is
+    # still awaiting Accountant approval. The Additional Work section UI
+    # must only count money that has been **accountant-approved** so the
+    # planner doesn't see premature "Received" figures. Feb 2026.
     try:
         addition_stages = await db.payment_stages.find(
-            {"project_id": project_id, "is_addition": True, "amount_received": {"$gt": 0}},
-            {"_id": 0, "linked_addition_id": 1, "linked_addition_ids": 1, "is_section_addition": 1, "amount_received": 1, "amount": 1},
+            {"project_id": project_id, "is_addition": True},
+            {"_id": 0, "stage_id": 1, "stage_name": 1, "stage_label": 1,
+             "linked_addition_id": 1, "linked_addition_ids": 1,
+             "is_section_addition": 1, "amount_received": 1, "amount": 1},
         ).to_list(500)
-        # Single-row addition stages — preserve legacy behavior
+
+        # ── Bulk-fetch APPROVED income totals per stage label ────────────
+        stage_labels = list({(s.get("stage_label") or s.get("stage_name") or "") for s in addition_stages})
+        approved_by_label = {}
+        if stage_labels:
+            inc_agg = await db.income.aggregate([
+                {"$match": {
+                    "project_id": project_id,
+                    "category": "payment_collection",
+                    "status": "approved",
+                    "stage": {"$in": stage_labels},
+                }},
+                {"$group": {"_id": "$stage", "total": {"$sum": "$amount"}}},
+            ]).to_list(1000)
+            for item in inc_agg:
+                approved_by_label[item["_id"]] = float(item["total"] or 0)
+
+        def _approved_for_stage(stage):
+            label = stage.get("stage_label") or stage.get("stage_name") or ""
+            return float(approved_by_label.get(label, 0))
+
+        # Single-row addition stages — preserve legacy behavior but use APPROVED total
         single_cost_ids = [s.get("linked_addition_id") for s in addition_stages if s.get("linked_addition_id") and not s.get("is_section_addition")]
         if single_cost_ids:
             existing_costs = await db.additional_costs.find(
@@ -4698,15 +4723,22 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
                 cid = st.get("linked_addition_id")
                 if not cid or cid not in cost_state:
                     continue
+                approved_total = _approved_for_stage(st)
                 cs = cost_state[cid]
                 current_received = cs.get("income_received", 0) or 0
-                stage_received = st.get("amount_received", 0) or 0
-                if stage_received > current_received + 0.5:
-                    set_doc = {"income_received": stage_received}
-                    if stage_received >= (st.get("amount", 0) or 0) - 0.5:
-                        set_doc["cre_approved"] = True
+                set_doc = {}
+                if abs(approved_total - current_received) > 0.5:
+                    set_doc["income_received"] = approved_total
+                # cre_approved flips true only when accountant-approved >= row amount.
+                stage_amount = float(st.get("amount", 0) or 0)
+                if stage_amount and approved_total >= stage_amount - 0.5:
+                    set_doc["cre_approved"] = True
+                elif cs.get("cre_approved") and approved_total < stage_amount - 0.5:
+                    set_doc["cre_approved"] = False
+                if set_doc:
                     await db.additional_costs.update_one({"cost_id": cid}, {"$set": set_doc})
-        # Section-level addition stages — pro-rata across linked rows
+
+        # Section-level addition stages — pro-rata APPROVED total across linked rows
         for st in addition_stages:
             if not st.get("is_section_addition"):
                 continue
@@ -4725,16 +4757,20 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
                 grand += amt
             if grand <= 0:
                 continue
-            stage_received = float(st.get("amount_received", 0) or 0)
+            approved_total = _approved_for_stage(st)
             for r in rows:
                 cid = r["cost_id"]
                 row_total = totals.get(cid, 0)
-                share = (row_total / grand) * stage_received if grand else 0
+                share = (row_total / grand) * approved_total if grand else 0
+                set_doc = {}
                 current_received = r.get("income_received", 0) or 0
-                if share > current_received + 0.5:
-                    set_doc = {"income_received": share}
-                    if row_total and share >= row_total - 0.5:
-                        set_doc["cre_approved"] = True
+                if abs(share - current_received) > 0.5:
+                    set_doc["income_received"] = share
+                if row_total and share >= row_total - 0.5:
+                    set_doc["cre_approved"] = True
+                elif r.get("cre_approved") and share < row_total - 0.5:
+                    set_doc["cre_approved"] = False
+                if set_doc:
                     await db.additional_costs.update_one({"cost_id": cid}, {"$set": set_doc})
     except Exception:
         # Auto-heal is best-effort; never fail full-details rendering.
@@ -4919,7 +4955,8 @@ async def get_additional_costs(project_id: str, user: User = Depends(get_current
 async def create_additional_cost(cost_input: AdditionalCostCreate, request: Request, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    await _assert_fe_editable_for_planning_person(cost_input.project_id, user, request=request)
+    # Feb 12 2026 — removed FE lock check; additions live independently of FE.
+    # See PATCH endpoint below for full reasoning.
     
     cost = AdditionalCostItem(
         project_id=cost_input.project_id,
@@ -4946,11 +4983,25 @@ async def update_additional_cost(cost_id: str, update_data: AdditionalCostUpdate
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     existing = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
-    if existing:
-        await _assert_fe_editable_for_planning_person(existing.get("project_id"), user, request=request)
-    
+    if not existing:
+        raise HTTPException(status_code=404, detail="Additional cost not found")
+
+    # Feb 12 2026 — addition rows have their OWN approval lifecycle that is
+    # **independent** of the project's Final Estimate (FE) lock. Previously
+    # we routed every PATCH through `_assert_fe_editable_for_planning_person`
+    # which locked editing the moment the project's FE was client-approved,
+    # making it impossible for the planner to fix typos on a new addition
+    # while it sits in Planning Head review. Use addition-level gates only.
+    addition_status = (existing.get("client_approval_status") or "").lower()
+    if addition_status == "client_approved" and user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=423, detail="Client has approved this addition. Only Super Admin can edit now.")
+    if addition_status == "pending_client" and user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
+        # Pending Client means we've already sent it for sign-off. Only Planning
+        # can withdraw + edit; everyone else (Accountant/PM) must wait.
+        raise HTTPException(status_code=423, detail="Addition is with the client for approval. Planning must recall it first.")
+
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
-    
+
     await db.additional_costs.update_one({"cost_id": cost_id}, {"$set": update_dict})
     await create_audit_log(user.user_id, "update", "additional_cost", cost_id, update_dict)
 
