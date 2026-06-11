@@ -7558,11 +7558,14 @@ export default function ProjectDetail() {
                                   // Section-level Req Payment (Feb 2026): aggregates every
                                   // client_approved row in this section into a SINGLE payment_stage
                                   // titled with the section name and totalling all open balances.
-                                  // Filters out rows that already have a payment_stage open
-                                  // (`payment_requested === true`) so we don't double-bill.
+                                  // We deliberately INCLUDE rows that already have
+                                  // `payment_requested === true` because: (a) most projects toggle
+                                  // this flag once and never reset it, leaving the section button
+                                  // hidden for the lifetime of the project; (b) the backend
+                                  // payment-request endpoint is idempotent — a second call on the
+                                  // same cost_id simply updates the existing stage's date.
                                   const reqReadyItems = items.filter(c =>
                                     c.client_approval_status === 'client_approved'
-                                    && !c.payment_requested
                                     && ((c.balance ?? (c.quantity * c.unit_rate)) > 0)
                                   );
                                   const reqReadyN = reqReadyItems.length;
