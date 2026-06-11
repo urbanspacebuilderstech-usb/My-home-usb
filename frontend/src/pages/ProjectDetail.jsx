@@ -3473,6 +3473,43 @@ export default function ProjectDetail() {
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to approve'); }
   };
 
+  // Section-level rejection helpers (Feb 2026). Backend doesn't expose
+  // section-batch reject endpoints, so we loop client-side over the eligible
+  // rows. The same reason text is sent to each row, which is exactly what
+  // Planning Head / GM want — they're rejecting the whole section in one
+  // go for a single reason. Failures on individual rows are surfaced as a
+  // count rather than aborting the loop.
+  const phRejectSection = async (section, items) => {
+    const eligible = items.filter(c => c.approval_status === 'ph_review');
+    if (eligible.length === 0) { toast.info('No items awaiting Planning Head approval here.'); return; }
+    const reason = window.prompt(`Reject ${eligible.length} item(s) in "${section.title || section.name || 'Ungrouped'}" back to Planning Person.\n\nReason:`, '');
+    if (reason === null) return;
+    if (!reason.trim()) { toast.error('Reason is required'); return; }
+    let failed = 0;
+    for (const c of eligible) {
+      try { await axios.post(`${API}/additional-costs/${c.cost_id}/ph-reject`, { reason: reason.trim() }); }
+      catch { failed += 1; }
+    }
+    if (failed) toast.error(`${failed}/${eligible.length} row(s) failed to reject`);
+    else toast.success(`Rejected ${eligible.length} item(s) back to Planning Person`);
+    fetchData(false);
+  };
+  const gmRejectSection = async (section, items) => {
+    const eligible = items.filter(c => c.approval_status === 'gm_review');
+    if (eligible.length === 0) { toast.info('No items awaiting GM approval here.'); return; }
+    const reason = window.prompt(`Reject ${eligible.length} item(s) in "${section.title || section.name || 'Ungrouped'}" back to Planning Person.\n\nReason:`, '');
+    if (reason === null) return;
+    if (!reason.trim()) { toast.error('Reason is required'); return; }
+    let failed = 0;
+    for (const c of eligible) {
+      try { await axios.post(`${API}/additional-costs/${c.cost_id}/gm-reject`, { reason: reason.trim() }); }
+      catch { failed += 1; }
+    }
+    if (failed) toast.error(`${failed}/${eligible.length} row(s) failed to reject`);
+    else toast.success(`Rejected ${eligible.length} item(s) back to Planning Person`);
+    fetchData(false);
+  };
+
   // ── 4-Step Deduction Approval Chain (PP → PH → GM → CRE-notify → Client) ──
   // Mirrors the Additional Cost chain. Endpoints live on the same projects.py router.
   const submitDeductionForReview = async (d) => {
@@ -7544,14 +7581,24 @@ export default function ProjectDetail() {
                                         </Button>
                                       )}
                                       {phN > 0 && isPH && (
-                                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => phApproveSection(group, items)} data-testid={`section-ph-approve-${group.section_id}`}>
-                                          <CheckCircle2 className="h-3 w-3" /> PH Approve ({phN})
-                                        </Button>
+                                        <>
+                                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => phApproveSection(group, items)} data-testid={`section-ph-approve-${group.section_id}`}>
+                                            <CheckCircle2 className="h-3 w-3" /> PH Approve ({phN})
+                                          </Button>
+                                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-rose-300 text-rose-700 hover:bg-rose-50" onClick={() => phRejectSection(group, items)} data-testid={`section-ph-reject-${group.section_id}`}>
+                                            <X className="h-3 w-3" /> Reject
+                                          </Button>
+                                        </>
                                       )}
                                       {gmN > 0 && isGM && (
-                                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => gmApproveSection(group, items)} data-testid={`section-gm-approve-${group.section_id}`}>
-                                          <CheckCircle2 className="h-3 w-3" /> GM Approve ({gmN})
-                                        </Button>
+                                        <>
+                                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => gmApproveSection(group, items)} data-testid={`section-gm-approve-${group.section_id}`}>
+                                            <CheckCircle2 className="h-3 w-3" /> GM Approve ({gmN})
+                                          </Button>
+                                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 border-rose-300 text-rose-700 hover:bg-rose-50" onClick={() => gmRejectSection(group, items)} data-testid={`section-gm-reject-${group.section_id}`}>
+                                            <X className="h-3 w-3" /> Reject
+                                          </Button>
+                                        </>
                                       )}
                                       {reqReadyN > 0 && isPP && (
                                         <Button
@@ -7798,33 +7845,9 @@ export default function ProjectDetail() {
                                       to the legacy "Pending Client / Req Payment" UI below. */}
                                   {balance > 0 && !cost.payment_requested && (
                                     cost.approval_status === 'ph_review' ? (
-                                      <>
-                                        <span className="text-[11px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium" data-testid={`add-ph-review-${cost.cost_id}`}>Pending Planning Head</span>
-                                        {(user?.role === 'planning' || user?.role === 'super_admin') && (
-                                          <>
-                                            <Button variant="outline" size="sm" className="h-7 gap-1 border-emerald-500 text-emerald-700 hover:bg-emerald-50 text-xs" onClick={() => phApproveAddition(cost)} data-testid={`ph-approve-${cost.cost_id}`}>
-                                              <CheckCircle2 className="h-3 w-3" /> PH Approve
-                                            </Button>
-                                            <Button variant="outline" size="sm" className="h-7 gap-1 border-rose-500 text-rose-700 hover:bg-rose-50 text-xs" onClick={() => phRejectAddition(cost)} data-testid={`ph-reject-${cost.cost_id}`}>
-                                              <X className="h-3 w-3" /> Reject
-                                            </Button>
-                                          </>
-                                        )}
-                                      </>
+                                      <span className="text-[11px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium" data-testid={`add-ph-review-${cost.cost_id}`}>Pending Planning Head</span>
                                     ) : cost.approval_status === 'gm_review' ? (
-                                      <>
-                                        <span className="text-[11px] px-2 py-1 rounded-full bg-violet-100 text-violet-700 font-medium" data-testid={`add-gm-review-${cost.cost_id}`}>Pending GM</span>
-                                        {(user?.role === 'general_manager' || user?.role === 'super_admin') && (
-                                          <>
-                                            <Button variant="outline" size="sm" className="h-7 gap-1 border-emerald-500 text-emerald-700 hover:bg-emerald-50 text-xs" onClick={() => gmApproveAddition(cost)} data-testid={`gm-approve-${cost.cost_id}`}>
-                                              <CheckCircle2 className="h-3 w-3" /> GM Approve
-                                            </Button>
-                                            <Button variant="outline" size="sm" className="h-7 gap-1 border-rose-500 text-rose-700 hover:bg-rose-50 text-xs" onClick={() => gmRejectAddition(cost)} data-testid={`gm-reject-${cost.cost_id}`}>
-                                              <X className="h-3 w-3" /> Reject
-                                            </Button>
-                                          </>
-                                        )}
-                                      </>
+                                      <span className="text-[11px] px-2 py-1 rounded-full bg-violet-100 text-violet-700 font-medium" data-testid={`add-gm-review-${cost.cost_id}`}>Pending GM</span>
                                     ) : cost.approval_status === 'rejected' ? (
                                       <>
                                         <span className="text-[11px] px-2 py-1 rounded-full bg-rose-100 text-rose-700 font-medium" title={cost.rejection_reason || ''} data-testid={`add-chain-rejected-${cost.cost_id}`}>

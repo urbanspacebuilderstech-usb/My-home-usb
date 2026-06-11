@@ -32,7 +32,8 @@ import {
   FileCheck,
   PlusCircle,
   MinusCircle,
-  ListChecks
+  ListChecks,
+  X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1088,9 +1089,14 @@ export default function ClientPortal() {
                               )}
                             </div>
                             {s.client_approval_status === 'pending_client' && (
-                              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8 print:hidden" onClick={() => handleSectionDecision(s.section_id, 'approve')} data-testid={`client-section-approve-${s.section_id}`}>
-                                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve Section
-                              </Button>
+                              <div className="flex items-center gap-2 print:hidden">
+                                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8" onClick={() => handleSectionDecision(s.section_id, 'approve')} data-testid={`client-section-approve-${s.section_id}`}>
+                                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve Section
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-8 border-rose-300 text-rose-700 hover:bg-rose-50" onClick={() => handleSectionDecision(s.section_id, 'reject')} data-testid={`client-section-reject-${s.section_id}`}>
+                                  <X className="h-3.5 w-3.5 mr-1" /> Reject Section
+                                </Button>
+                              </div>
                             )}
                             {s.client_approval_status === 'client_approved' && (
                               <span className="text-[11px] px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Section Approved</span>
