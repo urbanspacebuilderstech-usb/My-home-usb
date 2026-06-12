@@ -13,6 +13,19 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — Accountant Board: Carry Forward / Closing Balance Tab (P1)
+- **Status**: ✅ COMPLETE & DEPLOYED (`main.2fe9cd5e.js`).
+- **User ask**: New "Carry Forward" page in Accountant Board to manually lock the firm's net amount across 4 buckets (Current Account, Savings, Cash, Cheque) + a Manual Amount. Super Admin only edits; Accountant views.
+- **Backend** (`/app/backend/routes/financial.py` L125):
+  - `closing_balances` singleton collection (`_id = closing_balance_singleton`).
+  - `GET /api/accountant/closing-balance` — read for Accountant + Super Admin.
+  - `POST /api/accountant/closing-balance` — write for Super Admin only. Stores manual + 4 buckets, computes total, audit-logged.
+- **Frontend**:
+  - New `CarryForwardTab` component in `AccountsBoard.jsx` — hero card showing Manual Amount + "Lock / Update Lock" button; 5-card row (CA / Savings / Cash / Cheque / Total); modal popup with 5 inputs + live total + Lock Closing Balance.
+  - Nav link added in `AppHeader.jsx` accountant menu (`/accounts-board?tab=carry-forward`).
+  - URL guard updated in `AccountsBoard.jsx` to accept the new tab.
+  - Accountants see read-only view; Lock button hidden for non-super-admin.
+
 ### Session — Feb 12, 2026 — Additional Work: Allow Negative Qty/Rate (P0)
 - **Status**: ✅ COMPLETE & DEPLOYED (`main.e6eb7fb3.js`).
 - **User report**: Entering Qty `-100`, Unit Rate `10` (Total `-₹1,000`) failed validation with "fill at least one row" toast.
