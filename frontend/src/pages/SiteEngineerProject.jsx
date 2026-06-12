@@ -171,6 +171,10 @@ export default function SiteEngineerProject() {
   }, [materialDropdownOpen]);
   const [labourForm, setLabourForm] = useState({ labour_type: '', num_workers: '', num_days: '', rate_per_day: '', remarks: '' });
   const [receiveForm, setReceiveForm] = useState({ received_qty: '', remarks: '', receive_date: new Date().toISOString().split('T')[0], receive_time: new Date().toTimeString().slice(0,5) });
+  // Feb 12 2026 — per-diameter received qty for steel orders. Indexed the same
+  // as receiveDialog.request.steel_specs.items, each entry is the kg received
+  // for that diameter. The total received_qty is the live sum below the table.
+  const [receivedSteelItems, setReceivedSteelItems] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [gpsLocation, setGpsLocation] = useState(null);
   const [gettingLocation, setGettingLocation] = useState(false);
@@ -796,6 +800,14 @@ export default function SiteEngineerProject() {
       receive_date: new Date().toISOString().split('T')[0],
       receive_time: new Date().toTimeString().slice(0,5)
     });
+    // Feb 2026 — prefill per-diameter received qty with the requested weight per
+    // diameter (so SE can correct row-by-row if some rods were short).
+    const items = request?.steel_specs?.items;
+    if (Array.isArray(items) && items.length > 0) {
+      setReceivedSteelItems(items.map(it => String(it.calculated_weight_kg || it.weight_kg || 0)));
+    } else {
+      setReceivedSteelItems([]);
+    }
     setGpsLocation(null);
     setLorryImageId(null);
     setMaterialImageId(null);
@@ -828,23 +840,44 @@ export default function SiteEngineerProject() {
       toast.error('GPS location required');
       return;
     }
-    if (!receiveForm.received_qty) {
+    // Feb 2026 — when steel breakdown is present, the per-diameter rows are
+    // the source of truth and `received_qty` becomes the auto-summed total.
+    const steelItems = receiveDialog.request?.steel_specs?.items || [];
+    const isSteelBreakdown = steelItems.length > 0;
+    let receivedQtyFinal = parseFloat(receiveForm.received_qty);
+    let steelReceivedPayload = null;
+    if (isSteelBreakdown) {
+      const parsed = steelItems.map((it, idx) => parseFloat(receivedSteelItems[idx]));
+      if (parsed.some(v => isNaN(v) || v < 0)) {
+        toast.error('Enter received qty for every diameter (≥ 0)');
+        return;
+      }
+      receivedQtyFinal = parsed.reduce((s, v) => s + v, 0);
+      steelReceivedPayload = steelItems.map((it, idx) => ({
+        diameter_mm: it.diameter_mm,
+        rod_count: it.rod_count,
+        requested_weight_kg: parseFloat(it.calculated_weight_kg || it.weight_kg) || 0,
+        received_weight_kg: parsed[idx],
+      }));
+    } else if (!receivedQtyFinal || receivedQtyFinal <= 0) {
       toast.error('Enter received quantity');
       return;
     }
 
     try {
-      await axios.post(`${API}/site-engineer/material-receipts/initiate`, {
+      const payload = {
         request_id: receiveDialog.request.request_id,
-        received_qty: parseFloat(receiveForm.received_qty),
+        received_qty: receivedQtyFinal,
         gps_latitude: gpsLocation.latitude,
         gps_longitude: gpsLocation.longitude,
         receive_date: receiveForm.receive_date,
         receive_time: receiveForm.receive_time,
         lorry_image_id: lorryImageId,
         material_image_id: materialImageId,
-        remarks: receiveForm.remarks || null
-      });
+        remarks: receiveForm.remarks || null,
+      };
+      if (steelReceivedPayload) payload.steel_received = steelReceivedPayload;
+      await axios.post(`${API}/site-engineer/material-receipts/initiate`, payload);
 
       toast.success('Material receipt recorded');
       setReceiveDialog({ open: false, request: null });
@@ -853,6 +886,7 @@ export default function SiteEngineerProject() {
       setMaterialImageId(null);
       setGpsLocation(null);
       setReceiveForm({ received_qty: '', remarks: '', receive_date: new Date().toISOString().split('T')[0], receive_time: new Date().toTimeString().slice(0,5) });
+      setReceivedSteelItems([]);
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to record receipt');
@@ -1991,15 +2025,71 @@ export default function SiteEngineerProject() {
                 </div>
               </div>
               
-              <div>
-                <Label className="text-xs sm:text-sm">Received Qty *</Label>
-                <NumericInput 
-                  value={receiveForm.received_qty}
-                  onChange={(e) => setReceiveForm({...receiveForm, received_qty: e.target.value})}
-                  className="text-sm"
-                  data-testid="receive-qty-input"
-                />
-              </div>
+              {/* Received Qty — per-diameter when steel_specs.items present (Feb 2026) */}
+              {receiveDialog.request.steel_specs?.items?.length > 0 ? (
+                <div className="rounded-md border border-amber-300 bg-amber-50/40 overflow-hidden">
+                  <div className="px-3 py-2 bg-amber-100/60 text-[11px] uppercase tracking-wide text-amber-800 font-semibold flex items-center justify-between">
+                    <span>⚙ Steel — Received Per Diameter *</span>
+                    <span className="text-[10px] normal-case">{receiveDialog.request.steel_specs.items.length} diameter{receiveDialog.request.steel_specs.items.length === 1 ? '' : 's'}</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-amber-50 text-amber-800">
+                        <tr>
+                          <th className="text-left px-2 py-1.5 w-6">#</th>
+                          <th className="text-left px-2 py-1.5">Diameter</th>
+                          <th className="text-right px-2 py-1.5">Rods</th>
+                          <th className="text-right px-2 py-1.5">Requested (kg)</th>
+                          <th className="text-right px-2 py-1.5">Received Qty (kg) *</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {receiveDialog.request.steel_specs.items.map((it, idx) => (
+                          <tr key={idx} className="border-t border-amber-200">
+                            <td className="px-2 py-1.5 text-gray-500">{idx + 1}</td>
+                            <td className="px-2 py-1.5 font-semibold text-slate-800">Ø {it.diameter_mm} mm</td>
+                            <td className="px-2 py-1.5 text-right">{it.rod_count}</td>
+                            <td className="px-2 py-1.5 text-right text-amber-700">{Number(it.calculated_weight_kg || it.weight_kg || 0).toFixed(2)}</td>
+                            <td className="px-2 py-1.5">
+                              <NumericInput
+                                value={receivedSteelItems[idx] || ''}
+                                onChange={(e) => {
+                                  const next = [...receivedSteelItems];
+                                  next[idx] = e.target.value;
+                                  setReceivedSteelItems(next);
+                                }}
+                                className="h-7 text-right text-sm"
+                                data-testid={`receive-steel-qty-${it.diameter_mm}`}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-amber-100/40 border-t border-amber-300">
+                        <tr>
+                          <td colSpan={3} className="px-2 py-1.5 text-right font-semibold text-amber-800">Total Received Qty</td>
+                          <td className="px-2 py-1.5 text-right text-amber-700 font-semibold">
+                            {(receiveDialog.request.steel_specs.total_weight_kg || 0).toFixed(2)} kg
+                          </td>
+                          <td className="px-2 py-1.5 text-right font-bold text-emerald-700" data-testid="receive-steel-total">
+                            {receivedSteelItems.reduce((s, v) => s + (parseFloat(v) || 0), 0).toFixed(2)} kg
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <Label className="text-xs sm:text-sm">Received Qty *</Label>
+                  <NumericInput 
+                    value={receiveForm.received_qty}
+                    onChange={(e) => setReceiveForm({...receiveForm, received_qty: e.target.value})}
+                    className="text-sm"
+                    data-testid="receive-qty-input"
+                  />
+                </div>
+              )}
 
               {/* Image Uploads */}
               <div className="grid grid-cols-2 gap-2">

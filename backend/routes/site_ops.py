@@ -1664,6 +1664,9 @@ class MaterialReceiptCreate(BaseModel):
     material_image_id: Optional[str] = None
     photo_url: Optional[str] = None
     remarks: Optional[str] = None
+    # Feb 12 2026 — per-diameter received qty for steel orders. Each entry:
+    #   { diameter_mm, rod_count, requested_weight_kg, received_weight_kg }
+    steel_received: Optional[List[Dict[str, Any]]] = None
 
 
 import random
@@ -1723,6 +1726,9 @@ async def initiate_material_receipt(
     rcpt_dict["material_name"] = request.get("material_name", "")
     rcpt_dict["unit"] = request.get("unit", "")
     rcpt_dict["brand"] = request.get("brand", "")
+    if data.steel_received:
+        # Per-diameter received qty (Feb 2026) — kept on the receipt for audit.
+        rcpt_dict["steel_received"] = [dict(x) for x in data.steel_received]
     rcpt_dict.pop("otp_code", None)  # never persist empty OTP
     await db.material_receipts.insert_one(rcpt_dict)
     rcpt_dict.pop("_id", None)
