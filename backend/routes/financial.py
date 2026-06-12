@@ -195,6 +195,188 @@ async def save_closing_balance(payload: Dict[str, Any], user: User = Depends(get
     return doc
 
 
+# ==================== PROJECT-WISE CARRY FORWARD ====================
+# Feb 12 2026 — per-project manual adjustment + carry-forward amounts so the
+# Super Admin can align the live ledger with offline / historical books.
+# Stored as one doc per project with both income & expense fields.
+
+
+async def _compute_project_carry_forward_row(project, cf_doc):
+    """Compute the live numbers shown in the Carry Forward project table.
+    Returns dict matching the frontend table columns."""
+    pid = project["project_id"]
+
+    # Income (approved) — payment_collection + any approved income for project
+    inc_pipeline = [
+        {"$match": {
+            "project_id": pid,
+            "status": "approved",
+        }},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+    ]
+    inc_total = 0
+    async for r in db.income.aggregate(inc_pipeline):
+        inc_total = float(r.get("total") or 0)
+
+    # Direct expense buckets (matched the Cashbook split: Material / Work Order / Petty Cash)
+    mat_total = 0
+    async for r in db.material_expenses.aggregate([
+        {"$match": {"project_id": pid, "status": {"$in": ["paid", "approved"]}}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+    ]):
+        mat_total = float(r.get("total") or 0)
+
+    wo_total = 0
+    async for r in db.labour_expenses.aggregate([
+        {"$match": {"project_id": pid, "status": {"$in": ["paid", "approved", "accountant_approved"]}}},
+        {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}},
+    ]):
+        wo_total = float(r.get("total") or 0)
+
+    # Petty cash on a site — pulled from direct_expenses (PM site expenses)
+    pc_total = 0
+    async for r in db.direct_expenses.aggregate([
+        {"$match": {"project_id": pid}},
+        {"$unwind": "$items"},
+        {"$group": {"_id": None, "total": {"$sum": "$items.amount"}}},
+    ]):
+        pc_total = float(r.get("total") or 0)
+
+    direct_total = mat_total + wo_total + pc_total
+
+    inc_cf = float((cf_doc or {}).get("income_carry_forward") or 0)
+    exp_cf = float((cf_doc or {}).get("expense_carry_forward") or 0)
+    exp_adj = float((cf_doc or {}).get("expense_adjustment") or 0)
+    inc_adj = float((cf_doc or {}).get("income_adjustment") or 0)
+
+    grand_expense = direct_total + exp_adj + exp_cf
+    grand_income = inc_total + inc_adj + inc_cf
+
+    project_value = float(project.get("original_estimate") or project.get("total_value") or 0)
+
+    return {
+        "project_id": pid,
+        "project_name": project.get("name"),
+        "project_value": project_value,
+        # Income side
+        "total_income": inc_total,
+        "income_adjustment": inc_adj,
+        "income_carry_forward": inc_cf,
+        "grand_income": grand_income,
+        # Expense side
+        "material_expense": mat_total,
+        "work_order_expense": wo_total,
+        "petty_cash_expense": pc_total,
+        "direct_expense_total": direct_total,
+        "expense_adjustment": exp_adj,
+        "expense_carry_forward": exp_cf,
+        "grand_expense": grand_expense,
+        # Diff
+        "difference": grand_income - grand_expense,
+        "note": (cf_doc or {}).get("note"),
+        "updated_at": (cf_doc or {}).get("updated_at"),
+        "updated_by_name": (cf_doc or {}).get("updated_by_name"),
+    }
+
+
+@router.get("/accountant/carry-forward/projects")
+async def list_carry_forward_projects(user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    projects = await db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1, "original_estimate": 1, "total_value": 1}).sort("name", 1).to_list(500)
+    cf_docs = await db.project_carry_forwards.find({}, {"_id": 0}).to_list(1000)
+    cf_map = {d.get("project_id"): d for d in cf_docs}
+
+    rows = []
+    for p in projects:
+        row = await _compute_project_carry_forward_row(p, cf_map.get(p["project_id"]))
+        rows.append(row)
+
+    totals = {
+        "project_value": sum(r["project_value"] for r in rows),
+        "total_income": sum(r["total_income"] for r in rows),
+        "income_carry_forward": sum(r["income_carry_forward"] for r in rows),
+        "grand_income": sum(r["grand_income"] for r in rows),
+        "direct_expense_total": sum(r["direct_expense_total"] for r in rows),
+        "expense_carry_forward": sum(r["expense_carry_forward"] for r in rows),
+        "expense_adjustment": sum(r["expense_adjustment"] for r in rows),
+        "grand_expense": sum(r["grand_expense"] for r in rows),
+        "difference": sum(r["difference"] for r in rows),
+    }
+    return {"rows": rows, "totals": totals}
+
+
+@router.get("/accountant/carry-forward/{project_id}")
+async def get_project_carry_forward(project_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    cf = await db.project_carry_forwards.find_one({"project_id": project_id}, {"_id": 0})
+    row = await _compute_project_carry_forward_row(project, cf)
+    return row
+
+
+@router.post("/accountant/carry-forward/{project_id}")
+async def save_project_carry_forward(project_id: str, payload: Dict[str, Any], user: User = Depends(get_current_user)):
+    """Save income or expense carry-forward / adjustment for a project.
+
+    Body:
+      { "type": "income" | "expense",
+        "carry_forward_amount": <float>,
+        "adjustment_amount": <float>   (expense only — optional),
+        "note": <str>                   (optional) }
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can update carry forward")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    kind = (payload.get("type") or "").lower()
+    if kind not in ("income", "expense"):
+        raise HTTPException(status_code=400, detail="type must be 'income' or 'expense'")
+
+    def _num(v):
+        try:
+            return float(v or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    cf_amount = _num(payload.get("carry_forward_amount"))
+    set_doc = {
+        "project_id": project_id,
+        "project_name": project.get("name"),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": user.user_id,
+        "updated_by_name": user.name,
+    }
+    if kind == "income":
+        set_doc["income_carry_forward"] = cf_amount
+        set_doc["income_adjustment"] = _num(payload.get("adjustment_amount"))
+        set_doc["income_note"] = payload.get("note") or ""
+    else:
+        set_doc["expense_carry_forward"] = cf_amount
+        set_doc["expense_adjustment"] = _num(payload.get("adjustment_amount"))
+        set_doc["expense_note"] = payload.get("note") or ""
+
+    await db.project_carry_forwards.update_one(
+        {"project_id": project_id}, {"$set": set_doc}, upsert=True,
+    )
+    await create_audit_log(
+        user.user_id, "save_project_carry_forward", "project_carry_forward",
+        project_id, {"type": kind, "amount": cf_amount},
+    )
+    cf = await db.project_carry_forwards.find_one({"project_id": project_id}, {"_id": 0})
+    row = await _compute_project_carry_forward_row(project, cf)
+    return row
+
+
+
+
 @router.get("/accountant/overview")
 async def get_accountant_overview(user: User = Depends(get_current_user)):
     """Comprehensive accountant overview: income/expense by payment mode, project-wise"""

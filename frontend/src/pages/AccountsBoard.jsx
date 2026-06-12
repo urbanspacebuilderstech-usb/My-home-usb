@@ -4523,6 +4523,15 @@ function CarryForwardTab({ userRole }) {
     cash: '',
     cheque: '',
   });
+  // Project-wise table state (Feb 2026)
+  const [projectRows, setProjectRows] = useState([]);
+  const [projectTotals, setProjectTotals] = useState(null);
+  const [projectLoading, setProjectLoading] = useState(true);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerProject, setPickerProject] = useState(null);
+  const [cfDialog, setCfDialog] = useState({ open: false, type: null, project: null });
+  const [cfForm, setCfForm] = useState({ adjustment_amount: '', carry_forward_amount: '', note: '' });
+  const [cfSaving, setCfSaving] = useState(false);
   const canEdit = userRole === 'super_admin';
 
   const load = useCallback(async () => {
@@ -4537,6 +4546,81 @@ function CarryForwardTab({ userRole }) {
     }
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // Per-project carry-forward table data
+  const loadProjects = useCallback(async () => {
+    try {
+      setProjectLoading(true);
+      const res = await axios.get(`${API}/accountant/carry-forward/projects`);
+      setProjectRows(res.data?.rows || []);
+      setProjectTotals(res.data?.totals || null);
+    } catch (e) {
+      toast.error('Failed to load project carry-forwards');
+    } finally {
+      setProjectLoading(false);
+    }
+  }, []);
+  useEffect(() => { loadProjects(); }, [loadProjects]);
+
+  const openCfDialog = (project, type) => {
+    setCfDialog({ open: true, type, project });
+    if (type === 'income') {
+      setCfForm({
+        adjustment_amount: project.income_adjustment ?? '',
+        carry_forward_amount: project.income_carry_forward ?? '',
+        note: '',
+      });
+    } else {
+      setCfForm({
+        adjustment_amount: project.expense_adjustment ?? '',
+        carry_forward_amount: project.expense_carry_forward ?? '',
+        note: '',
+      });
+    }
+  };
+
+  const askIncomeOrExpense = (project) => {
+    setPickerProject(project);
+    setPickerOpen(true);
+  };
+
+  const submitCarryForward = async () => {
+    if (!cfDialog.project || !cfDialog.type) return;
+    try {
+      setCfSaving(true);
+      const payload = {
+        type: cfDialog.type,
+        adjustment_amount: parseFloat(cfForm.adjustment_amount) || 0,
+        carry_forward_amount: parseFloat(cfForm.carry_forward_amount) || 0,
+        note: cfForm.note || '',
+      };
+      await axios.post(`${API}/accountant/carry-forward/${cfDialog.project.project_id}`, payload);
+      toast.success(`${cfDialog.type === 'income' ? 'Income' : 'Expense'} carry-forward saved`);
+      setCfDialog({ open: false, type: null, project: null });
+      await loadProjects();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to save');
+    } finally {
+      setCfSaving(false);
+    }
+  };
+
+  // Live "expense popup" computed values (mirrors the project row but with form overrides)
+  const cfDialogComputed = (() => {
+    const p = cfDialog.project;
+    if (!p) return null;
+    const adj = parseFloat(cfForm.adjustment_amount) || 0;
+    const carry = parseFloat(cfForm.carry_forward_amount) || 0;
+    if (cfDialog.type === 'expense') {
+      const direct = (p.material_expense || 0) + (p.work_order_expense || 0) + (p.petty_cash_expense || 0);
+      const grand = direct + adj + carry;
+      const difference = (p.grand_income || 0) - grand;
+      return { adj, carry, direct, grand, difference };
+    }
+    const grand = (p.total_income || 0) + adj + carry;
+    const difference = grand - (p.grand_expense || 0);
+    return { adj, carry, grand, difference };
+  })();
 
   const openDialog = () => {
     setForm({
@@ -4657,6 +4741,203 @@ function CarryForwardTab({ userRole }) {
           Only Super Admin can lock or update the closing balance.
         </p>
       )}
+
+      {/* ─── Project-wise Carry Forward Table (Feb 2026) ─────────────── */}
+      <Card className="mt-6">
+        <CardHeader className="pb-2 flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-base">Project-wise Carry Forward</CardTitle>
+            <p className="text-[11px] text-gray-500">Manual one-time adjustments to align live ledger with offline records.</p>
+          </div>
+          {projectTotals && (
+            <div className="text-right text-[11px] text-gray-600">
+              <div>Total Income: <span className="font-semibold text-emerald-700">₹{projectTotals.grand_income.toLocaleString('en-IN')}</span></div>
+              <div>Total Expense: <span className="font-semibold text-rose-700">₹{projectTotals.grand_expense.toLocaleString('en-IN')}</span></div>
+              <div>Difference: <span className={`font-semibold ${projectTotals.difference >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>₹{projectTotals.difference.toLocaleString('en-IN')}</span></div>
+            </div>
+          )}
+        </CardHeader>
+        <CardContent className="p-0">
+          {projectLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <RefreshCw className="h-5 w-5 animate-spin text-amber-600" />
+            </div>
+          ) : projectRows.length === 0 ? (
+            <p className="text-center text-sm text-gray-500 py-8">No projects yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs" data-testid="carry-forward-projects-table">
+                <thead className="bg-gray-50 text-gray-700 uppercase text-[10px] tracking-wide">
+                  <tr>
+                    <th className="text-left px-3 py-2">Project</th>
+                    <th className="text-right px-3 py-2">Project Value</th>
+                    <th className="text-right px-3 py-2">Total Income</th>
+                    <th className="text-right px-3 py-2">CF Income</th>
+                    <th className="text-right px-3 py-2">Total Expense</th>
+                    <th className="text-right px-3 py-2">CF Expense</th>
+                    <th className="text-right px-3 py-2">Difference</th>
+                    {canEdit && <th className="text-center px-3 py-2">Carry Forward</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {projectRows.map((r) => (
+                    <tr key={r.project_id} className="border-t hover:bg-amber-50/30">
+                      <td className="px-3 py-2 font-medium text-gray-900">{r.project_name}</td>
+                      <td className="px-3 py-2 text-right">₹{(r.project_value || 0).toLocaleString('en-IN')}</td>
+                      <td className="px-3 py-2 text-right text-emerald-700">₹{(r.total_income || 0).toLocaleString('en-IN')}</td>
+                      <td
+                        className={`px-3 py-2 text-right font-semibold ${canEdit ? 'cursor-pointer underline-offset-2 hover:underline text-emerald-700' : 'text-gray-500'}`}
+                        onClick={() => canEdit && openCfDialog(r, 'income')}
+                        data-testid={`cf-income-cell-${r.project_id}`}
+                        title={canEdit ? 'Click to edit income carry-forward' : ''}
+                      >
+                        ₹{(r.income_carry_forward || 0).toLocaleString('en-IN')}
+                      </td>
+                      <td className="px-3 py-2 text-right text-rose-700">₹{(r.direct_expense_total || 0).toLocaleString('en-IN')}</td>
+                      <td
+                        className={`px-3 py-2 text-right font-semibold ${canEdit ? 'cursor-pointer underline-offset-2 hover:underline text-rose-700' : 'text-gray-500'}`}
+                        onClick={() => canEdit && openCfDialog(r, 'expense')}
+                        data-testid={`cf-expense-cell-${r.project_id}`}
+                        title={canEdit ? 'Click to edit expense carry-forward' : ''}
+                      >
+                        ₹{(r.expense_carry_forward || 0).toLocaleString('en-IN')}
+                      </td>
+                      <td className={`px-3 py-2 text-right font-semibold ${r.difference === 0 ? 'text-gray-600' : (r.difference > 0 ? 'text-emerald-700' : 'text-rose-700')}`}>
+                        ₹{(r.difference || 0).toLocaleString('en-IN')}
+                      </td>
+                      {canEdit && (
+                        <td className="px-3 py-2 text-center">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[11px] gap-1 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                            onClick={() => askIncomeOrExpense(r)}
+                            data-testid={`cf-row-btn-${r.project_id}`}
+                          >
+                            <Lock className="h-3 w-3" /> Carry Forward
+                          </Button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Income / Expense picker dialog */}
+      <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Carry Forward — {pickerProject?.project_name}</DialogTitle>
+            <DialogDescription className="text-xs">Pick which side you want to add a carry-forward / adjustment for.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3 py-2">
+            <Button
+              variant="outline"
+              className="h-20 flex-col gap-1 border-emerald-300 hover:bg-emerald-50 text-emerald-700"
+              onClick={() => { setPickerOpen(false); openCfDialog(pickerProject, 'income'); }}
+              data-testid="picker-income-btn"
+            >
+              <ArrowDownRight className="h-5 w-5" />
+              <span className="text-sm font-semibold">Income</span>
+            </Button>
+            <Button
+              variant="outline"
+              className="h-20 flex-col gap-1 border-rose-300 hover:bg-rose-50 text-rose-700"
+              onClick={() => { setPickerOpen(false); openCfDialog(pickerProject, 'expense'); }}
+              data-testid="picker-expense-btn"
+            >
+              <ArrowUpRight className="h-5 w-5" />
+              <span className="text-sm font-semibold">Expense</span>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Income / Expense carry-forward edit dialog */}
+      <Dialog open={cfDialog.open} onOpenChange={(open) => setCfDialog({ ...cfDialog, open })}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className={cfDialog.type === 'income' ? 'text-emerald-700' : 'text-rose-700'}>
+              {cfDialog.type === 'income' ? 'Income' : 'Expense'} Carry Forward — {cfDialog.project?.project_name}
+            </DialogTitle>
+          </DialogHeader>
+
+          {cfDialog.type === 'expense' && cfDialog.project && (
+            <div className="space-y-1 text-xs bg-rose-50/40 border border-rose-100 rounded-md p-3">
+              <div className="flex justify-between"><span>Material</span><span className="font-semibold">₹{(cfDialog.project.material_expense || 0).toLocaleString('en-IN')}</span></div>
+              <div className="flex justify-between"><span>Work Order</span><span className="font-semibold">₹{(cfDialog.project.work_order_expense || 0).toLocaleString('en-IN')}</span></div>
+              <div className="flex justify-between"><span>Petty Cash</span><span className="font-semibold">₹{(cfDialog.project.petty_cash_expense || 0).toLocaleString('en-IN')}</span></div>
+              <div className="flex justify-between border-t pt-1 mt-1"><span>Direct Expense Total</span><span className="font-semibold">₹{(cfDialogComputed?.direct || 0).toLocaleString('en-IN')}</span></div>
+              <div className="flex justify-between text-rose-700"><span>+ Adjustment (Indirect)</span><span className="font-semibold">₹{(cfDialogComputed?.adj || 0).toLocaleString('en-IN')}</span></div>
+              <div className="flex justify-between text-rose-700"><span>+ Carry Forward Add</span><span className="font-semibold">₹{(cfDialogComputed?.carry || 0).toLocaleString('en-IN')}</span></div>
+              <div className="flex justify-between border-t pt-1 mt-1 font-bold"><span>Grand Total</span><span>₹{(cfDialogComputed?.grand || 0).toLocaleString('en-IN')}</span></div>
+              <div className={`flex justify-between font-bold ${cfDialogComputed?.difference >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                <span>Project Difference (Income − Expense)</span><span>₹{(cfDialogComputed?.difference || 0).toLocaleString('en-IN')}</span>
+              </div>
+            </div>
+          )}
+
+          {cfDialog.type === 'income' && cfDialog.project && (
+            <div className="space-y-1 text-xs bg-emerald-50/40 border border-emerald-100 rounded-md p-3">
+              <div className="flex justify-between"><span>Total Approved Income</span><span className="font-semibold">₹{(cfDialog.project.total_income || 0).toLocaleString('en-IN')}</span></div>
+              <div className="flex justify-between text-emerald-700"><span>+ Adjustment</span><span className="font-semibold">₹{(cfDialogComputed?.adj || 0).toLocaleString('en-IN')}</span></div>
+              <div className="flex justify-between text-emerald-700"><span>+ Carry Forward Add</span><span className="font-semibold">₹{(cfDialogComputed?.carry || 0).toLocaleString('en-IN')}</span></div>
+              <div className="flex justify-between border-t pt-1 mt-1 font-bold"><span>Grand Income</span><span>₹{(cfDialogComputed?.grand || 0).toLocaleString('en-IN')}</span></div>
+              <div className={`flex justify-between font-bold ${cfDialogComputed?.difference >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                <span>Project Difference (Income − Expense)</span><span>₹{(cfDialogComputed?.difference || 0).toLocaleString('en-IN')}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">{cfDialog.type === 'expense' ? 'Adjustment (Indirect)' : 'Adjustment'}</Label>
+              <Input
+                type="number" step="0.01"
+                value={cfForm.adjustment_amount}
+                onChange={(e) => setCfForm({ ...cfForm, adjustment_amount: e.target.value })}
+                data-testid="cf-adjustment-input"
+                placeholder="0"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">{cfDialog.type === 'expense' ? 'Expense Carry Forward Add' : 'Income Carry Forward Add'}</Label>
+              <Input
+                type="number" step="0.01"
+                value={cfForm.carry_forward_amount}
+                onChange={(e) => setCfForm({ ...cfForm, carry_forward_amount: e.target.value })}
+                data-testid="cf-carry-input"
+                placeholder="0"
+              />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs">Note (optional)</Label>
+            <Input
+              value={cfForm.note}
+              onChange={(e) => setCfForm({ ...cfForm, note: e.target.value })}
+              placeholder="Why this carry-forward?"
+              data-testid="cf-note-input"
+            />
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setCfDialog({ open: false, type: null, project: null })} disabled={cfSaving}>Cancel</Button>
+            <Button
+              onClick={submitCarryForward}
+              disabled={cfSaving}
+              className={cfDialog.type === 'income' ? 'bg-emerald-600 hover:bg-emerald-700 gap-1.5' : 'bg-rose-600 hover:bg-rose-700 gap-1.5'}
+              data-testid="cf-save-btn"
+            >
+              <Lock className="h-4 w-4" /> {cfSaving ? 'Saving…' : 'Save Carry Forward'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Lock Closing Balance dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
