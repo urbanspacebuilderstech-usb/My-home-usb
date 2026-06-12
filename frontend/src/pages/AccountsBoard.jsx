@@ -4530,7 +4530,17 @@ function CarryForwardTab({ userRole }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerProject, setPickerProject] = useState(null);
   const [cfDialog, setCfDialog] = useState({ open: false, type: null, project: null });
-  const [cfForm, setCfForm] = useState({ adjustment_amount: '', carry_forward_amount: '', note: '' });
+  const [cfForm, setCfForm] = useState({
+    // Income side
+    adjustment_amount: '',
+    carry_forward_amount: '',
+    // Expense side (4 separate buckets — Feb 2026 user spec)
+    material_carry_forward: '',
+    labour_carry_forward: '',
+    petty_cash_carry_forward: '',
+    indirect_carry_forward: '',
+    note: '',
+  });
   const [cfSaving, setCfSaving] = useState(false);
   const canEdit = userRole === 'super_admin';
 
@@ -4568,12 +4578,20 @@ function CarryForwardTab({ userRole }) {
       setCfForm({
         adjustment_amount: project.income_adjustment ?? '',
         carry_forward_amount: project.income_carry_forward ?? '',
+        material_carry_forward: '',
+        labour_carry_forward: '',
+        petty_cash_carry_forward: '',
+        indirect_carry_forward: '',
         note: '',
       });
     } else {
       setCfForm({
-        adjustment_amount: project.expense_adjustment ?? '',
-        carry_forward_amount: project.expense_carry_forward ?? '',
+        adjustment_amount: '',
+        carry_forward_amount: '',
+        material_carry_forward: project.material_carry_forward ?? '',
+        labour_carry_forward: project.labour_carry_forward ?? '',
+        petty_cash_carry_forward: project.petty_cash_carry_forward ?? '',
+        indirect_carry_forward: project.indirect_carry_forward ?? '',
         note: '',
       });
     }
@@ -4590,10 +4608,17 @@ function CarryForwardTab({ userRole }) {
       setCfSaving(true);
       const payload = {
         type: cfDialog.type,
-        adjustment_amount: parseFloat(cfForm.adjustment_amount) || 0,
-        carry_forward_amount: parseFloat(cfForm.carry_forward_amount) || 0,
         note: cfForm.note || '',
       };
+      if (cfDialog.type === 'income') {
+        payload.adjustment_amount = parseFloat(cfForm.adjustment_amount) || 0;
+        payload.carry_forward_amount = parseFloat(cfForm.carry_forward_amount) || 0;
+      } else {
+        payload.material_carry_forward = parseFloat(cfForm.material_carry_forward) || 0;
+        payload.labour_carry_forward = parseFloat(cfForm.labour_carry_forward) || 0;
+        payload.petty_cash_carry_forward = parseFloat(cfForm.petty_cash_carry_forward) || 0;
+        payload.indirect_carry_forward = parseFloat(cfForm.indirect_carry_forward) || 0;
+      }
       await axios.post(`${API}/accountant/carry-forward/${cfDialog.project.project_id}`, payload);
       toast.success(`${cfDialog.type === 'income' ? 'Income' : 'Expense'} carry-forward saved`);
       setCfDialog({ open: false, type: null, project: null });
@@ -4605,18 +4630,23 @@ function CarryForwardTab({ userRole }) {
     }
   };
 
-  // Live "expense popup" computed values (mirrors the project row but with form overrides)
+  // Live "expense popup" computed values
   const cfDialogComputed = (() => {
     const p = cfDialog.project;
     if (!p) return null;
+    if (cfDialog.type === 'expense') {
+      const matCf = parseFloat(cfForm.material_carry_forward) || 0;
+      const labCf = parseFloat(cfForm.labour_carry_forward) || 0;
+      const pcCf = parseFloat(cfForm.petty_cash_carry_forward) || 0;
+      const indirectCf = parseFloat(cfForm.indirect_carry_forward) || 0;
+      const directCf = matCf + labCf + pcCf;
+      const totalCf = directCf + indirectCf;
+      const grandExpense = (p.direct_expense_total || 0) + totalCf;
+      const difference = (p.grand_income || 0) - grandExpense;
+      return { matCf, labCf, pcCf, indirectCf, directCf, totalCf, grandExpense, difference };
+    }
     const adj = parseFloat(cfForm.adjustment_amount) || 0;
     const carry = parseFloat(cfForm.carry_forward_amount) || 0;
-    if (cfDialog.type === 'expense') {
-      const direct = (p.material_expense || 0) + (p.work_order_expense || 0) + (p.petty_cash_expense || 0);
-      const grand = direct + adj + carry;
-      const difference = (p.grand_income || 0) - grand;
-      return { adj, carry, direct, grand, difference };
-    }
     const grand = (p.total_income || 0) + adj + carry;
     const difference = grand - (p.grand_expense || 0);
     return { adj, carry, grand, difference };
@@ -4867,54 +4897,124 @@ function CarryForwardTab({ userRole }) {
           </DialogHeader>
 
           {cfDialog.type === 'expense' && cfDialog.project && (
-            <div className="space-y-1 text-xs bg-rose-50/40 border border-rose-100 rounded-md p-3">
-              <div className="flex justify-between"><span>Material</span><span className="font-semibold">₹{(cfDialog.project.material_expense || 0).toLocaleString('en-IN')}</span></div>
-              <div className="flex justify-between"><span>Work Order</span><span className="font-semibold">₹{(cfDialog.project.work_order_expense || 0).toLocaleString('en-IN')}</span></div>
-              <div className="flex justify-between"><span>Petty Cash</span><span className="font-semibold">₹{(cfDialog.project.petty_cash_expense || 0).toLocaleString('en-IN')}</span></div>
-              <div className="flex justify-between border-t pt-1 mt-1"><span>Direct Expense Total</span><span className="font-semibold">₹{(cfDialogComputed?.direct || 0).toLocaleString('en-IN')}</span></div>
-              <div className="flex justify-between text-rose-700"><span>+ Adjustment (Indirect)</span><span className="font-semibold">₹{(cfDialogComputed?.adj || 0).toLocaleString('en-IN')}</span></div>
-              <div className="flex justify-between text-rose-700"><span>+ Carry Forward Add</span><span className="font-semibold">₹{(cfDialogComputed?.carry || 0).toLocaleString('en-IN')}</span></div>
-              <div className="flex justify-between border-t pt-1 mt-1 font-bold"><span>Grand Total</span><span>₹{(cfDialogComputed?.grand || 0).toLocaleString('en-IN')}</span></div>
-              <div className={`flex justify-between font-bold ${cfDialogComputed?.difference >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                <span>Project Difference (Income − Expense)</span><span>₹{(cfDialogComputed?.difference || 0).toLocaleString('en-IN')}</span>
+            <div className="space-y-3">
+              {/* Live ledger reference (read-only) */}
+              <div className="space-y-1 text-xs bg-gray-50 border border-gray-200 rounded-md p-3">
+                <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1 font-semibold">Live Ledger (read-only)</div>
+                <div className="flex justify-between"><span>Material (actual)</span><span className="font-semibold">₹{(cfDialog.project.material_expense || 0).toLocaleString('en-IN')}</span></div>
+                <div className="flex justify-between"><span>Work Order (actual)</span><span className="font-semibold">₹{(cfDialog.project.work_order_expense || 0).toLocaleString('en-IN')}</span></div>
+                <div className="flex justify-between"><span>Petty Cash (actual)</span><span className="font-semibold">₹{(cfDialog.project.petty_cash_expense || 0).toLocaleString('en-IN')}</span></div>
+                <div className="flex justify-between border-t pt-1 mt-1"><span>Direct Expense Total</span><span className="font-semibold">₹{(cfDialog.project.direct_expense_total || 0).toLocaleString('en-IN')}</span></div>
+              </div>
+
+              {/* Carry-forward INPUT panel */}
+              <div className="space-y-2 rounded-md border border-rose-200 bg-rose-50/40 p-3">
+                <div className="text-[10px] uppercase tracking-wide text-rose-700 font-semibold">Carry Forward Entry</div>
+
+                <div className="text-[11px] font-semibold text-gray-700 mt-1">Direct</div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <Label className="text-[10px] text-gray-600">Material</Label>
+                    <Input
+                      type="number" step="0.01"
+                      value={cfForm.material_carry_forward}
+                      onChange={(e) => setCfForm({ ...cfForm, material_carry_forward: e.target.value })}
+                      data-testid="cf-material-input"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-gray-600">Labour</Label>
+                    <Input
+                      type="number" step="0.01"
+                      value={cfForm.labour_carry_forward}
+                      onChange={(e) => setCfForm({ ...cfForm, labour_carry_forward: e.target.value })}
+                      data-testid="cf-labour-input"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-gray-600">Petty Cash</Label>
+                    <Input
+                      type="number" step="0.01"
+                      value={cfForm.petty_cash_carry_forward}
+                      onChange={(e) => setCfForm({ ...cfForm, petty_cash_carry_forward: e.target.value })}
+                      data-testid="cf-pettycash-input"
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-between text-xs bg-white/60 rounded px-2 py-1">
+                  <span className="text-gray-600">Direct Auto Total</span>
+                  <span className="font-semibold text-rose-700" data-testid="cf-direct-auto-total">₹{(cfDialogComputed?.directCf || 0).toLocaleString('en-IN')}</span>
+                </div>
+
+                <div className="text-[11px] font-semibold text-gray-700 mt-2">Indirect</div>
+                <div>
+                  <Label className="text-[10px] text-gray-600">Indirect Expense (single amount)</Label>
+                  <Input
+                    type="number" step="0.01"
+                    value={cfForm.indirect_carry_forward}
+                    onChange={(e) => setCfForm({ ...cfForm, indirect_carry_forward: e.target.value })}
+                    data-testid="cf-indirect-input"
+                    placeholder="0"
+                  />
+                </div>
+
+                <div className="flex justify-between text-sm border-t pt-2 mt-1">
+                  <span className="font-semibold text-gray-700">Total Expense CF (Direct + Indirect)</span>
+                  <span className="font-bold text-rose-700" data-testid="cf-total-expense">₹{(cfDialogComputed?.totalCf || 0).toLocaleString('en-IN')}</span>
+                </div>
+              </div>
+
+              {/* Roll-up summary */}
+              <div className="space-y-1 text-xs bg-rose-50/60 border border-rose-200 rounded-md p-3">
+                <div className="flex justify-between"><span>Live Direct Expense</span><span>₹{(cfDialog.project.direct_expense_total || 0).toLocaleString('en-IN')}</span></div>
+                <div className="flex justify-between text-rose-700"><span>+ Carry Forward (Direct + Indirect)</span><span className="font-semibold">₹{(cfDialogComputed?.totalCf || 0).toLocaleString('en-IN')}</span></div>
+                <div className="flex justify-between border-t pt-1 mt-1 font-bold"><span>Grand Total Expense</span><span>₹{(cfDialogComputed?.grandExpense || 0).toLocaleString('en-IN')}</span></div>
+                <div className={`flex justify-between font-bold ${cfDialogComputed?.difference >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  <span>Project Difference (Income − Expense)</span><span>₹{(cfDialogComputed?.difference || 0).toLocaleString('en-IN')}</span>
+                </div>
               </div>
             </div>
           )}
 
           {cfDialog.type === 'income' && cfDialog.project && (
-            <div className="space-y-1 text-xs bg-emerald-50/40 border border-emerald-100 rounded-md p-3">
-              <div className="flex justify-between"><span>Total Approved Income</span><span className="font-semibold">₹{(cfDialog.project.total_income || 0).toLocaleString('en-IN')}</span></div>
-              <div className="flex justify-between text-emerald-700"><span>+ Adjustment</span><span className="font-semibold">₹{(cfDialogComputed?.adj || 0).toLocaleString('en-IN')}</span></div>
-              <div className="flex justify-between text-emerald-700"><span>+ Carry Forward Add</span><span className="font-semibold">₹{(cfDialogComputed?.carry || 0).toLocaleString('en-IN')}</span></div>
-              <div className="flex justify-between border-t pt-1 mt-1 font-bold"><span>Grand Income</span><span>₹{(cfDialogComputed?.grand || 0).toLocaleString('en-IN')}</span></div>
-              <div className={`flex justify-between font-bold ${cfDialogComputed?.difference >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                <span>Project Difference (Income − Expense)</span><span>₹{(cfDialogComputed?.difference || 0).toLocaleString('en-IN')}</span>
+            <div className="space-y-3">
+              <div className="space-y-1 text-xs bg-emerald-50/40 border border-emerald-100 rounded-md p-3">
+                <div className="flex justify-between"><span>Total Approved Income</span><span className="font-semibold">₹{(cfDialog.project.total_income || 0).toLocaleString('en-IN')}</span></div>
+                <div className="flex justify-between text-emerald-700"><span>+ Adjustment</span><span className="font-semibold">₹{(cfDialogComputed?.adj || 0).toLocaleString('en-IN')}</span></div>
+                <div className="flex justify-between text-emerald-700"><span>+ Carry Forward Add</span><span className="font-semibold">₹{(cfDialogComputed?.carry || 0).toLocaleString('en-IN')}</span></div>
+                <div className="flex justify-between border-t pt-1 mt-1 font-bold"><span>Grand Income</span><span>₹{(cfDialogComputed?.grand || 0).toLocaleString('en-IN')}</span></div>
+                <div className={`flex justify-between font-bold ${cfDialogComputed?.difference >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  <span>Project Difference (Income − Expense)</span><span>₹{(cfDialogComputed?.difference || 0).toLocaleString('en-IN')}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Adjustment</Label>
+                  <Input
+                    type="number" step="0.01"
+                    value={cfForm.adjustment_amount}
+                    onChange={(e) => setCfForm({ ...cfForm, adjustment_amount: e.target.value })}
+                    data-testid="cf-adjustment-input"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Income Carry Forward Add</Label>
+                  <Input
+                    type="number" step="0.01"
+                    value={cfForm.carry_forward_amount}
+                    onChange={(e) => setCfForm({ ...cfForm, carry_forward_amount: e.target.value })}
+                    data-testid="cf-carry-input"
+                    placeholder="0"
+                  />
+                </div>
               </div>
             </div>
           )}
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="text-xs">{cfDialog.type === 'expense' ? 'Adjustment (Indirect)' : 'Adjustment'}</Label>
-              <Input
-                type="number" step="0.01"
-                value={cfForm.adjustment_amount}
-                onChange={(e) => setCfForm({ ...cfForm, adjustment_amount: e.target.value })}
-                data-testid="cf-adjustment-input"
-                placeholder="0"
-              />
-            </div>
-            <div>
-              <Label className="text-xs">{cfDialog.type === 'expense' ? 'Expense Carry Forward Add' : 'Income Carry Forward Add'}</Label>
-              <Input
-                type="number" step="0.01"
-                value={cfForm.carry_forward_amount}
-                onChange={(e) => setCfForm({ ...cfForm, carry_forward_amount: e.target.value })}
-                data-testid="cf-carry-input"
-                placeholder="0"
-              />
-            </div>
-          </div>
           <div>
             <Label className="text-xs">Note (optional)</Label>
             <Input

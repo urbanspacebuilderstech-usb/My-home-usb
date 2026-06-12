@@ -244,12 +244,29 @@ async def _compute_project_carry_forward_row(project, cf_doc):
 
     direct_total = mat_total + wo_total + pc_total
 
-    inc_cf = float((cf_doc or {}).get("income_carry_forward") or 0)
-    exp_cf = float((cf_doc or {}).get("expense_carry_forward") or 0)
-    exp_adj = float((cf_doc or {}).get("expense_adjustment") or 0)
-    inc_adj = float((cf_doc or {}).get("income_adjustment") or 0)
+    cf = cf_doc or {}
+    # Feb 12 2026 — expense carry-forward now broken into 4 explicit buckets
+    # per user request: Material / Labour / Petty Cash (direct) + Indirect.
+    # Legacy `expense_carry_forward` (rolled-up) and `expense_adjustment`
+    # fields are still read so existing data survives the migration.
+    mat_cf = float(cf.get("material_carry_forward") or 0)
+    lab_cf = float(cf.get("labour_carry_forward") or 0)
+    pc_cf = float(cf.get("petty_cash_carry_forward") or 0)
+    indirect_cf = float(cf.get("indirect_carry_forward") or 0)
+    # Backward compat: if new fields are all zero AND legacy fields are set,
+    # surface the legacy values under Indirect so the user can re-bucket them.
+    if (mat_cf + lab_cf + pc_cf + indirect_cf) == 0:
+        legacy_total = float(cf.get("expense_carry_forward") or 0) + float(cf.get("expense_adjustment") or 0)
+        if legacy_total:
+            indirect_cf = legacy_total
 
-    grand_expense = direct_total + exp_adj + exp_cf
+    direct_cf = mat_cf + lab_cf + pc_cf
+    expense_cf_total = direct_cf + indirect_cf
+
+    inc_cf = float(cf.get("income_carry_forward") or 0)
+    inc_adj = float(cf.get("income_adjustment") or 0)
+
+    grand_expense = direct_total + expense_cf_total
     grand_income = inc_total + inc_adj + inc_cf
 
     project_value = float(project.get("original_estimate") or project.get("total_value") or 0)
@@ -263,19 +280,25 @@ async def _compute_project_carry_forward_row(project, cf_doc):
         "income_adjustment": inc_adj,
         "income_carry_forward": inc_cf,
         "grand_income": grand_income,
-        # Expense side
+        # Expense actuals (live ledger)
         "material_expense": mat_total,
         "work_order_expense": wo_total,
         "petty_cash_expense": pc_total,
         "direct_expense_total": direct_total,
-        "expense_adjustment": exp_adj,
-        "expense_carry_forward": exp_cf,
+        # Expense carry-forward (manual) — per-bucket
+        "material_carry_forward": mat_cf,
+        "labour_carry_forward": lab_cf,
+        "petty_cash_carry_forward": pc_cf,
+        "indirect_carry_forward": indirect_cf,
+        "direct_carry_forward": direct_cf,
+        "expense_carry_forward": expense_cf_total,  # rolled-up CF (kept for table column)
+        "expense_adjustment": indirect_cf,           # alias for indirect (backward compat for frontend)
         "grand_expense": grand_expense,
         # Diff
         "difference": grand_income - grand_expense,
-        "note": (cf_doc or {}).get("note"),
-        "updated_at": (cf_doc or {}).get("updated_at"),
-        "updated_by_name": (cf_doc or {}).get("updated_by_name"),
+        "note": cf.get("note"),
+        "updated_at": cf.get("updated_at"),
+        "updated_by_name": cf.get("updated_by_name"),
     }
 
 
@@ -359,8 +382,22 @@ async def save_project_carry_forward(project_id: str, payload: Dict[str, Any], u
         set_doc["income_adjustment"] = _num(payload.get("adjustment_amount"))
         set_doc["income_note"] = payload.get("note") or ""
     else:
-        set_doc["expense_carry_forward"] = cf_amount
-        set_doc["expense_adjustment"] = _num(payload.get("adjustment_amount"))
+        # Feb 12 2026 — per-bucket expense carry-forward
+        mat = _num(payload.get("material_carry_forward"))
+        lab = _num(payload.get("labour_carry_forward"))
+        pc = _num(payload.get("petty_cash_carry_forward"))
+        indirect = _num(payload.get("indirect_carry_forward"))
+        # Back-compat: if caller still posts `carry_forward_amount`/`adjustment_amount`,
+        # treat them as Indirect to avoid losing data.
+        if (mat + lab + pc + indirect) == 0:
+            indirect = cf_amount + _num(payload.get("adjustment_amount"))
+        set_doc["material_carry_forward"] = mat
+        set_doc["labour_carry_forward"] = lab
+        set_doc["petty_cash_carry_forward"] = pc
+        set_doc["indirect_carry_forward"] = indirect
+        # Roll-up for the table column
+        set_doc["expense_carry_forward"] = mat + lab + pc + indirect
+        set_doc["expense_adjustment"] = indirect
         set_doc["expense_note"] = payload.get("note") or ""
 
     await db.project_carry_forwards.update_one(
