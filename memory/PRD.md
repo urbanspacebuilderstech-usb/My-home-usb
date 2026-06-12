@@ -13,6 +13,17 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — Procurement: Per-Diameter Steel Pricing (P1)
+- **Status**: ✅ COMPLETE & DEPLOYED (`main.8032a598.js`).
+- **User ask**: For Steel material requests with multi-diameter breakdown (Ø 8 / 10 / 12 / 16 / 20), procurement popup should let user enter Unit Price per diameter and auto-compute per-row total + overall subtotal.
+- **Frontend** (`/app/frontend/src/pages/ProcurementBoardSimple.jsx` `AssignVendorDialog`):
+  - New `steelPrices[]` state array (one per `steel_specs.items` row).
+  - When `steel_specs.items.length > 0` → renders an amber per-diameter table (`#`, Diameter, Rods, Weight, Unit Price input, Line Total), hides the single Unit Price + Approved Qty inputs.
+  - `total` becomes `Σ(weight × unit_price) + transport − discount` for steel; otherwise unchanged.
+  - Backend payload: `unit_price = weighted-average ₹/kg` (legacy compatibility), plus new `steel_pricing[]` array with `{diameter_mm, rod_count, weight_kg, unit_price, line_total}`.
+  - Submit validates every diameter has Unit Price > 0.
+- **Backend** (`/app/backend/routes/procurement.py` `/procurement-simple/material-requests/{id}/assign-vendor`): persists `steel_pricing` array onto the `material_requests` doc for audit + downstream PO generation.
+
 ### Session — Feb 12, 2026 — Expense Carry Forward: 4-Bucket Input (P1)
 - **Status**: ✅ COMPLETE & DEPLOYED (`main.72f152e6.js`).
 - **User ask**: Expense popup must let Super Admin enter Material / Labour / Petty Cash (direct) + Indirect separately. Direct auto-sums; Total Expense CF = Direct + Indirect.
