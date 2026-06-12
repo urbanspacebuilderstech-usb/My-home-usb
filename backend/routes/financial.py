@@ -122,6 +122,79 @@ class IncomeUpdate(BaseModel):
 
 # ==================== ACCOUNTANT DASHBOARD OVERVIEW ====================
 
+
+# ==================== CARRY FORWARD / CLOSING BALANCE ====================
+# Feb 12 2026 — single-row "closing balance" snapshot the Super Admin uses to
+# manually record the firm's true cash position across 4 buckets + a manual
+# overall number. The Accountant board surfaces it on a dedicated
+# Carry Forward tab; only Super Admin can edit.
+
+CLOSING_BALANCE_DOC_ID = "closing_balance_singleton"
+
+
+@router.get("/accountant/closing-balance")
+async def get_closing_balance(user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    doc = await db.closing_balances.find_one({"_id": CLOSING_BALANCE_DOC_ID})
+    if not doc:
+        return {
+            "manual_amount": 0,
+            "current_account": 0,
+            "savings": 0,
+            "cash": 0,
+            "cheque": 0,
+            "total": 0,
+            "locked_at": None,
+            "locked_by_name": None,
+        }
+    doc.pop("_id", None)
+    return doc
+
+
+@router.post("/accountant/closing-balance")
+async def save_closing_balance(payload: Dict[str, Any], user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can lock the closing balance")
+
+    def _num(v):
+        try:
+            return float(v or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    manual = _num(payload.get("manual_amount"))
+    ca = _num(payload.get("current_account"))
+    sav = _num(payload.get("savings"))
+    cash = _num(payload.get("cash"))
+    cheque = _num(payload.get("cheque"))
+    total = ca + sav + cash + cheque
+
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "_id": CLOSING_BALANCE_DOC_ID,
+        "manual_amount": manual,
+        "current_account": ca,
+        "savings": sav,
+        "cash": cash,
+        "cheque": cheque,
+        "total": total,
+        "locked_at": now,
+        "locked_by": user.user_id,
+        "locked_by_name": user.name,
+    }
+    await db.closing_balances.update_one(
+        {"_id": CLOSING_BALANCE_DOC_ID}, {"$set": doc}, upsert=True
+    )
+    await create_audit_log(
+        user.user_id, "lock_closing_balance", "closing_balance",
+        CLOSING_BALANCE_DOC_ID,
+        {"manual_amount": manual, "total": total},
+    )
+    doc.pop("_id", None)
+    return doc
+
+
 @router.get("/accountant/overview")
 async def get_accountant_overview(user: User = Depends(get_current_user)):
     """Comprehensive accountant overview: income/expense by payment mode, project-wise"""

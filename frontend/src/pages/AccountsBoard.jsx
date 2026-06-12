@@ -4506,6 +4506,253 @@ function ProjectSummaryTab({ overview }) {
 }
 
 // ============ MAIN ACCOUNTS BOARD ============
+// ==================== CARRY FORWARD TAB ====================
+// Feb 12 2026 — surfaces the Super Admin's manually-locked closing balance
+// across 4 buckets (Current Account / Savings / Cash / Cheque) plus a manual
+// overall amount. Plain Accountants can see the values; only Super Admin can
+// open the popup and lock new figures (matching role rule from backend).
+function CarryForwardTab({ userRole }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    manual_amount: '',
+    current_account: '',
+    savings: '',
+    cash: '',
+    cheque: '',
+  });
+  const canEdit = userRole === 'super_admin';
+
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await axios.get(`${API}/accountant/closing-balance`);
+      setData(res.data);
+    } catch (e) {
+      toast.error('Failed to load closing balance');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const openDialog = () => {
+    setForm({
+      manual_amount: data?.manual_amount ?? '',
+      current_account: data?.current_account ?? '',
+      savings: data?.savings ?? '',
+      cash: data?.cash ?? '',
+      cheque: data?.cheque ?? '',
+    });
+    setDialogOpen(true);
+  };
+
+  const liveTotal = () => {
+    const ca = parseFloat(form.current_account) || 0;
+    const sav = parseFloat(form.savings) || 0;
+    const ca3 = parseFloat(form.cash) || 0;
+    const ca4 = parseFloat(form.cheque) || 0;
+    return ca + sav + ca3 + ca4;
+  };
+
+  const handleLock = async () => {
+    try {
+      setSaving(true);
+      const payload = {
+        manual_amount: parseFloat(form.manual_amount) || 0,
+        current_account: parseFloat(form.current_account) || 0,
+        savings: parseFloat(form.savings) || 0,
+        cash: parseFloat(form.cash) || 0,
+        cheque: parseFloat(form.cheque) || 0,
+      };
+      const res = await axios.post(`${API}/accountant/closing-balance`, payload);
+      setData(res.data);
+      setDialogOpen(false);
+      toast.success('Closing balance locked');
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to lock closing balance');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const fmt = (v) => `₹${Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <RefreshCw className="h-6 w-6 animate-spin text-amber-600" />
+      </div>
+    );
+  }
+
+  const buckets = [
+    { key: 'current_account', label: 'Current Account', value: data?.current_account, Icon: Landmark, accent: 'border-l-blue-500 bg-blue-50/40' },
+    { key: 'savings', label: 'Savings', value: data?.savings, Icon: PiggyBank, accent: 'border-l-emerald-500 bg-emerald-50/40' },
+    { key: 'cash', label: 'Cash', value: data?.cash, Icon: Banknote, accent: 'border-l-amber-500 bg-amber-50/40' },
+    { key: 'cheque', label: 'Cheque', value: data?.cheque, Icon: FileText, accent: 'border-l-violet-500 bg-violet-50/40' },
+  ];
+
+  return (
+    <div className="space-y-4" data-testid="carry-forward-tab">
+      {/* Hero card — current net amount + Open popup */}
+      <Card className="border-l-4 border-l-indigo-500 bg-gradient-to-br from-indigo-50/60 to-white">
+        <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-indigo-700 font-semibold">
+              <Wallet className="h-4 w-4" /> Current Net Amount
+            </div>
+            <div className="mt-1 text-3xl sm:text-4xl font-bold text-gray-900" data-testid="carry-forward-manual-amount">
+              {fmt(data?.manual_amount)}
+            </div>
+            {data?.locked_at && (
+              <div className="text-[11px] text-gray-500 mt-1">
+                Last locked {new Date(data.locked_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                {data?.locked_by_name ? ` · by ${data.locked_by_name}` : ''}
+              </div>
+            )}
+          </div>
+          {canEdit && (
+            <Button
+              onClick={openDialog}
+              className="bg-indigo-600 hover:bg-indigo-700 gap-1.5"
+              data-testid="open-carry-forward-dialog"
+            >
+              <Lock className="h-4 w-4" /> {data?.locked_at ? 'Update Lock' : 'Lock Balance'}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 4 bucket cards + Total */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        {buckets.map((b) => (
+          <Card key={b.key} className={`border-l-4 ${b.accent}`} data-testid={`carry-forward-${b.key}`}>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-gray-600 font-semibold">
+                <b.Icon className="h-3.5 w-3.5" /> {b.label}
+              </div>
+              <div className="mt-1.5 text-lg sm:text-xl font-bold text-gray-900">
+                {fmt(b.value)}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+        <Card className="border-l-4 border-l-gray-800 bg-gray-900 text-white" data-testid="carry-forward-total">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-gray-300 font-semibold">
+              <TrendingUp className="h-3.5 w-3.5" /> Total (4 Buckets)
+            </div>
+            <div className="mt-1.5 text-lg sm:text-xl font-bold">
+              {fmt(data?.total)}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {!canEdit && (
+        <p className="text-[11px] text-gray-500 italic">
+          Only Super Admin can lock or update the closing balance.
+        </p>
+      )}
+
+      {/* Lock Closing Balance dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lock className="h-5 w-5 text-indigo-600" /> Lock Closing Balance
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Enter the current net amount and the 4 bucket-wise balances. The total is computed live from the 4 buckets.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Manual Amount (Current Net Amount)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={form.manual_amount}
+                onChange={(e) => setForm({ ...form, manual_amount: e.target.value })}
+                data-testid="carry-forward-input-manual"
+                placeholder="0"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Current Account</Label>
+                <Input
+                  type="number" step="0.01"
+                  value={form.current_account}
+                  onChange={(e) => setForm({ ...form, current_account: e.target.value })}
+                  data-testid="carry-forward-input-ca"
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Savings</Label>
+                <Input
+                  type="number" step="0.01"
+                  value={form.savings}
+                  onChange={(e) => setForm({ ...form, savings: e.target.value })}
+                  data-testid="carry-forward-input-savings"
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Cash</Label>
+                <Input
+                  type="number" step="0.01"
+                  value={form.cash}
+                  onChange={(e) => setForm({ ...form, cash: e.target.value })}
+                  data-testid="carry-forward-input-cash"
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Cheque</Label>
+                <Input
+                  type="number" step="0.01"
+                  value={form.cheque}
+                  onChange={(e) => setForm({ ...form, cheque: e.target.value })}
+                  data-testid="carry-forward-input-cheque"
+                  placeholder="0"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-md bg-gray-100 px-3 py-2">
+              <span className="text-xs font-semibold text-gray-700">Total (4 buckets)</span>
+              <span className="text-lg font-bold text-gray-900" data-testid="carry-forward-live-total">
+                {fmt(liveTotal())}
+              </span>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>Cancel</Button>
+            <Button
+              onClick={handleLock}
+              disabled={saving}
+              className="bg-indigo-600 hover:bg-indigo-700 gap-1.5"
+              data-testid="carry-forward-lock-btn"
+            >
+              <Lock className="h-4 w-4" /> {saving ? 'Locking…' : 'Lock Closing Balance'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+
+
 export default function AccountsBoard() {
   const location = useLocation();
   const [user, setUser] = useState(null);
@@ -4520,7 +4767,7 @@ export default function AccountsBoard() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const t = params.get('tab');
-    if (t && ['cashbook', 'approvals', 'cheques', 'projects'].includes(t)) {
+    if (t && ['cashbook', 'approvals', 'cheques', 'projects', 'carry-forward'].includes(t)) {
       setMainTab(t);
     }
   }, [location.search]);
@@ -4623,6 +4870,10 @@ export default function AccountsBoard() {
 
           <TabsContent value="projects">
             <ProjectSummaryTab overview={overview} />
+          </TabsContent>
+
+          <TabsContent value="carry-forward">
+            <CarryForwardTab userRole={user?.role} />
           </TabsContent>
         </Tabs>
       </main>
