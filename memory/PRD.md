@@ -13,6 +13,12 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — Procurement Verify: Received Qty Now Propagates to Accountant (P0)
+- **Status**: ✅ COMPLETE & DEPLOYED.
+- **User report**: Procurement edited Received Qty (e.g., 212 → 210) and clicked Approve & Send to Accountant — but the Accountant approval UI kept showing the stale (old) qty.
+- **Root cause** (`/app/backend/routes/procurement.py` L2799 `verify-approve` → `material_expenses` mirror): on re-verify of an existing expense doc, the UPDATE path only refreshed `final_amount`, `estimated_cost`, `vendor_name`, `invoice_no`, `payment_phase`. `quantity` and `unit_price` were never updated, so downstream Accountant view kept the original qty.
+- **Fix**: UPDATE branch now refreshes `quantity` + `unit_price` and rebuilds `description` from the corrected qty so the Accountant sees the exact figures Procurement just submitted.
+
 ### Session — Feb 12, 2026 — Planning Initial Approve: Editable Rod Count + Auto-Weight (P1)
 - **Status**: ✅ COMPLETE & DEPLOYED (`main.c6dc6696.js`).
 - **User ask**: In Planning's "Review & Approve — Material" popup for a Steel request, the Rods × 40 ft column must be editable; Weight (per row) and Quantity (overall) must auto-update.
