@@ -13,6 +13,17 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — SE Receive Material: Per-Diameter Received Qty (P1)
+- **Status**: ✅ COMPLETE & DEPLOYED (`main.472c4cab.js`).
+- **User ask**: When SE receives Steel order with multi-diameter rows, the "Received Qty" field must split per diameter (Ø8 / Ø10 / Ø12 / …) and the total auto-sums below.
+- **Frontend** (`/app/frontend/src/pages/SiteEngineerProject.jsx`):
+  - New `receivedSteelItems[]` state, prefilled with requested per-diameter weights on dialog open.
+  - When `steel_specs.items.length > 0` → render amber table (#, Diameter, Rods, Requested kg, Received Qty kg input). Footer shows live Total Received Qty next to requested total.
+  - On submit: sums per-row inputs as `received_qty` and posts `steel_received[]` array.
+- **Backend** (`/app/backend/routes/site_ops.py`):
+  - `MaterialReceiptCreate` model accepts `steel_received: Optional[List[Dict[str, Any]]]`.
+  - Persisted onto `material_receipts` doc for audit + partial-delivery analytics.
+
 ### Session — Feb 12, 2026 — Procurement: Per-Diameter Steel Pricing (P1)
 - **Status**: ✅ COMPLETE & DEPLOYED (`main.8032a598.js`).
 - **User ask**: For Steel material requests with multi-diameter breakdown (Ø 8 / 10 / 12 / 16 / 20), procurement popup should let user enter Unit Price per diameter and auto-compute per-row total + overall subtotal.
