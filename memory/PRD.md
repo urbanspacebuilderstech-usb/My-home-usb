@@ -13,6 +13,17 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — Planning Initial Approve: Editable Rod Count + Auto-Weight (P1)
+- **Status**: ✅ COMPLETE & DEPLOYED (`main.c6dc6696.js`).
+- **User ask**: In Planning's "Review & Approve — Material" popup for a Steel request, the Rods × 40 ft column must be editable; Weight (per row) and Quantity (overall) must auto-update.
+- **Frontend** (`/app/frontend/src/components/PlanningRequestsTab.jsx`):
+  - New `editedSteelItems[]` state; Rods column rendered as `<Input type="number">` only when request is in `planning_initial_pending` (pre-Procurement) state.
+  - Steel formula helper `W = (D² ÷ 162) × 12.192 × N` recomputes each row weight on every keystroke; auto-syncs the top-level Quantity input to the new total.
+  - Header strip + footer totals update live; emerald hint banner explains the auto-recalc.
+  - Submit payload includes `steel_specs` only when rod counts changed.
+- **Backend** (`/app/backend/routes/procurement.py` `planning-initial-approve`):
+  - Accepts new `steel_specs` payload, validates + clamps each row, re-derives `calculated_weight_kg`, `total_items`, `total_rods`, `total_weight_kg`, and snaps the canonical `quantity` to the new total.
+
 ### Session — Feb 12, 2026 — SE Receive Material: Per-Diameter Received Qty (P1)
 - **Status**: ✅ COMPLETE & DEPLOYED (`main.472c4cab.js`).
 - **User ask**: When SE receives Steel order with multi-diameter rows, the "Received Qty" field must split per diameter (Ø8 / Ø10 / Ø12 / …) and the total auto-sums below.
