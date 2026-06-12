@@ -2510,6 +2510,22 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
         "delivery_delta_hours": data.get("delivery_delta_hours"),
         "late_delivery_reason": (data.get("late_delivery_reason") or "").strip(),
     }
+    # Per-diameter steel pricing (Feb 12 2026). When Procurement quotes
+    # individual prices per Ø8 / Ø10 / Ø12 …, the breakdown is stored alongside
+    # the weighted-average `unit_price` so future audits / downstream POs can
+    # honour the per-rod pricing.
+    steel_pricing = data.get("steel_pricing")
+    if isinstance(steel_pricing, list) and steel_pricing:
+        update["steel_pricing"] = [
+            {
+                "diameter_mm": sp.get("diameter_mm"),
+                "rod_count": sp.get("rod_count"),
+                "weight_kg": float(sp.get("weight_kg") or 0),
+                "unit_price": float(sp.get("unit_price") or 0),
+                "line_total": float(sp.get("line_total") or 0),
+            }
+            for sp in steel_pricing
+        ]
     # Advance mode requires Accountant approval BEFORE the material moves to SE
     # for collection. Status flips to `pending_advance_payment` and the request
     # appears in Accountant's pending queue; after Accountant pays the advance,

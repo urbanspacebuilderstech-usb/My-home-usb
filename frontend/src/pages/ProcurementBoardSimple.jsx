@@ -1008,6 +1008,13 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   const [advanceAmount, setAdvanceAmount] = useState('');
   // Late delivery justification — required when Procurement quotes longer than SE asked
   const [lateReason, setLateReason] = useState('');
+  // Feb 12 2026 — steel-specific per-diameter pricing. When the request carries
+  // `steel_specs.items[]` (e.g., Ø8 / Ø10 / Ø12 …) we replace the single
+  // Unit Price field with a per-diameter table so Procurement can quote each
+  // rod gauge individually. unit_rate sent to backend becomes the weighted
+  // average (₹/kg) so legacy queries continue to work, while the per-row
+  // breakdown is preserved under `steel_pricing`.
+  const [steelPrices, setSteelPrices] = useState([]);
 
   useEffect(() => {
     if (!item) return;
@@ -1031,6 +1038,18 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
     setAdvanceAmount(String(item.advance_amount || ''));
     setAdvanceMode(item.advance_percent ? 'percent' : 'amount');
     setLateReason(item.late_delivery_reason || '');
+    // Initialise the per-diameter steel price array (Feb 2026) — one entry
+    // per steel_specs.items row, prefilled from any previously-saved price.
+    const items = item.steel_specs?.items;
+    if (Array.isArray(items) && items.length > 0) {
+      const saved = Array.isArray(item.steel_pricing) ? item.steel_pricing : [];
+      setSteelPrices(items.map((it, idx) => {
+        const match = saved.find(s => s.diameter_mm === it.diameter_mm) || saved[idx] || {};
+        return String(match.unit_price || '');
+      }));
+    } else {
+      setSteelPrices([]);
+    }
     // Load material vendors only
     axios.get(`${API}/vendor-master?category=material`).then(r => setVendors(r.data?.vendors || r.data || [])).catch(() => setVendors([]));
   }, [item]);
@@ -1039,7 +1058,21 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   const price = parseFloat(unitPrice) || 0;
   const tCost = parseFloat(transport) || 0;
   const disc = parseFloat(discount) || 0;
-  const total = Math.max(0, qty * price + tCost - disc);
+  // Feb 12 2026 — when this request has steel_specs.items, total is the SUM
+  // of per-diameter (weight × unit_price) rows, not the single qty × price.
+  const steelItems = item?.steel_specs?.items || [];
+  const isSteelBreakdown = steelItems.length > 0;
+  const steelLineTotals = steelItems.map((it, idx) => {
+    const w = parseFloat(it.calculated_weight_kg || it.weight_kg) || 0;
+    const p = parseFloat(steelPrices[idx]) || 0;
+    return { weight: w, unit_price: p, line_total: w * p };
+  });
+  const steelSubtotal = steelLineTotals.reduce((s, r) => s + r.line_total, 0);
+  const steelWeightTotal = steelLineTotals.reduce((s, r) => s + r.weight, 0);
+  const weightedAvgUnitPrice = steelWeightTotal > 0 ? steelSubtotal / steelWeightTotal : 0;
+  const total = isSteelBreakdown
+    ? Math.max(0, steelSubtotal + tCost - disc)
+    : Math.max(0, qty * price + tCost - disc);
   const computedAdvance = useMemo(() => {
     if (paymentMode !== 'advance') return 0;
     if (advanceMode === 'percent') {
@@ -1076,8 +1109,17 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
 
   const submit = async () => {
     if (!vendorId) { toast.error('Select a vendor'); return; }
-    if (!price || price <= 0) { toast.error('Enter a valid unit price'); return; }
-    if (!qty || qty <= 0) { toast.error('Enter a valid quantity'); return; }
+    // Validation differs for steel breakdown vs single unit price.
+    if (isSteelBreakdown) {
+      const blanks = steelPrices.findIndex(p => !p || parseFloat(p) <= 0);
+      if (blanks !== -1) {
+        toast.error(`Enter a unit price for diameter Ø${steelItems[blanks].diameter_mm} mm`);
+        return;
+      }
+    } else {
+      if (!price || price <= 0) { toast.error('Enter a valid unit price'); return; }
+      if (!qty || qty <= 0) { toast.error('Enter a valid quantity'); return; }
+    }
     // Timeline validation
     if (timelineType === 'date' && !timelineDate) { toast.error('Select expected delivery date'); return; }
     if (timelineType === 'days' && (!timelineDays || parseInt(timelineDays) <= 0)) { toast.error('Enter delivery days'); return; }
@@ -1099,11 +1141,16 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
 
     setSubmitting(true);
     try {
-      await axios.patch(`${API}/procurement-simple/material-requests/${item.request_id}/assign-vendor`, {
+      // For steel, the effective unit_price becomes the weighted average so the
+      // existing backend (which stores a single unit_rate) keeps working.
+      // Per-diameter detail is sent as `steel_pricing` for the future.
+      const effectiveUnitPrice = isSteelBreakdown ? weightedAvgUnitPrice : price;
+      const effectiveQty = isSteelBreakdown ? (steelWeightTotal || qty) : qty;
+      const payload = {
         vendor_id: vendorId,
         vendor_name: selectedVendor?.name || selectedVendor?.vendor_name || '',
-        unit_price: price,
-        approved_quantity: qty,
+        unit_price: effectiveUnitPrice,
+        approved_quantity: effectiveQty,
         transport_cost: tCost,
         discount: disc,
         remarks,
@@ -1117,7 +1164,17 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
         procurement_hours: procHours,
         delivery_delta_hours: deliveryDelta,
         late_delivery_reason: isLate ? lateReason.trim() : '',
-      });
+      };
+      if (isSteelBreakdown) {
+        payload.steel_pricing = steelItems.map((it, idx) => ({
+          diameter_mm: it.diameter_mm,
+          rod_count: it.rod_count,
+          weight_kg: parseFloat(it.calculated_weight_kg || it.weight_kg) || 0,
+          unit_price: parseFloat(steelPrices[idx]) || 0,
+          line_total: steelLineTotals[idx]?.line_total || 0,
+        }));
+      }
+      await axios.patch(`${API}/procurement-simple/material-requests/${item.request_id}/assign-vendor`, payload);
       toast.success('Sent to Site Engineer for collection');
       onDone();
     } catch (err) {
@@ -1194,15 +1251,19 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
           </div>
 
           <div className="grid grid-cols-2 gap-2">
-            <div>
-              <Label className="text-xs">Unit Price (₹) *</Label>
-              <Input type="number" min="0" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} disabled={readOnly} className="mt-1" data-testid="proc-assign-unit-price" />
-            </div>
-            <div>
-              <Label className="text-xs">Approved Qty</Label>
-              <Input type="number" min="0" value={approvedQty} onChange={(e) => setApprovedQty(e.target.value)} disabled={readOnly} className="mt-1" data-testid="proc-assign-qty" />
-            </div>
-            <div>
+            {!isSteelBreakdown && (
+              <>
+                <div>
+                  <Label className="text-xs">Unit Price (₹) *</Label>
+                  <Input type="number" min="0" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} disabled={readOnly} className="mt-1" data-testid="proc-assign-unit-price" />
+                </div>
+                <div>
+                  <Label className="text-xs">Approved Qty</Label>
+                  <Input type="number" min="0" value={approvedQty} onChange={(e) => setApprovedQty(e.target.value)} disabled={readOnly} className="mt-1" data-testid="proc-assign-qty" />
+                </div>
+              </>
+            )}
+            <div className={isSteelBreakdown ? '' : ''}>
               <Label className="text-xs">Transport (₹)</Label>
               <Input type="number" min="0" value={transport} onChange={(e) => setTransport(e.target.value)} disabled={readOnly} className="mt-1" />
             </div>
@@ -1211,6 +1272,66 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
               <Input type="number" min="0" value={discount} onChange={(e) => setDiscount(e.target.value)} disabled={readOnly} className="mt-1" />
             </div>
           </div>
+
+          {/* Per-diameter steel pricing table — only when steel_specs.items[] present (Feb 2026) */}
+          {isSteelBreakdown && (
+            <div className="rounded-md border border-amber-300 bg-amber-50/40 overflow-hidden">
+              <div className="px-3 py-2 bg-amber-100/60 text-[11px] uppercase tracking-wide text-amber-800 font-semibold flex items-center justify-between">
+                <span>⚙ Steel — Per Diameter Pricing</span>
+                <span className="text-[10px]">{steelItems.length} diameter{steelItems.length === 1 ? '' : 's'} · {steelWeightTotal.toFixed(2)} kg total</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-amber-50 text-amber-800">
+                    <tr>
+                      <th className="text-left px-2 py-1.5 w-6">#</th>
+                      <th className="text-left px-2 py-1.5">Diameter</th>
+                      <th className="text-right px-2 py-1.5">Rods</th>
+                      <th className="text-right px-2 py-1.5">Weight (kg)</th>
+                      <th className="text-right px-2 py-1.5">Unit Price (₹/kg)</th>
+                      <th className="text-right px-2 py-1.5">Line Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {steelItems.map((it, idx) => (
+                      <tr key={idx} className="border-t border-amber-200" data-testid={`proc-steel-row-${idx}`}>
+                        <td className="px-2 py-1.5 text-gray-500">{idx + 1}</td>
+                        <td className="px-2 py-1.5 font-semibold text-slate-800">Ø {it.diameter_mm} mm</td>
+                        <td className="px-2 py-1.5 text-right">{it.rod_count}</td>
+                        <td className="px-2 py-1.5 text-right font-semibold text-amber-700">{Number(it.calculated_weight_kg || it.weight_kg || 0).toFixed(2)}</td>
+                        <td className="px-2 py-1.5">
+                          <Input
+                            type="number" min="0" step="0.01"
+                            value={steelPrices[idx] || ''}
+                            onChange={(e) => {
+                              const next = [...steelPrices];
+                              next[idx] = e.target.value;
+                              setSteelPrices(next);
+                            }}
+                            disabled={readOnly}
+                            className="h-7 text-right"
+                            data-testid={`proc-steel-price-${it.diameter_mm}`}
+                            placeholder="0"
+                          />
+                        </td>
+                        <td className="px-2 py-1.5 text-right font-bold text-emerald-700">
+                          ₹{(steelLineTotals[idx]?.line_total || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-amber-100/40 border-t border-amber-300">
+                    <tr>
+                      <td colSpan={5} className="px-2 py-1.5 text-right font-semibold text-amber-800">Steel Subtotal</td>
+                      <td className="px-2 py-1.5 text-right font-bold text-emerald-700" data-testid="proc-steel-subtotal">
+                        ₹{steelSubtotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div className="bg-emerald-50 border border-emerald-200 rounded p-3 flex items-center justify-between">
             <span className="text-xs text-emerald-700 font-semibold">Estimated Total</span>
