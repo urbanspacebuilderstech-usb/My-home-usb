@@ -11078,15 +11078,23 @@ async def create_dlr(project_id: str, wo_id: str, data: DLRCreate, user: User = 
     if not work_summary:
         raise HTTPException(status_code=400, detail="Work Summary is required")
 
-    # Verify the stage belongs to this Work Order. DLR is recorded against
-    # the contractor's payment stage (db.payment_stages), NOT the project's
-    # top-level client-side schedule (db.project_stages). Validating against
-    # the wrong collection rejected every legitimate DLR with "Selected
-    # stage does not belong to this project".
-    stage_doc = await db.payment_stages.find_one(
-        {"stage_id": stage_id, "work_order_id": wo_id},
-        {"_id": 0, "name": 1, "stage_name": 1},
-    )
+    # Feb 12 2026 — Work-order stages live INLINE on the WO doc (under
+    # `project_work_orders.stages[]` with stage_id like "wos_*"), NOT in the
+    # `payment_stages` collection. Previously we queried `payment_stages` here
+    # and rejected every WO DLR with "stage does not belong to this work
+    # order". Validate against the WO's own stages first; fall back to
+    # `payment_stages` for legacy callers and to `project_stages` for older
+    # mobile builds that still send a project-level id.
+    wo_stages = (wo.get("stages") or [])
+    inline_stage = next((s for s in wo_stages if s.get("stage_id") == stage_id), None)
+    stage_doc = None
+    if inline_stage:
+        stage_doc = {"name": inline_stage.get("name") or inline_stage.get("stage_name")}
+    else:
+        stage_doc = await db.payment_stages.find_one(
+            {"stage_id": stage_id, "work_order_id": wo_id},
+            {"_id": 0, "name": 1, "stage_name": 1},
+        )
     if not stage_doc:
         # Fall back to the project-level schedule for legacy callers that
         # still send a project_stages id (older mobile builds).
