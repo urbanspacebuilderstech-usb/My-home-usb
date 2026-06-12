@@ -13,6 +13,18 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — Carry Forward: Project-wise Adjustment Table (P1)
+- **Status**: ✅ COMPLETE & DEPLOYED (`main.2e367329.js`).
+- **User ask**: Below the 4-bucket closing balance, show every project row with Project Value · Total Income · Carry Forward Income · Total Expense · Carry Forward Expense · Difference. Click an existing CF amount or a row's "Carry Forward" button to edit; expense popup must show Material + Work Order + Petty Cash + Adjustment + CF live-summed grand total and project difference.
+- **Backend** (`/app/backend/routes/financial.py` L197):
+  - `GET /api/accountant/carry-forward/projects` — live aggregations: `db.income` (approved) per project; expense bucket sums from `material_expenses`, `labour_expenses`, `direct_expenses`. Joins per-project `project_carry_forwards` doc for `expense_carry_forward / expense_adjustment / income_carry_forward / income_adjustment`. Returns rows + roll-up totals.
+  - `GET /api/accountant/carry-forward/{project_id}` and `POST /api/accountant/carry-forward/{project_id}` (Super Admin only) — upsert per-project doc with `{type, adjustment_amount, carry_forward_amount, note}`.
+- **Frontend** (`AccountsBoard.jsx` `CarryForwardTab`):
+  - Added project-wise table beneath the 5 cards. Header strip surfaces totals (Income / Expense / Difference).
+  - Income / Expense picker dialog (when clicking the row's "Carry Forward" button).
+  - Combined edit dialog with live computed breakdown (Material + Work Order + Petty Cash + Adjustment + CF → Grand Total → Project Difference).
+  - Adjustment + Carry Forward Add inputs + optional Note. Save persists and refreshes table totals.
+
 ### Session — Feb 12, 2026 — Accountant Board: Carry Forward / Closing Balance Tab (P1)
 - **Status**: ✅ COMPLETE & DEPLOYED (`main.2fe9cd5e.js`).
 - **User ask**: New "Carry Forward" page in Accountant Board to manually lock the firm's net amount across 4 buckets (Current Account, Savings, Cash, Cheque) + a Manual Amount. Super Admin only edits; Accountant views.
