@@ -13,6 +13,20 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — Expense Carry Forward: 4-Bucket Input (P1)
+- **Status**: ✅ COMPLETE & DEPLOYED (`main.72f152e6.js`).
+- **User ask**: Expense popup must let Super Admin enter Material / Labour / Petty Cash (direct) + Indirect separately. Direct auto-sums; Total Expense CF = Direct + Indirect.
+- **Backend** (`financial.py`):
+  - `project_carry_forwards` doc now stores `material_carry_forward / labour_carry_forward / petty_cash_carry_forward / indirect_carry_forward`. Legacy `expense_carry_forward` + `expense_adjustment` still read for back-compat (surfaced under Indirect bucket on first read).
+  - POST endpoint accepts the new payload structure.
+  - Roll-up: `expense_carry_forward = mat + lab + pc + indirect`. Table column shows the rolled-up value.
+- **Frontend** (`AccountsBoard.jsx`):
+  - Expense popup restructured into 3 panels:
+    1. Live Ledger (read-only Material / Work Order / Petty Cash actuals).
+    2. Carry Forward Entry — Direct row with Material / Labour / Petty Cash inputs + auto Direct Total. Then Indirect single input. Then Total Expense CF.
+    3. Roll-up summary showing Grand Total Expense + Project Difference (Income − Expense).
+  - Income popup unchanged (single Adjustment + Carry Forward Add).
+
 ### Session — Feb 12, 2026 — Carry Forward: Project-wise Adjustment Table (P1)
 - **Status**: ✅ COMPLETE & DEPLOYED (`main.2e367329.js`).
 - **User ask**: Below the 4-bucket closing balance, show every project row with Project Value · Total Income · Carry Forward Income · Total Expense · Carry Forward Expense · Difference. Click an existing CF amount or a row's "Carry Forward" button to edit; expense popup must show Material + Work Order + Petty Cash + Adjustment + CF live-summed grand total and project difference.
