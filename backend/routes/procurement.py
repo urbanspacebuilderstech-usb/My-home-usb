@@ -2797,16 +2797,24 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
                 {"_id": 0},
             )
             if existing_exp:
-                # Refresh in case price/qty changed during verification
+                # Refresh in case price/qty changed during verification.
+                # Feb 12 2026 — also refresh `quantity` + `unit_price` so the
+                # Accountant approval UI shows the latest Procurement-corrected
+                # Received Qty (e.g., 210) and not the stale ordered/SE qty.
+                refreshed_qty = merged.get("received_quantity") or merged.get("approved_quantity") or merged.get("quantity")
+                refreshed_unit = merged.get("unit_price") or merged.get("unit_rate")
                 await db.material_expenses.update_one(
                     {"expense_id": existing_exp["expense_id"]},
                     {"$set": {
                         "status": "pending_accounts_approval",
                         "final_amount": amount,
                         "estimated_cost": amount,
+                        "quantity": refreshed_qty,
+                        "unit_price": refreshed_unit,
                         "vendor_name": req.get("vendor_name") or "Unknown",
                         "invoice_no": invoice_no,
                         "payment_phase": phase,
+                        "description": f"{req.get('material_name', '')} ({refreshed_qty} {req.get('unit', '')})",
                         "updated_at": now,
                     }},
                 )
