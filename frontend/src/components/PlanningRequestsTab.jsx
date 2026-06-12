@@ -249,6 +249,8 @@ export default function PlanningRequestsTab({ projects = [], onCountChange, view
           if (extra.brand !== undefined) body.brand = extra.brand;
           if (extra.quantity !== undefined && extra.quantity !== '') body.quantity = extra.quantity;
           if (extra.se_requested_hours !== undefined && extra.se_requested_hours !== '') body.se_requested_hours = extra.se_requested_hours;
+          // Feb 2026 — Steel per-diameter Rod edits
+          if (extra.steel_specs) body.steel_specs = extra.steel_specs;
         }
         await axios.patch(`${API}/procurement-simple/material-requests/${id}/${endpoint}`, body);
       } else if (type === 'labour_stages') {
@@ -577,6 +579,10 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
   const [editBrand, setEditBrand] = useState('');
   const [editSeHours, setEditSeHours] = useState('');
   const [remarks, setRemarks] = useState('');
+  // Feb 12 2026 — Planning can now correct the per-diameter Rod count on a
+  // Steel request. Weight per row + total Quantity recalc live via the
+  // canonical formula  W(kg) = (D² ÷ 162) × 12.192 × N.
+  const [editedSteelItems, setEditedSteelItems] = useState([]);
   // Inline revision/reject prompts so Planning can act without leaving the dialog.
   const [mode, setMode] = useState('review'); // 'review' | 'revision' | 'reject'
   const [revisionRemarks, setRevisionRemarks] = useState('');
@@ -598,12 +604,57 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
       setMode('review');
       setRevisionRemarks('');
       setRejectReason('');
+      // Seed editable steel items from the request payload.
+      const items = req?.steel_specs?.items;
+      if (Array.isArray(items) && items.length > 0) {
+        setEditedSteelItems(items.map(it => ({
+          diameter_mm: it.diameter_mm,
+          rod_count: it.rod_count,
+          calculated_weight_kg: it.calculated_weight_kg,
+          remarks: it.remarks || '',
+        })));
+      } else {
+        setEditedSteelItems([]);
+      }
     }
   }, [open, req, type]);
 
   if (!req) return null;
   const meta = TAB_META[type];
   const Icon = meta?.Icon || FileText;
+
+  // Canonical steel formula: W(kg) = (D² ÷ 162) × 12.192 × N. Returns the
+  // weight rounded to 2 dp for display + storage consistency.
+  const steelWeightFor = (diameter_mm, rod_count) => {
+    const d = parseFloat(diameter_mm) || 0;
+    const n = parseFloat(rod_count) || 0;
+    if (d <= 0 || n <= 0) return 0;
+    return Math.round(((d * d) / 162) * 12.192 * n * 100) / 100;
+  };
+  const editedSteelTotalWeight = editedSteelItems.reduce(
+    (s, it) => s + (steelWeightFor(it.diameter_mm, it.rod_count) || 0), 0,
+  );
+  const editedSteelTotalRods = editedSteelItems.reduce(
+    (s, it) => s + (parseFloat(it.rod_count) || 0), 0,
+  );
+
+  const updateSteelRod = (idx, newRodCount) => {
+    const next = editedSteelItems.map((it, i) => {
+      if (i !== idx) return it;
+      const rc = parseFloat(newRodCount);
+      return {
+        ...it,
+        rod_count: isNaN(rc) ? '' : rc,
+        calculated_weight_kg: steelWeightFor(it.diameter_mm, rc),
+      };
+    });
+    setEditedSteelItems(next);
+    // Auto-sync Quantity input when the steel breakdown drives it.
+    const newTotal = next.reduce(
+      (s, it) => s + (steelWeightFor(it.diameter_mm, it.rod_count) || 0), 0,
+    );
+    setApprovedQty(String(Math.round(newTotal * 100) / 100));
+  };
 
   const handle = () => {
     const extra = {};
@@ -621,6 +672,29 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
       }
       if (editSeHours && parseInt(editSeHours, 10) !== parseInt(req.se_requested_hours || 0, 10)) {
         extra.se_requested_hours = parseInt(editSeHours, 10);
+      }
+      // If Planning edited rod counts on a Steel request, send the updated
+      // breakdown so backend `steel_specs.items` + totals stay consistent.
+      if (editedSteelItems.length > 0 && req?.steel_specs?.items) {
+        const origItems = req.steel_specs.items;
+        const changed = editedSteelItems.some((it, i) =>
+          (parseFloat(it.rod_count) || 0) !== (parseFloat(origItems[i]?.rod_count) || 0),
+        );
+        if (changed) {
+          const items = editedSteelItems.map(it => ({
+            diameter_mm: it.diameter_mm,
+            rod_count: parseFloat(it.rod_count) || 0,
+            calculated_weight_kg: steelWeightFor(it.diameter_mm, it.rod_count),
+            remarks: it.remarks || '',
+          }));
+          extra.steel_specs = {
+            ...req.steel_specs,
+            items,
+            total_items: items.length,
+            total_rods: items.reduce((s, x) => s + x.rod_count, 0),
+            total_weight_kg: Math.round(items.reduce((s, x) => s + x.calculated_weight_kg, 0) * 100) / 100,
+          };
+        }
       }
     }
     if (type === 'petty') extra.remarks = remarks;
@@ -729,16 +803,33 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
                     <p className="text-slate-700 text-[10px] uppercase font-semibold flex items-center gap-1">⚙ Steel Specifications</p>
                     {req.steel_specs.items?.length > 0 ? (
                       <>
-                        <p className="text-[10px] text-slate-600 mt-1">{req.steel_specs.total_items} items · {req.steel_specs.total_rods} rods · <span className="text-amber-700 font-bold">{req.steel_specs.total_weight_kg} kg</span></p>
+                        <p className="text-[10px] text-slate-600 mt-1">
+                          {editedSteelItems.length || req.steel_specs.total_items} items · {isInitialMaterialReview ? editedSteelTotalRods : req.steel_specs.total_rods} rods · <span className="text-amber-700 font-bold">{isInitialMaterialReview ? editedSteelTotalWeight.toFixed(2) : req.steel_specs.total_weight_kg} kg</span>
+                          {isInitialMaterialReview && (
+                            <span className="ml-2 text-[9px] italic text-emerald-700">Rod count is editable — Weight & Quantity auto-update</span>
+                          )}
+                        </p>
                         <table className="w-full text-[11px] mt-1.5">
                           <thead className="text-[9px] uppercase text-gray-500 border-b border-slate-300"><tr><th className="text-left py-0.5">#</th><th className="text-left">Diameter</th><th className="text-right">Rods × 40 ft</th><th className="text-right">Weight</th><th className="text-left pl-2">Remarks</th></tr></thead>
                           <tbody>
-                            {req.steel_specs.items.map((it, ii) => (
+                            {(isInitialMaterialReview ? editedSteelItems : req.steel_specs.items).map((it, ii) => (
                               <tr key={ii} className="border-b border-slate-200 last:border-0">
                                 <td className="py-0.5">{ii + 1}</td>
                                 <td className="font-semibold text-slate-800">Ø {it.diameter_mm} mm</td>
-                                <td className="text-right">{it.rod_count}</td>
-                                <td className="text-right font-semibold text-amber-700">{it.calculated_weight_kg} kg</td>
+                                <td className="text-right">
+                                  {isInitialMaterialReview ? (
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      step="1"
+                                      value={it.rod_count}
+                                      onChange={(e) => updateSteelRod(ii, e.target.value)}
+                                      className="h-6 text-right text-[11px] w-20 ml-auto"
+                                      data-testid={`planning-steel-rod-${it.diameter_mm}`}
+                                    />
+                                  ) : it.rod_count}
+                                </td>
+                                <td className="text-right font-semibold text-amber-700">{(isInitialMaterialReview ? steelWeightFor(it.diameter_mm, it.rod_count) : it.calculated_weight_kg)} kg</td>
                                 <td className="pl-2 text-gray-500 italic">{it.remarks || '—'}</td>
                               </tr>
                             ))}

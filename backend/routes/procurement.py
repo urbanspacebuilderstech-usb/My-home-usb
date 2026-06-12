@@ -2948,6 +2948,36 @@ async def procurement_simple_planning_initial_approve(request_id: str, data: dic
                 edits["se_delivery_choice"] = "custom"
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="Invalid SE expected hours")
+    # Feb 12 2026 — Planning may correct per-diameter Rod counts on a Steel
+    # request. Recalculates weight via canonical formula and stores the new
+    # totals so downstream Procurement / SE see the corrected breakdown.
+    ss = payload.get("steel_specs")
+    if isinstance(ss, dict) and isinstance(ss.get("items"), list) and ss["items"]:
+        try:
+            items_clean = []
+            for it in ss["items"]:
+                d = float(it.get("diameter_mm") or 0)
+                n = float(it.get("rod_count") or 0)
+                w = round((d * d / 162.0) * 12.192 * n, 2) if d > 0 and n > 0 else 0
+                items_clean.append({
+                    "diameter_mm": d,
+                    "rod_count": int(n) if n.is_integer() else n,
+                    "calculated_weight_kg": w,
+                    "remarks": it.get("remarks") or "",
+                })
+            total_rods = sum(x["rod_count"] for x in items_clean)
+            total_weight = round(sum(x["calculated_weight_kg"] for x in items_clean), 2)
+            existing_ss = dict(req.get("steel_specs") or {})
+            existing_ss["items"] = items_clean
+            existing_ss["total_items"] = len(items_clean)
+            existing_ss["total_rods"] = total_rods
+            existing_ss["total_weight_kg"] = total_weight
+            edits["steel_specs"] = existing_ss
+            # Quantity is the canonical total — keep in sync even if caller
+            # forgot to send `quantity` alongside.
+            edits["quantity"] = total_weight
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid steel_specs payload")
     if edits:
         edits["planning_edited_at"] = now
         edits["planning_edited_by"] = user.user_id
