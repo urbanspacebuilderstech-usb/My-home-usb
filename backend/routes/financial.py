@@ -218,22 +218,41 @@ async def _compute_project_carry_forward_row(project, cf_doc):
     async for r in db.income.aggregate(inc_pipeline):
         inc_total = float(r.get("total") or 0)
 
-    # Direct expense buckets (matched the Cashbook split: Material / Work Order / Petty Cash)
+    # Direct expense buckets — match Cashbook's "approved" filter so the
+    # Carry Forward Total Expense reconciles with the Cashbook Expense card.
+    # Cashbook (`/accountant/cashbook-filtered`, sf=approved) treats these
+    # statuses as the canonical "live ledger expense":
+    #   material  → accounts_approved / issued / settled / completed
+    #   labour    → accounts_approved / settled / completed (paid_full/paid_partial mirror these)
+    #   vendor    → accounts_approved / settled / completed
+    # Previously this query filtered ["paid", "approved"] which under-counted
+    # by ~93% (₹67,070 in Cashbook vs ₹4,650 in Carry Forward). Feb 12 2026.
+    MATERIAL_APPROVED = ["accounts_approved", "issued", "settled", "completed", "paid"]
+    LABOUR_APPROVED = ["accounts_approved", "settled", "completed", "paid", "paid_full", "paid_partial"]
+
     mat_total = 0
     async for r in db.material_expenses.aggregate([
-        {"$match": {"project_id": pid, "status": {"$in": ["paid", "approved"]}}},
-        {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+        {"$match": {"project_id": pid, "status": {"$in": MATERIAL_APPROVED}}},
+        {"$group": {"_id": None, "total": {"$sum": "$final_amount"}}},
     ]):
         mat_total = float(r.get("total") or 0)
+    # Fallback to `amount` if `final_amount` was never populated for legacy docs.
+    if mat_total == 0:
+        async for r in db.material_expenses.aggregate([
+            {"$match": {"project_id": pid, "status": {"$in": MATERIAL_APPROVED}}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+        ]):
+            mat_total = float(r.get("total") or 0)
 
     wo_total = 0
     async for r in db.labour_expenses.aggregate([
-        {"$match": {"project_id": pid, "status": {"$in": ["paid", "approved", "accountant_approved"]}}},
+        {"$match": {"project_id": pid, "status": {"$in": LABOUR_APPROVED}}},
         {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}},
     ]):
         wo_total = float(r.get("total") or 0)
 
-    # Petty cash on a site — pulled from direct_expenses (PM site expenses)
+    # Petty cash on a site — pulled from direct_expenses (PM site expenses).
+    # No status filter — direct_expenses get recorded post-PM-approval already.
     pc_total = 0
     async for r in db.direct_expenses.aggregate([
         {"$match": {"project_id": pid}},
