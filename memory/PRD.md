@@ -13,6 +13,24 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — Closing Balance: Income/Expense/Balance Matrix + Direct Transfer Mode (P1)
+- **Status**: ✅ COMPLETE & DEPLOYED (`main.9857c22f.js`).
+- **User ask**: Restructure Lock Closing Balance popup to show 3 columns (Income / Expense / Balance) for each mode. Add a 5th mode "Direct Transfer" alongside Current / Savings / Cash / Cheque.
+- **Backend** (`financial.py` closing-balance):
+  - `closing_balances` doc now stores `buckets: { mode: {income, expense, balance} }` with per-bucket and total roll-ups. Legacy flat keys kept as mirrors of balance for back-compat.
+  - GET back-fills old single-value docs into the new shape so old data renders correctly.
+- **Frontend** (`AccountsBoard.jsx` `CarryForwardTab`):
+  - Lock dialog now renders a 5×3 matrix (5 modes × Income/Expense/Balance) with live balance per row + totals row.
+  - Cards strip expanded to 6 cards (5 modes + Total), each showing all three figures.
+  - Manual Amount input auto-uses Total Balance when blank.
+- **Defensive fix**: per-project carry-forward list no longer fails the whole table when one project's aggregation errors — emits a minimal row + log warning instead of throwing 500.
+
+### Session — Feb 12, 2026 — Carry Forward: Match Cashbook Expense Filter (P0)
+- **Status**: ✅ COMPLETE & DEPLOYED.
+- **User report**: Cashbook shows Material Expense ₹67,070 but Carry Forward Total Expense shows ₹4,650 (~93% under-count).
+- **Root cause** (`financial.py` `_compute_project_carry_forward_row`): material/labour status filters used `["paid", "approved"]` while the canonical Cashbook view uses `["accounts_approved", "issued", "settled", "completed"]` (and `paid_full/paid_partial` for labour).
+- **Fix**: filters now mirror the Cashbook + switched material sum from `amount` to `final_amount` (with `amount` fallback for legacy docs).
+
 ### Session — Feb 12, 2026 — Procurement Verify: Received Qty Now Propagates to Accountant (P0)
 - **Status**: ✅ COMPLETE & DEPLOYED.
 - **User report**: Procurement edited Received Qty (e.g., 212 → 210) and clicked Approve & Send to Accountant — but the Accountant approval UI kept showing the stale (old) qty.
