@@ -175,6 +175,9 @@ export default function SiteEngineerProject() {
   // as receiveDialog.request.steel_specs.items, each entry is the kg received
   // for that diameter. The total received_qty is the live sum below the table.
   const [receivedSteelItems, setReceivedSteelItems] = useState([]);
+  // Feb 12 2026 — when received qty ≠ requested qty (per diameter or total),
+  // SE must enter a reason. Stored in the receipt for downstream audit.
+  const [mismatchReason, setMismatchReason] = useState('');
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [gpsLocation, setGpsLocation] = useState(null);
   const [gettingLocation, setGettingLocation] = useState(false);
@@ -813,6 +816,7 @@ export default function SiteEngineerProject() {
     } else {
       setReceivedSteelItems([]);
     }
+    setMismatchReason('');
     setGpsLocation(null);
     setLorryImageId(null);
     setMaterialImageId(null);
@@ -858,12 +862,24 @@ export default function SiteEngineerProject() {
         return;
       }
       receivedQtyFinal = parsed.reduce((s, v) => s + v, 0);
-      steelReceivedPayload = steelItems.map((it, idx) => ({
-        diameter_mm: it.diameter_mm,
-        rod_count: it.rod_count,
-        requested_weight_kg: parseFloat(it.calculated_weight_kg || it.weight_kg) || 0,
-        received_weight_kg: parsed[idx],
-      }));
+      const reqTotal = steelItems.reduce((s, it) => s + Number(it.calculated_weight_kg || it.weight_kg || 0), 0);
+      // Feb 12 2026 — surface qty mismatch (per row OR overall total) and
+      // force SE to enter a reason so the audit captures WHY received ≠ requested.
+      const hasMismatch = Math.abs(receivedQtyFinal - reqTotal) >= 0.01;
+      if (hasMismatch && !mismatchReason.trim()) {
+        toast.error('Received qty does not match requested. Please enter a reason.');
+        return;
+      }
+      steelReceivedPayload = steelItems.map((it, idx) => {
+        const reqW = Number(it.calculated_weight_kg || it.weight_kg) || 0;
+        return {
+          diameter_mm: it.diameter_mm,
+          rod_count: it.rod_count,
+          requested_weight_kg: reqW,
+          received_weight_kg: parsed[idx],
+          diff_kg: Math.round((parsed[idx] - reqW) * 100) / 100,
+        };
+      });
     } else if (!receivedQtyFinal || receivedQtyFinal <= 0) {
       toast.error('Enter received quantity');
       return;
@@ -882,6 +898,7 @@ export default function SiteEngineerProject() {
         remarks: receiveForm.remarks || null,
       };
       if (steelReceivedPayload) payload.steel_received = steelReceivedPayload;
+      if (mismatchReason.trim()) payload.qty_mismatch_reason = mismatchReason.trim();
       await axios.post(`${API}/site-engineer/material-receipts/initiate`, payload);
 
       toast.success('Material receipt recorded');
@@ -2065,15 +2082,21 @@ export default function SiteEngineerProject() {
                           <th className="text-right px-2 py-1.5">Rods</th>
                           <th className="text-right px-2 py-1.5">Requested (kg)</th>
                           <th className="text-right px-2 py-1.5">Received Qty (kg) *</th>
+                          <th className="text-right px-2 py-1.5">Diff</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {receiveDialog.request.steel_specs.items.map((it, idx) => (
+                        {receiveDialog.request.steel_specs.items.map((it, idx) => {
+                          const reqW = Number(it.calculated_weight_kg || it.weight_kg || 0);
+                          const recv = parseFloat(receivedSteelItems[idx]);
+                          const diff = isNaN(recv) ? 0 : (recv - reqW);
+                          const diffColor = Math.abs(diff) < 0.01 ? 'text-gray-400' : (diff < 0 ? 'text-rose-700' : 'text-emerald-700');
+                          return (
                           <tr key={idx} className="border-t border-amber-200">
                             <td className="px-2 py-1.5 text-gray-500">{idx + 1}</td>
                             <td className="px-2 py-1.5 font-semibold text-slate-800">Ø {it.diameter_mm} mm</td>
                             <td className="px-2 py-1.5 text-right">{it.rod_count}</td>
-                            <td className="px-2 py-1.5 text-right text-amber-700">{Number(it.calculated_weight_kg || it.weight_kg || 0).toFixed(2)}</td>
+                            <td className="px-2 py-1.5 text-right text-amber-700">{reqW.toFixed(2)}</td>
                             <td className="px-2 py-1.5">
                               <NumericInput
                                 value={receivedSteelItems[idx] || ''}
@@ -2086,22 +2109,50 @@ export default function SiteEngineerProject() {
                                 data-testid={`receive-steel-qty-${it.diameter_mm}`}
                               />
                             </td>
+                            <td className={`px-2 py-1.5 text-right font-semibold ${diffColor}`} data-testid={`receive-steel-diff-${it.diameter_mm}`}>
+                              {Math.abs(diff) < 0.01 ? '—' : `${diff > 0 ? '+' : ''}${diff.toFixed(2)}`}
+                            </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                       <tfoot className="bg-amber-100/40 border-t border-amber-300">
-                        <tr>
-                          <td colSpan={3} className="px-2 py-1.5 text-right font-semibold text-amber-800">Total Received Qty</td>
-                          <td className="px-2 py-1.5 text-right text-amber-700 font-semibold">
-                            {(receiveDialog.request.steel_specs.total_weight_kg || 0).toFixed(2)} kg
-                          </td>
-                          <td className="px-2 py-1.5 text-right font-bold text-emerald-700" data-testid="receive-steel-total">
-                            {receivedSteelItems.reduce((s, v) => s + (parseFloat(v) || 0), 0).toFixed(2)} kg
-                          </td>
-                        </tr>
+                        {(() => {
+                          const reqTot = receiveDialog.request.steel_specs.total_weight_kg || 0;
+                          const recvTot = receivedSteelItems.reduce((s, v) => s + (parseFloat(v) || 0), 0);
+                          const totDiff = recvTot - reqTot;
+                          const tDiffColor = Math.abs(totDiff) < 0.01 ? 'text-gray-500' : (totDiff < 0 ? 'text-rose-700' : 'text-emerald-700');
+                          return (
+                            <tr>
+                              <td colSpan={3} className="px-2 py-1.5 text-right font-semibold text-amber-800">Total Received Qty</td>
+                              <td className="px-2 py-1.5 text-right text-amber-700 font-semibold">{reqTot.toFixed(2)} kg</td>
+                              <td className="px-2 py-1.5 text-right font-bold text-emerald-700" data-testid="receive-steel-total">{recvTot.toFixed(2)} kg</td>
+                              <td className={`px-2 py-1.5 text-right font-bold ${tDiffColor}`} data-testid="receive-steel-total-diff">{Math.abs(totDiff) < 0.01 ? '—' : `${totDiff > 0 ? '+' : ''}${totDiff.toFixed(2)}`}</td>
+                            </tr>
+                          );
+                        })()}
                       </tfoot>
                     </table>
                   </div>
+                  {/* Reason for Qty mismatch — required if any diff > 0.01 kg */}
+                  {(() => {
+                    const reqTot = receiveDialog.request.steel_specs.total_weight_kg || 0;
+                    const recvTot = receivedSteelItems.reduce((s, v) => s + (parseFloat(v) || 0), 0);
+                    const hasMismatch = Math.abs(recvTot - reqTot) >= 0.01;
+                    if (!hasMismatch) return null;
+                    return (
+                      <div className="px-3 py-2 border-t border-amber-300 bg-rose-50/40">
+                        <Label className="text-[11px] text-rose-700 font-semibold">Reason for Qty Mismatch *</Label>
+                        <Input
+                          value={mismatchReason}
+                          onChange={(e) => setMismatchReason(e.target.value)}
+                          placeholder="e.g., supplier short delivery, rounding adjustment, broken rod"
+                          className="text-sm mt-1"
+                          data-testid="receive-mismatch-reason"
+                        />
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : (
                 <div>

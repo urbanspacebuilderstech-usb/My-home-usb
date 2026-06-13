@@ -1665,8 +1665,10 @@ class MaterialReceiptCreate(BaseModel):
     photo_url: Optional[str] = None
     remarks: Optional[str] = None
     # Feb 12 2026 — per-diameter received qty for steel orders. Each entry:
-    #   { diameter_mm, rod_count, requested_weight_kg, received_weight_kg }
+    #   { diameter_mm, rod_count, requested_weight_kg, received_weight_kg, diff_kg }
     steel_received: Optional[List[Dict[str, Any]]] = None
+    # Reason captured when received qty ≠ requested (sum or per-row)
+    qty_mismatch_reason: Optional[str] = None
 
 
 import random
@@ -1729,6 +1731,8 @@ async def initiate_material_receipt(
     if data.steel_received:
         # Per-diameter received qty (Feb 2026) — kept on the receipt for audit.
         rcpt_dict["steel_received"] = [dict(x) for x in data.steel_received]
+    if (data.qty_mismatch_reason or "").strip():
+        rcpt_dict["qty_mismatch_reason"] = data.qty_mismatch_reason.strip()
     rcpt_dict.pop("otp_code", None)  # never persist empty OTP
     await db.material_receipts.insert_one(rcpt_dict)
     rcpt_dict.pop("_id", None)
