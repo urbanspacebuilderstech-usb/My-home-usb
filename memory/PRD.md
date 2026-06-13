@@ -13,6 +13,14 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — SE Material Request: Visible Quantity (kg) Field for Steel (P1)
+- **Status**: ✅ COMPLETE & DEPLOYED (`main.7a99f49b.js`).
+- **User report**: SE Material Request popup didn't surface a Quantity input for Steel — only Diameter + Rods + auto Weight existed.
+- **Fix** (`/app/frontend/src/pages/SiteEngineerProject.jsx`):
+  - Added a labeled **"Quantity (kg) *"** input under the Steel totals card. Default = formula-calculated total weight; SE can override if site actuals differ.
+  - Submit uses the manual override when provided; otherwise falls back to the formula total.
+  - `steel_specs.items[]` breakdown unchanged so Planning / Procurement / Accountant continue to see the per-diameter audit.
+
 ### Session — Feb 12, 2026 — Closing Balance: Income/Expense/Balance Matrix + Direct Transfer Mode (P1)
 - **Status**: ✅ COMPLETE & DEPLOYED (`main.9857c22f.js`).
 - **User ask**: Restructure Lock Closing Balance popup to show 3 columns (Income / Expense / Balance) for each mode. Add a 5th mode "Direct Transfer" alongside Current / Savings / Cash / Cheque.
