@@ -5611,6 +5611,9 @@ async def request_additional_payment(cost_id: str, request: Request, user: User 
             raise HTTPException(status_code=403, detail="Client approval required before requesting payment. Click 'Send to Client' first.")
     
     # Optional body: { expected_payment_date: "YYYY-MM-DD" }
+    # Default to today when missing so the addition stage gets a concrete
+    # month assignment + monthly_schedule_entries row (otherwise it can
+    # vanish from the CRE Payment Schedule grid).
     expected_date = None
     try:
         body = await request.json()
@@ -5618,6 +5621,8 @@ async def request_additional_payment(cost_id: str, request: Request, user: User 
             expected_date = body.get("expected_payment_date") or body.get("due_date")
     except Exception:
         body = {}
+    if not expected_date:
+        expected_date = datetime.now(timezone.utc).date().isoformat()
     
     cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
     if not cost:
@@ -5758,7 +5763,12 @@ async def request_addition_section_payment(project_id: str, section_id: str, req
     if not section:
         raise HTTPException(status_code=404, detail="Section not found")
 
-    # Optional expected payment date
+    # Optional expected payment date — when Planning skips this input we
+    # default to today's date so the resulting stage is properly pinned to
+    # the current month and surfaces on the CRE Payment Schedule. Without
+    # this fallback, section pay requests created without a date used to
+    # disappear from the main monthly grid (they only appeared in the
+    # Collect popup dropdown).
     expected_date = None
     try:
         body = await request.json()
@@ -5766,6 +5776,8 @@ async def request_addition_section_payment(project_id: str, section_id: str, req
             expected_date = body.get("expected_payment_date") or body.get("due_date")
     except Exception:
         body = {}
+    if not expected_date:
+        expected_date = datetime.now(timezone.utc).date().isoformat()
 
     # Pull every cost in this section that is (a) client-approved, (b) has open balance,
     # (c) not already attached to ANOTHER payment stage. The section batch approval

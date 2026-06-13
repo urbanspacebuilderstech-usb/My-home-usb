@@ -1920,6 +1920,21 @@ async def get_monthly_schedule(
             return d.month, d.year
         if planned_entry and planned_entry.get("month") and planned_entry.get("year"):
             return planned_entry["month"], planned_entry["year"]
+        # Addition / section-addition stages may be raised without an explicit
+        # expected_payment_date (Planning didn't fill it). Without a fallback
+        # these rows were silently dropped from EVERY monthly view, even
+        # though the popup dropdown showed them. Pin to the request creation
+        # month so they at least appear in some month tab (carryover logic
+        # will move them to the current month if already past).
+        if stage.get("is_addition") or stage.get("is_section_addition"):
+            c = (_parse_date(stage.get("requested_at"))
+                 or _parse_date(stage.get("created_at"))
+                 or _parse_date(stage.get("payment_requested_at")))
+            if c:
+                return c.month, c.year
+            # Absolute last resort — pin to current calendar month so the row
+            # surfaces in the active CRE Payment Schedule.
+            return today_month, today_year
         return None, None
 
     def _collection_month_for_stage(stage):
@@ -1962,6 +1977,15 @@ async def get_monthly_schedule(
             {"stage_id": {"$in": list(candidate_stage_ids)}} if candidate_stage_ids else None,
             {"expected_payment_date": {"$ne": None}},
             {"due_date": {"$ne": None}},
+            # Addition + section-addition stages must surface even when
+            # Planning skipped the expected_payment_date input. Without these
+            # clauses grouped section payment requests vanished from the
+            # main CRE Payment Schedule grid (they only appeared in the
+            # Collect popup dropdown). The fallback in `_planned_month_for_stage`
+            # below pins these dateless rows to the request creation month.
+            {"is_addition": True},
+            {"is_section_addition": True},
+            {"workflow_status": "requested"},
         ]
         stage_query_or = [q for q in stage_query_or if q]
         stages_cursor = await db.payment_stages.find(
