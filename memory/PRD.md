@@ -13,6 +13,18 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 12, 2026 — SE Receive Material: Diff Column + Mismatch Reason (P1)
+- **Status**: ✅ COMPLETE & DEPLOYED (`main.0ab5e025.js`).
+- **User ask**: When SE-entered Received Qty ≠ Requested Qty (per row OR total), show the difference and force SE to enter a reason — capture both in the receipt summary.
+- **Frontend** (`SiteEngineerProject.jsx`):
+  - Added a new "Diff" column to the per-diameter Receive table — emerald for over, rose for short, "—" when matched (|diff| < 0.01 kg).
+  - Footer row sums + shows aggregate diff.
+  - 🟥 "Reason for Qty Mismatch *" Input appears only when total |diff| ≥ 0.01 kg; submission validates it's non-empty.
+  - Payload now carries `qty_mismatch_reason` plus per-row `diff_kg` inside `steel_received[]`.
+- **Backend** (`site_ops.py`):
+  - `MaterialReceiptCreate` model accepts `qty_mismatch_reason: Optional[str]`.
+  - Persisted on the `material_receipts` doc for downstream audit / Procurement / Accountant review.
+
 ### Session — Feb 12, 2026 — SE Material Request: Visible Quantity (kg) Field for Steel (P1)
 - **Status**: ✅ COMPLETE & DEPLOYED (`main.7a99f49b.js`).
 - **User report**: SE Material Request popup didn't surface a Quantity input for Steel — only Diameter + Rods + auto Weight existed.
