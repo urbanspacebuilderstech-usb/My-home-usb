@@ -137,18 +137,38 @@ async def get_closing_balance(user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Access denied")
     doc = await db.closing_balances.find_one({"_id": CLOSING_BALANCE_DOC_ID})
+    bucket_keys = ["current_account", "savings", "cash", "cheque", "direct_transfer"]
+    empty_bucket = {"income": 0, "expense": 0, "balance": 0}
     if not doc:
         return {
             "manual_amount": 0,
-            "current_account": 0,
-            "savings": 0,
-            "cash": 0,
-            "cheque": 0,
-            "total": 0,
-            "locked_at": None,
-            "locked_by_name": None,
+            "buckets": {k: dict(empty_bucket) for k in bucket_keys},
+            "total_income": 0,
+            "total_expense": 0,
+            "total_balance": 0,
+            # Legacy mirrors
+            "current_account": 0, "savings": 0, "cash": 0, "cheque": 0, "total": 0,
+            "locked_at": None, "locked_by_name": None,
         }
     doc.pop("_id", None)
+    # Back-fill the new `buckets` shape for legacy docs that only have flat keys.
+    if "buckets" not in doc or not isinstance(doc.get("buckets"), dict):
+        legacy = {k: float(doc.get(k) or 0) for k in ["current_account", "savings", "cash", "cheque"]}
+        doc["buckets"] = {
+            "current_account": {"income": legacy["current_account"], "expense": 0, "balance": legacy["current_account"]},
+            "savings": {"income": legacy["savings"], "expense": 0, "balance": legacy["savings"]},
+            "cash": {"income": legacy["cash"], "expense": 0, "balance": legacy["cash"]},
+            "cheque": {"income": legacy["cheque"], "expense": 0, "balance": legacy["cheque"]},
+            "direct_transfer": dict(empty_bucket),
+        }
+        doc["total_income"] = sum(b["income"] for b in doc["buckets"].values())
+        doc["total_expense"] = 0
+        doc["total_balance"] = doc["total_income"]
+    else:
+        # Ensure all 5 buckets are present
+        for k in bucket_keys:
+            if k not in doc["buckets"]:
+                doc["buckets"][k] = dict(empty_bucket)
     return doc
 
 
@@ -163,33 +183,54 @@ async def save_closing_balance(payload: Dict[str, Any], user: User = Depends(get
         except (TypeError, ValueError):
             return 0.0
 
+    # Feb 12 2026 — closing balance now tracks income + expense per bucket
+    # (5 modes: Current Account, Savings, Cash, Cheque, Direct Transfer). The
+    # legacy single `current_account/savings/cash/cheque` shape is still
+    # accepted on the wire so older clients keep working — they just write to
+    # the Income side of each bucket.
+    bucket_keys = ["current_account", "savings", "cash", "cheque", "direct_transfer"]
+    buckets_in = payload.get("buckets") or {}
+    buckets_out = {}
+    total_income = 0.0
+    total_expense = 0.0
+    for k in bucket_keys:
+        b = buckets_in.get(k) or {}
+        inc = _num(b.get("income")) if "income" in b else _num(payload.get(k))
+        exp = _num(b.get("expense"))
+        buckets_out[k] = {"income": inc, "expense": exp, "balance": inc - exp}
+        total_income += inc
+        total_expense += exp
+    total_balance = total_income - total_expense
+
     manual = _num(payload.get("manual_amount"))
-    ca = _num(payload.get("current_account"))
-    sav = _num(payload.get("savings"))
-    cash = _num(payload.get("cash"))
-    cheque = _num(payload.get("cheque"))
-    total = ca + sav + cash + cheque
+    if not manual:  # Auto-derive when caller omits it
+        manual = total_balance
 
     now = datetime.now(timezone.utc).isoformat()
     doc = {
         "_id": CLOSING_BALANCE_DOC_ID,
+        "buckets": buckets_out,
+        "total_income": total_income,
+        "total_expense": total_expense,
+        "total_balance": total_balance,
         "manual_amount": manual,
-        "current_account": ca,
-        "savings": sav,
-        "cash": cash,
-        "cheque": cheque,
-        "total": total,
+        # Legacy mirrors (kept so old clients reading top-level keys still work)
+        "current_account": buckets_out["current_account"]["balance"],
+        "savings": buckets_out["savings"]["balance"],
+        "cash": buckets_out["cash"]["balance"],
+        "cheque": buckets_out["cheque"]["balance"],
+        "total": total_balance,
         "locked_at": now,
         "locked_by": user.user_id,
         "locked_by_name": user.name,
     }
     await db.closing_balances.update_one(
-        {"_id": CLOSING_BALANCE_DOC_ID}, {"$set": doc}, upsert=True
+        {"_id": CLOSING_BALANCE_DOC_ID}, {"$set": doc}, upsert=True,
     )
     await create_audit_log(
         user.user_id, "lock_closing_balance", "closing_balance",
         CLOSING_BALANCE_DOC_ID,
-        {"manual_amount": manual, "total": total},
+        {"manual_amount": manual, "total_balance": total_balance},
     )
     doc.pop("_id", None)
     return doc
@@ -332,8 +373,30 @@ async def list_carry_forward_projects(user: User = Depends(get_current_user)):
 
     rows = []
     for p in projects:
-        row = await _compute_project_carry_forward_row(p, cf_map.get(p["project_id"]))
-        rows.append(row)
+        try:
+            row = await _compute_project_carry_forward_row(p, cf_map.get(p["project_id"]))
+            rows.append(row)
+        except Exception as e:
+            # Don't fail the whole list if one project's aggregation throws —
+            # surface a minimal row so the table still loads. Feb 12 2026.
+            import logging
+            logging.getLogger("financial").warning(
+                "carry_forward row failed for %s: %s", p.get("project_id"), e,
+            )
+            rows.append({
+                "project_id": p.get("project_id"),
+                "project_name": p.get("name"),
+                "project_value": float(p.get("original_estimate") or p.get("total_value") or 0),
+                "total_income": 0, "income_adjustment": 0, "income_carry_forward": 0, "grand_income": 0,
+                "material_expense": 0, "work_order_expense": 0, "petty_cash_expense": 0,
+                "direct_expense_total": 0,
+                "material_carry_forward": 0, "labour_carry_forward": 0,
+                "petty_cash_carry_forward": 0, "indirect_carry_forward": 0,
+                "direct_carry_forward": 0, "expense_carry_forward": 0,
+                "expense_adjustment": 0, "grand_expense": 0,
+                "difference": 0,
+                "note": "(computation failed — see backend logs)",
+            })
 
     totals = {
         "project_value": sum(r["project_value"] for r in rows),

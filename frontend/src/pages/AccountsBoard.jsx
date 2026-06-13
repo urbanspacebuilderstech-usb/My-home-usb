@@ -4518,10 +4518,14 @@ function CarryForwardTab({ userRole }) {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     manual_amount: '',
-    current_account: '',
-    savings: '',
-    cash: '',
-    cheque: '',
+    // Feb 12 2026 — Income / Expense entered per mode. Balance = Income − Expense.
+    buckets: {
+      current_account: { income: '', expense: '' },
+      savings: { income: '', expense: '' },
+      cash: { income: '', expense: '' },
+      cheque: { income: '', expense: '' },
+      direct_transfer: { income: '', expense: '' },
+    },
   });
   // Project-wise table state (Feb 2026)
   const [projectRows, setProjectRows] = useState([]);
@@ -4653,33 +4657,48 @@ function CarryForwardTab({ userRole }) {
   })();
 
   const openDialog = () => {
+    const b = data?.buckets || {};
+    const pick = (k) => ({
+      income: b[k]?.income ?? '',
+      expense: b[k]?.expense ?? '',
+    });
     setForm({
       manual_amount: data?.manual_amount ?? '',
-      current_account: data?.current_account ?? '',
-      savings: data?.savings ?? '',
-      cash: data?.cash ?? '',
-      cheque: data?.cheque ?? '',
+      buckets: {
+        current_account: pick('current_account'),
+        savings: pick('savings'),
+        cash: pick('cash'),
+        cheque: pick('cheque'),
+        direct_transfer: pick('direct_transfer'),
+      },
     });
     setDialogOpen(true);
   };
 
-  const liveTotal = () => {
-    const ca = parseFloat(form.current_account) || 0;
-    const sav = parseFloat(form.savings) || 0;
-    const ca3 = parseFloat(form.cash) || 0;
-    const ca4 = parseFloat(form.cheque) || 0;
-    return ca + sav + ca3 + ca4;
+  const liveBucketBalance = (k) => {
+    const inc = parseFloat(form.buckets[k]?.income) || 0;
+    const exp = parseFloat(form.buckets[k]?.expense) || 0;
+    return inc - exp;
   };
+  const liveTotalIncome = () =>
+    Object.keys(form.buckets).reduce((s, k) => s + (parseFloat(form.buckets[k]?.income) || 0), 0);
+  const liveTotalExpense = () =>
+    Object.keys(form.buckets).reduce((s, k) => s + (parseFloat(form.buckets[k]?.expense) || 0), 0);
+  const liveTotalBalance = () => liveTotalIncome() - liveTotalExpense();
 
   const handleLock = async () => {
     try {
       setSaving(true);
+      const buckets = {};
+      for (const k of Object.keys(form.buckets)) {
+        buckets[k] = {
+          income: parseFloat(form.buckets[k].income) || 0,
+          expense: parseFloat(form.buckets[k].expense) || 0,
+        };
+      }
       const payload = {
-        manual_amount: parseFloat(form.manual_amount) || 0,
-        current_account: parseFloat(form.current_account) || 0,
-        savings: parseFloat(form.savings) || 0,
-        cash: parseFloat(form.cash) || 0,
-        cheque: parseFloat(form.cheque) || 0,
+        manual_amount: parseFloat(form.manual_amount) || liveTotalBalance(),
+        buckets,
       };
       const res = await axios.post(`${API}/accountant/closing-balance`, payload);
       setData(res.data);
@@ -4703,11 +4722,13 @@ function CarryForwardTab({ userRole }) {
   }
 
   const buckets = [
-    { key: 'current_account', label: 'Current Account', value: data?.current_account, Icon: Landmark, accent: 'border-l-blue-500 bg-blue-50/40' },
-    { key: 'savings', label: 'Savings', value: data?.savings, Icon: PiggyBank, accent: 'border-l-emerald-500 bg-emerald-50/40' },
-    { key: 'cash', label: 'Cash', value: data?.cash, Icon: Banknote, accent: 'border-l-amber-500 bg-amber-50/40' },
-    { key: 'cheque', label: 'Cheque', value: data?.cheque, Icon: FileText, accent: 'border-l-violet-500 bg-violet-50/40' },
+    { key: 'current_account', label: 'Current Account', Icon: Landmark, accent: 'border-l-blue-500 bg-blue-50/40' },
+    { key: 'savings', label: 'Savings', Icon: PiggyBank, accent: 'border-l-emerald-500 bg-emerald-50/40' },
+    { key: 'cash', label: 'Cash', Icon: Banknote, accent: 'border-l-amber-500 bg-amber-50/40' },
+    { key: 'cheque', label: 'Cheque', Icon: FileText, accent: 'border-l-violet-500 bg-violet-50/40' },
+    { key: 'direct_transfer', label: 'Direct Transfer', Icon: TrendingUp, accent: 'border-l-rose-500 bg-rose-50/40' },
   ];
+  const bv = (k, field) => (data?.buckets?.[k]?.[field] ?? 0);
 
   return (
     <div className="space-y-4" data-testid="carry-forward-tab">
@@ -4740,27 +4761,31 @@ function CarryForwardTab({ userRole }) {
         </CardContent>
       </Card>
 
-      {/* 4 bucket cards + Total */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      {/* 5 bucket cards (Income / Expense / Balance) + Grand Total */}
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
         {buckets.map((b) => (
           <Card key={b.key} className={`border-l-4 ${b.accent}`} data-testid={`carry-forward-${b.key}`}>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-gray-600 font-semibold">
+            <CardContent className="p-3">
+              <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-gray-600 font-semibold">
                 <b.Icon className="h-3.5 w-3.5" /> {b.label}
               </div>
-              <div className="mt-1.5 text-lg sm:text-xl font-bold text-gray-900">
-                {fmt(b.value)}
+              <div className="mt-1.5 space-y-0.5 text-[11px]">
+                <div className="flex justify-between"><span className="text-emerald-700">Income</span><span className="font-semibold">{fmt(bv(b.key, 'income'))}</span></div>
+                <div className="flex justify-between"><span className="text-rose-700">Expense</span><span className="font-semibold">{fmt(bv(b.key, 'expense'))}</span></div>
+                <div className="flex justify-between border-t pt-0.5"><span className="font-semibold text-gray-800">Balance</span><span className={`font-bold ${bv(b.key, 'balance') >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmt(bv(b.key, 'balance'))}</span></div>
               </div>
             </CardContent>
           </Card>
         ))}
         <Card className="border-l-4 border-l-gray-800 bg-gray-900 text-white" data-testid="carry-forward-total">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-gray-300 font-semibold">
-              <TrendingUp className="h-3.5 w-3.5" /> Total (4 Buckets)
+          <CardContent className="p-3">
+            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-gray-300 font-semibold">
+              <TrendingUp className="h-3.5 w-3.5" /> Total
             </div>
-            <div className="mt-1.5 text-lg sm:text-xl font-bold">
-              {fmt(data?.total)}
+            <div className="mt-1.5 space-y-0.5 text-[11px]">
+              <div className="flex justify-between"><span className="text-emerald-300">Income</span><span className="font-semibold">{fmt(data?.total_income)}</span></div>
+              <div className="flex justify-between"><span className="text-rose-300">Expense</span><span className="font-semibold">{fmt(data?.total_expense)}</span></div>
+              <div className="flex justify-between border-t border-gray-700 pt-0.5"><span className="font-semibold">Balance</span><span className="font-bold">{fmt(data?.total_balance)}</span></div>
             </div>
           </CardContent>
         </Card>
@@ -5060,58 +5085,67 @@ function CarryForwardTab({ userRole }) {
                 value={form.manual_amount}
                 onChange={(e) => setForm({ ...form, manual_amount: e.target.value })}
                 data-testid="carry-forward-input-manual"
-                placeholder="0"
+                placeholder="Auto-fills with Total Balance"
               />
+              <p className="text-[10px] text-gray-500 mt-0.5">Leave blank to auto-use the Total Balance below.</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs">Current Account</Label>
-                <Input
-                  type="number" step="0.01"
-                  value={form.current_account}
-                  onChange={(e) => setForm({ ...form, current_account: e.target.value })}
-                  data-testid="carry-forward-input-ca"
-                  placeholder="0"
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Savings</Label>
-                <Input
-                  type="number" step="0.01"
-                  value={form.savings}
-                  onChange={(e) => setForm({ ...form, savings: e.target.value })}
-                  data-testid="carry-forward-input-savings"
-                  placeholder="0"
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Cash</Label>
-                <Input
-                  type="number" step="0.01"
-                  value={form.cash}
-                  onChange={(e) => setForm({ ...form, cash: e.target.value })}
-                  data-testid="carry-forward-input-cash"
-                  placeholder="0"
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Cheque</Label>
-                <Input
-                  type="number" step="0.01"
-                  value={form.cheque}
-                  onChange={(e) => setForm({ ...form, cheque: e.target.value })}
-                  data-testid="carry-forward-input-cheque"
-                  placeholder="0"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between rounded-md bg-gray-100 px-3 py-2">
-              <span className="text-xs font-semibold text-gray-700">Total (4 buckets)</span>
-              <span className="text-lg font-bold text-gray-900" data-testid="carry-forward-live-total">
-                {fmt(liveTotal())}
-              </span>
+            {/* Matrix: 5 modes × {Income, Expense, Balance} */}
+            <div className="rounded-md border overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-100 text-gray-700 uppercase text-[10px]">
+                  <tr>
+                    <th className="text-left px-2 py-1.5">Mode</th>
+                    <th className="text-right px-2 py-1.5">Income</th>
+                    <th className="text-right px-2 py-1.5">Expense</th>
+                    <th className="text-right px-2 py-1.5">Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {buckets.map((b) => (
+                    <tr key={b.key} className="border-t">
+                      <td className="px-2 py-1.5 font-medium text-gray-800 flex items-center gap-1.5"><b.Icon className="h-3 w-3" /> {b.label}</td>
+                      <td className="px-2 py-1.5">
+                        <Input
+                          type="number" step="0.01"
+                          value={form.buckets[b.key].income}
+                          onChange={(e) => setForm({
+                            ...form,
+                            buckets: { ...form.buckets, [b.key]: { ...form.buckets[b.key], income: e.target.value } },
+                          })}
+                          data-testid={`cb-income-${b.key}`}
+                          className="h-7 text-right"
+                          placeholder="0"
+                        />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <Input
+                          type="number" step="0.01"
+                          value={form.buckets[b.key].expense}
+                          onChange={(e) => setForm({
+                            ...form,
+                            buckets: { ...form.buckets, [b.key]: { ...form.buckets[b.key], expense: e.target.value } },
+                          })}
+                          data-testid={`cb-expense-${b.key}`}
+                          className="h-7 text-right"
+                          placeholder="0"
+                        />
+                      </td>
+                      <td className={`px-2 py-1.5 text-right font-bold ${liveBucketBalance(b.key) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`} data-testid={`cb-balance-${b.key}`}>
+                        {fmt(liveBucketBalance(b.key))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-gray-50 border-t-2">
+                  <tr>
+                    <td className="px-2 py-1.5 font-semibold text-gray-800">Total</td>
+                    <td className="px-2 py-1.5 text-right font-bold text-emerald-700" data-testid="cb-total-income">{fmt(liveTotalIncome())}</td>
+                    <td className="px-2 py-1.5 text-right font-bold text-rose-700" data-testid="cb-total-expense">{fmt(liveTotalExpense())}</td>
+                    <td className={`px-2 py-1.5 text-right font-bold ${liveTotalBalance() >= 0 ? 'text-emerald-700' : 'text-rose-700'}`} data-testid="cb-total-balance">{fmt(liveTotalBalance())}</td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           </div>
 
