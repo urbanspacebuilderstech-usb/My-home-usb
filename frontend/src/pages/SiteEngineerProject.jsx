@@ -696,9 +696,14 @@ export default function SiteEngineerProject() {
         }));
         const totalWeight = Math.round(items.reduce((s, i) => s + i.calculated_weight_kg, 0) * 100) / 100;
         const totalRods = items.reduce((s, i) => s + i.rod_count, 0);
+        // Feb 12 2026 — when SE manually overrode the Quantity (kg) field, use
+        // that value as the request quantity. Otherwise stick with the
+        // formula-computed totalWeight.
+        const manualQty = parseFloat(materialForm.quantity);
+        const requestQty = (!isNaN(manualQty) && manualQty > 0) ? manualQty : totalWeight;
         const payload = {
           project_id: projectId,
-          quantity: totalWeight,
+          quantity: requestQty,
           unit: 'kg',
           remarks: materialForm.remarks || null,
           is_approved_material: materialForm.is_approved,
@@ -1484,14 +1489,33 @@ export default function SiteEngineerProject() {
                             const totalRods = validRows.reduce((s, r) => s + parseInt(r.rod_count, 10), 0);
                             const totalWeight = validRows.reduce((s, r) => s + calcSteelWeightKg(r.diameter, r.rod_count), 0);
                             return (
-                              <div className="mt-2 border-2 border-amber-300 rounded-lg bg-amber-50 p-2.5 flex items-center justify-between" data-testid="steel-totals">
-                                <div className="text-xs sm:text-sm text-amber-900 font-semibold">
-                                  Total: <span className="text-base sm:text-lg">{validRows.length}</span> item{validRows.length === 1 ? '' : 's'} · <span className="text-base sm:text-lg">{totalRods}</span> rod{totalRods === 1 ? '' : 's'}
+                              <>
+                                <div className="mt-2 border-2 border-amber-300 rounded-lg bg-amber-50 p-2.5 flex items-center justify-between" data-testid="steel-totals">
+                                  <div className="text-xs sm:text-sm text-amber-900 font-semibold">
+                                    Total: <span className="text-base sm:text-lg">{validRows.length}</span> item{validRows.length === 1 ? '' : 's'} · <span className="text-base sm:text-lg">{totalRods}</span> rod{totalRods === 1 ? '' : 's'}
+                                  </div>
+                                  <div className="text-sm sm:text-base font-bold text-amber-700" data-testid="steel-total-weight">
+                                    {Math.round(totalWeight * 100) / 100} kg
+                                  </div>
                                 </div>
-                                <div className="text-sm sm:text-base font-bold text-amber-700" data-testid="steel-total-weight">
-                                  {Math.round(totalWeight * 100) / 100} kg
+                                {/* Feb 12 2026 — user-visible Quantity (kg) field
+                                    for Steel. Auto-mirrors the calculated total
+                                    above but stays editable so SE can override
+                                    when site receives a slightly different
+                                    weight than the formula. Submission picks
+                                    whichever is most recent (override or auto). */}
+                                <div className="mt-2">
+                                  <Label className="text-xs sm:text-sm">Quantity (kg) *</Label>
+                                  <NumericInput
+                                    value={materialForm.quantity === '' ? String(Math.round(totalWeight * 100) / 100 || '') : materialForm.quantity}
+                                    onChange={(e) => setMaterialForm({ ...materialForm, quantity: e.target.value })}
+                                    placeholder="Auto-fills with total weight"
+                                    className="text-sm"
+                                    data-testid="steel-total-quantity-input"
+                                  />
+                                  <p className="text-[10px] text-gray-500 mt-0.5">Auto-filled from rods × weight. Edit if site actuals differ.</p>
                                 </div>
-                              </div>
+                              </>
                             );
                           })()}
                         </div>
