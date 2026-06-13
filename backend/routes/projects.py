@@ -6052,15 +6052,30 @@ async def client_approve_additional_cost(cost_id: str, user: User = Depends(get_
             "client_rejected": False,
         }, "$unset": {"client_rejected_at": "", "client_rejection_reason": ""}}
     )
-    # Mirror onto the linked payment_stages so Planning + CRE + Accountant see the same state
+    # Mirror onto the linked payment_stages so Planning + CRE + Accountant see the same state.
+    # IMPORTANT: do NOT overwrite `workflow_status` if the stage has already
+    # progressed past the `client_approved` step (e.g. `requested`,
+    # `pending_collection`, `collected`). Otherwise the CRE Payment Schedule
+    # filter (which requires workflow_status in {"requested","pending_collection"})
+    # silently hides the row after the client clicks Approve on a row that
+    # Planning already raised a Pay Request for.
     if cost.get("linked_stage_id"):
+        cur_stage = await db.payment_stages.find_one(
+            {"stage_id": cost["linked_stage_id"]},
+            {"_id": 0, "workflow_status": 1},
+        ) or {}
+        cur_ws = (cur_stage.get("workflow_status") or "").lower()
+        post_request_ws = {"requested", "pending_collection", "approved_for_collection",
+                           "collected", "cre_rejected", "paid"}
+        set_fields = {
+            "client_approved": True,
+            "client_approved_at": now_iso,
+        }
+        if cur_ws not in post_request_ws:
+            set_fields["workflow_status"] = "client_approved"
         await db.payment_stages.update_one(
             {"stage_id": cost["linked_stage_id"]},
-            {"$set": {
-                "client_approved": True,
-                "client_approved_at": now_iso,
-                "workflow_status": "client_approved",
-            }}
+            {"$set": set_fields},
         )
     
     # Notify CRE users so they can do their approval step
