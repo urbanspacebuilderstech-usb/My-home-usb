@@ -175,6 +175,10 @@ export default function SiteEngineerProject() {
   // as receiveDialog.request.steel_specs.items, each entry is the kg received
   // for that diameter. The total received_qty is the live sum below the table.
   const [receivedSteelItems, setReceivedSteelItems] = useState([]);
+  // Feb 12 2026 — receivedSteelRods[i] is the editable rod count per diameter
+  // (e.g., supplier delivered 196 of 200 requested rods). Weight auto-syncs
+  // from the canonical steel formula  W = (D²/162) × 12.192 × N.
+  const [receivedSteelRods, setReceivedSteelRods] = useState([]);
   // Feb 12 2026 — when received qty ≠ requested qty (per diameter or total),
   // SE must enter a reason. Stored in the receipt for downstream audit.
   const [mismatchReason, setMismatchReason] = useState('');
@@ -813,8 +817,10 @@ export default function SiteEngineerProject() {
     const items = request?.steel_specs?.items;
     if (Array.isArray(items) && items.length > 0) {
       setReceivedSteelItems(items.map(it => String(it.calculated_weight_kg || it.weight_kg || 0)));
+      setReceivedSteelRods(items.map(it => String(it.rod_count ?? '')));
     } else {
       setReceivedSteelItems([]);
+      setReceivedSteelRods([]);
     }
     setMismatchReason('');
     setGpsLocation(null);
@@ -875,6 +881,7 @@ export default function SiteEngineerProject() {
         return {
           diameter_mm: it.diameter_mm,
           rod_count: it.rod_count,
+          received_rod_count: parseInt(receivedSteelRods[idx], 10) || 0,
           requested_weight_kg: reqW,
           received_weight_kg: parsed[idx],
           diff_kg: Math.round((parsed[idx] - reqW) * 100) / 100,
@@ -2079,7 +2086,8 @@ export default function SiteEngineerProject() {
                         <tr>
                           <th className="text-left px-2 py-1.5 w-6">#</th>
                           <th className="text-left px-2 py-1.5">Diameter</th>
-                          <th className="text-right px-2 py-1.5">Rods</th>
+                          <th className="text-right px-2 py-1.5">Req. Rods</th>
+                          <th className="text-right px-2 py-1.5">Recv. Rods *</th>
                           <th className="text-right px-2 py-1.5">Requested (kg)</th>
                           <th className="text-right px-2 py-1.5">Received Qty (kg) *</th>
                           <th className="text-right px-2 py-1.5">Diff</th>
@@ -2095,7 +2103,24 @@ export default function SiteEngineerProject() {
                           <tr key={idx} className="border-t border-amber-200">
                             <td className="px-2 py-1.5 text-gray-500">{idx + 1}</td>
                             <td className="px-2 py-1.5 font-semibold text-slate-800">Ø {it.diameter_mm} mm</td>
-                            <td className="px-2 py-1.5 text-right">{it.rod_count}</td>
+                            <td className="px-2 py-1.5 text-right text-gray-600">{it.rod_count}</td>
+                            <td className="px-2 py-1.5">
+                              <NumericInput
+                                value={receivedSteelRods[idx] || ''}
+                                onChange={(e) => {
+                                  const next = [...receivedSteelRods];
+                                  next[idx] = e.target.value;
+                                  setReceivedSteelRods(next);
+                                  // Auto-sync kg from new rod count
+                                  const nextKg = [...receivedSteelItems];
+                                  const w = calcSteelWeightKg(it.diameter_mm, e.target.value);
+                                  nextKg[idx] = String(w || '');
+                                  setReceivedSteelItems(nextKg);
+                                }}
+                                className="h-7 text-right text-sm w-20 ml-auto"
+                                data-testid={`receive-steel-rods-${it.diameter_mm}`}
+                              />
+                            </td>
                             <td className="px-2 py-1.5 text-right text-amber-700">{reqW.toFixed(2)}</td>
                             <td className="px-2 py-1.5">
                               <NumericInput
@@ -2122,9 +2147,13 @@ export default function SiteEngineerProject() {
                           const recvTot = receivedSteelItems.reduce((s, v) => s + (parseFloat(v) || 0), 0);
                           const totDiff = recvTot - reqTot;
                           const tDiffColor = Math.abs(totDiff) < 0.01 ? 'text-gray-500' : (totDiff < 0 ? 'text-rose-700' : 'text-emerald-700');
+                          const reqRodsTot = receiveDialog.request.steel_specs.items.reduce((s, it) => s + (parseInt(it.rod_count, 10) || 0), 0);
+                          const recvRodsTot = receivedSteelRods.reduce((s, v) => s + (parseInt(v, 10) || 0), 0);
                           return (
                             <tr>
-                              <td colSpan={3} className="px-2 py-1.5 text-right font-semibold text-amber-800">Total Received Qty</td>
+                              <td colSpan={2} className="px-2 py-1.5 text-right font-semibold text-amber-800">Total</td>
+                              <td className="px-2 py-1.5 text-right text-amber-700">{reqRodsTot}</td>
+                              <td className="px-2 py-1.5 text-right font-bold text-emerald-700">{recvRodsTot}</td>
                               <td className="px-2 py-1.5 text-right text-amber-700 font-semibold">{reqTot.toFixed(2)} kg</td>
                               <td className="px-2 py-1.5 text-right font-bold text-emerald-700" data-testid="receive-steel-total">{recvTot.toFixed(2)} kg</td>
                               <td className={`px-2 py-1.5 text-right font-bold ${tDiffColor}`} data-testid="receive-steel-total-diff">{Math.abs(totDiff) < 0.01 ? '—' : `${totDiff > 0 ? '+' : ''}${totDiff.toFixed(2)}`}</td>
