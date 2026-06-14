@@ -2377,6 +2377,29 @@ async def procurement_simple_queue(
         r["project_name"] = (projects.get(r.get("project_id")) or {}).get("name", r.get("project_name") or "Unknown")
         r["site_engineer_name"] = (users_lookup.get(r.get("site_engineer_id")) or {}).get("name", r.get("site_engineer_name") or "Unknown")
 
+    # Enrich with the latest material_receipts.steel_received so the
+    # Procurement "Verify Delivery" dialog can show the per-diameter rod
+    # count + received kg breakdown the Site Engineer entered (mirrors the
+    # SE Receive Material popup format).
+    receipt_targets = [r["request_id"] for r in rows if r.get("status") in ("procurement_verifying", "procurement_verify_rejected", "in_transit", "pending_accounts_approval")]
+    if receipt_targets:
+        latest_receipts = await db.material_receipts.find(
+            {"request_id": {"$in": receipt_targets}},
+            {"_id": 0, "request_id": 1, "steel_received": 1, "received_qty": 1, "qty_mismatch_reason": 1, "receive_date": 1, "receive_time": 1, "created_at": 1},
+        ).sort("created_at", -1).to_list(2000)
+        # Pick the freshest receipt per request_id
+        rcpt_by_req = {}
+        for rc in latest_receipts:
+            rid = rc.get("request_id")
+            if rid and rid not in rcpt_by_req:
+                rcpt_by_req[rid] = rc
+        for r in rows:
+            rc = rcpt_by_req.get(r["request_id"])
+            if rc and rc.get("steel_received"):
+                r["steel_received"] = rc["steel_received"]
+            if rc and rc.get("qty_mismatch_reason"):
+                r["qty_mismatch_reason"] = rc["qty_mismatch_reason"]
+
     return {"count": len(rows), "requests": rows}
 
 
@@ -2773,6 +2796,12 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
     if isinstance(extras, dict):
         for k, v in extras.items():
             update[k] = v
+
+    # Persist Procurement's corrected per-diameter breakdown for audit and so
+    # downstream Inventory / Accountant views can show the verified counts.
+    steel_corrected = body.get("steel_received_corrected")
+    if isinstance(steel_corrected, list) and steel_corrected:
+        update["steel_received_verified"] = [dict(x) for x in steel_corrected]
 
     await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
 

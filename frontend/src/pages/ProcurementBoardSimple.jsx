@@ -258,10 +258,39 @@ function RequestsTab({ dateRange }) {
         if (!isNaN(overrideUnit) && overrideUnit !== reqUnit) {
           body.unit_price = overrideUnit;
         }
+        // If Procurement edited the per-diameter table for a Steel order,
+        // forward the corrected breakdown + recomputed total kg so Accountant
+        // & inventory reflect Procurement's verified numbers.
+        const stOv = verifyDialog.steel_overrides || {};
+        if (Object.keys(stOv).length > 0 && req.steel_specs?.items?.length) {
+          const seByDia = {};
+          (req.steel_received || []).forEach((x) => { if (x?.diameter_mm != null) seByDia[String(x.diameter_mm)] = x; });
+          const corrected = req.steel_specs.items.map((it) => {
+            const D = String(it.diameter_mm);
+            const seR = seByDia[D] || {};
+            const ov = stOv[D] || {};
+            const reqRods = parseInt(it.rod_count, 10) || 0;
+            const reqKg = Number(it.calculated_weight_kg || it.weight_kg || 0);
+            const recvRods = ov.rod_count !== undefined ? (parseInt(ov.rod_count, 10) || 0) : (parseInt(seR.received_rod_count, 10) || reqRods);
+            const recvKg = ov.weight_kg !== undefined ? (parseFloat(ov.weight_kg) || 0) : (Number(seR.received_weight_kg) || reqKg);
+            return {
+              diameter_mm: it.diameter_mm,
+              rod_count: reqRods,
+              received_rod_count: recvRods,
+              requested_weight_kg: reqKg,
+              received_weight_kg: recvKg,
+              diff_kg: Math.round((recvKg - reqKg) * 100) / 100,
+            };
+          });
+          body.steel_received_corrected = corrected;
+          // Snap received_quantity to the verified total kg so the rest of
+          // the pipeline (Accountant Cashbook, Inventory) doesn't drift.
+          body.received_quantity = corrected.reduce((s, x) => s + (x.received_weight_kg || 0), 0);
+        }
         await axios.post(`${API}/procurement-simple/material-requests/${req.request_id}/verify-approve`, body);
         toast.success('Delivery verified — sent to Accountant');
       }
-      setVerifyDialog({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '', received_qty_override: '', unit_price_override: '' });
+      setVerifyDialog({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '', received_qty_override: '', unit_price_override: '', steel_overrides: {} });
       fetchAll();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Verification failed');
@@ -291,6 +320,7 @@ function RequestsTab({ dateRange }) {
         reject_reason: '',
         received_qty_override: dfltRecv ? String(dfltRecv) : '',
         unit_price_override: dfltUnit ? String(Number(dfltUnit.toFixed(2))) : '',
+        steel_overrides: {},
       });
     } else {
       setOpen(r);
@@ -401,7 +431,7 @@ function RequestsTab({ dateRange }) {
       </Dialog>
 
       {/* Verify-Delivery Dialog */}
-      <Dialog open={verifyDialog.open} onOpenChange={(o) => !o && setVerifyDialog({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '', received_qty_override: '', unit_price_override: '' })}>
+      <Dialog open={verifyDialog.open} onOpenChange={(o) => !o && setVerifyDialog({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '', received_qty_override: '', unit_price_override: '', steel_overrides: {} })}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="proc-verify-dialog">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-fuchsia-700">
@@ -478,6 +508,125 @@ function RequestsTab({ dateRange }) {
                     </div>
                     <div><span className="text-gray-500">Total:</span> <strong className="text-fuchsia-700" data-testid="verify-live-total">{fmt(liveTotal)}</strong></div>
                     <div className="col-span-2"><span className="text-gray-500">Payment Mode:</span> <strong>{verifyDialog.req.payment_mode || '—'}</strong></div>
+                  </div>
+                );
+              })()}
+
+              {/* Per-diameter breakdown table — mirrors the SE Receive Material
+                  popup. Only shown when this is a Steel order with the
+                  diameter-wise spec AND the SE captured per-rod received qty.
+                  Editable so Procurement can correct under/over count from the
+                  SE before forwarding. Defaults to what the SE reported. */}
+              {verifyDialog.req.steel_specs?.items?.length > 0 && (() => {
+                const specItems = verifyDialog.req.steel_specs.items;
+                const seReceived = verifyDialog.req.steel_received || [];
+                const seByDia = {};
+                seReceived.forEach((x) => { if (x?.diameter_mm != null) seByDia[String(x.diameter_mm)] = x; });
+                // Maintain editable overrides for each diameter (kg + rod count).
+                const overrides = verifyDialog.steel_overrides || {};
+                const setOverride = (dia, patch) => {
+                  setVerifyDialog({
+                    ...verifyDialog,
+                    steel_overrides: { ...overrides, [String(dia)]: { ...(overrides[String(dia)] || {}), ...patch } },
+                  });
+                };
+                let totReqRods = 0, totRecvRods = 0, totReqKg = 0, totRecvKg = 0;
+                return (
+                  <div className="rounded-md border border-amber-300 bg-amber-50/40 overflow-hidden">
+                    <div className="px-3 py-2 bg-amber-100/60 text-[11px] uppercase tracking-wide text-amber-800 font-semibold flex items-center justify-between">
+                      <span>Steel — Received Per Diameter</span>
+                      <span className="text-[10px] normal-case">{specItems.length} diameter{specItems.length === 1 ? '' : 's'}</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-amber-50 text-amber-800">
+                          <tr>
+                            <th className="text-left px-2 py-1.5 w-6">#</th>
+                            <th className="text-left px-2 py-1.5">Diameter</th>
+                            <th className="text-right px-2 py-1.5">Req. Rods</th>
+                            <th className="text-right px-2 py-1.5">Recv. Rods</th>
+                            <th className="text-right px-2 py-1.5">Requested (kg)</th>
+                            <th className="text-right px-2 py-1.5">Received Qty (kg)</th>
+                            <th className="text-right px-2 py-1.5">Diff</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {specItems.map((it, idx) => {
+                            const reqRods = parseInt(it.rod_count, 10) || 0;
+                            const reqKg = Number(it.calculated_weight_kg || it.weight_kg || 0);
+                            const seR = seByDia[String(it.diameter_mm)] || {};
+                            const ov = overrides[String(it.diameter_mm)] || {};
+                            const recvRods = ov.rod_count !== undefined
+                              ? (parseInt(ov.rod_count, 10) || 0)
+                              : (parseInt(seR.received_rod_count, 10) || reqRods);
+                            const recvKg = ov.weight_kg !== undefined
+                              ? (parseFloat(ov.weight_kg) || 0)
+                              : (Number(seR.received_weight_kg) || reqKg);
+                            const diff = recvKg - reqKg;
+                            const diffColor = Math.abs(diff) < 0.01 ? 'text-gray-400' : (diff < 0 ? 'text-rose-700' : 'text-emerald-700');
+                            totReqRods += reqRods; totRecvRods += recvRods; totReqKg += reqKg; totRecvKg += recvKg;
+                            return (
+                              <tr key={idx} className="border-t border-amber-200">
+                                <td className="px-2 py-1.5 text-gray-500">{idx + 1}</td>
+                                <td className="px-2 py-1.5 font-semibold text-slate-800">Ø {it.diameter_mm} mm</td>
+                                <td className="px-2 py-1.5 text-right text-gray-600">{reqRods}</td>
+                                <td className="px-2 py-1.5">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    value={ov.rod_count !== undefined ? ov.rod_count : recvRods}
+                                    onChange={(e) => {
+                                      const r = e.target.value;
+                                      const parsedR = parseInt(r, 10) || 0;
+                                      // Auto-recompute kg from rod count (D² ÷ 162 × 12.192 × N)
+                                      const D = Number(it.diameter_mm) || 0;
+                                      const kg = +((D * D / 162) * 12.192 * parsedR).toFixed(2);
+                                      setOverride(it.diameter_mm, { rod_count: r, weight_kg: String(kg) });
+                                    }}
+                                    className="h-7 text-right text-xs w-16 ml-auto"
+                                    data-testid={`verify-steel-rods-${it.diameter_mm}`}
+                                  />
+                                </td>
+                                <td className="px-2 py-1.5 text-right text-amber-700">{reqKg.toFixed(2)}</td>
+                                <td className="px-2 py-1.5">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    value={ov.weight_kg !== undefined ? ov.weight_kg : recvKg.toFixed(2)}
+                                    onChange={(e) => setOverride(it.diameter_mm, { weight_kg: e.target.value })}
+                                    className="h-7 text-right text-xs w-20 ml-auto"
+                                    data-testid={`verify-steel-kg-${it.diameter_mm}`}
+                                  />
+                                </td>
+                                <td className={`px-2 py-1.5 text-right font-semibold ${diffColor}`}>
+                                  {Math.abs(diff) < 0.01 ? '—' : `${diff > 0 ? '+' : ''}${diff.toFixed(2)}`}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot className="bg-amber-100/40 border-t border-amber-300">
+                          <tr>
+                            <td colSpan={2} className="px-2 py-1.5 text-right font-semibold text-amber-800">Total</td>
+                            <td className="px-2 py-1.5 text-right text-amber-700 font-semibold">{totReqRods}</td>
+                            <td className="px-2 py-1.5 text-right font-bold text-emerald-700">{totRecvRods}</td>
+                            <td className="px-2 py-1.5 text-right text-amber-700 font-semibold">{totReqKg.toFixed(2)} kg</td>
+                            <td className="px-2 py-1.5 text-right font-bold text-emerald-700">{totRecvKg.toFixed(2)} kg</td>
+                            <td className={`px-2 py-1.5 text-right font-bold ${Math.abs(totRecvKg - totReqKg) < 0.01 ? 'text-gray-500' : (totRecvKg < totReqKg ? 'text-rose-700' : 'text-emerald-700')}`}>
+                              {Math.abs(totRecvKg - totReqKg) < 0.01 ? '—' : `${totRecvKg - totReqKg > 0 ? '+' : ''}${(totRecvKg - totReqKg).toFixed(2)}`}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                    {verifyDialog.req.qty_mismatch_reason && (
+                      <div className="px-3 py-2 border-t border-amber-300 bg-rose-50/40 text-xs">
+                        <span className="font-semibold text-rose-700">SE Mismatch Reason: </span>
+                        <span className="text-rose-900">{verifyDialog.req.qty_mismatch_reason}</span>
+                      </div>
+                    )}
                   </div>
                 );
               })()}
