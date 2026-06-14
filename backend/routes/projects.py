@@ -8988,7 +8988,11 @@ async def wo_rab_chain(project_id: str, work_order_id: str, user: User = Depends
             display_rab = "—"
         else:
             next_number += 1
-            display_rab = f"RAB-{next_number:02d}"
+            # Prefer the project-wide stored rab_number (set when the RAB was
+            # raised) so SE Total RAB's and PM Dashboard show the SAME number
+            # for the same bill. Fall back to chronological numbering only
+            # for legacy rows that never got a stored number.
+            display_rab = primary.get("rab_number") or f"RAB-{next_number:02d}"
 
         is_multi = len(members) > 1
         # Combined stage label for display + per-stage breakdown payload
