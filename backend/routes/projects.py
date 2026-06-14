@@ -8741,18 +8741,20 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
             # sequence stays continuous across every contractor / work order on
             # the same site (e.g. Contractor A's 1st RAB = RAB-01, Contractor
             # B's 1st RAB raised after = RAB-02, A's 2nd RAB = RAB-03, …).
-            # Counts ALL existing payment_requests across every stage of every
-            # work order on this project, then +1. Existing numbers are kept
-            # as-is — only new RABs follow the project-wide counter.
+            # The counter is based on DISTINCT rab_numbers consumed so far so
+            # that multi-stage RABs (multiple payment_requests sharing one
+            # `rab_number`) only consume one slot in the sequence.
             all_wos_for_count = await db.project_work_orders.find(
                 {"project_id": project_id},
                 {"_id": 0, "stages": 1},
             ).to_list(1000)
-            rab_count = 1 + sum(
-                len(st.get("payment_requests") or [])
-                for w in all_wos_for_count
-                for st in (w.get("stages") or [])
-            )
+            existing_rabs = set()
+            for w in all_wos_for_count:
+                for st in (w.get("stages") or []):
+                    for p in (st.get("payment_requests") or []):
+                        if p.get("rab_number"):
+                            existing_rabs.add(p["rab_number"])
+            rab_count = len(existing_rabs) + 1
             rab_number = f"RAB-{rab_count:02d}"
             import uuid
             payment_req = {
@@ -8825,6 +8827,146 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
             pass
     
     return {"message": "Payment requested successfully", "request_id": payment_req["request_id"], "rab_number": rab_number}
+
+
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/multi-stage-request-payment")
+async def create_multi_stage_rab(
+    project_id: str,
+    work_order_id: str,
+    data: dict,
+    user: User = Depends(get_current_user),
+):
+    """Create a single RAB that spans multiple stages of the same work order.
+
+    Body:
+        allocations: [{ stage_id, amount }]    — required, ≥ 1 entry
+        notes, from_date, to_date, excess_dlr_reason — optional
+
+    Behaviour:
+        • One `rab_number` (project-wide sequence) + one `rab_group_id` are
+          generated and shared across every created payment_request.
+        • Each allocation row becomes its own payment_request inside the
+          corresponding stage's `payment_requests` array — preserving the
+          per-stage balance accounting + cashbook posting later.
+        • PM / QC / Planning approval cascades across siblings (see
+          `_find_pr_and_update`), so the multi-stage RAB feels like a single
+          bill from the contractor's perspective.
+    """
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Site Engineer / Super Admin can raise a RAB")
+    allocations = data.get("allocations") or []
+    if not isinstance(allocations, list) or not allocations:
+        raise HTTPException(status_code=400, detail="`allocations` must be a non-empty list")
+
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    # Validate per-stage balance + open status
+    stage_by_id = {s.get("stage_id"): s for s in (wo.get("stages") or [])}
+    cleaned = []
+    for alloc in allocations:
+        sid = alloc.get("stage_id")
+        amt = float(alloc.get("amount") or 0)
+        if not sid or amt <= 0:
+            continue
+        st = stage_by_id.get(sid)
+        if not st:
+            raise HTTPException(status_code=404, detail=f"Stage {sid} not found in work order")
+        if not st.get("is_open"):
+            raise HTTPException(status_code=400, detail=f"Stage '{st.get('name')}' is not yet opened by Planning")
+        released = sum(p.get("approved_amount", 0) for p in (st.get("payment_requests") or []) if p.get("status") == "approved")
+        pending = sum(p.get("amount", 0) for p in (st.get("payment_requests") or []) if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
+        balance = (st.get("amount") or 0) - released - pending
+        if amt > balance + 0.01:
+            raise HTTPException(status_code=400, detail=f"'{st.get('name')}': ₹{amt:,.0f} exceeds remaining balance ₹{balance:,.0f}")
+        cleaned.append((sid, amt))
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="No valid allocation rows after validation")
+
+    # Generate ONE rab_number for the entire group (project-wide distinct counter)
+    all_wos_for_count = await db.project_work_orders.find(
+        {"project_id": project_id},
+        {"_id": 0, "stages": 1},
+    ).to_list(1000)
+    existing_rabs = set()
+    for w in all_wos_for_count:
+        for st in (w.get("stages") or []):
+            for p in (st.get("payment_requests") or []):
+                if p.get("rab_number"):
+                    existing_rabs.add(p["rab_number"])
+    rab_count = len(existing_rabs) + 1
+    rab_number = f"RAB-{rab_count:02d}"
+
+    import uuid as _uuid
+    now = datetime.now(timezone.utc).isoformat()
+    rab_group_id = f"rg_{_uuid.uuid4().hex[:10]}"
+    notes = data.get("notes", "")
+    from_date = data.get("from_date") or None
+    to_date = data.get("to_date") or None
+    excess_dlr_reason = (data.get("excess_dlr_reason") or "").strip() or None
+
+    created_request_ids = []
+    for sid, amt in cleaned:
+        st = stage_by_id[sid]
+        pr = {
+            "request_id": f"pr_{_uuid.uuid4().hex[:8]}",
+            "rab_number": rab_number,
+            "rab_group_id": rab_group_id,
+            "amount": amt,
+            "status": "requested",
+            "requested_by": user.user_id,
+            "requested_by_name": user.name,
+            "requested_at": now,
+            "pm_approved_by": None, "pm_approved_by_name": None, "pm_approved_at": None, "pm_notes": None,
+            "qc_approved_by": None, "qc_approved_by_name": None, "qc_approved_at": None, "qc_notes": None,
+            "planning_approved_by": None, "planning_approved_by_name": None, "planning_approved_at": None,
+            "rejected_by_role": None, "rejected_by_name": None, "rejection_reason": None, "rejected_at": None,
+            "notes": notes,
+            "from_date": from_date,
+            "to_date": to_date,
+            "excess_dlr_reason": excess_dlr_reason,
+        }
+        st.setdefault("payment_requests", []).append(pr)
+        # Refresh per-stage counters
+        st["amount_released"] = sum(p.get("approved_amount", 0) for p in st["payment_requests"] if p.get("status") == "approved")
+        st["amount_pending"] = sum(p.get("amount", 0) for p in st["payment_requests"] if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
+        if st.get("status") == "pending":
+            st["status"] = "in_progress"
+            st["stage_status"] = "in_progress"
+        created_request_ids.append(pr["request_id"])
+
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"stages": wo["stages"], "updated_at": now}}
+    )
+
+    # Notify PM team — single notification for the grouped RAB
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
+    total_amt = sum(a for _, a in cleaned)
+    pm_users = await db.users.find({"role": {"$in": [UserRole.PROJECT_MANAGER.value, UserRole.SUPER_ADMIN.value]}, "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}).to_list(20)
+    for pu in pm_users:
+        try:
+            notif = Notification(
+                user_id=pu.get("user_id"),
+                title=f"New {rab_number} — Multi-Stage Payment Request",
+                message=f"₹{total_amt:,.0f} across {len(cleaned)} stages for {wo.get('contractor_name', '')} in {(project or {}).get('name', '')}",
+                link="/pm-dashboard",
+            )
+            nd = notif.model_dump()
+            nd["created_at"] = nd["created_at"].isoformat()
+            await db.notifications.insert_one(nd)
+        except Exception:
+            pass
+
+    return {
+        "message": "Multi-stage RAB submitted",
+        "rab_number": rab_number,
+        "rab_group_id": rab_group_id,
+        "request_ids": created_request_ids,
+        "total_amount": total_amt,
+        "stages": len(cleaned),
+    }
 
 
 @router.get("/projects/{project_id}/work-orders/{work_order_id}/rab-chain")
@@ -9379,6 +9521,7 @@ async def _list_labour_stage_requests(target_statuses: list):
                 out.append({
                     "request_id": pr.get("request_id"),
                     "rab_number": pr.get("rab_number"),
+                    "rab_group_id": pr.get("rab_group_id"),
                     "status": pr.get("status"),
                     "amount": pr.get("amount", 0),
                     "notes": pr.get("notes", ""),
@@ -9517,7 +9660,14 @@ async def se_labour_stage_requests(status: str = "rework", user: User = Depends(
 
 
 async def _find_pr_and_update(work_order_id: str, stage_id: str, request_id: str, expected_status: list, mutate):
-    """Helper: load WO, find the request, validate status, run mutate(pr, wo, stage), persist."""
+    """Helper: load WO, find the request, validate status, run mutate(pr, wo, stage), persist.
+
+    Multi-stage RAB cascade: if the targeted payment_request belongs to a
+    multi-stage RAB (shared `rab_group_id`), the same `mutate` is applied to
+    every sibling payment_request inside this work order that is also in one
+    of the `expected_status` values. This keeps a multi-stage RAB moving
+    through PM → QC → Planning approvals as a single bill.
+    """
     wo = await db.project_work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
@@ -9536,8 +9686,23 @@ async def _find_pr_and_update(work_order_id: str, stage_id: str, request_id: str
     if target_pr.get("status") not in expected_status:
         raise HTTPException(status_code=400, detail=f"Request is in '{target_pr.get('status')}' state — cannot perform this action")
     mutate(target_pr, wo, target_stage)
-    target_stage["amount_released"] = sum(p.get("approved_amount", 0) for p in target_stage.get("payment_requests", []) if p.get("status") == "approved")
-    target_stage["amount_pending"] = sum(p.get("amount", 0) for p in target_stage.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
+
+    # Cascade to siblings of the same multi-stage RAB.
+    group_id = target_pr.get("rab_group_id")
+    if group_id:
+        for st in wo.get("stages") or []:
+            for sib in st.get("payment_requests") or []:
+                if sib is target_pr:
+                    continue
+                if sib.get("rab_group_id") == group_id and sib.get("status") in expected_status:
+                    mutate(sib, wo, st)
+
+    # Refresh per-stage counters for every stage in the WO — siblings may live
+    # in other stages so we can't restrict the recomputation to target_stage.
+    for st in wo.get("stages") or []:
+        st["amount_released"] = sum(p.get("approved_amount", 0) for p in st.get("payment_requests", []) if p.get("status") == "approved")
+        st["amount_pending"] = sum(p.get("amount", 0) for p in st.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
+
     await db.project_work_orders.update_one(
         {"work_order_id": work_order_id},
         {"$set": {"stages": wo["stages"], "updated_at": datetime.now(timezone.utc).isoformat()}}
