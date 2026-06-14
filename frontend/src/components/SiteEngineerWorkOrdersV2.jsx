@@ -1241,30 +1241,7 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                   <p className="text-[11px] font-semibold text-amber-800 uppercase tracking-wider">
                     Select Stages to Bill {openStagesAll.length > 1 ? `· ${openStagesAll.length} open` : ''}
                   </p>
-                  {openStagesAll.length > 1 && (
-                    <button
-                      type="button"
-                      className="text-[10px] text-amber-700 hover:text-amber-900 underline"
-                      onClick={() => {
-                        // Auto-distribute the Amount across open stages
-                        // in order, filling each up to its balance.
-                        let remaining = parseFloat(amount || 0);
-                        const next = {};
-                        for (const s of openStagesAll) {
-                          if (remaining <= 0.01) break;
-                          const cap = (reworkPR && s.stage_id === stage.stage_id) ? stageBalanceOf(s) + (reworkPR.amount || 0) : stageBalanceOf(s);
-                          const fill = Math.min(remaining, cap);
-                          if (fill > 0.01) next[s.stage_id] = String(+fill.toFixed(2));
-                          remaining -= fill;
-                        }
-                        if (Object.keys(next).length === 0) next[stage.stage_id] = String(amount || 0);
-                        setAllocations(next);
-                      }}
-                      data-testid="wov2-multi-autofill"
-                    >
-                      Auto-distribute
-                    </button>
-                  )}
+                  <p className="text-[10px] text-amber-700 italic">Enter amount per stage manually</p>
                 </div>
                 <div className="space-y-1.5">
                   {openStagesAll.map((s) => {
