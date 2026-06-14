@@ -8956,52 +8956,92 @@ async def wo_rab_chain(project_id: str, work_order_id: str, user: User = Depends
     #     and a new request goes in, that request shows as RAB-02 — and if a
     #     later RAB-02 gets rejected, the queue shifts up automatically).
     REJECTED_STATES = {"rejected", "accountant_rejected", "se_rework_rejected"}
+
+    # Group multi-stage RABs that share a `rab_group_id` (raised via the
+    # /multi-stage-request-payment endpoint) so the SE Total RAB's / PM
+    # dashboard show them as a SINGLE bill row instead of one per stage.
+    # Singletons (no rab_group_id) keep one-row-per-payment_request behaviour.
+    groups = []  # ordered: list of dicts {key, members:[flat rows]}
+    group_index = {}
+    for r in flat:
+        gid = r.get("rab_group_id") or f"_single_{r.get('request_id')}"
+        if gid in group_index:
+            groups[group_index[gid]]["members"].append(r)
+        else:
+            group_index[gid] = len(groups)
+            groups.append({"key": gid, "members": [r]})
+
     rabs = []
     cumulative_released = 0.0
-    next_number = 0  # incremented for every non-rejected RAB
-    for r in flat:
-        status = r.get("status") or "requested"
-        released = float(r.get("approved_amount") or 0)
-        requested = float(r.get("amount") or 0)
+    next_number = 0  # incremented for every non-rejected RAB GROUP
+    for grp in groups:
+        members = grp["members"]
+        primary = members[0]
+        status = primary.get("status") or "requested"
+        # Aggregate amounts across all members of this RAB
+        requested = sum(float(m.get("amount") or 0) for m in members)
+        released = sum(float(m.get("approved_amount") or 0) for m in members)
         if status == "approved":
             cumulative_released += released
         closing_balance = contract_total - cumulative_released
         if status in REJECTED_STATES:
-            display_rab = "—"  # rejected RABs don't take a slot
+            display_rab = "—"
         else:
             next_number += 1
             display_rab = f"RAB-{next_number:02d}"
+
+        is_multi = len(members) > 1
+        # Combined stage label for display + per-stage breakdown payload
+        if is_multi:
+            stage_names_list = [m.get("stage_name") or "Stage" for m in members]
+            stage_label = " + ".join(stage_names_list)
+        else:
+            stage_label = primary.get("stage_name")
+
+        stage_breakdown = [
+            {
+                "stage_id": m.get("stage_id"),
+                "stage_name": m.get("stage_name"),
+                "request_id": m.get("request_id"),
+                "requested_amount": float(m.get("amount") or 0),
+                "approved_amount": float(m.get("approved_amount") or 0),
+                "status": m.get("status"),
+            }
+            for m in members
+        ]
+
         rabs.append({
-            "request_id": r.get("request_id"),
+            "request_id": primary.get("request_id"),
+            "request_ids": [m.get("request_id") for m in members],
             "rab_number": display_rab,
-            "stored_rab_number": r.get("rab_number") or "",
-            "stage_id": r.get("stage_id"),
-            "stage_name": r.get("stage_name"),
-            "stage_amount": r.get("stage_amount"),
+            "stored_rab_number": primary.get("rab_number") or "",
+            "rab_group_id": primary.get("rab_group_id"),
+            "is_multi_stage": is_multi,
+            "stage_breakdown": stage_breakdown,
+            "stage_id": primary.get("stage_id"),
+            "stage_name": stage_label,
+            "stage_amount": primary.get("stage_amount"),
             "requested_amount": requested,
             "approved_amount": released,
             "status": status,
-            "notes": r.get("notes") or "",
-            "dlr_summary": r.get("dlr_summary") or "",
-            "rejection_reason": r.get("rejection_reason"),
-            "rejected_by_role": r.get("rejected_by_role"),
-            "rejected_by_name": r.get("rejected_by_name"),
-            "rejected_at": r.get("rejected_at"),
-            "se_exceeds_balance": r.get("se_exceeds_balance", False),
-            # New fields for the DLR Report tab & RAB PDF — surface the
-            # billing window and any commentary the SE attached when the
-            # request was raised.
-            "from_date": r.get("from_date"),
-            "to_date": r.get("to_date"),
-            "excess_dlr_reason": r.get("excess_dlr_reason"),
+            "notes": primary.get("notes") or "",
+            "dlr_summary": primary.get("dlr_summary") or "",
+            "rejection_reason": primary.get("rejection_reason"),
+            "rejected_by_role": primary.get("rejected_by_role"),
+            "rejected_by_name": primary.get("rejected_by_name"),
+            "rejected_at": primary.get("rejected_at"),
+            "se_exceeds_balance": primary.get("se_exceeds_balance", False),
+            "from_date": primary.get("from_date"),
+            "to_date": primary.get("to_date"),
+            "excess_dlr_reason": primary.get("excess_dlr_reason"),
             "timeline": [
-                {"role": "Site Engineer", "name": r.get("requested_by_name"), "at": r.get("requested_at"), "notes": r.get("notes") or ""},
-                {"role": "PM",            "name": r.get("pm_approved_by_name"), "at": r.get("pm_approved_at"), "notes": r.get("pm_notes") or ""},
-                {"role": "QC",            "name": r.get("qc_approved_by_name"), "at": r.get("qc_approved_at"), "notes": r.get("qc_notes") or ""},
-                {"role": "Planning",      "name": r.get("planning_approved_by_name"), "at": r.get("planning_approved_at"), "notes": r.get("planning_notes") or ""},
-                {"role": "Accountant",    "name": r.get("released_by_name") or r.get("accountant_approved_by_name"), "at": r.get("released_at") or r.get("accountant_approved_at"), "notes": r.get("release_notes") or ""},
+                {"role": "Site Engineer", "name": primary.get("requested_by_name"), "at": primary.get("requested_at"), "notes": primary.get("notes") or ""},
+                {"role": "PM",            "name": primary.get("pm_approved_by_name"), "at": primary.get("pm_approved_at"), "notes": primary.get("pm_notes") or ""},
+                {"role": "QC",            "name": primary.get("qc_approved_by_name"), "at": primary.get("qc_approved_at"), "notes": primary.get("qc_notes") or ""},
+                {"role": "Planning",      "name": primary.get("planning_approved_by_name"), "at": primary.get("planning_approved_at"), "notes": primary.get("planning_notes") or ""},
+                {"role": "Accountant",    "name": primary.get("released_by_name") or primary.get("accountant_approved_by_name"), "at": primary.get("released_at") or primary.get("accountant_approved_at"), "notes": primary.get("release_notes") or ""},
             ],
-            "released_at": r.get("released_at"),
+            "released_at": primary.get("released_at"),
             "cumulative_released_after": round(cumulative_released, 2),
             "closing_balance_after": round(closing_balance, 2),
         })
@@ -9693,21 +9733,35 @@ async def delete_stage_payment_request(
         raise HTTPException(status_code=404, detail="Payment request not found")
     if target_pr.get("status") == "approved" and user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=423, detail="Already released by Accountant. Delete the matching expense in Main Account to reverse this first.")
-    await db.project_work_orders.update_one(
-        {"work_order_id": work_order_id, "stages.stage_id": stage_id},
-        {"$pull": {"stages.$.payment_requests": {"request_id": request_id}}},
-    )
+
+    # Multi-stage RAB cascade: if this PR belongs to a `rab_group_id`, also
+    # collect every sibling PR across other stages of the same WO so the
+    # whole bill is removed in one shot (the SE Total RAB's table now
+    # presents the group as a single row, so deleting one must delete all).
+    group_id = target_pr.get("rab_group_id")
+    sibling_targets = [{"stage_id": stage_id, "request_id": request_id}]
+    if group_id:
+        for s in wo.get("stages") or []:
+            for p in s.get("payment_requests") or []:
+                if p.get("rab_group_id") == group_id and p.get("request_id") != request_id:
+                    sibling_targets.append({"stage_id": s.get("stage_id"), "request_id": p.get("request_id")})
+
+    for tgt in sibling_targets:
+        await db.project_work_orders.update_one(
+            {"work_order_id": work_order_id, "stages.stage_id": tgt["stage_id"]},
+            {"$pull": {"stages.$.payment_requests": {"request_id": tgt["request_id"]}}},
+        )
 
     # Cascade purge: nuke every downstream row keyed by this RAB's request_id
     # so the Expense board, Cashbook and Direct Expense tab stay consistent.
-    # Use a forgiving $or so we catch rows that pinned the link under either
-    # `request_id` or one of the legacy field names.
+    # For multi-stage RABs, this includes every sibling request_id too.
+    all_request_ids = [t["request_id"] for t in sibling_targets]
     link_match = {"$or": [
-        {"request_id": request_id},
-        {"payment_request_id": request_id},
-        {"rab_request_id": request_id},
-        {"source_id": request_id},
-        {"ref_id": request_id},
+        {"request_id": {"$in": all_request_ids}},
+        {"payment_request_id": {"$in": all_request_ids}},
+        {"rab_request_id": {"$in": all_request_ids}},
+        {"source_id": {"$in": all_request_ids}},
+        {"ref_id": {"$in": all_request_ids}},
     ]}
     purged = {"recorded_expenses": 0, "labour_expenses": 0, "cashbook_entries": 0}
     try:

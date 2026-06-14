@@ -152,12 +152,19 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView }) {
   const Row = ({ rab, showView, isLast }) => {
     const st = STATUS[rab.status] || { label: rab.status || 'Unknown', cls: 'bg-gray-100 text-gray-700 border-gray-200', Icon: AlertCircle };
     const StatusIcon = st.Icon || AlertCircle;
+    const isMulti = rab.is_multi_stage && Array.isArray(rab.stage_breakdown) && rab.stage_breakdown.length > 1;
     return (
+      <>
       <tr className="hover:bg-gray-50/60" data-testid={`wo-rab-row-${rab.rab_number}`}>
         <td className="px-3 py-2.5">
           <Badge className={`font-bold text-[10px] px-2 py-0.5 ${rab.rab_number === '—' ? 'bg-gray-200 text-gray-500' : 'bg-violet-600 text-white border-violet-700'}`}>
             {rab.rab_number}
           </Badge>
+          {isMulti && (
+            <span className="ml-1 text-[9px] uppercase font-semibold text-fuchsia-700 bg-fuchsia-50 border border-fuchsia-200 rounded px-1.5 py-0.5 align-middle">
+              {rab.stage_breakdown.length}-stage bill
+            </span>
+          )}
         </td>
         <td className="px-3 py-2.5 text-xs text-gray-600">{fmtDate(rab.released_at || (rab.timeline?.[0]?.at))}</td>
         <td className="px-3 py-2.5 text-right text-xs font-medium">{inr(rab.requested_amount)}</td>
@@ -178,9 +185,6 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView }) {
                 <Eye className="h-3 w-3 mr-1" /> View
               </Button>
             ) : null}
-            {/* Delete is allowed only while the RAB is still with PM (status:
-                `requested`) — once PM has approved, deletion must be done
-                from the upstream role's dashboard via reject/return. */}
             {rab.status === 'requested' && (
               <Button
                 size="sm"
@@ -196,9 +200,6 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView }) {
             )}
           </div>
         </td>
-        {/* Status pill card — rightmost cell so the workflow stage is the
-            last thing the eye lands on. Icon + label form a compact button-
-            shaped card that mirrors the row's approval-owner intent. */}
         <td className="px-3 py-2.5 text-right">
           <span
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border-2 text-[11px] font-semibold whitespace-nowrap shadow-sm ${st.cls}`}
@@ -208,6 +209,22 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView }) {
           </span>
         </td>
       </tr>
+      {isMulti && (
+        <tr className="bg-fuchsia-50/40">
+          <td colSpan={7} className="px-3 py-2 border-t border-fuchsia-100">
+            <p className="text-[10px] uppercase font-semibold text-fuchsia-700 mb-1">Stages covered by this bill</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              {rab.stage_breakdown.map((sb, idx) => (
+                <div key={sb.request_id || idx} className="flex items-center justify-between gap-2 bg-white rounded border border-fuchsia-100 px-2 py-1">
+                  <span className="text-[11px] font-medium text-slate-700 truncate" title={sb.stage_name}>{idx + 1}. {sb.stage_name}</span>
+                  <span className="text-[11px] font-bold text-emerald-700">{inr(sb.requested_amount)}</span>
+                </div>
+              ))}
+            </div>
+          </td>
+        </tr>
+      )}
+      </>
     );
   };
 
