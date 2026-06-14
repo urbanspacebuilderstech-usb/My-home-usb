@@ -5022,14 +5022,75 @@ async def update_additional_cost(cost_id: str, update_data: AdditionalCostUpdate
 async def delete_additional_cost(cost_id: str, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0, "client_approval_status": 1, "client_approved": 1})
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
     if cost:
         already_approved = cost.get("client_approval_status") == "client_approved" or cost.get("client_approved") is True
         if already_approved and user.role != UserRole.SUPER_ADMIN:
             raise HTTPException(status_code=403, detail="Client already approved. Only Super Admin can delete.")
     await db.additional_costs.delete_one({"cost_id": cost_id})
+    # Clean up any linked payment_stage / monthly_schedule_entries so a deleted
+    # cost cannot leave behind a ghost row that resurfaces on the CRE Payment
+    # Schedule (or its Smart Collect popup). For section_addition stages we
+    # only drop the cost from the bundle — the stage itself is removed only
+    # when no linked costs remain AND no money has been received.
+    await _cleanup_stages_after_cost_delete([cost_id])
     await create_audit_log(user.user_id, "delete", "additional_cost", cost_id, {})
     return {"message": "Additional cost deleted"}
+
+
+async def _cleanup_stages_after_cost_delete(cost_ids: list):
+    """Strip deleted cost_ids from linked payment_stages and drop ghost stages.
+
+    For each affected stage:
+      - Pull the cost_ids out of `linked_addition_ids` / `linked_addition_id`.
+      - If no linked costs remain AND `amount_received` is 0, delete the stage
+        + its monthly_schedule_entries (true ghost).
+      - Otherwise re-price the stage so the Amount column reflects the sum of
+        remaining linked costs (qty × price or estimated_amount).
+    """
+    if not cost_ids:
+        return
+    stages = await db.payment_stages.find(
+        {"$or": [
+            {"linked_addition_ids": {"$in": cost_ids}},
+            {"linked_addition_id": {"$in": cost_ids}},
+        ]},
+        {"_id": 0},
+    ).to_list(500)
+    for stage in stages:
+        sid = stage["stage_id"]
+        remaining_ids = [c for c in (stage.get("linked_addition_ids") or []) if c not in cost_ids]
+        single = stage.get("linked_addition_id")
+        if single in cost_ids:
+            single = None
+        rec = float(stage.get("amount_received") or 0)
+        if not remaining_ids and not single and rec <= 0.01:
+            # No money received and no surviving costs → safe to drop.
+            await db.payment_stages.delete_one({"stage_id": sid})
+            await db.monthly_schedule_entries.delete_many({"stage_id": sid})
+            continue
+        # Re-price from surviving costs.
+        new_amount = stage.get("amount") or 0
+        if remaining_ids:
+            surviving = await db.additional_costs.find(
+                {"cost_id": {"$in": remaining_ids}},
+                {"_id": 0, "estimated_amount": 1, "actual_amount": 1, "qty": 1, "price": 1},
+            ).to_list(500)
+            new_amount = sum(
+                ((c.get("qty") or 0) * (c.get("price") or 0))
+                or c.get("estimated_amount")
+                or c.get("actual_amount")
+                or 0
+                for c in surviving
+            )
+        await db.payment_stages.update_one(
+            {"stage_id": sid},
+            {"$set": {
+                "linked_addition_ids": remaining_ids,
+                "linked_addition_id": single,
+                "amount": new_amount,
+            }},
+        )
 
 
 @router.post("/projects/{project_id}/additional-costs/bulk-delete")
@@ -5069,7 +5130,12 @@ async def bulk_delete_additional_costs(project_id: str, body: dict, user: User =
         ],
     }) if user.role != UserRole.SUPER_ADMIN else 0
 
+    # Capture cost_ids about to be deleted so we can clean up linked stages too.
+    deleting_ids = [
+        d["cost_id"] for d in await db.additional_costs.find(deletable, {"_id": 0, "cost_id": 1}).to_list(5000)
+    ]
     result = await db.additional_costs.delete_many(deletable)
+    await _cleanup_stages_after_cost_delete(deleting_ids)
     await create_audit_log(user.user_id, "bulk_delete", "additional_cost", project_id, {
         "deleted_count": result.deleted_count,
         "blocked_client_approved": blocked_count,
