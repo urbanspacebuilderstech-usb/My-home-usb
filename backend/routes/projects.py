@@ -1306,75 +1306,12 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
             "is_additional": is_additional,
         })
 
-    # Synthesize Direct Transfer entries from `additional_costs.income_received`.
-    # Some additional-cost payments only bump that counter and never create a
-    # db.income row, which would otherwise leave the Client Portal "Direct
-    # Transfer" tab empty even though Planning Board shows the receipt. To
-    # avoid double-counting, subtract whatever db.income already attributes to
-    # the same additional cost before synthesising the residual.
-    #
-    # Matching order (most → least reliable):
-    #   1) income.payment_stage_id → stage.linked_addition_id(s)  (precise)
-    #   2) description contains the addition's name (legacy fallback)
-    # Earlier this only used the description match, so any payment whose
-    # description didn't carry the addition's name (e.g. generic "Additional
-    # work as per agreement" billed against "Piling cost") was treated as
-    # un-matched, producing a ghost synth row.
-    db_income_by_cost = {}
-    stage_to_costs = {}
-    for st in raw_stages:
-        sid = st.get("stage_id")
-        if not sid:
-            continue
-        cids = []
-        if st.get("linked_addition_id"):
-            cids.append(st["linked_addition_id"])
-        for cid in (st.get("linked_addition_ids") or []):
-            if cid not in cids:
-                cids.append(cid)
-        if cids:
-            stage_to_costs[sid] = cids
-
-    for e in raw_income:
-        if (e.get("status") or "approved").lower() not in APPROVED_STATES:
-            continue
-        amt = float(e.get("amount") or 0)
-        psid = e.get("payment_stage_id") or e.get("stage_id")
-        matched_costs = stage_to_costs.get(psid) if psid else None
-        if matched_costs:
-            share = amt / len(matched_costs)
-            for cid in matched_costs:
-                db_income_by_cost[cid] = db_income_by_cost.get(cid, 0) + share
-            continue
-        d = e.get("description") or e.get("notes") or ""
-        for ac in additional_costs:
-            name = ac.get("name") or ac.get("description") or ""
-            if name and name[:20] and name[:20] in d:
-                db_income_by_cost[ac.get("cost_id")] = db_income_by_cost.get(ac.get("cost_id"), 0) + amt
-                break
-    for ac in additional_costs:
-        recv = float(ac.get("income_received") or 0)
-        if recv <= 0.5:
-            continue
-        already = db_income_by_cost.get(ac.get("cost_id"), 0)
-        residual = recv - already
-        if residual <= 0.5:
-            continue
-        label = ac.get("description") or ac.get("name") or "Additional work"
-        synth_amt = round(residual, 2)
-        total_income += synth_amt
-        income_entries.append({
-            "income_id": f"addrcv_{ac.get('cost_id')}",
-            "payment_date": ac.get("client_decided_at") or ac.get("payment_requested_at") or ac.get("created_at"),
-            "amount": synth_amt,
-            "payment_mode": "direct_transfer",
-            "description": f"Direct receipt — {label}",
-            "category": "additional",
-            "status": "approved",
-            "reference": ac.get("cost_id") or "",
-            "is_additional": True,
-        })
-    # Re-sort by payment_date desc so the synth entries land in chronological position
+    # Client Portal Income Status mirrors the Accountant Cashbook 1:1 — only
+    # real `db.income` entries are shown. The previous block synthesised
+    # "Direct receipt" rows from `additional_costs.income_received` residuals,
+    # but those rows never appear in the source-of-truth Accountant Cashbook
+    # (e.g. Mr Prakash showed 11 here vs 8 there). Keep things in sync by
+    # surfacing only what the Accountant actually recorded.
     income_entries.sort(key=lambda x: str(x.get("payment_date") or ""), reverse=True)
 
     # Bounced cheques — source of truth lives in db.cheques (Cheque Management
