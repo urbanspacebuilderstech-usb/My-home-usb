@@ -7,7 +7,8 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
-import { Eye, Package, HardHat, Truck, PackageCheck, FileClock, Wallet, ListChecks, Send, ClipboardList, Calendar, X } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Eye, Package, HardHat, Truck, PackageCheck, FileClock, Wallet, ListChecks, Send, ClipboardList, Calendar, X, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { DayPicker } from 'react-day-picker';
 import OrderDetailDialog from './OrderDetailDialog';
 
@@ -265,21 +266,24 @@ export function PMMaterialReadOnlyList({ items }) {
 const LABOUR_BUCKETS = [
   { key: 'all',                 label: 'All',                 cls: 'bg-violet-50 border-violet-200 text-violet-700',  active: 'bg-violet-600 text-white border-violet-600' },
   { key: 'new_request',         label: 'New Request',         cls: 'bg-amber-50 border-amber-200 text-amber-700',     active: 'bg-amber-600 text-white border-amber-600' },
+  { key: 'qc_awaiting',         label: 'QC Awaiting',         cls: 'bg-fuchsia-50 border-fuchsia-200 text-fuchsia-700', active: 'bg-fuchsia-600 text-white border-fuchsia-600' },
   { key: 'planning_awaiting',   label: 'Planning Awaiting',   cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',  active: 'bg-yellow-600 text-white border-yellow-600' },
   { key: 'awaiting_accountant', label: 'Awaiting Accountant', cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white border-cyan-600' },
   { key: 'paid',                label: 'Paid',                cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
 ];
 function bucketForLabour(r) {
   const s = (r.status || '').toLowerCase();
-  // New RAB lifecycle (project_work_orders.stages[].payment_requests[])
-  //   requested → PM new
-  //   pm_approved → QC review (still "new" from PM viewpoint until QC clears)
-  //   qc_approved / planning_pending / planning_review → Planning step
-  //   planning_approved / accountant_pending / pending_accounts_approval → Accountant
+  // RAB lifecycle (project_work_orders.stages[].payment_requests[]):
+  //   requested        → PM
+  //   pm_approved      → QC                      (NEW dedicated bucket)
+  //   qc_approved      → Planning
+  //   planning_pending / planning_review → Planning
+  //   planning_approved → Accountant
+  //   accountant_pending / pending_accounts_approval → Accountant
   //   approved / paid / completed → Paid
   if (s === 'requested') return 'new_request';
-  if (s === 'pm_approved' || s === 'qc_approved') return 'planning_awaiting';
-  if (s === 'planning_pending' || s === 'planning_review') return 'planning_awaiting';
+  if (s === 'pm_approved') return 'qc_awaiting';
+  if (s === 'qc_approved' || s === 'planning_pending' || s === 'planning_review') return 'planning_awaiting';
   if (s === 'planning_approved' || s === 'accountant_pending' || s === 'pending_accounts_approval') return 'awaiting_accountant';
   if (['paid', 'completed', 'approved'].includes(s)) return 'paid';
   return 'all';
@@ -288,6 +292,8 @@ function bucketForLabour(r) {
 export function PMLabourReadOnlyList({ items, onApprove, onReject }) {
   const [bucket, setBucket] = useState('all');
   const [actingId, setActingId] = useState(null);
+  // Selected RAB row → opens the inline detail Dialog with full lifecycle info.
+  const [detail, setDetail] = useState(null);
   const visibleItems = useMemo(() => bucket === 'all' ? items : items.filter(r => bucketForLabour(r) === bucket), [items, bucket]);
   const counts = useMemo(() => {
     const c = { all: items.length };
@@ -298,13 +304,18 @@ export function PMLabourReadOnlyList({ items, onApprove, onReject }) {
   const doApprove = async (r) => {
     if (!onApprove) return;
     setActingId(r.request_id || r.labour_expense_id);
-    try { await onApprove(r); } finally { setActingId(null); }
+    try { await onApprove(r); setDetail(null); } finally { setActingId(null); }
+  };
+  const doReject = (r) => {
+    if (!onReject) return;
+    setDetail(null);
+    onReject(r);
   };
 
   return (
     <div className="space-y-2" data-testid="pm-lab-readonly">
       <h3 className="text-sm font-semibold text-amber-700 flex items-center gap-2"><HardHat className="h-4 w-4" /> Work Order / Labour ({items.length})</h3>
-      <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
         {LABOUR_BUCKETS.map(b => {
           const active = bucket === b.key;
           const count = counts[b.key] || 0;
@@ -327,8 +338,14 @@ export function PMLabourReadOnlyList({ items, onApprove, onReject }) {
             const status = (r.status || '').toLowerCase();
             const isPmTurn = status === 'requested';
             const busy = actingId === (r.request_id || r.labour_expense_id);
+            const rowKey = r.labour_expense_id || r.request_id || i;
             return (
-              <Card key={r.labour_expense_id || r.request_id || i} data-testid={`pm-lab-card-${r.labour_expense_id || r.request_id || i}`}>
+              <Card
+                key={rowKey}
+                onClick={() => setDetail(r)}
+                className="cursor-pointer transition hover:shadow-md hover:border-amber-300"
+                data-testid={`pm-lab-card-${rowKey}`}
+              >
                 <CardContent className="p-3">
                   <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -345,7 +362,7 @@ export function PMLabourReadOnlyList({ items, onApprove, onReject }) {
                     <div><p className="text-[10px] uppercase font-semibold text-gray-400">Contractor</p><p className="font-medium truncate">{r.contractor_name || '—'}</p></div>
                   </div>
                   {isPmTurn && (onApprove || onReject) && (
-                    <div className="mt-3 flex items-center justify-end gap-2 flex-wrap">
+                    <div className="mt-3 flex items-center justify-end gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
                       {onReject && (
                         <Button
                           size="sm"
@@ -377,6 +394,144 @@ export function PMLabourReadOnlyList({ items, onApprove, onReject }) {
           })}
         </div>
       )}
+
+      <LabourRabDetailDialog
+        request={detail}
+        onClose={() => setDetail(null)}
+        onApprove={doApprove}
+        onReject={doReject}
+        busy={detail && actingId === (detail.request_id || detail.labour_expense_id)}
+      />
+    </div>
+  );
+}
+
+// Stage labels used by the timeline below — keep order in sync with the
+// RAB lifecycle in projects.py (`pm-approve → qc-approve → planning-approve → accountant`).
+const RAB_TIMELINE = [
+  { key: 'requested',           label: 'Requested',         actorKey: 'requested_by_name',         atKey: 'requested_at' },
+  { key: 'pm_approved',         label: 'PM Approved',       actorKey: 'pm_approved_by_name',       atKey: 'pm_approved_at' },
+  { key: 'qc_approved',         label: 'QC Approved',       actorKey: 'qc_approved_by_name',       atKey: 'qc_approved_at' },
+  { key: 'planning_approved',   label: 'Planning Approved', actorKey: 'planning_approved_by_name', atKey: 'planning_approved_at' },
+  { key: 'paid',                label: 'Paid',              actorKey: 'paid_by_name',              atKey: 'paid_at' },
+];
+
+function rabStepReached(currentStatus, stepKey) {
+  // returns 'done' | 'current' | 'pending'
+  const order = ['requested','pm_approved','qc_approved','planning_approved','paid'];
+  const aliasMap = { approved: 'paid', completed: 'paid', planning_pending: 'qc_approved', planning_review: 'qc_approved',
+                     accountant_pending: 'planning_approved', pending_accounts_approval: 'planning_approved' };
+  const cur = aliasMap[currentStatus] || currentStatus;
+  const ci = order.indexOf(cur);
+  const si = order.indexOf(stepKey);
+  if (ci < 0 || si < 0) return 'pending';
+  if (si < ci) return 'done';
+  if (si === ci) return cur === stepKey ? 'current' : 'done';
+  return 'pending';
+}
+
+function LabourRabDetailDialog({ request, onClose, onApprove, onReject, busy }) {
+  if (!request) return null;
+  const r = request;
+  const status = (r.status || '').toLowerCase();
+  const isPmTurn = status === 'requested';
+  const isRejected = !!r.rejection_reason && (r.rejected_by_role || '').length > 0;
+  // Try to display amount + breakdown.
+  return (
+    <Dialog open={!!request} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="pm-lab-detail-dialog">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
+            <HardHat className="h-4 w-4 text-amber-600" />
+            <span>{r.rab_number ? `${r.rab_number}` : 'Labour Request'}</span>
+            {r.stage_name && <span className="text-sm font-normal text-gray-500">· {r.stage_name}</span>}
+            <span className="ml-auto text-base font-bold text-gray-800">{fmt(r.amount || 0)}</span>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <DField label="Project" value={r.project_name || '—'} />
+          <DField label="Contractor" value={r.contractor_name || '—'} />
+          <DField label="Requested By" value={r.requested_by_name || r.site_engineer_name || '—'} />
+          <DField label="Requested At" value={r.requested_at ? new Date(r.requested_at).toLocaleString('en-IN') : (r.created_at ? new Date(r.created_at).toLocaleString('en-IN') : '—')} />
+          {r.work_order_name && <DField label="Work Order" value={r.work_order_name} />}
+          {r.stage_name && <DField label="Stage" value={r.stage_name} />}
+          {r.workers_count && <DField label="Workers" value={r.workers_count} />}
+          {r.days && <DField label="Days" value={r.days} />}
+          {r.labour_type && <DField label="Labour Type" value={r.labour_type} />}
+          {r.description && <DField label="Description" value={r.description} full />}
+          {r.notes && <DField label="Notes" value={r.notes} full />}
+        </div>
+
+        {/* Lifecycle timeline (only for RAB requests) */}
+        {r.rab_number && (
+          <div className="mt-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Approval Timeline</p>
+            <div className="space-y-1.5">
+              {RAB_TIMELINE.map((step) => {
+                const state = rabStepReached(status, step.key);
+                const Icon = state === 'done' ? CheckCircle2 : state === 'current' ? Clock : XCircle;
+                const color = state === 'done' ? 'text-emerald-600' : state === 'current' ? 'text-amber-600 animate-pulse' : 'text-gray-300';
+                const actor = r[step.actorKey];
+                const at = r[step.atKey];
+                return (
+                  <div key={step.key} className="flex items-center gap-2 text-xs">
+                    <Icon className={`h-4 w-4 ${color}`} />
+                    <span className={`font-medium ${state === 'pending' ? 'text-gray-400' : ''}`}>{step.label}</span>
+                    {state !== 'pending' && actor && <span className="text-gray-500">· {actor}</span>}
+                    {state === 'done' && at && <span className="text-gray-400 ml-auto">{new Date(at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Rejection block */}
+        {isRejected && (
+          <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 p-3" data-testid="pm-lab-rejection-block">
+            <p className="text-xs font-semibold text-rose-700 uppercase mb-1">Rejected by {r.rejected_by_role || 'unknown'} · {r.rejected_by_name || ''}</p>
+            <p className="text-sm text-rose-900">{r.rejection_reason}</p>
+          </div>
+        )}
+
+        {/* Footer actions */}
+        <div className="mt-4 flex items-center justify-end gap-2 flex-wrap border-t pt-3">
+          <Button variant="outline" size="sm" onClick={onClose} data-testid="pm-lab-detail-close">Close</Button>
+          {isPmTurn && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-rose-300 text-rose-700 hover:bg-rose-50"
+                onClick={() => onReject(r)}
+                disabled={busy}
+                data-testid="pm-lab-detail-reject"
+              >
+                <X className="h-3.5 w-3.5 mr-1" /> Reject
+              </Button>
+              <Button
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={() => onApprove(r)}
+                disabled={busy}
+                data-testid="pm-lab-detail-approve"
+              >
+                {busy ? 'Approving…' : 'Approve'}
+              </Button>
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DField({ label, value, full }) {
+  return (
+    <div className={full ? 'col-span-2' : ''}>
+      <p className="text-[10px] uppercase font-semibold text-gray-400 tracking-wider">{label}</p>
+      <p className="text-sm font-medium text-gray-800 break-words">{value}</p>
     </div>
   );
 }
