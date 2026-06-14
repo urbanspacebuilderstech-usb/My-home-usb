@@ -90,10 +90,46 @@ export default function PMDashboard() {
       if (projRes.status === 'fulfilled') setProjects(projRes.value.data || []);
       if (matReqRes.status === 'fulfilled') setMaterialRequests(matReqRes.value.data || []);
       // Merge legacy labour_expenses + new RAB stage payment_requests so PM
-      // sees every pending labour/work-order request in one list.
+      // sees every pending labour/work-order request in one list. Multi-stage
+      // RAB siblings (same `rab_group_id`) are collapsed into ONE row so the
+      // PM Board mirrors the SE Total RAB's view (RAB-01 with 2 stages, not
+      // RAB-01 + RAB-02). Approval cascade still hits every sibling on submit.
       const legacyLab = labReqRes.status === 'fulfilled' ? (labReqRes.value.data || []) : [];
       const rabLab = rabReqRes.status === 'fulfilled' ? ((rabReqRes.value.data || {}).requests || []) : [];
-      setLabourRequests([...legacyLab, ...rabLab]);
+      const collapsedRabLab = (() => {
+        const groups = new Map();   // group_id -> aggregated row
+        const order = [];           // preserves first-seen order
+        for (const r of rabLab) {
+          const gid = r.rab_group_id || r.request_id;
+          if (!groups.has(gid)) {
+            order.push(gid);
+            groups.set(gid, {
+              ...r,
+              is_multi_stage: false,
+              stage_breakdown: [{
+                stage_id: r.stage_id,
+                stage_name: r.stage_name,
+                request_id: r.request_id,
+                amount: r.amount,
+              }],
+            });
+          } else {
+            const g = groups.get(gid);
+            g.amount = (g.amount || 0) + (r.amount || 0);
+            g.stage_breakdown.push({
+              stage_id: r.stage_id,
+              stage_name: r.stage_name,
+              request_id: r.request_id,
+              amount: r.amount,
+            });
+            g.is_multi_stage = g.stage_breakdown.length > 1;
+            // Combined stage label
+            g.stage_name = g.stage_breakdown.map(s => s.stage_name).join(' + ');
+          }
+        }
+        return order.map(k => groups.get(k));
+      })();
+      setLabourRequests([...legacyLab, ...collapsedRabLab]);
       if (teamRes.status === 'fulfilled') setTeamMembers(teamRes.value.data || []);
       if (stagesRes.status === 'fulfilled') setStages(stagesRes.value.data || []);
       if (pcRes.status === 'fulfilled') setPettyCashRequests(pcRes.value.data || []);
