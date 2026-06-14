@@ -8737,10 +8737,22 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
                     detail=f"Amount ₹{request_amount:,.0f} exceeds remaining stage balance ₹{balance:,.0f} (Total ₹{stage_total:,.0f})."
                 )
             
-            # RAB (Running Account Bill) number: increments per Work Order so
-            # contractor can be served a single PDF per request. Counts ALL
-            # existing payment_requests across every stage of this WO, then +1.
-            rab_count = sum(len(s.get("payment_requests") or []) for s in (wo.get("stages") or [])) + 1
+            # RAB (Running Account Bill) number: increments per PROJECT so the
+            # sequence stays continuous across every contractor / work order on
+            # the same site (e.g. Contractor A's 1st RAB = RAB-01, Contractor
+            # B's 1st RAB raised after = RAB-02, A's 2nd RAB = RAB-03, …).
+            # Counts ALL existing payment_requests across every stage of every
+            # work order on this project, then +1. Existing numbers are kept
+            # as-is — only new RABs follow the project-wide counter.
+            all_wos_for_count = await db.project_work_orders.find(
+                {"project_id": project_id},
+                {"_id": 0, "stages": 1},
+            ).to_list(1000)
+            rab_count = 1 + sum(
+                len(st.get("payment_requests") or [])
+                for w in all_wos_for_count
+                for st in (w.get("stages") or [])
+            )
             rab_number = f"RAB-{rab_count:02d}"
             import uuid
             payment_req = {

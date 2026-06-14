@@ -780,8 +780,23 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   // Optional commentary when the RAB amount differs from the summed DLR cost.
   // Reference-only — never validated, never required.
   const [excessReason, setExcessReason] = useState('');
+  // Multi-stage allocation — SE can split the Amount across multiple OPEN
+  // stages of the same work order (rule #1 from product). Key: stage_id,
+  // value: string amount. Empty/unselected stages are omitted from this map.
+  // Defaults to a single entry pointing at the originating `stage`.
+  const [allocations, setAllocations] = useState({});
   // RAB detail popup — opens when SE clicks "View" on a Payment Summary row.
   const [rabView, setRabView] = useState({ open: false, requestId: null });
+
+  // ── helpers ─────────────────────────────────────────────────────────────
+  const stageBalanceOf = (s) => {
+    if (!s) return 0;
+    const rel = (s.payment_requests || []).filter(p => p.status === 'approved').reduce((a, p) => a + (p.approved_amount || 0), 0);
+    const pen = (s.payment_requests || []).filter(p => ['requested', 'pm_approved', 'qc_approved', 'planning_approved'].includes(p.status)).reduce((a, p) => a + (p.amount || 0), 0);
+    return Math.max(0, (s.amount || 0) - rel - pen - (s.carryover_deduction || 0));
+  };
+  // Rule #2: only OPEN stages (locked + completed/zero-balance excluded).
+  const openStagesAll = (wo?.stages || []).filter(s => s.is_open && stageBalanceOf(s) > 0.01);
 
   // Delete a single payment_request row from the stage's history. Backend
   // enforces permission (PM/Planning/Accountant/Super Admin) and refuses to
@@ -857,8 +872,26 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
         setExcessReason('');
       }
       setDlrPreview(null);
+      // Reset multi-stage allocation to the originating stage with the full amount.
+      setAllocations({ [stage.stage_id]: rework ? String(rework.amount || '') : '' });
     }
   }, [stage]);
+
+  // Whenever the SE retypes the Amount AND only one stage is selected, mirror
+  // the new amount into that stage's allocation. Multi-stage selections stay
+  // sticky — SE controls the per-stage split manually once they expand it.
+  useEffect(() => {
+    setAllocations(prev => {
+      const keys = Object.keys(prev);
+      if (keys.length <= 1) {
+        const onlyKey = keys[0] || stage?.stage_id;
+        if (!onlyKey) return prev;
+        return { [onlyKey]: amount || '' };
+      }
+      return prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amount]);
 
   // Re-fetch DLR preview whenever both dates are valid and in the right order.
   useEffect(() => {
@@ -892,40 +925,82 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   const reworkPR = allRequests.find(p => p.status === 'se_rework');
 
   const submit = async () => {
-    const amt = parseFloat(amount || 0);
-    if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return; }
-    if (!stage.is_open) { toast.error('Stage is not yet opened by Planning'); return; }
+    const totalAmt = parseFloat(amount || 0);
+    if (!totalAmt || totalAmt <= 0) { toast.error('Enter a valid amount'); return; }
     if (fromDate && toDate && fromDate > toDate) { toast.error('From Date must be before To Date'); return; }
-    // Hard cap: SE may raise multiple RABs but the total across them can
-    // never exceed the stage amount. The cap excludes the current rework
-    // row from the pending tally so resubmits are still allowed up to cap.
-    const capCeiling = reworkPR ? (balance + (reworkPR.amount || 0)) : balance;
-    if (amt > capCeiling + 0.01) {
-      toast.error(`Amount ${fmt(amt)} exceeds remaining stage balance ${fmt(capCeiling)} (Total ${fmt(stage.amount || 0)})`);
+
+    // Pull the active per-stage allocation map (skip empty/zero rows).
+    const entries = Object.entries(allocations)
+      .map(([sid, v]) => [sid, parseFloat(v || 0)])
+      .filter(([, v]) => v > 0);
+    if (entries.length === 0) {
+      toast.error('Select at least one stage and enter an amount');
       return;
     }
+    const sumAlloc = entries.reduce((s, [, v]) => s + v, 0);
+    if (Math.abs(sumAlloc - totalAmt) > 0.5) {
+      toast.error(`Per-stage allocations (${fmt(sumAlloc)}) must equal Amount (${fmt(totalAmt)})`);
+      return;
+    }
+
+    // Validate every targeted stage independently — open + balance check.
+    for (const [sid, v] of entries) {
+      const s = (wo?.stages || []).find(x => x.stage_id === sid);
+      if (!s) { toast.error('Selected stage not found'); return; }
+      if (!s.is_open) { toast.error(`${s.name} is not yet opened by Planning`); return; }
+      const sBal = stageBalanceOf(s);
+      const cap = (reworkPR && sid === stage.stage_id) ? sBal + (reworkPR.amount || 0) : sBal;
+      if (v > cap + 0.01) {
+        toast.error(`${s.name}: ₹${v} exceeds stage balance ${fmt(cap)}`);
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
-      const payload = {
-        amount: amt,
-        notes,
-        from_date: fromDate || null,
-        to_date: toDate || null,
-        excess_dlr_reason: excessReason || null,
-      };
-      if (reworkPR) {
-        // Resubmit the existing rejected RAB rather than create a new one
-        await axios.post(
-          `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}/payment-requests/${reworkPR.request_id}/se-resubmit`,
-          payload,
-        );
-        toast.success(`${reworkPR.rab_number || 'RAB'} resubmitted — awaiting PM review`);
+      // Single-stage path keeps the original endpoint (preserves the
+      // rework / resubmit behaviour). Multi-stage loops the per-stage
+      // endpoint — each call creates an independent RAB with its own
+      // project-wide RAB-XX number.
+      if (entries.length === 1) {
+        const [sid, v] = entries[0];
+        const payload = {
+          amount: v,
+          notes,
+          from_date: fromDate || null,
+          to_date: toDate || null,
+          excess_dlr_reason: excessReason || null,
+        };
+        if (reworkPR && sid === stage.stage_id) {
+          await axios.post(
+            `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${sid}/payment-requests/${reworkPR.request_id}/se-resubmit`,
+            payload,
+          );
+          toast.success(`${reworkPR.rab_number || 'RAB'} resubmitted — awaiting PM review`);
+        } else {
+          const res = await axios.patch(
+            `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${sid}/request-payment`,
+            payload,
+          );
+          toast.success(`${res.data?.rab_number || 'RAB'} submitted — awaiting PM review`);
+        }
       } else {
-        const res = await axios.patch(
-          `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}/request-payment`,
-          payload,
-        );
-        toast.success(`${res.data?.rab_number || 'RAB'} submitted — awaiting PM review`);
+        const created = [];
+        for (const [sid, v] of entries) {
+          const payload = {
+            amount: v,
+            notes,
+            from_date: fromDate || null,
+            to_date: toDate || null,
+            excess_dlr_reason: excessReason || null,
+          };
+          const res = await axios.patch(
+            `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${sid}/request-payment`,
+            payload,
+          );
+          if (res.data?.rab_number) created.push(res.data.rab_number);
+        }
+        toast.success(`${created.length} RABs submitted${created.length ? ` (${created.join(', ')})` : ''} — awaiting PM review`);
       }
       onSaved();
     } catch (err) {
@@ -1123,7 +1198,6 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
               <Input
                 type="number"
                 min="1"
-                max={reworkPR ? (balance + (reworkPR.amount || 0)) : balance}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="e.g. 25000"
@@ -1131,15 +1205,123 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                 className="mt-1"
                 data-testid="wov2-rab-amount"
               />
-              <p className="text-[10px] text-gray-500 mt-0.5">
-                Stage balance: <span className={parseFloat(amount || 0) > (reworkPR ? balance + (reworkPR.amount || 0) : balance) + 0.01 ? 'text-red-600 font-bold' : 'text-gray-700 font-semibold'}>{fmt(reworkPR ? balance + (reworkPR.amount || 0) : balance)}</span> · Total: {fmt(stage.amount || 0)}
-              </p>
-              {parseFloat(amount || 0) > (reworkPR ? balance + (reworkPR.amount || 0) : balance) + 0.01 && (
-                <p className="text-[10px] text-red-600 mt-0.5 font-medium" data-testid="wov2-cap-warn">
-                  ⚠ Cannot exceed remaining stage balance. Sum of all RABs must stay within stage total.
-                </p>
-              )}
+              {(() => {
+                const sumAlloc = Object.values(allocations).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+                const amt = parseFloat(amount || 0);
+                const totalBalAcrossSelected = Object.keys(allocations).reduce((s, sid) => {
+                  const st = (wo?.stages || []).find(x => x.stage_id === sid);
+                  if (!st) return s;
+                  const cap = (reworkPR && sid === stage.stage_id) ? stageBalanceOf(st) + (reworkPR.amount || 0) : stageBalanceOf(st);
+                  return s + cap;
+                }, 0);
+                const mismatch = amt > 0 && Math.abs(sumAlloc - amt) > 0.5;
+                return (
+                  <>
+                    <p className="text-[10px] text-gray-500 mt-0.5">
+                      Allocated: <span className={mismatch ? 'text-red-600 font-bold' : 'text-emerald-700 font-semibold'}>{fmt(sumAlloc)}</span> / Amount: <span className="font-semibold">{fmt(amt)}</span> · Available across selected stages: {fmt(totalBalAcrossSelected)}
+                    </p>
+                    {mismatch && (
+                      <p className="text-[10px] text-red-600 mt-0.5 font-medium" data-testid="wov2-cap-warn">
+                        ⚠ Per-stage allocations must add up to the total Amount.
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
             </div>
+
+            {/* Multi-stage allocation — only OPEN stages with balance > 0
+                are listed. Current stage starts checked + carrying the full
+                amount. SE can tick more stages and split the Amount manually.
+                Each checked stage gets its own per-project sequential RAB-XX
+                number on submit. */}
+            {openStagesAll.length > 0 && (
+              <div className="border rounded-lg p-2 bg-amber-50/40 border-amber-200" data-testid="wov2-multi-stage">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[11px] font-semibold text-amber-800 uppercase tracking-wider">
+                    Select Stages to Bill {openStagesAll.length > 1 ? `· ${openStagesAll.length} open` : ''}
+                  </p>
+                  {openStagesAll.length > 1 && (
+                    <button
+                      type="button"
+                      className="text-[10px] text-amber-700 hover:text-amber-900 underline"
+                      onClick={() => {
+                        // Auto-distribute the Amount across open stages
+                        // in order, filling each up to its balance.
+                        let remaining = parseFloat(amount || 0);
+                        const next = {};
+                        for (const s of openStagesAll) {
+                          if (remaining <= 0.01) break;
+                          const cap = (reworkPR && s.stage_id === stage.stage_id) ? stageBalanceOf(s) + (reworkPR.amount || 0) : stageBalanceOf(s);
+                          const fill = Math.min(remaining, cap);
+                          if (fill > 0.01) next[s.stage_id] = String(+fill.toFixed(2));
+                          remaining -= fill;
+                        }
+                        if (Object.keys(next).length === 0) next[stage.stage_id] = String(amount || 0);
+                        setAllocations(next);
+                      }}
+                      data-testid="wov2-multi-autofill"
+                    >
+                      Auto-distribute
+                    </button>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  {openStagesAll.map((s) => {
+                    const checked = Object.prototype.hasOwnProperty.call(allocations, s.stage_id);
+                    const cap = (reworkPR && s.stage_id === stage.stage_id) ? stageBalanceOf(s) + (reworkPR.amount || 0) : stageBalanceOf(s);
+                    const val = allocations[s.stage_id] ?? '';
+                    const over = parseFloat(val || 0) > cap + 0.01;
+                    return (
+                      <div key={s.stage_id} className={`flex items-center gap-2 px-2 py-1.5 rounded border ${checked ? 'border-amber-300 bg-white' : 'border-gray-200 bg-gray-50'}`} data-testid={`wov2-stage-row-${s.stage_id}`}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={submitting || (reworkPR && s.stage_id === stage.stage_id) }
+                          onChange={(e) => {
+                            setAllocations(prev => {
+                              const next = { ...prev };
+                              if (e.target.checked) {
+                                // newly selected → 0 if multi, else full amount
+                                const others = Object.keys(next).length;
+                                next[s.stage_id] = others === 0 ? String(amount || '') : '0';
+                              } else {
+                                delete next[s.stage_id];
+                              }
+                              return next;
+                            });
+                          }}
+                          className="h-3.5 w-3.5 accent-amber-600"
+                          data-testid={`wov2-stage-check-${s.stage_id}`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium truncate" title={s.name}>
+                            {s.name}
+                            {s.stage_id === stage.stage_id && <span className="ml-1 text-[9px] text-amber-700 font-semibold uppercase">current</span>}
+                          </p>
+                          <p className="text-[10px] text-gray-500">Balance: <span className={over ? 'text-red-600 font-bold' : 'font-semibold text-gray-700'}>{fmt(cap)}</span></p>
+                        </div>
+                        <Input
+                          type="number"
+                          min="0"
+                          max={cap}
+                          step="any"
+                          value={val}
+                          disabled={!checked || submitting}
+                          onChange={(e) => setAllocations(prev => ({ ...prev, [s.stage_id]: e.target.value }))}
+                          placeholder="0"
+                          className="h-7 text-xs w-24 text-right"
+                          data-testid={`wov2-stage-amt-${s.stage_id}`}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                {openStagesAll.length === 1 && (
+                  <p className="text-[10px] text-gray-500 mt-1.5 italic">Only this stage is open right now — once Planning opens more, you can split across them here.</p>
+                )}
+              </div>
+            )}
 
             {/* Billing window — From auto-fills (stage opened / next-day after
                 last RAB), To is always SE-picked. Once both dates are valid we
