@@ -259,33 +259,39 @@ function RequestsTab({ dateRange }) {
           body.unit_price = overrideUnit;
         }
         // If Procurement edited the per-diameter table for a Steel order,
-        // forward the corrected breakdown + recomputed total kg so Accountant
-        // & inventory reflect Procurement's verified numbers.
+        // forward the corrected breakdown + recomputed totals (kg + value)
+        // so Accountant & inventory reflect Procurement's verified numbers.
         const stOv = verifyDialog.steel_overrides || {};
         if (Object.keys(stOv).length > 0 && req.steel_specs?.items?.length) {
-          const seByDia = {};
-          (req.steel_received || []).forEach((x) => { if (x?.diameter_mm != null) seByDia[String(x.diameter_mm)] = x; });
-          const corrected = req.steel_specs.items.map((it) => {
-            const D = String(it.diameter_mm);
-            const seR = seByDia[D] || {};
-            const ov = stOv[D] || {};
+          const seByIdx = req.steel_received || [];
+          const defaultUnit = parseFloat(verifyDialog.unit_price_override || req.unit_price || 0) || 0;
+          const corrected = req.steel_specs.items.map((it, idx) => {
+            const seR = seByIdx[idx] || {};
+            const ov = stOv[idx] || {};
             const reqRods = parseInt(it.rod_count, 10) || 0;
             const reqKg = Number(it.calculated_weight_kg || it.weight_kg || 0);
             const recvRods = ov.rod_count !== undefined ? (parseInt(ov.rod_count, 10) || 0) : (parseInt(seR.received_rod_count, 10) || reqRods);
             const recvKg = ov.weight_kg !== undefined ? (parseFloat(ov.weight_kg) || 0) : (Number(seR.received_weight_kg) || reqKg);
+            const unitPrice = ov.unit_price !== undefined ? (parseFloat(ov.unit_price) || 0) : (Number(it.unit_price) || Number(seR.unit_price) || defaultUnit);
+            const rowTotal = +(recvKg * unitPrice).toFixed(2);
             return {
               diameter_mm: it.diameter_mm,
               rod_count: reqRods,
               received_rod_count: recvRods,
               requested_weight_kg: reqKg,
               received_weight_kg: recvKg,
+              unit_price: unitPrice,
+              row_total: rowTotal,
               diff_kg: Math.round((recvKg - reqKg) * 100) / 100,
             };
           });
           body.steel_received_corrected = corrected;
-          // Snap received_quantity to the verified total kg so the rest of
-          // the pipeline (Accountant Cashbook, Inventory) doesn't drift.
-          body.received_quantity = corrected.reduce((s, x) => s + (x.received_weight_kg || 0), 0);
+          const totalKg = corrected.reduce((s, x) => s + (x.received_weight_kg || 0), 0);
+          const totalValue = corrected.reduce((s, x) => s + (x.row_total || 0), 0);
+          // Snap received_quantity + unit_price so downstream sees consistent values.
+          body.received_quantity = totalKg;
+          body.unit_price = totalKg > 0 ? +(totalValue / totalKg).toFixed(4) : 0;
+          body.total_value = totalValue;
         }
         await axios.post(`${API}/procurement-simple/material-requests/${req.request_id}/verify-approve`, body);
         toast.success('Delivery verified — sent to Accountant');
@@ -477,36 +483,86 @@ function RequestsTab({ dateRange }) {
                 const unitValue = verifyDialog.unit_price_override !== ''
                   ? verifyDialog.unit_price_override
                   : (baselineUnit ? Number(baselineUnit.toFixed(2)) : '');
+                // For Steel orders, compute the live totals from the per-row
+                // table (Received Per Diameter) so the top "Received Qty" +
+                // "Total" auto-sync with whatever Procurement enters below.
+                let steelTotalKg = 0, steelTotalValue = 0;
+                let isSteelWithRows = false;
+                if (verifyDialog.req.steel_specs?.items?.length) {
+                  isSteelWithRows = true;
+                  const stOv = verifyDialog.steel_overrides || {};
+                  const seByIdx = verifyDialog.req.steel_received || [];
+                  const defaultUnitFallback = baselineUnit || 0;
+                  verifyDialog.req.steel_specs.items.forEach((it, idx) => {
+                    const seR = seByIdx[idx] || {};
+                    const ov = stOv[idx] || {};
+                    const reqRods = parseInt(it.rod_count, 10) || 0;
+                    const reqKg = Number(it.calculated_weight_kg || it.weight_kg || 0);
+                    const recvKg = ov.weight_kg !== undefined
+                      ? (parseFloat(ov.weight_kg) || 0)
+                      : (Number(seR.received_weight_kg) || reqKg);
+                    const rowUnit = ov.unit_price !== undefined
+                      ? (parseFloat(ov.unit_price) || 0)
+                      : (Number(it.unit_price) || Number(seR.unit_price) || defaultUnitFallback);
+                    steelTotalKg += recvKg;
+                    steelTotalValue += recvKg * rowUnit;
+                    // (reqRods kept for parity with table — currently unused here)
+                    void reqRods;
+                  });
+                }
+                const effectiveRecvFinal = isSteelWithRows ? steelTotalKg : effectiveRecv;
+                const effectiveUnitFinal = isSteelWithRows
+                  ? (steelTotalKg > 0 ? steelTotalValue / steelTotalKg : 0)
+                  : effectiveUnit;
+                const liveTotalFinal = isSteelWithRows ? steelTotalValue : (effectiveRecv * effectiveUnit);
                 return (
                   <div className="grid grid-cols-2 gap-2 bg-gray-50 border rounded p-2 text-xs">
                     <div><span className="text-gray-500">Ordered Qty:</span> <strong>{verifyDialog.req.approved_quantity || verifyDialog.req.quantity} {verifyDialog.req.unit || ''}</strong></div>
                     <div className="flex items-center gap-1">
                       <span className="text-gray-500 whitespace-nowrap">Received Qty:</span>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="any"
-                        value={recvValue}
-                        onChange={(e) => setVerifyDialog({ ...verifyDialog, received_qty_override: e.target.value })}
-                        className="h-6 text-xs px-1 py-0 w-20"
-                        data-testid="verify-received-qty-input"
-                      />
-                      <span className="text-gray-700">{verifyDialog.req.unit || ''}</span>
+                      {isSteelWithRows ? (
+                        <span className="font-semibold text-emerald-700" data-testid="verify-received-qty-auto">
+                          {effectiveRecvFinal.toFixed(2)} {verifyDialog.req.unit || 'kg'}
+                          <span className="ml-1 text-[9px] text-amber-600 uppercase">auto</span>
+                        </span>
+                      ) : (
+                        <>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={recvValue}
+                            onChange={(e) => setVerifyDialog({ ...verifyDialog, received_qty_override: e.target.value })}
+                            className="h-6 text-xs px-1 py-0 w-20"
+                            data-testid="verify-received-qty-input"
+                          />
+                          <span className="text-gray-700">{verifyDialog.req.unit || ''}</span>
+                        </>
+                      )}
                     </div>
                     <div className="flex items-center gap-1">
                       <span className="text-gray-500 whitespace-nowrap">Unit Price:</span>
-                      <span className="text-gray-700">₹</span>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="any"
-                        value={unitValue}
-                        onChange={(e) => setVerifyDialog({ ...verifyDialog, unit_price_override: e.target.value })}
-                        className="h-6 text-xs px-1 py-0 w-24"
-                        data-testid="verify-unit-price-input"
-                      />
+                      {isSteelWithRows ? (
+                        <span className="font-semibold text-emerald-700" data-testid="verify-unit-price-auto">
+                          ₹ {effectiveUnitFinal.toFixed(2)} <span className="text-gray-400 text-[10px]">/{verifyDialog.req.unit || 'kg'} (weighted avg)</span>
+                          <span className="ml-1 text-[9px] text-amber-600 uppercase">auto</span>
+                        </span>
+                      ) : (
+                        <>
+                          <span className="text-gray-700">₹</span>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={unitValue}
+                            onChange={(e) => setVerifyDialog({ ...verifyDialog, unit_price_override: e.target.value })}
+                            className="h-6 text-xs px-1 py-0 w-24"
+                            data-testid="verify-unit-price-input"
+                          />
+                        </>
+                      )}
                     </div>
-                    <div><span className="text-gray-500">Total:</span> <strong className="text-fuchsia-700" data-testid="verify-live-total">{fmt(liveTotal)}</strong></div>
+                    <div><span className="text-gray-500">Total:</span> <strong className="text-fuchsia-700" data-testid="verify-live-total">{fmt(liveTotalFinal)}</strong></div>
                     <div className="col-span-2"><span className="text-gray-500">Payment Mode:</span> <strong>{verifyDialog.req.payment_mode || '—'}</strong></div>
                   </div>
                 );
@@ -520,22 +576,23 @@ function RequestsTab({ dateRange }) {
               {verifyDialog.req.steel_specs?.items?.length > 0 && (() => {
                 const specItems = verifyDialog.req.steel_specs.items;
                 const seReceived = verifyDialog.req.steel_received || [];
-                const seByDia = {};
-                seReceived.forEach((x) => { if (x?.diameter_mm != null) seByDia[String(x.diameter_mm)] = x; });
-                // Maintain editable overrides for each diameter (kg + rod count).
+                // Key overrides by row INDEX (not diameter) so duplicate Ø rows
+                // stay independent.
+                const seByIdx = (i) => seReceived[i] || {};
                 const overrides = verifyDialog.steel_overrides || {};
-                const setOverride = (dia, patch) => {
-                  setVerifyDialog({
-                    ...verifyDialog,
-                    steel_overrides: { ...overrides, [String(dia)]: { ...(overrides[String(dia)] || {}), ...patch } },
-                  });
+                const defaultUnit = parseFloat(verifyDialog.unit_price_override || verifyDialog.req.unit_price || 0) || 0;
+                const setOverride = (idx, patch) => {
+                  setVerifyDialog((d) => ({
+                    ...d,
+                    steel_overrides: { ...(d.steel_overrides || {}), [idx]: { ...((d.steel_overrides || {})[idx] || {}), ...patch } },
+                  }));
                 };
-                let totReqRods = 0, totRecvRods = 0, totReqKg = 0, totRecvKg = 0;
+                let totReqRods = 0, totRecvRods = 0, totReqKg = 0, totRecvKg = 0, totRowAmt = 0;
                 return (
                   <div className="rounded-md border border-amber-300 bg-amber-50/40 overflow-hidden">
                     <div className="px-3 py-2 bg-amber-100/60 text-[11px] uppercase tracking-wide text-amber-800 font-semibold flex items-center justify-between">
                       <span>Steel — Received Per Diameter</span>
-                      <span className="text-[10px] normal-case">{specItems.length} diameter{specItems.length === 1 ? '' : 's'}</span>
+                      <span className="text-[10px] normal-case">{specItems.length} {specItems.length === 1 ? 'row' : 'rows'} · Per-row unit price · Total auto-calculated</span>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
@@ -547,6 +604,8 @@ function RequestsTab({ dateRange }) {
                             <th className="text-right px-2 py-1.5">Recv. Rods</th>
                             <th className="text-right px-2 py-1.5">Requested (kg)</th>
                             <th className="text-right px-2 py-1.5">Received Qty (kg)</th>
+                            <th className="text-right px-2 py-1.5">Unit Price (₹/kg)</th>
+                            <th className="text-right px-2 py-1.5">Row Total (₹)</th>
                             <th className="text-right px-2 py-1.5">Diff</th>
                           </tr>
                         </thead>
@@ -554,17 +613,21 @@ function RequestsTab({ dateRange }) {
                           {specItems.map((it, idx) => {
                             const reqRods = parseInt(it.rod_count, 10) || 0;
                             const reqKg = Number(it.calculated_weight_kg || it.weight_kg || 0);
-                            const seR = seByDia[String(it.diameter_mm)] || {};
-                            const ov = overrides[String(it.diameter_mm)] || {};
+                            const seR = seByIdx(idx);
+                            const ov = overrides[idx] || {};
                             const recvRods = ov.rod_count !== undefined
                               ? (parseInt(ov.rod_count, 10) || 0)
                               : (parseInt(seR.received_rod_count, 10) || reqRods);
                             const recvKg = ov.weight_kg !== undefined
                               ? (parseFloat(ov.weight_kg) || 0)
                               : (Number(seR.received_weight_kg) || reqKg);
+                            const rowUnit = ov.unit_price !== undefined
+                              ? (parseFloat(ov.unit_price) || 0)
+                              : (Number(it.unit_price) || Number(seR.unit_price) || defaultUnit);
+                            const rowAmt = +(recvKg * rowUnit).toFixed(2);
                             const diff = recvKg - reqKg;
                             const diffColor = Math.abs(diff) < 0.01 ? 'text-gray-400' : (diff < 0 ? 'text-rose-700' : 'text-emerald-700');
-                            totReqRods += reqRods; totRecvRods += recvRods; totReqKg += reqKg; totRecvKg += recvKg;
+                            totReqRods += reqRods; totRecvRods += recvRods; totReqKg += reqKg; totRecvKg += recvKg; totRowAmt += rowAmt;
                             return (
                               <tr key={idx} className="border-t border-amber-200">
                                 <td className="px-2 py-1.5 text-gray-500">{idx + 1}</td>
@@ -579,13 +642,12 @@ function RequestsTab({ dateRange }) {
                                     onChange={(e) => {
                                       const r = e.target.value;
                                       const parsedR = parseInt(r, 10) || 0;
-                                      // Auto-recompute kg from rod count (D² ÷ 162 × 12.192 × N)
                                       const D = Number(it.diameter_mm) || 0;
                                       const kg = +((D * D / 162) * 12.192 * parsedR).toFixed(2);
-                                      setOverride(it.diameter_mm, { rod_count: r, weight_kg: String(kg) });
+                                      setOverride(idx, { rod_count: r, weight_kg: String(kg) });
                                     }}
                                     className="h-7 text-right text-xs w-16 ml-auto"
-                                    data-testid={`verify-steel-rods-${it.diameter_mm}`}
+                                    data-testid={`verify-steel-rods-${idx}`}
                                   />
                                 </td>
                                 <td className="px-2 py-1.5 text-right text-amber-700">{reqKg.toFixed(2)}</td>
@@ -595,11 +657,23 @@ function RequestsTab({ dateRange }) {
                                     min="0"
                                     step="any"
                                     value={ov.weight_kg !== undefined ? ov.weight_kg : recvKg.toFixed(2)}
-                                    onChange={(e) => setOverride(it.diameter_mm, { weight_kg: e.target.value })}
+                                    onChange={(e) => setOverride(idx, { weight_kg: e.target.value })}
                                     className="h-7 text-right text-xs w-20 ml-auto"
-                                    data-testid={`verify-steel-kg-${it.diameter_mm}`}
+                                    data-testid={`verify-steel-kg-${idx}`}
                                   />
                                 </td>
+                                <td className="px-2 py-1.5">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    value={ov.unit_price !== undefined ? ov.unit_price : String(rowUnit)}
+                                    onChange={(e) => setOverride(idx, { unit_price: e.target.value })}
+                                    className="h-7 text-right text-xs w-20 ml-auto"
+                                    data-testid={`verify-steel-unit-${idx}`}
+                                  />
+                                </td>
+                                <td className="px-2 py-1.5 text-right font-semibold text-emerald-700">{fmt(rowAmt)}</td>
                                 <td className={`px-2 py-1.5 text-right font-semibold ${diffColor}`}>
                                   {Math.abs(diff) < 0.01 ? '—' : `${diff > 0 ? '+' : ''}${diff.toFixed(2)}`}
                                 </td>
@@ -614,6 +688,8 @@ function RequestsTab({ dateRange }) {
                             <td className="px-2 py-1.5 text-right font-bold text-emerald-700">{totRecvRods}</td>
                             <td className="px-2 py-1.5 text-right text-amber-700 font-semibold">{totReqKg.toFixed(2)} kg</td>
                             <td className="px-2 py-1.5 text-right font-bold text-emerald-700">{totRecvKg.toFixed(2)} kg</td>
+                            <td className="px-2 py-1.5 text-right text-amber-600 text-[10px]">avg {totRecvKg > 0 ? (totRowAmt / totRecvKg).toFixed(2) : '0.00'}</td>
+                            <td className="px-2 py-1.5 text-right font-bold text-emerald-800">{fmt(totRowAmt)}</td>
                             <td className={`px-2 py-1.5 text-right font-bold ${Math.abs(totRecvKg - totReqKg) < 0.01 ? 'text-gray-500' : (totRecvKg < totReqKg ? 'text-rose-700' : 'text-emerald-700')}`}>
                               {Math.abs(totRecvKg - totReqKg) < 0.01 ? '—' : `${totRecvKg - totReqKg > 0 ? '+' : ''}${(totRecvKg - totReqKg).toFixed(2)}`}
                             </td>
@@ -627,6 +703,10 @@ function RequestsTab({ dateRange }) {
                         <span className="text-rose-900">{verifyDialog.req.qty_mismatch_reason}</span>
                       </div>
                     )}
+                    <div className="px-3 py-2 bg-amber-100/40 border-t border-amber-300 text-[11px] text-amber-800 flex items-center justify-between flex-wrap gap-2">
+                      <span>Tip: Edit per-row Unit Price — Row Total &amp; Grand Total recalculate automatically. The top Received Qty &amp; Total fields are auto-synced.</span>
+                      <span className="font-bold text-amber-900">Grand Total: {fmt(totRowAmt)} · {totRecvKg.toFixed(2)} kg</span>
+                    </div>
                   </div>
                 );
               })()}
