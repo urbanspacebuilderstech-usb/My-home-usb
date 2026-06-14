@@ -26,7 +26,44 @@ export default function PlanningLabourPayments({ mode = 'all' }) {
     setLoading(true);
     try {
       const res = await axios.get(`${API}/planning/labour-stage-requests?status=${tab}`);
-      setItems(res.data?.requests || []);
+      const raw = res.data?.requests || [];
+      // Group multi-stage RAB siblings (same `rab_group_id`) into ONE card
+      // so Planning sees one bill per RAB (matches SE / PM / QC / Accountant).
+      // Approve/Reject acts on the primary; backend cascade handles siblings.
+      const groups = new Map();
+      const order = [];
+      for (const r of raw) {
+        const gid = r.rab_group_id || r.request_id;
+        if (!groups.has(gid)) {
+          order.push(gid);
+          groups.set(gid, {
+            ...r,
+            is_multi_stage: false,
+            stage_breakdown: [{
+              stage_id: r.stage_id,
+              stage_name: r.stage_name,
+              request_id: r.request_id,
+              amount: r.amount,
+              stage_amount: r.stage_amount,
+              stage_balance: r.stage_balance,
+            }],
+          });
+        } else {
+          const g = groups.get(gid);
+          g.amount = (g.amount || 0) + (r.amount || 0);
+          g.stage_breakdown.push({
+            stage_id: r.stage_id,
+            stage_name: r.stage_name,
+            request_id: r.request_id,
+            amount: r.amount,
+            stage_amount: r.stage_amount,
+            stage_balance: r.stage_balance,
+          });
+          g.is_multi_stage = g.stage_breakdown.length > 1;
+          g.stage_name = g.stage_breakdown.map(s => s.stage_name).join(' + ');
+        }
+      }
+      setItems(order.map(k => groups.get(k)));
     } catch {
       setItems([]);
     } finally { setLoading(false); }

@@ -9418,6 +9418,8 @@ async def planning_labour_stage_requests(status: str = "new", user: User = Depen
                     next_stage_capacity = max(0, float(next_stage_obj.get("amount", 0)) - ns_rel - float(next_stage_obj.get("carryover_deduction", 0)))
                 out.append({
                     "request_id": pr.get("request_id"),
+                    "rab_number": pr.get("rab_number"),
+                    "rab_group_id": pr.get("rab_group_id"),
                     "status": pr.get("status"),
                     "amount": pr.get("amount", 0),
                     "notes": pr.get("notes", ""),
