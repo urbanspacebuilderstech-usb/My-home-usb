@@ -987,6 +987,12 @@ async def delete_income_entry(income_id: str, user: User = Depends(get_current_u
             if unset_fields:
                 update_doc["$unset"] = unset_fields
             await db.payment_stages.update_one({"stage_id": stage_id}, update_doc)
+            # Mirror the rollback onto linked additional_costs.income_received
+            # so the Client Portal Income Status synth + the Additional Work
+            # row stop showing the deleted receipt as a ghost Direct Transfer.
+            # Without this the count diverges (e.g. 6 entries on Client Portal
+            # vs 5 in the Accountant Cashbook after a delete).
+            await _sync_addition_cost_received(stage_id)
             summary.update({
                 "stage_id": stage_id,
                 "stage_old_received": old_received,

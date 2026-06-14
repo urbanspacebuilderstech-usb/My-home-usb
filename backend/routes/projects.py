@@ -1274,7 +1274,7 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
     # Pre-fetch the stage map so we can tag each income as belonging to the
     # main milestone schedule OR an Additional Work line.
     addition_stage_ids = set()
-    raw_stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0, "stage_id": 1, "is_addition": 1, "linked_addition_id": 1, "stage_name": 1}).to_list(2000)
+    raw_stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0, "stage_id": 1, "is_addition": 1, "is_section_addition": 1, "linked_addition_id": 1, "linked_addition_ids": 1, "stage_name": 1}).to_list(2000)
     for st in raw_stages:
         sname = st.get("stage_name") or ""
         if st.get("is_addition") is True or st.get("linked_addition_id") or sname.startswith("Additional:") or sname.startswith("Additional Work"):
@@ -1311,17 +1311,46 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
     # db.income row, which would otherwise leave the Client Portal "Direct
     # Transfer" tab empty even though Planning Board shows the receipt. To
     # avoid double-counting, subtract whatever db.income already attributes to
-    # the same additional cost (matched by description containing the cost
-    # name) before synthesising the residual.
+    # the same additional cost before synthesising the residual.
+    #
+    # Matching order (most → least reliable):
+    #   1) income.payment_stage_id → stage.linked_addition_id(s)  (precise)
+    #   2) description contains the addition's name (legacy fallback)
+    # Earlier this only used the description match, so any payment whose
+    # description didn't carry the addition's name (e.g. generic "Additional
+    # work as per agreement" billed against "Piling cost") was treated as
+    # un-matched, producing a ghost synth row.
     db_income_by_cost = {}
+    stage_to_costs = {}
+    for st in raw_stages:
+        sid = st.get("stage_id")
+        if not sid:
+            continue
+        cids = []
+        if st.get("linked_addition_id"):
+            cids.append(st["linked_addition_id"])
+        for cid in (st.get("linked_addition_ids") or []):
+            if cid not in cids:
+                cids.append(cid)
+        if cids:
+            stage_to_costs[sid] = cids
+
     for e in raw_income:
         if (e.get("status") or "approved").lower() not in APPROVED_STATES:
+            continue
+        amt = float(e.get("amount") or 0)
+        psid = e.get("payment_stage_id") or e.get("stage_id")
+        matched_costs = stage_to_costs.get(psid) if psid else None
+        if matched_costs:
+            share = amt / len(matched_costs)
+            for cid in matched_costs:
+                db_income_by_cost[cid] = db_income_by_cost.get(cid, 0) + share
             continue
         d = e.get("description") or e.get("notes") or ""
         for ac in additional_costs:
             name = ac.get("name") or ac.get("description") or ""
             if name and name[:20] and name[:20] in d:
-                db_income_by_cost[ac.get("cost_id")] = db_income_by_cost.get(ac.get("cost_id"), 0) + float(e.get("amount") or 0)
+                db_income_by_cost[ac.get("cost_id")] = db_income_by_cost.get(ac.get("cost_id"), 0) + amt
                 break
     for ac in additional_costs:
         recv = float(ac.get("income_received") or 0)
