@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
+import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Eye, Loader2, FileText, Clock, CheckCircle2, Search, X, ShieldCheck, Wallet, AlertCircle, RotateCcw, ClipboardCheck } from 'lucide-react';
+import { Eye, Loader2, FileText, Clock, CheckCircle2, Search, X, ShieldCheck, Wallet, AlertCircle, RotateCcw, ClipboardCheck, Trash2 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -24,20 +25,49 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
+  // Tracks the request_id currently being deleted so we can disable just
+  // that row's trash button while the request is in flight.
+  const [deletingId, setDeletingId] = useState(null);
   // Free-text filter on stage name. Acts as a searchable dropdown — typing
   // narrows down which stage cards remain visible. The "select" mode (click
   // a chip) jumps straight to that stage card.
   const [stageQuery, setStageQuery] = useState('');
   const [stageOpen, setStageOpen] = useState(false);
 
-  useEffect(() => {
+  const reloadChain = () => {
     if (!projectId || !workOrder?.work_order_id) return;
     setLoading(true);
     axios.get(`${API}/projects/${projectId}/work-orders/${workOrder.work_order_id}/rab-chain`)
       .then(r => setData(r.data))
       .catch(e => setErr(e.response?.data?.detail || 'Failed to load RAB chain'))
       .finally(() => setLoading(false));
-  }, [projectId, workOrder?.work_order_id]);
+  };
+
+  useEffect(() => { reloadChain(); /* eslint-disable-next-line */ }, [projectId, workOrder?.work_order_id]);
+
+  // Delete a single RAB row. Backend rejects deletions of Accountant-released
+  // RABs — those must be reversed via the cashbook first. The cascade purge
+  // also drops any linked expense / cashbook entries.
+  const deleteRab = async (rab) => {
+    const amt = (rab.approved_amount || rab.requested_amount || 0).toLocaleString('en-IN');
+    if (!window.confirm(`Delete ${rab.rab_number || 'this RAB'} (₹${amt})?\n\nThis will also purge any linked expense and cashbook rows. Cannot be undone.`)) return;
+    setDeletingId(rab.request_id);
+    try {
+      const r = await axios.delete(`${API}/projects/${projectId}/work-orders/${workOrder.work_order_id}/stages/${rab.stage_id}/payment-requests/${rab.request_id}`);
+      const p = r.data?.purged || {};
+      const cleaned = [
+        p.recorded_expenses ? `${p.recorded_expenses} expense` : null,
+        p.labour_expenses ? `${p.labour_expenses} labour-exp` : null,
+        p.cashbook_entries ? `${p.cashbook_entries} cashbook` : null,
+      ].filter(Boolean).join(' · ');
+      toast.success(cleaned ? `${rab.rab_number || 'RAB'} deleted · cleaned ${cleaned}` : `${rab.rab_number || 'RAB'} deleted`);
+      reloadChain();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to delete');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const inr = (n) => `₹${(Number(n) || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
   const fmtDate = (iso) => {
@@ -136,17 +166,35 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView }) {
         </td>
         <td className="px-3 py-2.5 text-right text-xs font-medium text-orange-700">{inr(rab.closing_balance_after)}</td>
         <td className="px-3 py-2.5 text-right">
-          {(showView || isLast) ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 text-[11px] text-violet-700 border-violet-200 hover:bg-violet-50"
-              onClick={() => onOpenRabView && onOpenRabView(rab.request_id)}
-              data-testid={`wo-rab-view-${rab.rab_number}`}
-            >
-              <Eye className="h-3 w-3 mr-1" /> View
-            </Button>
-          ) : null}
+          <div className="inline-flex items-center gap-1">
+            {(showView || isLast) ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px] text-violet-700 border-violet-200 hover:bg-violet-50"
+                onClick={() => onOpenRabView && onOpenRabView(rab.request_id)}
+                data-testid={`wo-rab-view-${rab.rab_number}`}
+              >
+                <Eye className="h-3 w-3 mr-1" /> View
+              </Button>
+            ) : null}
+            {/* Delete is allowed only while the RAB is still with PM (status:
+                `requested`) — once PM has approved, deletion must be done
+                from the upstream role's dashboard via reject/return. */}
+            {rab.status === 'requested' && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
+                onClick={() => deleteRab(rab)}
+                disabled={deletingId === rab.request_id}
+                title={`Delete ${rab.rab_number || 'RAB'}`}
+                data-testid={`wo-rab-delete-${rab.rab_number}`}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
         </td>
         {/* Status pill card — rightmost cell so the workflow stage is the
             last thing the eye lands on. Icon + label form a compact button-
