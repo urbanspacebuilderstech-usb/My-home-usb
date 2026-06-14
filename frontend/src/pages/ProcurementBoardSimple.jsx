@@ -438,7 +438,7 @@ function RequestsTab({ dateRange }) {
 
       {/* Verify-Delivery Dialog */}
       <Dialog open={verifyDialog.open} onOpenChange={(o) => !o && setVerifyDialog({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '', received_qty_override: '', unit_price_override: '', steel_overrides: {} })}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="proc-verify-dialog">
+        <DialogContent className="w-[96vw] sm:w-auto sm:max-w-4xl max-h-[92vh] overflow-y-auto" data-testid="proc-verify-dialog">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-fuchsia-700">
               <PackageCheck className="h-5 w-5" /> Verify Delivery
