@@ -73,10 +73,15 @@ export default function PMDashboard() {
       }
       setUser(userRes.data);
 
-      const [projRes, matReqRes, labReqRes, teamRes, stagesRes, pcRes] = await Promise.allSettled([
+      const [projRes, matReqRes, labReqRes, rabReqRes, teamRes, stagesRes, pcRes] = await Promise.allSettled([
         axios.get(`${API}/pm/projects`),
         axios.get(`${API}/pm/material-requests`),
         axios.get(`${API}/pm/labour-requests`),
+        // RAB stage payment requests (project_work_orders.stages[].payment_requests[]).
+        // Same dashboard bucket as legacy labour_expenses — fetched separately
+        // because the two collections have different shapes. The merge below
+        // gives PM a unified "Work Order / Labour (RAB)" view.
+        axios.get(`${API}/pm/labour-stage-requests`, { params: { status: 'all' } }),
         axios.get(`${API}/pm/team-members`),
         axios.get(`${API}/pm/project-stages`),
         axios.get(`${API}/pm/petty-cash-requests`)
@@ -84,7 +89,11 @@ export default function PMDashboard() {
 
       if (projRes.status === 'fulfilled') setProjects(projRes.value.data || []);
       if (matReqRes.status === 'fulfilled') setMaterialRequests(matReqRes.value.data || []);
-      if (labReqRes.status === 'fulfilled') setLabourRequests(labReqRes.value.data || []);
+      // Merge legacy labour_expenses + new RAB stage payment_requests so PM
+      // sees every pending labour/work-order request in one list.
+      const legacyLab = labReqRes.status === 'fulfilled' ? (labReqRes.value.data || []) : [];
+      const rabLab = rabReqRes.status === 'fulfilled' ? ((rabReqRes.value.data || {}).requests || []) : [];
+      setLabourRequests([...legacyLab, ...rabLab]);
       if (teamRes.status === 'fulfilled') setTeamMembers(teamRes.value.data || []);
       if (stagesRes.status === 'fulfilled') setStages(stagesRes.value.data || []);
       if (pcRes.status === 'fulfilled') setPettyCashRequests(pcRes.value.data || []);

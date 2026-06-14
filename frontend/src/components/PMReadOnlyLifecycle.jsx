@@ -271,9 +271,16 @@ const LABOUR_BUCKETS = [
 ];
 function bucketForLabour(r) {
   const s = (r.status || '').toLowerCase();
-  if (s === 'requested' || s === 'pm_approved') return 'new_request';
+  // New RAB lifecycle (project_work_orders.stages[].payment_requests[])
+  //   requested → PM new
+  //   pm_approved → QC review (still "new" from PM viewpoint until QC clears)
+  //   qc_approved / planning_pending / planning_review → Planning step
+  //   planning_approved / accountant_pending / pending_accounts_approval → Accountant
+  //   approved / paid / completed → Paid
+  if (s === 'requested') return 'new_request';
+  if (s === 'pm_approved' || s === 'qc_approved') return 'planning_awaiting';
   if (s === 'planning_pending' || s === 'planning_review') return 'planning_awaiting';
-  if (['accountant_pending', 'pending_accounts_approval'].includes(s)) return 'awaiting_accountant';
+  if (s === 'planning_approved' || s === 'accountant_pending' || s === 'pending_accounts_approval') return 'awaiting_accountant';
   if (['paid', 'completed', 'approved'].includes(s)) return 'paid';
   return 'all';
 }
@@ -321,9 +328,9 @@ export function PMLabourReadOnlyList({ items }) {
                     {r.amount && <span className="text-sm font-semibold text-gray-800">{fmt(r.amount)}</span>}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                    <div><p className="text-[10px] uppercase font-semibold text-gray-400">Type</p><p className="font-medium truncate">{r.labour_type || r.description || '—'}</p></div>
+                    <div><p className="text-[10px] uppercase font-semibold text-gray-400">Type</p><p className="font-medium truncate">{r.rab_number ? `${r.rab_number} · ${r.stage_name || 'Stage Payment'}` : (r.labour_type || r.description || '—')}</p></div>
                     <div><p className="text-[10px] uppercase font-semibold text-gray-400">Project</p><p className="font-medium truncate">{r.project_name || '—'}</p></div>
-                    <div><p className="text-[10px] uppercase font-semibold text-gray-400">Workers / Days</p><p className="font-medium">{r.workers_count || '—'} / {r.days || '—'}</p></div>
+                    <div><p className="text-[10px] uppercase font-semibold text-gray-400">Workers / Days</p><p className="font-medium">{r.workers_count || (r.rab_number ? (r.requested_by_name || r.site_engineer_name || '—') : '—')} / {r.days || '—'}</p></div>
                     <div><p className="text-[10px] uppercase font-semibold text-gray-400">Contractor</p><p className="font-medium truncate">{r.contractor_name || '—'}</p></div>
                   </div>
                 </CardContent>
