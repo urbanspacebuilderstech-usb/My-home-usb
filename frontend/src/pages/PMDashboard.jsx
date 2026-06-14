@@ -139,11 +139,20 @@ export default function PMDashboard() {
 
   const handleApproveLabour = async (req) => {
     try {
-      await axios.patch(`${API}/pm/labour-requests/${req.labour_expense_id}/verify?action=approve`);
-      toast.success('Labour request approved! Goes to Planning for final approval.');
+      if (req.rab_number && req.work_order_id && req.stage_id && req.project_id) {
+        // New RAB stage payment request — PM-approve in the work_orders flow.
+        await axios.post(`${API}/projects/${req.project_id}/work-orders/${req.work_order_id}/stages/${req.stage_id}/payment-requests/${req.request_id}/pm-approve`);
+        toast.success(`${req.rab_number} approved — forwarded to QC.`);
+      } else {
+        // Legacy labour_expense flow.
+        await axios.patch(`${API}/pm/labour-requests/${req.labour_expense_id}/verify?action=approve`);
+        toast.success('Labour request approved! Goes to Accountant for payment approval.');
+      }
       fetchData(false);
-    } catch { toast.error('Failed to approve'); }
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to approve'); }
   };
+  // Helper passed to PMLabourReadOnlyList — opens the shared Reject reason dialog.
+  const handleRejectLabour = (req) => openRejectDialog(req, req.rab_number ? 'labour_rab' : 'labour');
 
   const openRejectDialog = (req, type) => { setRejectTarget({ ...req, _type: type }); setRejectReason(''); setRejectDialog(true); };
   const handleReject = async () => {
@@ -151,12 +160,17 @@ export default function PMDashboard() {
     try {
       if (rejectTarget._type === 'material') {
         await axios.patch(`${API}/material-requests/${rejectTarget.request_id}/planning-action`, null, { params: { action: 'reject', reason: rejectReason } });
+      } else if (rejectTarget._type === 'labour_rab') {
+        await axios.post(
+          `${API}/projects/${rejectTarget.project_id}/work-orders/${rejectTarget.work_order_id}/stages/${rejectTarget.stage_id}/payment-requests/${rejectTarget.request_id}/pm-reject`,
+          { reason: rejectReason, send_back_to: 'site_engineer' }
+        );
       } else {
         await axios.patch(`${API}/pm/labour-requests/${rejectTarget.labour_expense_id}/verify?action=reject&rejection_reason=${encodeURIComponent(rejectReason)}`);
       }
       toast.success('Rejected. Site Engineer will be notified.');
       setRejectDialog(false); fetchData(false);
-    } catch { toast.error('Failed to reject'); }
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to reject'); }
   };
 
   // === TEAM HANDLERS ===
@@ -333,7 +347,11 @@ export default function PMDashboard() {
                   <PMMaterialReadOnlyList items={materialRequests} />
                 </TabsContent>
                 <TabsContent value="work_order_labour" className="mt-3">
-                  <PMLabourReadOnlyList items={labourRequests} />
+                  <PMLabourReadOnlyList
+                    items={labourRequests}
+                    onApprove={handleApproveLabour}
+                    onReject={handleRejectLabour}
+                  />
                 </TabsContent>
                 <TabsContent value="petty_cash" className="mt-3">
                   <PMPettyCashTabs pettyCashRequests={pettyCashRequests} onRefresh={() => fetchData(false)} />

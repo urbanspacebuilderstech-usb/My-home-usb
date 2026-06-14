@@ -285,8 +285,9 @@ function bucketForLabour(r) {
   return 'all';
 }
 
-export function PMLabourReadOnlyList({ items }) {
+export function PMLabourReadOnlyList({ items, onApprove, onReject }) {
   const [bucket, setBucket] = useState('all');
+  const [actingId, setActingId] = useState(null);
   const visibleItems = useMemo(() => bucket === 'all' ? items : items.filter(r => bucketForLabour(r) === bucket), [items, bucket]);
   const counts = useMemo(() => {
     const c = { all: items.length };
@@ -294,10 +295,15 @@ export function PMLabourReadOnlyList({ items }) {
     items.forEach(r => { const b = bucketForLabour(r); c[b] = (c[b] || 0) + 1; });
     return c;
   }, [items]);
+  const doApprove = async (r) => {
+    if (!onApprove) return;
+    setActingId(r.request_id || r.labour_expense_id);
+    try { await onApprove(r); } finally { setActingId(null); }
+  };
 
   return (
     <div className="space-y-2" data-testid="pm-lab-readonly">
-      <h3 className="text-sm font-semibold text-amber-700 flex items-center gap-2"><HardHat className="h-4 w-4" /> Work Order / Labour ({items.length}) <span className="ml-1 text-[10px] uppercase tracking-wide font-normal text-gray-400">(view-only)</span></h3>
+      <h3 className="text-sm font-semibold text-amber-700 flex items-center gap-2"><HardHat className="h-4 w-4" /> Work Order / Labour ({items.length})</h3>
       <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
         {LABOUR_BUCKETS.map(b => {
           const active = bucket === b.key;
@@ -316,8 +322,13 @@ export function PMLabourReadOnlyList({ items }) {
         <div className="space-y-2">
           {visibleItems.map((r, i) => {
             const cfg = LABOUR_BUCKETS.find(b => b.key === bucketForLabour(r));
+            // Only show Approve / Reject buttons when this row is awaiting
+            // the PM's decision (legacy `requested` or new RAB `requested`).
+            const status = (r.status || '').toLowerCase();
+            const isPmTurn = status === 'requested';
+            const busy = actingId === (r.request_id || r.labour_expense_id);
             return (
-              <Card key={r.labour_expense_id || r.request_id || i} data-testid={`pm-lab-card-${r.labour_expense_id || i}`}>
+              <Card key={r.labour_expense_id || r.request_id || i} data-testid={`pm-lab-card-${r.labour_expense_id || r.request_id || i}`}>
                 <CardContent className="p-3">
                   <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -333,6 +344,33 @@ export function PMLabourReadOnlyList({ items }) {
                     <div><p className="text-[10px] uppercase font-semibold text-gray-400">Workers / Days</p><p className="font-medium">{r.workers_count || (r.rab_number ? (r.requested_by_name || r.site_engineer_name || '—') : '—')} / {r.days || '—'}</p></div>
                     <div><p className="text-[10px] uppercase font-semibold text-gray-400">Contractor</p><p className="font-medium truncate">{r.contractor_name || '—'}</p></div>
                   </div>
+                  {isPmTurn && (onApprove || onReject) && (
+                    <div className="mt-3 flex items-center justify-end gap-2 flex-wrap">
+                      {onReject && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 border-rose-300 text-rose-700 hover:bg-rose-50"
+                          onClick={() => onReject(r)}
+                          disabled={busy}
+                          data-testid={`pm-lab-reject-${r.request_id || r.labour_expense_id}`}
+                        >
+                          <X className="h-3.5 w-3.5 mr-1" /> Reject
+                        </Button>
+                      )}
+                      {onApprove && (
+                        <Button
+                          size="sm"
+                          className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                          onClick={() => doApprove(r)}
+                          disabled={busy}
+                          data-testid={`pm-lab-approve-${r.request_id || r.labour_expense_id}`}
+                        >
+                          {busy ? 'Approving…' : 'Approve'}
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             );
