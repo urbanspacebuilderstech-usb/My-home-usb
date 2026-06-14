@@ -46,7 +46,44 @@ export default function RABApprovalQueue({ role, title }) {
     setLoading(true);
     try {
       const res = await axios.get(`${API}${cfg.base}/labour-stage-requests?status=${view}`);
-      setItems(res.data?.requests || []);
+      const raw = res.data?.requests || [];
+      // Group multi-stage RABs (same `rab_group_id`) into ONE card so QC /
+      // Planning / etc. see a single bill row with the stage breakdown,
+      // mirroring the SE Total RAB's and PM Dashboard views.
+      const groups = new Map();
+      const order = [];
+      for (const r of raw) {
+        const gid = r.rab_group_id || r.request_id;
+        if (!groups.has(gid)) {
+          order.push(gid);
+          groups.set(gid, {
+            ...r,
+            is_multi_stage: false,
+            stage_breakdown: [{
+              stage_id: r.stage_id,
+              stage_name: r.stage_name,
+              request_id: r.request_id,
+              amount: r.amount,
+              stage_amount: r.stage_amount,
+              stage_balance: r.stage_balance,
+            }],
+          });
+        } else {
+          const g = groups.get(gid);
+          g.amount = (g.amount || 0) + (r.amount || 0);
+          g.stage_breakdown.push({
+            stage_id: r.stage_id,
+            stage_name: r.stage_name,
+            request_id: r.request_id,
+            amount: r.amount,
+            stage_amount: r.stage_amount,
+            stage_balance: r.stage_balance,
+          });
+          g.is_multi_stage = g.stage_breakdown.length > 1;
+          g.stage_name = g.stage_breakdown.map(s => s.stage_name).join(' + ');
+        }
+      }
+      setItems(order.map(k => groups.get(k)));
     } catch (err) {
       setItems([]);
     } finally { setLoading(false); }
@@ -124,9 +161,14 @@ export default function RABApprovalQueue({ role, title }) {
               data-testid={`rab-card-${item.request_id}`}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Badge variant="outline" className="font-mono text-xs bg-white">{item.rab_number || 'RAB'}</Badge>
                   <span className="font-bold text-sm">{fmt(item.amount)}</span>
+                  {item.is_multi_stage && (
+                    <Badge variant="outline" className="text-[10px] bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200 font-semibold uppercase">
+                      {item.stage_breakdown.length}-stage bill
+                    </Badge>
+                  )}
                   {item.se_exceeds_balance && (
                     <Badge variant="outline" className="text-[10px] bg-orange-100 text-orange-700 border-orange-300">
                       <AlertTriangle className="h-2.5 w-2.5 mr-0.5" /> Exceeds Balance
@@ -154,6 +196,19 @@ export default function RABApprovalQueue({ role, title }) {
                 <span>Released: <span className="font-medium text-emerald-700">{fmt(item.stage_released)}</span></span>
                 <span>Balance: <span className="font-medium text-blue-700">{fmt(item.stage_balance)}</span></span>
               </div>
+              {item.is_multi_stage && item.stage_breakdown.length > 1 && (
+                <div className="mt-1 p-1.5 rounded border border-fuchsia-100 bg-fuchsia-50/40">
+                  <p className="text-[10px] uppercase font-semibold text-fuchsia-700 mb-1">Stages covered by this bill</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                    {item.stage_breakdown.map((sb, idx) => (
+                      <div key={sb.request_id} className="flex items-center justify-between gap-2 bg-white rounded border border-fuchsia-100 px-2 py-1">
+                        <span className="text-[11px] font-medium text-slate-700 truncate" title={sb.stage_name}>{idx + 1}. {sb.stage_name}</span>
+                        <span className="text-[11px] font-bold text-emerald-700">{fmt(sb.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {item.notes && <p className="text-[11px] text-gray-700 italic">Note: "{item.notes}"</p>}
               {item.dlr_summary && <p className="text-[11px] text-gray-700">DLR: {item.dlr_summary}</p>}
               {item.pm_approved_by_name && (

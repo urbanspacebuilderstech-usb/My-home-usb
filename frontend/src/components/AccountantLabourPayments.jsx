@@ -25,7 +25,43 @@ export default function AccountantLabourPayments() {
     setLoading(true);
     try {
       const res = await axios.get(`${API}/accountant/labour-payments?status=${tab}`);
-      setItems(res.data?.requests || []);
+      const raw = res.data?.requests || [];
+      // Group multi-stage RAB siblings (same `rab_group_id`) into a single
+      // row so the Accountant releases ONE bill (matches SE / PM / QC views).
+      // The Release dialog uses the primary's request_id, and the linked
+      // siblings show up below as a breakdown.
+      const groups = new Map();
+      const order = [];
+      for (const r of raw) {
+        const gid = r.rab_group_id || r.request_id;
+        if (!groups.has(gid)) {
+          order.push(gid);
+          groups.set(gid, {
+            ...r,
+            is_multi_stage: false,
+            stage_breakdown: [{
+              stage_id: r.stage_id,
+              stage_name: r.stage_name,
+              request_id: r.request_id,
+              amount: r.amount,
+              work_order_id: r.work_order_id,
+            }],
+          });
+        } else {
+          const g = groups.get(gid);
+          g.amount = (g.amount || 0) + (r.amount || 0);
+          g.stage_breakdown.push({
+            stage_id: r.stage_id,
+            stage_name: r.stage_name,
+            request_id: r.request_id,
+            amount: r.amount,
+            work_order_id: r.work_order_id,
+          });
+          g.is_multi_stage = g.stage_breakdown.length > 1;
+          g.stage_name = g.stage_breakdown.map(s => s.stage_name).join(' + ');
+        }
+      }
+      setItems(order.map(k => groups.get(k)));
     } catch { setItems([]); }
     finally { setLoading(false); }
   };
@@ -77,14 +113,43 @@ export default function AccountantLabourPayments() {
                         <p className="font-medium text-gray-900">{r.contractor_name}</p>
                         <p className="text-[10px] text-gray-500">{r.contractor_type}</p>
                       </td>
-                      <td className="px-3 py-2">{r.project_name}</td>
-                      <td className="px-3 py-2 text-gray-700">{r.stage_name}</td>
+                      <td className="px-3 py-2">
+                        <p>{r.project_name}</p>
+                        {r.rab_number && (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <Badge variant="outline" className="text-[10px] bg-violet-50 text-violet-700 border-violet-200 font-mono">{r.rab_number}</Badge>
+                            {r.is_multi_stage && (
+                              <Badge variant="outline" className="text-[9px] bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200 font-semibold uppercase">
+                                {r.stage_breakdown.length}-stage bill
+                              </Badge>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-gray-700">
+                        {r.is_multi_stage ? (
+                          <div className="space-y-0.5">
+                            {r.stage_breakdown.map((sb, i) => (
+                              <div key={sb.request_id} className="flex items-center gap-1 text-[11px]">
+                                <span className="text-[9px] font-bold text-fuchsia-600 bg-fuchsia-50 rounded px-1">{i + 1}</span>
+                                <span className="truncate" title={sb.stage_name}>{sb.stage_name}</span>
+                                <span className="ml-auto text-emerald-700 font-semibold">{fmt(sb.amount)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          r.stage_name
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-right font-bold text-amber-700">{fmt(r.amount)}</td>
                       <td className="px-3 py-2 text-right font-bold text-amber-600">{fmt(r.suspense_balance)}</td>
                       <td className="px-3 py-2 text-right">
                         <Button size="sm" className="h-7 text-xs gap-1 bg-green-600 hover:bg-green-700" onClick={() => setOpen(r)} data-testid={`alp-open-${r.request_id}`}>
                           {tab === 'pending' ? <><Send className="h-3 w-3" /> Release</> : <>View</>}
                         </Button>
+                        {r.is_multi_stage && tab === 'pending' && (
+                          <p className="text-[9px] text-fuchsia-600 mt-0.5 italic">release each stage</p>
+                        )}
                       </td>
                     </tr>
                   ))}

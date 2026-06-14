@@ -10088,6 +10088,8 @@ async def accountant_labour_payments(status: str = "pending", user: User = Depen
                 stage_total = stage.get("amount", 0)
                 out.append({
                     "request_id": pr.get("request_id"),
+                    "rab_number": pr.get("rab_number"),
+                    "rab_group_id": pr.get("rab_group_id"),
                     "status": pr.get("status"),
                     "amount": pr.get("amount", 0),
                     "original_amount": pr.get("original_amount", pr.get("amount", 0)),
