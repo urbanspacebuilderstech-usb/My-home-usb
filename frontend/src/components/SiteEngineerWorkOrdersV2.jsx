@@ -795,6 +795,31 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
     const pen = (s.payment_requests || []).filter(p => ['requested', 'pm_approved', 'qc_approved', 'planning_approved'].includes(p.status)).reduce((a, p) => a + (p.amount || 0), 0);
     return Math.max(0, (s.amount || 0) - rel - pen - (s.carryover_deduction || 0));
   };
+  // Auto-distribute the Amount across the given checked stage_ids (in stage
+  // order), capping each at its remaining balance. Used whenever the top
+  // Amount changes or a stage is checked / unchecked — SE no longer has to
+  // punch per-stage numbers by hand.
+  const autoDistribute = (totalAmtStr, checkedSids) => {
+    let remaining = parseFloat(totalAmtStr) || 0;
+    const next = {};
+    // Walk in stage order (the order from `openStagesAll`) so the first
+    // open stage gets filled first, then overflow rolls into the next.
+    const sortedSids = (wo?.stages || [])
+      .map(s => s.stage_id)
+      .filter(sid => checkedSids.includes(sid));
+    for (const sid of sortedSids) {
+      const s = (wo?.stages || []).find(x => x.stage_id === sid);
+      if (!s) continue;
+      const cap = (reworkPR && sid === stage.stage_id)
+        ? stageBalanceOf(s) + (reworkPR.amount || 0)
+        : stageBalanceOf(s);
+      const fill = Math.min(Math.max(0, remaining), cap);
+      next[sid] = String(+fill.toFixed(2));
+      remaining -= fill;
+    }
+    return next;
+  };
+
   // Rule #2: only OPEN stages (locked + completed/zero-balance excluded).
   const openStagesAll = (wo?.stages || []).filter(s => s.is_open && stageBalanceOf(s) > 0.01);
 
@@ -877,18 +902,16 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
     }
   }, [stage]);
 
-  // Whenever the SE retypes the Amount AND only one stage is selected, mirror
-  // the new amount into that stage's allocation. Multi-stage selections stay
-  // sticky — SE controls the per-stage split manually once they expand it.
+  // Whenever the SE retypes the top Amount, auto-distribute it across every
+  // currently-checked stage (in stage order, capped at each balance). SE can
+  // still tweak per-stage values afterwards if needed — the next Amount edit
+  // (or check/uncheck) will recompute and overwrite their manual edits.
   useEffect(() => {
     setAllocations(prev => {
       const keys = Object.keys(prev);
-      if (keys.length <= 1) {
-        const onlyKey = keys[0] || stage?.stage_id;
-        if (!onlyKey) return prev;
-        return { [onlyKey]: amount || '' };
-      }
-      return prev;
+      const checked = keys.length > 0 ? keys : (stage?.stage_id ? [stage.stage_id] : []);
+      if (checked.length === 0) return prev;
+      return autoDistribute(amount, checked);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amount]);
@@ -1241,7 +1264,6 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                   <p className="text-[11px] font-semibold text-amber-800 uppercase tracking-wider">
                     Select Stages to Bill {openStagesAll.length > 1 ? `· ${openStagesAll.length} open` : ''}
                   </p>
-                  <p className="text-[10px] text-amber-700 italic">Enter amount per stage manually</p>
                 </div>
                 <div className="space-y-1.5">
                   {openStagesAll.map((s) => {
@@ -1257,15 +1279,18 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                           disabled={submitting || (reworkPR && s.stage_id === stage.stage_id) }
                           onChange={(e) => {
                             setAllocations(prev => {
+                              // Build the next set of checked stage IDs and
+                              // re-run auto-distribute so allocations always
+                              // reflect the current selection without manual
+                              // typing.
                               const next = { ...prev };
                               if (e.target.checked) {
-                                // newly selected → 0 if multi, else full amount
-                                const others = Object.keys(next).length;
-                                next[s.stage_id] = others === 0 ? String(amount || '') : '0';
+                                next[s.stage_id] = '0';
                               } else {
                                 delete next[s.stage_id];
                               }
-                              return next;
+                              const checkedSids = Object.keys(next);
+                              return checkedSids.length === 0 ? {} : autoDistribute(amount, checkedSids);
                             });
                           }}
                           className="h-3.5 w-3.5 accent-amber-600"
