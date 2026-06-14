@@ -563,9 +563,12 @@ export default function ClientPortal() {
           const additionsTotal = additionalCosts
             .filter(c => (c.kind || '') !== 'deduction')
             .reduce((s, c) => s + (((c.qty || 0) * (c.price || 0)) || c.estimated_amount || c.actual_amount || 0), 0);
-          const deductionsTotal = additionalCosts
-            .filter(c => (c.kind || '') === 'deduction')
-            .reduce((s, c) => s + (c.amount || c.estimated_amount || c.actual_amount || 0), 0);
+          // Deductions live in their own collection (`projectData.deductions`).
+          // The earlier additionalCosts.filter(kind='deduction') always returned
+          // empty, which left Deductions=₹0 and inflated the Grand Total
+          // (mismatch with Planning Board). Use the canonical deductions array.
+          const deductionsTotal = (projectData?.deductions || [])
+            .reduce((s, d) => s + (d.amount || d.estimated_amount || d.actual_amount || 0), 0);
           const scope = project.total_value || 0;
           const grandTotal = scope + additionsTotal - deductionsTotal;
           // Use the backend-computed `total_income` (sum of APPROVED rows in
@@ -1208,8 +1211,62 @@ export default function ClientPortal() {
               <div className="hidden print:block p-4 border-b">
                 <h3 className="text-lg font-bold">Deductions</h3>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
+              {(() => {
+                // Group deductions by `deduction_sections` (mirrors Additional
+                // Work tab). Section title = "Round Title" the user sees on
+                // Planning. Rows without a `section_id` (legacy) bucket into
+                // an "Ungrouped" block so nothing disappears.
+                const ded_sections = projectData?.deduction_sections || [];
+                const ungroupedDeds = deductions.filter(d => !d.section_id);
+
+                const dedRowStatus = (ded) => {
+                  const isPending = ded.client_approval_status === 'pending_client';
+                  const isApproved = ded.client_approval_status === 'client_approved';
+                  const isRejected = ded.client_approval_status === 'client_rejected';
+                  return { isPending, isApproved, isRejected };
+                };
+
+                const renderDedRows = (rows, startSerial = 1) => rows.map((ded, i) => {
+                  const idx = startSerial + i - 1;
+                  const { isPending, isApproved, isRejected } = dedRowStatus(ded);
+                  return (
+                    <tr key={ded.deduction_id} className="hover:bg-gray-50" data-testid={`client-ded-row-${ded.deduction_id}`}>
+                      <td className="px-4 py-3 text-sm">{idx + 1}</td>
+                      <td className="px-4 py-3 font-medium">{ded.description || ded.name || 'Deduction'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{ded.remarks || '-'}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-rose-600">- ₹{(ded.amount || 0).toLocaleString()}</td>
+                      <td className="px-4 py-3 text-center print:hidden">
+                        <div className="flex items-center justify-center gap-2 flex-wrap">
+                          {isPending && (
+                            <>
+                              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 px-3" onClick={() => handleClientApproveDeduction(ded)} data-testid={`client-ded-approve-${ded.deduction_id}`}>
+                                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+                              </Button>
+                              <Button size="sm" variant="outline" className="border-rose-300 text-rose-700 hover:bg-rose-50 h-8 px-3" onClick={() => handleClientRejectDeduction(ded)} data-testid={`client-ded-reject-${ded.deduction_id}`}>
+                                <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
+                              </Button>
+                            </>
+                          )}
+                          {isApproved && (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+                              <CheckCircle2 className="h-3 w-3 mr-1" /> Approved
+                            </span>
+                          )}
+                          {isRejected && (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-100 text-rose-700" title={ded.client_rejection_reason || ''}>
+                              <XCircle className="h-3 w-3 mr-1" /> Rejected
+                            </span>
+                          )}
+                          {!isPending && !isApproved && !isRejected && (
+                            <span className="text-[11px] text-gray-400 italic">Awaiting GM approval</span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                });
+
+                const headerRow = (
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
@@ -1219,65 +1276,80 @@ export default function ClientPortal() {
                       <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase print:hidden">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {deductions.length === 0 ? (
-                      <tr>
-                        <td colSpan="5" className="px-6 py-8 text-center text-gray-500">No deductions applied</td>
-                      </tr>
-                    ) : (
-                      deductions.map((ded, idx) => {
-                        const isPending = ded.client_approval_status === 'pending_client';
-                        const isApproved = ded.client_approval_status === 'client_approved';
-                        const isRejected = ded.client_approval_status === 'client_rejected';
-                        return (
-                          <tr key={ded.deduction_id} className="hover:bg-gray-50" data-testid={`client-ded-row-${ded.deduction_id}`}>
-                            <td className="px-4 py-3 text-sm">{idx + 1}</td>
-                            <td className="px-4 py-3 font-medium">{ded.description || ded.name || 'Deduction'}</td>
-                            <td className="px-4 py-3 text-sm text-gray-600">{ded.remarks || '-'}</td>
-                            <td className="px-4 py-3 text-right font-semibold text-rose-600">- ₹{(ded.amount || 0).toLocaleString()}</td>
-                            <td className="px-4 py-3 text-center print:hidden">
-                              <div className="flex items-center justify-center gap-2 flex-wrap">
-                                {isPending && (
-                                  <>
-                                    <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 px-3" onClick={() => handleClientApproveDeduction(ded)} data-testid={`client-ded-approve-${ded.deduction_id}`}>
-                                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
-                                    </Button>
-                                    <Button size="sm" variant="outline" className="border-rose-300 text-rose-700 hover:bg-rose-50 h-8 px-3" onClick={() => handleClientRejectDeduction(ded)} data-testid={`client-ded-reject-${ded.deduction_id}`}>
-                                      <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
-                                    </Button>
-                                  </>
-                                )}
-                                {isApproved && (
-                                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
-                                    <CheckCircle2 className="h-3 w-3 mr-1" /> Approved
-                                  </span>
-                                )}
-                                {isRejected && (
-                                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-100 text-rose-700" title={ded.client_rejection_reason || ''}>
-                                    <XCircle className="h-3 w-3 mr-1" /> Rejected
-                                  </span>
-                                )}
-                                {!isPending && !isApproved && !isRejected && (
-                                  <span className="text-[11px] text-gray-400 italic">Awaiting GM approval</span>
-                                )}
-                              </div>
-                            </td>
+                );
+
+                if (deductions.length === 0) {
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        {headerRow}
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          <tr>
+                            <td colSpan="5" className="px-6 py-8 text-center text-gray-500">No deductions applied</td>
                           </tr>
-                        );
-                      })
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div data-testid="client-deductions-grouped">
+                    {/* Section blocks — each has its own header + table + subtotal */}
+                    {ded_sections.map((s, sIdx) => {
+                      const items = deductions.filter(d => d.section_id === s.section_id);
+                      if (items.length === 0) return null;
+                      const subtotal = items.reduce((sum, d) => sum + (d.amount || 0), 0);
+                      return (
+                        <div key={s.section_id} className="mx-4 mt-4 rounded-xl border-2 border-rose-100 bg-rose-50/30 overflow-hidden" data-testid={`client-ded-section-${s.section_id}`}>
+                          <div className="flex items-center justify-between gap-3 flex-wrap p-3 bg-rose-50">
+                            <div>
+                              <p className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Round Title #{sIdx + 1}</p>
+                              <h4 className="text-base font-bold text-rose-900">{s.title || s.name || 'Deduction Group'}</h4>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[11px] text-rose-700 uppercase">Subtotal</p>
+                              <p className="text-base font-bold text-rose-700">- ₹{subtotal.toLocaleString('en-IN')}</p>
+                            </div>
+                          </div>
+                          <div className="overflow-x-auto bg-white">
+                            <table className="w-full">
+                              {headerRow}
+                              <tbody className="divide-y divide-gray-200">
+                                {renderDedRows(items, 1)}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Ungrouped block — only shown when there are legacy
+                        deductions without a section_id (older data). */}
+                    {ungroupedDeds.length > 0 && (
+                      <div className="mx-4 mt-4 mb-2 rounded-xl border border-gray-200 bg-white overflow-hidden" data-testid="client-ded-ungrouped">
+                        <div className="p-3 bg-gray-50 border-b">
+                          <h4 className="text-sm font-semibold text-gray-700">Other Deductions</h4>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            {headerRow}
+                            <tbody className="divide-y divide-gray-200">
+                              {renderDedRows(ungroupedDeds, 1)}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
                     )}
-                  </tbody>
-                  {deductions.length > 0 && (
-                    <tfoot className="bg-rose-50 border-t-2">
-                      <tr>
-                        <td colSpan="3" className="px-4 py-3 text-right font-bold">Total Deductions:</td>
-                        <td className="px-4 py-3 text-right font-bold text-rose-600">- ₹{totalDeductions.toLocaleString()}</td>
-                        <td className="print:hidden"></td>
-                      </tr>
-                    </tfoot>
-                  )}
-                </table>
-              </div>
+
+                    {/* Grand total footer */}
+                    <div className="mx-4 mt-3 mb-4 px-4 py-3 bg-rose-50 border-t-2 border-rose-200 rounded-lg flex items-center justify-between" data-testid="client-ded-grand-total">
+                      <span className="font-bold text-rose-900">Total Deductions</span>
+                      <span className="font-bold text-rose-700 text-lg">- ₹{totalDeductions.toLocaleString('en-IN')}</span>
+                    </div>
+                  </div>
+                );
+              })()}
             </TabsContent>
 
             {/* Income Status Tab — every recorded incoming payment, with status */}

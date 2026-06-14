@@ -1262,6 +1262,12 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
         {"project_id": project_id},
         {"_id": 0, "internal_notes": 0},
     ).sort("sort_order", 1).to_list(500)
+    # Group titles for deductions (mirrors addition_sections so the Client
+    # Portal Deductions tab can render section headers + subtotals).
+    deduction_sections = await db.deduction_sections.find(
+        {"project_id": project_id},
+        {"_id": 0},
+    ).sort("created_at", 1).to_list(200)
 
     # Income entries (read-only, dates + amounts only — no internal fields)
     raw_income = await db.income.find({"project_id": project_id}, {"_id": 0}).sort("payment_date", -1).to_list(1000)
@@ -1422,6 +1428,7 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
             {"_id": 0},
         ).sort("created_at", 1).to_list(200),
         "deductions": deductions,
+        "deduction_sections": deduction_sections,
         "income_entries": income_entries,
         "total_income": total_income,
         "bounced_cheques": bounced_cheques,
