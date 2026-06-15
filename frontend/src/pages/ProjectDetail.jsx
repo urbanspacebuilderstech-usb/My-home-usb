@@ -8699,12 +8699,13 @@ export default function ProjectDetail() {
 
                 {/* Sub-tabs */}
                 <Tabs value={materialSubTab} onValueChange={setMaterialSubTab}>
-                  <TabsList className="grid grid-cols-5 w-full">
+                  <TabsList className="grid grid-cols-6 w-full">
                     <TabsTrigger value="materials" data-testid="subtab-materials">Materials</TabsTrigger>
                     <TabsTrigger value="vendors" data-testid="subtab-vendors">Vendors</TabsTrigger>
                     <TabsTrigger value="orders" data-testid="subtab-orders">Orders</TabsTrigger>
                     <TabsTrigger value="payments" data-testid="subtab-payments">Payments</TabsTrigger>
                     <TabsTrigger value="inventory" data-testid="subtab-inventory">Inventory</TabsTrigger>
+                    <TabsTrigger value="material_stock" data-testid="subtab-material-stock">Material Stock</TabsTrigger>
                   </TabsList>
 
                   {/* MATERIALS SUB-TAB */}
@@ -8847,55 +8848,96 @@ export default function ProjectDetail() {
                     {/* Material Requests moved to Orders sub-tab */}
                   </TabsContent>
 
-                  {/* VENDORS SUB-TAB */}
+                  {/* VENDORS SUB-TAB — aggregated from material requests */}
                   <TabsContent value="vendors" className="mt-4">
-                    <div className="flex justify-between items-center mb-4">
-                      <p className="text-sm text-gray-500">{vendorAssignments.length} vendor assignments</p>
-                      {['super_admin','planning','procurement'].includes(user?.role) && (
-                        <Button size="sm" data-testid="assign-vendor-btn" onClick={() => setAssignVendorDialog(true)}>
-                          <Plus className="h-4 w-4 mr-1" /> Assign Vendor
-                        </Button>
-                      )}
-                    </div>
-                    {vendorAssignments.length > 0 ? (
-                      <div className="border rounded-lg overflow-hidden">
-                        <table className="w-full text-sm" data-testid="vendor-assignments-table">
-                          <thead className="bg-gray-50 border-b">
-                            <tr>
-                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
-                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Brand</th>
-                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {vendorAssignments.map(a => (
-                              <tr key={a.assignment_id || a.category} className="hover:bg-gray-50">
-                                <td className="px-3 py-2.5 font-medium">{a.category}</td>
-                                <td className="px-3 py-2.5">{a.vendor_name}</td>
-                                <td className="px-3 py-2.5">{a.brand || '-'}</td>
-                                <td className="px-3 py-2.5 text-center">
-                                  {['super_admin','planning','procurement'].includes(user?.role) && (
-                                    <Button variant="ghost" size="sm" className="text-red-500 h-7" onClick={() => handleRemoveAssignment(a.category)}>
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  )}
-                                </td>
+                    {(() => {
+                      const rows = materialsData?.materials || [];
+                      const byVendor = {};
+                      const RELEASED_STATUSES = ['accounts_approved', 'payment_approved', 'paid', 'credit', 'delivered'];
+                      for (const r of rows) {
+                        const vid = r.vendor_id || r.assigned_vendor_id || r.vendor_name || r.assigned_vendor_name;
+                        if (!vid) continue;
+                        const name = r.vendor_name || r.assigned_vendor_name || vid;
+                        if (!byVendor[vid]) byVendor[vid] = { vendor_id: vid, name, total_orders: 0, delivered: 0, transit: 0, total_amount: 0, released: 0 };
+                        const v = byVendor[vid];
+                        v.total_orders += 1;
+                        const amt = Number(r.total_amount || r.final_amount || 0);
+                        v.total_amount += amt;
+                        if (r.status === 'delivered') v.delivered += 1;
+                        else if (r.status === 'in_transit') v.transit += 1;
+                        if (RELEASED_STATUSES.includes(r.status)) v.released += amt;
+                      }
+                      const list = Object.values(byVendor).sort((a, b) => b.total_amount - a.total_amount);
+                      if (list.length === 0) {
+                        return (
+                          <div className="text-center py-8 text-gray-400">
+                            <Building2 className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                            <p className="text-sm">No vendors linked to material requests yet</p>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="overflow-x-auto border rounded-lg" data-testid="material-vendors-summary">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50 border-b">
+                              <tr>
+                                <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
+                                <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Total Orders</th>
+                                <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Delivered</th>
+                                <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Transit</th>
+                                <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Total Amount</th>
+                                <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Released</th>
+                                <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-gray-400">
-                        <Building2 className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">No vendors assigned to this project yet</p>
-                      </div>
-                    )}
+                            </thead>
+                            <tbody className="divide-y">
+                              {list.map(v => (
+                                <tr key={v.vendor_id} className="hover:bg-gray-50" data-testid={`mat-vendor-row-${v.vendor_id}`}>
+                                  <td className="px-3 py-2.5 font-medium">{v.name}</td>
+                                  <td className="px-3 py-2.5 text-center">{v.total_orders}</td>
+                                  <td className="px-3 py-2.5 text-center"><Badge className="bg-green-50 text-green-700 border-green-200 text-[10px]">{v.delivered}</Badge></td>
+                                  <td className="px-3 py-2.5 text-center"><Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px]">{v.transit}</Badge></td>
+                                  <td className="px-3 py-2.5 text-right font-medium">{formatCurrency(v.total_amount)}</td>
+                                  <td className="px-3 py-2.5 text-right text-emerald-700 font-medium">{formatCurrency(v.released)}</td>
+                                  <td className="px-3 py-2.5 text-right text-amber-700 font-semibold">{formatCurrency(v.total_amount - v.released)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()}
                   </TabsContent>
 
                   {/* ORDERS SUB-TAB — Material Requests order report */}
                   <TabsContent value="orders" className="mt-4">
+                    {/* Status breakdown chips — counts by lifecycle status */}
+                    {(materialsData?.materials || []).length > 0 && (() => {
+                      const counts = {};
+                      for (const r of materialsData.materials) {
+                        const s = r.status || 'unknown';
+                        counts[s] = (counts[s] || 0) + 1;
+                      }
+                      const STATUS_COLORS = {
+                        requested: 'bg-amber-50 text-amber-700 border-amber-200',
+                        pm_approved: 'bg-blue-50 text-blue-700 border-blue-200',
+                        procurement_priced: 'bg-blue-50 text-blue-700 border-blue-200',
+                        procurement_verifying: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+                        planning_initial_pending: 'bg-violet-50 text-violet-700 border-violet-200',
+                        in_transit: 'bg-orange-50 text-orange-700 border-orange-200',
+                        pending_accounts_approval: 'bg-rose-50 text-rose-700 border-rose-200',
+                        delivered: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                      };
+                      return (
+                        <div className="flex flex-wrap gap-2 mb-4" data-testid="orders-status-bar">
+                          {Object.entries(counts).map(([s, c]) => (
+                            <Badge key={s} variant="outline" className={`text-xs capitalize px-2.5 py-1 ${STATUS_COLORS[s] || 'bg-gray-50 text-gray-700 border-gray-200'}`}>
+                              {s.replace(/_/g, ' ')}: <span className="font-bold ml-1">{c}</span>
+                            </Badge>
+                          ))}
+                        </div>
+                      );
+                    })()}
                     {(materialsData?.materials || []).length > 0 ? (
                       <div className="overflow-x-auto border rounded-lg">
                         <table className="w-full text-sm" data-testid="materials-table">
@@ -9003,12 +9045,81 @@ export default function ProjectDetail() {
                       </div>
                     )}
                   </TabsContent>
-                  {/* INVENTORY SUB-TAB */}
+                  {/* INVENTORY SUB-TAB — Current materials of project (simple list) */}
                   <TabsContent value="inventory" className="mt-4">
+                    {(() => {
+                      const delivered = (materialsData?.materials || []).filter(m => m.status === 'delivered');
+                      // Aggregate per material_name
+                      const byMat = {};
+                      for (const r of delivered) {
+                        const key = (r.material_name || '').toLowerCase();
+                        if (!byMat[key]) {
+                          byMat[key] = {
+                            material_name: r.material_name,
+                            unit: r.unit || '',
+                            delivered_qty: 0,
+                            latest_delivery: null,
+                            used_qty: 0,
+                          };
+                        }
+                        byMat[key].delivered_qty += Number(r.delivered_qty || r.quantity || 0);
+                        const d = r.delivery_date || r.received_date || r.updated_at || r.created_at;
+                        if (d && (!byMat[key].latest_delivery || d > byMat[key].latest_delivery)) {
+                          byMat[key].latest_delivery = d;
+                        }
+                      }
+                      // Sum used from material_inventory entries
+                      for (const inv of (materialInventory || [])) {
+                        const key = (inv.material_name || '').toLowerCase();
+                        if (byMat[key]) byMat[key].used_qty += Number(inv.used || 0);
+                      }
+                      const list = Object.values(byMat).sort((a, b) => (a.material_name || '').localeCompare(b.material_name || ''));
+                      if (list.length === 0) {
+                        return (
+                          <div className="text-center py-8 text-gray-400">
+                            <Package className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                            <p className="text-sm">No delivered materials yet</p>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="overflow-x-auto border rounded-lg" data-testid="inventory-list">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50 border-b">
+                              <tr>
+                                <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Material Name</th>
+                                <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Delivered Date</th>
+                                <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Delivered Qty</th>
+                                <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Used Qty</th>
+                                <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Balance Qty</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {list.map(m => {
+                                const bal = m.delivered_qty - m.used_qty;
+                                return (
+                                  <tr key={m.material_name} className="hover:bg-gray-50" data-testid={`inv-row-${m.material_name}`}>
+                                    <td className="px-3 py-2.5 font-medium">{m.material_name}</td>
+                                    <td className="px-3 py-2.5 text-xs text-gray-600">{m.latest_delivery ? new Date(m.latest_delivery).toLocaleDateString('en-IN') : '—'}</td>
+                                    <td className="px-3 py-2.5 text-center text-green-700">{m.delivered_qty} {m.unit}</td>
+                                    <td className="px-3 py-2.5 text-center text-red-600">{m.used_qty} {m.unit}</td>
+                                    <td className={`px-3 py-2.5 text-center font-bold ${bal <= 0 ? 'text-red-700' : 'text-blue-700'}`}>{bal} {m.unit}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()}
+                  </TabsContent>
+
+                  {/* MATERIAL STOCK SUB-TAB — daily SE stock register */}
+                  <TabsContent value="material_stock" className="mt-4">
                     <div className="flex justify-between items-center mb-4">
-                      <p className="text-sm text-gray-500">Daily Opening & Closing Stock</p>
+                      <p className="text-sm text-gray-500">Site Engineer daily stock register</p>
                       {['super_admin','planning','site_engineer'].includes(user?.role) && (
-                        <Button size="sm" data-testid="add-inventory-btn" onClick={() => {
+                        <Button size="sm" data-testid="add-material-stock-btn" onClick={() => {
                           setInvForm({ material_name: '', unit: '', date: new Date().toISOString().split('T')[0], opening_stock: 0, received: 0, used: 0, notes: '' });
                           setShowInventoryForm(true);
                         }}>
@@ -9016,67 +9127,8 @@ export default function ProjectDetail() {
                         </Button>
                       )}
                     </div>
-
-                    {/* Current Stock Dashboard */}
-                    {invDashboard && invDashboard.materials?.length > 0 && (
-                      <div className="mb-4" data-testid="inv-dashboard-pd">
-                        <div className="grid grid-cols-3 gap-2 mb-3">
-                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-center">
-                            <p className="text-[10px] text-amber-600 font-medium">Materials</p>
-                            <p className="text-lg font-bold text-amber-800">{invDashboard.total_materials}</p>
-                          </div>
-                          <div className="bg-green-50 border border-green-200 rounded-lg p-2.5 text-center">
-                            <p className="text-[10px] text-green-600 font-medium">In Stock</p>
-                            <p className="text-lg font-bold text-green-800">{(invDashboard.total_materials || 0) - (invDashboard.low_stock_count || 0)}</p>
-                          </div>
-                          <div className={`border rounded-lg p-2.5 text-center ${invDashboard.low_stock_count > 0 ? 'bg-red-50 border-red-300' : 'bg-gray-50 border-gray-200'}`}>
-                            <p className={`text-[10px] font-medium ${invDashboard.low_stock_count > 0 ? 'text-red-600' : 'text-gray-500'}`}>Low Stock</p>
-                            <p className={`text-lg font-bold ${invDashboard.low_stock_count > 0 ? 'text-red-700' : 'text-gray-400'}`}>{invDashboard.low_stock_count}</p>
-                          </div>
-                        </div>
-
-                        <div className="border rounded-lg overflow-hidden mb-4" data-testid="inv-current-stock">
-                          <div className="bg-gray-800 text-white px-3 py-2 text-xs font-semibold">Current Stock Levels</div>
-                          <table className="w-full text-xs">
-                            <thead className="bg-gray-100 border-b">
-                              <tr>
-                                <th className="px-3 py-2 text-left font-medium text-gray-600">Material</th>
-                                <th className="px-2 py-2 text-center font-medium text-gray-600">Unit</th>
-                                <th className="px-2 py-2 text-center font-medium text-blue-700">Current Stock</th>
-                                <th className="px-2 py-2 text-center font-medium text-green-700">Total Received</th>
-                                <th className="px-2 py-2 text-center font-medium text-red-700">Total Used</th>
-                                <th className="px-2 py-2 text-center font-medium text-amber-700">Threshold</th>
-                                <th className="px-2 py-2 text-center font-medium">Status</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y">
-                              {invDashboard.materials.map((m, i) => (
-                                <tr key={m.material_name} className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} ${m.is_low_stock ? 'bg-red-50' : ''}`}>
-                                  <td className="px-3 py-2 font-medium">{m.material_name}</td>
-                                  <td className="px-2 py-2 text-center text-gray-500">{m.unit}</td>
-                                  <td className={`px-2 py-2 text-center font-bold ${m.is_low_stock ? 'text-red-700' : 'text-blue-700'}`}>{m.current_stock}</td>
-                                  <td className="px-2 py-2 text-center text-green-700">{m.total_received}</td>
-                                  <td className="px-2 py-2 text-center text-red-600">{m.total_used}</td>
-                                  <td className="px-2 py-2 text-center text-amber-700">{m.min_threshold || '-'}</td>
-                                  <td className="px-2 py-2 text-center">
-                                    {m.is_low_stock ? (
-                                      <Badge className="bg-red-100 text-red-700 text-[10px]">LOW</Badge>
-                                    ) : (
-                                      <Badge className="bg-green-100 text-green-700 text-[10px]">OK</Badge>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* History table */}
-                    <h4 className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Entry History</h4>
                     {materialInventory.length > 0 ? (
-                      <div className="border rounded-lg overflow-hidden">
+                      <div className="border rounded-lg overflow-hidden" data-testid="material-stock-history">
                         <table className="w-full text-sm">
                           <thead className="bg-gray-50 border-b">
                             <tr>
@@ -9104,7 +9156,7 @@ export default function ProjectDetail() {
                           </tbody>
                         </table>
                       </div>
-                    ) : <div className="text-center py-8 text-gray-400"><Package className="h-10 w-10 mx-auto mb-2 opacity-30" /><p className="text-sm">No inventory entries</p></div>}
+                    ) : <div className="text-center py-8 text-gray-400"><Package className="h-10 w-10 mx-auto mb-2 opacity-30" /><p className="text-sm">No daily stock entries yet</p></div>}
                   </TabsContent>
                 </Tabs>
 
