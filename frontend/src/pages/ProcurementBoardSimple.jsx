@@ -853,7 +853,7 @@ function DashboardTab() {
       {subTab === 'material_req' && <RequestsTab dateRange={dateRange} />}
       {subTab === 'credit_management' && <CreditManagementTab dateRange={dateRange} />}
       {subTab === 'all_projects' && <ProcurementAllProjectsTab />}
-      {subTab === 'material_vendors' && <VendorMasterManagement embedded />}
+      {subTab === 'material_vendors' && <MaterialVendorsTab />}
     </div>
   );
 }
@@ -2029,68 +2029,32 @@ function MaterialVendorsTab() {
 
   return (
     <div className="space-y-3" data-testid="proc-vendors-tab">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-lg sm:text-xl font-bold text-gray-900">Material Vendors</h1>
-        <div className="flex items-center gap-2 flex-wrap">
-          <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset="last_month" />
-          <Input placeholder='Search… (try "active" or "inactive")' value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 w-full sm:w-72 text-sm" data-testid="proc-vendors-search" />
-          <Button size="sm" className="h-8 bg-amber-600 hover:bg-amber-700 text-xs" onClick={view === 'vendors' ? openAddVendor : openAddMaterial} data-testid="proc-vendors-add-btn">
-            + Add {view === 'vendors' ? 'Vendor' : 'Material'}
-          </Button>
-        </div>
-      </div>
       <div className="flex gap-1 border-b bg-white rounded-t-lg px-2 pt-1">
         <button onClick={() => setView('vendors')} className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${view === 'vendors' ? 'border-amber-600 text-amber-700 bg-amber-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'}`} data-testid="proc-vendor-view-vendors">
-          Vendors <Badge variant="outline" className="ml-1 text-[10px]">{filteredVendors.length}</Badge>
+          Material Vendor <Badge variant="outline" className="ml-1 text-[10px]">{filteredVendors.length}</Badge>
         </button>
         <button onClick={() => setView('materials')} className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${view === 'materials' ? 'border-amber-600 text-amber-700 bg-amber-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'}`} data-testid="proc-vendor-view-materials">
           Materials <Badge variant="outline" className="ml-1 text-[10px]">{filteredMaterials.length}</Badge>
         </button>
       </div>
+      {view === 'vendors' ? (
+        <VendorMasterManagement embedded />
+      ) : (
+        <>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900">Materials</h1>
+            <div className="flex items-center gap-2 flex-wrap">
+              <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset="last_month" />
+              <Input placeholder='Search… (try "active" or "inactive")' value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 w-full sm:w-72 text-sm" data-testid="proc-vendors-search" />
+              <Button size="sm" className="h-8 bg-amber-600 hover:bg-amber-700 text-xs" onClick={openAddMaterial} data-testid="proc-vendors-add-btn">
+                + Add Material
+              </Button>
+            </div>
+          </div>
       <Card>
         <CardContent className="p-0">
           {loading ? <p className="text-center text-xs text-gray-400 py-10">Loading…</p>
-          : view === 'vendors' ? (
-            filteredVendors.length === 0 ? <p className="text-center text-xs text-gray-400 py-10">No vendors</p> : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead className="bg-gray-100 border-y">
-                    <tr>
-                      <th className="text-left px-3 py-2 font-semibold text-gray-600">Vendor</th>
-                      <th className="text-left px-3 py-2 font-semibold text-gray-600">Contact</th>
-                      <th className="text-left px-3 py-2 font-semibold text-gray-600">Phone</th>
-                      <th className="text-left px-3 py-2 font-semibold text-gray-600">GST</th>
-                      <th className="text-left px-3 py-2 font-semibold text-gray-600">Address</th>
-                      <th className="text-center px-3 py-2 font-semibold text-gray-600">Status</th>
-                      <th className="text-right px-3 py-2 font-semibold text-gray-600">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {filteredVendors.map(v => {
-                      const isActive = v.is_active !== false;
-                      return (
-                      <tr key={v.vendor_id} className="hover:bg-gray-50" data-testid={`proc-vendor-${v.vendor_id}`}>
-                        <td className="px-3 py-2 font-medium">{v.name || v.vendor_name}</td>
-                        <td className="px-3 py-2 text-gray-700">{v.contact_person || '—'}</td>
-                        <td className="px-3 py-2 text-gray-700">{v.phone || '—'}</td>
-                        <td className="px-3 py-2 text-gray-700">{v.gst_number || '—'}</td>
-                        <td className="px-3 py-2 text-gray-700 max-w-xs truncate">{v.address || '—'}</td>
-                        <td className="px-3 py-2 text-center">
-                          <button onClick={() => toggleVendorActive(v)} className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`} data-testid={`proc-vendor-toggle-${v.vendor_id}`}>
-                            {isActive ? 'Active' : 'Inactive'}
-                          </button>
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <button onClick={() => openEditVendor(v)} className="text-amber-700 hover:underline text-xs" data-testid={`proc-vendor-edit-${v.vendor_id}`}>Edit</button>
-                        </td>
-                      </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )
-          ) : (
+          : (
             filteredMaterials.length === 0 ? <p className="text-center text-xs text-gray-400 py-10">No materials</p> : (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
@@ -2131,6 +2095,8 @@ function MaterialVendorsTab() {
           )}
         </CardContent>
       </Card>
+        </>
+      )}
 
       {/* Add / Edit Vendor or Material dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
