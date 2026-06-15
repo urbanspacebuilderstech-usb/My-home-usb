@@ -59,6 +59,7 @@ export default function VendorMasterManagement({ embedded = false }) {
   const [editingVendor, setEditingVendor] = useState(null);
   const [viewVendor, setViewVendor] = useState(null);
   const [vendorSummary, setVendorSummary] = useState(null);
+  const [bookVendor, setBookVendor] = useState(null);
   const [newCatInput, setNewCatInput] = useState('');
   const [showCatInput, setShowCatInput] = useState(false);
 
@@ -242,6 +243,9 @@ export default function VendorMasterManagement({ embedded = false }) {
                       <h3 className="font-semibold text-gray-900 truncate">{v.name}</h3>
                     </div>
                     <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" onClick={e => { e.stopPropagation(); setBookVendor(v); }} data-testid={`vendor-book-${v.vendor_id}`} title="Vendor Book" className="text-amber-700 hover:bg-amber-50">
+                        <FileText className="h-3.5 w-3.5" />
+                      </Button>
                       <Button variant="ghost" size="sm" onClick={e => { e.stopPropagation(); openEdit(v); }} data-testid={`edit-vendor-${v.vendor_id}`} title="Edit vendor">
                         <Edit className="h-3.5 w-3.5" />
                       </Button>
@@ -629,8 +633,246 @@ export default function VendorMasterManagement({ embedded = false }) {
             )}
           </DialogContent>
         </Dialog>
+
+        {/* Vendor Book Dialog — Orders | Credits | Payment Summary */}
+        <VendorBookDialog vendor={bookVendor} onClose={() => setBookVendor(null)} />
       </div>
       {user && <MobileBottomNav user={user} />}
     </div>
+  );
+}
+
+// =============================================================
+// Vendor Book Dialog — Orders (bucketed) | Credits | Payment Summary
+// =============================================================
+function VendorBookDialog({ vendor, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState('orders');
+  const [orderBucket, setOrderBucket] = useState('new_order');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [detailRow, setDetailRow] = useState(null);
+
+  useEffect(() => {
+    if (!vendor?.vendor_id) { setData(null); return; }
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (dateFrom) params.set('date_from', dateFrom);
+    if (dateTo) params.set('date_to', dateTo);
+    axios.get(`${API}/procurement/vendors/${vendor.vendor_id}/book?${params.toString()}`)
+      .then(r => setData(r.data))
+      .catch(() => toast.error('Failed to load vendor book'))
+      .finally(() => setLoading(false));
+  }, [vendor?.vendor_id, dateFrom, dateTo]);
+
+  const fmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+  const fmtDate = (s) => s ? new Date(s).toLocaleDateString('en-IN') : '—';
+
+  const BUCKETS = [
+    { key: 'new_order', label: 'New Order' },
+    { key: 'in_transit', label: 'Transit' },
+    { key: 'delivered', label: 'Delivered' },
+    { key: 'awaiting_accountant', label: 'Awaiting Accountant' },
+  ];
+
+  const orderRows = data?.orders?.[orderBucket] || [];
+
+  return (
+    <Dialog open={!!vendor} onOpenChange={v => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto" data-testid="vendor-book-dialog">
+        <DialogHeader>
+          <DialogTitle className="text-xl">Vendor Book — {vendor?.name}</DialogTitle>
+          <DialogDescription className="text-xs text-gray-500">
+            {vendor?.contact_person ? `${vendor.contact_person} · ` : ''}{vendor?.phone || ''}
+          </DialogDescription>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="flex justify-center py-10"><div className="animate-spin h-6 w-6 border-2 border-amber-500 border-t-transparent rounded-full" /></div>
+        ) : (
+          <Tabs value={tab} onValueChange={setTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-3" data-testid="vendor-book-tabs">
+              <TabsTrigger value="orders" data-testid="vb-tab-orders">Orders</TabsTrigger>
+              <TabsTrigger value="credits" data-testid="vb-tab-credits">Credits</TabsTrigger>
+              <TabsTrigger value="summary" data-testid="vb-tab-summary">Payment Summary</TabsTrigger>
+            </TabsList>
+
+            {/* Orders */}
+            <TabsContent value="orders" className="mt-4 space-y-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Label className="text-xs text-gray-500">From</Label>
+                <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-8 w-36 text-xs" data-testid="vb-date-from" />
+                <Label className="text-xs text-gray-500">To</Label>
+                <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-8 w-36 text-xs" data-testid="vb-date-to" />
+                {(dateFrom || dateTo) && (
+                  <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setDateFrom(''); setDateTo(''); }}>Clear</Button>
+                )}
+              </div>
+
+              <div className="flex gap-1 border-b">
+                {BUCKETS.map(b => (
+                  <button
+                    key={b.key}
+                    onClick={() => setOrderBucket(b.key)}
+                    className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${orderBucket === b.key ? 'border-amber-600 text-amber-700 bg-amber-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                    data-testid={`vb-order-bucket-${b.key}`}
+                  >
+                    {b.label} <Badge variant="outline" className="ml-1 text-[10px]">{data?.orders?.[b.key]?.length || 0}</Badge>
+                  </button>
+                ))}
+              </div>
+
+              {orderRows.length === 0 ? (
+                <p className="text-center text-xs text-gray-400 py-8">No orders in this bucket.</p>
+              ) : (
+                <div className="overflow-x-auto border rounded-md">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-semibold text-gray-600">Date</th>
+                        <th className="text-left px-3 py-2 font-semibold text-gray-600">Material Request</th>
+                        <th className="text-left px-3 py-2 font-semibold text-gray-600">Project</th>
+                        <th className="text-right px-3 py-2 font-semibold text-gray-600">Qty</th>
+                        <th className="text-right px-3 py-2 font-semibold text-gray-600">Amount</th>
+                        <th className="text-center px-3 py-2 font-semibold text-gray-600">Status</th>
+                        <th className="text-center px-3 py-2 font-semibold text-gray-600">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {orderRows.map(r => (
+                        <tr key={r.request_id} className="hover:bg-gray-50" data-testid={`vb-order-${r.request_id}`}>
+                          <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(r.created_at)}</td>
+                          <td className="px-3 py-2 font-medium">{r.material_name || r.material_id}</td>
+                          <td className="px-3 py-2">
+                            <Badge variant="secondary" className="text-[10px]">{r.project_name || '—'}</Badge>
+                          </td>
+                          <td className="px-3 py-2 text-right text-gray-700">{r.requested_qty || r.quantity || '—'} {r.unit || ''}</td>
+                          <td className="px-3 py-2 text-right font-medium">{fmt(r.total_amount || r.final_amount)}</td>
+                          <td className="px-3 py-2 text-center">
+                            <Badge variant="outline" className="text-[10px]">{r.status?.replace(/_/g, ' ')}</Badge>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <Button variant="ghost" size="sm" className="h-6 text-[10px] text-amber-700" onClick={() => setDetailRow(r)} data-testid={`vb-order-detail-${r.request_id}`}>
+                              Detail
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* Credits */}
+            <TabsContent value="credits" className="mt-4">
+              {(data?.credits || []).length === 0 ? (
+                <p className="text-center text-xs text-gray-400 py-8">No credit entries.</p>
+              ) : (
+                <div className="overflow-x-auto border rounded-md">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-semibold text-gray-600">Date</th>
+                        <th className="text-left px-3 py-2 font-semibold text-gray-600">Project</th>
+                        <th className="text-left px-3 py-2 font-semibold text-gray-600">Material</th>
+                        <th className="text-right px-3 py-2 font-semibold text-gray-600">Credit Amount</th>
+                        <th className="text-right px-3 py-2 font-semibold text-gray-600">Paid</th>
+                        <th className="text-right px-3 py-2 font-semibold text-gray-600">Balance</th>
+                        <th className="text-left px-3 py-2 font-semibold text-gray-600">Due Date</th>
+                        <th className="text-center px-3 py-2 font-semibold text-gray-600">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {data.credits.map(c => (
+                        <tr key={c.entry_id} className="hover:bg-gray-50" data-testid={`vb-credit-${c.entry_id}`}>
+                          <td className="px-3 py-2 whitespace-nowrap">{fmtDate(c.created_at)}</td>
+                          <td className="px-3 py-2"><Badge variant="secondary" className="text-[10px]">{c.project_name || '—'}</Badge></td>
+                          <td className="px-3 py-2">{c.material_name || '—'}</td>
+                          <td className="px-3 py-2 text-right">{fmt(c.credit_amount || c.total_amount)}</td>
+                          <td className="px-3 py-2 text-right text-emerald-700">{fmt(c.paid_amount)}</td>
+                          <td className="px-3 py-2 text-right font-semibold text-amber-700">{fmt(c.balance_amount)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">{fmtDate(c.due_date)}</td>
+                          <td className="px-3 py-2 text-center">
+                            <Badge variant="outline" className={`text-[10px] ${c.status === 'paid' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>{c.status || 'open'}</Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* Payment Summary */}
+            <TabsContent value="summary" className="mt-4">
+              {data?.summary ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <Card><CardContent className="p-4">
+                    <p className="text-xs text-gray-500">Total Orders</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1" data-testid="vb-summary-total-orders">{data.summary.total_orders}</p>
+                  </CardContent></Card>
+                  <Card><CardContent className="p-4">
+                    <p className="text-xs text-gray-500">Total Value</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1" data-testid="vb-summary-total-value">{fmt(data.summary.total_value)}</p>
+                  </CardContent></Card>
+                  <Card><CardContent className="p-4">
+                    <p className="text-xs text-gray-500">Delivered Value</p>
+                    <p className="text-2xl font-bold text-emerald-700 mt-1" data-testid="vb-summary-delivered">{fmt(data.summary.delivered_value)}</p>
+                  </CardContent></Card>
+                  <Card><CardContent className="p-4">
+                    <p className="text-xs text-gray-500">Paid</p>
+                    <p className="text-2xl font-bold text-emerald-700 mt-1" data-testid="vb-summary-paid">{fmt(data.summary.paid_amount)}</p>
+                  </CardContent></Card>
+                  <Card><CardContent className="p-4">
+                    <p className="text-xs text-gray-500">Outstanding Credit</p>
+                    <p className="text-2xl font-bold text-amber-700 mt-1" data-testid="vb-summary-outstanding">{fmt(data.summary.outstanding_credit)}</p>
+                  </CardContent></Card>
+                  <Card><CardContent className="p-4">
+                    <p className="text-xs text-gray-500">Payment Terms</p>
+                    <p className="text-lg font-semibold text-gray-900 mt-1">{data.vendor?.payment_terms || '—'}</p>
+                  </CardContent></Card>
+                </div>
+              ) : <p className="text-center text-xs text-gray-400 py-8">No data.</p>}
+            </TabsContent>
+          </Tabs>
+        )}
+
+        {/* Material Request Detail Sub-dialog */}
+        <Dialog open={!!detailRow} onOpenChange={v => { if (!v) setDetailRow(null); }}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="vb-order-detail-dialog">
+            <DialogHeader>
+              <DialogTitle>Material Request Detail</DialogTitle>
+              <DialogDescription className="text-xs">
+                {detailRow?.material_name} · {detailRow?.project_name}
+              </DialogDescription>
+            </DialogHeader>
+            {detailRow && (
+              <div className="space-y-2 text-sm">
+                <div className="grid grid-cols-2 gap-3">
+                  <div><span className="text-gray-500 text-xs">Request ID:</span><p className="font-mono text-xs">{detailRow.request_id}</p></div>
+                  <div><span className="text-gray-500 text-xs">Status:</span><p><Badge variant="outline" className="text-[10px]">{detailRow.status?.replace(/_/g, ' ')}</Badge></p></div>
+                  <div><span className="text-gray-500 text-xs">Material:</span><p>{detailRow.material_name}</p></div>
+                  <div><span className="text-gray-500 text-xs">Project:</span><p>{detailRow.project_name}</p></div>
+                  <div><span className="text-gray-500 text-xs">Quantity:</span><p>{detailRow.requested_qty || detailRow.quantity} {detailRow.unit || ''}</p></div>
+                  <div><span className="text-gray-500 text-xs">Amount:</span><p className="font-semibold">{fmt(detailRow.total_amount || detailRow.final_amount)}</p></div>
+                  <div><span className="text-gray-500 text-xs">Created:</span><p>{fmtDate(detailRow.created_at)}</p></div>
+                  <div><span className="text-gray-500 text-xs">Vendor:</span><p>{detailRow.vendor_name}</p></div>
+                  {detailRow.delivered_qty != null && <div><span className="text-gray-500 text-xs">Delivered Qty:</span><p>{detailRow.delivered_qty}</p></div>}
+                  {detailRow.payment_status && <div><span className="text-gray-500 text-xs">Payment Status:</span><p>{detailRow.payment_status}</p></div>}
+                </div>
+                {detailRow.site_engineer_name && (
+                  <div className="pt-2 border-t"><span className="text-gray-500 text-xs">Site Engineer:</span><p className="text-sm">{detailRow.site_engineer_name}</p></div>
+                )}
+                {detailRow.notes && (
+                  <div className="pt-2 border-t"><span className="text-gray-500 text-xs">Notes:</span><p className="text-sm">{detailRow.notes}</p></div>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      </DialogContent>
+    </Dialog>
   );
 }

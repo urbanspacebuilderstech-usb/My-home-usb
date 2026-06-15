@@ -1607,6 +1607,108 @@ async def get_vendor_detail(vendor_id: str, user: User = Depends(get_current_use
     return vendor
 
 
+@router.get("/procurement/vendors/{vendor_id}/book")
+async def get_vendor_book(
+    vendor_id: str,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Vendor Book — orders bucketed by lifecycle + credit ledger + payment summary.
+
+    Buckets (driven by material_requests.status):
+      • new_order            → procurement_approved-ish stages (request not yet shipped)
+      • in_transit           → in_transit
+      • delivered            → delivered (incl. partial)
+      • awaiting_accountant  → pending_accounts_approval / pending_advance_payment / pending_balance_payment
+    """
+    allowed = [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PROCUREMENT,
+               UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]
+    if user.role not in allowed:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    # Build date filter on created_at (ISO string-safe range)
+    date_query: Dict[str, Any] = {}
+    if date_from:
+        date_query["$gte"] = f"{date_from}T00:00:00"
+    if date_to:
+        date_query["$lte"] = f"{date_to}T23:59:59"
+
+    BUCKETS = {
+        "new_order": ["pm_approved", "procurement_priced", "procurement_verifying",
+                      "procurement_verify_rejected", "planning_initial_pending"],
+        "in_transit": ["in_transit"],
+        "delivered": ["delivered"],
+        "awaiting_accountant": ["pending_accounts_approval", "pending_advance_payment",
+                                "pending_balance_payment"],
+    }
+
+    base_query: Dict[str, Any] = {"vendor_id": vendor_id}
+    if date_query:
+        base_query["created_at"] = date_query
+
+    rows = await db.material_requests.find(base_query, {"_id": 0}).sort("created_at", -1).to_list(2000)
+
+    # Enrich project name
+    proj_ids = list({r.get("project_id") for r in rows if r.get("project_id")})
+    proj_map = {p["project_id"]: p for p in await db.projects.find(
+        {"project_id": {"$in": proj_ids}}, {"_id": 0, "project_id": 1, "name": 1}
+    ).to_list(500)} if proj_ids else {}
+    for r in rows:
+        if not r.get("project_name"):
+            r["project_name"] = (proj_map.get(r.get("project_id")) or {}).get("name", "Unknown")
+
+    orders: Dict[str, List[Dict[str, Any]]] = {k: [] for k in BUCKETS}
+    for r in rows:
+        st = r.get("status")
+        for bucket, statuses in BUCKETS.items():
+            if st in statuses:
+                orders[bucket].append(r)
+                break
+
+    # Credit ledger entries for this vendor
+    credit_q: Dict[str, Any] = {"vendor_id": vendor_id}
+    if date_query:
+        credit_q["created_at"] = date_query
+    credit_entries = await db.credit_ledger.find(credit_q, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+    # Payment summary
+    total_orders = len(rows)
+    total_value = sum(float(r.get("total_amount") or r.get("final_amount") or 0) for r in rows)
+    delivered_value = sum(float(r.get("total_amount") or r.get("final_amount") or 0)
+                          for r in rows if r.get("status") == "delivered")
+    paid_total = 0.0
+    pending_total = 0.0
+    for c in credit_entries:
+        paid_total += float(c.get("paid_amount") or 0)
+        pending_total += float(c.get("balance_amount") or 0)
+
+    return {
+        "vendor": {
+            "vendor_id": vendor.get("vendor_id"),
+            "name": vendor.get("name"),
+            "contact_person": vendor.get("contact_person"),
+            "phone": vendor.get("phone"),
+            "gst_number": vendor.get("gst_number"),
+            "payment_terms": vendor.get("payment_terms"),
+        },
+        "orders": orders,
+        "credits": credit_entries,
+        "summary": {
+            "total_orders": total_orders,
+            "total_value": total_value,
+            "delivered_value": delivered_value,
+            "paid_amount": paid_total,
+            "outstanding_credit": pending_total,
+        },
+    }
+
+
+
 @router.patch("/vendor-master/v2/{vendor_id}")
 async def update_vendor_master_v2(vendor_id: str, data: VendorMasterInput, user: User = Depends(get_current_user)):
     """Update vendor in vendor master"""
