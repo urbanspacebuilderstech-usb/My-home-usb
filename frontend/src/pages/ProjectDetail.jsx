@@ -48,8 +48,10 @@ import {
   Copy,
   ExternalLink,
   Paperclip,
-  Loader2
+  Loader2,
+  Calendar as CalendarIcon
 } from 'lucide-react';
+import { DayPicker } from 'react-day-picker';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -1150,6 +1152,8 @@ export default function ProjectDetail() {
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [materialSubTab, setMaterialSubTab] = useState('materials');
   const [ordersStatusFilter, setOrdersStatusFilter] = useState(null);
+  const [stockDateFrom, setStockDateFrom] = useState('');
+  const [stockDateTo, setStockDateTo] = useState('');
   
   // Package Materials (editable list within project)
   const [projectMaterials, setProjectMaterials] = useState([]);
@@ -9151,18 +9155,89 @@ export default function ProjectDetail() {
 
                   {/* MATERIAL STOCK SUB-TAB — daily SE stock register */}
                   <TabsContent value="material_stock" className="mt-4">
-                    <div className="flex justify-between items-center mb-4">
+                    <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
                       <p className="text-sm text-gray-500">Site Engineer daily stock register</p>
-                      {['super_admin','planning','site_engineer'].includes(user?.role) && (
-                        <Button size="sm" data-testid="add-material-stock-btn" onClick={() => {
-                          setInvForm({ material_name: '', unit: '', date: new Date().toISOString().split('T')[0], opening_stock: 0, received: 0, used: 0, notes: '' });
-                          setShowInventoryForm(true);
-                        }}>
-                          <Plus className="h-4 w-4 mr-1" /> Stock Entry
-                        </Button>
-                      )}
+                      {/* Date filter — Meta Ads style preset + calendar */}
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className={`h-8 text-xs gap-1.5 rounded-lg shadow-sm ${stockDateFrom ? 'bg-blue-50 border-blue-400 text-blue-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}
+                            data-testid="material-stock-date-filter-btn"
+                          >
+                            <CalendarIcon className="h-3.5 w-3.5" />
+                            {stockDateFrom ? (
+                              stockDateTo && stockDateFrom !== stockDateTo
+                                ? `${new Date(stockDateFrom).toLocaleDateString('en-IN', {day:'2-digit', month:'short'})} - ${new Date(stockDateTo).toLocaleDateString('en-IN', {day:'2-digit', month:'short'})}`
+                                : new Date(stockDateFrom).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})
+                            ) : 'Date'}
+                            {stockDateFrom && <X className="h-3 w-3 ml-1 opacity-50 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setStockDateFrom(''); setStockDateTo(''); }} />}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0 rounded-xl shadow-xl border-0" align="end">
+                          <div className="flex">
+                            <div className="w-32 border-r bg-gray-50 p-2 space-y-0.5 rounded-l-xl">
+                              {[
+                                { label: 'Today', fn: () => { const d = new Date().toLocaleDateString('en-CA'); setStockDateFrom(d); setStockDateTo(''); } },
+                                { label: 'Tomorrow', fn: () => { const d = new Date(); d.setDate(d.getDate()+1); setStockDateFrom(d.toLocaleDateString('en-CA')); setStockDateTo(''); } },
+                                { label: 'This Week', fn: () => { const now = new Date(); const mon = new Date(now); mon.setDate(now.getDate()-((now.getDay()+6)%7)); const sun = new Date(mon); sun.setDate(mon.getDate()+6); setStockDateFrom(mon.toLocaleDateString('en-CA')); setStockDateTo(sun.toLocaleDateString('en-CA')); } },
+                                { label: 'Next 7 Days', fn: () => { const d = new Date(); const e = new Date(); e.setDate(d.getDate()+7); setStockDateFrom(d.toLocaleDateString('en-CA')); setStockDateTo(e.toLocaleDateString('en-CA')); } },
+                                { label: 'This Month', fn: () => { const now = new Date(); setStockDateFrom(new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString('en-CA')); setStockDateTo(new Date(now.getFullYear(), now.getMonth()+1, 0).toLocaleDateString('en-CA')); } },
+                                { label: 'Last 30 Days', fn: () => { const e = new Date(); const s = new Date(); s.setDate(e.getDate()-30); setStockDateFrom(s.toLocaleDateString('en-CA')); setStockDateTo(e.toLocaleDateString('en-CA')); } },
+                                { label: 'Clear', fn: () => { setStockDateFrom(''); setStockDateTo(''); } },
+                                { label: 'All Entries', fn: () => { setStockDateFrom(''); setStockDateTo(''); } },
+                              ].map(p => (
+                                <button key={p.label} onClick={p.fn}
+                                  className={`w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-colors ${p.label === 'Clear' ? 'text-red-500 hover:bg-red-50' : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'}`}
+                                  data-testid={`stock-date-preset-${p.label.toLowerCase().replace(/ /g,'-')}`}
+                                >{p.label}</button>
+                              ))}
+                            </div>
+                            <div className="p-3">
+                              <DayPicker
+                                mode="range"
+                                selected={stockDateFrom ? { from: new Date(stockDateFrom + 'T00:00:00'), to: stockDateTo ? new Date(stockDateTo + 'T00:00:00') : new Date(stockDateFrom + 'T00:00:00') } : undefined}
+                                onSelect={(range) => {
+                                  if (range?.from) {
+                                    const from = range.from.toLocaleDateString('en-CA');
+                                    const to = range.to ? range.to.toLocaleDateString('en-CA') : '';
+                                    setStockDateFrom(from);
+                                    setStockDateTo(from === to ? '' : to);
+                                  } else { setStockDateFrom(''); setStockDateTo(''); }
+                                }}
+                                classNames={{
+                                  months: 'flex gap-4', month: 'space-y-3',
+                                  caption: 'flex justify-center relative items-center h-8',
+                                  caption_label: 'text-sm font-semibold text-gray-800',
+                                  nav_button: 'h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 inline-flex items-center justify-center rounded-lg hover:bg-gray-100',
+                                  table: 'w-full border-collapse', head_row: 'flex',
+                                  head_cell: 'text-gray-400 rounded-md w-8 font-normal text-[10px] uppercase',
+                                  row: 'flex w-full mt-1', cell: 'relative p-0 text-center text-sm',
+                                  day: 'h-8 w-8 p-0 font-normal text-xs rounded-lg hover:bg-blue-50 transition-colors inline-flex items-center justify-center',
+                                  day_selected: 'bg-blue-600 text-white hover:bg-blue-700 font-medium',
+                                  day_today: 'bg-gray-100 font-semibold text-blue-600',
+                                  day_range_middle: 'bg-blue-50 text-blue-700 rounded-none',
+                                  day_range_start: 'bg-blue-600 text-white rounded-l-lg rounded-r-none',
+                                  day_range_end: 'bg-blue-600 text-white rounded-r-lg rounded-l-none',
+                                  day_outside: 'text-gray-300',
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
                     </div>
-                    {materialInventory.length > 0 ? (
+                    {(() => {
+                      const filtered = (materialInventory || []).filter(inv => {
+                        if (!stockDateFrom) return true;
+                        const d = inv.date || '';
+                        if (stockDateTo) return d >= stockDateFrom && d <= stockDateTo;
+                        return d === stockDateFrom;
+                      });
+                      if (filtered.length === 0) {
+                        return <div className="text-center py-8 text-gray-400"><Package className="h-10 w-10 mx-auto mb-2 opacity-30" /><p className="text-sm">{stockDateFrom ? 'No entries in selected date range' : 'No daily stock entries yet'}</p></div>;
+                      }
+                      return (
                       <div className="border rounded-lg overflow-hidden" data-testid="material-stock-history">
                         <table className="w-full text-sm">
                           <thead className="bg-gray-50 border-b">
@@ -9177,7 +9252,7 @@ export default function ProjectDetail() {
                             </tr>
                           </thead>
                           <tbody className="divide-y">
-                            {materialInventory.map(inv => (
+                            {filtered.map(inv => (
                               <tr key={inv.inventory_id} className="hover:bg-gray-50">
                                 <td className="px-3 py-2.5 font-medium">{inv.date}</td>
                                 <td className="px-3 py-2.5">{inv.material_name} {inv.unit && <span className="text-gray-400">({inv.unit})</span>}</td>
@@ -9191,7 +9266,8 @@ export default function ProjectDetail() {
                           </tbody>
                         </table>
                       </div>
-                    ) : <div className="text-center py-8 text-gray-400"><Package className="h-10 w-10 mx-auto mb-2 opacity-30" /><p className="text-sm">No daily stock entries yet</p></div>}
+                      );
+                    })()}
                   </TabsContent>
                 </Tabs>
 
