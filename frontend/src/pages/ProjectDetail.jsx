@@ -1149,6 +1149,7 @@ export default function ProjectDetail() {
   const [vendorCategories, setVendorCategories] = useState([]);
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [materialSubTab, setMaterialSubTab] = useState('materials');
+  const [ordersStatusFilter, setOrdersStatusFilter] = useState(null);
   
   // Package Materials (editable list within project)
   const [projectMaterials, setProjectMaterials] = useState([]);
@@ -8935,16 +8936,48 @@ export default function ProjectDetail() {
                         delivered: 'bg-emerald-50 text-emerald-700 border-emerald-200',
                       };
                       return (
-                        <div className="flex flex-wrap gap-2 mb-4" data-testid="orders-status-bar">
-                          {Object.entries(counts).map(([s, c]) => (
-                            <Badge key={s} variant="outline" className={`text-xs capitalize px-2.5 py-1 ${STATUS_COLORS[s] || 'bg-gray-50 text-gray-700 border-gray-200'}`}>
-                              {s.replace(/_/g, ' ')}: <span className="font-bold ml-1">{c}</span>
-                            </Badge>
-                          ))}
+                        <div className="flex flex-wrap gap-2 mb-4 items-center" data-testid="orders-status-bar">
+                          {Object.entries(counts).map(([s, c]) => {
+                            const isActive = ordersStatusFilter === s;
+                            return (
+                              <button
+                                key={s}
+                                onClick={() => setOrdersStatusFilter(isActive ? null : s)}
+                                className={`text-xs capitalize px-2.5 py-1 rounded-full border transition-all cursor-pointer ${STATUS_COLORS[s] || 'bg-gray-50 text-gray-700 border-gray-200'} ${isActive ? 'ring-2 ring-offset-1 ring-current shadow-sm scale-105' : 'hover:scale-105 hover:shadow-sm'}`}
+                                data-testid={`orders-chip-${s}`}
+                              >
+                                {s.replace(/_/g, ' ')}: <span className="font-bold ml-1">{c}</span>
+                              </button>
+                            );
+                          })}
+                          {ordersStatusFilter && (
+                            <button onClick={() => setOrdersStatusFilter(null)} className="text-[11px] text-gray-500 hover:text-gray-800 underline ml-1" data-testid="orders-chip-clear">
+                              Clear filter
+                            </button>
+                          )}
                         </div>
                       );
                     })()}
-                    {(materialsData?.materials || []).length > 0 ? (
+                    {(() => {
+                      const allRows = materialsData?.materials || [];
+                      const filteredRows = ordersStatusFilter ? allRows.filter(m => (m.status || 'unknown') === ordersStatusFilter) : allRows;
+                      if (allRows.length === 0) {
+                        return (
+                          <div className="text-center py-8 text-gray-400">
+                            <Package className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                            <p className="text-sm">No material requests for this project</p>
+                          </div>
+                        );
+                      }
+                      if (filteredRows.length === 0) {
+                        return (
+                          <div className="text-center py-8 text-gray-400">
+                            <Package className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                            <p className="text-sm">No orders match the selected status filter</p>
+                          </div>
+                        );
+                      }
+                      return (
                       <div className="overflow-x-auto border rounded-lg">
                         <table className="w-full text-sm" data-testid="materials-table">
                           <thead className="bg-gray-50 border-b">
@@ -8959,7 +8992,7 @@ export default function ProjectDetail() {
                             </tr>
                           </thead>
                           <tbody className="divide-y">
-                            {(materialsData?.materials || []).map(m => (
+                            {filteredRows.map(m => (
                               <tr key={m.request_id} className="hover:bg-gray-50" data-testid={`mat-row-${m.request_id}`}>
                                 <td className="px-3 py-2.5">
                                   <p className="font-medium">{m.material_name}</p>
@@ -8987,12 +9020,8 @@ export default function ProjectDetail() {
                           </tbody>
                         </table>
                       </div>
-                    ) : (
-                      <div className="text-center py-8 text-gray-400">
-                        <Package className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">No material requests for this project</p>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </TabsContent>
 
                   {/* PAYMENT STATUS SUB-TAB */}
