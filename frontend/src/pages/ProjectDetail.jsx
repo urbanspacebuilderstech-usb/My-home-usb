@@ -8858,13 +8858,14 @@ export default function ProjectDetail() {
                         const vid = r.vendor_id || r.assigned_vendor_id || r.vendor_name || r.assigned_vendor_name;
                         if (!vid) continue;
                         const name = r.vendor_name || r.assigned_vendor_name || vid;
-                        if (!byVendor[vid]) byVendor[vid] = { vendor_id: vid, name, total_orders: 0, delivered: 0, transit: 0, total_amount: 0, released: 0 };
+                        if (!byVendor[vid]) byVendor[vid] = { vendor_id: vid, name, total_orders: 0, delivered: 0, transit: 0, pending: 0, total_amount: 0, released: 0 };
                         const v = byVendor[vid];
                         v.total_orders += 1;
                         const amt = Number(r.total_amount || r.final_amount || 0);
                         v.total_amount += amt;
                         if (r.status === 'delivered') v.delivered += 1;
                         else if (r.status === 'in_transit') v.transit += 1;
+                        else v.pending += 1;
                         if (RELEASED_STATUSES.includes(r.status)) v.released += amt;
                       }
                       const list = Object.values(byVendor).sort((a, b) => b.total_amount - a.total_amount);
@@ -8883,8 +8884,9 @@ export default function ProjectDetail() {
                               <tr>
                                 <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
                                 <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Total Orders</th>
-                                <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Delivered</th>
+                                <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Pending</th>
                                 <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Transit</th>
+                                <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Delivered</th>
                                 <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Total Amount</th>
                                 <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Released</th>
                                 <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
@@ -8895,8 +8897,9 @@ export default function ProjectDetail() {
                                 <tr key={v.vendor_id} className="hover:bg-gray-50" data-testid={`mat-vendor-row-${v.vendor_id}`}>
                                   <td className="px-3 py-2.5 font-medium">{v.name}</td>
                                   <td className="px-3 py-2.5 text-center">{v.total_orders}</td>
-                                  <td className="px-3 py-2.5 text-center"><Badge className="bg-green-50 text-green-700 border-green-200 text-[10px]">{v.delivered}</Badge></td>
+                                  <td className="px-3 py-2.5 text-center"><Badge className="bg-slate-50 text-slate-700 border-slate-200 text-[10px]">{v.pending}</Badge></td>
                                   <td className="px-3 py-2.5 text-center"><Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px]">{v.transit}</Badge></td>
+                                  <td className="px-3 py-2.5 text-center"><Badge className="bg-green-50 text-green-700 border-green-200 text-[10px]">{v.delivered}</Badge></td>
                                   <td className="px-3 py-2.5 text-right font-medium">{formatCurrency(v.total_amount)}</td>
                                   <td className="px-3 py-2.5 text-right text-emerald-700 font-medium">{formatCurrency(v.released)}</td>
                                   <td className="px-3 py-2.5 text-right text-amber-700 font-semibold">{formatCurrency(v.total_amount - v.released)}</td>
@@ -8904,6 +8907,9 @@ export default function ProjectDetail() {
                               ))}
                             </tbody>
                           </table>
+                          <p className="text-[11px] text-gray-400 px-3 py-2 bg-gray-50 border-t">
+                            <strong>Pending</strong> = orders not yet in transit or delivered (requested / awaiting approval / awaiting accountant)
+                          </p>
                         </div>
                       );
                     })()}
