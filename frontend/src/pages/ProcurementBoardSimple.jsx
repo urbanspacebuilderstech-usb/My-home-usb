@@ -11,6 +11,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { Checkbox } from '../components/ui/checkbox';
 import { Popover, PopoverTrigger, PopoverContent } from '../components/ui/popover';
+// Procurement Dashboard sub-tabs embed these two pages so the operator
+// doesn't have to leave the Procurement board for project / vendor work.
+import Projects from './Projects';
+import VendorMasterManagement from './VendorMasterManagement';
 import {
   Package,
   ClipboardList,
@@ -818,7 +822,7 @@ function RequestsTab({ dateRange }) {
 }
 
 // =====================================================================
-// DASHBOARD WRAPPER — Material Req | Credit Management sub-tabs
+// DASHBOARD WRAPPER — Material Req | Credit Management | All Projects | Material Vendors
 // =====================================================================
 function DashboardTab() {
   const [subTab, setSubTab] = useState(() => {
@@ -838,10 +842,12 @@ function DashboardTab() {
     <div className="space-y-3" data-testid="proc-dashboard-tab">
       {/* Sub-tab pill bar + global date filter */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="inline-flex rounded-md border border-gray-200 bg-white p-0.5" data-testid="proc-subtabs">
+        <div className="inline-flex rounded-md border border-gray-200 bg-white p-0.5 flex-wrap" data-testid="proc-subtabs">
           {[
             { key: 'material_req',     label: 'Material Req' },
             { key: 'credit_management', label: 'Credit Management' },
+            { key: 'all_projects',     label: 'All Projects' },
+            { key: 'material_vendors', label: 'Material Vendors' },
           ].map(t => (
             <button
               key={t.key}
@@ -857,11 +863,18 @@ function DashboardTab() {
             </button>
           ))}
         </div>
-        <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset="last_month" />
+        {/* Date filter only meaningful for the Material Req / Credit
+            Management sub-tabs — All Projects and Material Vendors render
+            their own filtering UIs. */}
+        {(subTab === 'material_req' || subTab === 'credit_management') && (
+          <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset={null} />
+        )}
       </div>
 
       {subTab === 'material_req' && <RequestsTab dateRange={dateRange} />}
       {subTab === 'credit_management' && <CreditManagementTab dateRange={dateRange} />}
+      {subTab === 'all_projects' && <Projects />}
+      {subTab === 'material_vendors' && <VendorMasterManagement />}
     </div>
   );
 }

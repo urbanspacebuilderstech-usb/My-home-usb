@@ -55,9 +55,10 @@ const ROLE_NAV = {
   ],
   procurement: [
     { label: 'Procurement', path: '/procurement-board-v2' },
-    { label: 'Projects', path: '/projects' },
+    // Projects + Vendor Management used to live here. They were moved into
+    // the Procurement Dashboard sub-tabs (All Projects · Material Vendors)
+    // so the operator stays on one page for the entire flow.
     { label: 'Packages', path: '/packages' },
-    { label: 'Vendors', path: '/vendor-management' },
   ],
   cre: [],  // CRE has all sub-tabs inside the CRE Board page; no top nav
   pre_sales: [
