@@ -16,7 +16,7 @@ import { NumericInput } from '../components/NumericInput';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-export default function Projects() {
+export default function Projects({ embedded = false }) {
   const [user, setUser] = useState(null);
   const [projects, setProjects] = useState([]);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -181,7 +181,7 @@ export default function Projects() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AppHeader user={user} />
+      {!embedded && <AppHeader user={user} />}
 
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 mb-4 sm:mb-8">

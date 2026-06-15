@@ -852,8 +852,8 @@ function DashboardTab() {
 
       {subTab === 'material_req' && <RequestsTab dateRange={dateRange} />}
       {subTab === 'credit_management' && <CreditManagementTab dateRange={dateRange} />}
-      {subTab === 'all_projects' && <Projects />}
-      {subTab === 'material_vendors' && <VendorMasterManagement />}
+      {subTab === 'all_projects' && <Projects embedded />}
+      {subTab === 'material_vendors' && <VendorMasterManagement embedded />}
     </div>
   );
 }

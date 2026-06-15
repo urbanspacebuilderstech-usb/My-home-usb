@@ -47,7 +47,7 @@ const GST_TYPES = [
   { value: 'unregistered', label: 'Unregistered' },
 ];
 
-export default function VendorMasterManagement() {
+export default function VendorMasterManagement({ embedded = false }) {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [vendors, setVendors] = useState([]);
@@ -198,7 +198,7 @@ export default function VendorMasterManagement() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AppHeader user={user} />
+      {!embedded && <AppHeader user={user} />}
       <div className="max-w-7xl mx-auto p-4 sm:p-6 pb-24">
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
