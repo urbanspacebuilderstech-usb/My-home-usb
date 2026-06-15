@@ -2403,6 +2403,59 @@ async def procurement_simple_queue(
     return {"count": len(rows), "requests": rows}
 
 
+@router.get("/procurement-simple/projects-summary")
+async def projects_summary(user: User = Depends(get_current_user)):
+    """Procurement-focused project list for the All Projects sub-tab.
+
+    Returns one row per project with material-procurement aggregates:
+        - name, status (project stage)
+        - total_orders, active_orders, delivered_count
+        - material_value (sum of approved unit_price * approved_qty)
+    """
+    projs = await db.projects.find(
+        {"status": {"$nin": ["cancelled", "archived"]}},
+        {"_id": 0, "project_id": 1, "name": 1, "status": 1},
+    ).sort("created_at", -1).to_list(2000)
+
+    ACTIVE_STATES = {
+        "pending_quotation", "po_pending_pm_approval", "po_pending_planning_approval",
+        "approved_for_purchase", "in_transit", "se_marked_received",
+        "procurement_verifying", "procurement_verify_rejected",
+        "pending_accounts_approval", "credit_pending",
+    }
+    DELIVERED_STATES = {"delivered", "completed", "paid", "credit_delivered"}
+
+    out = []
+    for p in projs:
+        pid = p["project_id"]
+        all_reqs = await db.material_requests.find(
+            {"project_id": pid},
+            {"_id": 0, "status": 1, "unit_price": 1, "received_quantity": 1,
+             "approved_quantity": 1, "quantity": 1, "total_value": 1},
+        ).to_list(2000)
+        active = sum(1 for r in all_reqs if (r.get("status") or "").lower() in ACTIVE_STATES)
+        delivered = sum(1 for r in all_reqs if (r.get("status") or "").lower() in DELIVERED_STATES)
+        material_value = 0.0
+        for r in all_reqs:
+            if r.get("total_value"):
+                material_value += float(r.get("total_value") or 0)
+            else:
+                up = float(r.get("unit_price") or 0)
+                qty = float(r.get("received_quantity") or r.get("approved_quantity") or r.get("quantity") or 0)
+                material_value += up * qty
+        out.append({
+            "project_id": pid,
+            "name": p.get("name", "-"),
+            "status": p.get("status") or "-",
+            "total_orders": len(all_reqs),
+            "active_orders": active,
+            "delivered_count": delivered,
+            "material_value": round(material_value, 2),
+        })
+    return {"count": len(out), "projects": out}
+
+
+
 @router.patch("/procurement-simple/material-requests/{request_id}/assign-vendor")
 async def procurement_simple_assign_vendor(request_id: str, data: dict, user: User = Depends(get_current_user)):
     """Procurement assigns Vendor + Unit Price + Remarks to a SE material request,

@@ -852,8 +852,87 @@ function DashboardTab() {
 
       {subTab === 'material_req' && <RequestsTab dateRange={dateRange} />}
       {subTab === 'credit_management' && <CreditManagementTab dateRange={dateRange} />}
-      {subTab === 'all_projects' && <Projects embedded />}
+      {subTab === 'all_projects' && <ProcurementAllProjectsTab />}
       {subTab === 'material_vendors' && <VendorMasterManagement embedded />}
+    </div>
+  );
+}
+
+// =====================================================================
+// Procurement-focused All Projects view — columns mandated by the operator:
+// Name | Stage | Total Orders | Active Orders | Deliveries | Material Value
+// =====================================================================
+function ProcurementAllProjectsTab() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    axios.get(`${API}/procurement-simple/projects-summary`)
+      .then(r => { if (alive) setRows(r.data?.projects || []); })
+      .catch(() => { if (alive) setRows([]); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!q.trim()) return rows;
+    const t = q.toLowerCase();
+    return rows.filter(r => (r.name || '').toLowerCase().includes(t));
+  }, [rows, q]);
+
+  return (
+    <div className="space-y-3" data-testid="proc-all-projects">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="text-lg sm:text-xl font-semibold text-gray-800">All Projects · Procurement</h2>
+        <Input
+          placeholder="Search project…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          className="h-8 w-56 text-sm"
+          data-testid="proc-all-projects-search"
+        />
+      </div>
+      <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-amber-50 text-amber-900 uppercase text-[11px]">
+              <tr>
+                <th className="text-left px-3 py-2">Project Name</th>
+                <th className="text-left px-3 py-2">Stage</th>
+                <th className="text-right px-3 py-2">Total Orders</th>
+                <th className="text-right px-3 py-2">Active Orders</th>
+                <th className="text-right px-3 py-2">Deliveries</th>
+                <th className="text-right px-3 py-2">Material Purchased</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr><td colSpan={6} className="text-center px-3 py-8 text-gray-400">Loading…</td></tr>
+              )}
+              {!loading && filtered.length === 0 && (
+                <tr><td colSpan={6} className="text-center px-3 py-8 text-gray-400">No projects found.</td></tr>
+              )}
+              {!loading && filtered.map((r) => (
+                <tr key={r.project_id} className="border-t hover:bg-gray-50" data-testid={`proc-proj-${r.project_id}`}>
+                  <td className="px-3 py-2 font-medium text-slate-800">{r.name}</td>
+                  <td className="px-3 py-2">
+                    <Badge variant="outline" className="text-[10px] capitalize bg-violet-50 text-violet-700 border-violet-200">
+                      {(r.status || '').replace(/_/g, ' ')}
+                    </Badge>
+                  </td>
+                  <td className="px-3 py-2 text-right font-medium">{r.total_orders}</td>
+                  <td className="px-3 py-2 text-right font-semibold text-amber-700">{r.active_orders}</td>
+                  <td className="px-3 py-2 text-right font-semibold text-emerald-700">{r.delivered_count}</td>
+                  <td className="px-3 py-2 text-right font-bold text-blue-700">{fmt(r.material_value)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
