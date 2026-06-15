@@ -8844,56 +8844,7 @@ export default function ProjectDetail() {
                         )}
                       </div>
 
-                    {/* Material Requests Table (existing) */}
-                    {(materialsData?.materials || []).length > 0 ? (
-                      <div className="overflow-x-auto border rounded-lg">
-                        <table className="w-full text-sm" data-testid="materials-table">
-                          <thead className="bg-gray-50 border-b">
-                            <tr>
-                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
-                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Qty</th>
-                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Stage</th>
-                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
-                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
-                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Requested By</th>
-                              {!isPM && <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>}
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {(materialsData?.materials || []).map(m => (
-                              <tr key={m.request_id} className="hover:bg-gray-50" data-testid={`mat-row-${m.request_id}`}>
-                                <td className="px-3 py-2.5">
-                                  <p className="font-medium">{m.material_name}</p>
-                                  {m.remarks && <p className="text-xs text-gray-400 truncate max-w-[200px]">{m.remarks}</p>}
-                                </td>
-                                <td className="px-3 py-2.5 text-center">{m.quantity} {m.unit || ''}</td>
-                                <td className="px-3 py-2.5 text-center text-xs">{m.stage || '-'}</td>
-                                <td className="px-3 py-2.5 text-center">
-                                  <Badge variant="outline" className={`text-xs capitalize ${
-                                    m.status === 'requested' ? 'border-amber-300 text-amber-700 bg-amber-50' :
-                                    ['delivered','received','received_partial'].includes(m.status) ? 'border-green-300 text-green-700 bg-green-50' :
-                                    ['accounts_approved','payment_approved'].includes(m.status) ? 'border-blue-300 text-blue-700 bg-blue-50' :
-                                    'border-gray-300'
-                                  }`}>{(m.status || '').replace(/_/g, ' ')}</Badge>
-                                </td>
-                                <td className="px-3 py-2.5 text-xs">
-                                  {m.vendor_name || m.assigned_vendor_name || '-'}
-                                  {m.po_id && <Badge variant="secondary" className="ml-1 text-[9px] bg-blue-50 text-blue-600">PO</Badge>}
-                                  {m.auto_po_generated && !m.vendor_name && m.assigned_vendor_name && <Badge variant="secondary" className="ml-1 text-[9px] bg-green-50 text-green-600">Auto</Badge>}
-                                </td>
-                                <td className="px-3 py-2.5 text-xs">{m.site_engineer_name || '-'}</td>
-                                {!isPM && <td className="px-3 py-2.5 text-right font-medium">{m.total_amount ? formatCurrency(m.total_amount) : '-'}</td>}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-gray-400">
-                        <Package className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">No material requests for this project</p>
-                      </div>
-                    )}
+                    {/* Material Requests moved to Orders sub-tab */}
                   </TabsContent>
 
                   {/* VENDORS SUB-TAB */}
@@ -8943,38 +8894,46 @@ export default function ProjectDetail() {
                     )}
                   </TabsContent>
 
-                  {/* ORDERS STATUS SUB-TAB */}
+                  {/* ORDERS SUB-TAB — Material Requests order report */}
                   <TabsContent value="orders" className="mt-4">
-                    {purchaseOrders.length > 0 ? (
-                      <div className="border rounded-lg overflow-hidden">
-                        <table className="w-full text-sm">
+                    {(materialsData?.materials || []).length > 0 ? (
+                      <div className="overflow-x-auto border rounded-lg">
+                        <table className="w-full text-sm" data-testid="materials-table">
                           <thead className="bg-gray-50 border-b">
                             <tr>
-                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">PO ID</th>
-                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
-                              <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
+                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Qty</th>
+                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Stage</th>
                               <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
-                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Requested By</th>
+                              {!isPM && <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>}
                             </tr>
                           </thead>
                           <tbody className="divide-y">
-                            {purchaseOrders.map(po => (
-                              <tr key={po.po_id} className="hover:bg-gray-50">
-                                <td className="px-3 py-2.5 font-mono text-xs">
-                                  {po.po_id}
-                                  {po.auto_generated && <Badge variant="secondary" className="ml-1 text-[9px] bg-blue-50 text-blue-600">Auto</Badge>}
+                            {(materialsData?.materials || []).map(m => (
+                              <tr key={m.request_id} className="hover:bg-gray-50" data-testid={`mat-row-${m.request_id}`}>
+                                <td className="px-3 py-2.5">
+                                  <p className="font-medium">{m.material_name}</p>
+                                  {m.remarks && <p className="text-xs text-gray-400 truncate max-w-[200px]">{m.remarks}</p>}
                                 </td>
-                                <td className="px-3 py-2.5">{po.vendor_name || '-'}</td>
-                                <td className="px-3 py-2.5 text-right font-medium">{formatCurrency(po.total_amount || 0)}</td>
+                                <td className="px-3 py-2.5 text-center">{m.quantity} {m.unit || ''}</td>
+                                <td className="px-3 py-2.5 text-center text-xs">{m.stage || '-'}</td>
                                 <td className="px-3 py-2.5 text-center">
                                   <Badge variant="outline" className={`text-xs capitalize ${
-                                    po.status === 'delivered' ? 'border-green-300 text-green-700 bg-green-50' :
-                                    po.status === 'approved' ? 'border-blue-300 text-blue-700 bg-blue-50' :
-                                    po.status === 'cancelled' ? 'border-red-300 text-red-700 bg-red-50' :
-                                    'border-amber-300 text-amber-700 bg-amber-50'
-                                  }`}>{po.status}</Badge>
+                                    m.status === 'requested' ? 'border-amber-300 text-amber-700 bg-amber-50' :
+                                    ['delivered','received','received_partial'].includes(m.status) ? 'border-green-300 text-green-700 bg-green-50' :
+                                    ['accounts_approved','payment_approved'].includes(m.status) ? 'border-blue-300 text-blue-700 bg-blue-50' :
+                                    'border-gray-300'
+                                  }`}>{(m.status || '').replace(/_/g, ' ')}</Badge>
                                 </td>
-                                <td className="px-3 py-2.5 text-xs">{po.created_at?.split('T')[0]}</td>
+                                <td className="px-3 py-2.5 text-xs">
+                                  {m.vendor_name || m.assigned_vendor_name || '-'}
+                                  {m.po_id && <Badge variant="secondary" className="ml-1 text-[9px] bg-blue-50 text-blue-600">PO</Badge>}
+                                  {m.auto_po_generated && !m.vendor_name && m.assigned_vendor_name && <Badge variant="secondary" className="ml-1 text-[9px] bg-green-50 text-green-600">Auto</Badge>}
+                                </td>
+                                <td className="px-3 py-2.5 text-xs">{m.site_engineer_name || '-'}</td>
+                                {!isPM && <td className="px-3 py-2.5 text-right font-medium">{m.total_amount ? formatCurrency(m.total_amount) : '-'}</td>}
                               </tr>
                             ))}
                           </tbody>
@@ -8982,8 +8941,8 @@ export default function ProjectDetail() {
                       </div>
                     ) : (
                       <div className="text-center py-8 text-gray-400">
-                        <FileText className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">No purchase orders for this project</p>
+                        <Package className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                        <p className="text-sm">No material requests for this project</p>
                       </div>
                     )}
                   </TabsContent>
