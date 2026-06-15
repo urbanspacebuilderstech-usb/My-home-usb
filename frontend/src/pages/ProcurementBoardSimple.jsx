@@ -51,44 +51,23 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
 
-const NAV = [
-  { label: 'Dashboard', value: 'requests', icon: 'ClipboardList' },
-  { label: 'All Projects', value: 'projects', icon: 'Building2' },
-  { label: 'Material Vendors', value: 'vendors', icon: 'Truck' },
-];
-
+// Page-level NAV intentionally removed — the three former entries
+// (Dashboard / All Projects / Material Vendors) now live as sub-tabs inside
+// DashboardTab so the operator only needs to manage one navigation row.
 export default function ProcurementBoardSimple() {
   const [user, setUser] = useState(null);
-  const [activeNav, setActiveNav] = useState('requests');
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const t = params.get('tab');
-    // Legacy `?tab=dashboard` URLs land on requests now (they're the same page).
-    if (t === 'dashboard') {
-      setActiveNav('requests');
-    } else if (t && NAV.some(n => n.value === t)) {
-      setActiveNav(t);
-    }
     axios.get(`${API}/auth/me`).then(r => setUser(r.data)).catch(() => { window.location.href = '/login'; });
   }, []);
-
-  const setNav = (v) => {
-    setActiveNav(v);
-    const url = new URL(window.location);
-    url.searchParams.set('tab', v);
-    window.history.replaceState({}, '', url);
-  };
 
   if (!user) return <div className="min-h-screen bg-gray-50 flex items-center justify-center"><RefreshCw className="h-6 w-6 animate-spin text-amber-600" /></div>;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20" data-testid="procurement-board-simple">
-      <AppHeader user={user} customNav={NAV} activeCustomNav={activeNav} onCustomNavChange={setNav} />
+      <AppHeader user={user} />
       <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-5">
-        {activeNav === 'requests' && <DashboardTab />}
-        {activeNav === 'projects' && <AllProjectsTab />}
-        {activeNav === 'vendors' && <MaterialVendorsTab />}
+        <DashboardTab />
       </div>
       <MobileBottomNav user={user} />
     </div>
