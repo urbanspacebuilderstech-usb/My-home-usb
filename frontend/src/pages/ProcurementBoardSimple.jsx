@@ -2112,7 +2112,14 @@ function MaterialVendorsTab() {
             </DialogDescription>
           </DialogHeader>
           {(editing?._kind === 'material' || editing?._kind === 'material_new' || (view === 'materials' && !editing)) ? (
-            <div className="space-y-4 text-sm">
+            <Tabs defaultValue="details" className="w-full">
+              <TabsList className="grid w-full grid-cols-2" data-testid="material-dialog-tabs">
+                <TabsTrigger value="details" data-testid="material-tab-details">Details</TabsTrigger>
+                <TabsTrigger value="vendors" data-testid="material-tab-vendors" disabled={!editing?.material_id}>
+                  Vendors {editing?.material_id ? `(${vendors.filter(v => (v.materials_supplied || []).includes(editing.material_id)).length})` : ''}
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="details" className="space-y-4 text-sm mt-4">
               <div>
                 <Label>Name *</Label>
                 <Input value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Material name" className="mt-1" data-testid="vendor-form-name" />
@@ -2151,7 +2158,45 @@ function MaterialVendorsTab() {
               <label className="flex items-center gap-2 text-xs text-gray-700">
                 <input type="checkbox" checked={form.is_active !== false} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} /> Active
               </label>
-            </div>
+              </TabsContent>
+              <TabsContent value="vendors" className="mt-4">
+                {(() => {
+                  const linked = editing?.material_id ? vendors.filter(v => (v.materials_supplied || []).includes(editing.material_id)) : [];
+                  if (!editing?.material_id) return <p className="text-xs text-gray-400 text-center py-8">Save the material first to see linked vendors.</p>;
+                  if (linked.length === 0) return <p className="text-xs text-gray-400 text-center py-8">No vendors have tagged this material yet. Open a vendor and tick this material under "Materials they sell".</p>;
+                  return (
+                    <div className="overflow-x-auto border rounded-md" data-testid="material-vendors-list">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50 border-b">
+                          <tr>
+                            <th className="text-left px-3 py-2 font-semibold text-gray-600">Vendor</th>
+                            <th className="text-left px-3 py-2 font-semibold text-gray-600">Contact</th>
+                            <th className="text-left px-3 py-2 font-semibold text-gray-600">Phone</th>
+                            <th className="text-left px-3 py-2 font-semibold text-gray-600">GST</th>
+                            <th className="text-center px-3 py-2 font-semibold text-gray-600">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {linked.map(v => (
+                            <tr key={v.vendor_id} className="hover:bg-gray-50" data-testid={`material-vendor-${v.vendor_id}`}>
+                              <td className="px-3 py-2 font-medium">{v.name || v.vendor_name}</td>
+                              <td className="px-3 py-2 text-gray-700">{v.contact_person || '—'}</td>
+                              <td className="px-3 py-2 text-gray-700">{v.phone || '—'}</td>
+                              <td className="px-3 py-2 text-gray-700">{v.gst_number || '—'}</td>
+                              <td className="px-3 py-2 text-center">
+                                <Badge variant="outline" className={`text-[10px] ${v.is_active !== false ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500'}`}>
+                                  {v.is_active !== false ? 'Active' : 'Inactive'}
+                                </Badge>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </TabsContent>
+            </Tabs>
           ) : (
             <Tabs defaultValue="basic" className="w-full">
               <TabsList className="grid w-full grid-cols-3" data-testid="vendor-dialog-tabs">
