@@ -276,7 +276,14 @@ export default function ClientPortal() {
   // helper loops the pending rows and applies the chosen action to each.
   // Reject + Review prompt for a single reason that's applied to all rows.
   const handleSectionRowBatch = async (rows, decision) => {
-    const pending = rows.filter(c => c.client_approval_status === 'pending_client' || (c.payment_requested && !c.client_approved && !c.client_rejected));
+    const pending = rows.filter(c => {
+      const amt = c.estimated_amount || c.actual_amount || 0;
+      const rcv = c.income_received || 0;
+      const isPaid = amt > 0 && (amt - rcv) <= 0;
+      if (isPaid) return false;
+      return c.client_approval_status === 'pending_client'
+        || (c.payment_requested && !c.client_approved && !c.client_rejected);
+    });
     if (pending.length === 0) { toast.info('No rows awaiting your decision.'); return; }
     let reason = null;
     if (decision === 'reject' || decision === 'review') {
@@ -1128,9 +1135,22 @@ export default function ClientPortal() {
                               // Show Approve / Reject / Review section buttons whenever
                               // there's anything pending — either the section itself is
                               // pending OR any individual row is awaiting client decision.
+                              // Paid rows (received >= estimated) are NEVER pending.
                               const sectionPending = s.client_approval_status === 'pending_client';
-                              const pendingRows = items.filter(c => c.client_approval_status === 'pending_client' || (c.payment_requested && !c.client_approved && !c.client_rejected));
+                              const pendingRows = items.filter(c => {
+                                const amt = c.estimated_amount || c.actual_amount || 0;
+                                const rcv = c.income_received || 0;
+                                const isPaid = amt > 0 && (amt - rcv) <= 0;
+                                if (isPaid) return false;
+                                return c.client_approval_status === 'pending_client'
+                                  || (c.payment_requested && !c.client_approved && !c.client_rejected);
+                              });
                               const anyPending = sectionPending || pendingRows.length > 0;
+                              // Auto-hide buttons if section balance is zero (all paid)
+                              const sectionBalance = subtotal - recvSubtotal;
+                              if (sectionBalance <= 0 && subtotal > 0) {
+                                return <span className="text-[11px] px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Section Paid</span>;
+                              }
                               if (!anyPending) {
                                 return s.client_approval_status === 'client_approved' ? (
                                   <span className="text-[11px] px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Section Approved</span>
