@@ -494,20 +494,55 @@ async def get_team_project_map(user: User = Depends(get_current_user)):
 
 
 @router.post("/projects")
-async def create_project(project: Project, user: User = Depends(get_current_user)):
+async def create_project(
+    project: Project,
+    force: bool = False,
+    user: User = Depends(get_current_user),
+):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    
+
     project_dict = project.model_dump()
+
+    # Duplicate-client guard: refuse silently letting two `db.projects` rows
+    # share the same `client_user_id` unless the caller explicitly passes
+    # `force=true`. Prevents Sales-side Re-Enquiry / quick-create flows from
+    # leaking a duplicate "RE - Customer Name" row into the same client's
+    # portal (e.g. Mr Gopinath, Perumbakkam — June 2026 incident).
+    cuid = project_dict.get("client_user_id")
+    if cuid and not force:
+        existing = await db.projects.find_one(
+            {
+                "client_user_id": cuid,
+                "status": {"$nin": ["cancelled", "archived"]},
+                "project_id": {"$ne": project_dict.get("project_id")},
+            },
+            {"_id": 0, "project_id": 1, "name": 1, "status": 1, "total_value": 1},
+        )
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Customer already has an active project '{existing.get('name')}' "
+                    f"(₹{existing.get('total_value') or 0:,.0f}, status: {existing.get('status')}). "
+                    "Pass `?force=true` to create another deliberately."
+                ),
+            )
+
+    # Auto-hide early sales / unpaid records from the client portal until
+    # they're promoted to a real construction project.
+    HIDDEN_STATES = {"pending_payment", "lead", "draft"}
+    if project_dict.get("status") in HIDDEN_STATES:
+        project_dict.setdefault("client_visible", False)
+
     project_dict["project_number"] = await next_seq("project_global")
     project_dict["start_date"] = project_dict["start_date"].isoformat()
     project_dict["expected_completion"] = project_dict["expected_completion"].isoformat()
     project_dict["created_at"] = project_dict["created_at"].isoformat()
-    
+
     await db.projects.insert_one(project_dict)
-    
+
     await create_audit_log(user.user_id, "create", "project", project.project_id, {"project_name": project.name})
-    # Echo the assigned project_number back to the client so the UI can immediately show it.
     project_response = project.model_dump()
     project_response["project_number"] = project_dict["project_number"]
     return project_response
@@ -1544,29 +1579,40 @@ async def client_reject_fe(project_id: str, body: dict, user: User = Depends(get
 
 @router.get("/client-portal/my-projects")
 async def get_client_projects(user: User = Depends(get_current_user)):
-    """Get all projects linked to the current client user"""
+    """Get all projects linked to the current client user.
+
+    Hides projects that are still in early sales / pre-payment states
+    (`pending_payment`, `lead`, `draft`, `cancelled`, `archived`) so a
+    Sales-side Re-Enquiry record can't bleed into the client's portal until
+    the deal is promoted into a real construction project. Also respects an
+    explicit `client_visible: False` flag if any operator force-hides a row.
+    """
     if user.role != UserRole.CLIENT:
         raise HTTPException(status_code=403, detail="Client access only")
-    
+
+    HIDDEN_STATES = {"pending_payment", "lead", "draft", "cancelled", "archived"}
     projects = await db.projects.find(
-        {"client_user_id": user.user_id}, 
+        {
+            "client_user_id": user.user_id,
+            "client_visible": {"$ne": False},
+            "status": {"$nin": list(HIDDEN_STATES)},
+        },
         {"_id": 0}
     ).to_list(100)
-    
-    # Enrich with summary data
+
     result = []
     for p in projects:
         payment_stages = await db.payment_stages.find({"project_id": p["project_id"]}, {"_id": 0}).to_list(100)
         total_scheduled = sum(s.get("amount", 0) for s in payment_stages)
         total_received = sum(s.get("amount_received", 0) or 0 for s in payment_stages)
-        
+
         result.append({
             **p,
             "payment_scheduled": total_scheduled,
             "payment_received": total_received,
             "payment_balance": total_scheduled - total_received
         })
-    
+
     return result
 
 
