@@ -21,7 +21,7 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
  * Uses the same /work-orders/{id}/rab-chain endpoint so numbering matches the
  * SE Payment Summary popup, and skip-rejected sequencing is consistent.
  */
-export default function WORABTab({ projectId, workOrder, onOpenRabView }) {
+export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdFilter }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
@@ -99,7 +99,7 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView }) {
   if (err) return <div className="text-sm text-red-600 py-4">{err}</div>;
   if (!data) return null;
 
-  const rabs = data.rabs || [];
+  const rabs = (data.rabs || []).filter(r => !stageIdFilter || stageIdFilter(r.stage_id));
   const RELEASED = rabs.filter(r => r.status === 'approved');
   const REJECTED = new Set(['rejected', 'accountant_rejected', 'se_rework_rejected']);
   const REQUESTED = rabs.filter(r => !REJECTED.has(r.status) && r.status !== 'approved');

@@ -298,66 +298,51 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
           <TabsTrigger value="dlr" data-testid="wov2-tab-dlr">DLR Report</TabsTrigger>
         </TabsList>
 
-        {/* ADDITIONAL TAB — show ONLY unlocked sections from Planning */}
+        {/* ADDITIONAL TAB — mirrors the Payment Schedule UI exactly, scoped to
+            is_addition stages. 3 sub-tabs (Claimable / Non-Claimable / Rework)
+            each render the same 4 status pills + stage list + RAB Request popup
+            as the regular Payment Schedule. Locked sections become locked stages
+            automatically — Planning unlocks them from the Project board. */}
         <TabsContent value="additional" className="mt-3">
-          {(() => {
-            const sections = (wo.additional_sections || []).filter(s => !s.is_locked);
-            if (sections.length === 0) {
-              return <Card><CardContent className="p-6 text-center text-xs text-gray-400">No unlocked Additional sections yet. Planning will unlock sections here when work is approved to proceed.</CardContent></Card>;
-            }
-            const renderBucket = (ct, label) => {
-              const inBucket = sections.filter(s => s.claim_type === ct);
-              if (inBucket.length === 0) return <p className="text-center text-xs text-gray-400 py-4">No unlocked {label} sections</p>;
-              return inBucket.map(sec => {
-                const secItems = (wo.additional_work || []).filter(it => it.section_id === sec.section_id);
-                const total = secItems.reduce((s, r) => s + (Number(r.total) || 0), 0);
-                return (
-                  <Card key={sec.section_id} className="mb-2" data-testid={`se-additional-section-${sec.section_id}`}>
-                    <CardHeader className="p-3 pb-1 flex flex-row items-center justify-between">
-                      <CardTitle className="text-sm">{sec.name}</CardTitle>
-                      <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">Unlocked</Badge>
-                    </CardHeader>
-                    <CardContent className="p-3 pt-1">
-                      {secItems.length === 0 ? <p className="text-[11px] text-gray-400">No items yet</p> : (
-                        <div className="space-y-1">
-                          {secItems.map((it, idx) => (
-                            <div key={idx} className="flex justify-between text-xs border-b last:border-0 py-1">
-                              <span>{it.description} <span className="text-gray-400">· {it.quantity} {it.unit}</span></span>
-                              <span className="font-medium">₹{Number(it.total || 0).toLocaleString('en-IN')}</span>
-                            </div>
-                          ))}
-                          <div className="flex justify-between text-xs pt-2 border-t font-bold">
-                            <span>Section Total</span><span>₹{total.toLocaleString('en-IN')}</span>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              });
-            };
-            return (
-              <Tabs defaultValue="claimable" className="w-full">
-                <TabsList className="grid grid-cols-3 w-full">
-                  <TabsTrigger value="claimable" data-testid="se-add-tab-claimable">Claimable From Client</TabsTrigger>
-                  <TabsTrigger value="non_claimable" data-testid="se-add-tab-nonclaimable">Non-Claimable From Client</TabsTrigger>
-                  <TabsTrigger value="rework" data-testid="se-add-tab-rework">Rework</TabsTrigger>
-                </TabsList>
-                <TabsContent value="claimable" className="mt-3">{renderBucket('claimable', 'Claimable')}</TabsContent>
-                <TabsContent value="non_claimable" className="mt-3">{renderBucket('non_claimable', 'Non-Claimable')}</TabsContent>
-                <TabsContent value="rework" className="mt-3">{renderBucket('rework', 'Rework')}</TabsContent>
-              </Tabs>
-            );
-          })()}
+          <Tabs defaultValue="claimable" className="w-full">
+            <TabsList className="grid grid-cols-3 w-full">
+              <TabsTrigger value="claimable" data-testid="se-add-tab-claimable">Claimable From Client</TabsTrigger>
+              <TabsTrigger value="non_claimable" data-testid="se-add-tab-nonclaimable">Non-Claimable From Client</TabsTrigger>
+              <TabsTrigger value="rework" data-testid="se-add-tab-rework">Rework</TabsTrigger>
+            </TabsList>
+            {[
+              { key: 'claimable', label: 'Claimable' },
+              { key: 'non_claimable', label: 'Non-Claimable' },
+              { key: 'rework', label: 'Rework' },
+            ].map(({ key, label }) => (
+              <TabsContent key={key} value={key} className="mt-3">
+                <PaymentScheduleTab
+                  wo={wo}
+                  suspenseBalance={suspenseBalance}
+                  onClickStage={(stage) => setStageDialog(stage)}
+                  stageFilter={(s) => s.is_addition === true && (s.claim_type || 'claimable') === key}
+                  title={`${label} Stages`}
+                  description="Approval flow: You → PM → QC → Planning → Accountant"
+                  emptyText={`No ${label} additional stages yet. Planning will unlock items here when work is approved to proceed.`}
+                />
+              </TabsContent>
+            ))}
+          </Tabs>
         </TabsContent>
 
-        {/* ADDITIONAL RAB TAB — placeholder filtering Total RAB's to addition stages */}
+        {/* ADDITIONAL RAB TAB — same RAB ladder as Total RAB's, but scoped
+            to the is_addition stages so SE has a dedicated bucket for the
+            extras they raised against Additional Work. */}
         <TabsContent value="additional_rab" className="mt-3">
-          <Card><CardContent className="p-6 text-center text-xs text-gray-500">
-            <p className="font-medium text-gray-700 mb-1">Additional RAB</p>
-            <p>RABs raised against Additional sections will appear here. Use the regular Total RAB's flow against unlocked Additional stages and the entries will surface here once you raise them.</p>
-            <p className="mt-2 text-[10px] text-gray-400">(UI coming in next iteration — same RAB flow, separate bucket.)</p>
-          </CardContent></Card>
+          <WORABTab
+            projectId={projectId}
+            workOrder={wo}
+            onOpenRabView={(requestId) => setRabView({ open: true, requestId })}
+            stageIdFilter={(sid) => {
+              const s = (wo.stages || []).find(x => x.stage_id === sid);
+              return !!(s && s.is_addition);
+            }}
+          />
         </TabsContent>
 
         {/* SCOPE TAB */}
@@ -432,6 +417,13 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
             projectId={projectId}
             workOrder={wo}
             onOpenRabView={(requestId) => setRabView({ open: true, requestId })}
+            stageIdFilter={(sid) => {
+              const s = (wo.stages || []).find(x => x.stage_id === sid);
+              // Stages without a wo.stages entry (legacy/unknown) default to
+              // the Total RAB's bucket — only confirmed Additional stages are
+              // routed exclusively to the Additional RAB tab.
+              return !(s && s.is_addition);
+            }}
           />
         </TabsContent>
       </Tabs>
@@ -548,8 +540,14 @@ function bucketsForStage(stage) {
   return set;
 }
 
-function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
-  const stages = wo.stages || [];
+function PaymentScheduleTab({ wo, suspenseBalance, onClickStage, stageFilter, title, description, emptyText }) {
+  // Pre-filter stages (used by the Additional tab to scope to claim_type buckets).
+  // For the main Payment Schedule tab, also exclude is_addition stages so they
+  // only ever appear under the Additional tab.
+  const allStages = wo.stages || [];
+  const stages = stageFilter
+    ? allStages.filter(stageFilter)
+    : allStages.filter(s => !s.is_addition);
   const [filterKey, setFilterKey] = useState('all'); // 'all' shows all stages
   // Workflow mode toggle (set via Super Architect's Workflow Master Setup).
   //   planning_open → only 3 simple buckets (Open / Locked / All)
@@ -609,8 +607,8 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
     <Card>
       <CardHeader className="p-3 pb-2 flex flex-row items-center justify-between">
         <div>
-          <CardTitle className="text-sm flex items-center gap-2"><Banknote className="h-4 w-4 text-violet-600" /> Stages</CardTitle>
-          <CardDescription className="text-[11px] mt-0.5">Approval flow: You → PM → QC → Planning → Accountant</CardDescription>
+          <CardTitle className="text-sm flex items-center gap-2"><Banknote className="h-4 w-4 text-violet-600" /> {title || 'Stages'}</CardTitle>
+          <CardDescription className="text-[11px] mt-0.5">{description || 'Approval flow: You → PM → QC → Planning → Accountant'}</CardDescription>
         </div>
         <Badge variant="outline" className="text-[10px]">{paidStages}/{stages.length} paid</Badge>
       </CardHeader>
@@ -650,7 +648,7 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
 
       <CardContent className="p-0">
         {stages.length === 0 ? (
-          <p className="text-center text-xs text-gray-400 py-8">No stages defined</p>
+          <p className="text-center text-xs text-gray-400 py-8">{emptyText || 'No stages defined'}</p>
         ) : visibleStages.length === 0 ? (
           <p className="text-center text-xs text-gray-400 py-8">No stages match this filter</p>
         ) : (
