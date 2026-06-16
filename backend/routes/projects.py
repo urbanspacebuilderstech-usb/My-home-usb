@@ -8902,9 +8902,48 @@ async def toggle_additional_item_lock(
         raise HTTPException(status_code=404, detail="Additional item not found")
     new_state = bool(data.get("is_locked", True))
     items[item_index]["is_locked"] = new_state
+    item = items[item_index]
+
+    # Make the additional item visible (or hidden) on the Site Engineer board
+    # by ensuring a matching stage exists in `wo.stages` whose `is_open` flag
+    # mirrors the lock state. The stage is identified by `linked_additional_index`
+    # so re-toggles don't create duplicate stages.
+    stages = wo.get("stages") or []
+    linked_idx = None
+    for si, st in enumerate(stages):
+        if st.get("linked_additional_index") == item_index:
+            linked_idx = si
+            break
+    if not new_state:  # UNLOCKING → make stage open & visible to SE
+        amount = float(item.get("total") or (float(item.get("quantity") or 0) * float(item.get("unit_rate") or 0)))
+        if linked_idx is None:
+            # Create a new stage tied to this additional item.
+            from uuid import uuid4
+            stages.append({
+                "stage_id": f"stg_{uuid4().hex[:12]}",
+                "stage_label": f"A{item_index + 1}",
+                "stage_name": item.get("description") or "Additional Work",
+                "amount": amount,
+                "scheduled_amount": amount,
+                "is_open": True,
+                "is_addition": True,
+                "claim_type": item.get("claim_type") or "claimable",
+                "linked_additional_index": item_index,
+                "payment_requests": [],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+        else:
+            stages[linked_idx]["is_open"] = True
+            # Keep amount in sync in case Planning updated rate/qty afterward
+            stages[linked_idx]["amount"] = amount
+            stages[linked_idx]["scheduled_amount"] = amount
+    else:  # LOCKING → keep stage but mark it closed so SE can't raise RAB
+        if linked_idx is not None:
+            stages[linked_idx]["is_open"] = False
+
     await db.project_work_orders.update_one(
         {"work_order_id": work_order_id, "project_id": project_id},
-        {"$set": {"additional_work": items, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        {"$set": {"additional_work": items, "stages": stages, "updated_at": datetime.now(timezone.utc).isoformat()}},
     )
     return {"message": f"Additional item {'locked' if new_state else 'unlocked'}", "is_locked": new_state}
 
