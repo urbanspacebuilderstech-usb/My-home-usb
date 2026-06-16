@@ -9574,11 +9574,28 @@ export default function ProjectDetail() {
                               })() : <p className="text-gray-400 text-center py-4 text-sm">No stages</p>}
                             </TabsContent>
                             <TabsContent value="additional" className="p-3">
-                              {wo.additional_work?.length > 0 ? (
-                                <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
-                                <tbody className="divide-y">{(wo.additional_work || []).map((a, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{a.description}</td><td className="px-3 py-2">{a.unit}</td><td className="px-3 py-2 text-right">{a.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(a.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(a.total)}</td></tr>))}</tbody>
-                                <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Additional Total:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(wo.additional_total)}</td></tr></tfoot></table>
-                              ) : <p className="text-gray-400 text-center py-4 text-sm">No additional work</p>}
+                              {(() => {
+                                const all = wo.additional_work || [];
+                                const claimable = all.filter(a => (a.claim_type || 'claimable') === 'claimable');
+                                const nonClaimable = all.filter(a => a.claim_type === 'non_claimable');
+                                const renderTable = (rows) => rows.length === 0 ? (
+                                  <p className="text-gray-400 text-center py-4 text-sm">No additional work in this bucket</p>
+                                ) : (
+                                  <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
+                                    <tbody className="divide-y">{rows.map((a, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{a.description}</td><td className="px-3 py-2">{a.unit}</td><td className="px-3 py-2 text-right">{a.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(a.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(a.total)}</td></tr>))}</tbody>
+                                    <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Subtotal:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(rows.reduce((s, r) => s + (r.total || 0), 0))}</td></tr></tfoot></table>
+                                );
+                                return (
+                                  <Tabs defaultValue="claimable" className="w-full" data-testid="wo-additional-subtabs">
+                                    <TabsList className="grid grid-cols-2 w-full">
+                                      <TabsTrigger value="claimable" data-testid="wo-add-tab-claimable">Claimable From Client ({claimable.length})</TabsTrigger>
+                                      <TabsTrigger value="non_claimable" data-testid="wo-add-tab-nonclaimable">Non-Claimable From Client ({nonClaimable.length})</TabsTrigger>
+                                    </TabsList>
+                                    <TabsContent value="claimable" className="mt-3">{renderTable(claimable)}</TabsContent>
+                                    <TabsContent value="non_claimable" className="mt-3">{renderTable(nonClaimable)}</TabsContent>
+                                  </Tabs>
+                                );
+                              })()}
                             </TabsContent>
                             <TabsContent value="dlr" className="p-3">
                               <DLRPanel
@@ -9973,10 +9990,13 @@ export default function ProjectDetail() {
 
                           {/* ADDITIONAL WORK */}
                           <TabsContent value="additional" className="mt-3">
-                            <div className="flex justify-end mb-2"><Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, additional_work: [...f.additional_work, { description: '', unit: 'nos', quantity: 1, unit_rate: 0 }] }))} data-testid="wo-add-additional"><Plus className="h-3 w-3 mr-1" />Add Item</Button></div>
+                            <div className="flex justify-between items-center mb-2">
+                              <p className="text-[10px] text-gray-500">Toggle <strong>Claimable</strong> per row to control whether it appears in the Client Portal as an Addition.</p>
+                              <Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, additional_work: [...f.additional_work, { description: '', unit: 'nos', quantity: 1, unit_rate: 0, claim_type: 'claimable', is_locked: true }] }))} data-testid="wo-add-additional"><Plus className="h-3 w-3 mr-1" />Add Item</Button>
+                            </div>
                             {woForm.additional_work.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No additional work</p> : (
                               <div className="space-y-2">
-                                <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1"><div className="col-span-3">Description</div><div className="col-span-2">Unit</div><div className="col-span-2">Qty</div><div className="col-span-2">Rate</div><div className="col-span-2">Total</div><div className="col-span-1"></div></div>
+                                <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1"><div className="col-span-3">Description</div><div className="col-span-2">Unit</div><div className="col-span-1">Qty</div><div className="col-span-2">Rate</div><div className="col-span-2">Claim Type</div><div className="col-span-1">Total</div><div className="col-span-1"></div></div>
                                 {woForm.additional_work.map((item, idx) => {
                                   const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_rate) || 0);
                                   return (
@@ -9985,9 +10005,18 @@ export default function ProjectDetail() {
                                     <div className="col-span-2">
                                       <UnitCombobox value={item.unit} onChange={(v) => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], unit: v }; setWoForm(f => ({ ...f, additional_work: a })); }} units={WO_UNITS} testId={`wo-add-unit-${idx}`} />
                                     </div>
-                                    <div className="col-span-2"><Input type="number" value={item.quantity} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], quantity: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" /></div>
+                                    <div className="col-span-1"><Input type="number" value={item.quantity} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], quantity: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" /></div>
                                     <div className="col-span-2"><Input type="number" value={item.unit_rate} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], unit_rate: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" /></div>
-                                    <div className="col-span-2"><span className="text-xs font-medium pl-1">{formatCurrency(total)}</span></div>
+                                    <div className="col-span-2">
+                                      <Select value={item.claim_type || 'claimable'} onValueChange={(v) => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], claim_type: v }; setWoForm(f => ({ ...f, additional_work: a })); }}>
+                                        <SelectTrigger className="h-8 text-[11px]" data-testid={`wo-add-claim-${idx}`}><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="claimable" className="text-xs">Claimable</SelectItem>
+                                          <SelectItem value="non_claimable" className="text-xs">Non-Claimable</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="col-span-1"><span className="text-xs font-medium pl-1">{formatCurrency(total)}</span></div>
                                     <div className="col-span-1 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setWoForm(f => ({ ...f, additional_work: f.additional_work.filter((_, i) => i !== idx) }))}><X className="h-3 w-3" /></Button></div>
                                   </div>);
                                 })}

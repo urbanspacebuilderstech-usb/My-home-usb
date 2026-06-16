@@ -8720,15 +8720,20 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
                     detail=f"Amount ₹{request_amount:,.0f} exceeds remaining stage balance ₹{balance:,.0f} (Total ₹{stage_total:,.0f})."
                 )
             
-            # RAB (Running Account Bill) number: increments per PROJECT so the
-            # sequence stays continuous across every contractor / work order on
-            # the same site (e.g. Contractor A's 1st RAB = RAB-01, Contractor
-            # B's 1st RAB raised after = RAB-02, A's 2nd RAB = RAB-03, …).
-            # The counter is based on DISTINCT rab_numbers consumed so far so
-            # that multi-stage RABs (multiple payment_requests sharing one
-            # `rab_number`) only consume one slot in the sequence.
+            # RAB (Running Account Bill) number: increments per (PROJECT, VENDOR)
+            # so each contractor on the same site has their own continuous
+            # sequence (e.g. Contractor A: RAB-01, RAB-02 … Contractor B: RAB-01, RAB-02).
+            # The counter spans Stages + Claimable + Non-Claimable additional work
+            # — all RABs raised against this contractor in this project share one counter.
+            # NOTE: Existing project-wide RABs (from before this change) are
+            # preserved; the new per-vendor counter simply picks up from
+            # max(existing per-vendor #) + 1.
+            current_contractor_id = wo.get("contractor_id")
+            vendor_query = {"project_id": project_id}
+            if current_contractor_id:
+                vendor_query["contractor_id"] = current_contractor_id
             all_wos_for_count = await db.project_work_orders.find(
-                {"project_id": project_id},
+                vendor_query,
                 {"_id": 0, "stages": 1},
             ).to_list(1000)
             existing_rabs = set()
@@ -8867,9 +8872,13 @@ async def create_multi_stage_rab(
     if not cleaned:
         raise HTTPException(status_code=400, detail="No valid allocation rows after validation")
 
-    # Generate ONE rab_number for the entire group (project-wide distinct counter)
+    # Generate ONE rab_number for the entire group (per-vendor distinct counter)
+    current_contractor_id = wo.get("contractor_id")
+    vendor_query = {"project_id": project_id}
+    if current_contractor_id:
+        vendor_query["contractor_id"] = current_contractor_id
     all_wos_for_count = await db.project_work_orders.find(
-        {"project_id": project_id},
+        vendor_query,
         {"_id": 0, "stages": 1},
     ).to_list(1000)
     existing_rabs = set()
