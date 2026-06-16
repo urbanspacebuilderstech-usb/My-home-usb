@@ -1154,7 +1154,8 @@ export default function ProjectDetail() {
   const [ordersStatusFilter, setOrdersStatusFilter] = useState(null);
   const [stockDateFrom, setStockDateFrom] = useState('');
   const [stockDateTo, setStockDateTo] = useState('');
-  const [addAdditionalForm, setAddAdditionalForm] = useState(null); // { woId, claim_type, description, unit, quantity, unit_rate }
+  const [addAdditionalForm, setAddAdditionalForm] = useState(null);
+  const [creatingSection, setCreatingSection] = useState(null);
   
   // Package Materials (editable list within project)
   const [projectMaterials, setProjectMaterials] = useState([]);
@@ -10916,7 +10917,7 @@ export default function ProjectDetail() {
                                       if (!f?.description?.trim()) { toast.error('Description is required'); return; }
                                       try {
                                         await axios.post(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/additional`, {
-                                          description: f.description, unit: f.unit, quantity: parseFloat(f.quantity) || 0, unit_rate: parseFloat(f.unit_rate) || 0, claim_type: f.claim_type,
+                                          description: f.description, unit: f.unit, quantity: parseFloat(f.quantity) || 0, unit_rate: parseFloat(f.unit_rate) || 0, claim_type: f.claim_type, section_id: f.section_id || null,
                                         });
                                         toast.success('Additional item added');
                                         setAddAdditionalForm(null);
@@ -10936,49 +10937,141 @@ export default function ProjectDetail() {
                                         </div>
                                       </div>
                                     );
-                                    const renderTable = (rows, ct) => (
-                                      <div className="space-y-3">
-                                        {canEdit && (
-                                          <div className="flex justify-end">
-                                            {isAddingFor(ct) ? null : (
-                                              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setAddAdditionalForm({ woId: wo.work_order_id, claim_type: ct, description: '', unit: 'nos', quantity: 1, unit_rate: 0 })} data-testid={`wo-additional-add-${ct}`}>
-                                                <Plus className="h-3 w-3 mr-1" /> Add Item
-                                              </Button>
-                                            )}
-                                          </div>
-                                        )}
-                                        {isAddingFor(ct) && renderForm(ct)}
-                                        {rows.length === 0 && !isAddingFor(ct) ? (
-                                          <p className="text-gray-400 text-center py-4 text-sm">No additional work in this bucket</p>
-                                        ) : rows.length > 0 ? (
-                                          <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th><th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Lock</th></tr></thead>
-                                            <tbody className="divide-y">{rows.map((a) => {
-                                              const locked = a.is_locked !== false;
-                                              return (
-                                              <tr key={a._idx} data-testid={`wo-additional-row-${a._idx}`}>
-                                                <td className="px-3 py-2 text-xs text-gray-400">{a._idx+1}</td>
-                                                <td className="px-3 py-2 font-medium">{a.description}</td>
-                                                <td className="px-3 py-2">{a.unit}</td>
-                                                <td className="px-3 py-2 text-right">{a.quantity}</td>
-                                                <td className="px-3 py-2 text-right">{formatCurrency(a.unit_rate)}</td>
-                                                <td className="px-3 py-2 text-right font-medium">{formatCurrency(a.total)}</td>
-                                                <td className="px-3 py-2 text-center">
-                                                  {canTogglePlanning ? (
-                                                    <Button size="sm" variant="ghost" onClick={() => toggleLock(a._idx, locked)} className={`h-7 px-2 text-[10px] ${locked ? 'text-gray-600 hover:bg-gray-100' : 'text-emerald-700 hover:bg-emerald-100'}`} data-testid={`wo-additional-lock-${a._idx}`}>
-                                                      {locked ? <><Lock className="h-3 w-3 mr-1" /> Locked</> : <><Unlock className="h-3 w-3 mr-1" /> Unlocked</>}
+                                    const renderTable = (rows, ct) => {
+                                      const tabSections = (wo.additional_sections || []).filter(s => s.claim_type === ct);
+                                      const ungrouped = rows.filter(r => !r.section_id);
+                                      const subtotal = rows.reduce((s, r) => s + (r.total || 0), 0);
+                                      const lockedSum = rows.filter(r => r.is_locked !== false).reduce((s, r) => s + (r.total || 0), 0);
+                                      const unlockedSum = subtotal - lockedSum;
+                                      const isCreatingSec = creatingSection && creatingSection.woId === wo.work_order_id && creatingSection.claim_type === ct;
+                                      const createSection = async () => {
+                                        const nm = (creatingSection?.name || '').trim();
+                                        if (!nm) { toast.error('Section name is required'); return; }
+                                        try {
+                                          await axios.post(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/additional/sections`, { name: nm, claim_type: ct });
+                                          toast.success(`Section "${nm}" created`);
+                                          setCreatingSection(null);
+                                          fetchWorkOrders();
+                                        } catch (e) { toast.error(e?.response?.data?.detail || 'Failed to create'); }
+                                      };
+                                      const toggleSectionLock = async (sec) => {
+                                        try {
+                                          await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/additional/sections/${sec.section_id}/lock`, { is_locked: !sec.is_locked });
+                                          fetchWorkOrders();
+                                        } catch (e) { toast.error(e?.response?.data?.detail || 'Toggle failed'); }
+                                      };
+                                      const deleteSection = async (sec) => {
+                                        if (!window.confirm(`Delete section "${sec.name}"? Items will move to Ungrouped.`)) return;
+                                        try {
+                                          await axios.delete(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/additional/sections/${sec.section_id}`);
+                                          fetchWorkOrders();
+                                        } catch (e) { toast.error(e?.response?.data?.detail || 'Delete failed'); }
+                                      };
+                                      const addItemTo = (sectionId) => setAddAdditionalForm({ woId: wo.work_order_id, claim_type: ct, section_id: sectionId, description: '', unit: 'nos', quantity: 1, unit_rate: 0 });
+                                      const isAddingHere = (sectionId) => addAdditionalForm && addAdditionalForm.woId === wo.work_order_id && addAdditionalForm.claim_type === ct && (addAdditionalForm.section_id || null) === (sectionId || null);
+                                      const itemTable = (items) => items.length > 0 && (
+                                        <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
+                                          <tbody className="divide-y">{items.map((a) => (
+                                            <tr key={a._idx} data-testid={`wo-additional-row-${a._idx}`}>
+                                              <td className="px-3 py-2 text-xs text-gray-400">{a._idx+1}</td>
+                                              <td className="px-3 py-2 font-medium">{a.description}</td>
+                                              <td className="px-3 py-2">{a.unit}</td>
+                                              <td className="px-3 py-2 text-right">{a.quantity}</td>
+                                              <td className="px-3 py-2 text-right">{formatCurrency(a.unit_rate)}</td>
+                                              <td className="px-3 py-2 text-right font-medium">{formatCurrency(a.total)}</td>
+                                            </tr>
+                                          ))}</tbody>
+                                        </table>
+                                      );
+                                      return (
+                                        <div className="space-y-3">
+                                          {canEdit && (
+                                            <div className="flex justify-end gap-2">
+                                              {!isCreatingSec && (
+                                                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setCreatingSection({ woId: wo.work_order_id, claim_type: ct, name: '' })} data-testid={`wo-additional-create-section-${ct}`}>
+                                                  <Plus className="h-3 w-3 mr-1" /> Create Section
+                                                </Button>
+                                              )}
+                                            </div>
+                                          )}
+                                          {isCreatingSec && (
+                                            <div className="border rounded-lg p-3 bg-blue-50/40 flex gap-2 items-end">
+                                              <div className="flex-1"><Label className="text-[10px] text-gray-500">Section Name</Label><Input value={creatingSection.name} onChange={e => setCreatingSection(s => ({ ...s, name: e.target.value }))} placeholder="e.g. Plumbing extras" className="h-8 text-xs" autoFocus /></div>
+                                              <Button size="sm" className="h-8 text-xs bg-blue-600 hover:bg-blue-700" onClick={createSection}>Create</Button>
+                                              <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setCreatingSection(null)}>Cancel</Button>
+                                            </div>
+                                          )}
+                                          {tabSections.map(sec => {
+                                            const secItems = rows.filter(r => r.section_id === sec.section_id);
+                                            const secSubtotal = secItems.reduce((s, r) => s + (r.total || 0), 0);
+                                            return (
+                                              <div key={sec.section_id} className="border rounded-lg overflow-hidden" data-testid={`wo-additional-section-${sec.section_id}`}>
+                                                <div className="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-violet-50 to-blue-50 border-b">
+                                                  <div className="flex items-center gap-2">
+                                                    {canTogglePlanning ? (
+                                                      <Button size="sm" variant="ghost" onClick={() => toggleSectionLock(sec)} className={`h-7 px-2 text-[10px] ${sec.is_locked ? 'text-gray-600' : 'text-emerald-700'}`} data-testid={`wo-additional-section-lock-${sec.section_id}`}>
+                                                        {sec.is_locked ? <><Lock className="h-3 w-3 mr-1" /> Locked</> : <><Unlock className="h-3 w-3 mr-1" /> Unlocked</>}
+                                                      </Button>
+                                                    ) : (
+                                                      <Badge variant="outline" className={`text-[10px] ${sec.is_locked ? 'bg-gray-50 text-gray-600' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                                        {sec.is_locked ? 'Locked' : 'Unlocked'}
+                                                      </Badge>
+                                                    )}
+                                                    <span className="font-semibold text-sm text-gray-800">{sec.name}</span>
+                                                    <Badge variant="outline" className="text-[10px]">{secItems.length} item{secItems.length===1?'':'s'}</Badge>
+                                                  </div>
+                                                  {canTogglePlanning && (
+                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400 hover:text-red-600 hover:bg-red-50" onClick={() => deleteSection(sec)} data-testid={`wo-additional-section-delete-${sec.section_id}`}>
+                                                      <Trash2 className="h-3 w-3" />
                                                     </Button>
-                                                  ) : (
-                                                    <Badge variant="outline" className={`text-[10px] ${locked ? 'bg-gray-50 text-gray-600' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-                                                      {locked ? <><Lock className="h-3 w-3 mr-1 inline" /> Locked</> : <><Unlock className="h-3 w-3 mr-1 inline" /> Unlocked</>}
-                                                    </Badge>
                                                   )}
-                                                </td>
-                                              </tr>
-                                            );})}</tbody>
-                                            <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Subtotal:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(rows.reduce((s, r) => s + (r.total || 0), 0))}</td><td></td></tr></tfoot></table>
-                                        ) : null}
-                                      </div>
-                                    );
+                                                </div>
+                                                <div className="p-2">
+                                                  {itemTable(secItems)}
+                                                  {isAddingHere(sec.section_id) && renderForm(ct)}
+                                                  {canEdit && !isAddingHere(sec.section_id) && (
+                                                    <div className="flex justify-end mt-2">
+                                                      <Button size="sm" variant="ghost" className="h-7 text-xs text-violet-700" onClick={() => addItemTo(sec.section_id)} data-testid={`wo-additional-add-section-${sec.section_id}`}>
+                                                        <Plus className="h-3 w-3 mr-1" /> Add Item
+                                                      </Button>
+                                                    </div>
+                                                  )}
+                                                  <div className="text-right text-xs text-gray-600 mt-2 px-3">Section Subtotal: <span className="font-bold text-gray-900">{formatCurrency(secSubtotal)}</span></div>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                          {ungrouped.length > 0 && (
+                                            <div className="border border-dashed rounded-lg overflow-hidden">
+                                              <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b">
+                                                <span className="font-semibold text-sm text-gray-600">Ungrouped <Badge variant="outline" className="ml-2 text-[10px]">{ungrouped.length}</Badge></span>
+                                              </div>
+                                              <div className="p-2">
+                                                {itemTable(ungrouped)}
+                                                {isAddingHere(null) && renderForm(ct)}
+                                                {canEdit && !isAddingHere(null) && (
+                                                  <div className="flex justify-end mt-2">
+                                                    <Button size="sm" variant="ghost" className="h-7 text-xs text-violet-700" onClick={() => addItemTo(null)}>
+                                                      <Plus className="h-3 w-3 mr-1" /> Add Item to Ungrouped
+                                                    </Button>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          )}
+                                          {tabSections.length === 0 && ungrouped.length === 0 && !isCreatingSec && (
+                                            <p className="text-gray-400 text-center py-6 text-sm">No sections yet. Click "Create Section" to organise additional work.</p>
+                                          )}
+                                          {(rows.length > 0 || tabSections.length > 0) && (
+                                            <div className="border-t-2 border-gray-200 mt-3 pt-3 grid grid-cols-3 gap-3 text-xs">
+                                              <div className="bg-gray-50 rounded-lg p-2 text-center"><p className="text-gray-500 text-[10px]">Subtotal</p><p className="font-bold text-base text-gray-900">{formatCurrency(subtotal)}</p></div>
+                                              <div className="bg-emerald-50 rounded-lg p-2 text-center"><p className="text-emerald-600 text-[10px]">Unlocked (Open)</p><p className="font-bold text-base text-emerald-700">{formatCurrency(unlockedSum)}</p></div>
+                                              <div className="bg-amber-50 rounded-lg p-2 text-center"><p className="text-amber-600 text-[10px]">Locked Balance</p><p className="font-bold text-base text-amber-700">{formatCurrency(lockedSum)}</p></div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    };
                                     return (
                                       <Tabs defaultValue="claimable" className="w-full" data-testid="wo-additional-subtabs-v2">
                                         <TabsList className="grid grid-cols-3 w-full">
