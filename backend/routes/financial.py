@@ -716,11 +716,10 @@ async def get_all_income(
     projects = await db.projects.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000)
     project_map = {p["project_id"]: p["name"] for p in projects}
 
-    # Enrich stage description from the LIVE payment_stages collection so the
-    # accountant always sees the current stage label (not a stale cached one
-    # captured at the time of income approval). Uses the same Planning-position
-    # numbering (1-based row index after filtering vendor/labour rows) so
-    # accountant and Planning Payment Schedule always show identical numbers.
+    # Enrich stage description from the LIVE payment_stages collection.
+    # Regular Payment Schedule stages → "<position> <stage_name>" matching Planning's row index
+    # Addition stages → "Additional: <stage_name>" (no number)
+    # Vendor/labour rows and missing links → keep existing stage text.
     stage_ids = list({(e.get("payment_stage_id") or e.get("stage_id")) for e in income_entries if (e.get("payment_stage_id") or e.get("stage_id"))})
     psid_map: Dict[str, Dict[str, Any]] = {}
     if stage_ids:
@@ -734,7 +733,7 @@ async def get_all_income(
                 {"_id": 0, "stage_id": 1, "project_id": 1, "stage_name": 1, "stage_label": 1,
                  "sort_order": 1, "stage_number": 1, "created_at": 1,
                  "category": 1, "kind": 1, "rab_request_id": 1, "rab_number": 1,
-                 "contractor_id": 1, "vendor_id": 1},
+                 "contractor_id": 1, "vendor_id": 1, "is_addition": 1, "linked_addition_id": 1},
             ).sort([("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(5000)
             def _is_vendor_or_labour_row(s):
                 cat = (s.get("category") or "").lower()
@@ -749,26 +748,44 @@ async def get_all_income(
                 if sname.startswith("rab-") or sname.startswith("rab "):
                     return True
                 return False
+            def _is_addition_row(s):
+                if s.get("is_addition") is True:
+                    return True
+                if s.get("linked_addition_id"):
+                    return True
+                sname = (s.get("stage_name") or "")
+                if sname.startswith("Additional:") or sname.startswith("Additional Work"):
+                    return True
+                return False
             by_proj: Dict[str, List[Dict[str, Any]]] = {}
             for s in all_stages:
-                if _is_vendor_or_labour_row(s):
-                    continue
                 by_proj.setdefault(s["project_id"], []).append(s)
             for pid, slist in by_proj.items():
-                for pos, s in enumerate(slist, start=1):
-                    psid_map[s["stage_id"]] = {**s, "_position": pos}
+                position = 0
+                for s in slist:
+                    if _is_vendor_or_labour_row(s):
+                        continue
+                    if _is_addition_row(s):
+                        psid_map[s["stage_id"]] = {**s, "_is_addition": True}
+                        continue
+                    position += 1
+                    psid_map[s["stage_id"]] = {**s, "_position": position}
 
     for entry in income_entries:
         entry["project_name"] = project_map.get(entry.get("project_id"), "Unknown")
         sid = entry.get("payment_stage_id") or entry.get("stage_id")
         if sid and sid in psid_map:
             s = psid_map[sid]
-            pos = s.get("_position")
             nm = s.get("stage_name") or s.get("stage_label") or ""
-            if pos and nm:
-                entry["stage"] = f"{pos} {nm}".strip()
-            elif nm:
-                entry["stage"] = nm
+            if s.get("_is_addition"):
+                clean = nm.replace("Additional:", "", 1).strip() if nm.startswith("Additional:") else nm
+                entry["stage"] = f"Additional: {clean}".strip() if clean else "Additional"
+            else:
+                pos = s.get("_position")
+                if pos and nm:
+                    entry["stage"] = f"{pos} {nm}".strip()
+                elif nm:
+                    entry["stage"] = nm
         if isinstance(entry.get("payment_date"), str):
             entry["payment_date"] = datetime.fromisoformat(entry["payment_date"])
         if isinstance(entry.get("created_at"), str):
@@ -4683,19 +4700,21 @@ async def get_cashbook_filtered(
     # Older income rows store only the stage NUMBER/LABEL in `stage` (e.g. "1"),
     # which is meaningless to the accountant. Whenever possible we resolve the
     # ACTUAL linked stage via `payment_stage_id` / `stage_id` (uniquely identifies
-    # the row in payment_stages) and rewrite `i.stage` as "<position> <stage_name>"
-    # where <position> is the 1-based row index in Planning's Payment Schedule
-    # (after filtering out vendor/labour rows — same logic as get_payment_stages).
+    # the row in payment_stages) and rewrite `i.stage`:
+    #   • Regular Payment Schedule stages: "<position> <stage_name>" where
+    #     position is the 1-based row index in Planning's Payment Schedule
+    #     (additions, vendor/labour, sales-advance rows are EXCLUDED from the
+    #     position counter so numbers match Planning exactly).
+    #   • Addition stages: "Additional: <stage_name>" (no number prefix).
+    #   • Anything else (sales advance / other-than-scope): keep stage text as-is.
     psid_list = list({(i.get("payment_stage_id") or i.get("stage_id")) for i in incomes if (i.get("payment_stage_id") or i.get("stage_id"))})
     psid_map: Dict[str, Dict[str, Any]] = {}
     if psid_list:
-        # Identify projects involved so we can compute Planning-position per stage.
         stage_docs = await db.payment_stages.find(
             {"stage_id": {"$in": psid_list}},
             {"_id": 0, "stage_id": 1, "project_id": 1},
         ).to_list(5000)
         proj_ids = list({d["project_id"] for d in stage_docs if d.get("project_id")})
-        # Fetch ALL stages per project in the same sort order Planning uses.
         all_stages_by_proj: Dict[str, List[Dict[str, Any]]] = {}
         if proj_ids:
             all_stages = await db.payment_stages.find(
@@ -4703,7 +4722,7 @@ async def get_cashbook_filtered(
                 {"_id": 0, "stage_id": 1, "project_id": 1, "stage_name": 1, "stage_label": 1,
                  "sort_order": 1, "stage_number": 1, "created_at": 1,
                  "category": 1, "kind": 1, "rab_request_id": 1, "rab_number": 1,
-                 "contractor_id": 1, "vendor_id": 1},
+                 "contractor_id": 1, "vendor_id": 1, "is_addition": 1, "linked_addition_id": 1},
             ).sort([("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(5000)
             def _is_vendor_or_labour_row(s):
                 cat = (s.get("category") or "").lower()
@@ -4718,23 +4737,43 @@ async def get_cashbook_filtered(
                 if sname.startswith("rab-") or sname.startswith("rab "):
                     return True
                 return False
+            def _is_addition_row(s):
+                if s.get("is_addition") is True:
+                    return True
+                if s.get("linked_addition_id"):
+                    return True
+                sname = (s.get("stage_name") or "")
+                if sname.startswith("Additional:") or sname.startswith("Additional Work"):
+                    return True
+                return False
             for s in all_stages:
-                if _is_vendor_or_labour_row(s):
-                    continue
                 all_stages_by_proj.setdefault(s["project_id"], []).append(s)
         for pid, slist in all_stages_by_proj.items():
-            for pos, s in enumerate(slist, start=1):
-                psid_map[s["stage_id"]] = {**s, "_position": pos}
+            position = 0
+            for s in slist:
+                if _is_vendor_or_labour_row(s):
+                    continue
+                if _is_addition_row(s):
+                    # Addition stages get NO position number — they're flagged.
+                    psid_map[s["stage_id"]] = {**s, "_is_addition": True}
+                    continue
+                position += 1
+                psid_map[s["stage_id"]] = {**s, "_position": position}
     for i in incomes:
         sid = i.get("payment_stage_id") or i.get("stage_id")
         if sid and sid in psid_map:
             s = psid_map[sid]
-            pos = s.get("_position")
             nm = s.get("stage_name") or s.get("stage_label") or ""
-            if pos:
-                i["stage"] = f"{pos} {nm}".strip()
-            elif nm:
-                i["stage"] = nm
+            if s.get("_is_addition"):
+                # Strip any existing "Additional:" prefix to avoid duplication.
+                clean = nm.replace("Additional:", "", 1).strip() if nm.startswith("Additional:") else nm
+                i["stage"] = f"Additional: {clean}".strip() if clean else "Additional"
+            else:
+                pos = s.get("_position")
+                if pos and nm:
+                    i["stage"] = f"{pos} {nm}".strip()
+                elif nm:
+                    i["stage"] = nm
 
     # Legacy fallback: rows without payment_stage_id — match by label/number.
     label_lookups = set()
