@@ -11,13 +11,15 @@ import { useMemo } from 'react';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Button } from './ui/button';
-import { Banknote, CreditCard, Building2, PiggyBank, Plus, X, Search } from 'lucide-react';
+import { Banknote, CreditCard, Building2, PiggyBank, Plus, X, Search, ArrowRightLeft, Shield } from 'lucide-react';
 
 const METHOD_META = {
-  cash:            { label: 'Cash',         Icon: Banknote,   color: 'green'  },
-  cheque:          { label: 'Cheque',       Icon: CreditCard, color: 'blue'   },
-  current_account: { label: 'HDFC CURRENT', Icon: Building2,  color: 'sky'    },
-  savings_account: { label: 'HDFC SAVINGS', Icon: PiggyBank,  color: 'indigo' },
+  savings_account: { label: 'HDFC SAVINGS', Icon: PiggyBank,      color: 'indigo' },
+  current_account: { label: 'HDFC CURRENT', Icon: Building2,      color: 'sky'    },
+  direct_transfer: { label: 'CASH D/T',     Icon: ArrowRightLeft, color: 'emerald'},
+  cash:            { label: 'Cash',         Icon: Banknote,       color: 'green'  },
+  cheque:          { label: 'Cheque',       Icon: CreditCard,     color: 'blue'   },
+  escrow:          { label: 'Escrow',       Icon: Shield,         color: 'orange' },
 };
 
 const ALL_METHODS = Object.keys(METHOD_META);

@@ -35,6 +35,30 @@ export default function LabourRABReleaseDialog({ item, onClose, onDone }) {
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [showReject, setShowReject] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejecting, setRejecting] = useState(false);
+
+  const handleReject = async () => {
+    if (!rejectReason.trim()) {
+      toast.error('Please enter a rejection reason');
+      return;
+    }
+    const projectId = ctx?.project?.project_id;
+    if (!projectId) { toast.error('Missing project_id'); return; }
+    setRejecting(true);
+    try {
+      await axios.post(
+        `${API}/projects/${projectId}/work-orders/${item.work_order_id}/stages/${item.stage_id}/payment-requests/${item.request_id}/accountant-reject`,
+        { reason: rejectReason.trim() }
+      );
+      toast.success('RAB returned to Planning with your note');
+      setShowReject(false); setRejectReason('');
+      onDone && onDone();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Reject failed');
+    } finally { setRejecting(false); }
+  };
 
   const reload = async () => {
     if (!item) return;
@@ -238,12 +262,45 @@ export default function LabourRABReleaseDialog({ item, onClose, onDone }) {
           </div>
         )}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={submitting}>Close</Button>
-          <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={submit} disabled={submitting || loading || !ctx || !entriesMatch || entries.length === 0} data-testid="rab-rel-submit">
-            <CheckCircle className="h-3.5 w-3.5 mr-1" />
-            {submitting ? 'Releasing…' : 'Process Release'}
-          </Button>
+        <DialogFooter className="flex flex-col sm:flex-row gap-2">
+          {showReject ? (
+            <div className="w-full flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
+              <div className="flex-1">
+                <Label className="text-xs text-red-700">Rejection Reason *</Label>
+                <Input
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="Why are you returning this RAB to Planning?"
+                  className="mt-1 h-9 border-red-300 focus-visible:ring-red-400"
+                  data-testid="rab-rel-reject-reason"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => { setShowReject(false); setRejectReason(''); }} disabled={rejecting} data-testid="rab-rel-reject-cancel">Cancel</Button>
+                <Button variant="destructive" onClick={handleReject} disabled={rejecting || !rejectReason.trim()} data-testid="rab-rel-reject-submit">
+                  {rejecting ? 'Rejecting…' : 'Confirm Reject'}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <Button variant="outline" onClick={onClose} disabled={submitting}>Close</Button>
+              <Button
+                variant="outline"
+                className="border-red-300 text-red-700 hover:bg-red-50"
+                onClick={() => setShowReject(true)}
+                disabled={submitting || loading || !ctx}
+                data-testid="rab-rel-reject"
+              >
+                Reject
+              </Button>
+              <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={submit} disabled={submitting || loading || !ctx || !entriesMatch || entries.length === 0} data-testid="rab-rel-submit">
+                <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                {submitting ? 'Releasing…' : 'Process Release'}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
