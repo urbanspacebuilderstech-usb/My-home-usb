@@ -4674,7 +4674,11 @@ async def get_cashbook_filtered(
         # compatible with pre-approval-flow expenses).
         db.recorded_expenses.find(
             {**expense_q, "$or": [
-                {"status": {"$in": ["accounts_approved", "super_admin_approved"]}},
+                # Labour RAB releases use status="approved"; Material direct
+                # accountant approvals use "accounts_approved"; manual /
+                # super-admin entries use "super_admin_approved"; legacy
+                # rows have no status. Include all four.
+                {"status": {"$in": ["accounts_approved", "super_admin_approved", "approved"]}},
                 {"status": {"$exists": False}},
                 {"status": None},
             ]},
