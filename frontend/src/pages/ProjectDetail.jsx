@@ -10859,11 +10859,103 @@ export default function ProjectDetail() {
                                   })() : <p className="text-gray-400 text-center py-4 text-sm">No stages</p>}
                                 </TabsContent>
                                 <TabsContent value="additional" className="p-3">
-                                  {wo.additional_work?.length > 0 ? (
-                                    <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
-                                    <tbody className="divide-y">{(wo.additional_work || []).map((a, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{a.description}</td><td className="px-3 py-2">{a.unit}</td><td className="px-3 py-2 text-right">{a.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(a.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(a.total)}</td></tr>))}</tbody>
-                                    <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Additional Total:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(wo.additional_total)}</td></tr></tfoot></table>
-                                  ) : <p className="text-gray-400 text-center py-4 text-sm">No additional work</p>}
+                                  {(() => {
+                                    const all = wo.additional_work || [];
+                                    const items = all.map((a, idx) => ({ ...a, _idx: idx }));
+                                    const claimable = items.filter(a => (a.claim_type || 'claimable') === 'claimable');
+                                    const nonClaimable = items.filter(a => a.claim_type === 'non_claimable');
+                                    const canEdit = ['planning', 'planning_person', 'project_manager', 'cre', 'super_admin'].includes(user?.role);
+                                    const canTogglePlanning = ['planning', 'planning_person', 'super_admin'].includes(user?.role);
+                                    const toggleLock = async (idx, currentLocked) => {
+                                      try {
+                                        await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/additional/${idx}/lock`, { is_locked: !currentLocked });
+                                        toast.success(currentLocked ? 'Unlocked — SE can now raise RAB' : 'Locked — SE blocked from raising RAB');
+                                        fetchWorkOrders();
+                                      } catch (e) { toast.error(e?.response?.data?.detail || 'Lock toggle failed'); }
+                                    };
+                                    const isAddingFor = (ct) => addAdditionalForm && addAdditionalForm.woId === wo.work_order_id && addAdditionalForm.claim_type === ct;
+                                    const saveItem = async () => {
+                                      const f = addAdditionalForm;
+                                      if (!f?.description?.trim()) { toast.error('Description is required'); return; }
+                                      try {
+                                        await axios.post(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/additional`, {
+                                          description: f.description, unit: f.unit, quantity: parseFloat(f.quantity) || 0, unit_rate: parseFloat(f.unit_rate) || 0, claim_type: f.claim_type,
+                                        });
+                                        toast.success('Additional item added');
+                                        setAddAdditionalForm(null);
+                                        fetchWorkOrders();
+                                      } catch (e) { toast.error(e?.response?.data?.detail || 'Failed to add'); }
+                                    };
+                                    const renderForm = (ct) => (
+                                      <div className="border rounded-lg p-3 bg-violet-50/40 grid grid-cols-12 gap-2 items-end" data-testid={`wo-additional-form-${ct}`}>
+                                        <div className="col-span-4"><Label className="text-[10px] text-gray-500">Description</Label><Input value={addAdditionalForm.description} onChange={e => setAddAdditionalForm(f => ({ ...f, description: e.target.value }))} placeholder="e.g. Extra wall chasing" className="h-8 text-xs" data-testid={`wo-additional-form-desc-${ct}`} /></div>
+                                        <div className="col-span-2"><Label className="text-[10px] text-gray-500">Unit</Label><Input value={addAdditionalForm.unit} onChange={e => setAddAdditionalForm(f => ({ ...f, unit: e.target.value }))} placeholder="nos" className="h-8 text-xs" /></div>
+                                        <div className="col-span-1"><Label className="text-[10px] text-gray-500">Qty</Label><Input type="number" value={addAdditionalForm.quantity} onChange={e => setAddAdditionalForm(f => ({ ...f, quantity: e.target.value }))} className="h-8 text-xs" /></div>
+                                        <div className="col-span-2"><Label className="text-[10px] text-gray-500">Rate</Label><Input type="number" value={addAdditionalForm.unit_rate} onChange={e => setAddAdditionalForm(f => ({ ...f, unit_rate: e.target.value }))} className="h-8 text-xs" /></div>
+                                        <div className="col-span-1 text-xs font-medium text-violet-700 pb-1.5">{formatCurrency((parseFloat(addAdditionalForm.quantity)||0) * (parseFloat(addAdditionalForm.unit_rate)||0))}</div>
+                                        <div className="col-span-2 flex gap-1 pb-0.5">
+                                          <Button size="sm" className="h-8 text-xs bg-violet-600 hover:bg-violet-700" onClick={saveItem} data-testid={`wo-additional-form-save-${ct}`}>Save</Button>
+                                          <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setAddAdditionalForm(null)}>Cancel</Button>
+                                        </div>
+                                      </div>
+                                    );
+                                    const renderTable = (rows, ct) => (
+                                      <div className="space-y-3">
+                                        {canEdit && (
+                                          <div className="flex justify-end">
+                                            {isAddingFor(ct) ? null : (
+                                              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setAddAdditionalForm({ woId: wo.work_order_id, claim_type: ct, description: '', unit: 'nos', quantity: 1, unit_rate: 0 })} data-testid={`wo-additional-add-${ct}`}>
+                                                <Plus className="h-3 w-3 mr-1" /> Add Item
+                                              </Button>
+                                            )}
+                                          </div>
+                                        )}
+                                        {isAddingFor(ct) && renderForm(ct)}
+                                        {rows.length === 0 && !isAddingFor(ct) ? (
+                                          <p className="text-gray-400 text-center py-4 text-sm">No additional work in this bucket</p>
+                                        ) : rows.length > 0 ? (
+                                          <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th><th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Lock</th></tr></thead>
+                                            <tbody className="divide-y">{rows.map((a) => {
+                                              const locked = a.is_locked !== false;
+                                              return (
+                                              <tr key={a._idx} data-testid={`wo-additional-row-${a._idx}`}>
+                                                <td className="px-3 py-2 text-xs text-gray-400">{a._idx+1}</td>
+                                                <td className="px-3 py-2 font-medium">{a.description}</td>
+                                                <td className="px-3 py-2">{a.unit}</td>
+                                                <td className="px-3 py-2 text-right">{a.quantity}</td>
+                                                <td className="px-3 py-2 text-right">{formatCurrency(a.unit_rate)}</td>
+                                                <td className="px-3 py-2 text-right font-medium">{formatCurrency(a.total)}</td>
+                                                <td className="px-3 py-2 text-center">
+                                                  {canTogglePlanning ? (
+                                                    <Button size="sm" variant="ghost" onClick={() => toggleLock(a._idx, locked)} className={`h-7 px-2 text-[10px] ${locked ? 'text-gray-600 hover:bg-gray-100' : 'text-emerald-700 hover:bg-emerald-100'}`} data-testid={`wo-additional-lock-${a._idx}`}>
+                                                      {locked ? <><Lock className="h-3 w-3 mr-1" /> Locked</> : <><Unlock className="h-3 w-3 mr-1" /> Unlocked</>}
+                                                    </Button>
+                                                  ) : (
+                                                    <Badge variant="outline" className={`text-[10px] ${locked ? 'bg-gray-50 text-gray-600' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                                      {locked ? <><Lock className="h-3 w-3 mr-1 inline" /> Locked</> : <><Unlock className="h-3 w-3 mr-1 inline" /> Unlocked</>}
+                                                    </Badge>
+                                                  )}
+                                                </td>
+                                              </tr>
+                                            );})}</tbody>
+                                            <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Subtotal:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(rows.reduce((s, r) => s + (r.total || 0), 0))}</td><td></td></tr></tfoot></table>
+                                        ) : null}
+                                      </div>
+                                    );
+                                    return (
+                                      <Tabs defaultValue="claimable" className="w-full" data-testid="wo-additional-subtabs-v2">
+                                        <TabsList className="grid grid-cols-2 w-full">
+                                          <TabsTrigger value="claimable" data-testid="wo-add-tab-claimable-v2">Claimable From Client ({claimable.length})</TabsTrigger>
+                                          <TabsTrigger value="non_claimable" data-testid="wo-add-tab-nonclaimable-v2">Non-Claimable From Client ({nonClaimable.length})</TabsTrigger>
+                                        </TabsList>
+                                        <TabsContent value="claimable" className="mt-3">{renderTable(claimable, 'claimable')}</TabsContent>
+                                        <TabsContent value="non_claimable" className="mt-3">
+                                          <p className="text-[10px] text-gray-400 mb-2 italic">Non-Claimable items are absorbed by the company and do NOT sync to the Client Portal.</p>
+                                          {renderTable(nonClaimable, 'non_claimable')}
+                                        </TabsContent>
+                                      </Tabs>
+                                    );
+                                  })()}
                                 </TabsContent>
                                 <TabsContent value="dlr" className="p-3">
                                   <DLRPanel
