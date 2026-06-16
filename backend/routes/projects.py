@@ -9094,6 +9094,105 @@ async def toggle_additional_item_lock(
     return {"message": f"Additional item {'locked' if new_state else 'unlocked'}", "is_locked": new_state}
 
 
+@router.delete("/projects/{project_id}/work-orders/{work_order_id}/additional/{item_index}")
+async def delete_additional_item(
+    project_id: str,
+    work_order_id: str,
+    item_index: int,
+    user: User = Depends(get_current_user),
+):
+    """Delete a single additional_work item. Also removes its linked auto-stage."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN, UserRole.CRE]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    items = wo.get("additional_work") or []
+    if item_index < 0 or item_index >= len(items):
+        raise HTTPException(status_code=404, detail="Item not found")
+    items.pop(item_index)
+    # Remove linked auto-stage; shift linked_additional_index on remaining stages.
+    stages = wo.get("stages") or []
+    new_stages = []
+    for st in stages:
+        lai = st.get("linked_additional_index")
+        if lai == item_index:
+            continue  # drop linked stage
+        if isinstance(lai, int) and lai > item_index:
+            st["linked_additional_index"] = lai - 1
+        new_stages.append(st)
+    new_total = sum(float(i.get("total") or 0) for i in items)
+    scope_total = float(wo.get("scope_total") or 0)
+    deduction_total = float(wo.get("deduction_total") or 0)
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {
+            "additional_work": items,
+            "stages": new_stages,
+            "additional_total": round(new_total, 2),
+            "total_value": round(scope_total + new_total - deduction_total, 2),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"message": "Item deleted"}
+
+
+@router.patch("/projects/{project_id}/work-orders/{work_order_id}/additional/{item_index}")
+async def edit_additional_item(
+    project_id: str,
+    work_order_id: str,
+    item_index: int,
+    data: dict,
+    user: User = Depends(get_current_user),
+):
+    """Edit a single additional_work item's description / unit / quantity / unit_rate."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN, UserRole.CRE]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    items = wo.get("additional_work") or []
+    if item_index < 0 or item_index >= len(items):
+        raise HTTPException(status_code=404, detail="Item not found")
+    it = items[item_index]
+    if "description" in data:
+        desc = (data.get("description") or "").strip()
+        if not desc:
+            raise HTTPException(status_code=400, detail="Description cannot be empty")
+        it["description"] = desc
+    if "unit" in data:
+        it["unit"] = data.get("unit") or "nos"
+    if "quantity" in data:
+        try: it["quantity"] = float(data.get("quantity") or 0)
+        except (ValueError, TypeError): raise HTTPException(status_code=400, detail="Invalid quantity")
+    if "unit_rate" in data:
+        try: it["unit_rate"] = float(data.get("unit_rate") or 0)
+        except (ValueError, TypeError): raise HTTPException(status_code=400, detail="Invalid rate")
+    it["total"] = round(float(it.get("quantity") or 0) * float(it.get("unit_rate") or 0), 2)
+    # Sync linked auto-stage amount
+    stages = wo.get("stages") or []
+    for st in stages:
+        if st.get("linked_additional_index") == item_index:
+            st["amount"] = it["total"]
+            st["scheduled_amount"] = it["total"]
+            if it.get("description"):
+                st["stage_name"] = it["description"]
+    new_total = sum(float(i.get("total") or 0) for i in items)
+    scope_total = float(wo.get("scope_total") or 0)
+    deduction_total = float(wo.get("deduction_total") or 0)
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {
+            "additional_work": items,
+            "stages": stages,
+            "additional_total": round(new_total, 2),
+            "total_value": round(scope_total + new_total - deduction_total, 2),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"message": "Item updated", "item": it}
+
+
 @router.post("/projects/{project_id}/work-orders/{work_order_id}/multi-stage-request-payment")
 async def create_multi_stage_rab(
     project_id: str,

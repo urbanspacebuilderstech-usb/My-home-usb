@@ -10969,9 +10969,43 @@ export default function ProjectDetail() {
                                       };
                                       const addItemTo = (sectionId) => setAddAdditionalForm({ woId: wo.work_order_id, claim_type: ct, section_id: sectionId, description: '', unit: 'nos', quantity: 1, unit_rate: 0 });
                                       const isAddingHere = (sectionId) => addAdditionalForm && addAdditionalForm.woId === wo.work_order_id && addAdditionalForm.claim_type === ct && (addAdditionalForm.section_id || null) === (sectionId || null);
+                                      const editItem = async (idx, patch) => {
+                                        try {
+                                          await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/additional/${idx}`, patch);
+                                          toast.success('Item updated');
+                                          setAddAdditionalForm(null);
+                                          fetchWorkOrders();
+                                        } catch (e) { toast.error(e?.response?.data?.detail || 'Edit failed'); }
+                                      };
+                                      const delItem = async (idx) => {
+                                        if (!window.confirm('Delete this item?')) return;
+                                        try {
+                                          await axios.delete(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/additional/${idx}`);
+                                          toast.success('Item deleted');
+                                          fetchWorkOrders();
+                                        } catch (e) { toast.error(e?.response?.data?.detail || 'Delete failed'); }
+                                      };
                                       const itemTable = (items) => items.length > 0 && (
-                                        <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
-                                          <tbody className="divide-y">{items.map((a) => (
+                                        <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>{canEdit && <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>}</tr></thead>
+                                          <tbody className="divide-y">{items.map((a) => {
+                                            const isEditingThis = addAdditionalForm?.editing_idx === a._idx;
+                                            if (isEditingThis) {
+                                              return (
+                                                <tr key={`edit-${a._idx}`} className="bg-violet-50/40">
+                                                  <td className="px-3 py-2 text-xs text-gray-400">{a._idx+1}</td>
+                                                  <td className="px-2 py-1"><Input value={addAdditionalForm.description} onChange={e => setAddAdditionalForm(f => ({ ...f, description: e.target.value }))} className="h-8 text-xs" /></td>
+                                                  <td className="px-2 py-1"><UnitCombobox value={addAdditionalForm.unit} onChange={(v) => setAddAdditionalForm(f => ({ ...f, unit: v }))} units={WO_UNITS} testId={`wo-edit-unit-${a._idx}`} /></td>
+                                                  <td className="px-2 py-1"><Input type="number" value={addAdditionalForm.quantity} onChange={e => setAddAdditionalForm(f => ({ ...f, quantity: e.target.value }))} className="h-8 text-xs text-right" /></td>
+                                                  <td className="px-2 py-1"><Input type="number" value={addAdditionalForm.unit_rate} onChange={e => setAddAdditionalForm(f => ({ ...f, unit_rate: e.target.value }))} className="h-8 text-xs text-right" /></td>
+                                                  <td className="px-3 py-2 text-right font-medium">{formatCurrency((parseFloat(addAdditionalForm.quantity)||0) * (parseFloat(addAdditionalForm.unit_rate)||0))}</td>
+                                                  <td className="px-3 py-2 text-center"><div className="flex gap-1 justify-center">
+                                                    <Button size="sm" className="h-7 text-[10px] bg-violet-600 hover:bg-violet-700" onClick={() => editItem(a._idx, { description: addAdditionalForm.description, unit: addAdditionalForm.unit, quantity: parseFloat(addAdditionalForm.quantity)||0, unit_rate: parseFloat(addAdditionalForm.unit_rate)||0 })}>Save</Button>
+                                                    <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => setAddAdditionalForm(null)}>Cancel</Button>
+                                                  </div></td>
+                                                </tr>
+                                              );
+                                            }
+                                            return (
                                             <tr key={a._idx} data-testid={`wo-additional-row-${a._idx}`}>
                                               <td className="px-3 py-2 text-xs text-gray-400">{a._idx+1}</td>
                                               <td className="px-3 py-2 font-medium">{a.description}</td>
@@ -10979,8 +11013,17 @@ export default function ProjectDetail() {
                                               <td className="px-3 py-2 text-right">{a.quantity}</td>
                                               <td className="px-3 py-2 text-right">{formatCurrency(a.unit_rate)}</td>
                                               <td className="px-3 py-2 text-right font-medium">{formatCurrency(a.total)}</td>
+                                              {canEdit && <td className="px-3 py-2 text-center"><div className="flex gap-1 justify-center">
+                                                <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-blue-600 hover:bg-blue-50" onClick={() => setAddAdditionalForm({ woId: wo.work_order_id, claim_type: ct, section_id: a.section_id || null, editing_idx: a._idx, description: a.description, unit: a.unit, quantity: a.quantity, unit_rate: a.unit_rate })} data-testid={`wo-additional-edit-${a._idx}`}>
+                                                  <Edit className="h-3 w-3" />
+                                                </Button>
+                                                <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500 hover:bg-red-50" onClick={() => delItem(a._idx)} data-testid={`wo-additional-delete-${a._idx}`}>
+                                                  <Trash2 className="h-3 w-3" />
+                                                </Button>
+                                              </div></td>}
                                             </tr>
-                                          ))}</tbody>
+                                            );
+                                          })}</tbody>
                                         </table>
                                       );
                                       return (
