@@ -133,6 +133,10 @@ export default function LabourRABReleaseDialog({ item, onClose, onDone }) {
       await axios.post(`${API}/accountant/labour-payments/${item.request_id}/release`, {
         work_order_id: item.work_order_id,
         stage_id: item.stage_id,
+        // Multi-stage bills: pass every sibling so backend releases the whole
+        // group atomically as ONE payment + ONE cashbook entry. Backend will
+        // also auto-detect via rab_group_id if this list is missing.
+        sibling_request_ids: (ctx?.request?.siblings || []).map(s => s.request_id),
         payment_entries: entries.map((e) => ({
           method: e.method,
           amount: Number(e.amount),
@@ -143,7 +147,12 @@ export default function LabourRABReleaseDialog({ item, onClose, onDone }) {
         payment_date: paymentDate,
         notes,
       });
-      toast.success(`Payment released across ${entries.length} method(s)${chequeExcess > 0 ? ` · ${fmt(chequeExcess)} → Suspense` : ''}`);
+      const stagesCount = (ctx?.request?.siblings || []).length;
+      toast.success(
+        ctx?.request?.is_multi_stage_bill
+          ? `${stagesCount}-stage bill released as ONE payment of ${fmt(approvedAmount)}`
+          : `Payment released across ${entries.length} method(s)${chequeExcess > 0 ? ` · ${fmt(chequeExcess)} → Suspense` : ''}`
+      );
       onDone();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to release payment');
@@ -208,6 +217,22 @@ export default function LabourRABReleaseDialog({ item, onClose, onDone }) {
                 {ctx.request.qc_approved_by_name && <Badge variant="outline" className="bg-cyan-50 text-cyan-700 border-cyan-200">✓ QC: {ctx.request.qc_approved_by_name}</Badge>}
                 {ctx.request.planning_approved_by_name && <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200">✓ Planning: {ctx.request.planning_approved_by_name}</Badge>}
               </div>
+              {ctx.request.is_multi_stage_bill && (
+                <div className="bg-fuchsia-50 border border-fuchsia-200 rounded p-2 mt-1" data-testid="rab-rel-multi-stage-breakdown">
+                  <p className="text-[10px] font-semibold text-fuchsia-700 uppercase mb-1">
+                    {ctx.request.siblings.length}-Stage Bill · One Payment of {fmt(approvedAmount)}
+                  </p>
+                  <div className="space-y-0.5">
+                    {ctx.request.siblings.map((s, i) => (
+                      <div key={s.request_id} className="flex items-center gap-2 text-[11px]">
+                        <span className="text-[9px] font-bold text-fuchsia-600 bg-white border border-fuchsia-200 rounded px-1">{i + 1}</span>
+                        <span className="flex-1 truncate text-gray-800" title={s.stage_name}>{s.stage_name}</span>
+                        <span className="font-semibold text-emerald-700">{fmt(s.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

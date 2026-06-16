@@ -148,7 +148,7 @@ export default function AccountantLabourPayments() {
                           {tab === 'pending' ? <><Send className="h-3 w-3" /> Release</> : <>View</>}
                         </Button>
                         {r.is_multi_stage && tab === 'pending' && (
-                          <p className="text-[9px] text-fuchsia-600 mt-0.5 italic">release each stage</p>
+                          <p className="text-[9px] text-fuchsia-600 mt-0.5 italic">single release · {r.stage_breakdown.length} stages</p>
                         )}
                       </td>
                     </tr>

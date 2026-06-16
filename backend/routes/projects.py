@@ -10662,14 +10662,46 @@ async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str,
     contractor_name = wo.get("contractor_name", "")
     project = await db.projects.find_one({"project_id": wo.get("project_id")}, {"_id": 0, "name": 1, "team": 1}) or {}
 
+    # ── Multi-stage bill detection: find all siblings that share the
+    # `rab_group_id`. The Accountant releases the entire group in ONE go,
+    # so we aggregate bill_amount across siblings and expose the
+    # per-stage breakdown for the UI to show.
+    rab_group_id = target_pr.get("rab_group_id")
+    siblings = []  # each: {request_id, stage_id, stage_name, amount, status}
+    if rab_group_id:
+        for st in wo.get("stages", []):
+            for pr in (st.get("payment_requests") or []):
+                if pr.get("rab_group_id") == rab_group_id and pr.get("status") == "planning_approved":
+                    siblings.append({
+                        "request_id": pr.get("request_id"),
+                        "stage_id": st.get("stage_id"),
+                        "stage_name": st.get("name"),
+                        "amount": float(pr.get("amount", 0) or 0),
+                        "status": pr.get("status"),
+                    })
+    if not siblings:
+        # Single-stage RAB — treat the target itself as the only sibling so
+        # downstream consumers see a uniform shape.
+        siblings = [{
+            "request_id": request_id,
+            "stage_id": stage_id,
+            "stage_name": target_stage.get("name"),
+            "amount": bill_amount,
+            "status": target_pr.get("status"),
+        }]
+    is_multi_stage_bill = len(siblings) > 1
+    total_bill_amount = sum(s["amount"] for s in siblings) if is_multi_stage_bill else bill_amount
+
     # Contractor suspense balance
     suspense_balance = await _get_contractor_suspense_balance(contractor_id) if contractor_id else 0.0
 
-    # Prior RABs for the same WO (all stages) — for context
+    # Prior RABs for the same WO (all stages) — for context. Exclude
+    # siblings of the multi-stage bill we're about to release.
+    sibling_request_ids = {s["request_id"] for s in siblings}
     prior_rabs = []
     for st in (wo.get("stages") or []):
         for pr in (st.get("payment_requests") or []):
-            if pr.get("request_id") == request_id:
+            if pr.get("request_id") in sibling_request_ids:
                 continue
             prior_rabs.append({
                 "request_id": pr.get("request_id"),
@@ -10720,14 +10752,18 @@ async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str,
         if pid:
             ch["project_name"] = project_cache.get(pid) or ch.get("project_name")
 
-    payable_after_suspense = max(0.0, bill_amount - suspense_balance)
-    suspense_to_apply = min(suspense_balance, bill_amount)
+    payable_after_suspense = max(0.0, total_bill_amount - suspense_balance)
+    suspense_to_apply = min(suspense_balance, total_bill_amount)
 
     return {
         "request": {
             "request_id": request_id,
             "rab_number": target_pr.get("rab_number"),
-            "amount": bill_amount,
+            "rab_group_id": rab_group_id,
+            "is_multi_stage_bill": is_multi_stage_bill,
+            "siblings": siblings,
+            "amount": total_bill_amount,  # aggregated when multi-stage so dialog shows the right payable
+            "primary_amount": bill_amount,
             "notes": target_pr.get("notes"),
             "dlr_summary": target_pr.get("dlr_summary"),
             "requested_at": target_pr.get("requested_at"),
@@ -10871,7 +10907,31 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
     if not target_pr:
         raise HTTPException(status_code=404, detail="No matching planning-approved request found")
 
-    approved_amount = float(target_pr.get("amount", 0))
+    # ── Multi-stage bill: if the client passed `sibling_request_ids` (or
+    # we can detect siblings via `rab_group_id`) we release the WHOLE
+    # group as ONE bill — one cashbook entry, one set of payment_entries,
+    # but each sibling's payment_request gets marked approved individually
+    # so the per-stage ledger stays correct.
+    sibling_ids_from_client = data.get("sibling_request_ids") or []
+    rab_group_id = target_pr.get("rab_group_id")
+    siblings_refs = []  # list of (stage_dict, pr_dict)
+    if rab_group_id or sibling_ids_from_client:
+        for stg in wo.get("stages", []):
+            for pr in stg.get("payment_requests", []) or []:
+                if pr.get("status") != "planning_approved":
+                    continue
+                match = False
+                if rab_group_id and pr.get("rab_group_id") == rab_group_id:
+                    match = True
+                elif pr.get("request_id") in sibling_ids_from_client:
+                    match = True
+                if match:
+                    siblings_refs.append((stg, pr))
+    if not siblings_refs:
+        siblings_refs = [(target_stage, target_pr)]
+    is_multi_stage_bill = len(siblings_refs) > 1
+
+    approved_amount = sum(float(pr.get("amount", 0)) for _, pr in siblings_refs)
 
     # Handle suspense usage
     contractor_id = wo.get("contractor_id")
@@ -10964,9 +11024,12 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         cheque_amount = cheque_amount_total
         cheque_no = ", ".join(cheque_no_aggregated)
 
-    # Payment record
+    # Payment record (one logical record shared across all siblings)
     payment_record = {
         "request_id": request_id,
+        "rab_group_id": rab_group_id,
+        "sibling_request_ids": [pr.get("request_id") for _, pr in siblings_refs],
+        "is_multi_stage_bill": is_multi_stage_bill,
         "method": payment_method if not multi_mode else "multi",
         "approved_amount": approved_amount,
         "cheque_amount": cheque_amount if cheque_amount_total > 0 else None,
@@ -10983,18 +11046,26 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         "payment_entries": payment_entries_list,  # Always present for downstream consumers
     }
 
-    # Mark request approved
-    target_pr["status"] = "approved"
-    target_pr["approved_amount"] = approved_amount
-    target_pr["accountant_approved_by"] = user.user_id
-    target_pr["accountant_approved_at"] = now
-    target_pr["accountant_notes"] = notes
-    target_pr["payment_record"] = payment_record
+    # Mark each sibling request as approved + update its stage's released/pending rollups.
+    affected_stage_ids = set()
+    affected_stage_names = []
+    for stg, pr in siblings_refs:
+        pr["status"] = "approved"
+        pr["approved_amount"] = float(pr.get("amount", 0))
+        pr["accountant_approved_by"] = user.user_id
+        pr["accountant_approved_at"] = now
+        pr["accountant_notes"] = notes
+        pr["payment_record"] = payment_record  # all siblings reference the same logical payment
+        affected_stage_ids.add(stg.get("stage_id"))
+        if stg.get("name"):
+            affected_stage_names.append(stg.get("name"))
+    for stg in wo.get("stages", []):
+        if stg.get("stage_id") in affected_stage_ids:
+            stg["amount_released"] = sum(p.get("approved_amount", 0) for p in stg.get("payment_requests", []) if p.get("status") == "approved")
+            stg["amount_pending"] = sum(p.get("amount", 0) for p in stg.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
 
     # Update WO totals
     wo["paid_amount"] = float(wo.get("paid_amount", 0)) + approved_amount
-    target_stage["amount_released"] = sum(p.get("approved_amount", 0) for p in target_stage.get("payment_requests", []) if p.get("status") == "approved")
-    target_stage["amount_pending"] = sum(p.get("amount", 0) for p in target_stage.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
 
     await db.project_work_orders.update_one(
         {"work_order_id": work_order_id},
@@ -11052,7 +11123,11 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         "project_name": (project_doc or {}).get("name", ""),
         "category": "labour",
         "expense_type": "labour",
-        "description": f"{wo.get('contractor_name', '')} - {target_stage.get('name', '')}",
+        "description": (
+            f"{wo.get('contractor_name', '')} - {' + '.join(affected_stage_names)}"
+            if is_multi_stage_bill else
+            f"{wo.get('contractor_name', '')} - {target_stage.get('name', '')}"
+        ),
         "amount": cash_paid,
         "approved_amount": approved_amount,
         "suspense_applied": use_suspense,
@@ -11066,7 +11141,16 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         "contractor_type": wo.get("contractor_type", ""),
         "work_order_id": work_order_id,
         "stage_id": stage_id,
-        "stage_name": target_stage.get("name", ""),
+        "stage_name": (
+            " + ".join(affected_stage_names) if is_multi_stage_bill else target_stage.get("name", "")
+        ),
+        "is_multi_stage_bill": is_multi_stage_bill,
+        "rab_group_id": rab_group_id,
+        "linked_request_ids": [pr.get("request_id") for _, pr in siblings_refs],
+        "stage_breakdown": [
+            {"stage_id": stg.get("stage_id"), "stage_name": stg.get("name"), "amount": float(pr.get("amount", 0)), "request_id": pr.get("request_id")}
+            for stg, pr in siblings_refs
+        ],
         "request_id": request_id,
         "request_type": "labour_stage_payment",
         "remarks": notes,
