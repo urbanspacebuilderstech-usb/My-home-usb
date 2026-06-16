@@ -289,12 +289,76 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
 
       {/* Tabs */}
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="w-full grid grid-cols-4">
+        <TabsList className="w-full grid grid-cols-6">
           <TabsTrigger value="payments" data-testid="wov2-tab-payments">Payment Schedule Stages</TabsTrigger>
           <TabsTrigger value="rab" data-testid="wov2-tab-rab" className="data-[state=active]:bg-violet-600 data-[state=active]:text-white">{"Total RAB's"}</TabsTrigger>
+          <TabsTrigger value="additional" data-testid="wov2-tab-additional">Additional</TabsTrigger>
+          <TabsTrigger value="additional_rab" data-testid="wov2-tab-additional-rab" className="data-[state=active]:bg-violet-600 data-[state=active]:text-white">Additional RAB</TabsTrigger>
           <TabsTrigger value="scope" data-testid="wov2-tab-scope">Scope of Work</TabsTrigger>
           <TabsTrigger value="dlr" data-testid="wov2-tab-dlr">DLR Report</TabsTrigger>
         </TabsList>
+
+        {/* ADDITIONAL TAB — show ONLY unlocked sections from Planning */}
+        <TabsContent value="additional" className="mt-3">
+          {(() => {
+            const sections = (wo.additional_sections || []).filter(s => !s.is_locked);
+            if (sections.length === 0) {
+              return <Card><CardContent className="p-6 text-center text-xs text-gray-400">No unlocked Additional sections yet. Planning will unlock sections here when work is approved to proceed.</CardContent></Card>;
+            }
+            const renderBucket = (ct, label) => {
+              const inBucket = sections.filter(s => s.claim_type === ct);
+              if (inBucket.length === 0) return <p className="text-center text-xs text-gray-400 py-4">No unlocked {label} sections</p>;
+              return inBucket.map(sec => {
+                const secItems = (wo.additional_work || []).filter(it => it.section_id === sec.section_id);
+                const total = secItems.reduce((s, r) => s + (Number(r.total) || 0), 0);
+                return (
+                  <Card key={sec.section_id} className="mb-2" data-testid={`se-additional-section-${sec.section_id}`}>
+                    <CardHeader className="p-3 pb-1 flex flex-row items-center justify-between">
+                      <CardTitle className="text-sm">{sec.name}</CardTitle>
+                      <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">Unlocked</Badge>
+                    </CardHeader>
+                    <CardContent className="p-3 pt-1">
+                      {secItems.length === 0 ? <p className="text-[11px] text-gray-400">No items yet</p> : (
+                        <div className="space-y-1">
+                          {secItems.map((it, idx) => (
+                            <div key={idx} className="flex justify-between text-xs border-b last:border-0 py-1">
+                              <span>{it.description} <span className="text-gray-400">· {it.quantity} {it.unit}</span></span>
+                              <span className="font-medium">₹{Number(it.total || 0).toLocaleString('en-IN')}</span>
+                            </div>
+                          ))}
+                          <div className="flex justify-between text-xs pt-2 border-t font-bold">
+                            <span>Section Total</span><span>₹{total.toLocaleString('en-IN')}</span>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              });
+            };
+            return (
+              <Tabs defaultValue="claimable" className="w-full">
+                <TabsList className="grid grid-cols-3 w-full">
+                  <TabsTrigger value="claimable" data-testid="se-add-tab-claimable">Claimable From Client</TabsTrigger>
+                  <TabsTrigger value="non_claimable" data-testid="se-add-tab-nonclaimable">Non-Claimable From Client</TabsTrigger>
+                  <TabsTrigger value="rework" data-testid="se-add-tab-rework">Rework</TabsTrigger>
+                </TabsList>
+                <TabsContent value="claimable" className="mt-3">{renderBucket('claimable', 'Claimable')}</TabsContent>
+                <TabsContent value="non_claimable" className="mt-3">{renderBucket('non_claimable', 'Non-Claimable')}</TabsContent>
+                <TabsContent value="rework" className="mt-3">{renderBucket('rework', 'Rework')}</TabsContent>
+              </Tabs>
+            );
+          })()}
+        </TabsContent>
+
+        {/* ADDITIONAL RAB TAB — placeholder filtering Total RAB's to addition stages */}
+        <TabsContent value="additional_rab" className="mt-3">
+          <Card><CardContent className="p-6 text-center text-xs text-gray-500">
+            <p className="font-medium text-gray-700 mb-1">Additional RAB</p>
+            <p>RABs raised against Additional sections will appear here. Use the regular Total RAB's flow against unlocked Additional stages and the entries will surface here once you raise them.</p>
+            <p className="mt-2 text-[10px] text-gray-400">(UI coming in next iteration — same RAB flow, separate bucket.)</p>
+          </CardContent></Card>
+        </TabsContent>
 
         {/* SCOPE TAB */}
         <TabsContent value="scope" className="mt-3">
