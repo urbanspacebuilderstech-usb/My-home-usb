@@ -8855,6 +8855,18 @@ async def add_additional_item(
     claim_type = data.get("claim_type") or "claimable"
     if claim_type not in ("claimable", "non_claimable", "rework"):
         claim_type = "claimable"
+    # Resolve section: if section_id provided, validate it; otherwise leave null.
+    section_id = data.get("section_id")
+    section_name = None
+    if section_id:
+        sec = next((s for s in (wo.get("additional_sections") or []) if s.get("section_id") == section_id), None)
+        if not sec:
+            raise HTTPException(status_code=400, detail="Invalid section_id")
+        section_name = sec.get("name")
+        # Item inherits section's lock state on create.
+        item_locked = bool(sec.get("is_locked", True))
+    else:
+        item_locked = True
     new_item = {
         "description": description,
         "unit": data.get("unit") or "nos",
@@ -8862,7 +8874,9 @@ async def add_additional_item(
         "unit_rate": rate,
         "total": round(qty * rate, 2),
         "claim_type": claim_type,
-        "is_locked": True,
+        "section_id": section_id,
+        "section_name": section_name,
+        "is_locked": item_locked,
     }
     items = (wo.get("additional_work") or []) + [new_item]
     new_total = sum(float(i.get("total") or 0) for i in items)
@@ -8878,6 +8892,105 @@ async def add_additional_item(
         }},
     )
     return {"message": "Additional item added", "item": new_item, "additional_total": round(new_total, 2)}
+
+
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/additional/sections")
+async def create_additional_section(
+    project_id: str,
+    work_order_id: str,
+    data: dict,
+    user: User = Depends(get_current_user),
+):
+    """Planning creates a new Additional Section inside a sub-tab.
+    Body: { name, claim_type }. Section names must be unique within (wo, claim_type)."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN, UserRole.CRE]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    name = (data.get("name") or "").strip()
+    claim_type = data.get("claim_type") or "claimable"
+    if not name:
+        raise HTTPException(status_code=400, detail="Section name is required")
+    if claim_type not in ("claimable", "non_claimable", "rework"):
+        claim_type = "claimable"
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    sections = wo.get("additional_sections") or []
+    dup = next((s for s in sections if s.get("name", "").lower() == name.lower() and s.get("claim_type") == claim_type), None)
+    if dup:
+        raise HTTPException(status_code=400, detail=f"Section '{name}' already exists in this tab")
+    from uuid import uuid4
+    section = {
+        "section_id": f"sec_{uuid4().hex[:12]}",
+        "name": name,
+        "claim_type": claim_type,
+        "is_locked": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    sections.append(section)
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"additional_sections": sections, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"message": "Section created", "section": section}
+
+
+@router.patch("/projects/{project_id}/work-orders/{work_order_id}/additional/sections/{section_id}/lock")
+async def toggle_additional_section_lock(
+    project_id: str,
+    work_order_id: str,
+    section_id: str,
+    data: dict,
+    user: User = Depends(get_current_user),
+):
+    """Planning toggles lock on a section. All items in the section inherit the lock state.
+    Body: { is_locked: bool }."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can lock/unlock sections")
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    sections = wo.get("additional_sections") or []
+    sec = next((s for s in sections if s.get("section_id") == section_id), None)
+    if not sec:
+        raise HTTPException(status_code=404, detail="Section not found")
+    new_state = bool(data.get("is_locked", True))
+    sec["is_locked"] = new_state
+    # Cascade to all items belonging to this section.
+    items = wo.get("additional_work") or []
+    for it in items:
+        if it.get("section_id") == section_id:
+            it["is_locked"] = new_state
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"additional_sections": sections, "additional_work": items, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"message": f"Section {'locked' if new_state else 'unlocked'}", "is_locked": new_state}
+
+
+@router.delete("/projects/{project_id}/work-orders/{work_order_id}/additional/sections/{section_id}")
+async def delete_additional_section(
+    project_id: str,
+    work_order_id: str,
+    section_id: str,
+    user: User = Depends(get_current_user),
+):
+    """Planning deletes a section. All items in the section move to "Ungrouped"."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can delete sections")
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    sections = [s for s in (wo.get("additional_sections") or []) if s.get("section_id") != section_id]
+    items = wo.get("additional_work") or []
+    for it in items:
+        if it.get("section_id") == section_id:
+            it["section_id"] = None
+            it["section_name"] = None
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"additional_sections": sections, "additional_work": items, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"message": "Section deleted; items moved to Ungrouped"}
 
 
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/additional/{item_index}/lock")
