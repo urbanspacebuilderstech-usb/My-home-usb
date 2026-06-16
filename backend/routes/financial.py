@@ -718,29 +718,57 @@ async def get_all_income(
 
     # Enrich stage description from the LIVE payment_stages collection so the
     # accountant always sees the current stage label (not a stale cached one
-    # captured at the time of income approval). Falls back to the income's
-    # stored stage text when no payment_stage_id is present or the stage was
-    # deleted.
+    # captured at the time of income approval). Uses the same Planning-position
+    # numbering (1-based row index after filtering vendor/labour rows) so
+    # accountant and Planning Payment Schedule always show identical numbers.
     stage_ids = list({(e.get("payment_stage_id") or e.get("stage_id")) for e in income_entries if (e.get("payment_stage_id") or e.get("stage_id"))})
-    stage_map: Dict[str, Dict[str, Any]] = {}
+    psid_map: Dict[str, Dict[str, Any]] = {}
     if stage_ids:
-        live_stages = await db.payment_stages.find(
-            {"stage_id": {"$in": stage_ids}},
-            {"_id": 0, "stage_id": 1, "stage_name": 1, "stage_label": 1, "stage_order": 1, "stage_index": 1},
-        ).to_list(2000)
-        stage_map = {s["stage_id"]: s for s in live_stages}
+        linked = await db.payment_stages.find(
+            {"stage_id": {"$in": stage_ids}}, {"_id": 0, "stage_id": 1, "project_id": 1}
+        ).to_list(5000)
+        proj_ids = list({d["project_id"] for d in linked if d.get("project_id")})
+        if proj_ids:
+            all_stages = await db.payment_stages.find(
+                {"project_id": {"$in": proj_ids}},
+                {"_id": 0, "stage_id": 1, "project_id": 1, "stage_name": 1, "stage_label": 1,
+                 "sort_order": 1, "stage_number": 1, "created_at": 1,
+                 "category": 1, "kind": 1, "rab_request_id": 1, "rab_number": 1,
+                 "contractor_id": 1, "vendor_id": 1},
+            ).sort([("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(5000)
+            def _is_vendor_or_labour_row(s):
+                cat = (s.get("category") or "").lower()
+                kind = (s.get("kind") or "").lower()
+                if cat in ("labour", "vendor", "material", "expense"):
+                    return True
+                if kind in ("labour_rab", "vendor_payment", "material_expense"):
+                    return True
+                if s.get("rab_request_id") or s.get("rab_number") or s.get("contractor_id") or s.get("vendor_id"):
+                    return True
+                sname = (s.get("stage_name") or "").lower()
+                if sname.startswith("rab-") or sname.startswith("rab "):
+                    return True
+                return False
+            by_proj: Dict[str, List[Dict[str, Any]]] = {}
+            for s in all_stages:
+                if _is_vendor_or_labour_row(s):
+                    continue
+                by_proj.setdefault(s["project_id"], []).append(s)
+            for pid, slist in by_proj.items():
+                for pos, s in enumerate(slist, start=1):
+                    psid_map[s["stage_id"]] = {**s, "_position": pos}
 
     for entry in income_entries:
         entry["project_name"] = project_map.get(entry.get("project_id"), "Unknown")
         sid = entry.get("payment_stage_id") or entry.get("stage_id")
-        if sid and sid in stage_map:
-            live = stage_map[sid]
-            live_name = live.get("stage_name") or live.get("stage_label")
-            if live_name:
-                # Compose "<index> <name>" pattern only when an order/index is
-                # present, otherwise just the name.
-                idx = live.get("stage_order") or live.get("stage_index")
-                entry["stage"] = f"{idx} {live_name}".strip() if idx else live_name
+        if sid and sid in psid_map:
+            s = psid_map[sid]
+            pos = s.get("_position")
+            nm = s.get("stage_name") or s.get("stage_label") or ""
+            if pos and nm:
+                entry["stage"] = f"{pos} {nm}".strip()
+            elif nm:
+                entry["stage"] = nm
         if isinstance(entry.get("payment_date"), str):
             entry["payment_date"] = datetime.fromisoformat(entry["payment_date"])
         if isinstance(entry.get("created_at"), str):
@@ -4655,24 +4683,58 @@ async def get_cashbook_filtered(
     # Older income rows store only the stage NUMBER/LABEL in `stage` (e.g. "1"),
     # which is meaningless to the accountant. Whenever possible we resolve the
     # ACTUAL linked stage via `payment_stage_id` / `stage_id` (uniquely identifies
-    # the row in payment_stages) and rewrite `i.stage` as "<stage_order> <stage_name>".
-    # Falling back to label-based matching only if no payment_stage_id is present
-    # (legacy data).
+    # the row in payment_stages) and rewrite `i.stage` as "<position> <stage_name>"
+    # where <position> is the 1-based row index in Planning's Payment Schedule
+    # (after filtering out vendor/labour rows — same logic as get_payment_stages).
     psid_list = list({(i.get("payment_stage_id") or i.get("stage_id")) for i in incomes if (i.get("payment_stage_id") or i.get("stage_id"))})
     psid_map: Dict[str, Dict[str, Any]] = {}
     if psid_list:
-        live = await db.payment_stages.find(
+        # Identify projects involved so we can compute Planning-position per stage.
+        stage_docs = await db.payment_stages.find(
             {"stage_id": {"$in": psid_list}},
-            {"_id": 0, "stage_id": 1, "stage_name": 1, "stage_label": 1, "stage_order": 1, "stage_index": 1, "stage_number": 1},
+            {"_id": 0, "stage_id": 1, "project_id": 1},
         ).to_list(5000)
-        psid_map = {s["stage_id"]: s for s in live}
+        proj_ids = list({d["project_id"] for d in stage_docs if d.get("project_id")})
+        # Fetch ALL stages per project in the same sort order Planning uses.
+        all_stages_by_proj: Dict[str, List[Dict[str, Any]]] = {}
+        if proj_ids:
+            all_stages = await db.payment_stages.find(
+                {"project_id": {"$in": proj_ids}},
+                {"_id": 0, "stage_id": 1, "project_id": 1, "stage_name": 1, "stage_label": 1,
+                 "sort_order": 1, "stage_number": 1, "created_at": 1,
+                 "category": 1, "kind": 1, "rab_request_id": 1, "rab_number": 1,
+                 "contractor_id": 1, "vendor_id": 1},
+            ).sort([("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(5000)
+            def _is_vendor_or_labour_row(s):
+                cat = (s.get("category") or "").lower()
+                kind = (s.get("kind") or "").lower()
+                if cat in ("labour", "vendor", "material", "expense"):
+                    return True
+                if kind in ("labour_rab", "vendor_payment", "material_expense"):
+                    return True
+                if s.get("rab_request_id") or s.get("rab_number") or s.get("contractor_id") or s.get("vendor_id"):
+                    return True
+                sname = (s.get("stage_name") or "").lower()
+                if sname.startswith("rab-") or sname.startswith("rab "):
+                    return True
+                return False
+            for s in all_stages:
+                if _is_vendor_or_labour_row(s):
+                    continue
+                all_stages_by_proj.setdefault(s["project_id"], []).append(s)
+        for pid, slist in all_stages_by_proj.items():
+            for pos, s in enumerate(slist, start=1):
+                psid_map[s["stage_id"]] = {**s, "_position": pos}
     for i in incomes:
         sid = i.get("payment_stage_id") or i.get("stage_id")
         if sid and sid in psid_map:
             s = psid_map[sid]
-            idx = s.get("stage_order") or s.get("stage_index") or s.get("stage_number") or s.get("stage_label")
+            pos = s.get("_position")
             nm = s.get("stage_name") or s.get("stage_label") or ""
-            i["stage"] = f"{idx} {nm}".strip() if idx else nm
+            if pos:
+                i["stage"] = f"{pos} {nm}".strip()
+            elif nm:
+                i["stage"] = nm
 
     # Legacy fallback: rows without payment_stage_id — match by label/number.
     label_lookups = set()
