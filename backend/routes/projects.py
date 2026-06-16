@@ -8932,8 +8932,8 @@ async def create_multi_stage_rab(
           `_find_pr_and_update`), so the multi-stage RAB feels like a single
           bill from the contractor's perspective.
     """
-    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only Site Engineer / Super Admin can raise a RAB")
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Site Engineer / Sr. Site Engineer / Super Admin can raise a RAB")
     allocations = data.get("allocations") or []
     if not isinstance(allocations, list) or not allocations:
         raise HTTPException(status_code=400, detail="`allocations` must be a non-empty list")
@@ -9868,6 +9868,7 @@ async def delete_stage_payment_request(
         UserRole.ACCOUNTANT,
         UserRole.SUPER_ADMIN,
         UserRole.SITE_ENGINEER,
+        UserRole.SR_SITE_ENGINEER,
     ]:
         raise HTTPException(status_code=403, detail="Permission denied")
     wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0, "stages": 1})
