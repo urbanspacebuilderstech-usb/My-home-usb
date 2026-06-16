@@ -8957,12 +8957,45 @@ async def toggle_additional_section_lock(
     sec["is_locked"] = new_state
     # Cascade to all items belonging to this section.
     items = wo.get("additional_work") or []
-    for it in items:
-        if it.get("section_id") == section_id:
-            it["is_locked"] = new_state
+    stages = wo.get("stages") or []
+    from uuid import uuid4
+    for idx, it in enumerate(items):
+        if it.get("section_id") != section_id:
+            continue
+        it["is_locked"] = new_state
+        # Mirror the per-item lock auto-stage logic so SE Board reflects the
+        # unlock/lock immediately when toggled at the section level.
+        linked_si = None
+        for si, st in enumerate(stages):
+            if st.get("linked_additional_index") == idx:
+                linked_si = si
+                break
+        if not new_state:  # UNLOCK → ensure open stage exists
+            amount = float(it.get("total") or (float(it.get("quantity") or 0) * float(it.get("unit_rate") or 0)))
+            if linked_si is None:
+                stages.append({
+                    "stage_id": f"stg_{uuid4().hex[:12]}",
+                    "stage_label": f"A{idx + 1}",
+                    "stage_name": it.get("description") or "Additional Work",
+                    "amount": amount,
+                    "scheduled_amount": amount,
+                    "is_open": True,
+                    "is_addition": True,
+                    "claim_type": it.get("claim_type") or "claimable",
+                    "linked_additional_index": idx,
+                    "payment_requests": [],
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                })
+            else:
+                stages[linked_si]["is_open"] = True
+                stages[linked_si]["amount"] = amount
+                stages[linked_si]["scheduled_amount"] = amount
+        else:  # LOCK → close any linked stage
+            if linked_si is not None:
+                stages[linked_si]["is_open"] = False
     await db.project_work_orders.update_one(
         {"work_order_id": work_order_id, "project_id": project_id},
-        {"$set": {"additional_sections": sections, "additional_work": items, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        {"$set": {"additional_sections": sections, "additional_work": items, "stages": stages, "updated_at": datetime.now(timezone.utc).isoformat()}},
     )
     return {"message": f"Section {'locked' if new_state else 'unlocked'}", "is_locked": new_state}
 

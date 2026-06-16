@@ -10987,18 +10987,9 @@ export default function ProjectDetail() {
                                         <div className="space-y-3">
                                           {canEdit && (
                                             <div className="flex justify-end gap-2">
-                                              {!isCreatingSec && (
-                                                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setCreatingSection({ woId: wo.work_order_id, claim_type: ct, name: '' })} data-testid={`wo-additional-create-section-${ct}`}>
-                                                  <Plus className="h-3 w-3 mr-1" /> Create Section
-                                                </Button>
-                                              )}
-                                            </div>
-                                          )}
-                                          {isCreatingSec && (
-                                            <div className="border rounded-lg p-3 bg-blue-50/40 flex gap-2 items-end">
-                                              <div className="flex-1"><Label className="text-[10px] text-gray-500">Section Name</Label><Input value={creatingSection.name} onChange={e => setCreatingSection(s => ({ ...s, name: e.target.value }))} placeholder="e.g. Plumbing extras" className="h-8 text-xs" autoFocus /></div>
-                                              <Button size="sm" className="h-8 text-xs bg-blue-600 hover:bg-blue-700" onClick={createSection}>Create</Button>
-                                              <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setCreatingSection(null)}>Cancel</Button>
+                                              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setCreatingSection({ woId: wo.work_order_id, claim_type: ct, name: '' })} data-testid={`wo-additional-create-section-${ct}`}>
+                                                <Plus className="h-3 w-3 mr-1" /> Create Section
+                                              </Button>
                                             </div>
                                           )}
                                           {tabSections.map(sec => {
@@ -11036,7 +11027,11 @@ export default function ProjectDetail() {
                                                       </Button>
                                                     </div>
                                                   )}
-                                                  <div className="text-right text-xs text-gray-600 mt-2 px-3">Section Subtotal: <span className="font-bold text-gray-900">{formatCurrency(secSubtotal)}</span></div>
+                                                  <div className="flex justify-end gap-4 text-xs text-gray-600 mt-2 px-3 border-t pt-2">
+                                                    <span>Section Total: <span className="font-bold text-gray-900">{formatCurrency(secSubtotal)}</span></span>
+                                                    <span>Received: <span className="font-bold text-emerald-700">{formatCurrency(0)}</span></span>
+                                                    <span>Balance: <span className="font-bold text-amber-700">{formatCurrency(secSubtotal)}</span></span>
+                                                  </div>
                                                 </div>
                                               </div>
                                             );
@@ -12445,6 +12440,63 @@ export default function ProjectDetail() {
         workOrderId={rabView.workOrderId}
         highlightRequestId={rabView.requestId}
       />
+
+      {/* Create Additional Section popup (shared across all WO Additional sub-tabs) */}
+      <Dialog open={!!creatingSection} onOpenChange={(v) => { if (!v) setCreatingSection(null); }}>
+        <DialogContent className="max-w-md" data-testid="create-section-dialog">
+          <DialogHeader>
+            <DialogTitle>Create Section</DialogTitle>
+            <DialogDescription className="text-xs">
+              Group related additional items together. Section locks/unlocks cascade to all items inside.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs text-gray-500">Section Name *</Label>
+              <Input
+                value={creatingSection?.name || ''}
+                onChange={e => setCreatingSection(s => ({ ...s, name: e.target.value }))}
+                placeholder="e.g. Plumbing Extras, Painting Touch-ups"
+                className="mt-1"
+                autoFocus
+                data-testid="create-section-name"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && creatingSection?.name?.trim()) {
+                    e.preventDefault();
+                    (async () => {
+                      try {
+                        await axios.post(`${API}/projects/${projectId}/work-orders/${creatingSection.woId}/additional/sections`, { name: creatingSection.name.trim(), claim_type: creatingSection.claim_type });
+                        toast.success(`Section "${creatingSection.name.trim()}" created`);
+                        setCreatingSection(null);
+                        fetchWorkOrders();
+                      } catch (err) { toast.error(err?.response?.data?.detail || 'Failed to create'); }
+                    })();
+                  }
+                }}
+              />
+              <p className="text-[10px] text-gray-400 mt-1">Bucket: <strong>{creatingSection?.claim_type === 'non_claimable' ? 'Non-Claimable From Client' : creatingSection?.claim_type === 'rework' ? 'Rework' : 'Claimable From Client'}</strong></p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreatingSection(null)} data-testid="create-section-cancel">Cancel</Button>
+            <Button
+              className="bg-blue-600 hover:bg-blue-700"
+              disabled={!creatingSection?.name?.trim()}
+              onClick={async () => {
+                try {
+                  await axios.post(`${API}/projects/${projectId}/work-orders/${creatingSection.woId}/additional/sections`, { name: creatingSection.name.trim(), claim_type: creatingSection.claim_type });
+                  toast.success(`Section "${creatingSection.name.trim()}" created`);
+                  setCreatingSection(null);
+                  fetchWorkOrders();
+                } catch (err) { toast.error(err?.response?.data?.detail || 'Failed to create'); }
+              }}
+              data-testid="create-section-submit"
+            >
+              Create Section
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
