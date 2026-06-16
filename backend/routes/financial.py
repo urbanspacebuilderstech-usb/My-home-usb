@@ -4652,13 +4652,33 @@ async def get_cashbook_filtered(
     # Feb 12 2026 — Enrich the Stage column. Some incomes were captured with
     # just the stage number/label (e.g. "1", "2", "3") because the income
     # creation flow only stored the label. The cashbook shows that bare number
-    # which is meaningless to the accountant. Look up the actual stage_name
-    # from payment_stages and rewrite the field as "<number> <stage_name>"
-    # (e.g. "2 Advance payment for Foundation and Plinth Beam Concrete").
-    # We touch only incomes whose stage field looks like a label (≤4 chars
-    # or all-digit) so existing descriptive entries are preserved.
+    # Older income rows store only the stage NUMBER/LABEL in `stage` (e.g. "1"),
+    # which is meaningless to the accountant. Whenever possible we resolve the
+    # ACTUAL linked stage via `payment_stage_id` / `stage_id` (uniquely identifies
+    # the row in payment_stages) and rewrite `i.stage` as "<stage_order> <stage_name>".
+    # Falling back to label-based matching only if no payment_stage_id is present
+    # (legacy data).
+    psid_list = list({(i.get("payment_stage_id") or i.get("stage_id")) for i in incomes if (i.get("payment_stage_id") or i.get("stage_id"))})
+    psid_map: Dict[str, Dict[str, Any]] = {}
+    if psid_list:
+        live = await db.payment_stages.find(
+            {"stage_id": {"$in": psid_list}},
+            {"_id": 0, "stage_id": 1, "stage_name": 1, "stage_label": 1, "stage_order": 1, "stage_index": 1, "stage_number": 1},
+        ).to_list(5000)
+        psid_map = {s["stage_id"]: s for s in live}
+    for i in incomes:
+        sid = i.get("payment_stage_id") or i.get("stage_id")
+        if sid and sid in psid_map:
+            s = psid_map[sid]
+            idx = s.get("stage_order") or s.get("stage_index") or s.get("stage_number") or s.get("stage_label")
+            nm = s.get("stage_name") or s.get("stage_label") or ""
+            i["stage"] = f"{idx} {nm}".strip() if idx else nm
+
+    # Legacy fallback: rows without payment_stage_id — match by label/number.
     label_lookups = set()
     for i in incomes:
+        if i.get("payment_stage_id") or i.get("stage_id"):
+            continue
         st = str(i.get("stage") or "").strip()
         if st and (st.isdigit() or len(st) <= 4) and i.get("project_id"):
             label_lookups.add((i["project_id"], st))
@@ -4680,6 +4700,8 @@ async def get_cashbook_filtered(
             if name:
                 stage_name_map[(pid, label)] = name
         for i in incomes:
+            if i.get("payment_stage_id") or i.get("stage_id"):
+                continue
             st = str(i.get("stage") or "").strip()
             if not st:
                 continue
