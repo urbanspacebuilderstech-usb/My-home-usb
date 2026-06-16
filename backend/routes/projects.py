@@ -8853,7 +8853,7 @@ async def add_additional_item(
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Quantity and rate must be numbers")
     claim_type = data.get("claim_type") or "claimable"
-    if claim_type not in ("claimable", "non_claimable"):
+    if claim_type not in ("claimable", "non_claimable", "rework"):
         claim_type = "claimable"
     new_item = {
         "description": description,

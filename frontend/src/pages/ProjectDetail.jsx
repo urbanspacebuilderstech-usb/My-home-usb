@@ -9660,14 +9660,19 @@ export default function ProjectDetail() {
                                 );
                                 return (
                                   <Tabs defaultValue="claimable" className="w-full" data-testid="wo-additional-subtabs">
-                                    <TabsList className="grid grid-cols-2 w-full">
+                                    <TabsList className="grid grid-cols-3 w-full">
                                       <TabsTrigger value="claimable" data-testid="wo-add-tab-claimable">Claimable From Client ({claimable.length})</TabsTrigger>
                                       <TabsTrigger value="non_claimable" data-testid="wo-add-tab-nonclaimable">Non-Claimable From Client ({nonClaimable.length})</TabsTrigger>
+                                      <TabsTrigger value="rework" data-testid="wo-add-tab-rework">Rework ({items.filter(a => a.claim_type === 'rework').length})</TabsTrigger>
                                     </TabsList>
                                     <TabsContent value="claimable" className="mt-3">{renderTable(claimable, 'claimable')}</TabsContent>
                                     <TabsContent value="non_claimable" className="mt-3">
                                       <p className="text-[10px] text-gray-400 mb-2 italic">Non-Claimable items are absorbed by the company and do NOT sync to the Client Portal.</p>
                                       {renderTable(nonClaimable, 'non_claimable')}
+                                    </TabsContent>
+                                    <TabsContent value="rework" className="mt-3">
+                                      <p className="text-[10px] text-gray-400 mb-2 italic">Rework items track corrections / re-doing of completed work — paid to the contractor, not billed to the client.</p>
+                                      {renderTable(items.filter(a => a.claim_type === 'rework'), 'rework')}
                                     </TabsContent>
                                   </Tabs>
                                 );
@@ -10101,14 +10106,19 @@ export default function ProjectDetail() {
                               );
                               return (
                                 <Tabs defaultValue="claimable" className="w-full" data-testid="wo-form-additional-subtabs">
-                                  <TabsList className="grid grid-cols-2 w-full">
+                                  <TabsList className="grid grid-cols-3 w-full">
                                     <TabsTrigger value="claimable" data-testid="wo-form-add-tab-claimable">Claimable From Client ({claimable.length})</TabsTrigger>
                                     <TabsTrigger value="non_claimable" data-testid="wo-form-add-tab-nonclaimable">Non-Claimable From Client ({nonClaimable.length})</TabsTrigger>
+                                    <TabsTrigger value="rework" data-testid="wo-form-add-tab-rework">Rework ({all.filter(a => a.claim_type === 'rework').length})</TabsTrigger>
                                   </TabsList>
                                   <TabsContent value="claimable" className="mt-3">{renderRows(claimable, 'claimable')}</TabsContent>
                                   <TabsContent value="non_claimable" className="mt-3">
                                     <p className="text-[10px] text-gray-400 mb-2 italic">Non-Claimable items are absorbed by the company and do NOT sync to the Client Portal.</p>
                                     {renderRows(nonClaimable, 'non_claimable')}
+                                  </TabsContent>
+                                  <TabsContent value="rework" className="mt-3">
+                                    <p className="text-[10px] text-gray-400 mb-2 italic">Rework items track corrections / re-doing of completed work — paid to the contractor, not billed to the client.</p>
+                                    {renderRows(all.filter(a => a.claim_type === 'rework'), 'rework')}
                                   </TabsContent>
                                 </Tabs>
                               );
@@ -10971,14 +10981,19 @@ export default function ProjectDetail() {
                                     );
                                     return (
                                       <Tabs defaultValue="claimable" className="w-full" data-testid="wo-additional-subtabs-v2">
-                                        <TabsList className="grid grid-cols-2 w-full">
+                                        <TabsList className="grid grid-cols-3 w-full">
                                           <TabsTrigger value="claimable" data-testid="wo-add-tab-claimable-v2">Claimable From Client ({claimable.length})</TabsTrigger>
                                           <TabsTrigger value="non_claimable" data-testid="wo-add-tab-nonclaimable-v2">Non-Claimable From Client ({nonClaimable.length})</TabsTrigger>
+                                          <TabsTrigger value="rework" data-testid="wo-add-tab-rework-v2">Rework ({items.filter(a => a.claim_type === 'rework').length})</TabsTrigger>
                                         </TabsList>
                                         <TabsContent value="claimable" className="mt-3">{renderTable(claimable, 'claimable')}</TabsContent>
                                         <TabsContent value="non_claimable" className="mt-3">
                                           <p className="text-[10px] text-gray-400 mb-2 italic">Non-Claimable items are absorbed by the company and do NOT sync to the Client Portal.</p>
                                           {renderTable(nonClaimable, 'non_claimable')}
+                                        </TabsContent>
+                                        <TabsContent value="rework" className="mt-3">
+                                          <p className="text-[10px] text-gray-400 mb-2 italic">Rework items track corrections / re-doing of completed work — paid to the contractor, not billed to the client.</p>
+                                          {renderTable(items.filter(a => a.claim_type === 'rework'), 'rework')}
                                         </TabsContent>
                                       </Tabs>
                                     );
