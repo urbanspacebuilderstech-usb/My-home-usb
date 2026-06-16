@@ -669,7 +669,7 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage, stageFilter, ti
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-gray-900">{i + 1}. {stage.name}</span>
+                      <span className="text-sm font-semibold text-gray-900">{i + 1}. {stage.name || stage.stage_name}</span>
                       {/* Locked stages: title only. SE has no need for status/amount/badge until Planning unlocks. */}
                       {stage.is_open && (
                         <>
@@ -793,7 +793,7 @@ function WorkCompleteSection({ stage, wo, projectId, fullyPaid, onSaved }) {
           </DialogHeader>
           <div className="bg-gray-50 border rounded p-2 text-xs">
             <p className="text-gray-500 text-[10px] uppercase">Stage</p>
-            <p className="font-semibold">{stage.name}</p>
+            <p className="font-semibold">{stage.name || stage.stage_name}</p>
           </div>
           <div>
             <Label className="text-xs font-semibold">Work-Complete Remarks *</Label>
@@ -1096,7 +1096,7 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
     <Dialog open={!!stage} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-[95vw] sm:max-w-xl max-h-[90vh] overflow-y-auto" data-testid="wov2-stage-dialog">
         <DialogHeader>
-          <DialogTitle className="text-base">{stage.name}</DialogTitle>
+          <DialogTitle className="text-base">{stage.name || stage.stage_name}</DialogTitle>
           <DialogDescription className="text-xs">{wo.contractor_name} ({wo.contractor_type || '—'})</DialogDescription>
         </DialogHeader>
 

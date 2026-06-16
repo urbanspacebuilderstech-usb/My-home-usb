@@ -8953,6 +8953,7 @@ def _sync_section_stage(wo: dict, section_id: str) -> list:
         section_stage = {
             "stage_id": f"stg_{uuid4().hex[:12]}",
             "stage_label": f"SEC-{section_id[-6:]}",
+            "name": section_name,
             "stage_name": section_name,
             "amount": amount,
             "scheduled_amount": amount,
@@ -8966,6 +8967,7 @@ def _sync_section_stage(wo: dict, section_id: str) -> list:
         }
         cleaned.append(section_stage)
     else:
+        section_stage["name"] = section_name
         section_stage["stage_name"] = section_name
         section_stage["amount"] = amount
         section_stage["scheduled_amount"] = amount
