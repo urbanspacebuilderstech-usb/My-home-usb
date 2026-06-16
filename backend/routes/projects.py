@@ -8251,6 +8251,16 @@ class WorkOrderAdditionalItem(BaseModel):
     unit: str = "nos"
     quantity: float = 1
     unit_rate: float = 0
+    # Claim category — `claimable` means the company will pass this contractor
+    # variation cost on to the client (a matching Client Portal addition is
+    # expected). `non_claimable` means the company absorbs the cost (no Client
+    # Portal sync). Defaults to `claimable` for backward-compat with rows
+    # created before this field existed.
+    claim_type: Optional[str] = "claimable"
+    # Locked items cannot have a RAB raised against them. Planning toggles
+    # this when work is approved to go ahead. Defaults to locked so newly
+    # created items require an explicit unlock.
+    is_locked: Optional[bool] = True
 
 class WorkOrderDeductionItem(BaseModel):
     description: str
@@ -8443,7 +8453,9 @@ async def create_project_work_order(project_id: str, data: WorkOrderCreate, user
     for a in data.additional_work:
         additional.append({
             "description": a.description, "unit": a.unit, "quantity": a.quantity,
-            "unit_rate": a.unit_rate, "total": round(a.quantity * a.unit_rate, 2)
+            "unit_rate": a.unit_rate, "total": round(a.quantity * a.unit_rate, 2),
+            "claim_type": a.claim_type or "claimable",
+            "is_locked": True if a.is_locked is None else bool(a.is_locked),
         })
 
     deductions_list = []
@@ -8516,7 +8528,7 @@ async def update_project_work_order(project_id: str, work_order_id: str, data: W
             "accountant_approved_by": existing.get("accountant_approved_by"), "accountant_approved_at": existing.get("accountant_approved_at"),
             "approved_amount": existing.get("approved_amount"), "rejection_reason": existing.get("rejection_reason"),
         })
-    additional = [{"description": a.description, "unit": a.unit, "quantity": a.quantity, "unit_rate": a.unit_rate, "total": round(a.quantity * a.unit_rate, 2)} for a in data.additional_work]
+    additional = [{"description": a.description, "unit": a.unit, "quantity": a.quantity, "unit_rate": a.unit_rate, "total": round(a.quantity * a.unit_rate, 2), "claim_type": a.claim_type or "claimable", "is_locked": True if a.is_locked is None else bool(a.is_locked)} for a in data.additional_work]
     deductions_list = [{"description": d.description, "unit": d.unit, "quantity": d.quantity, "unit_rate": d.unit_rate, "total": round(d.quantity * d.unit_rate, 2)} for d in (data.deductions or [])]
 
     contractor = await db.contractors.find_one({"contractor_id": data.contractor_id}, {"_id": 0, "name": 1, "contractor_type": 1, "work_types": 1})
@@ -8815,6 +8827,35 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
             pass
     
     return {"message": "Payment requested successfully", "request_id": payment_req["request_id"], "rab_number": rab_number}
+
+
+@router.patch("/projects/{project_id}/work-orders/{work_order_id}/additional/{item_index}/lock")
+async def toggle_additional_item_lock(
+    project_id: str,
+    work_order_id: str,
+    item_index: int,
+    data: dict,
+    user: User = Depends(get_current_user),
+):
+    """Planning toggles lock/unlock on a specific additional_work item.
+    Locked items block SE from raising RABs against them. Body: { is_locked: bool }."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can lock/unlock additional items")
+    wo = await db.project_work_orders.find_one(
+        {"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0}
+    )
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    items = wo.get("additional_work") or []
+    if item_index < 0 or item_index >= len(items):
+        raise HTTPException(status_code=404, detail="Additional item not found")
+    new_state = bool(data.get("is_locked", True))
+    items[item_index]["is_locked"] = new_state
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"additional_work": items, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"message": f"Additional item {'locked' if new_state else 'unlocked'}", "is_locked": new_state}
 
 
 @router.post("/projects/{project_id}/work-orders/{work_order_id}/multi-stage-request-payment")

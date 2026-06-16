@@ -9576,14 +9576,45 @@ export default function ProjectDetail() {
                             <TabsContent value="additional" className="p-3">
                               {(() => {
                                 const all = wo.additional_work || [];
-                                const claimable = all.filter(a => (a.claim_type || 'claimable') === 'claimable');
-                                const nonClaimable = all.filter(a => a.claim_type === 'non_claimable');
+                                const items = all.map((a, idx) => ({ ...a, _idx: idx }));
+                                const claimable = items.filter(a => (a.claim_type || 'claimable') === 'claimable');
+                                const nonClaimable = items.filter(a => a.claim_type === 'non_claimable');
+                                const canTogglePlanning = ['planning', 'planning_person', 'super_admin'].includes(user?.role);
+                                const toggleLock = async (idx, currentLocked) => {
+                                  try {
+                                    await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/additional/${idx}/lock`, { is_locked: !currentLocked });
+                                    toast.success(currentLocked ? 'Unlocked — SE can now raise RAB' : 'Locked — SE blocked from raising RAB');
+                                    fetchWorkOrders();
+                                  } catch (e) { toast.error(e?.response?.data?.detail || 'Lock toggle failed'); }
+                                };
                                 const renderTable = (rows) => rows.length === 0 ? (
                                   <p className="text-gray-400 text-center py-4 text-sm">No additional work in this bucket</p>
                                 ) : (
-                                  <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
-                                    <tbody className="divide-y">{rows.map((a, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{a.description}</td><td className="px-3 py-2">{a.unit}</td><td className="px-3 py-2 text-right">{a.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(a.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(a.total)}</td></tr>))}</tbody>
-                                    <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Subtotal:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(rows.reduce((s, r) => s + (r.total || 0), 0))}</td></tr></tfoot></table>
+                                  <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th><th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Lock</th></tr></thead>
+                                    <tbody className="divide-y">{rows.map((a) => {
+                                      const locked = a.is_locked !== false; // default to locked
+                                      return (
+                                      <tr key={a._idx} data-testid={`wo-additional-row-${a._idx}`}>
+                                        <td className="px-3 py-2 text-xs text-gray-400">{a._idx+1}</td>
+                                        <td className="px-3 py-2 font-medium">{a.description}</td>
+                                        <td className="px-3 py-2">{a.unit}</td>
+                                        <td className="px-3 py-2 text-right">{a.quantity}</td>
+                                        <td className="px-3 py-2 text-right">{formatCurrency(a.unit_rate)}</td>
+                                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(a.total)}</td>
+                                        <td className="px-3 py-2 text-center">
+                                          {canTogglePlanning ? (
+                                            <Button size="sm" variant="ghost" onClick={() => toggleLock(a._idx, locked)} className={`h-7 px-2 text-[10px] ${locked ? 'text-gray-600 hover:bg-gray-100' : 'text-emerald-700 hover:bg-emerald-100'}`} data-testid={`wo-additional-lock-${a._idx}`}>
+                                              {locked ? <><Lock className="h-3 w-3 mr-1" /> Locked</> : <><Unlock className="h-3 w-3 mr-1" /> Unlocked</>}
+                                            </Button>
+                                          ) : (
+                                            <Badge variant="outline" className={`text-[10px] ${locked ? 'bg-gray-50 text-gray-600' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                              {locked ? <><Lock className="h-3 w-3 mr-1 inline" /> Locked</> : <><Unlock className="h-3 w-3 mr-1 inline" /> Unlocked</>}
+                                            </Badge>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );})}</tbody>
+                                    <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Subtotal:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(rows.reduce((s, r) => s + (r.total || 0), 0))}</td><td></td></tr></tfoot></table>
                                 );
                                 return (
                                   <Tabs defaultValue="claimable" className="w-full" data-testid="wo-additional-subtabs">
@@ -9592,7 +9623,10 @@ export default function ProjectDetail() {
                                       <TabsTrigger value="non_claimable" data-testid="wo-add-tab-nonclaimable">Non-Claimable From Client ({nonClaimable.length})</TabsTrigger>
                                     </TabsList>
                                     <TabsContent value="claimable" className="mt-3">{renderTable(claimable)}</TabsContent>
-                                    <TabsContent value="non_claimable" className="mt-3">{renderTable(nonClaimable)}</TabsContent>
+                                    <TabsContent value="non_claimable" className="mt-3">
+                                      <p className="text-[10px] text-gray-400 mb-2 italic">Non-Claimable items are absorbed by the company and do NOT sync to the Client Portal.</p>
+                                      {renderTable(nonClaimable)}
+                                    </TabsContent>
                                   </Tabs>
                                 );
                               })()}
