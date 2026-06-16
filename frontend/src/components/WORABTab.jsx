@@ -101,6 +101,30 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
 
   const rabs = (data.rabs || []).filter(r => !stageIdFilter || stageIdFilter(r.stage_id));
   const RELEASED = rabs.filter(r => r.status === 'approved');
+
+  // When a stageIdFilter is active (e.g. Additional RAB tab), recompute the
+  // top-strip totals to reflect ONLY the in-scope stages instead of the WO's
+  // full contract. Without a filter, fall back to the backend rollups.
+  const scopedStages = stageIdFilter
+    ? (workOrder?.stages || []).filter(s => stageIdFilter(s.stage_id))
+    : null;
+  const summary = scopedStages
+    ? (() => {
+        const contractTotal = scopedStages.reduce((s, st) => s + Number(st.amount || st.scheduled_amount || 0), 0);
+        const totalReleased = RELEASED.reduce((s, r) => s + Number(r.approved_amount || 0), 0);
+        return {
+          contract_total: contractTotal,
+          total_released: totalReleased,
+          balance_after_all: contractTotal - totalReleased,
+          rab_count: rabs.length,
+        };
+      })()
+    : {
+        contract_total: data.contract_total,
+        total_released: data.total_released,
+        balance_after_all: data.balance_after_all,
+        rab_count: data.rab_count,
+      };
   const REJECTED = new Set(['rejected', 'accountant_rejected', 'se_rework_rejected']);
   const REQUESTED = rabs.filter(r => !REJECTED.has(r.status) && r.status !== 'approved');
 
@@ -304,12 +328,13 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
 
   return (
     <div className="space-y-3">
-      {/* Top summary strip */}
+      {/* Top summary strip — values respect any stageIdFilter (so the
+          Additional RAB tab shows additional-only totals, not the full WO). */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <SumTile label="Contract Total" value={inr(data.contract_total)} accent="text-blue-700" />
-        <SumTile label="Total Released" value={inr(data.total_released)} accent="text-emerald-700" />
-        <SumTile label="Balance" value={inr(data.balance_after_all)} accent="text-orange-700" />
-        <SumTile label="RAB Count" value={`${data.rab_count}`} accent="text-violet-700" />
+        <SumTile label="Contract Total" value={inr(summary.contract_total)} accent="text-blue-700" />
+        <SumTile label="Total Released" value={inr(summary.total_released)} accent="text-emerald-700" />
+        <SumTile label="Balance" value={inr(summary.balance_after_all)} accent="text-orange-700" />
+        <SumTile label="RAB Count" value={`${summary.rab_count}`} accent="text-violet-700" />
       </div>
 
       <Tabs defaultValue="all" className="w-full">
