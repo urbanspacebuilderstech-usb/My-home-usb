@@ -715,9 +715,32 @@ async def get_all_income(
     project_ids = list(set(e.get("project_id") for e in income_entries if e.get("project_id")))
     projects = await db.projects.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000)
     project_map = {p["project_id"]: p["name"] for p in projects}
-    
+
+    # Enrich stage description from the LIVE payment_stages collection so the
+    # accountant always sees the current stage label (not a stale cached one
+    # captured at the time of income approval). Falls back to the income's
+    # stored stage text when no payment_stage_id is present or the stage was
+    # deleted.
+    stage_ids = list({(e.get("payment_stage_id") or e.get("stage_id")) for e in income_entries if (e.get("payment_stage_id") or e.get("stage_id"))})
+    stage_map: Dict[str, Dict[str, Any]] = {}
+    if stage_ids:
+        live_stages = await db.payment_stages.find(
+            {"stage_id": {"$in": stage_ids}},
+            {"_id": 0, "stage_id": 1, "stage_name": 1, "stage_label": 1, "stage_order": 1, "stage_index": 1},
+        ).to_list(2000)
+        stage_map = {s["stage_id"]: s for s in live_stages}
+
     for entry in income_entries:
         entry["project_name"] = project_map.get(entry.get("project_id"), "Unknown")
+        sid = entry.get("payment_stage_id") or entry.get("stage_id")
+        if sid and sid in stage_map:
+            live = stage_map[sid]
+            live_name = live.get("stage_name") or live.get("stage_label")
+            if live_name:
+                # Compose "<index> <name>" pattern only when an order/index is
+                # present, otherwise just the name.
+                idx = live.get("stage_order") or live.get("stage_index")
+                entry["stage"] = f"{idx} {live_name}".strip() if idx else live_name
         if isinstance(entry.get("payment_date"), str):
             entry["payment_date"] = datetime.fromisoformat(entry["payment_date"])
         if isinstance(entry.get("created_at"), str):
