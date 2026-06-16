@@ -128,53 +128,21 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
   const REJECTED = new Set(['rejected', 'accountant_rejected', 'se_rework_rejected']);
   const REQUESTED = rabs.filter(r => !REJECTED.has(r.status) && r.status !== 'approved');
 
-  // Group every RAB by its stage. For multi-stage bills, the same RAB shows
-  // up under EACH stage it touches with its per-stage portion — so the user
-  // sees the bill linked from every section/stage it covers, with correct
-  // per-stage totals. We also prefer the WO's authoritative stage meta
-  // (name + amount) over the rab payload to avoid stale data.
-  const stageMetaById = (() => {
-    const m = new Map();
-    (workOrder?.stages || []).forEach(st => {
-      if (st.stage_id) m.set(st.stage_id, st);
-    });
-    return m;
-  })();
-
+  // Group every RAB by its stage. Stage meta (name + total amount) comes
+  // from the rab payload itself — backend already enriches each row.
   const groupByStage = (list) => {
     const map = new Map();
-    const ensure = (sid, fallbackName, fallbackAmount) => {
+    list.forEach((r) => {
+      const sid = r.stage_id || '__no_stage__';
       if (!map.has(sid)) {
-        const meta = stageMetaById.get(sid) || {};
         map.set(sid, {
           stage_id: sid,
-          stage_name: meta.name || meta.stage_name || fallbackName || 'Stage',
-          stage_amount: Number(meta.amount ?? meta.scheduled_amount ?? fallbackAmount ?? 0),
+          stage_name: r.stage_name || 'Stage',
+          stage_amount: r.stage_amount || 0,
           rabs: [],
         });
       }
-      return map.get(sid);
-    };
-    list.forEach((r) => {
-      if (r.is_multi_stage && Array.isArray(r.stage_breakdown) && r.stage_breakdown.length > 0) {
-        // Fan the RAB out across each covered stage; clone with per-stage
-        // amounts so the inner table + the per-card balance maths are right.
-        r.stage_breakdown.forEach(sb => {
-          const sid = sb.stage_id || '__no_stage__';
-          const g = ensure(sid, sb.stage_name, r.stage_amount);
-          g.rabs.push({
-            ...r,
-            stage_id: sid,
-            stage_name: sb.stage_name || r.stage_name,
-            requested_amount: Number(sb.requested_amount || 0),
-            approved_amount: Number(sb.approved_amount || 0),
-          });
-        });
-      } else {
-        const sid = r.stage_id || '__no_stage__';
-        const g = ensure(sid, r.stage_name, r.stage_amount);
-        g.rabs.push(r);
-      }
+      map.get(sid).rabs.push(r);
     });
     // Sort each group's rabs by request time (chronological RAB numbering).
     map.forEach(g => g.rabs.sort((a, b) => (a.timeline?.[0]?.at || '').localeCompare(b.timeline?.[0]?.at || '')));
@@ -334,14 +302,14 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
     );
   };
 
-  // Build the grouped layout for one of the three sub-tab buckets. Each
-  // tab feeds its own filtered RAB list straight into groupByStage so
-  // multi-stage bills fan out correctly per stage in every view.
+  // Build & filter the grouped layout for one of the three sub-tab buckets.
   const renderGrouped = (sourceList, emptyMsg) => {
-    const groups = groupByStage(sourceList)
-      .map(decorateTotals)
+    const allGroups = groupByStage(rabs).map(decorateTotals);
+    const sourceIds = new Set(sourceList.map(r => r.stage_id || '__no_stage__'));
+    const visibleGroups = allGroups
+      .filter(g => sourceIds.has(g.stage_id))
       .filter(matchesStageFilter);
-    if (groups.length === 0) {
+    if (visibleGroups.length === 0) {
       return (
         <div className="py-10 text-center text-sm text-gray-400">
           <FileText className="h-8 w-8 mx-auto text-gray-300 mb-2" />
@@ -351,8 +319,8 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
     }
     return (
       <div className="space-y-3">
-        {groups.map(g => (
-          <StageCard key={g.stage_id} group={g} scopedRabs={g.rabs} />
+        {visibleGroups.map(g => (
+          <StageCard key={g.stage_id} group={g} scopedRabs={g.rabs.filter(r => sourceList.includes(r))} />
         ))}
       </div>
     );
