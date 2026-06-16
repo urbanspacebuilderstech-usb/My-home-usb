@@ -10066,26 +10066,53 @@ export default function ProjectDetail() {
 
                           {/* ADDITIONAL WORK */}
                           <TabsContent value="additional" className="mt-3">
-                            <div className="flex justify-end mb-2"><Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, additional_work: [...f.additional_work, { description: '', unit: 'nos', quantity: 1, unit_rate: 0 }] }))} data-testid="wo-add-additional"><Plus className="h-3 w-3 mr-1" />Add Item</Button></div>
-                            {woForm.additional_work.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No additional work</p> : (
-                              <div className="space-y-2">
-                                <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1"><div className="col-span-3">Description</div><div className="col-span-2">Unit</div><div className="col-span-2">Qty</div><div className="col-span-2">Rate</div><div className="col-span-2">Total</div><div className="col-span-1"></div></div>
-                                {woForm.additional_work.map((item, idx) => {
-                                  const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_rate) || 0);
-                                  return (
-                                  <div key={idx} className="grid grid-cols-12 gap-1 items-center">
-                                    <div className="col-span-3"><Input placeholder="Description" value={item.description} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], description: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" data-testid={`wo-add-desc-${idx}`} /></div>
-                                    <div className="col-span-2">
-                                      <UnitCombobox value={item.unit} onChange={(v) => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], unit: v }; setWoForm(f => ({ ...f, additional_work: a })); }} units={WO_UNITS} testId={`wo-add-unit-${idx}`} />
-                                    </div>
-                                    <div className="col-span-2"><Input type="number" value={item.quantity} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], quantity: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" /></div>
-                                    <div className="col-span-2"><Input type="number" value={item.unit_rate} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], unit_rate: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" /></div>
-                                    <div className="col-span-2"><span className="text-xs font-medium pl-1">{formatCurrency(total)}</span></div>
-                                    <div className="col-span-1 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setWoForm(f => ({ ...f, additional_work: f.additional_work.filter((_, i) => i !== idx) }))}><X className="h-3 w-3" /></Button></div>
-                                  </div>);
-                                })}
-                              </div>
-                            )}
+                            {(() => {
+                              const all = woForm.additional_work.map((a, idx) => ({ ...a, _idx: idx }));
+                              const claimable = all.filter(a => (a.claim_type || 'claimable') === 'claimable');
+                              const nonClaimable = all.filter(a => a.claim_type === 'non_claimable');
+                              const updateItem = (idx, patch) => setWoForm(f => ({ ...f, additional_work: f.additional_work.map((it, i) => i === idx ? { ...it, ...patch } : it) }));
+                              const addItem = (ct) => setWoForm(f => ({ ...f, additional_work: [...f.additional_work, { description: '', unit: 'nos', quantity: 1, unit_rate: 0, claim_type: ct }] }));
+                              const removeItem = (idx) => setWoForm(f => ({ ...f, additional_work: f.additional_work.filter((_, i) => i !== idx) }));
+                              const renderRows = (rows, ct) => (
+                                <div className="space-y-2">
+                                  <div className="flex justify-end mb-1">
+                                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => addItem(ct)} data-testid={`wo-form-add-${ct}`}>
+                                      <Plus className="h-3 w-3 mr-1" /> Add Item
+                                    </Button>
+                                  </div>
+                                  {rows.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No additional work in this bucket</p> : (
+                                    <>
+                                      <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1"><div className="col-span-3">Description</div><div className="col-span-2">Unit</div><div className="col-span-2">Qty</div><div className="col-span-2">Rate</div><div className="col-span-2">Total</div><div className="col-span-1"></div></div>
+                                      {rows.map((item) => {
+                                        const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_rate) || 0);
+                                        return (
+                                        <div key={item._idx} className="grid grid-cols-12 gap-1 items-center">
+                                          <div className="col-span-3"><Input placeholder="Description" value={item.description} onChange={e => updateItem(item._idx, { description: e.target.value })} className="h-8 text-xs" data-testid={`wo-add-desc-${item._idx}`} /></div>
+                                          <div className="col-span-2"><UnitCombobox value={item.unit} onChange={(v) => updateItem(item._idx, { unit: v })} units={WO_UNITS} testId={`wo-add-unit-${item._idx}`} /></div>
+                                          <div className="col-span-2"><Input type="number" value={item.quantity} onChange={e => updateItem(item._idx, { quantity: e.target.value })} className="h-8 text-xs" /></div>
+                                          <div className="col-span-2"><Input type="number" value={item.unit_rate} onChange={e => updateItem(item._idx, { unit_rate: e.target.value })} className="h-8 text-xs" /></div>
+                                          <div className="col-span-2"><span className="text-xs font-medium pl-1">{formatCurrency(total)}</span></div>
+                                          <div className="col-span-1 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => removeItem(item._idx)}><X className="h-3 w-3" /></Button></div>
+                                        </div>);
+                                      })}
+                                    </>
+                                  )}
+                                </div>
+                              );
+                              return (
+                                <Tabs defaultValue="claimable" className="w-full" data-testid="wo-form-additional-subtabs">
+                                  <TabsList className="grid grid-cols-2 w-full">
+                                    <TabsTrigger value="claimable" data-testid="wo-form-add-tab-claimable">Claimable From Client ({claimable.length})</TabsTrigger>
+                                    <TabsTrigger value="non_claimable" data-testid="wo-form-add-tab-nonclaimable">Non-Claimable From Client ({nonClaimable.length})</TabsTrigger>
+                                  </TabsList>
+                                  <TabsContent value="claimable" className="mt-3">{renderRows(claimable, 'claimable')}</TabsContent>
+                                  <TabsContent value="non_claimable" className="mt-3">
+                                    <p className="text-[10px] text-gray-400 mb-2 italic">Non-Claimable items are absorbed by the company and do NOT sync to the Client Portal.</p>
+                                    {renderRows(nonClaimable, 'non_claimable')}
+                                  </TabsContent>
+                                </Tabs>
+                              );
+                            })()}
                           </TabsContent>
 
                           {/* DEDUCTIONS */}
