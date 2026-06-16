@@ -8882,16 +8882,98 @@ async def add_additional_item(
     new_total = sum(float(i.get("total") or 0) for i in items)
     scope_total = float(wo.get("scope_total") or 0)
     deduction_total = float(wo.get("deduction_total") or 0)
+    wo["additional_work"] = items
+    update_set = {
+        "additional_work": items,
+        "additional_total": round(new_total, 2),
+        "total_value": round(scope_total + new_total - deduction_total, 2),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # Refresh the section's auto-stage amount so SE sees the new total immediately.
+    if section_id:
+        update_set["stages"] = _sync_section_stage(wo, section_id)
     await db.project_work_orders.update_one(
         {"work_order_id": work_order_id, "project_id": project_id},
-        {"$set": {
-            "additional_work": items,
-            "additional_total": round(new_total, 2),
-            "total_value": round(scope_total + new_total - deduction_total, 2),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }},
+        {"$set": update_set},
     )
     return {"message": "Additional item added", "item": new_item, "additional_total": round(new_total, 2)}
+
+
+# ── Helper: keep one auto-stage per Additional Section in sync ────────
+# An Additional Section translates to ONE stage in wo.stages with
+# `linked_section_id` set (NOT `linked_additional_index`). The stage's
+# amount mirrors the sum of all items in the section, its name mirrors
+# the section's name, and `is_open` mirrors `not section.is_locked`.
+# Items inside a section therefore do NOT get individual stages — the
+# section IS the stage from a contractor billing perspective. The user
+# request (Feb 16 2026) was: "section title should come in SE — when
+# locked show locked, when unlocked open Additional RAB Request popup".
+def _sync_section_stage(wo: dict, section_id: str) -> list:
+    """Mutates and returns wo['stages']. Idempotent — call after any
+    item add/edit/delete or section lock toggle for that section."""
+    from uuid import uuid4
+    section = next((s for s in (wo.get("additional_sections") or []) if s.get("section_id") == section_id), None)
+    stages = wo.get("stages") or []
+    items = wo.get("additional_work") or []
+    sec_items = [it for it in items if it.get("section_id") == section_id]
+    # Section deleted → drop its stage entirely IF no payment_requests on it.
+    if not section:
+        kept = []
+        for st in stages:
+            if st.get("linked_section_id") == section_id:
+                if st.get("payment_requests"):
+                    # Preserve so historical RABs aren't orphaned; just close it.
+                    st["is_open"] = False
+                    kept.append(st)
+                # else drop
+            else:
+                kept.append(st)
+        return kept
+    amount = sum(float(it.get("total") or (float(it.get("quantity") or 0) * float(it.get("unit_rate") or 0))) for it in sec_items)
+    section_name = section.get("name") or section.get("title") or "Additional Work"
+    claim_type = section.get("claim_type") or "claimable"
+    is_open = not bool(section.get("is_locked", True))
+    # Drop legacy per-item auto-stages for items in this section (only when
+    # they carry no payment_requests — never orphan a historical RAB).
+    cleaned = []
+    sec_item_indices = {i for i, it in enumerate(items) if it.get("section_id") == section_id}
+    for st in stages:
+        lai = st.get("linked_additional_index")
+        if isinstance(lai, int) and lai in sec_item_indices and not st.get("linked_section_id"):
+            if st.get("payment_requests"):
+                # Keep historical, but close it so it doesn't double-bill alongside the section stage.
+                st["is_open"] = False
+                cleaned.append(st)
+            # else drop the legacy stage
+        else:
+            cleaned.append(st)
+    # Find/create the section's stage
+    section_stage = next((st for st in cleaned if st.get("linked_section_id") == section_id), None)
+    if section_stage is None:
+        section_stage = {
+            "stage_id": f"stg_{uuid4().hex[:12]}",
+            "stage_label": f"SEC-{section_id[-6:]}",
+            "stage_name": section_name,
+            "amount": amount,
+            "scheduled_amount": amount,
+            "is_open": is_open,
+            "is_addition": True,
+            "is_section_addition": True,
+            "claim_type": claim_type,
+            "linked_section_id": section_id,
+            "payment_requests": [],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        cleaned.append(section_stage)
+    else:
+        section_stage["stage_name"] = section_name
+        section_stage["amount"] = amount
+        section_stage["scheduled_amount"] = amount
+        section_stage["is_open"] = is_open
+        section_stage["is_addition"] = True
+        section_stage["is_section_addition"] = True
+        section_stage["claim_type"] = claim_type
+    return cleaned
 
 
 @router.post("/projects/{project_id}/work-orders/{work_order_id}/additional/sections")
@@ -8943,7 +9025,9 @@ async def toggle_additional_section_lock(
     user: User = Depends(get_current_user),
 ):
     """Planning toggles lock on a section. All items in the section inherit the lock state.
-    Body: { is_locked: bool }."""
+    The section is represented as ONE auto-stage in wo.stages (named after the section);
+    `_sync_section_stage` keeps that single stage's amount + open flag in lock-step with
+    the section state. Body: { is_locked: bool }."""
     if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can lock/unlock sections")
     wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
@@ -8955,44 +9039,14 @@ async def toggle_additional_section_lock(
         raise HTTPException(status_code=404, detail="Section not found")
     new_state = bool(data.get("is_locked", True))
     sec["is_locked"] = new_state
-    # Cascade to all items belonging to this section.
+    # Cascade to all items belonging to this section (UI cue only — section stage drives RAB visibility).
     items = wo.get("additional_work") or []
-    stages = wo.get("stages") or []
-    from uuid import uuid4
-    for idx, it in enumerate(items):
-        if it.get("section_id") != section_id:
-            continue
-        it["is_locked"] = new_state
-        # Mirror the per-item lock auto-stage logic so SE Board reflects the
-        # unlock/lock immediately when toggled at the section level.
-        linked_si = None
-        for si, st in enumerate(stages):
-            if st.get("linked_additional_index") == idx:
-                linked_si = si
-                break
-        if not new_state:  # UNLOCK → ensure open stage exists
-            amount = float(it.get("total") or (float(it.get("quantity") or 0) * float(it.get("unit_rate") or 0)))
-            if linked_si is None:
-                stages.append({
-                    "stage_id": f"stg_{uuid4().hex[:12]}",
-                    "stage_label": f"A{idx + 1}",
-                    "stage_name": it.get("description") or "Additional Work",
-                    "amount": amount,
-                    "scheduled_amount": amount,
-                    "is_open": True,
-                    "is_addition": True,
-                    "claim_type": it.get("claim_type") or "claimable",
-                    "linked_additional_index": idx,
-                    "payment_requests": [],
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                })
-            else:
-                stages[linked_si]["is_open"] = True
-                stages[linked_si]["amount"] = amount
-                stages[linked_si]["scheduled_amount"] = amount
-        else:  # LOCK → close any linked stage
-            if linked_si is not None:
-                stages[linked_si]["is_open"] = False
+    for it in items:
+        if it.get("section_id") == section_id:
+            it["is_locked"] = new_state
+    wo["additional_sections"] = sections
+    wo["additional_work"] = items
+    stages = _sync_section_stage(wo, section_id)
     await db.project_work_orders.update_one(
         {"work_order_id": work_order_id, "project_id": project_id},
         {"$set": {"additional_sections": sections, "additional_work": items, "stages": stages, "updated_at": datetime.now(timezone.utc).isoformat()}},
@@ -9019,9 +9073,13 @@ async def delete_additional_section(
         if it.get("section_id") == section_id:
             it["section_id"] = None
             it["section_name"] = None
+    wo["additional_sections"] = sections
+    wo["additional_work"] = items
+    # Drop / close the section's auto-stage (sync helper handles both cases).
+    stages = _sync_section_stage(wo, section_id)
     await db.project_work_orders.update_one(
         {"work_order_id": work_order_id, "project_id": project_id},
-        {"$set": {"additional_sections": sections, "additional_work": items, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        {"$set": {"additional_sections": sections, "additional_work": items, "stages": stages, "updated_at": datetime.now(timezone.utc).isoformat()}},
     )
     return {"message": "Section deleted; items moved to Ungrouped"}
 
@@ -9049,6 +9107,16 @@ async def toggle_additional_item_lock(
     new_state = bool(data.get("is_locked", True))
     items[item_index]["is_locked"] = new_state
     item = items[item_index]
+
+    # Items inside an Additional Section are billed via the section's
+    # auto-stage, so skip the per-item stage path for sectioned items —
+    # otherwise we'd double-create stages on the SE board.
+    if item.get("section_id"):
+        await db.project_work_orders.update_one(
+            {"work_order_id": work_order_id, "project_id": project_id},
+            {"$set": {"additional_work": items, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        return {"message": f"Additional item {'locked' if new_state else 'unlocked'}", "is_locked": new_state}
 
     # Make the additional item visible (or hidden) on the Site Engineer board
     # by ensuring a matching stage exists in `wo.stages` whose `is_open` flag
@@ -9110,7 +9178,8 @@ async def delete_additional_item(
     items = wo.get("additional_work") or []
     if item_index < 0 or item_index >= len(items):
         raise HTTPException(status_code=404, detail="Item not found")
-    items.pop(item_index)
+    deleted = items.pop(item_index)
+    deleted_section_id = deleted.get("section_id")
     # Remove linked auto-stage; shift linked_additional_index on remaining stages.
     stages = wo.get("stages") or []
     new_stages = []
@@ -9124,6 +9193,10 @@ async def delete_additional_item(
     new_total = sum(float(i.get("total") or 0) for i in items)
     scope_total = float(wo.get("scope_total") or 0)
     deduction_total = float(wo.get("deduction_total") or 0)
+    wo["additional_work"] = items
+    wo["stages"] = new_stages
+    if deleted_section_id:
+        new_stages = _sync_section_stage(wo, deleted_section_id)
     await db.project_work_orders.update_one(
         {"work_order_id": work_order_id, "project_id": project_id},
         {"$set": {
@@ -9169,7 +9242,7 @@ async def edit_additional_item(
         try: it["unit_rate"] = float(data.get("unit_rate") or 0)
         except (ValueError, TypeError): raise HTTPException(status_code=400, detail="Invalid rate")
     it["total"] = round(float(it.get("quantity") or 0) * float(it.get("unit_rate") or 0), 2)
-    # Sync linked auto-stage amount
+    # Sync linked auto-stage amount (legacy per-item path; section-level sync runs below).
     stages = wo.get("stages") or []
     for st in stages:
         if st.get("linked_additional_index") == item_index:
@@ -9180,6 +9253,11 @@ async def edit_additional_item(
     new_total = sum(float(i.get("total") or 0) for i in items)
     scope_total = float(wo.get("scope_total") or 0)
     deduction_total = float(wo.get("deduction_total") or 0)
+    wo["additional_work"] = items
+    wo["stages"] = stages
+    # Refresh the section's auto-stage amount when this item belongs to a section.
+    if it.get("section_id"):
+        stages = _sync_section_stage(wo, it["section_id"])
     await db.project_work_orders.update_one(
         {"work_order_id": work_order_id, "project_id": project_id},
         {"$set": {
