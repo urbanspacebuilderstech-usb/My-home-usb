@@ -8829,6 +8829,57 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
     return {"message": "Payment requested successfully", "request_id": payment_req["request_id"], "rab_number": rab_number}
 
 
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/additional")
+async def add_additional_item(
+    project_id: str,
+    work_order_id: str,
+    data: dict,
+    user: User = Depends(get_current_user),
+):
+    """Append a single additional_work item to a WO. Used by the inline
+    "Add Item" button inside Claimable / Non-Claimable sub-tabs.
+    Body: { description, unit, quantity, unit_rate, claim_type }."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN, UserRole.CRE]:
+        raise HTTPException(status_code=403, detail="Not authorised to add additional items")
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    description = (data.get("description") or "").strip()
+    if not description:
+        raise HTTPException(status_code=400, detail="Description is required")
+    try:
+        qty = float(data.get("quantity") or 0)
+        rate = float(data.get("unit_rate") or 0)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Quantity and rate must be numbers")
+    claim_type = data.get("claim_type") or "claimable"
+    if claim_type not in ("claimable", "non_claimable"):
+        claim_type = "claimable"
+    new_item = {
+        "description": description,
+        "unit": data.get("unit") or "nos",
+        "quantity": qty,
+        "unit_rate": rate,
+        "total": round(qty * rate, 2),
+        "claim_type": claim_type,
+        "is_locked": True,
+    }
+    items = (wo.get("additional_work") or []) + [new_item]
+    new_total = sum(float(i.get("total") or 0) for i in items)
+    scope_total = float(wo.get("scope_total") or 0)
+    deduction_total = float(wo.get("deduction_total") or 0)
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {
+            "additional_work": items,
+            "additional_total": round(new_total, 2),
+            "total_value": round(scope_total + new_total - deduction_total, 2),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"message": "Additional item added", "item": new_item, "additional_total": round(new_total, 2)}
+
+
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/additional/{item_index}/lock")
 async def toggle_additional_item_lock(
     project_id: str,
