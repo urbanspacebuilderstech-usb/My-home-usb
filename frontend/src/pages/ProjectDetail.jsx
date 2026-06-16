@@ -1607,7 +1607,7 @@ export default function ProjectDetail() {
         scope_items: (wo.scope_items || []).map(s => ({ name: s.name, unit: s.unit, quantity: s.quantity, unit_rate: s.unit_rate })),
         // Strip auto-derived "additional cost" stages — they get regenerated each render from additional_work
         stages: (wo.stages || []).filter(s => s.source !== 'additional').map(s => ({ name: s.name, type: s.type, value: s.value })),
-        additional_work: (wo.additional_work || []).map(a => ({ description: a.description, unit: a.unit, quantity: a.quantity, unit_rate: a.unit_rate })),
+        additional_work: (wo.additional_work || []).map(a => ({ description: a.description, unit: a.unit, quantity: a.quantity, unit_rate: a.unit_rate, claim_type: a.claim_type || 'claimable', is_locked: a.is_locked !== false })),
         deductions: (wo.deductions || []).map(d => ({ description: d.description, unit: d.unit, quantity: d.quantity, unit_rate: d.unit_rate })),
         labour_rates: wo.labour_rates || { skilled: 0, semi_skilled: 0, unskilled: 0 },
       });
@@ -2015,7 +2015,7 @@ export default function ProjectDetail() {
           new_contractor_id: '',
           scope_items: (wo.scope_items || []).map(s => ({ name: s.name, unit: s.unit, quantity: s.quantity, unit_rate: s.unit_rate })),
           stages: balanceStages.map(s => ({ name: s.name, type: s.type, value: s.value })),
-          additional_work: (wo.additional_work || []).map(a => ({ description: a.description, unit: a.unit, quantity: a.quantity, unit_rate: a.unit_rate })),
+          additional_work: (wo.additional_work || []).map(a => ({ description: a.description, unit: a.unit, quantity: a.quantity, unit_rate: a.unit_rate, claim_type: a.claim_type || 'claimable', is_locked: a.is_locked !== false })),
           notes: '',
         });
         setFreezeNewType('');
