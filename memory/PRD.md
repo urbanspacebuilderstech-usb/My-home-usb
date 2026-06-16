@@ -13,6 +13,18 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 16, 2026 — SE Additional Tab UI Clone + Additional RAB Tab Wired (P0)
+- **Status**: ✅ COMPLETE & DEPLOYED (`main.f5a6d676.js`, VPS commit `408e6457`).
+- **User ask**: The 3 sub-tabs under SE/Sr.SE > Work Order > **Additional** (Claimable / Non-Claimable / Rework) must mirror the **Payment Schedule Stages** UI exactly — same 4 status pills (All / Open / Completed / Locked) and same StageRequestDialog (Total RAB request popup) flow on click.
+- **Frontend** (`SiteEngineerWorkOrdersV2.jsx`):
+  - `PaymentScheduleTab` now accepts optional `stageFilter`, `title`, `description`, `emptyText` props. Default behaviour (without filter) auto-excludes `is_addition` stages so they never bleed into the main Payment Schedule.
+  - SE > **Additional** tab → renders 3 sub-tabs, each one is a full `PaymentScheduleTab` instance scoped to `s.is_addition && s.claim_type === <bucket>`. Status pills, stage rows, click → RAB Request popup all reuse the existing infrastructure.
+  - SE > **Additional RAB** tab → no longer a placeholder. Reuses `WORABTab` with `stageIdFilter` scoped to `is_addition` stages.
+  - SE > **Total RAB's** tab → now passes `stageIdFilter` that excludes `is_addition` stages (additional RABs only appear under Additional RAB).
+- **Frontend** (`WORABTab.jsx`): added `stageIdFilter` prop that filters `data.rabs` by `stage_id` before grouping/rendering. No backend changes — backend was already auto-creating `is_addition: true` stages whenever Planning unlocks a section.
+
+## What's Been Implemented
+
 ### Session — Feb 12, 2026 — SE Receive Material: Diff Column + Mismatch Reason (P1)
 - **Status**: ✅ COMPLETE & DEPLOYED (`main.0ab5e025.js`).
 - **User ask**: When SE-entered Received Qty ≠ Requested Qty (per row OR total), show the difference and force SE to enter a reason — capture both in the receipt summary.
