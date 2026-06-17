@@ -11050,7 +11050,13 @@ export default function ProjectDetail() {
                                       </div>
                                     );
                                     const renderTable = (rows, ct) => {
-                                      const tabSections = (wo.additional_sections || []).filter(s => s.claim_type === ct);
+                                      // Legacy data: pre-split `claim_type='rework'` sections roll into
+                                      // 'rework_se' so they don't disappear after the migration.
+                                      const matchesCt = (val) => {
+                                        if (ct === 'rework_se') return val === 'rework_se' || val === 'rework';
+                                        return val === ct;
+                                      };
+                                      const tabSections = (wo.additional_sections || []).filter(s => matchesCt(s.claim_type));
                                       const ungrouped = rows.filter(r => !r.section_id);
                                       const subtotal = rows.reduce((s, r) => s + (r.total || 0), 0);
                                       const lockedSum = rows.filter(r => r.is_locked !== false).reduce((s, r) => s + (r.total || 0), 0);

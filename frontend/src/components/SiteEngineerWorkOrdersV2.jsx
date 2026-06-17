@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import {
   ChevronRight,
+  ChevronDown,
   ArrowLeft,
   ClipboardList,
   Banknote,
@@ -573,6 +574,14 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage, stageFilter, ti
     ? allStages.filter(stageFilter)
     : allStages.filter(s => !s.is_addition);
   const [filterKey, setFilterKey] = useState('all'); // 'all' shows all stages
+  // Per-section expansion — clicking the chevron next to a section-stage name
+  // reveals the inline items (description / qty / unit / rate / total) so SE
+  // can review what they're billing without opening the dialog.
+  const [expandedSections, setExpandedSections] = useState({});
+  const toggleSectionExpand = (stageId, e) => {
+    e?.stopPropagation?.();
+    setExpandedSections(prev => ({ ...prev, [stageId]: !prev[stageId] }));
+  };
   // Workflow mode toggle (set via Super Architect's Workflow Master Setup).
   //   planning_open → only 3 simple buckets (Open / Locked / All)
   //   se_request    → full 9-bucket SE-driven lifecycle dashboard
@@ -676,7 +685,7 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage, stageFilter, ti
         ) : visibleStages.length === 0 ? (
           <p className="text-center text-xs text-gray-400 py-8">No stages match this filter</p>
         ) : (
-          <div className="divide-y">
+          <div className="divide-y-0">
             {visibleStages.map((stage) => {
               const i = stages.indexOf(stage);
               const sb = stageStatusBadge(stage);
@@ -685,14 +694,26 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage, stageFilter, ti
               const carryover = stage.carryover_deduction || 0;
               const balance = Math.max(0, (stage.amount || 0) - released - pending - carryover);
               return (
+                <div key={stage.stage_id || i} className="border-b last:border-b-0">
                 <div
-                  key={stage.stage_id || i}
                   className="px-3 py-2.5 flex items-center justify-between gap-2 hover:bg-amber-50/40 cursor-pointer"
                   onClick={() => onClickStage(stage)}
                   data-testid={`wov2-stage-row-${stage.stage_id || i}`}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
+                      {/* Chevron only for section-derived stages — they carry an items[] worth showing inline. */}
+                      {stage.linked_section_id && (
+                        <button
+                          type="button"
+                          onClick={(e) => toggleSectionExpand(stage.stage_id, e)}
+                          className="h-5 w-5 -ml-1 inline-flex items-center justify-center text-gray-500 hover:text-gray-900 rounded hover:bg-gray-100"
+                          title={expandedSections[stage.stage_id] ? 'Hide items' : 'Show items'}
+                          data-testid={`wov2-stage-expand-${stage.stage_id || i}`}
+                        >
+                          {expandedSections[stage.stage_id] ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                        </button>
+                      )}
                       <span className="text-sm font-semibold text-gray-900">{i + 1}. {stage.name || stage.stage_name}</span>
                       {/* Locked stages: title only. SE has no need for status/amount/badge until Planning unlocks. */}
                       {stage.is_open && (
@@ -723,6 +744,56 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage, stageFilter, ti
                   >
                     <Eye className="h-3 w-3" /> View
                   </Button>
+                </div>
+                {/* Inline items panel — surfaces the additional_work rows that
+                    belong to this section so SE can sanity-check before they
+                    open the dialog. Only Additional / section-stages have items. */}
+                {stage.linked_section_id && expandedSections[stage.stage_id] && (() => {
+                  const items = (wo.additional_work || []).filter(it => it.section_id === stage.linked_section_id);
+                  if (items.length === 0) {
+                    return <div className="bg-gray-50/60 px-4 py-2 text-[11px] text-gray-400 italic border-t">No items in this section yet.</div>;
+                  }
+                  return (
+                    <div className="bg-gray-50/60 border-t" data-testid={`wov2-stage-items-${stage.stage_id}`}>
+                      <table className="w-full text-[11px]">
+                        <thead className="text-gray-500">
+                          <tr>
+                            <th className="text-left font-medium px-3 py-1.5 w-8">#</th>
+                            <th className="text-left font-medium px-2 py-1.5">Description</th>
+                            <th className="text-left font-medium px-2 py-1.5 w-14">Unit</th>
+                            <th className="text-right font-medium px-2 py-1.5 w-16">Qty</th>
+                            <th className="text-right font-medium px-2 py-1.5 w-20">Rate</th>
+                            <th className="text-right font-medium px-2 py-1.5 w-20">Total</th>
+                            <th className="text-center font-medium px-2 py-1.5 w-14">Lock</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {items.map((it, idx) => {
+                            const itemLocked = it.is_locked !== false;
+                            return (
+                              <tr key={idx} className="border-t">
+                                <td className="px-3 py-1.5 text-gray-400">{idx + 1}</td>
+                                <td className="px-2 py-1.5 text-gray-800">{it.description}</td>
+                                <td className="px-2 py-1.5 text-gray-600">{it.unit}</td>
+                                <td className="px-2 py-1.5 text-right text-gray-700">{it.quantity}</td>
+                                <td className="px-2 py-1.5 text-right text-gray-700">{fmt(it.unit_rate)}</td>
+                                <td className="px-2 py-1.5 text-right font-medium text-gray-900">{fmt(it.total)}</td>
+                                <td className="px-2 py-1.5 text-center">
+                                  <Badge variant="outline" className={`text-[9px] ${itemLocked ? 'bg-gray-100 text-gray-600' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>{itemLocked ? 'Locked' : 'Open'}</Badge>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          <tr className="border-t bg-white">
+                            <td colSpan="5" className="px-3 py-1.5 text-right font-semibold text-gray-700 text-xs">Section Total (Unlocked)</td>
+                            <td className="px-2 py-1.5 text-right font-bold text-gray-900">{fmt(items.filter(it => !it.is_locked).reduce((s, it) => s + (it.total || 0), 0))}</td>
+                            <td></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
                 </div>
               );
             })}
@@ -871,6 +942,9 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   // value: string amount. Empty/unselected stages are omitted from this map.
   // Defaults to a single entry pointing at the originating `stage`.
   const [allocations, setAllocations] = useState({});
+  // Per-stage expand state for the multi-stage allocation list — clicking
+  // the chevron next to a section-derived stage reveals its inline items.
+  const [allocExpanded, setAllocExpanded] = useState({});
   // RAB detail popup — opens when SE clicks "View" on a Payment Summary row.
   const [rabView, setRabView] = useState({ open: false, requestId: null });
 
@@ -1396,7 +1470,8 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                     const val = allocations[s.stage_id] ?? '';
                     const over = parseFloat(val || 0) > cap + 0.01;
                     return (
-                      <div key={s.stage_id} className={`flex items-center gap-2 px-2 py-1.5 rounded border ${checked ? 'border-amber-300 bg-white' : 'border-gray-200 bg-gray-50'}`} data-testid={`wov2-stage-row-${s.stage_id}`}>
+                      <div key={s.stage_id} className={`rounded border ${checked ? 'border-amber-300 bg-white' : 'border-gray-200 bg-gray-50'}`} data-testid={`wov2-stage-row-${s.stage_id}`}>
+                      <div className="flex items-center gap-2 px-2 py-1.5">
                         <input
                           type="checkbox"
                           checked={checked}
@@ -1420,6 +1495,17 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                           className="h-3.5 w-3.5 accent-amber-600"
                           data-testid={`wov2-stage-check-${s.stage_id}`}
                         />
+                        {s.linked_section_id && (
+                          <button
+                            type="button"
+                            onClick={() => setAllocExpanded(prev => ({ ...prev, [s.stage_id]: !prev[s.stage_id] }))}
+                            className="h-5 w-5 inline-flex items-center justify-center text-gray-500 hover:text-gray-900 rounded hover:bg-gray-100"
+                            title={allocExpanded[s.stage_id] ? 'Hide items' : 'Show items'}
+                            data-testid={`wov2-alloc-expand-${s.stage_id}`}
+                          >
+                            {allocExpanded[s.stage_id] ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                          </button>
+                        )}
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium truncate" title={s.name}>
                             {s.name}
@@ -1439,6 +1525,41 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                           className="h-7 text-xs w-24 text-right"
                           data-testid={`wov2-stage-amt-${s.stage_id}`}
                         />
+                      </div>
+                      {s.linked_section_id && allocExpanded[s.stage_id] && (() => {
+                        const items = (wo.additional_work || []).filter(it => it.section_id === s.linked_section_id);
+                        if (items.length === 0) {
+                          return <div className="bg-gray-50/70 px-3 py-1.5 text-[10px] italic text-gray-400 border-t">No items.</div>;
+                        }
+                        return (
+                          <div className="bg-gray-50/70 border-t" data-testid={`wov2-alloc-items-${s.stage_id}`}>
+                            <table className="w-full text-[10px]">
+                              <thead className="text-gray-500">
+                                <tr>
+                                  <th className="text-left font-medium px-3 py-1">#</th>
+                                  <th className="text-left font-medium px-2 py-1">Description</th>
+                                  <th className="text-left font-medium px-2 py-1">Unit</th>
+                                  <th className="text-right font-medium px-2 py-1">Qty</th>
+                                  <th className="text-right font-medium px-2 py-1">Rate</th>
+                                  <th className="text-right font-medium px-2 py-1">Total</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {items.map((it, idx) => (
+                                  <tr key={idx} className="border-t">
+                                    <td className="px-3 py-1 text-gray-400">{idx + 1}</td>
+                                    <td className="px-2 py-1 text-gray-800">{it.description}{it.is_locked && <span className="ml-1 text-[9px] text-gray-400">· locked</span>}</td>
+                                    <td className="px-2 py-1 text-gray-600">{it.unit}</td>
+                                    <td className="px-2 py-1 text-right text-gray-700">{it.quantity}</td>
+                                    <td className="px-2 py-1 text-right text-gray-700">{fmt(it.unit_rate)}</td>
+                                    <td className="px-2 py-1 text-right font-medium text-gray-900">{fmt(it.total)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        );
+                      })()}
                       </div>
                     );
                   })}
