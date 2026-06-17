@@ -10361,6 +10361,87 @@ async def _find_pr_and_update(work_order_id: str, stage_id: str, request_id: str
     )
     return target_pr
 
+@router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/payment-requests/{request_id}")
+async def edit_stage_payment_request(
+    project_id: str,
+    work_order_id: str,
+    stage_id: str,
+    request_id: str,
+    data: dict,
+    user: User = Depends(get_current_user),
+):
+    """SE / Sr.SE / Planning / Super Admin edit a pending RAB request.
+    Only allowed while the request is still in flight ('requested' / rejected
+    states that the SE can resubmit). Once PM / QC / Planning / Accountant
+    has acted, the amount is locked — they have to reject + SE re-submits.
+
+    Body: { amount?: float, notes?: str }"""
+    if user.role not in [
+        UserRole.SITE_ENGINEER,
+        UserRole.SR_SITE_ENGINEER,
+        UserRole.ASSOCIATE_PM,
+        UserRole.PLANNING,
+        UserRole.PLANNING_PERSON,
+        UserRole.SUPER_ADMIN,
+    ]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    target_pr = None
+    target_stage = None
+    for s in wo.get("stages") or []:
+        if s.get("stage_id") != stage_id:
+            continue
+        for p in s.get("payment_requests") or []:
+            if p.get("request_id") == request_id:
+                target_pr = p
+                target_stage = s
+                break
+        break
+    if not target_pr:
+        raise HTTPException(status_code=404, detail="RAB request not found")
+    editable_statuses = {"requested", "pm_rejected", "qc_rejected", "planning_rejected", "accountant_rejected"}
+    if target_pr.get("status") not in editable_statuses:
+        raise HTTPException(status_code=400, detail=f"Cannot edit a RAB in '{target_pr.get('status')}' status — needs a rejection first")
+    if target_pr.get("is_multi_stage"):
+        raise HTTPException(status_code=400, detail="Multi-stage RAB editing is not supported yet — delete & resubmit instead")
+
+    new_amount = data.get("amount")
+    new_notes = data.get("notes")
+    if new_amount is not None:
+        try:
+            new_amount = float(new_amount)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="amount must be numeric")
+        if new_amount <= 0:
+            raise HTTPException(status_code=400, detail="amount must be > 0")
+        target_pr["amount"] = round(new_amount, 2)
+        target_pr["requested_amount"] = round(new_amount, 2)
+    if new_notes is not None:
+        target_pr["notes"] = (new_notes or "").strip()
+    target_pr["edited_at"] = datetime.now(timezone.utc).isoformat()
+    target_pr["edited_by"] = user.user_id
+    target_pr["edited_by_name"] = user.name
+
+    # Refresh stage rollups
+    target_stage["amount_pending"] = sum(
+        float(p.get("amount", 0)) for p in (target_stage.get("payment_requests") or [])
+        if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"]
+    )
+
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"stages": wo.get("stages"), "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"message": "RAB request updated", "request": {
+        "request_id": request_id,
+        "amount": target_pr.get("amount"),
+        "notes": target_pr.get("notes"),
+    }}
+
+
+
 @router.delete("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/payment-requests/{request_id}")
 async def delete_stage_payment_request(
     project_id: str,

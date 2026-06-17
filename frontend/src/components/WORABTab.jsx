@@ -5,7 +5,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Eye, Loader2, FileText, Clock, CheckCircle2, Search, X, ShieldCheck, Wallet, AlertCircle, RotateCcw, ClipboardCheck, Trash2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
+import { Label } from './ui/label';
+import { Textarea } from './ui/textarea';
+import { Eye, Loader2, FileText, Clock, CheckCircle2, Search, X, ShieldCheck, Wallet, AlertCircle, RotateCcw, ClipboardCheck, Pencil } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -28,6 +31,11 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
   // Tracks the request_id currently being deleted so we can disable just
   // that row's trash button while the request is in flight.
   const [deletingId, setDeletingId] = useState(null);
+  // Edit a pending RAB inline — replaces the older delete shortcut on each
+  // row. SE / Sr.SE can adjust amount + notes only while the RAB is still
+  // 'requested' (or has been rejected and is awaiting resubmit).
+  const [editDialog, setEditDialog] = useState({ open: false, rab: null, amount: '', notes: '' });
+  const [editSaving, setEditSaving] = useState(false);
   // Free-text filter on stage name. Acts as a searchable dropdown — typing
   // narrows down which stage cards remain visible. The "select" mode (click
   // a chip) jumps straight to that stage card.
@@ -45,9 +53,9 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
 
   useEffect(() => { reloadChain(); /* eslint-disable-next-line */ }, [projectId, workOrder?.work_order_id]);
 
-  // Delete a single RAB row. Backend rejects deletions of Accountant-released
-  // RABs — those must be reversed via the cashbook first. The cascade purge
-  // also drops any linked expense / cashbook entries.
+  // Delete a single RAB row. Kept for backward-compat callers — the row UI
+  // now exposes Edit instead of Delete to the SE; deletion still happens
+  // from the detail view if needed.
   const deleteRab = async (rab) => {
     const amt = (rab.approved_amount || rab.requested_amount || 0).toLocaleString('en-IN');
     if (!window.confirm(`Delete ${rab.rab_number || 'this RAB'} (₹${amt})?\n\nThis will also purge any linked expense and cashbook rows. Cannot be undone.`)) return;
@@ -66,6 +74,39 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
       toast.error(e.response?.data?.detail || 'Failed to delete');
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  // Open the inline Edit dialog for a pending RAB.
+  const openEditRab = (rab) => {
+    if (rab.is_multi_stage) {
+      toast.error('Multi-stage RAB cannot be edited inline — request a rejection and resubmit.');
+      return;
+    }
+    setEditDialog({
+      open: true, rab,
+      amount: String(rab.requested_amount ?? rab.amount ?? ''),
+      notes: rab.notes || '',
+    });
+  };
+  const submitEditRab = async () => {
+    const r = editDialog.rab;
+    if (!r) return;
+    const amt = Number(editDialog.amount);
+    if (!amt || amt <= 0) { toast.error('Amount must be > 0'); return; }
+    setEditSaving(true);
+    try {
+      await axios.patch(
+        `${API}/projects/${projectId}/work-orders/${workOrder.work_order_id}/stages/${r.stage_id}/payment-requests/${r.request_id}`,
+        { amount: amt, notes: editDialog.notes },
+      );
+      toast.success(`${r.rab_number || 'RAB'} updated`);
+      setEditDialog({ open: false, rab: null, amount: '', notes: '' });
+      reloadChain();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to update');
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -209,17 +250,16 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
                 <Eye className="h-3 w-3 mr-1" /> View
               </Button>
             ) : null}
-            {rab.status === 'requested' && (
+            {rab.status === 'requested' && !rab.is_multi_stage && (
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-7 w-7 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
-                onClick={() => deleteRab(rab)}
-                disabled={deletingId === rab.request_id}
-                title={`Delete ${rab.rab_number || 'RAB'}`}
-                data-testid={`wo-rab-delete-${rab.rab_number}`}
+                className="h-7 w-7 p-0 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50"
+                onClick={() => openEditRab(rab)}
+                title={`Edit ${rab.rab_number || 'RAB'}`}
+                data-testid={`wo-rab-edit-${rab.rab_number}`}
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                <Pencil className="h-3.5 w-3.5" />
               </Button>
             )}
           </div>
@@ -411,6 +451,51 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
           {renderGrouped(REQUESTED, 'No pending requests — everything is released or rejected.')}
         </TabsContent>
       </Tabs>
+
+      {/* Edit pending RAB dialog — amount + notes only, while it's still in
+          'requested' / rejected status (pre PM approval). */}
+      <Dialog open={editDialog.open} onOpenChange={(o) => !o && setEditDialog({ open: false, rab: null, amount: '', notes: '' })}>
+        <DialogContent className="max-w-md" data-testid="rab-edit-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Pencil className="h-4 w-4 text-indigo-600" /> Edit {editDialog.rab?.rab_number || 'RAB'}</DialogTitle>
+            <DialogDescription className="text-xs">
+              Updates the pending request amount &amp; notes. Approval ladder restarts from PM.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Stage</Label>
+              <p className="text-sm font-semibold text-gray-800">{editDialog.rab?.stage_name || '—'}</p>
+            </div>
+            <div>
+              <Label className="text-xs">Amount <span className="text-red-500">*</span></Label>
+              <Input
+                type="number" step="0.01"
+                value={editDialog.amount}
+                onChange={(e) => setEditDialog(prev => ({ ...prev, amount: e.target.value }))}
+                className="h-9 text-sm"
+                data-testid="rab-edit-amount"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Notes</Label>
+              <Textarea
+                value={editDialog.notes}
+                onChange={(e) => setEditDialog(prev => ({ ...prev, notes: e.target.value }))}
+                rows={3}
+                className="text-sm"
+                data-testid="rab-edit-notes"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialog({ open: false, rab: null, amount: '', notes: '' })} data-testid="rab-edit-cancel">Cancel</Button>
+            <Button onClick={submitEditRab} disabled={editSaving} className="bg-indigo-600 hover:bg-indigo-700" data-testid="rab-edit-save">
+              {editSaving ? 'Saving…' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
