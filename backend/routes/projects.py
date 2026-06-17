@@ -10409,6 +10409,12 @@ async def edit_stage_payment_request(
 
     new_amount = data.get("amount")
     new_notes = data.get("notes")
+    new_stage_id = data.get("target_stage_id")
+    if new_stage_id is not None:
+        try:
+            new_stage_id = str(new_stage_id).strip() or None
+        except Exception:
+            new_stage_id = None
     if new_amount is not None:
         try:
             new_amount = float(new_amount)
@@ -10424,11 +10430,29 @@ async def edit_stage_payment_request(
     target_pr["edited_by"] = user.user_id
     target_pr["edited_by_name"] = user.name
 
-    # Refresh stage rollups
-    target_stage["amount_pending"] = sum(
-        float(p.get("amount", 0)) for p in (target_stage.get("payment_requests") or [])
-        if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"]
-    )
+    # ── Stage move: if SE picks a different open stage, lift the
+    # payment_request out of the old stage and append to the new one.
+    # Both stages' rollups need to refresh.
+    new_stage = None
+    if new_stage_id and new_stage_id != stage_id:
+        new_stage = next((s for s in (wo.get("stages") or []) if s.get("stage_id") == new_stage_id), None)
+        if not new_stage:
+            raise HTTPException(status_code=404, detail="Target stage not found")
+        if not new_stage.get("is_open"):
+            raise HTTPException(status_code=400, detail="Target stage is locked")
+        # Detach from old stage
+        target_stage["payment_requests"] = [p for p in (target_stage.get("payment_requests") or []) if p.get("request_id") != request_id]
+        # Attach to new stage
+        target_pr["stage_id"] = new_stage_id
+        new_stage.setdefault("payment_requests", []).append(target_pr)
+
+    # Refresh rollups on every affected stage
+    affected = [target_stage] + ([new_stage] if new_stage else [])
+    for st in affected:
+        st["amount_pending"] = sum(
+            float(p.get("amount", 0)) for p in (st.get("payment_requests") or [])
+            if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"]
+        )
 
     await db.project_work_orders.update_one(
         {"work_order_id": work_order_id, "project_id": project_id},
@@ -10438,6 +10462,7 @@ async def edit_stage_payment_request(
         "request_id": request_id,
         "amount": target_pr.get("amount"),
         "notes": target_pr.get("notes"),
+        "stage_id": target_pr.get("stage_id"),
     }}
 
 

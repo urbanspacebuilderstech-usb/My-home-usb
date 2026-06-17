@@ -8,6 +8,7 @@ import { Input } from './ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Eye, Loader2, FileText, Clock, CheckCircle2, Search, X, ShieldCheck, Wallet, AlertCircle, RotateCcw, ClipboardCheck, Pencil } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -34,7 +35,7 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
   // Edit a pending RAB inline — replaces the older delete shortcut on each
   // row. SE / Sr.SE can adjust amount + notes only while the RAB is still
   // 'requested' (or has been rejected and is awaiting resubmit).
-  const [editDialog, setEditDialog] = useState({ open: false, rab: null, amount: '', notes: '' });
+  const [editDialog, setEditDialog] = useState({ open: false, rab: null, amount: '', notes: '', stage_id: '' });
   const [editSaving, setEditSaving] = useState(false);
   // Free-text filter on stage name. Acts as a searchable dropdown — typing
   // narrows down which stage cards remain visible. The "select" mode (click
@@ -87,6 +88,7 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
       open: true, rab,
       amount: String(rab.requested_amount ?? rab.amount ?? ''),
       notes: rab.notes || '',
+      stage_id: rab.stage_id || '',
     });
   };
   const submitEditRab = async () => {
@@ -98,10 +100,10 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
     try {
       await axios.patch(
         `${API}/projects/${projectId}/work-orders/${workOrder.work_order_id}/stages/${r.stage_id}/payment-requests/${r.request_id}`,
-        { amount: amt, notes: editDialog.notes },
+        { amount: amt, notes: editDialog.notes, target_stage_id: editDialog.stage_id || undefined },
       );
       toast.success(`${r.rab_number || 'RAB'} updated`);
-      setEditDialog({ open: false, rab: null, amount: '', notes: '' });
+      setEditDialog({ open: false, rab: null, amount: '', notes: '', stage_id: '' });
       reloadChain();
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Failed to update');
@@ -454,42 +456,110 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
 
       {/* Edit pending RAB dialog — amount + notes only, while it's still in
           'requested' / rejected status (pre PM approval). */}
-      <Dialog open={editDialog.open} onOpenChange={(o) => !o && setEditDialog({ open: false, rab: null, amount: '', notes: '' })}>
-        <DialogContent className="max-w-md" data-testid="rab-edit-dialog">
+      <Dialog open={editDialog.open} onOpenChange={(o) => !o && setEditDialog({ open: false, rab: null, amount: '', notes: '', stage_id: '' })}>
+        <DialogContent className="max-w-lg" data-testid="rab-edit-dialog">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><Pencil className="h-4 w-4 text-indigo-600" /> Edit {editDialog.rab?.rab_number || 'RAB'}</DialogTitle>
             <DialogDescription className="text-xs">
-              Updates the pending request amount &amp; notes. Approval ladder restarts from PM.
+              Update the pending request — amount, notes, or move it to a different open stage. Approval ladder restarts from PM.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label className="text-xs">Stage</Label>
-              <p className="text-sm font-semibold text-gray-800">{editDialog.rab?.stage_name || '—'}</p>
-            </div>
-            <div>
-              <Label className="text-xs">Amount <span className="text-red-500">*</span></Label>
-              <Input
-                type="number" step="0.01"
-                value={editDialog.amount}
-                onChange={(e) => setEditDialog(prev => ({ ...prev, amount: e.target.value }))}
-                className="h-9 text-sm"
-                data-testid="rab-edit-amount"
-              />
-            </div>
-            <div>
-              <Label className="text-xs">Notes</Label>
-              <Textarea
-                value={editDialog.notes}
-                onChange={(e) => setEditDialog(prev => ({ ...prev, notes: e.target.value }))}
-                rows={3}
-                className="text-sm"
-                data-testid="rab-edit-notes"
-              />
-            </div>
-          </div>
+          {(() => {
+            const allStages = workOrder?.stages || [];
+            const openStages = allStages.filter(s => s.is_open);
+            // Compute live balance per stage = scheduled - sum(approved on this stage) - sum(pending excluding this request).
+            const balanceOf = (s) => {
+              const approved = (s.payment_requests || []).filter(p => p.status === 'approved').reduce((a, p) => a + Number(p.approved_amount || 0), 0);
+              const pending = (s.payment_requests || []).filter(p => ['requested', 'pm_approved', 'qc_approved', 'planning_approved'].includes(p.status) && p.request_id !== editDialog.rab?.request_id).reduce((a, p) => a + Number(p.amount || 0), 0);
+              return Number(s.amount || s.scheduled_amount || 0) - approved - pending;
+            };
+            const currentStage = allStages.find(s => s.stage_id === editDialog.stage_id);
+            const currentBalance = currentStage ? balanceOf(currentStage) : 0;
+            const overBalance = Number(editDialog.amount || 0) > currentBalance + 0.5;
+            const orig = editDialog.rab || {};
+            return (
+              <div className="space-y-3">
+                {/* Read-only context strip — RAB number / current status / original request meta */}
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="rounded border bg-gray-50/60 px-2 py-1.5">
+                    <p className="text-gray-500 uppercase text-[9px] font-semibold">RAB</p>
+                    <p className="font-bold text-gray-800">{orig.rab_number || '—'}</p>
+                  </div>
+                  <div className="rounded border bg-gray-50/60 px-2 py-1.5">
+                    <p className="text-gray-500 uppercase text-[9px] font-semibold">Original Amount</p>
+                    <p className="font-bold text-gray-800">{inr(orig.requested_amount)}</p>
+                  </div>
+                </div>
+
+                {/* Stage selector with live balance shown alongside each option */}
+                <div>
+                  <Label className="text-xs">Stage <span className="text-red-500">*</span></Label>
+                  <Select
+                    value={editDialog.stage_id}
+                    onValueChange={(v) => setEditDialog(prev => ({ ...prev, stage_id: v }))}
+                  >
+                    <SelectTrigger className="h-9 text-sm" data-testid="rab-edit-stage">
+                      <SelectValue placeholder="Select stage" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {/* Always include the current stage so the SE can keep it even if it's the only option. */}
+                      {openStages.length === 0 && currentStage && (
+                        <SelectItem value={currentStage.stage_id} key={currentStage.stage_id}>
+                          {currentStage.name || currentStage.stage_name} · Bal {inr(balanceOf(currentStage))}
+                        </SelectItem>
+                      )}
+                      {openStages.map(s => (
+                        <SelectItem key={s.stage_id} value={s.stage_id}>
+                          {s.name || s.stage_name} · Bal {inr(balanceOf(s))}{s.is_addition ? ' · Additional' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {currentStage && (
+                    <p className="text-[10px] text-gray-500 mt-0.5">
+                      Stage total {inr(currentStage.amount || currentStage.scheduled_amount)} · Available balance <strong className={overBalance ? 'text-red-600' : 'text-emerald-700'}>{inr(currentBalance)}</strong>
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Amount <span className="text-red-500">*</span></Label>
+                    <Input
+                      type="number" step="0.01"
+                      value={editDialog.amount}
+                      onChange={(e) => setEditDialog(prev => ({ ...prev, amount: e.target.value }))}
+                      className={`h-9 text-sm ${overBalance ? 'border-red-400 focus-visible:ring-red-400' : ''}`}
+                      data-testid="rab-edit-amount"
+                    />
+                    {overBalance && (
+                      <p className="text-[10px] text-red-600 mt-0.5">Exceeds available balance by {inr(Number(editDialog.amount || 0) - currentBalance)}.</p>
+                    )}
+                  </div>
+                  <div className="flex items-end">
+                    <div className="text-[10px] text-gray-500 pb-2">
+                      <p>Requested: <strong className="text-gray-800">{inr(Number(editDialog.amount || 0))}</strong></p>
+                      <p>Closing after: <strong className={overBalance ? 'text-red-600' : 'text-emerald-700'}>{inr(currentBalance - Number(editDialog.amount || 0))}</strong></p>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-xs">Notes</Label>
+                  <Textarea
+                    value={editDialog.notes}
+                    onChange={(e) => setEditDialog(prev => ({ ...prev, notes: e.target.value }))}
+                    rows={3}
+                    placeholder="Why is this RAB being updated? (visible to PM/QC/Planning)"
+                    className="text-sm"
+                    data-testid="rab-edit-notes"
+                  />
+                </div>
+              </div>
+            );
+          })()}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialog({ open: false, rab: null, amount: '', notes: '' })} data-testid="rab-edit-cancel">Cancel</Button>
+            <Button variant="outline" onClick={() => setEditDialog({ open: false, rab: null, amount: '', notes: '', stage_id: '' })} data-testid="rab-edit-cancel">Cancel</Button>
             <Button onClick={submitEditRab} disabled={editSaving} className="bg-indigo-600 hover:bg-indigo-700" data-testid="rab-edit-save">
               {editSaving ? 'Saving…' : 'Save Changes'}
             </Button>
