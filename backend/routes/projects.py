@@ -8899,6 +8899,101 @@ async def add_additional_item(
     return {"message": "Additional item added", "item": new_item, "additional_total": round(new_total, 2)}
 
 
+# ── Add a Scope Item to an existing Work Order ─────────────────────────
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/scope-items")
+async def add_wo_scope_item(
+    project_id: str,
+    work_order_id: str,
+    data: dict,
+    user: User = Depends(get_current_user),
+):
+    """Planning adds a new line item to the WO's Scope tab. Recomputes
+    scope_total and total_value so the contract header stays in sync."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can add scope items")
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    name = (data.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    qty = float(data.get("quantity") or 0)
+    rate = float(data.get("unit_rate") or 0)
+    new_item = {
+        "name": name,
+        "unit": data.get("unit") or "nos",
+        "quantity": qty,
+        "unit_rate": rate,
+        "total": round(qty * rate, 2),
+    }
+    scope_items = (wo.get("scope_items") or []) + [new_item]
+    scope_total = sum(float(s.get("total") or 0) for s in scope_items)
+    additional_total = float(wo.get("additional_total") or 0)
+    deduction_total = float(wo.get("deduction_total") or 0)
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {
+            "scope_items": scope_items,
+            "scope_total": round(scope_total, 2),
+            "total_value": round(scope_total + additional_total - deduction_total, 2),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"message": "Scope item added", "item": new_item, "scope_total": round(scope_total, 2)}
+
+
+# ── Add a Stage to an existing Work Order ──────────────────────────────
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/stages")
+async def add_wo_stage(
+    project_id: str,
+    work_order_id: str,
+    data: dict,
+    user: User = Depends(get_current_user),
+):
+    """Planning adds a new payment stage to the WO. The stage is created
+    LOCKED so Planning has to explicitly Open it before SE can request a RAB."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can add stages")
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    name = (data.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Stage name is required")
+    amount = float(data.get("amount") or 0)
+    stage_type = (data.get("type") or "fixed").lower()
+    if stage_type not in ("fixed", "percentage"):
+        stage_type = "fixed"
+    value = float(data.get("value") or 0)
+    if stage_type == "percentage":
+        # Percentage stages bill against the total contract value.
+        amount = round((float(wo.get("total_value") or 0) * value) / 100.0, 2)
+    from uuid import uuid4
+    stages = wo.get("stages") or []
+    new_stage = {
+        "stage_id": f"stg_{uuid4().hex[:12]}",
+        "stage_label": f"S{len([s for s in stages if not s.get('is_addition')]) + 1}",
+        "name": name,
+        "stage_name": name,
+        "type": stage_type,
+        "value": value if stage_type == "percentage" else None,
+        "amount": amount,
+        "scheduled_amount": amount,
+        "is_open": False,
+        "status": "locked",
+        "payment_requests": [],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": user.user_id,
+    }
+    stages.append(new_stage)
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"stages": stages, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"message": "Stage added", "stage": new_stage}
+
+
+
 # ── Helper: keep one auto-stage per Additional Section in sync ────────
 # An Additional Section translates to ONE stage in wo.stages with
 # `linked_section_id` set (NOT `linked_additional_index`). The stage's

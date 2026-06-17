@@ -1232,6 +1232,15 @@ export default function ProjectDetail() {
   // Planning: Request Labour Advance (Planning → PM → GM → Accountant)
   const [labourAdvanceDialog, setLabourAdvanceDialog] = useState({ open: false, stage: null, workOrder: null, amount: '', date: '', reason: '' });
   const [labourAdvanceSaving, setLabourAdvanceSaving] = useState(false);
+  // Planning: Add Scope Item / Add Stage to an existing Work Order.
+  // Single dialog handles both modes; `mode` switches the form fields.
+  const [addWoItemDialog, setAddWoItemDialog] = useState({
+    open: false, mode: 'scope', wo: null,
+    name: '', unit: 'nos', quantity: '', unit_rate: '',
+    stage_type: 'fixed', value: '', amount: '',
+  });
+  const [addWoItemSaving, setAddWoItemSaving] = useState(false);
+
   const [labourAttendance, setLabourAttendance] = useState([]);
   const [showAttendanceForm, setShowAttendanceForm] = useState(false);
   const [attForm, setAttForm] = useState({ contractor_id: '', work_order_id: '', stage_id: '', date: new Date().toISOString().split('T')[0], entries: [] });
@@ -1942,6 +1951,49 @@ export default function ProjectDetail() {
       toast.success('Stage locked');
       fetchWorkOrders();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to lock stage'); }
+  };
+
+  const openAddScopeItem = (wo) => setAddWoItemDialog({
+    open: true, mode: 'scope', wo,
+    name: '', unit: 'nos', quantity: '', unit_rate: '',
+    stage_type: 'fixed', value: '', amount: '',
+  });
+  const openAddStage = (wo) => setAddWoItemDialog({
+    open: true, mode: 'stage', wo,
+    name: '', unit: 'nos', quantity: '', unit_rate: '',
+    stage_type: 'fixed', value: '', amount: '',
+  });
+  const submitAddWoItem = async () => {
+    const d = addWoItemDialog;
+    if (!d.wo) return;
+    if (!d.name.trim()) { toast.error('Name is required'); return; }
+    setAddWoItemSaving(true);
+    try {
+      if (d.mode === 'scope') {
+        const qty = Number(d.quantity || 0);
+        const rate = Number(d.unit_rate || 0);
+        if (qty <= 0 || rate <= 0) { toast.error('Quantity and Rate must be > 0'); setAddWoItemSaving(false); return; }
+        await axios.post(`${API}/projects/${projectId}/work-orders/${d.wo.work_order_id}/scope-items`, {
+          name: d.name.trim(), unit: d.unit || 'nos', quantity: qty, unit_rate: rate,
+        });
+        toast.success('Scope item added');
+      } else {
+        const amt = Number(d.amount || 0);
+        const val = Number(d.value || 0);
+        if (d.stage_type === 'fixed' && amt <= 0) { toast.error('Amount must be > 0'); setAddWoItemSaving(false); return; }
+        if (d.stage_type === 'percentage' && (val <= 0 || val > 100)) { toast.error('Percentage must be between 1 and 100'); setAddWoItemSaving(false); return; }
+        await axios.post(`${API}/projects/${projectId}/work-orders/${d.wo.work_order_id}/stages`, {
+          name: d.name.trim(), type: d.stage_type, value: val, amount: amt,
+        });
+        toast.success('Stage added (locked) — click Open Stage when ready');
+      }
+      setAddWoItemDialog(prev => ({ ...prev, open: false }));
+      fetchWorkOrders();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to add');
+    } finally {
+      setAddWoItemSaving(false);
+    }
   };
 
   // Returns Open / Locked / Completed only — RAB approval sub-states
@@ -9439,6 +9491,13 @@ export default function ProjectDetail() {
                               <TabsTrigger value="rab" className="flex-1 text-xs rounded-none border-b-2 border-transparent data-[state=active]:bg-violet-50 data-[state=active]:text-violet-700 data-[state=active]:border-violet-600 data-[state=active]:font-semibold data-[state=active]:shadow-none py-2.5" data-testid="wo-rab-tab">RAB</TabsTrigger>
                             </TabsList>
                             <TabsContent value="scope" className="p-3">
+                              {['planning', 'planning_person', 'super_admin'].includes(user?.role) && (
+                                <div className="flex justify-end mb-2">
+                                  <Button size="sm" className="h-7 text-xs bg-violet-600 hover:bg-violet-700" data-testid={`wo-add-scope-${wo.work_order_id}`} onClick={() => openAddScopeItem(wo)}>
+                                    <Plus className="h-3 w-3 mr-1" /> Add Item
+                                  </Button>
+                                </div>
+                              )}
                               {wo.scope_items?.length > 0 ? (
                                 <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
                                 <tbody className="divide-y">{(wo.scope_items || []).map((s, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{s.name}</td><td className="px-3 py-2">{s.unit}</td><td className="px-3 py-2 text-right">{s.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(s.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(s.total)}</td></tr>))}</tbody>
@@ -9446,6 +9505,13 @@ export default function ProjectDetail() {
                               ) : <p className="text-gray-400 text-center py-4 text-sm">No scope items</p>}
                             </TabsContent>
                             <TabsContent value="stages" className="p-3">
+                              {['planning', 'planning_person', 'super_admin'].includes(user?.role) && (
+                                <div className="flex justify-end mb-2">
+                                  <Button size="sm" className="h-7 text-xs bg-violet-600 hover:bg-violet-700" data-testid={`wo-add-stage-${wo.work_order_id}`} onClick={() => openAddStage(wo)}>
+                                    <Plus className="h-3 w-3 mr-1" /> Add Stage
+                                  </Button>
+                                </div>
+                              )}
                               {wo.stages?.length > 0 ? (() => {
                                 const counts = { open: 0, locked: 0, completed: 0, all: wo.stages.length };
                                 wo.stages.forEach(s => { counts[stageBucketOf(s)]++; });
@@ -12425,6 +12491,130 @@ export default function ProjectDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Planning: Add Scope Item / Add Stage to an existing WO. Single
+          dialog with two layouts (mode switches form fields). */}
+      <Dialog open={addWoItemDialog.open} onOpenChange={(o) => !o && setAddWoItemDialog(prev => ({ ...prev, open: false }))}>
+        <DialogContent className="max-w-md" data-testid="add-wo-item-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-violet-600" />
+              {addWoItemDialog.mode === 'scope' ? 'Add Scope Item' : 'Add Stage'}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {addWoItemDialog.mode === 'scope'
+                ? 'New scope line is added to this Work Order. Contract total auto-updates.'
+                : 'New stage starts LOCKED. Click Open Stage when ready for SE to raise RAB.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Name <span className="text-red-500">*</span></Label>
+              <Input
+                value={addWoItemDialog.name}
+                onChange={(e) => setAddWoItemDialog(prev => ({ ...prev, name: e.target.value }))}
+                placeholder={addWoItemDialog.mode === 'scope' ? 'e.g. Labour charges for plastering' : 'e.g. Foundation Completion'}
+                className="h-9 text-sm"
+                data-testid="add-wo-item-name"
+              />
+            </div>
+            {addWoItemDialog.mode === 'scope' ? (
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <Label className="text-xs">Unit</Label>
+                  <Input
+                    value={addWoItemDialog.unit}
+                    onChange={(e) => setAddWoItemDialog(prev => ({ ...prev, unit: e.target.value }))}
+                    placeholder="nos / sqft / ls"
+                    className="h-9 text-sm"
+                    data-testid="add-wo-item-unit"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Quantity <span className="text-red-500">*</span></Label>
+                  <Input
+                    type="number" step="0.01"
+                    value={addWoItemDialog.quantity}
+                    onChange={(e) => setAddWoItemDialog(prev => ({ ...prev, quantity: e.target.value }))}
+                    className="h-9 text-sm"
+                    data-testid="add-wo-item-qty"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Rate <span className="text-red-500">*</span></Label>
+                  <Input
+                    type="number" step="0.01"
+                    value={addWoItemDialog.unit_rate}
+                    onChange={(e) => setAddWoItemDialog(prev => ({ ...prev, unit_rate: e.target.value }))}
+                    className="h-9 text-sm"
+                    data-testid="add-wo-item-rate"
+                  />
+                </div>
+                <div className="col-span-3 text-right text-xs text-gray-500">
+                  Line Total:&nbsp;
+                  <strong className="text-violet-700">
+                    {formatCurrency((Number(addWoItemDialog.quantity || 0) || 0) * (Number(addWoItemDialog.unit_rate || 0) || 0))}
+                  </strong>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <Label className="text-xs">Stage Type</Label>
+                  <Select
+                    value={addWoItemDialog.stage_type}
+                    onValueChange={(v) => setAddWoItemDialog(prev => ({ ...prev, stage_type: v }))}
+                  >
+                    <SelectTrigger className="h-9 text-sm" data-testid="add-wo-stage-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="fixed">Fixed Amount</SelectItem>
+                      <SelectItem value="percentage">% of Total Contract</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {addWoItemDialog.stage_type === 'percentage' ? (
+                  <div>
+                    <Label className="text-xs">Percentage <span className="text-red-500">*</span></Label>
+                    <Input
+                      type="number" step="0.01" min="0" max="100"
+                      value={addWoItemDialog.value}
+                      onChange={(e) => setAddWoItemDialog(prev => ({ ...prev, value: e.target.value }))}
+                      placeholder="e.g. 10"
+                      className="h-9 text-sm"
+                      data-testid="add-wo-stage-pct"
+                    />
+                    {addWoItemDialog.wo && Number(addWoItemDialog.value) > 0 && (
+                      <p className="text-[10px] text-gray-500 mt-1">
+                        ≈ {formatCurrency(((Number(addWoItemDialog.wo.total_value) || 0) * Number(addWoItemDialog.value)) / 100)} of {formatCurrency(addWoItemDialog.wo.total_value)}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <Label className="text-xs">Amount <span className="text-red-500">*</span></Label>
+                    <Input
+                      type="number" step="0.01"
+                      value={addWoItemDialog.amount}
+                      onChange={(e) => setAddWoItemDialog(prev => ({ ...prev, amount: e.target.value }))}
+                      className="h-9 text-sm"
+                      data-testid="add-wo-stage-amount"
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddWoItemDialog(prev => ({ ...prev, open: false }))} data-testid="add-wo-item-cancel">Cancel</Button>
+            <Button onClick={submitAddWoItem} disabled={addWoItemSaving} className="bg-violet-600 hover:bg-violet-700" data-testid="add-wo-item-save">
+              {addWoItemSaving ? 'Saving…' : (addWoItemDialog.mode === 'scope' ? 'Add Item' : 'Add Stage')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
 
       {/* Planning → PM → GM → Accountant: Labour Advance Request */}
       <Dialog open={labourAdvanceDialog.open} onOpenChange={(o) => !o && setLabourAdvanceDialog({ open: false, stage: null, workOrder: null, amount: '', date: '', reason: '' })}>
