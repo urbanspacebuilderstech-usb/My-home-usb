@@ -10823,6 +10823,13 @@ export default function ProjectDetail() {
                                     <tbody className="divide-y">{(wo.scope_items || []).map((s, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{s.name}</td><td className="px-3 py-2">{s.unit}</td><td className="px-3 py-2 text-right">{s.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(s.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(s.total)}</td></tr>))}</tbody>
                                     <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Scope Total:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(wo.scope_total)}</td></tr></tfoot></table>
                                   ) : <p className="text-gray-400 text-center py-4 text-sm">No scope items</p>}
+                                  {['planning', 'planning_person', 'super_admin'].includes(user?.role) && (
+                                    <div className="mt-3 flex justify-start">
+                                      <Button size="sm" variant="outline" className="h-8 text-xs border-dashed border-violet-300 text-violet-700 hover:bg-violet-50" data-testid={`labour-wo-add-scope-${wo.work_order_id}`} onClick={() => openAddScopeItem(wo)}>
+                                        <Plus className="h-3.5 w-3.5 mr-1" /> Add Item
+                                      </Button>
+                                    </div>
+                                  )}
                                 </TabsContent>
                                 <TabsContent value="stages" className="p-3">
                                   {wo.stages?.length > 0 ? (() => {
@@ -10961,6 +10968,13 @@ export default function ProjectDetail() {
                                     </div>
                                     );
                                   })() : <p className="text-gray-400 text-center py-4 text-sm">No stages</p>}
+                                  {['planning', 'planning_person', 'super_admin'].includes(user?.role) && (
+                                    <div className="mt-3 flex justify-start">
+                                      <Button size="sm" variant="outline" className="h-8 text-xs border-dashed border-violet-300 text-violet-700 hover:bg-violet-50" data-testid={`labour-wo-add-stage-${wo.work_order_id}`} onClick={() => openAddStage(wo)}>
+                                        <Plus className="h-3.5 w-3.5 mr-1" /> Add Stage
+                                      </Button>
+                                    </div>
+                                  )}
                                 </TabsContent>
                                 <TabsContent value="additional" className="p-3">
                                   {(() => {
