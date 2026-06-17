@@ -113,14 +113,21 @@ export default function ClientPortal() {
 
       // Get all projects for this client
       const projRes = await axios.get(`${API}/client-portal/my-projects`);
-      setProjects(projRes.data || []);
-      
+      const all = projRes.data || [];
+      setProjects(all);
+
       // If we have a projectId in URL, select it
       if (projectId) {
-        const proj = (projRes.data || []).find(p => p.project_id === projectId);
+        const proj = all.find(p => p.project_id === projectId);
         if (proj) {
           setSelectedProject(proj);
         }
+      } else if (all.length === 1) {
+        // Single-project clients (the common case) skip the "My Projects"
+        // list and land straight on their project dashboard. The dashboard
+        // IS the main view in the client portal.
+        navigate(`/client-portal/${all[0].project_id}`, { replace: true });
+        return;
       }
       setLoading(false);
     } catch (error) {
@@ -453,9 +460,11 @@ export default function ClientPortal() {
       <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4 print:hidden">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 sm:gap-3">
-            <Button variant="ghost" size="icon" onClick={() => navigate('/client-portal')} className="h-8 w-8 sm:h-10 sm:w-10">
-              <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5" />
-            </Button>
+            {projects.length > 1 && (
+              <Button variant="ghost" size="icon" onClick={() => navigate('/client-portal')} className="h-8 w-8 sm:h-10 sm:w-10">
+                <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5" />
+              </Button>
+            )}
             <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
               <h1 className="text-base sm:text-xl font-bold text-gray-900">My Home USB</h1>
