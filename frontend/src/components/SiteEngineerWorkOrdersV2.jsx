@@ -904,10 +904,20 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   // Rule #2: only OPEN stages (locked + completed/zero-balance excluded).
   // In edit mode, always keep the editing RAB's source stage available
   // so SE can keep it as a target even if its current balance is 0.
+  // Also scope to the SAME stage "group" so a Non-Claimable additional RAB
+  // can only be moved to other Non-Claimable additional stages (not regular
+  // contract stages, not Claimable, not Rework). Same idea for Claimable,
+  // Rework, and Regular — they each stay in their own bucket.
+  const stageGroupKey = (s) => {
+    if (!s) return 'regular';
+    if (s.is_addition) return `addition:${s.claim_type || 'claimable'}`;
+    return 'regular';
+  };
+  const currentGroupKey = stageGroupKey(stage);
   const openStagesAll = (wo?.stages || []).filter(s => s.is_open && (
     stageBalanceOf(s) > 0.01 ||
     (editingRequest && s.stage_id === editingRequest.stage_id)
-  ));
+  ) && stageGroupKey(s) === currentGroupKey);
 
   // Delete a single payment_request row from the stage's history. Backend
   // enforces permission (PM/Planning/Accountant/Super Admin) and refuses to
@@ -948,11 +958,15 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
       setNotes(preFill ? (preFill.notes || '') : '');
       // Default sub-tab priority: Request RAB (if stage is open, has remaining
       // balance and no rejections to clear first), else Total RAB's history.
+      // In edit mode we ALWAYS land on Request RAB so SE can see + change the
+      // Amount field and Select Stages to Bill panel.
       const hasReleased = (stage.payment_requests || []).some(p => p.status === 'approved');
       const stageReleased = (stage.payment_requests || []).filter(p => p.status === 'approved').reduce((a, p) => a + (p.approved_amount || 0), 0);
       const stagePending = (stage.payment_requests || []).filter(p => ['requested', 'pm_approved', 'qc_approved', 'planning_approved'].includes(p.status)).reduce((a, p) => a + (p.amount || 0), 0);
       const stageBalance = Math.max(0, (stage.amount || 0) - stageReleased - stagePending);
-      if (stage.is_open && !hasReleased && stageBalance > 0) {
+      if (editing) {
+        setSubTab('request');
+      } else if (stage.is_open && !hasReleased && stageBalance > 0) {
         setSubTab('request');
       } else {
         setSubTab('totalrab');
