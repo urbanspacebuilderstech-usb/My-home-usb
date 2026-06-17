@@ -1953,6 +1953,24 @@ export default function ProjectDetail() {
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to lock stage'); }
   };
 
+  const handleDeleteWoScopeItem = async (woId, itemIndex) => {
+    if (!window.confirm('Delete this scope item? Contract total will adjust.')) return;
+    try {
+      await axios.delete(`${API}/projects/${projectId}/work-orders/${woId}/scope-items/${itemIndex}`);
+      toast.success('Scope item deleted');
+      fetchWorkOrders();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to delete'); }
+  };
+
+  const handleDeleteWoStage = async (woId, stageId) => {
+    if (!window.confirm('Delete this stage? Only allowed if no RAB has been raised on it.')) return;
+    try {
+      await axios.delete(`${API}/projects/${projectId}/work-orders/${woId}/stages/${stageId}`);
+      toast.success('Stage deleted');
+      fetchWorkOrders();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to delete'); }
+  };
+
   const openAddScopeItem = (wo) => setAddWoItemDialog({
     open: true, mode: 'scope', wo,
     name: '', unit: 'nos', quantity: '', unit_rate: '',
@@ -9491,11 +9509,14 @@ export default function ProjectDetail() {
                               <TabsTrigger value="rab" className="flex-1 text-xs rounded-none border-b-2 border-transparent data-[state=active]:bg-violet-50 data-[state=active]:text-violet-700 data-[state=active]:border-violet-600 data-[state=active]:font-semibold data-[state=active]:shadow-none py-2.5" data-testid="wo-rab-tab">RAB</TabsTrigger>
                             </TabsList>
                             <TabsContent value="scope" className="p-3">
-                              {wo.scope_items?.length > 0 ? (
-                                <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
-                                <tbody className="divide-y">{(wo.scope_items || []).map((s, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{s.name}</td><td className="px-3 py-2">{s.unit}</td><td className="px-3 py-2 text-right">{s.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(s.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(s.total)}</td></tr>))}</tbody>
-                                <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Scope Total:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(wo.scope_total)}</td></tr></tfoot></table>
-                              ) : <p className="text-gray-400 text-center py-4 text-sm">No scope items</p>}
+                              {(() => {
+                                const canEditScope = ['planning', 'planning_person', 'super_admin'].includes(user?.role);
+                                return wo.scope_items?.length > 0 ? (
+                                <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>{canEditScope && <th className="px-2 py-2 w-10"></th>}</tr></thead>
+                                <tbody className="divide-y">{(wo.scope_items || []).map((s, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{s.name}</td><td className="px-3 py-2">{s.unit}</td><td className="px-3 py-2 text-right">{s.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(s.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(s.total)}</td>{canEditScope && <td className="px-2 py-2 text-right"><Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => handleDeleteWoScopeItem(wo.work_order_id, i)} data-testid={`wo-scope-del-${i}`}><Trash2 className="h-3.5 w-3.5" /></Button></td>}</tr>))}</tbody>
+                                <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Scope Total:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(wo.scope_total)}</td>{canEditScope && <td></td>}</tr></tfoot></table>
+                              ) : <p className="text-gray-400 text-center py-4 text-sm">No scope items</p>;
+                              })()}
                               {['planning', 'planning_person', 'super_admin'].includes(user?.role) && (
                                 <div className="mt-3 flex justify-start">
                                   <Button size="sm" variant="outline" className="h-8 text-xs border-dashed border-violet-300 text-violet-700 hover:bg-violet-50" data-testid={`wo-add-scope-${wo.work_order_id}`} onClick={() => openAddScopeItem(wo)}>
@@ -9562,6 +9583,12 @@ export default function ProjectDetail() {
                                           </div>
                                           <div className="flex items-center gap-2 shrink-0">
                                             <span className="text-sm font-medium text-gray-600">{formatCurrency(st.amount)}</span>
+                                            {['planning', 'planning_person', 'super_admin'].includes(user?.role) && !(st.payment_requests && st.payment_requests.length > 0) && !st.linked_section_id && (
+                                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50" data-testid={`wo-stage-del-${st.stage_id}`}
+                                                onClick={(e) => { e.stopPropagation(); handleDeleteWoStage(wo.work_order_id, st.stage_id); }}>
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                              </Button>
+                                            )}
                                             <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                                           </div>
                                         </div>
@@ -10818,11 +10845,14 @@ export default function ProjectDetail() {
                                   <TabsTrigger value="rab" className="flex-1 text-xs rounded-none border-b-2 border-transparent data-[state=active]:bg-violet-50 data-[state=active]:text-violet-700 data-[state=active]:border-violet-600 data-[state=active]:font-semibold data-[state=active]:shadow-none py-2.5" data-testid="labour-wo-rab-tab">RAB</TabsTrigger>
                                 </TabsList>
                                 <TabsContent value="scope" className="p-3">
-                                  {wo.scope_items?.length > 0 ? (
-                                    <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
-                                    <tbody className="divide-y">{(wo.scope_items || []).map((s, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{s.name}</td><td className="px-3 py-2">{s.unit}</td><td className="px-3 py-2 text-right">{s.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(s.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(s.total)}</td></tr>))}</tbody>
-                                    <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Scope Total:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(wo.scope_total)}</td></tr></tfoot></table>
-                                  ) : <p className="text-gray-400 text-center py-4 text-sm">No scope items</p>}
+                                  {(() => {
+                                    const canEditScope = ['planning', 'planning_person', 'super_admin'].includes(user?.role);
+                                    return wo.scope_items?.length > 0 ? (
+                                    <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>{canEditScope && <th className="px-2 py-2 w-10"></th>}</tr></thead>
+                                    <tbody className="divide-y">{(wo.scope_items || []).map((s, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{s.name}</td><td className="px-3 py-2">{s.unit}</td><td className="px-3 py-2 text-right">{s.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(s.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(s.total)}</td>{canEditScope && <td className="px-2 py-2 text-right"><Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => handleDeleteWoScopeItem(wo.work_order_id, i)} data-testid={`labour-wo-scope-del-${i}`}><Trash2 className="h-3.5 w-3.5" /></Button></td>}</tr>))}</tbody>
+                                    <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Scope Total:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(wo.scope_total)}</td>{canEditScope && <td></td>}</tr></tfoot></table>
+                                  ) : <p className="text-gray-400 text-center py-4 text-sm">No scope items</p>;
+                                  })()}
                                   {['planning', 'planning_person', 'super_admin'].includes(user?.role) && (
                                     <div className="mt-3 flex justify-start">
                                       <Button size="sm" variant="outline" className="h-8 text-xs border-dashed border-violet-300 text-violet-700 hover:bg-violet-50" data-testid={`labour-wo-add-scope-${wo.work_order_id}`} onClick={() => openAddScopeItem(wo)}>
@@ -10886,6 +10916,12 @@ export default function ProjectDetail() {
                                               </div>
                                               <div className="flex items-center gap-2 shrink-0">
                                                 <span className="text-sm font-medium text-gray-600">{formatCurrency(st.amount)}</span>
+                                                {['planning', 'planning_person', 'super_admin'].includes(user?.role) && !(st.payment_requests && st.payment_requests.length > 0) && !st.linked_section_id && (
+                                                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50" data-testid={`labour-wo-stage-del-${st.stage_id}`}
+                                                    onClick={(e) => { e.stopPropagation(); handleDeleteWoStage(wo.work_order_id, st.stage_id); }}>
+                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                  </Button>
+                                                )}
                                                 <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${isExp ? 'rotate-180' : ''}`} />
                                               </div>
                                             </div>
@@ -12507,9 +12543,10 @@ export default function ProjectDetail() {
       </Dialog>
 
       {/* Planning: Add Scope Item / Add Stage to an existing WO. Single
-          dialog with two layouts (mode switches form fields). */}
+          dialog with two layouts (mode switches form fields). Single-row
+          form so it stays compact and feels like an inline-add. */}
       <Dialog open={addWoItemDialog.open} onOpenChange={(o) => !o && setAddWoItemDialog(prev => ({ ...prev, open: false }))}>
-        <DialogContent className="max-w-md" data-testid="add-wo-item-dialog">
+        <DialogContent className="max-w-2xl" data-testid="add-wo-item-dialog">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Plus className="h-5 w-5 text-violet-600" />
@@ -12521,31 +12558,30 @@ export default function ProjectDetail() {
                 : 'New stage starts LOCKED. Click Open Stage when ready for SE to raise RAB.'}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label className="text-xs">Name <span className="text-red-500">*</span></Label>
-              <Input
-                value={addWoItemDialog.name}
-                onChange={(e) => setAddWoItemDialog(prev => ({ ...prev, name: e.target.value }))}
-                placeholder={addWoItemDialog.mode === 'scope' ? 'e.g. Labour charges for plastering' : 'e.g. Foundation Completion'}
-                className="h-9 text-sm"
-                data-testid="add-wo-item-name"
-              />
-            </div>
-            {addWoItemDialog.mode === 'scope' ? (
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <Label className="text-xs">Unit</Label>
+          {addWoItemDialog.mode === 'scope' ? (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="flex-1 min-w-[200px]">
+                  <Label className="text-[11px]">Name <span className="text-red-500">*</span></Label>
                   <Input
-                    value={addWoItemDialog.unit}
-                    onChange={(e) => setAddWoItemDialog(prev => ({ ...prev, unit: e.target.value }))}
-                    placeholder="nos / sqft / ls"
+                    value={addWoItemDialog.name}
+                    onChange={(e) => setAddWoItemDialog(prev => ({ ...prev, name: e.target.value }))}
+                    placeholder="e.g. Labour charges for plastering"
                     className="h-9 text-sm"
+                    data-testid="add-wo-item-name"
+                  />
+                </div>
+                <div className="w-28">
+                  <Label className="text-[11px]">Unit</Label>
+                  <UnitSelect
+                    value={addWoItemDialog.unit}
+                    onChange={(v) => setAddWoItemDialog(prev => ({ ...prev, unit: v }))}
+                    className="h-9"
                     data-testid="add-wo-item-unit"
                   />
                 </div>
-                <div>
-                  <Label className="text-xs">Quantity <span className="text-red-500">*</span></Label>
+                <div className="w-24">
+                  <Label className="text-[11px]">Qty <span className="text-red-500">*</span></Label>
                   <Input
                     type="number" step="0.01"
                     value={addWoItemDialog.quantity}
@@ -12554,8 +12590,8 @@ export default function ProjectDetail() {
                     data-testid="add-wo-item-qty"
                   />
                 </div>
-                <div>
-                  <Label className="text-xs">Rate <span className="text-red-500">*</span></Label>
+                <div className="w-28">
+                  <Label className="text-[11px]">Rate <span className="text-red-500">*</span></Label>
                   <Input
                     type="number" step="0.01"
                     value={addWoItemDialog.unit_rate}
@@ -12564,62 +12600,72 @@ export default function ProjectDetail() {
                     data-testid="add-wo-item-rate"
                   />
                 </div>
-                <div className="col-span-3 text-right text-xs text-gray-500">
-                  Line Total:&nbsp;
-                  <strong className="text-violet-700">
-                    {formatCurrency((Number(addWoItemDialog.quantity || 0) || 0) * (Number(addWoItemDialog.unit_rate || 0) || 0))}
-                  </strong>
-                </div>
               </div>
-            ) : (
-              <>
-                <div>
-                  <Label className="text-xs">Stage Type</Label>
-                  <Select
-                    value={addWoItemDialog.stage_type}
-                    onValueChange={(v) => setAddWoItemDialog(prev => ({ ...prev, stage_type: v }))}
-                  >
-                    <SelectTrigger className="h-9 text-sm" data-testid="add-wo-stage-type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="fixed">Fixed Amount</SelectItem>
-                      <SelectItem value="percentage">% of Total Contract</SelectItem>
-                    </SelectContent>
-                  </Select>
+              <div className="text-right text-xs text-gray-500">
+                Line Total:&nbsp;
+                <strong className="text-violet-700">
+                  {formatCurrency((Number(addWoItemDialog.quantity || 0) || 0) * (Number(addWoItemDialog.unit_rate || 0) || 0))}
+                </strong>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="flex-1 min-w-[200px]">
+                <Label className="text-[11px]">Stage Name <span className="text-red-500">*</span></Label>
+                <Input
+                  value={addWoItemDialog.name}
+                  onChange={(e) => setAddWoItemDialog(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="e.g. Foundation Completion"
+                  className="h-9 text-sm"
+                  data-testid="add-wo-item-name"
+                />
+              </div>
+              <div className="w-44">
+                <Label className="text-[11px]">Type</Label>
+                <Select
+                  value={addWoItemDialog.stage_type}
+                  onValueChange={(v) => setAddWoItemDialog(prev => ({ ...prev, stage_type: v }))}
+                >
+                  <SelectTrigger className="h-9 text-sm" data-testid="add-wo-stage-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fixed">Fixed Amount</SelectItem>
+                    <SelectItem value="percentage">% of Contract</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {addWoItemDialog.stage_type === 'percentage' ? (
+                <div className="w-28">
+                  <Label className="text-[11px]">% <span className="text-red-500">*</span></Label>
+                  <Input
+                    type="number" step="0.01" min="0" max="100"
+                    value={addWoItemDialog.value}
+                    onChange={(e) => setAddWoItemDialog(prev => ({ ...prev, value: e.target.value }))}
+                    placeholder="10"
+                    className="h-9 text-sm"
+                    data-testid="add-wo-stage-pct"
+                  />
+                  {addWoItemDialog.wo && Number(addWoItemDialog.value) > 0 && (
+                    <p className="text-[9px] text-gray-500 mt-0.5 text-right">
+                      ≈ {formatCurrency(((Number(addWoItemDialog.wo.total_value) || 0) * Number(addWoItemDialog.value)) / 100)}
+                    </p>
+                  )}
                 </div>
-                {addWoItemDialog.stage_type === 'percentage' ? (
-                  <div>
-                    <Label className="text-xs">Percentage <span className="text-red-500">*</span></Label>
-                    <Input
-                      type="number" step="0.01" min="0" max="100"
-                      value={addWoItemDialog.value}
-                      onChange={(e) => setAddWoItemDialog(prev => ({ ...prev, value: e.target.value }))}
-                      placeholder="e.g. 10"
-                      className="h-9 text-sm"
-                      data-testid="add-wo-stage-pct"
-                    />
-                    {addWoItemDialog.wo && Number(addWoItemDialog.value) > 0 && (
-                      <p className="text-[10px] text-gray-500 mt-1">
-                        ≈ {formatCurrency(((Number(addWoItemDialog.wo.total_value) || 0) * Number(addWoItemDialog.value)) / 100)} of {formatCurrency(addWoItemDialog.wo.total_value)}
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <div>
-                    <Label className="text-xs">Amount <span className="text-red-500">*</span></Label>
-                    <Input
-                      type="number" step="0.01"
-                      value={addWoItemDialog.amount}
-                      onChange={(e) => setAddWoItemDialog(prev => ({ ...prev, amount: e.target.value }))}
-                      className="h-9 text-sm"
-                      data-testid="add-wo-stage-amount"
-                    />
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+              ) : (
+                <div className="w-36">
+                  <Label className="text-[11px]">Amount <span className="text-red-500">*</span></Label>
+                  <Input
+                    type="number" step="0.01"
+                    value={addWoItemDialog.amount}
+                    onChange={(e) => setAddWoItemDialog(prev => ({ ...prev, amount: e.target.value }))}
+                    className="h-9 text-sm"
+                    data-testid="add-wo-stage-amount"
+                  />
+                </div>
+              )}
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddWoItemDialog(prev => ({ ...prev, open: false }))} data-testid="add-wo-item-cancel">Cancel</Button>
             <Button onClick={submitAddWoItem} disabled={addWoItemSaving} className="bg-violet-600 hover:bg-violet-700" data-testid="add-wo-item-save">

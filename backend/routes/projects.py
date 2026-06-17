@@ -8942,6 +8942,38 @@ async def add_wo_scope_item(
     return {"message": "Scope item added", "item": new_item, "scope_total": round(scope_total, 2)}
 
 
+# ── Delete a Scope Item from an existing Work Order ────────────────────
+@router.delete("/projects/{project_id}/work-orders/{work_order_id}/scope-items/{item_index}")
+async def delete_wo_scope_item(
+    project_id: str,
+    work_order_id: str,
+    item_index: int,
+    user: User = Depends(get_current_user),
+):
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can delete scope items")
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    scope_items = wo.get("scope_items") or []
+    if item_index < 0 or item_index >= len(scope_items):
+        raise HTTPException(status_code=404, detail="Scope item not found")
+    scope_items.pop(item_index)
+    scope_total = sum(float(s.get("total") or 0) for s in scope_items)
+    additional_total = float(wo.get("additional_total") or 0)
+    deduction_total = float(wo.get("deduction_total") or 0)
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {
+            "scope_items": scope_items,
+            "scope_total": round(scope_total, 2),
+            "total_value": round(scope_total + additional_total - deduction_total, 2),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"message": "Scope item deleted", "scope_total": round(scope_total, 2)}
+
+
 # ── Add a Stage to an existing Work Order ──────────────────────────────
 @router.post("/projects/{project_id}/work-orders/{work_order_id}/stages")
 async def add_wo_stage(
@@ -8991,6 +9023,37 @@ async def add_wo_stage(
         {"$set": {"stages": stages, "updated_at": datetime.now(timezone.utc).isoformat()}},
     )
     return {"message": "Stage added", "stage": new_stage}
+
+
+# ── Delete a Stage from an existing Work Order ─────────────────────────
+@router.delete("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}")
+async def delete_wo_stage(
+    project_id: str,
+    work_order_id: str,
+    stage_id: str,
+    user: User = Depends(get_current_user),
+):
+    """Planning deletes a stage. Refuses if the stage has ANY payment_requests
+    (released or in-flight) to keep historical RABs safe."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can delete stages")
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    stages = wo.get("stages") or []
+    target = next((s for s in stages if s.get("stage_id") == stage_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    if target.get("payment_requests"):
+        raise HTTPException(status_code=400, detail="Cannot delete a stage that already has RAB requests")
+    if target.get("linked_section_id"):
+        raise HTTPException(status_code=400, detail="This stage is auto-generated from an Additional section — delete the section instead")
+    stages = [s for s in stages if s.get("stage_id") != stage_id]
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"stages": stages, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"message": "Stage deleted"}
 
 
 
