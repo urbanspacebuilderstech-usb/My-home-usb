@@ -945,6 +945,13 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   // Per-stage expand state for the multi-stage allocation list — clicking
   // the chevron next to a section-derived stage reveals its inline items.
   const [allocExpanded, setAllocExpanded] = useState({});
+  // Per-item selections inside each section-stage. Shape:
+  //   { [stage_id]: { [item_index]: true } }
+  // When user picks specific items, the stage's allocation amount auto-
+  // updates to the sum of those item totals — so PM sees exactly what
+  // the SE is billing. Selecting the section header checks every unlocked
+  // item; deselecting it clears all selections.
+  const [itemSelections, setItemSelections] = useState({});
   // RAB detail popup — opens when SE clicks "View" on a Payment Summary row.
   const [rabView, setRabView] = useState({ open: false, requestId: null });
 
@@ -1491,6 +1498,28 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                               const checkedSids = Object.keys(next);
                               return checkedSids.length === 0 ? {} : autoDistribute(amount, checkedSids);
                             });
+                            // Auto-select all unlocked items in this section
+                            // when the section header is checked (mirrors the
+                            // section's billable amount). Clear on uncheck.
+                            if (s.linked_section_id) {
+                              setItemSelections(prev => {
+                                const upd = { ...prev };
+                                if (e.target.checked) {
+                                  const stageItems = (wo.additional_work || []).filter(it => it.section_id === s.linked_section_id);
+                                  const selected = {};
+                                  stageItems.forEach(it => {
+                                    if (it.is_locked === false) {
+                                      const origIdx = (wo.additional_work || []).indexOf(it);
+                                      selected[origIdx] = true;
+                                    }
+                                  });
+                                  upd[s.stage_id] = selected;
+                                } else {
+                                  delete upd[s.stage_id];
+                                }
+                                return upd;
+                              });
+                            }
                           }}
                           className="h-3.5 w-3.5 accent-amber-600"
                           data-testid={`wov2-stage-check-${s.stage_id}`}
@@ -1531,11 +1560,37 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                         if (items.length === 0) {
                           return <div className="bg-gray-50/70 px-3 py-1.5 text-[10px] italic text-gray-400 border-t">No items.</div>;
                         }
+                        const selSet = itemSelections[s.stage_id] || {};
+                        const setItemSelected = (origIdx, checked) => {
+                          setItemSelections(prev => {
+                            const next = { ...(prev[s.stage_id] || {}) };
+                            if (checked) next[origIdx] = true;
+                            else delete next[origIdx];
+                            const updated = { ...prev, [s.stage_id]: next };
+                            // Recompute the stage's allocation amount from
+                            // the selected items.
+                            const sumSelected = items
+                              .filter(it => next[it._origIdx])
+                              .reduce((a, it) => a + Number(it.total || 0), 0);
+                            setAllocations(allocPrev => {
+                              const a = { ...allocPrev };
+                              if (sumSelected > 0) {
+                                a[s.stage_id] = String(+sumSelected.toFixed(2));
+                              } else if (Object.keys(next).length === 0) {
+                                // No items selected — keep stage but zero it.
+                                a[s.stage_id] = '0';
+                              }
+                              return a;
+                            });
+                            return updated;
+                          });
+                        };
                         return (
                           <div className="bg-gray-50/70 border-t" data-testid={`wov2-alloc-items-${s.stage_id}`}>
                             <table className="w-full text-[10px]">
                               <thead className="text-gray-500">
                                 <tr>
+                                  <th className="text-center font-medium px-2 py-1 w-8">Pick</th>
                                   <th className="text-left font-medium px-3 py-1">#</th>
                                   <th className="text-left font-medium px-2 py-1">Description</th>
                                   <th className="text-left font-medium px-2 py-1">Unit</th>
@@ -1545,16 +1600,35 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                                 </tr>
                               </thead>
                               <tbody>
-                                {items.map((it, idx) => (
-                                  <tr key={idx} className="border-t">
-                                    <td className="px-3 py-1 text-gray-400">{idx + 1}</td>
-                                    <td className="px-2 py-1 text-gray-800">{it.description}{it.is_locked && <span className="ml-1 text-[9px] text-gray-400">· locked</span>}</td>
-                                    <td className="px-2 py-1 text-gray-600">{it.unit}</td>
-                                    <td className="px-2 py-1 text-right text-gray-700">{it.quantity}</td>
-                                    <td className="px-2 py-1 text-right text-gray-700">{fmt(it.unit_rate)}</td>
-                                    <td className="px-2 py-1 text-right font-medium text-gray-900">{fmt(it.total)}</td>
-                                  </tr>
-                                ))}
+                                {items.map((it, idx) => {
+                                  // Use the item's index inside the full
+                                  // wo.additional_work array as the stable id.
+                                  const origIdx = (wo.additional_work || []).indexOf(it);
+                                  const it_ = { ...it, _origIdx: origIdx };
+                                  const itemLocked = it.is_locked !== false;
+                                  const picked = !!selSet[origIdx];
+                                  return (
+                                    <tr key={origIdx} className={`border-t ${itemLocked ? 'opacity-60' : ''}`}>
+                                      <td className="px-2 py-1 text-center">
+                                        <input
+                                          type="checkbox"
+                                          checked={picked}
+                                          disabled={itemLocked || submitting || !checked}
+                                          onChange={(e) => setItemSelected(it_._origIdx, e.target.checked)}
+                                          className="h-3 w-3 accent-amber-600"
+                                          title={itemLocked ? 'Item is locked — Planning must unlock first' : (checked ? 'Include this item in the bill' : 'Tick the section first')}
+                                          data-testid={`wov2-alloc-item-pick-${s.stage_id}-${origIdx}`}
+                                        />
+                                      </td>
+                                      <td className="px-3 py-1 text-gray-400">{idx + 1}</td>
+                                      <td className="px-2 py-1 text-gray-800">{it.description}{itemLocked && <span className="ml-1 text-[9px] text-gray-400">· locked</span>}</td>
+                                      <td className="px-2 py-1 text-gray-600">{it.unit}</td>
+                                      <td className="px-2 py-1 text-right text-gray-700">{it.quantity}</td>
+                                      <td className="px-2 py-1 text-right text-gray-700">{fmt(it.unit_rate)}</td>
+                                      <td className="px-2 py-1 text-right font-medium text-gray-900">{fmt(it.total)}</td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </table>
                           </div>
