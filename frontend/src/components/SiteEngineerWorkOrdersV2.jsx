@@ -338,8 +338,19 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
                   onClickStage={(stage) => setStageDialog(stage)}
                   stageFilter={(s) => {
                     if (s.is_addition !== true) return false;
+                    // Section-derived stages must still have a matching
+                    // section row (and the section's claim_type drives the
+                    // bucket — keeps the SE board in lock-step with what
+                    // Planning shows). Orphan stages (deleted section) are
+                    // hidden.
+                    if (s.linked_section_id) {
+                      const sec = (wo.additional_sections || []).find(x => x.section_id === s.linked_section_id);
+                      if (!sec) return false;
+                      const ct = sec.claim_type || 'claimable';
+                      if (key === 'rework_se') return ct === 'rework_se' || ct === 'rework';
+                      return ct === key;
+                    }
                     const ct = s.claim_type || 'claimable';
-                    // Legacy data: pre-split 'rework' rows roll into 'rework_se'.
                     if (key === 'rework_se') return ct === 'rework_se' || ct === 'rework';
                     return ct === key;
                   }}
