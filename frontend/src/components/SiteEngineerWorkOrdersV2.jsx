@@ -318,22 +318,30 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
             automatically — Planning unlocks them from the Project board. */}
         <TabsContent value="additional" className="mt-3">
           <Tabs defaultValue="claimable" className="w-full">
-            <TabsList className="grid grid-cols-3 w-full">
+            <TabsList className="grid grid-cols-4 w-full">
               <TabsTrigger value="claimable" data-testid="se-add-tab-claimable">Claimable From Client</TabsTrigger>
               <TabsTrigger value="non_claimable" data-testid="se-add-tab-nonclaimable">Non-Claimable From Client</TabsTrigger>
-              <TabsTrigger value="rework" data-testid="se-add-tab-rework">Rework</TabsTrigger>
+              <TabsTrigger value="rework_se" data-testid="se-add-tab-rework-se">Rework (Site Engineer)</TabsTrigger>
+              <TabsTrigger value="rework_client" data-testid="se-add-tab-rework-client">Rework (Client)</TabsTrigger>
             </TabsList>
             {[
               { key: 'claimable', label: 'Claimable' },
               { key: 'non_claimable', label: 'Non-Claimable' },
-              { key: 'rework', label: 'Rework' },
+              { key: 'rework_se', label: 'Rework (Site Engineer)' },
+              { key: 'rework_client', label: 'Rework (Client)' },
             ].map(({ key, label }) => (
               <TabsContent key={key} value={key} className="mt-3">
                 <PaymentScheduleTab
                   wo={wo}
                   suspenseBalance={suspenseBalance}
                   onClickStage={(stage) => setStageDialog(stage)}
-                  stageFilter={(s) => s.is_addition === true && (s.claim_type || 'claimable') === key}
+                  stageFilter={(s) => {
+                    if (s.is_addition !== true) return false;
+                    const ct = s.claim_type || 'claimable';
+                    // Legacy data: pre-split 'rework' rows roll into 'rework_se'.
+                    if (key === 'rework_se') return ct === 'rework_se' || ct === 'rework';
+                    return ct === key;
+                  }}
                   title={`${label} Stages`}
                   description="Approval flow: You → PM → QC → Planning → Accountant"
                   emptyText={`No ${label} additional stages yet. Planning will unlock items here when work is approved to proceed.`}

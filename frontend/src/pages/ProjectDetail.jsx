@@ -11097,8 +11097,15 @@ export default function ProjectDetail() {
                                           fetchWorkOrders();
                                         } catch (e) { toast.error(e?.response?.data?.detail || 'Delete failed'); }
                                       };
-                                      const itemTable = (items) => items.length > 0 && (
-                                        <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>{canEdit && <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>}</tr></thead>
+                                      const toggleItemLock = async (idx, currentLocked) => {
+                                        try {
+                                          await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/additional/${idx}/lock`, { is_locked: !currentLocked });
+                                          toast.success(!currentLocked ? 'Item locked' : 'Item unlocked');
+                                          fetchWorkOrders();
+                                        } catch (e) { toast.error(e?.response?.data?.detail || 'Toggle failed'); }
+                                      };
+                                      const itemTable = (items, parentSection) => items.length > 0 && (
+                                        <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>{canTogglePlanning && <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Lock</th>}{canEdit && <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>}</tr></thead>
                                           <tbody className="divide-y">{items.map((a) => {
                                             const isEditingThis = addAdditionalForm?.editing_idx === a._idx;
                                             if (isEditingThis) {
@@ -11125,6 +11132,29 @@ export default function ProjectDetail() {
                                               <td className="px-3 py-2 text-right">{a.quantity}</td>
                                               <td className="px-3 py-2 text-right">{formatCurrency(a.unit_rate)}</td>
                                               <td className="px-3 py-2 text-right font-medium">{formatCurrency(a.total)}</td>
+                                              {canTogglePlanning && (
+                                                <td className="px-3 py-2 text-center">
+                                                  {(() => {
+                                                    const itemLocked = a.is_locked !== false;
+                                                    // Per-item unlock is gated on the parent section being unlocked first.
+                                                    const sectionLocked = parentSection ? !!parentSection.is_locked : false;
+                                                    const unlockDisabled = itemLocked && sectionLocked;
+                                                    return (
+                                                      <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        disabled={unlockDisabled}
+                                                        title={unlockDisabled ? 'Unlock the section first' : (itemLocked ? 'Click to unlock this item' : 'Click to lock this item')}
+                                                        onClick={() => toggleItemLock(a._idx, itemLocked)}
+                                                        className={`h-7 px-2 text-[10px] ${itemLocked ? 'text-gray-500 hover:bg-gray-100' : 'text-emerald-700 hover:bg-emerald-50'} ${unlockDisabled ? 'opacity-40' : ''}`}
+                                                        data-testid={`wo-additional-item-lock-${a._idx}`}
+                                                      >
+                                                        {itemLocked ? <><Lock className="h-3 w-3 mr-1" /> Locked</> : <><Unlock className="h-3 w-3 mr-1" /> Unlocked</>}
+                                                      </Button>
+                                                    );
+                                                  })()}
+                                                </td>
+                                              )}
                                               {canEdit && <td className="px-3 py-2 text-center"><div className="flex gap-1 justify-center">
                                                 <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-blue-600 hover:bg-blue-50" onClick={() => setAddAdditionalForm({ woId: wo.work_order_id, claim_type: ct, section_id: a.section_id || null, editing_idx: a._idx, description: a.description, unit: a.unit, quantity: a.quantity, unit_rate: a.unit_rate })} data-testid={`wo-additional-edit-${a._idx}`}>
                                                   <Edit className="h-3 w-3" />
@@ -11173,7 +11203,7 @@ export default function ProjectDetail() {
                                                   )}
                                                 </div>
                                                 <div className="p-2">
-                                                  {itemTable(secItems)}
+                                                  {itemTable(secItems, sec)}
                                                   {isAddingHere(sec.section_id) && renderForm(ct)}
                                                   {canEdit && !isAddingHere(sec.section_id) && (
                                                     <div className="flex justify-end mt-2">
@@ -11224,19 +11254,24 @@ export default function ProjectDetail() {
                                     };
                                     return (
                                       <Tabs defaultValue="claimable" className="w-full" data-testid="wo-additional-subtabs-v2">
-                                        <TabsList className="grid grid-cols-3 w-full">
+                                        <TabsList className="grid grid-cols-4 w-full">
                                           <TabsTrigger value="claimable" data-testid="wo-add-tab-claimable-v2">Claimable From Client ({claimable.length})</TabsTrigger>
                                           <TabsTrigger value="non_claimable" data-testid="wo-add-tab-nonclaimable-v2">Non-Claimable From Client ({nonClaimable.length})</TabsTrigger>
-                                          <TabsTrigger value="rework" data-testid="wo-add-tab-rework-v2">Rework ({items.filter(a => a.claim_type === 'rework').length})</TabsTrigger>
+                                          <TabsTrigger value="rework_se" data-testid="wo-add-tab-rework-se-v2">Rework (Site Engineer) ({items.filter(a => a.claim_type === 'rework_se' || a.claim_type === 'rework').length})</TabsTrigger>
+                                          <TabsTrigger value="rework_client" data-testid="wo-add-tab-rework-client-v2">Rework (Client) ({items.filter(a => a.claim_type === 'rework_client').length})</TabsTrigger>
                                         </TabsList>
                                         <TabsContent value="claimable" className="mt-3">{renderTable(claimable, 'claimable')}</TabsContent>
                                         <TabsContent value="non_claimable" className="mt-3">
                                           <p className="text-[10px] text-gray-400 mb-2 italic">Non-Claimable items are absorbed by the company and do NOT sync to the Client Portal.</p>
                                           {renderTable(nonClaimable, 'non_claimable')}
                                         </TabsContent>
-                                        <TabsContent value="rework" className="mt-3">
-                                          <p className="text-[10px] text-gray-400 mb-2 italic">Rework items track corrections / re-doing of completed work — paid to the contractor, not billed to the client.</p>
-                                          {renderTable(items.filter(a => a.claim_type === 'rework'), 'rework')}
+                                        <TabsContent value="rework_se" className="mt-3">
+                                          <p className="text-[10px] text-gray-400 mb-2 italic">Rework caused by Site Engineer error — cost is deducted from the contractor's payment, NOT billed to the client.</p>
+                                          {renderTable(items.filter(a => a.claim_type === 'rework_se' || a.claim_type === 'rework'), 'rework_se')}
+                                        </TabsContent>
+                                        <TabsContent value="rework_client" className="mt-3">
+                                          <p className="text-[10px] text-gray-400 mb-2 italic">Rework requested by the client (change of mind) — billed to the client AND paid to the contractor.</p>
+                                          {renderTable(items.filter(a => a.claim_type === 'rework_client'), 'rework_client')}
                                         </TabsContent>
                                       </Tabs>
                                     );

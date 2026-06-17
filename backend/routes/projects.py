@@ -8853,7 +8853,7 @@ async def add_additional_item(
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Quantity and rate must be numbers")
     claim_type = data.get("claim_type") or "claimable"
-    if claim_type not in ("claimable", "non_claimable", "rework"):
+    if claim_type not in ("claimable", "non_claimable", "rework", "rework_se", "rework_client"):
         claim_type = "claimable"
     # Resolve section: if section_id provided, validate it; otherwise leave null.
     section_id = data.get("section_id")
@@ -9087,7 +9087,15 @@ def _sync_section_stage(wo: dict, section_id: str) -> list:
             else:
                 kept.append(st)
         return kept
-    amount = sum(float(it.get("total") or (float(it.get("quantity") or 0) * float(it.get("unit_rate") or 0))) for it in sec_items)
+    amount = sum(
+        float(it.get("total") or (float(it.get("quantity") or 0) * float(it.get("unit_rate") or 0)))
+        for it in sec_items
+        # Only UNLOCKED items contribute to the section's billable amount.
+        # When Planning unlocks the section, every item defaults to unlocked
+        # (cascade in toggle_additional_section_lock). Planning can then
+        # individually re-lock specific items to exclude them from billing.
+        if not it.get("is_locked", False)
+    )
     section_name = section.get("name") or section.get("title") or "Additional Work"
     claim_type = section.get("claim_type") or "claimable"
     is_open = not bool(section.get("is_locked", True))
@@ -9151,7 +9159,7 @@ async def create_additional_section(
     claim_type = data.get("claim_type") or "claimable"
     if not name:
         raise HTTPException(status_code=400, detail="Section name is required")
-    if claim_type not in ("claimable", "non_claimable", "rework"):
+    if claim_type not in ("claimable", "non_claimable", "rework", "rework_se", "rework_client"):
         claim_type = "claimable"
     wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
     if not wo:
@@ -9265,18 +9273,29 @@ async def toggle_additional_item_lock(
     if item_index < 0 or item_index >= len(items):
         raise HTTPException(status_code=404, detail="Additional item not found")
     new_state = bool(data.get("is_locked", True))
-    items[item_index]["is_locked"] = new_state
-    item = items[item_index]
 
-    # Items inside an Additional Section are billed via the section's
-    # auto-stage, so skip the per-item stage path for sectioned items —
-    # otherwise we'd double-create stages on the SE board.
-    if item.get("section_id"):
+    # Items inside an Additional Section: gate the per-item unlock on the
+    # parent section's lock state. Planning's flow is: first unlock the
+    # section, only THEN can individual items be unlocked. Locking an item
+    # is always allowed (it's a tighter constraint). After mutation, sync
+    # the section's auto-stage so its amount reflects only unlocked items.
+    item = items[item_index]
+    section_id = item.get("section_id")
+    if section_id:
+        sec = next((s for s in (wo.get("additional_sections") or []) if s.get("section_id") == section_id), None)
+        if not new_state and sec and sec.get("is_locked", True):
+            raise HTTPException(status_code=400, detail="Unlock the parent section first before unlocking individual items")
+        items[item_index]["is_locked"] = new_state
+        wo["additional_work"] = items
+        stages = _sync_section_stage(wo, section_id)
         await db.project_work_orders.update_one(
             {"work_order_id": work_order_id, "project_id": project_id},
-            {"$set": {"additional_work": items, "updated_at": datetime.now(timezone.utc).isoformat()}},
+            {"$set": {"additional_work": items, "stages": stages, "updated_at": datetime.now(timezone.utc).isoformat()}},
         )
         return {"message": f"Additional item {'locked' if new_state else 'unlocked'}", "is_locked": new_state}
+
+    items[item_index]["is_locked"] = new_state
+    item = items[item_index]
 
     # Make the additional item visible (or hidden) on the Site Engineer board
     # by ensuring a matching stage exists in `wo.stages` whose `is_open` flag
