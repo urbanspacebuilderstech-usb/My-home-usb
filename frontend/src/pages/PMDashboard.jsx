@@ -14,12 +14,25 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
   Building2, Eye, Users, ArrowRight, Check, X, Plus, Search,
-  Trash2, Edit, ClipboardList, UserPlus, HardHat, Package
+  Trash2, Edit, ClipboardList, UserPlus, HardHat, Package, MapPin
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { PMMaterialReadOnlyList, PMLabourReadOnlyList } from '../components/PMReadOnlyLifecycle';
 import PMPettyCashTabs from '../components/PMPettyCashTabs';
+
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix leaflet default marker icon so it renders on PM dashboard too.
+const __pmLeafletIcon = L.icon({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+});
+L.Marker.prototype.options.icon = __pmLeafletIcon;
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -32,6 +45,7 @@ export default function PMDashboard() {
   // Projects
   const [projects, setProjects] = useState([]);
   const [projectSearch, setProjectSearch] = useState('');
+  const [phaseFilter, setPhaseFilter] = useState('');
   const [stages, setStages] = useState([]);
   const [stageDialog, setStageDialog] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
@@ -266,7 +280,6 @@ export default function PMDashboard() {
     return <Badge className={`${m[role] || 'bg-gray-100 text-gray-700'} text-xs`}>{label[role] || role}</Badge>;
   };
 
-  const filteredProjects = projects.filter(p => !projectSearch || (p.name || '').toLowerCase().includes(projectSearch.toLowerCase()) || (p.client_name || '').toLowerCase().includes(projectSearch.toLowerCase()));
   const filteredTeam = teamMembers.filter(m => !teamSearch || m.name.toLowerCase().includes(teamSearch.toLowerCase()));
 
   const requestCount = materialRequests.length + labourRequests.length;
@@ -287,75 +300,257 @@ export default function PMDashboard() {
           </TabsList>
 
           {/* ==================== ALL PROJECTS ==================== */}
+          {/* Mirrors the Sr. Site Engineer Planning-style table view so the
+              Project Manager gets the same fast, scannable layout. Clicking
+              a row jumps to the SE project detail page so PMs use the exact
+              same project workspace as the field team. */}
           <TabsContent value="all_projects">
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <CardTitle className="text-base flex items-center gap-2"><Building2 className="h-4 w-4 text-indigo-600" />All Projects ({filteredProjects.length})</CardTitle>
-                  <div className="relative"><Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" /><Input placeholder="Search..." value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} className="pl-8 h-8 w-48 text-sm" data-testid="project-search" /></div>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm" data-testid="projects-table">
-                    <thead className="bg-gray-50 border-y">
-                      <tr>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
-                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Stage</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Team</th>
-                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {filteredProjects.length === 0 ? (
-                        <tr><td colSpan="5" className="p-8 text-center text-gray-400">No projects found</td></tr>
-                      ) : filteredProjects.map((p) => (
-                        <tr key={p.project_id} className="hover:bg-gray-50" data-testid={`project-row-${p.project_id}`}>
-                          <td className="px-4 py-2.5"><p className="font-medium">{p.name}</p><p className="text-xs text-gray-400">{p.location || '-'}</p></td>
-                          <td className="px-4 py-2.5 text-gray-600">{p.client_name}</td>
-                          <td className="px-4 py-2.5 text-center">{getStageBadge(p.current_stage || 'yet_to_start')}</td>
-                          <td className="px-4 py-2.5">
-                            <div className="flex flex-wrap gap-1">
-                              {(p.team || []).length > 0 ? (
-                                <>
-                                  {p.team.filter(t => t.role === 'sr_site_engineer').map(t => (
-                                    <span key={t.user_id} className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
-                                      {t.name} <span className="text-amber-400 text-[10px]">Sr.SE</span>
-                                    </span>
-                                  ))}
-                                  {p.team.filter(t => t.role === 'site_engineer').map(t => (
-                                    <span key={t.user_id} className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
-                                      {t.name} <span className="text-blue-400 text-[10px]">SE</span>
-                                    </span>
-                                  ))}
-                                  {p.team.filter(t => !['sr_site_engineer', 'site_engineer'].includes(t.role)).map(t => (
-                                    <span key={t.user_id} className="text-xs bg-gray-50 text-gray-700 border border-gray-200 px-1.5 py-0.5 rounded">{t.name}</span>
-                                  ))}
-                                </>
-                              ) : <span className="text-xs text-gray-400">No team assigned</span>}
-                            </div>
-                            {(p.team || []).length > 0 && (
-                              <div className="flex gap-2 mt-1">
-                                <span className="text-[10px] text-amber-600">{p.team.filter(t => t.role === 'sr_site_engineer').length} Sr.SE</span>
-                                <span className="text-[10px] text-blue-600">{p.team.filter(t => t.role === 'site_engineer').length} SE</span>
+            {/* Project Locations Map (only when at least one project has GPS) */}
+            {(() => {
+              const geoProjects = projects.filter(p => p.latitude && p.longitude);
+              if (geoProjects.length === 0) return null;
+              const center = [geoProjects[0].latitude, geoProjects[0].longitude];
+              return (
+                <Card className="mb-4" data-testid="pm-project-map-card">
+                  <CardHeader className="p-3 pb-0">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-orange-600" /> Project Locations
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-3 pt-2">
+                    <div className="rounded-lg overflow-hidden border" style={{ height: '280px' }}>
+                      <MapContainer center={center} zoom={12} style={{ height: '100%', width: '100%' }} scrollWheelZoom={true}>
+                        <TileLayer
+                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        />
+                        {geoProjects.map(p => (
+                          <Marker key={p.project_id} position={[p.latitude, p.longitude]}>
+                            <Popup>
+                              <div className="text-xs min-w-[150px]">
+                                <p className="font-bold text-sm mb-1">{p.name}</p>
+                                <p className="text-gray-600">{p.location || 'No address'}</p>
+                                <p className="text-gray-500">{p.client_name}</p>
+                                <p className="text-[10px] text-gray-400 mt-1">{p.latitude?.toFixed(4)}, {p.longitude?.toFixed(4)}</p>
                               </div>
-                            )}
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <div className="flex justify-center gap-1">
-                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => window.location.href = `/projects/${p.project_id}`} data-testid={`view-project-${p.project_id}`}><Eye className="h-3 w-3 mr-1" />View</Button>
-                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => openStageDialog(p)} title="Change Stage"><ArrowRight className="h-3 w-3" /></Button>
-                              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openAssignDialog(p)} data-testid={`assign-team-${p.project_id}`}><UserPlus className="h-3 w-3 mr-1" />Assign</Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                            </Popup>
+                          </Marker>
+                        ))}
+                      </MapContainer>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1">{geoProjects.length} of {projects.length} projects with GPS coordinates</p>
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
+            {projects.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 sm:py-12 text-center">
+                  <Building2 className="h-10 w-10 sm:h-12 sm:w-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2">No Projects</h3>
+                  <p className="text-sm text-gray-600">No projects have been created yet.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-4" data-testid="pm-projects-block">
+                {/* KPI strip — Total / In Planning / In Construction / Completed */}
+                {(() => {
+                  const counts = projects.reduce((acc, p) => {
+                    const k = (p.status || 'unknown').toLowerCase();
+                    acc[k] = (acc[k] || 0) + 1;
+                    acc.__total += 1;
+                    return acc;
+                  }, { __total: 0 });
+                  const chips = [
+                    { key: '__all', label: 'Total', count: counts.__total, cls: 'bg-gray-900 text-white' },
+                    { key: 'in_planning', label: 'In Planning', count: counts['in_planning'] || 0, cls: 'bg-amber-100 text-amber-800 border border-amber-200' },
+                    { key: 'in_construction', label: 'In Construction', count: counts['in_construction'] || 0, cls: 'bg-blue-100 text-blue-800 border border-blue-200' },
+                    { key: 'completed', label: 'Completed', count: counts['completed'] || 0, cls: 'bg-emerald-100 text-emerald-800 border border-emerald-200' },
+                  ];
+                  return (
+                    <div className="flex flex-wrap gap-2" data-testid="pm-projects-kpi-strip">
+                      {chips.map(c => {
+                        const active = (c.key === '__all' && !phaseFilter) || phaseFilter === c.key;
+                        return (
+                          <button
+                            key={c.key}
+                            type="button"
+                            onClick={() => setPhaseFilter(c.key === '__all' ? '' : (phaseFilter === c.key ? '' : c.key))}
+                            className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-medium transition-all hover:scale-[1.02] ${c.cls} ${active ? 'ring-2 ring-offset-1 ring-indigo-500' : 'opacity-90 hover:opacity-100'}`}
+                            data-testid={`pm-projects-kpi-${c.key}`}
+                          >
+                            <span>{c.label}</span>
+                            <span className={`tabular-nums ${active ? 'font-bold' : 'font-semibold'}`}>{c.count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+
+                {/* Search + filtered-count */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                  <div className="relative w-full sm:max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+                    <Input
+                      value={projectSearch}
+                      onChange={(e) => setProjectSearch(e.target.value)}
+                      placeholder="Search project, client, phase or date…"
+                      className="pl-9 h-9 text-sm bg-white border-indigo-200 focus-visible:ring-indigo-400"
+                      data-testid="pm-projects-search"
+                    />
+                  </div>
+                  {(projectSearch || phaseFilter) && (
+                    <span className="text-xs text-gray-500 sm:ml-1" data-testid="pm-projects-filter-count">
+                      Showing <span className="font-semibold text-indigo-700">{(() => {
+                        const q = projectSearch.trim().toLowerCase();
+                        return projects.filter(p => {
+                          if (phaseFilter && (p.status || '').toLowerCase() !== phaseFilter) return false;
+                          if (!q) return true;
+                          const dateStr = p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+                          return [p.name, p.client_name, (p.status || '').replace(/_/g, ' '), dateStr].filter(Boolean).join(' ').toLowerCase().includes(q);
+                        }).length;
+                      })()}</span> of {projects.length} projects
+                    </span>
+                  )}
                 </div>
-              </CardContent>
-            </Card>
+
+                <Card data-testid="pm-projects-table-card" className="overflow-hidden shadow-sm">
+                  <CardContent className="p-0 overflow-x-auto">
+                    <table className="w-full text-sm" data-testid="pm-projects-table">
+                      <thead className="bg-gradient-to-r from-indigo-50 to-indigo-50/40 text-gray-700 border-b border-indigo-100">
+                        <tr>
+                          <th className="text-left font-semibold px-4 py-3 uppercase text-[11px] tracking-wider">Project</th>
+                          <th className="text-left font-semibold px-4 py-3 uppercase text-[11px] tracking-wider">Client</th>
+                          <th className="text-left font-semibold px-4 py-3 uppercase text-[11px] tracking-wider">Phase</th>
+                          <th className="text-left font-semibold px-4 py-3 uppercase text-[11px] tracking-wider">Date</th>
+                          <th className="text-right font-semibold px-4 py-3 uppercase text-[11px] tracking-wider w-44">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const q = projectSearch.trim().toLowerCase();
+                          const visible = projects.filter((p) => {
+                            if (phaseFilter && (p.status || '').toLowerCase() !== phaseFilter) return false;
+                            if (!q) return true;
+                            const dateStr = p.created_at
+                              ? new Date(p.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                              : '';
+                            const blob = [p.name, p.client_name, (p.status || '').replace(/_/g, ' '), dateStr].filter(Boolean).join(' ').toLowerCase();
+                            return blob.includes(q);
+                          });
+                          if (visible.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={5} className="text-center text-gray-400 text-sm py-8" data-testid="pm-projects-empty">
+                                  No projects match the current filter.
+                                </td>
+                              </tr>
+                            );
+                          }
+                          const avatarPalette = [
+                            'bg-amber-200 text-amber-800',
+                            'bg-blue-200 text-blue-800',
+                            'bg-emerald-200 text-emerald-800',
+                            'bg-rose-200 text-rose-800',
+                            'bg-violet-200 text-violet-800',
+                            'bg-cyan-200 text-cyan-800',
+                            'bg-orange-200 text-orange-800',
+                          ];
+                          const phaseTone = (s) => {
+                            const k = (s || '').toLowerCase();
+                            if (k === 'in_planning') return 'bg-amber-100 text-amber-800 border-amber-200';
+                            if (k === 'in_construction') return 'bg-blue-100 text-blue-800 border-blue-200';
+                            if (k === 'completed') return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+                            if (k === 'on_hold' || k === 'cancelled') return 'bg-rose-100 text-rose-800 border-rose-200';
+                            return 'bg-gray-100 text-gray-700 border-gray-200';
+                          };
+                          return visible.map((project, idx) => {
+                            const dateStr = project.created_at
+                              ? new Date(project.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                              : '—';
+                            let h = 0;
+                            for (const ch of (project.project_id || project.name || '')) h = (h * 31 + ch.charCodeAt(0)) | 0;
+                            const palette = avatarPalette[Math.abs(h) % avatarPalette.length];
+                            const initials = (project.name || '?')
+                              .split(/\s+/)
+                              .filter(Boolean)
+                              .slice(0, 2)
+                              .map(w => w[0].toUpperCase())
+                              .join('') || '?';
+                            return (
+                              <tr
+                                key={project.project_id}
+                                className={`group border-b last:border-b-0 cursor-pointer transition-all ${idx % 2 === 0 ? 'bg-white' : 'bg-indigo-50/20'} hover:bg-indigo-50/70`}
+                                onClick={() => window.location.href = `/site-engineer/project/${project.project_id}`}
+                                data-testid={`project-row-${project.project_id}`}
+                              >
+                                <td className="px-4 py-3 font-medium text-gray-900">
+                                  <div className="flex items-center gap-3">
+                                    <div className={`h-9 w-9 rounded-full flex items-center justify-center text-[11px] font-bold tracking-wide ${palette} flex-shrink-0 shadow-sm`}>{initials}</div>
+                                    <div className="min-w-0">
+                                      <div className="truncate font-semibold">{project.name}</div>
+                                      {project.location && (
+                                        <div className="text-[11px] text-gray-500 truncate flex items-center gap-1 mt-0.5">
+                                          <MapPin className="h-3 w-3" />
+                                          {project.location}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 text-gray-700">{project.client_name || '—'}</td>
+                                <td className="px-4 py-3">
+                                  <Badge variant="outline" className={`text-[11px] font-medium ${phaseTone(project.status)}`}>
+                                    {(project.status || 'unknown').replace(/_/g, ' ')}
+                                  </Badge>
+                                </td>
+                                <td className="px-4 py-3 text-gray-600 text-xs whitespace-nowrap">{dateStr}</td>
+                                <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                                  <div className="inline-flex items-center gap-1 justify-end">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-8 w-8 p-0 text-indigo-700 hover:text-indigo-900 hover:bg-indigo-100"
+                                      onClick={() => window.location.href = `/site-engineer/project/${project.project_id}`}
+                                      data-testid={`project-row-view-${project.project_id}`}
+                                      title="Open project (SE view)"
+                                    >
+                                      <Eye className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-8 w-8 p-0"
+                                      onClick={() => openStageDialog(project)}
+                                      title="Change stage"
+                                      data-testid={`project-row-stage-${project.project_id}`}
+                                    >
+                                      <ArrowRight className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-8 w-8 p-0"
+                                      onClick={() => openAssignDialog(project)}
+                                      title="Assign team"
+                                      data-testid={`project-row-assign-${project.project_id}`}
+                                    >
+                                      <UserPlus className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
           </TabsContent>
 
           {/* ==================== REQUESTS ====================

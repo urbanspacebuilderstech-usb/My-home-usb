@@ -535,19 +535,21 @@ async def get_site_engineer_project_detail(
     project_id: str,
     user: User = Depends(get_current_user)
 ):
-    """Get project detail for a site engineer - LIMITED VIEW (no financial info)"""
-    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
-        raise HTTPException(status_code=403, detail="Only Site Engineers can access this")
-    
-    # Verify assignment
-    assignment = await db.site_engineer_assignments.find_one({
-        "user_id": user.user_id,
-        "project_id": project_id,
-        "is_active": True
-    }, {"_id": 0})
-    
-    if not assignment:
-        raise HTTPException(status_code=403, detail="You are not assigned to this project")
+    """Get project detail for a site engineer - LIMITED VIEW (no financial info).
+    Also accessible to Project Managers and Super Admins so they can use the
+    SE board UI from their own dashboard without juggling routes."""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="You don't have access to this view")
+
+    # PM and Super Admin see every project; SE roles must be assigned to the project.
+    if user.role in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        assignment = await db.site_engineer_assignments.find_one({
+            "user_id": user.user_id,
+            "project_id": project_id,
+            "is_active": True
+        }, {"_id": 0})
+        if not assignment:
+            raise HTTPException(status_code=403, detail="You are not assigned to this project")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
     if not project:
@@ -562,28 +564,40 @@ async def get_site_engineer_project_detail(
     for field in financial_fields:
         project.pop(field, None)
     
+    # SE users only see their own threads; PMs/Super Admins get the full project view.
+    se_filter = (
+        {"site_engineer_id": user.user_id}
+        if user.role in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]
+        else {}
+    )
+    petty_filter = (
+        {"requested_by": user.user_id}
+        if user.role in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]
+        else {}
+    )
+
     # Get material requests
     material_requests = await db.material_requests.find({
         "project_id": project_id,
-        "site_engineer_id": user.user_id
+        **se_filter,
     }, {"_id": 0}).sort("created_at", -1).to_list(1000)
-    
+
     # Get labour requests
     labour_requests = await db.labour_expenses.find({
         "project_id": project_id,
-        "site_engineer_id": user.user_id
+        **se_filter,
     }, {"_id": 0}).sort("created_at", -1).to_list(1000)
-    
+
     # Get material receipts
     material_receipts = await db.material_receipts.find({
         "project_id": project_id,
-        "site_engineer_id": user.user_id
+        **se_filter,
     }, {"_id": 0}).sort("created_at", -1).to_list(1000)
-    
+
     # Get petty cash
     petty_cash = await db.petty_cash.find({
         "project_id": project_id,
-        "requested_by": user.user_id
+        **petty_filter,
     }, {"_id": 0}).sort("created_at", -1).to_list(100)
     
     return {
