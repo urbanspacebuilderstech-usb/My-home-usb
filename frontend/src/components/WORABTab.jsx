@@ -25,7 +25,7 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
  * Uses the same /work-orders/{id}/rab-chain endpoint so numbering matches the
  * SE Payment Summary popup, and skip-rejected sequencing is consistent.
  */
-export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdFilter }) {
+export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdFilter, onEditRab }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
@@ -80,6 +80,12 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
 
   // Open the inline Edit dialog for a pending RAB.
   const openEditRab = (rab) => {
+    if (onEditRab) {
+      // Delegate to the parent — it surfaces the full StageRequestDialog
+      // (KPIs, multi-stage allocation, dates, notes) in edit mode.
+      onEditRab(rab);
+      return;
+    }
     if (rab.is_multi_stage) {
       toast.error('Multi-stage RAB cannot be edited inline — request a rejection and resubmit.');
       return;

@@ -249,6 +249,19 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
   const [tab, setTab] = useState('payments');
   const [dlrPopupOpen, setDlrPopupOpen] = useState(false);
   const [stageDialog, setStageDialog] = useState(null); // selected stage for detail dialog
+  // When SE clicks the Edit pencil on a pending RAB in the RAB tab, we
+  // surface the SAME StageRequestDialog instead of an inline mini-form so
+  // the SE gets every detail (KPIs, multi-stage allocation, dates, notes).
+  const [editingRabCtx, setEditingRabCtx] = useState(null); // { rab, stage }
+  const openEditRab = (rab) => {
+    const targetStage = (wo?.stages || []).find(s => s.stage_id === rab.stage_id);
+    if (!targetStage) {
+      toast.error('Stage not found for this RAB');
+      return;
+    }
+    setEditingRabCtx({ rab, stage: targetStage });
+    setStageDialog(targetStage);
+  };
   const [suspenseBalance, setSuspenseBalance] = useState(0);
   // RAB Bill Detail popup launched from the new "Total RAB's" tab.
   const [rabView, setRabView] = useState({ open: false, requestId: null });
@@ -338,6 +351,7 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
             projectId={projectId}
             workOrder={wo}
             onOpenRabView={(requestId) => setRabView({ open: true, requestId })}
+            onEditRab={openEditRab}
             stageIdFilter={(sid) => {
               const s = (wo.stages || []).find(x => x.stage_id === sid);
               return !!(s && s.is_addition);
@@ -417,6 +431,7 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
             projectId={projectId}
             workOrder={wo}
             onOpenRabView={(requestId) => setRabView({ open: true, requestId })}
+            onEditRab={openEditRab}
             stageIdFilter={(sid) => {
               const s = (wo.stages || []).find(x => x.stage_id === sid);
               // Stages without a wo.stages entry (legacy/unknown) default to
@@ -452,8 +467,9 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
         wo={wo}
         projectId={projectId}
         suspenseBalance={suspenseBalance}
-        onClose={() => setStageDialog(null)}
-        onSaved={() => { setStageDialog(null); onChange(); }}
+        editingRequest={editingRabCtx?.rab}
+        onClose={() => { setStageDialog(null); setEditingRabCtx(null); }}
+        onSaved={() => { setStageDialog(null); setEditingRabCtx(null); onChange(); }}
       />
     </div>
   );
@@ -827,7 +843,7 @@ function WorkCompleteSection({ stage, wo, projectId, fullyPaid, onSaved }) {
 // (Request-Open section removed — Site Engineers no longer raise open
 // requests from this UI; Planning owns the stage-open workflow entirely.)
 // =====================================================================
-function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, onSaved }) {
+function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, onSaved, editingRequest }) {
   const [subTab, setSubTab] = useState('totalrab');
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
@@ -872,9 +888,12 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
     for (const sid of sortedSids) {
       const s = (wo?.stages || []).find(x => x.stage_id === sid);
       if (!s) continue;
-      const cap = (reworkPR && sid === stage.stage_id)
-        ? stageBalanceOf(s) + (reworkPR.amount || 0)
-        : stageBalanceOf(s);
+      let cap = stageBalanceOf(s);
+      if (reworkPR && sid === stage.stage_id) cap += (reworkPR.amount || 0);
+      // In edit mode, the editing request's current amount must be added back
+      // to the source stage's balance — otherwise the SE can't even keep the
+      // same value when re-saving.
+      if (editingRequest && sid === editingRequest.stage_id) cap += (editingRequest.amount || 0);
       const fill = Math.min(Math.max(0, remaining), cap);
       next[sid] = String(+fill.toFixed(2));
       remaining -= fill;
@@ -883,7 +902,12 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   };
 
   // Rule #2: only OPEN stages (locked + completed/zero-balance excluded).
-  const openStagesAll = (wo?.stages || []).filter(s => s.is_open && stageBalanceOf(s) > 0.01);
+  // In edit mode, always keep the editing RAB's source stage available
+  // so SE can keep it as a target even if its current balance is 0.
+  const openStagesAll = (wo?.stages || []).filter(s => s.is_open && (
+    stageBalanceOf(s) > 0.01 ||
+    (editingRequest && s.stage_id === editingRequest.stage_id)
+  ));
 
   // Delete a single payment_request row from the stage's history. Backend
   // enforces permission (PM/Planning/Accountant/Super Admin) and refuses to
@@ -915,8 +939,13 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   useEffect(() => {
     if (stage) {
       const rework = (stage.payment_requests || []).find(p => p.status === 'se_rework');
-      setAmount(rework ? String(rework.amount || '') : '');
-      setNotes(rework ? (rework.notes || '') : '');
+      // Treat `editingRequest` (passed in from the RAB list edit pencil) like
+      // a rework — same pre-fill path so the SE sees their original entries
+      // and can adjust. Submit branches to PATCH instead of POST.
+      const editing = editingRequest;
+      const preFill = editing || rework;
+      setAmount(preFill ? String(preFill.amount || '') : '');
+      setNotes(preFill ? (preFill.notes || '') : '');
       // Default sub-tab priority: Request RAB (if stage is open, has remaining
       // balance and no rejections to clear first), else Total RAB's history.
       const hasReleased = (stage.payment_requests || []).some(p => p.status === 'approved');
@@ -942,10 +971,11 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
         d.setDate(d.getDate() + n);
         return d.toISOString().slice(0, 10);
       };
-      if (rework) {
-        setFromDate(toISODate(rework.from_date) || toISODate(stage.opened_at));
-        setToDate(toISODate(rework.to_date));
-        setExcessReason(rework.excess_dlr_reason || '');
+      if (rework || editing) {
+        const src = editing || rework;
+        setFromDate(toISODate(src.from_date) || toISODate(stage.opened_at));
+        setToDate(toISODate(src.to_date));
+        setExcessReason(src.excess_dlr_reason || '');
       } else {
         const priorWithTo = (stage.payment_requests || [])
           .filter(p => p.to_date)
@@ -960,9 +990,10 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
       }
       setDlrPreview(null);
       // Reset multi-stage allocation to the originating stage with the full amount.
-      setAllocations({ [stage.stage_id]: rework ? String(rework.amount || '') : '' });
+      const preAmt = (editing || rework) ? String((editing || rework).amount || '') : '';
+      setAllocations({ [stage.stage_id]: preAmt });
     }
-  }, [stage]);
+  }, [stage, editingRequest]);
 
   // Whenever the SE retypes the top Amount, auto-distribute it across every
   // currently-checked stage (in stage order, capped at each balance). SE can
@@ -1034,7 +1065,9 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
       if (!s) { toast.error('Selected stage not found'); return; }
       if (!s.is_open) { toast.error(`${s.name} is not yet opened by Planning`); return; }
       const sBal = stageBalanceOf(s);
-      const cap = (reworkPR && sid === stage.stage_id) ? sBal + (reworkPR.amount || 0) : sBal;
+      let cap = sBal;
+      if (reworkPR && sid === stage.stage_id) cap += (reworkPR.amount || 0);
+      if (editingRequest && sid === editingRequest.stage_id) cap += (editingRequest.amount || 0);
       if (v > cap + 0.01) {
         toast.error(`${s.name}: ₹${v} exceeds stage balance ${fmt(cap)}`);
         return;
@@ -1056,7 +1089,15 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
           to_date: toDate || null,
           excess_dlr_reason: excessReason || null,
         };
-        if (reworkPR && sid === stage.stage_id) {
+        if (editingRequest) {
+          // Edit mode — PATCH the existing payment_request. Backend handles
+          // stage moves via `target_stage_id`.
+          await axios.patch(
+            `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${editingRequest.stage_id}/payment-requests/${editingRequest.request_id}`,
+            { amount: v, notes, target_stage_id: sid !== editingRequest.stage_id ? sid : undefined },
+          );
+          toast.success(`${editingRequest.rab_number || 'RAB'} updated`);
+        } else if (reworkPR && sid === stage.stage_id) {
           await axios.post(
             `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${sid}/payment-requests/${reworkPR.request_id}/se-resubmit`,
             payload,
@@ -1096,7 +1137,7 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
     <Dialog open={!!stage} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-[95vw] sm:max-w-xl max-h-[90vh] overflow-y-auto" data-testid="wov2-stage-dialog">
         <DialogHeader>
-          <DialogTitle className="text-base">{stage.name || stage.stage_name}</DialogTitle>
+          <DialogTitle className="text-base">{editingRequest ? `Edit ${editingRequest.rab_number || 'RAB'} · ${stage.name || stage.stage_name}` : (stage.name || stage.stage_name)}</DialogTitle>
           <DialogDescription className="text-xs">{wo.contractor_name} ({wo.contractor_type || '—'})</DialogDescription>
         </DialogHeader>
 
