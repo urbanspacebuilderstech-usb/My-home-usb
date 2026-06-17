@@ -21,19 +21,6 @@ import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { PMMaterialReadOnlyList, PMLabourReadOnlyList } from '../components/PMReadOnlyLifecycle';
 import PMPettyCashTabs from '../components/PMPettyCashTabs';
 
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-
-// Fix leaflet default marker icon so it renders on PM dashboard too.
-const __pmLeafletIcon = L.icon({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-});
-L.Marker.prototype.options.icon = __pmLeafletIcon;
-
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
@@ -305,45 +292,6 @@ export default function PMDashboard() {
               a row jumps to the SE project detail page so PMs use the exact
               same project workspace as the field team. */}
           <TabsContent value="all_projects">
-            {/* Project Locations Map (only when at least one project has GPS) */}
-            {(() => {
-              const geoProjects = projects.filter(p => p.latitude && p.longitude);
-              if (geoProjects.length === 0) return null;
-              const center = [geoProjects[0].latitude, geoProjects[0].longitude];
-              return (
-                <Card className="mb-4" data-testid="pm-project-map-card">
-                  <CardHeader className="p-3 pb-0">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-orange-600" /> Project Locations
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-3 pt-2">
-                    <div className="rounded-lg overflow-hidden border" style={{ height: '280px' }}>
-                      <MapContainer center={center} zoom={12} style={{ height: '100%', width: '100%' }} scrollWheelZoom={true}>
-                        <TileLayer
-                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        />
-                        {geoProjects.map(p => (
-                          <Marker key={p.project_id} position={[p.latitude, p.longitude]}>
-                            <Popup>
-                              <div className="text-xs min-w-[150px]">
-                                <p className="font-bold text-sm mb-1">{p.name}</p>
-                                <p className="text-gray-600">{p.location || 'No address'}</p>
-                                <p className="text-gray-500">{p.client_name}</p>
-                                <p className="text-[10px] text-gray-400 mt-1">{p.latitude?.toFixed(4)}, {p.longitude?.toFixed(4)}</p>
-                              </div>
-                            </Popup>
-                          </Marker>
-                        ))}
-                      </MapContainer>
-                    </div>
-                    <p className="text-[10px] text-gray-400 mt-1">{geoProjects.length} of {projects.length} projects with GPS coordinates</p>
-                  </CardContent>
-                </Card>
-              );
-            })()}
-
             {projects.length === 0 ? (
               <Card>
                 <CardContent className="py-8 sm:py-12 text-center">
