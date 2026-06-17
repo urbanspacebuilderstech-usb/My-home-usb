@@ -3882,6 +3882,19 @@ async def get_cheques(
         query["is_post_dated"] = is_post_dated
     
     cheques = await db.cheques.find(query, {"_id": 0}).sort("cheque_date", -1).to_list(500)
+
+    # ── Backfill project_name on the fly. Older cheques only stored
+    # project_id, so the Cheque Management table showed "-" for them. We
+    # batch-fetch every referenced project once and stamp the name back
+    # onto each row so EVERY tab (All / Received / Opened / Awaiting CRE /
+    # Issued / Bounced / Disabled — all filter the same dataset) shows it.
+    missing_ids = list({c.get("project_id") for c in cheques if c.get("project_id") and not c.get("project_name")})
+    if missing_ids:
+        proj_rows = await db.projects.find({"project_id": {"$in": missing_ids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(len(missing_ids))
+        name_map = {p["project_id"]: p.get("name") for p in proj_rows}
+        for c in cheques:
+            if not c.get("project_name") and c.get("project_id") in name_map:
+                c["project_name"] = name_map[c["project_id"]]
     return cheques
 
 
@@ -4013,6 +4026,14 @@ async def get_cre_cheques(project_id: Optional[str] = None, user: User = Depends
         query["project_id"] = project_id
 
     cheques = await db.cheques.find(query, {"_id": 0}).sort("cheque_date", -1).to_list(2000)
+    # Backfill project_name for old rows that only carry project_id.
+    missing_ids = list({c.get("project_id") for c in cheques if c.get("project_id") and not c.get("project_name")})
+    if missing_ids:
+        proj_rows = await db.projects.find({"project_id": {"$in": missing_ids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(len(missing_ids))
+        name_map = {p["project_id"]: p.get("name") for p in proj_rows}
+        for c in cheques:
+            if not c.get("project_name") and c.get("project_id") in name_map:
+                c["project_name"] = name_map[c["project_id"]]
     return cheques
 
 
