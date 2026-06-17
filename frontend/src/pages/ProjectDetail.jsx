@@ -9493,7 +9493,6 @@ export default function ProjectDetail() {
                                   <Button size="sm" variant="outline" className="border-violet-300 text-violet-700 hover:bg-violet-50" onClick={() => openSaveWoTemplate(wo)} data-testid={`wo-save-template-${wo.work_order_id}`}>
                                     <Plus className="h-3 w-3 mr-1" />Save as Template
                                   </Button>
-                                  <Button size="sm" variant="outline" onClick={() => openWoDialog(wo)} data-testid="wo-edit-btn"><Edit className="h-3 w-3 mr-1" />Edit</Button>
                                   <Button size="sm" variant="destructive" onClick={() => handleDeleteWo(wo)} data-testid="wo-delete-btn"><Trash2 className="h-3 w-3" /></Button>
                                 </>
                               )}
@@ -10828,10 +10827,7 @@ export default function ProjectDetail() {
                                   </div>
                                   <div className="flex gap-1">
                                   {wo.status !== 'frozen' && (
-                                    <>
-                                      <Button size="sm" variant="outline" onClick={() => openWoDialog(wo)} data-testid="labour-wo-edit-btn"><Edit className="h-3 w-3 mr-1" />Edit</Button>
-                                      <Button size="sm" variant="destructive" onClick={() => handleDeleteWo(wo)} data-testid="labour-wo-delete-btn"><Trash2 className="h-3 w-3" /></Button>
-                                    </>
+                                    <Button size="sm" variant="destructive" onClick={() => handleDeleteWo(wo)} data-testid="labour-wo-delete-btn"><Trash2 className="h-3 w-3" /></Button>
                                   )}
                                   </div>
                                 </div>
