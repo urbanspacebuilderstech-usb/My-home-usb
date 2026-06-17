@@ -9491,27 +9491,20 @@ export default function ProjectDetail() {
                               <TabsTrigger value="rab" className="flex-1 text-xs rounded-none border-b-2 border-transparent data-[state=active]:bg-violet-50 data-[state=active]:text-violet-700 data-[state=active]:border-violet-600 data-[state=active]:font-semibold data-[state=active]:shadow-none py-2.5" data-testid="wo-rab-tab">RAB</TabsTrigger>
                             </TabsList>
                             <TabsContent value="scope" className="p-3">
-                              {['planning', 'planning_person', 'super_admin'].includes(user?.role) && (
-                                <div className="flex justify-end mb-2">
-                                  <Button size="sm" className="h-7 text-xs bg-violet-600 hover:bg-violet-700" data-testid={`wo-add-scope-${wo.work_order_id}`} onClick={() => openAddScopeItem(wo)}>
-                                    <Plus className="h-3 w-3 mr-1" /> Add Item
-                                  </Button>
-                                </div>
-                              )}
                               {wo.scope_items?.length > 0 ? (
                                 <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
                                 <tbody className="divide-y">{(wo.scope_items || []).map((s, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{s.name}</td><td className="px-3 py-2">{s.unit}</td><td className="px-3 py-2 text-right">{s.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(s.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(s.total)}</td></tr>))}</tbody>
                                 <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Scope Total:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(wo.scope_total)}</td></tr></tfoot></table>
                               ) : <p className="text-gray-400 text-center py-4 text-sm">No scope items</p>}
-                            </TabsContent>
-                            <TabsContent value="stages" className="p-3">
                               {['planning', 'planning_person', 'super_admin'].includes(user?.role) && (
-                                <div className="flex justify-end mb-2">
-                                  <Button size="sm" className="h-7 text-xs bg-violet-600 hover:bg-violet-700" data-testid={`wo-add-stage-${wo.work_order_id}`} onClick={() => openAddStage(wo)}>
-                                    <Plus className="h-3 w-3 mr-1" /> Add Stage
+                                <div className="mt-3 flex justify-start">
+                                  <Button size="sm" variant="outline" className="h-8 text-xs border-dashed border-violet-300 text-violet-700 hover:bg-violet-50" data-testid={`wo-add-scope-${wo.work_order_id}`} onClick={() => openAddScopeItem(wo)}>
+                                    <Plus className="h-3.5 w-3.5 mr-1" /> Add Item
                                   </Button>
                                 </div>
                               )}
+                            </TabsContent>
+                            <TabsContent value="stages" className="p-3">
                               {wo.stages?.length > 0 ? (() => {
                                 const counts = { open: 0, locked: 0, completed: 0, all: wo.stages.length };
                                 wo.stages.forEach(s => { counts[stageBucketOf(s)]++; });
@@ -9640,6 +9633,13 @@ export default function ProjectDetail() {
                                 </div>
                                 );
                               })() : <p className="text-gray-400 text-center py-4 text-sm">No stages</p>}
+                              {['planning', 'planning_person', 'super_admin'].includes(user?.role) && (
+                                <div className="mt-3 flex justify-start">
+                                  <Button size="sm" variant="outline" className="h-8 text-xs border-dashed border-violet-300 text-violet-700 hover:bg-violet-50" data-testid={`wo-add-stage-${wo.work_order_id}`} onClick={() => openAddStage(wo)}>
+                                    <Plus className="h-3.5 w-3.5 mr-1" /> Add Stage
+                                  </Button>
+                                </div>
+                              )}
                             </TabsContent>
                             <TabsContent value="additional" className="p-3">
                               {(() => {
