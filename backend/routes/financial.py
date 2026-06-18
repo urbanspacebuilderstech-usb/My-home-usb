@@ -4694,11 +4694,18 @@ async def get_cashbook_filtered(
             {"_id": 0}
         ).sort("created_at", -1).to_list(1000),
         # Cashbook's All-Projects dropdown lists EVERY real project — those
-        # surfaced under Planning's New / Current / Delivered tabs. RE-leads
-        # and sales-only / archived rows are excluded so the dropdown stays
-        # clean (user request, Feb 2026).
+        # surfaced under Planning's New / Current / Delivered tabs. We also
+        # exclude RE-prefixed lead names ("RE-Joseph Vijay", "RE - Ramkumar")
+        # and the specific test row "Swathi 60LG+2" that lingered in Planning
+        # despite being a lead (user request, Feb 2026).
         db.projects.find(
-            {"planning_status": {"$in": ["new", "active", "delivered"]}},
+            {
+                "planning_status": {"$in": ["new", "active", "delivered"]},
+                "name": {
+                    "$not": {"$regex": r"^\s*RE\s*[-\u2013\u2014]"},
+                    "$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2"],
+                },
+            },
             {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "status": 1, "planning_status": 1, "created_at": 1},
         ).sort("name", 1).to_list(5000),
     )
