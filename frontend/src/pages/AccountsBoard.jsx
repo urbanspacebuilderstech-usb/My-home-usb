@@ -1011,15 +1011,20 @@ function IndirectExpenseSection({ userRole }) {
   });
   const [confirmForm, setConfirmForm] = useState({ payment_date: '', reference_number: '', remarks: '' });
 
+  // Feb 19 2026 — Mini summary cards (Total Indirect / Out / Balance)
+  // sourced from the Cashflow Engine so values match the engine exactly.
+  const [cashflowSummary, setCashflowSummary] = useState(null);
+
   const fetchIndirect = useCallback(async (showLoader = true) => {
     try {
       if (showLoader) setIndirectLoading(true);
-      const [costsRes, catsRes, budgetRes, allocRes, settingsRes] = await Promise.all([
+      const [costsRes, catsRes, budgetRes, allocRes, settingsRes, cfSummaryRes] = await Promise.all([
         axios.get(`${API}/financial/indirect-costs`),
         axios.get(`${API}/financial/indirect-cost-categories`),
         axios.get(`${API}/financial/project-budget-overview`).catch(() => ({ data: null })),
         axios.get(`${API}/financial/indirect-cost-allocations`).catch(() => ({ data: [] })),
-        axios.get(`${API}/settings/company`).catch(() => ({ data: null }))
+        axios.get(`${API}/settings/company`).catch(() => ({ data: null })),
+        axios.get(`${API}/cashflow/summary`).catch(() => ({ data: null }))
       ]);
       setCosts(costsRes.data);
       setCategories(catsRes.data);
@@ -1028,6 +1033,7 @@ function IndirectExpenseSection({ userRole }) {
       const pct = settingsRes.data?.indirect_cost_percent ?? 20;
       setIndirectPct(pct);
       setPctInput(String(pct));
+      setCashflowSummary(cfSummaryRes.data);
     } catch { /* ignore */ }
     finally { setIndirectLoading(false); }
   }, []);
@@ -1136,6 +1142,34 @@ function IndirectExpenseSection({ userRole }) {
 
   return (
     <div className="space-y-3" data-testid="indirect-expense-section">
+      {/* Feb 19 2026 — Mini summary cards sourced from Cashflow Engine */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3" data-testid="indirect-summary-cards">
+        <Card className="border-l-4 border-l-violet-500 bg-violet-50/40">
+          <CardContent className="p-2.5 sm:p-3">
+            <p className="text-[10px] sm:text-xs text-gray-500">Total Indirect Cost</p>
+            <p className="text-base sm:text-lg font-bold text-violet-700" data-testid="indirect-total-in">
+              <MaskedValue value={cashflowSummary?.indirect_in || 0} className="text-violet-700" />
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-red-500 bg-red-50/40">
+          <CardContent className="p-2.5 sm:p-3">
+            <p className="text-[10px] sm:text-xs text-gray-500">Indirect Out</p>
+            <p className="text-base sm:text-lg font-bold text-red-600" data-testid="indirect-total-out">
+              <MaskedValue value={cashflowSummary?.indirect_out || 0} className="text-red-600" />
+            </p>
+          </CardContent>
+        </Card>
+        <Card className={`border-l-4 ${(cashflowSummary?.indirect_balance || 0) >= 0 ? 'border-l-emerald-500 bg-emerald-50/40' : 'border-l-amber-500 bg-amber-50/40'}`}>
+          <CardContent className="p-2.5 sm:p-3">
+            <p className="text-[10px] sm:text-xs text-gray-500">Balance</p>
+            <p className={`text-base sm:text-lg font-bold ${(cashflowSummary?.indirect_balance || 0) >= 0 ? 'text-emerald-700' : 'text-amber-700'}`} data-testid="indirect-balance">
+              <MaskedValue value={cashflowSummary?.indirect_balance || 0} className={(cashflowSummary?.indirect_balance || 0) >= 0 ? 'text-emerald-700' : 'text-amber-700'} />
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Cost Split Bar */}
       <Card className="border-violet-200 bg-gradient-to-r from-blue-50 via-white to-violet-50">
         <CardContent className="p-2.5 sm:p-3">
