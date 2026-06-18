@@ -4693,11 +4693,14 @@ async def get_cashbook_filtered(
             {**expense_q, "status": {"$in": ["accounts_approved", "approved_for_po", "po_issued", "in_transit", "received", "delivered", "paid"]}},
             {"_id": 0}
         ).sort("created_at", -1).to_list(1000),
-        # Cashbook's All-Projects dropdown lists EVERY project — both
-        # Planning's "New Projects" (draft / pending_payment / planning_review /
-        # gm_approved / planning_approved) and the live "Current Projects"
-        # (active / etc.). No status filter. Sort by name for a clean list.
-        db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "status": 1, "created_at": 1}).sort("name", 1).to_list(5000),
+        # Cashbook's All-Projects dropdown lists EVERY real project — those
+        # surfaced under Planning's New / Current / Delivered tabs. RE-leads
+        # and sales-only / archived rows are excluded so the dropdown stays
+        # clean (user request, Feb 2026).
+        db.projects.find(
+            {"planning_status": {"$in": ["new", "active", "delivered"]}},
+            {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "status": 1, "planning_status": 1, "created_at": 1},
+        ).sort("name", 1).to_list(5000),
     )
 
     project_map = {p["project_id"]: p["name"] for p in projects_list}
