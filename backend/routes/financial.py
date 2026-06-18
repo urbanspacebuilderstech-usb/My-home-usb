@@ -376,7 +376,7 @@ async def list_carry_forward_projects(user: User = Depends(get_current_user)):
     projects = await db.projects.find(
         {
             "planning_status": {"$in": ["new", "active", "delivered"]},
-            "name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]},
+            "name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "RE - Mr. Joseph Vijay", "RE - Mr. Joseph Vijay ", "RE-Mr. Joseph Vijay", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]},
         },
         {"_id": 0, "project_id": 1, "name": 1, "original_estimate": 1, "total_value": 1, "planning_status": 1},
     ).sort("name", 1).to_list(5000)
@@ -540,7 +540,7 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
         db.projects.find(
             {
                 "planning_status": {"$in": ["new", "active", "delivered"]},
-                "name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]},
+                "name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "RE - Mr. Joseph Vijay", "RE - Mr. Joseph Vijay ", "RE-Mr. Joseph Vijay", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]},
             },
             {"_id": 0, "project_id": 1, "name": 1, "status": 1, "planning_status": 1},
         ).to_list(5000),
@@ -4730,7 +4730,7 @@ async def get_cashbook_filtered(
         db.projects.find(
             {
                 "planning_status": {"$in": ["new", "active", "delivered"]},
-                "name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]},
+                "name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "RE - Mr. Joseph Vijay", "RE - Mr. Joseph Vijay ", "RE-Mr. Joseph Vijay", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]},
             },
             {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "status": 1, "planning_status": 1, "created_at": 1},
         ).sort("name", 1).to_list(5000),
