@@ -375,7 +375,7 @@ async def list_carry_forward_projects(user: User = Depends(get_current_user)):
         {
             "planning_status": {"$in": ["new", "active", "delivered"]},
             "$and": [
-                {"name": {"$not": {"$regex": r"^\s*RE\s*[-\u2013\u2014]"}}},
+                {"name": {"$not": {"$regex": "^\\s*RE\\s*-"}}},
                 {"name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2"]}},
             ],
         },
@@ -4715,7 +4715,7 @@ async def get_cashbook_filtered(
             {
                 "planning_status": {"$in": ["new", "active", "delivered"]},
                 "$and": [
-                    {"name": {"$not": {"$regex": r"^\s*RE\s*[-\u2013\u2014]"}}},
+                    {"name": {"$not": {"$regex": "^\\s*RE\\s*-"}}},
                     {"name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2"]}},
                 ],
             },
