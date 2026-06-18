@@ -4275,6 +4275,9 @@ function ProjectSummaryTab({ overview }) {
   const [activeRole, setActiveRole] = useState(null);       // 'planning_person' | 'site_engineer' | 'project_manager' | 'sr_site_engineer' | null
   const [activeUserId, setActiveUserId] = useState(null);   // user_id currently filtered by
 
+  // Feb 19 2026 — Project-name search box (case-insensitive, trim-safe).
+  const [projSearch, setProjSearch] = useState('');
+
   useEffect(() => {
     let cancelled = false;
     axios.get(`${API}/accountant/team-project-map`)
@@ -4333,9 +4336,16 @@ function ProjectSummaryTab({ overview }) {
     Object.values(map).forEach(p => { p.balance = p.income - p.expense; });
     return Object.values(map).sort((a, b) => b.income - a.income);
   })();
-  const projects = allowedProjectIds
-    ? projectsRaw.filter(p => allowedProjectIds.has(p.project_id))
-    : projectsRaw;
+  const projects = (() => {
+    let list = allowedProjectIds
+      ? projectsRaw.filter(p => allowedProjectIds.has(p.project_id))
+      : projectsRaw;
+    const q = projSearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter(p => (p.project_name || '').toLowerCase().includes(q));
+    }
+    return list;
+  })();
 
   const totals = filteredData?.summary
     ? { total_income: filteredData.summary.total_income, total_expense: filteredData.summary.total_expense, net_balance: filteredData.summary.net_balance }
@@ -4448,11 +4458,33 @@ function ProjectSummaryTab({ overview }) {
 
       <Card>
         <CardHeader className="py-3 px-4 border-b">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <CardTitle className="text-sm flex items-center gap-2">
               <Building2 className="h-4 w-4 text-amber-600" /> All Projects
               <Badge variant="outline" className="text-xs">{projects.length} projects</Badge>
             </CardTitle>
+            <div className="relative w-full sm:w-72">
+              <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={projSearch}
+                onChange={(e) => setProjSearch(e.target.value)}
+                placeholder="Search project name..."
+                data-testid="project-summary-search"
+                className="w-full pl-8 pr-8 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              />
+              {projSearch && (
+                <button
+                  type="button"
+                  onClick={() => setProjSearch('')}
+                  data-testid="project-summary-search-clear"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-600 text-xs"
+                  aria-label="Clear search"
+                >
+                  ×
+                </button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
