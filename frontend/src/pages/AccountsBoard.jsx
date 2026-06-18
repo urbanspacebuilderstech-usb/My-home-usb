@@ -4824,6 +4824,7 @@ function CarryForwardTab({ userRole }) {
               <table className="w-full text-xs" data-testid="carry-forward-projects-table">
                 <thead className="bg-gray-50 text-gray-700 uppercase text-[10px] tracking-wide">
                   <tr>
+                    <th className="text-left px-3 py-2 w-12">S.No</th>
                     <th className="text-left px-3 py-2">Project</th>
                     <th className="text-right px-3 py-2">Project Value</th>
                     <th className="text-right px-3 py-2">Total Income</th>
@@ -4835,8 +4836,9 @@ function CarryForwardTab({ userRole }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {projectRows.map((r) => (
+                  {projectRows.map((r, idx) => (
                     <tr key={r.project_id} className="border-t hover:bg-amber-50/30">
+                      <td className="px-3 py-2 text-gray-500 tabular-nums" data-testid={`cf-row-sno-${r.project_id}`}>{idx + 1}</td>
                       <td className="px-3 py-2 font-medium text-gray-900">{r.project_name}</td>
                       <td className="px-3 py-2 text-right">₹{(r.project_value || 0).toLocaleString('en-IN')}</td>
                       <td className="px-3 py-2 text-right text-emerald-700">₹{(r.total_income || 0).toLocaleString('en-IN')}</td>
