@@ -368,16 +368,15 @@ async def list_carry_forward_projects(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Match Planning's project filter so Carry Forward only lists projects
-    # that appear under Planning's New / Current / Delivered tabs (real
-    # projects). RE-leads, sales-stage rows and the "Swathi 60LG+2" test
-    # entry are excluded (user request, Feb 2026).
+    # that appear under Planning's New / Current / Delivered tabs. Source
+    # of truth is `planning_status` — the RE- regex was dropped (Feb 19
+    # 2026) because legitimate Planning projects like "RE - Aldrin Jones"
+    # were being incorrectly hidden. The explicit name $nin still removes
+    # specific demo / test rows that linger in Planning.
     projects = await db.projects.find(
         {
             "planning_status": {"$in": ["new", "active", "delivered"]},
-            "$and": [
-                {"name": {"$not": {"$regex": "^\\s*RE\\s*-"}}},
-                {"name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]}},
-            ],
+            "name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]},
         },
         {"_id": 0, "project_id": 1, "name": 1, "original_estimate": 1, "total_value": 1, "planning_status": 1},
     ).sort("name", 1).to_list(5000)
@@ -541,10 +540,7 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
         db.projects.find(
             {
                 "planning_status": {"$in": ["new", "active", "delivered"]},
-                "$and": [
-                    {"name": {"$not": {"$regex": "^\\s*RE\\s*-"}}},
-                    {"name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]}},
-                ],
+                "name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]},
             },
             {"_id": 0, "project_id": 1, "name": 1, "status": 1, "planning_status": 1},
         ).to_list(5000),
@@ -4726,17 +4722,15 @@ async def get_cashbook_filtered(
             {"_id": 0}
         ).sort("created_at", -1).to_list(1000),
         # Cashbook's All-Projects dropdown lists EVERY real project — those
-        # surfaced under Planning's New / Current / Delivered tabs. We also
-        # exclude RE-prefixed lead names ("RE-Joseph Vijay", "RE - Ramkumar")
-        # and the specific test row "Swathi 60LG+2" that lingered in Planning
-        # despite being a lead (user request, Feb 2026).
+        # surfaced under Planning's New / Current / Delivered tabs. The
+        # explicit name $nin removes specific demo / test rows. The blanket
+        # RE-prefix regex was dropped (Feb 19 2026) because legitimate
+        # Planning projects like "RE - Aldrin Jones" were hidden — use
+        # planning_status as the source of truth.
         db.projects.find(
             {
                 "planning_status": {"$in": ["new", "active", "delivered"]},
-                "$and": [
-                    {"name": {"$not": {"$regex": "^\\s*RE\\s*-"}}},
-                    {"name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]}},
-                ],
+                "name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]},
             },
             {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "status": 1, "planning_status": 1, "created_at": 1},
         ).sort("name", 1).to_list(5000),

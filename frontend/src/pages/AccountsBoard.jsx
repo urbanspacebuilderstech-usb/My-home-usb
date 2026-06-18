@@ -4340,9 +4340,12 @@ function ProjectSummaryTab({ overview }) {
     let list = allowedProjectIds
       ? projectsRaw.filter(p => allowedProjectIds.has(p.project_id))
       : projectsRaw;
-    const q = projSearch.trim().toLowerCase();
+    // Whitespace-tolerant search: collapse multiple spaces + trim on
+    // both sides so " Mr Rajesh  puzhal" matches "rajesh puzhal".
+    const normalize = (s) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const q = normalize(projSearch);
     if (q) {
-      list = list.filter(p => (p.project_name || '').toLowerCase().includes(q));
+      list = list.filter(p => normalize(p.project_name).includes(q));
     }
     return list;
   })();
@@ -4508,7 +4511,7 @@ function ProjectSummaryTab({ overview }) {
                     <tr key={i} className="hover:bg-amber-50 cursor-pointer transition-colors" data-testid={`project-row-${i}`}
                       onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}>
                       <td className="px-3 py-2 text-gray-400">{i + 1}</td>
-                      <td className="px-3 py-2 font-medium text-blue-700 underline decoration-dotted">{p.project_name}</td>
+                      <td className="px-3 py-2 font-medium text-blue-700 underline decoration-dotted">{(p.project_name || '').replace(/\s+/g, ' ').trim()}</td>
                       <td className="px-3 py-2 text-right text-green-700 font-semibold"><MaskedValue value={p.income} className="text-green-700" /></td>
                       <td className="px-3 py-2 text-right text-red-600 font-semibold"><MaskedValue value={p.expense} className="text-red-600" /></td>
                       <td className={`px-3 py-2 text-right font-bold ${p.balance >= 0 ? 'text-green-700' : 'text-red-600'}`}><MaskedValue value={p.balance} className={p.balance >= 0 ? 'text-green-700' : 'text-red-600'} /></td>
