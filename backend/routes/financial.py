@@ -367,7 +367,20 @@ async def list_carry_forward_projects(user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    projects = await db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1, "original_estimate": 1, "total_value": 1}).sort("name", 1).to_list(500)
+    # Match Planning's project filter so Carry Forward only lists projects
+    # that appear under Planning's New / Current / Delivered tabs (real
+    # projects). RE-leads, sales-stage rows and the "Swathi 60LG+2" test
+    # entry are excluded (user request, Feb 2026).
+    projects = await db.projects.find(
+        {
+            "planning_status": {"$in": ["new", "active", "delivered"]},
+            "name": {
+                "$not": {"$regex": r"^\s*RE\s*[-\u2013\u2014]"},
+                "$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2"],
+            },
+        },
+        {"_id": 0, "project_id": 1, "name": 1, "original_estimate": 1, "total_value": 1, "planning_status": 1},
+    ).sort("name", 1).to_list(5000)
     cf_docs = await db.project_carry_forwards.find({}, {"_id": 0}).to_list(1000)
     cf_map = {d.get("project_id"): d for d in cf_docs}
 
