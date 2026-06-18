@@ -4928,10 +4928,35 @@ async def get_cashbook_filtered(
     for e in all_expenses:
         expense_by_mode[_classify(e.get("payment_method") or e.get("payment_mode"))] += e.get("amount", 0)
 
+    # Build project-wise breakdown from the FULL incomes/expenses lists
+    # (NOT the [:500] truncated slices below) and seed EVERY real project
+    # so the Project-Wise tab always shows all 51 projects — including
+    # those with zero balance and those whose entries fell outside the
+    # top-500 window (e.g. Mrs. Abinaya's older incomes).
+    real_pid_set = {p["project_id"] for p in projects_list}
+    project_wise_map = {p["project_id"]: {
+        "project_id": p["project_id"],
+        "project_name": p.get("name", "Unknown"),
+        "income": 0,
+        "expense": 0,
+    } for p in projects_list}
+    for i in incomes:
+        pid = i.get("project_id")
+        if pid in real_pid_set:
+            project_wise_map[pid]["income"] += i.get("amount", 0) or 0
+    for e in all_expenses:
+        pid = e.get("project_id")
+        if pid in real_pid_set:
+            project_wise_map[pid]["expense"] += e.get("amount", 0) or 0
+    for pw in project_wise_map.values():
+        pw["balance"] = pw["income"] - pw["expense"]
+    project_wise_sorted = sorted(project_wise_map.values(), key=lambda x: (-x["income"], x["project_name"]))
+
     return {
         "income_entries": incomes[:500],
         "expense_entries": all_expenses[:500],
         "projects": projects_list,
+        "project_wise": project_wise_sorted,
         "income_by_mode": income_by_mode,
         "expense_by_mode": expense_by_mode,
         "summary": {

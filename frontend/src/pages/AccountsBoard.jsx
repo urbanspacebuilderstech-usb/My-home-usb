@@ -4308,9 +4308,15 @@ function ProjectSummaryTab({ overview }) {
     return () => { cancelled = true; };
   }, [projDateFrom, projDateTo]);
 
-  // Compute project-wise breakdown from filtered data, fallback to overview for initial render
+  // Compute project-wise breakdown — prefer the backend-computed
+  // `project_wise` (seeded with ALL 51 real projects and aggregated
+  // from the FULL incomes/expenses lists, not the [:500] slice).
+  // Fall back to overview, and only if neither is available rebuild
+  // from the truncated entries arrays.
   const projectsRaw = (() => {
+    if (filteredData?.project_wise) return filteredData.project_wise;
     if (!filteredData) return overview?.project_wise || [];
+    // Legacy fallback: derive from entries (may miss zero-balance projects)
     const map = {};
     (filteredData.income_entries || []).forEach(i => {
       const pid = i.project_id;

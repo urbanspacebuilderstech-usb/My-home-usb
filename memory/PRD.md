@@ -13,6 +13,15 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 19, 2026 — Project-Wise Tab: 51 Projects + Correct Aggregation (P0)
+- **Status**: ✅ FIX READY (pending VPS deploy).
+- **User reports**: (a) Accountant > Project Wise tab showed only 29 of 51 real projects; (b) Mrs. Abinaya project displayed ₹0 income despite real entries.
+- **Root cause**: The `/accountant/cashbook-filtered` API returns only the top-500 income/expense entries (sorted by date desc). Frontend was rebuilding `project_wise` client-side from those truncated slices, dropping any project whose entries fell outside the 500-row window (Mrs. Abinaya), and never including zero-balance projects at all (the missing 22).
+- **Backend fix** (`/app/backend/routes/financial.py`, `/accountant/cashbook-filtered`): Now computes `project_wise` server-side from the **full** incomes + expenses lists (not the `[:500]` slice), seeded with **every** real project from `projects_list` (Planning's New / Current / Delivered, excluding RE- leads). Returns sorted `project_wise[]` with `{project_id, project_name, income, expense, balance}`.
+- **Frontend fix** (`/app/frontend/src/pages/AccountsBoard.jsx`): `projectsRaw` now prefers `filteredData.project_wise` (the new backend payload). Falls back to overview's project_wise when filter API is missing, then to legacy client-side aggregation. No more zero-balance / windowing dropouts.
+- **Outcome**: Project-Wise tab now shows all 51 real projects with accurate income/expense totals across any date range; Mrs. Abinaya's income aggregates correctly from her full history.
+
+
 ### Session — Feb 16, 2026 — SE Additional Tab UI Clone + Additional RAB Tab Wired (P0)
 - **Status**: ✅ COMPLETE & DEPLOYED (`main.f5a6d676.js`, VPS commit `408e6457`).
 - **User ask**: The 3 sub-tabs under SE/Sr.SE > Work Order > **Additional** (Claimable / Non-Claimable / Rework) must mirror the **Payment Schedule Stages** UI exactly — same 4 status pills (All / Open / Completed / Locked) and same StageRequestDialog (Total RAB request popup) flow on click.
