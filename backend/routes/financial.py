@@ -538,7 +538,16 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
         db.labour_expenses.find({"status": "accounts_approved"}, {"_id": 0}).sort("created_at", -1).to_list(5000),
         db.material_requests.find({"status": {"$nin": EXCLUDED_EXPENSE_STATUSES}}, {"_id": 0}).sort("created_at", -1).to_list(5000),
         db.petty_cash.find({"status": {"$nin": EXCLUDED_EXPENSE_STATUSES}}, {"_id": 0}).sort("created_at", -1).to_list(5000),
-        db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1, "status": 1}).to_list(1000),
+        db.projects.find(
+            {
+                "planning_status": {"$in": ["new", "active", "delivered"]},
+                "$and": [
+                    {"name": {"$not": {"$regex": "^\\s*RE\\s*-"}}},
+                    {"name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2"]}},
+                ],
+            },
+            {"_id": 0, "project_id": 1, "name": 1, "status": 1, "planning_status": 1},
+        ).to_list(5000),
         db.suspense_transactions.find({}, {"_id": 0}).to_list(5000),
         db.petty_cash_requests.find({}, {"_id": 0}).to_list(2000),
         db.suspense_entries.find({}, {"_id": 0}).to_list(5000),
@@ -642,26 +651,36 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
 
     suspense_total = petty_cash_suspense + material_suspense_total + labour_suspense_total + legacy_suspense_total
     
-    # Project-wise breakdown
-    project_wise = {}
+    # Project-wise breakdown — seed EVERY real project (Planning's New /
+    # Current / Delivered) so the table always shows the full set, even
+    # when there are no incomes/expenses yet against that project. Income
+    # and expense entries that point at a project NOT in this real-project
+    # set are skipped (legacy RE-leads etc. shouldn't pollute totals).
+    real_pid_set = {p["project_id"] for p in projects_list}
+    project_wise = {p["project_id"]: {
+        "project_id": p["project_id"],
+        "project_name": p.get("name", "Unknown"),
+        "income": 0,
+        "expense": 0,
+    } for p in projects_list}
+
     for i in incomes:
         pid = i.get("project_id")
-        if pid not in project_wise:
-            project_wise[pid] = {"project_id": pid, "project_name": project_map.get(pid, "Unknown"), "income": 0, "expense": 0}
+        if pid not in real_pid_set:
+            continue
         project_wise[pid]["income"] += i.get("amount", 0)
-    
+
     for e in all_expenses:
         pid = e.get("project_id")
-        if pid and pid not in project_wise:
-            project_wise[pid] = {"project_id": pid, "project_name": project_map.get(pid, "Unknown"), "income": 0, "expense": 0}
-        if pid:
-            project_wise[pid]["expense"] += e.get("amount", 0)
-    
+        if not pid or pid not in real_pid_set:
+            continue
+        project_wise[pid]["expense"] += e.get("amount", 0)
+
     # Sort and add P&L
     for pw in project_wise.values():
         pw["balance"] = pw["income"] - pw["expense"]
-    
-    project_list_sorted = sorted(project_wise.values(), key=lambda x: x["income"], reverse=True)
+
+    project_list_sorted = sorted(project_wise.values(), key=lambda x: (-x["income"], x["project_name"]))
     
     return {
         "income_by_mode": income_by_mode,
