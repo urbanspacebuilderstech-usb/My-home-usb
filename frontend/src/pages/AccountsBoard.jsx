@@ -4353,7 +4353,7 @@ function ProjectSummaryTab({ overview }) {
 
   return (
     <div className="space-y-4" data-testid="project-summary-tab">
-      {/* Unified Date / Month / Year Filter */}
+      {/* Unified Date / Month / Year Filter + Project Search */}
       <Card>
         <CardContent className="p-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -4366,6 +4366,28 @@ function ProjectSummaryTab({ overview }) {
               accent="amber"
             />
             {fLoading && <RefreshCw className="h-4 w-4 animate-spin text-amber-600" />}
+            <div className="relative ml-auto w-full sm:w-72">
+              <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={projSearch}
+                onChange={(e) => setProjSearch(e.target.value)}
+                placeholder="Search project name..."
+                data-testid="project-summary-search"
+                className="w-full pl-8 pr-8 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              />
+              {projSearch && (
+                <button
+                  type="button"
+                  onClick={() => setProjSearch('')}
+                  data-testid="project-summary-search-clear"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-600 text-xs"
+                  aria-label="Clear search"
+                >
+                  ×
+                </button>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -4458,33 +4480,11 @@ function ProjectSummaryTab({ overview }) {
 
       <Card>
         <CardHeader className="py-3 px-4 border-b">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center justify-between">
             <CardTitle className="text-sm flex items-center gap-2">
               <Building2 className="h-4 w-4 text-amber-600" /> All Projects
               <Badge variant="outline" className="text-xs">{projects.length} projects</Badge>
             </CardTitle>
-            <div className="relative w-full sm:w-72">
-              <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={projSearch}
-                onChange={(e) => setProjSearch(e.target.value)}
-                placeholder="Search project name..."
-                data-testid="project-summary-search"
-                className="w-full pl-8 pr-8 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-              />
-              {projSearch && (
-                <button
-                  type="button"
-                  onClick={() => setProjSearch('')}
-                  data-testid="project-summary-search-clear"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-600 text-xs"
-                  aria-label="Clear search"
-                >
-                  ×
-                </button>
-              )}
-            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
