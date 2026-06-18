@@ -20,6 +20,7 @@ import { StatusPill, pillState } from '../components/StatusPill';
 import { CorrectionDialog } from '../components/CorrectionDialog';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
+import { ExpenseSplitSection, MultiProjectIndirectCostDialog } from '../components/ExpenseSplitSection';
 import {
   Wallet,
   IndianRupee,
@@ -991,6 +992,8 @@ function IndirectExpenseSection({ userRole }) {
   const [allocations, setAllocations] = useState([]);
   const [indirectLoading, setIndirectLoading] = useState(true);
   const [viewMode, setViewMode] = useState('expenses'); // expenses, budget, allocations
+  const [section, setSection] = useState('expenses'); // 'expenses' | 'split' — Feb 19 2026
+  const [multiProjectDialog, setMultiProjectDialog] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
   const [indirectPct, setIndirectPct] = useState(20);
   const [editingPct, setEditingPct] = useState(false);
@@ -1216,6 +1219,28 @@ function IndirectExpenseSection({ userRole }) {
         </CardContent>
       </Card>
 
+      {/* Feb 19 2026 — Section toggle: Expenses | Expense Split */}
+      <div className="flex items-center gap-2 border-b" data-testid="indirect-section-tabs">
+        {[
+          { key: 'expenses', label: 'Expenses' },
+          { key: 'split', label: 'Expense Split' },
+        ].map(t => (
+          <button
+            key={t.key}
+            onClick={() => setSection(t.key)}
+            data-testid={`indirect-section-${t.key}`}
+            className={`px-3 py-1.5 text-xs font-medium transition-colors border-b-2 -mb-px ${
+              section === t.key ? 'border-violet-600 text-violet-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {section === 'split' && <ExpenseSplitSection userRole={userRole} />}
+
+      {section === 'expenses' && (<>
       {/* View Mode Tabs + Add Button */}
       <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
         {[
@@ -1232,7 +1257,7 @@ function IndirectExpenseSection({ userRole }) {
         {canCreate && (
           <div className="ml-auto">
             <Button size="sm" className="bg-violet-600 hover:bg-violet-700 gap-1 h-6 sm:h-7 text-[10px] sm:text-xs"
-              onClick={() => setCreateDialog(true)} data-testid="add-indirect-cost-inline-btn">
+              onClick={() => setMultiProjectDialog(true)} data-testid="add-indirect-cost-inline-btn">
               <Plus className="h-3 w-3" /> Add Indirect Cost
             </Button>
           </div>
@@ -1417,6 +1442,15 @@ function IndirectExpenseSection({ userRole }) {
       )}
 
       {/* ── CREATE DIALOG ── */}
+      </>)}
+
+      {/* New multi-project Indirect Cost dialog (replaces legacy single-category flow) */}
+      <MultiProjectIndirectCostDialog
+        open={multiProjectDialog}
+        onClose={() => setMultiProjectDialog(false)}
+        onCreated={() => fetchIndirect(false)}
+      />
+
       <Dialog open={createDialog} onOpenChange={(open) => { setCreateDialog(open); if (!open) setDistributionPreview(null); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Add Indirect Cost (Overhead)</DialogTitle><DialogDescription>This entry requires approval. Once confirmed, it auto-distributes across active projects.</DialogDescription></DialogHeader>
