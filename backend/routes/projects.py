@@ -11474,6 +11474,15 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
     # Cash outflow = approved_amount - use_suspense (suspense usage is a non-cash settlement)
     cash_paid = max(0.0, approved_amount - use_suspense)
     expense_id = f"exp_{uuid.uuid4().hex[:12]}"
+    # Feb 19 2026 — When the Accountant uses the multi-mode dialog, the top-level
+    # `payment_method` is empty (defaults to "bank" → current_account above) but
+    # the actual method(s) live in `payment_entries`. Override here so the cashbook
+    # row shows the real mode (or "multi" when split across several).
+    if multi_mode and payment_entries_list:
+        methods_used = {e["method"] for e in payment_entries_list}
+        effective_method = next(iter(methods_used)) if len(methods_used) == 1 else "multi"
+    else:
+        effective_method = payment_method
     cashbook_method_map = {
         "bank": "bank_transfer",
         "current_account": "current_account",
@@ -11496,7 +11505,7 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         "amount": cash_paid,
         "approved_amount": approved_amount,
         "suspense_applied": use_suspense,
-        "payment_method": cashbook_method_map.get(payment_method, payment_method),
+        "payment_method": cashbook_method_map.get(effective_method, effective_method),
         "transaction_id": bank_ref or cheque_no or "",
         "cheque_no": cheque_no if payment_method == "cheque" else None,
         "cheque_amount": cheque_amount if payment_method == "cheque" else None,
