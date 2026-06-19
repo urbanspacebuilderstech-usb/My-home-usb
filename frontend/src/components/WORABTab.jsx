@@ -418,7 +418,7 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
           <SumTile label="Balance" value={inr(summary.balance_after_all)} accent="text-orange-700" />
           <SumTile label="RAB Count" value={`${summary.rab_count}`} accent="text-violet-700" />
         </div>
-        {canReset && rabs.length > 0 && (
+        {canReset && (
           <Button
             size="sm"
             variant="outline"
