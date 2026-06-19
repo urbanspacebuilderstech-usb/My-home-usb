@@ -25,7 +25,7 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
  * Uses the same /work-orders/{id}/rab-chain endpoint so numbering matches the
  * SE Payment Summary popup, and skip-rejected sequencing is consistent.
  */
-export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdFilter, onEditRab }) {
+export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdFilter, onEditRab, userRole }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
@@ -42,6 +42,39 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
   // a chip) jumps straight to that stage card.
   const [stageQuery, setStageQuery] = useState('');
   const [stageOpen, setStageOpen] = useState(false);
+
+  // ── Reset RAB Counter ── Feb 19 2026
+  // Renumbers every payment_request in this WO so RAB-XX starts from 01
+  // again. Used when an earlier WO for the same contractor was deleted
+  // but its leftover RAB count is bleeding into the new WO.
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetMapping, setResetMapping] = useState(null);
+  // userRole prop takes priority; fall back to the Login-cached user
+  // object so SE/PM mounts pick up the right value without extra wiring.
+  const effectiveRole = userRole || (() => {
+    try {
+      const a = JSON.parse(sessionStorage.getItem('mhu_user_cache') || '{}').role;
+      if (a) return a;
+      const b = JSON.parse(localStorage.getItem('user') || '{}').role;
+      return b || null;
+    } catch { return null; }
+  })();
+  const canReset = ['super_admin', 'project_manager', 'planning', 'planning_person', 'site_engineer', 'sr_site_engineer'].includes(effectiveRole);
+
+  const handleReset = async () => {
+    setResetBusy(true);
+    try {
+      const res = await axios.post(`${API}/projects/${projectId}/work-orders/${workOrder.work_order_id}/reset-rab-counter`);
+      setResetMapping(res.data?.mapping || {});
+      toast.success(res.data?.message || 'RAB counter reset');
+      reloadChain();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to reset');
+    } finally {
+      setResetBusy(false);
+    }
+  };
 
   const reloadChain = () => {
     if (!projectId || !workOrder?.work_order_id) return;
@@ -378,11 +411,25 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
     <div className="space-y-3">
       {/* Top summary strip — values respect any stageIdFilter (so the
           Additional RAB tab shows additional-only totals, not the full WO). */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <SumTile label="Contract Total" value={inr(summary.contract_total)} accent="text-blue-700" />
-        <SumTile label="Total Released" value={inr(summary.total_released)} accent="text-emerald-700" />
-        <SumTile label="Balance" value={inr(summary.balance_after_all)} accent="text-orange-700" />
-        <SumTile label="RAB Count" value={`${summary.rab_count}`} accent="text-violet-700" />
+      <div className="flex items-start gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 flex-1">
+          <SumTile label="Contract Total" value={inr(summary.contract_total)} accent="text-blue-700" />
+          <SumTile label="Total Released" value={inr(summary.total_released)} accent="text-emerald-700" />
+          <SumTile label="Balance" value={inr(summary.balance_after_all)} accent="text-orange-700" />
+          <SumTile label="RAB Count" value={`${summary.rab_count}`} accent="text-violet-700" />
+        </div>
+        {canReset && rabs.length > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-[10px] gap-1 text-orange-700 border-orange-300 hover:bg-orange-50"
+            onClick={() => { setResetOpen(true); setResetMapping(null); }}
+            data-testid="rab-reset-counter-btn"
+            title="Renumber all RABs in this WO to start from RAB-01"
+          >
+            <RotateCcw className="h-3 w-3" /> Reset RAB Counter
+          </Button>
+        )}
       </div>
 
       <Tabs defaultValue="all" className="w-full">
@@ -569,6 +616,48 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
             <Button onClick={submitEditRab} disabled={editSaving} className="bg-indigo-600 hover:bg-indigo-700" data-testid="rab-edit-save">
               {editSaving ? 'Saving…' : 'Save Changes'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset RAB Counter confirmation modal */}
+      <Dialog open={resetOpen} onOpenChange={(v) => { if (!v) { setResetOpen(false); setResetMapping(null); } }}>
+        <DialogContent data-testid="rab-reset-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-700"><RotateCcw className="h-4 w-4" /> Reset RAB Counter</DialogTitle>
+            <DialogDescription>
+              All existing RABs in this Work Order will be renumbered starting from <strong>RAB-01</strong>, in the order they were requested. Multi-stage RABs keep one shared number across their stages.
+            </DialogDescription>
+          </DialogHeader>
+          {resetMapping && Object.keys(resetMapping).length > 0 ? (
+            <div className="space-y-2 max-h-60 overflow-auto border rounded-md p-2 bg-emerald-50">
+              <p className="text-xs font-semibold text-emerald-700 mb-1">✓ Renumbering done — review the mapping:</p>
+              <div className="text-xs grid grid-cols-2 gap-1">
+                {Object.entries(resetMapping).map(([oldN, newN]) => (
+                  <div key={oldN} className="bg-white border rounded px-2 py-1 flex items-center justify-between">
+                    <span className="text-gray-600 line-through">{oldN}</span>
+                    <span className="text-emerald-700 font-bold">{newN}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-md border border-orange-200 bg-orange-50 p-3 text-xs text-orange-800 space-y-1">
+              <p className="font-semibold">⚠ Things to know:</p>
+              <ul className="list-disc list-inside pl-1 space-y-0.5">
+                <li>RAB numbers in the cashbook, ledger and notifications will reflect the new numbers (they read from this Work Order).</li>
+                <li>Soft-deleted Work Orders for this contractor are not affected.</li>
+                <li>This action is logged in the audit trail.</li>
+              </ul>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setResetOpen(false); setResetMapping(null); }} data-testid="rab-reset-cancel">{resetMapping ? 'Close' : 'Cancel'}</Button>
+            {!resetMapping && (
+              <Button onClick={handleReset} disabled={resetBusy} className="bg-orange-600 hover:bg-orange-700 gap-1" data-testid="rab-reset-confirm">
+                <RotateCcw className="h-3.5 w-3.5" /> {resetBusy ? 'Renumbering…' : 'Renumber from RAB-01'}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

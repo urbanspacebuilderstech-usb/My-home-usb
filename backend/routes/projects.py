@@ -8570,6 +8570,82 @@ async def delete_project_work_order(project_id: str, work_order_id: str, user: U
         raise HTTPException(status_code=404, detail="Work order not found")
     return {"message": "Work order deleted"}
 
+
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/reset-rab-counter")
+async def reset_rab_counter(project_id: str, work_order_id: str, user: User = Depends(get_current_user)):
+    """Renumber every payment_request in this WO so RAB numbers start from
+    RAB-01 again — used when a previous WO for the same contractor was
+    deleted but its leftover RAB count is still bleeding into the new WO
+    (e.g. new WO's first RAB shows up as "RAB-11" instead of "RAB-01").
+
+    Allowed: Super Admin / Project Manager / Planning / Site Engineer
+    (anyone who can raise or own a RAB on this site).
+    """
+    if user.role not in [
+        UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER,
+        UserRole.PLANNING, UserRole.PLANNING_PERSON,
+        UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER,
+    ]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    wo = await db.project_work_orders.find_one(
+        {"work_order_id": work_order_id, "project_id": project_id, "is_active": True},
+        {"_id": 0},
+    )
+    if not wo:
+        raise HTTPException(status_code=404, detail="Active work order not found")
+
+    # ── Gather every payment_request across all stages.
+    # Multi-stage RABs share the same `rab_group_id` and must keep the same
+    # new number; standalone RABs get their own.
+    flat = []  # list of (sort_key, st_index, pr_index, pr)
+    for st_idx, st in enumerate(wo.get("stages") or []):
+        for pr_idx, pr in enumerate(st.get("payment_requests") or []):
+            flat.append((pr.get("requested_at") or "", st_idx, pr_idx, pr))
+    flat.sort(key=lambda x: (x[0], x[1], x[2]))
+
+    # Assign new RAB numbers grouped by rab_group_id (multi-stage RABs share).
+    group_to_new: Dict[str, str] = {}
+    singleton_counter = 0
+    old_to_new: Dict[str, str] = {}
+
+    next_seq = 0
+    for _, st_idx, pr_idx, pr in flat:
+        group_id = pr.get("rab_group_id")
+        if group_id and group_id in group_to_new:
+            new_num = group_to_new[group_id]
+        else:
+            next_seq += 1
+            new_num = f"RAB-{next_seq:02d}"
+            if group_id:
+                group_to_new[group_id] = new_num
+        old_num = pr.get("rab_number")
+        if old_num and old_num != new_num:
+            old_to_new[old_num] = new_num
+        # Mutate in place
+        wo["stages"][st_idx]["payment_requests"][pr_idx]["rab_number"] = new_num
+
+    if not old_to_new:
+        return {"message": "No RAB renumbering needed — already starts at RAB-01.", "renumbered": 0, "mapping": {}}
+
+    # Persist the rewritten stages
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"stages": wo["stages"], "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+
+    # Audit
+    await create_audit_log(
+        user.user_id, "rab_counter_reset", "work_order", work_order_id,
+        {"project_id": project_id, "mapping": old_to_new},
+    )
+
+    return {
+        "message": f"Renumbered {len(old_to_new)} RAB(s) starting from RAB-01.",
+        "renumbered": len(old_to_new),
+        "mapping": old_to_new,
+    }
+
 # ==================== WORK ORDER PAYMENT APPROVAL PIPELINE ====================
 
 @router.get("/projects/{project_id}/work-orders/{work_order_id}/dlrs-for-rab")
@@ -8741,7 +8817,12 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
             # preserved; the new per-vendor counter simply picks up from
             # max(existing per-vendor #) + 1.
             current_contractor_id = wo.get("contractor_id")
-            vendor_query = {"project_id": project_id}
+            # Counter scope: only ACTIVE WOs for this (project, contractor)
+            # — soft-deleted WOs are excluded so their leftover RAB numbers
+            # don't bleed into a freshly-created WO. The Site Engineer also
+            # has a "Reset RAB Counter" button on the WO view for manual
+            # re-numbering when needed.
+            vendor_query = {"project_id": project_id, "is_active": {"$ne": False}}
             if current_contractor_id:
                 vendor_query["contractor_id"] = current_contractor_id
             all_wos_for_count = await db.project_work_orders.find(
@@ -9506,8 +9587,9 @@ async def create_multi_stage_rab(
         raise HTTPException(status_code=400, detail="No valid allocation rows after validation")
 
     # Generate ONE rab_number for the entire group (per-vendor distinct counter)
+    # Scope to ACTIVE WOs only — soft-deleted WOs do not contribute counts.
     current_contractor_id = wo.get("contractor_id")
-    vendor_query = {"project_id": project_id}
+    vendor_query = {"project_id": project_id, "is_active": {"$ne": False}}
     if current_contractor_id:
         vendor_query["contractor_id"] = current_contractor_id
     all_wos_for_count = await db.project_work_orders.find(
