@@ -39,9 +39,6 @@ const ROLE_NAV = {
   ],
   project_manager: [
     { label: 'Dashboard', path: '/pm-dashboard' },
-    { label: 'Projects', path: '/projects' },
-    { label: 'Work Orders', path: '/work-order-management' },
-    { label: 'Procurement', path: '/procurement-board-v2' },
   ],
   planning: [
     { label: 'Planning Board', path: '/planning-board' },
