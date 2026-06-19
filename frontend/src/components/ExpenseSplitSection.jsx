@@ -625,11 +625,12 @@ export function MultiProjectIndirectCostDialog({ open, onClose, onCreated }) {
               <Select value={paymentMethod} onValueChange={setPaymentMethod}>
                 <SelectTrigger data-testid="step1-payment-method"><SelectValue /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="savings_account">HDFC SAVINGS</SelectItem>
+                  <SelectItem value="current_account">HDFC CURRENT</SelectItem>
+                  <SelectItem value="direct_transfer">CASH D/T</SelectItem>
                   <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="current_account">Current Account</SelectItem>
-                  <SelectItem value="savings_account">Savings Account</SelectItem>
                   <SelectItem value="cheque">Cheque</SelectItem>
-                  <SelectItem value="direct_transfer">Direct Transfer</SelectItem>
+                  <SelectItem value="escrow">Escrow</SelectItem>
                 </SelectContent>
               </Select>
             </div>

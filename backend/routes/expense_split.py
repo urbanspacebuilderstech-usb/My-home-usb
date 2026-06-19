@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from core.database import db
 from core.deps import get_current_user
-from core.models import User, UserRole, IndirectCost, IndirectCostStatus, PaymentMethodType
+from core.models import User, UserRole, IndirectCost, IndirectCostStatus, PaymentMethodType  # noqa: F401
 from routes.cashflow import allocate_expense
 
 router = APIRouter(tags=["Expense Split"])
@@ -69,7 +69,11 @@ class AllocatedIndirectCostCreate(BaseModel):
     top_category_id: str
     sub_category_id: Optional[str] = None
     sub_sub_category_id: Optional[str] = None
-    payment_method: PaymentMethodType
+    # Use plain string — the cashbook payment-mode set ("savings_account",
+    # "current_account", "direct_transfer", "cash", "cheque", "escrow") is
+    # broader than the legacy PaymentMethodType enum. Validation happens
+    # at the persistence layer / cashflow ledger.
+    payment_method: str
     vendor_name: Optional[str] = None
     reference_number: Optional[str] = None
     invoice_number: Optional[str] = None
@@ -408,34 +412,36 @@ async def create_allocated_indirect_cost(data: AllocatedIndirectCostCreate, user
         raise HTTPException(status_code=400, detail=f"Unknown project(s): {', '.join(missing)}")
 
     now = datetime.now(timezone.utc).isoformat()
-    cost = IndirectCost(
-        # NB: keep legacy enum field populated for backward compat — use 'other'.
-        category="other",  # type: ignore[arg-type]
-        description=data.description,
-        amount=amount,
-        payment_method=data.payment_method,
-        reference_number=data.reference_number,
-        vendor_name=data.vendor_name,
-        invoice_number=data.invoice_number,
-        remarks=data.remarks,
-        status=IndirectCostStatus.APPROVED,
-        created_by=user.user_id,
-        created_by_name=user.name,
-        approved_by=user.user_id,
-        approved_by_name=user.name,
-    )
-    cost_dict = cost.model_dump()
-    cost_dict["created_at"] = cost_dict["created_at"].isoformat()
-    cost_dict["updated_at"] = cost_dict["updated_at"].isoformat()
-    if cost_dict.get("approved_at"):
-        cost_dict["approved_at"] = cost_dict["approved_at"].isoformat() if hasattr(cost_dict["approved_at"], "isoformat") else cost_dict["approved_at"]
-    # New-flow fields
-    cost_dict["top_category_id"] = data.top_category_id
-    cost_dict["top_category_name"] = top.get("name")
-    cost_dict["sub_category_id"] = data.sub_category_id
-    cost_dict["sub_sub_category_id"] = data.sub_sub_category_id
-    cost_dict["approved_at"] = now
-    cost_dict["allocation_flow"] = "multi_project"
+    # Build raw dict instead of IndirectCost(BaseModel) — the legacy
+    # PaymentMethodType enum doesn't cover savings_account / current_account
+    # / direct_transfer which the accountant uses. Store the payment_method
+    # string as-is to match the cashbook payment-mode vocabulary.
+    cost_id = f"icost_{uuid.uuid4().hex[:10]}"
+    cost_dict = {
+        "indirect_cost_id": cost_id,
+        "category": "other",
+        "description": data.description,
+        "amount": amount,
+        "payment_method": data.payment_method,
+        "reference_number": data.reference_number,
+        "vendor_name": data.vendor_name,
+        "invoice_number": data.invoice_number,
+        "remarks": data.remarks,
+        "status": IndirectCostStatus.APPROVED.value if hasattr(IndirectCostStatus.APPROVED, "value") else "approved",
+        "created_by": user.user_id,
+        "created_by_name": user.name,
+        "approved_by": user.user_id,
+        "approved_by_name": user.name,
+        "approved_at": now,
+        "created_at": now,
+        "updated_at": now,
+        # New-flow fields
+        "top_category_id": data.top_category_id,
+        "top_category_name": top.get("name"),
+        "sub_category_id": data.sub_category_id,
+        "sub_sub_category_id": data.sub_sub_category_id,
+        "allocation_flow": "multi_project",
+    }
 
     await db.indirect_costs.insert_one(cost_dict)
 
@@ -456,7 +462,7 @@ async def create_allocated_indirect_cost(data: AllocatedIndirectCostCreate, user
             continue
         alloc_doc = {
             "allocation_id": f"alloc_{uuid.uuid4().hex[:10]}",
-            "indirect_cost_id": cost.indirect_cost_id,
+            "indirect_cost_id": cost_id,
             "project_id": a.project_id,
             "project_name": name_map.get(a.project_id, ""),
             "amount": float(a.amount),
@@ -487,6 +493,6 @@ async def create_allocated_indirect_cost(data: AllocatedIndirectCostCreate, user
 
     return {
         "message": "Indirect cost recorded and allocated across projects.",
-        "indirect_cost_id": cost.indirect_cost_id,
+        "indirect_cost_id": cost_id,
         "allocations": len(alloc_docs),
     }
