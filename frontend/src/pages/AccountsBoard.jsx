@@ -1293,9 +1293,9 @@ function IndirectExpenseSection({ userRole }) {
                   <thead className="bg-gray-50 border-b">
                     <tr>
                       <th className="px-3 py-2 text-center font-semibold text-gray-600 w-12">S.No</th>
-                      <th className="px-3 py-2 text-left font-semibold text-gray-600">Category</th>
-                      <th className="px-3 py-2 text-left font-semibold text-gray-600">Description</th>
                       <th className="px-3 py-2 text-left font-semibold text-gray-600">Project(s)</th>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-600">Description</th>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-600">Category</th>
                       <th className="px-3 py-2 text-left font-semibold text-gray-600">Vendor</th>
                       <th className="px-3 py-2 text-right font-semibold text-gray-600">Amount</th>
                       <th className="px-3 py-2 text-center font-semibold text-gray-600">Status</th>
@@ -1311,14 +1311,14 @@ function IndirectExpenseSection({ userRole }) {
                       return (
                       <tr key={cost.indirect_cost_id} className="hover:bg-gray-50" data-testid={`indirect-row-${cost.indirect_cost_id}`}>
                         <td className="px-3 py-2 text-center text-gray-500">{idx + 1}</td>
-                        <td className="px-3 py-2"><Badge variant="outline" className="text-[10px]">{getCategoryLabel(cost.category)}</Badge></td>
-                        <td className="px-3 py-2 font-medium">{cost.description}</td>
                         <td className="px-3 py-2 text-gray-700">
                           {projectNames.length === 0 ? <span className="text-gray-400">-</span>
                             : projectNames.length === 1 ? <span className="text-xs">{projectNames[0]}</span>
                             : <span className="text-xs" title={projectNames.join(', ')}>{projectNames[0]} <Badge variant="outline" className="text-[9px] ml-1">+{projectNames.length - 1}</Badge></span>
                           }
                         </td>
+                        <td className="px-3 py-2 font-medium">{cost.description}</td>
+                        <td className="px-3 py-2"><Badge variant="outline" className="text-[10px]">{getCategoryLabel(cost.category)}</Badge></td>
                         <td className="px-3 py-2 text-gray-600">{cost.vendor_name || '-'}</td>
                         <td className="px-3 py-2 text-right font-bold text-violet-700">{fmtI(cost.amount)}</td>
                         <td className="px-3 py-2 text-center">{getStatusBadge(cost.status)}</td>
