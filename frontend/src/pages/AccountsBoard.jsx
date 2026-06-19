@@ -1428,6 +1428,7 @@ function IndirectExpenseSection({ userRole }) {
               <table className="w-full text-xs">
                 <thead className="bg-gray-50 border-b">
                   <tr>
+                    <th className="px-3 py-2 text-center font-semibold text-gray-600 w-12">S.No</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-600">Project</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-600">Category</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-600">Description</th>
@@ -1438,13 +1439,14 @@ function IndirectExpenseSection({ userRole }) {
                 </thead>
                 <tbody className="divide-y">
                   {allocations.length === 0 ? (
-                    <tr><td colSpan="6" className="px-4 py-8 text-center text-gray-400">No allocations yet. Confirm an indirect cost to see distribution.</td></tr>
+                    <tr><td colSpan="7" className="px-4 py-8 text-center text-gray-400">No allocations yet. Confirm an indirect cost to see distribution.</td></tr>
                   ) : allocations.map((a, i) => (
                     <tr key={a.allocation_id || i} className="hover:bg-gray-50">
-                      <td className="px-3 py-2 font-medium">{a.project_name}</td>
+                      <td className="px-3 py-2 text-center text-gray-500">{i + 1}</td>
+                      <td className="px-3 py-2 font-medium">{(a.project_name || '').replace(/\s+/g, ' ').trim()}</td>
                       <td className="px-3 py-2"><Badge variant="outline" className="text-[10px]">{getCategoryLabel(a.category)}</Badge></td>
                       <td className="px-3 py-2 text-gray-600">{a.description}</td>
-                      <td className="px-3 py-2 text-center"><Badge className="bg-blue-100 text-blue-700 text-[10px]">{a.share_pct}%</Badge></td>
+                      <td className="px-3 py-2 text-center"><Badge className="bg-blue-100 text-blue-700 text-[10px]">{a.share_pct ?? (a.percent ? a.percent.toFixed(2) : '-')}%</Badge></td>
                       <td className="px-3 py-2 text-right font-bold text-violet-700">{fmtI(a.amount)}</td>
                       <td className="px-3 py-2 text-gray-500">{a.created_at ? new Date(a.created_at).toLocaleDateString('en-IN') : '-'}</td>
                     </tr>
