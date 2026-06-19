@@ -6505,9 +6505,19 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
 
     # 9. Update request status — fully paid or partially paid
     new_total_paid = already_paid + effective_paid
+    # Feb 19 2026 — Reflect the accountant's actual payment mode on the
+    # parent request doc (labour_expenses / material_requests / petty_cash)
+    # so the Cashbook Expense list shows the right mode pill. For multi-leg
+    # mixed payments we store "multi" so the UI doesn't lie.
+    if legs:
+        leg_methods = {l.method for l in legs}
+        actual_method = next(iter(leg_methods)) if len(leg_methods) == 1 else "multi"
+    else:
+        actual_method = req.get("payment_method")
     request_update = {
         "paid_amount": new_total_paid,
         "paid_via_expense_id": primary_expense_id,
+        "payment_method": actual_method,
         "updated_at": now,
     }
     if is_full_payment:
