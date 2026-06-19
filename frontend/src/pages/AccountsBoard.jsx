@@ -1292,8 +1292,10 @@ function IndirectExpenseSection({ userRole }) {
                 <table className="w-full text-xs" data-testid="indirect-costs-table">
                   <thead className="bg-gray-50 border-b">
                     <tr>
+                      <th className="px-3 py-2 text-center font-semibold text-gray-600 w-12">S.No</th>
                       <th className="px-3 py-2 text-left font-semibold text-gray-600">Category</th>
                       <th className="px-3 py-2 text-left font-semibold text-gray-600">Description</th>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-600">Project(s)</th>
                       <th className="px-3 py-2 text-left font-semibold text-gray-600">Vendor</th>
                       <th className="px-3 py-2 text-right font-semibold text-gray-600">Amount</th>
                       <th className="px-3 py-2 text-center font-semibold text-gray-600">Status</th>
@@ -1302,11 +1304,21 @@ function IndirectExpenseSection({ userRole }) {
                   </thead>
                   <tbody className="divide-y">
                     {filteredCosts.length === 0 ? (
-                      <tr><td colSpan="6" className="px-4 py-8 text-center text-gray-400">No indirect cost entries</td></tr>
-                    ) : filteredCosts.map(cost => (
+                      <tr><td colSpan="8" className="px-4 py-8 text-center text-gray-400">No indirect cost entries</td></tr>
+                    ) : filteredCosts.map((cost, idx) => {
+                      const linkedAllocs = (allocations || []).filter(a => a.indirect_cost_id === cost.indirect_cost_id);
+                      const projectNames = linkedAllocs.map(a => (a.project_name || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+                      return (
                       <tr key={cost.indirect_cost_id} className="hover:bg-gray-50" data-testid={`indirect-row-${cost.indirect_cost_id}`}>
+                        <td className="px-3 py-2 text-center text-gray-500">{idx + 1}</td>
                         <td className="px-3 py-2"><Badge variant="outline" className="text-[10px]">{getCategoryLabel(cost.category)}</Badge></td>
                         <td className="px-3 py-2 font-medium">{cost.description}</td>
+                        <td className="px-3 py-2 text-gray-700">
+                          {projectNames.length === 0 ? <span className="text-gray-400">-</span>
+                            : projectNames.length === 1 ? <span className="text-xs">{projectNames[0]}</span>
+                            : <span className="text-xs" title={projectNames.join(', ')}>{projectNames[0]} <Badge variant="outline" className="text-[9px] ml-1">+{projectNames.length - 1}</Badge></span>
+                          }
+                        </td>
                         <td className="px-3 py-2 text-gray-600">{cost.vendor_name || '-'}</td>
                         <td className="px-3 py-2 text-right font-bold text-violet-700">{fmtI(cost.amount)}</td>
                         <td className="px-3 py-2 text-center">{getStatusBadge(cost.status)}</td>
@@ -1321,7 +1333,8 @@ function IndirectExpenseSection({ userRole }) {
                           {cost.status === 'rejected' && <span className="text-[10px] text-red-500 truncate max-w-[100px] inline-block">{cost.rejection_reason || 'Rejected'}</span>}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
