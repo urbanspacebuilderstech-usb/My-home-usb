@@ -7033,3 +7033,64 @@ async def accountant_approve_dt(income_id: str, user: User = Depends(get_current
     )
     return {"message": "DT cycle completed", "expense_ids": expense_ids, "expenses_recorded": len(expense_ids)}
 
+
+
+
+# ==================== ADMIN: BACKFILL PAYMENT MODES ====================
+# Feb 19 2026 — One-shot endpoint that rewrites stale `payment_method` on
+# already-paid `labour_expenses` / `material_requests` / `petty_cash` rows
+# using the *actual* leg recorded in `recorded_expenses`. Idempotent; only
+# updates rows that differ from the stored leg method.
+@router.post("/admin/backfill-payment-modes")
+async def backfill_payment_modes(
+    expense_type: Optional[str] = "labour",
+    user: User = Depends(get_current_user),
+):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin only")
+    targets = ["labour", "material", "petty_cash"] if expense_type in ("all", None) else [expense_type]
+    coll_map = {"labour": ("labour_expenses", "labour_expense_id", "expense_id"),
+                "material": ("material_requests", "request_id", None),
+                "petty_cash": ("petty_cash", "petty_cash_id", None)}
+    total_updated = 0
+    detail = {}
+    for t in targets:
+        if t not in coll_map:
+            continue
+        coll, primary_id, alt_id = coll_map[t]
+        rows = await db[coll].find(
+            {"$or": [
+                {"paid_via_expense_id": {"$exists": True, "$ne": None}},
+                {"paid_amount": {"$gt": 0}},
+            ]},
+            {"_id": 0},
+        ).to_list(5000)
+        n_updated = 0
+        for r in rows:
+            row_id = r.get(primary_id) or (r.get(alt_id) if alt_id else None)
+            if not row_id:
+                continue
+            # Prefer the primary recorded_expense; fall back to ANY leg tied
+            # to this request (request_id field set in step 6 of pay endpoint).
+            pe = None
+            if r.get("paid_via_expense_id"):
+                pe = await db.recorded_expenses.find_one(
+                    {"expense_id": r["paid_via_expense_id"]}, {"_id": 0, "payment_method": 1}
+                )
+            if not pe:
+                pe = await db.recorded_expenses.find_one(
+                    {"request_id": row_id, "request_type": t}, {"_id": 0, "payment_method": 1}
+                )
+            if not pe or not pe.get("payment_method"):
+                continue
+            new_method = pe["payment_method"]
+            if r.get("payment_method") == new_method:
+                continue
+            await db[coll].update_one(
+                {primary_id: row_id} if primary_id in r else {alt_id: row_id},
+                {"$set": {"payment_method": new_method, "updated_at": datetime.now(timezone.utc).isoformat()}},
+            )
+            n_updated += 1
+        detail[t] = n_updated
+        total_updated += n_updated
+    return {"message": f"Backfill complete — {total_updated} row(s) updated.", "detail": detail}
