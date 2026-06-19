@@ -167,7 +167,7 @@ export default function AccountantLabourPayments() {
 
 // Legacy ReleaseDialog kept below for backward compat; no longer rendered.
 function ReleaseDialog({ item, onClose, onDone }) {
-  const [method, setMethod] = useState('bank');  // bank | cash | cheque
+  const [method, setMethod] = useState('savings_account');  // savings_account | current_account | cash | cheque
   const [chequeAmount, setChequeAmount] = useState('');
   const [chequeNo, setChequeNo] = useState('');
   const [bankRef, setBankRef] = useState('');
@@ -178,7 +178,7 @@ function ReleaseDialog({ item, onClose, onDone }) {
 
   useEffect(() => {
     if (item) {
-      setMethod('bank');
+      setMethod('savings_account');
       setChequeAmount(String(item.amount || ''));
       setChequeNo(''); setBankRef('');
       setUseSuspense('');
@@ -197,7 +197,7 @@ function ReleaseDialog({ item, onClose, onDone }) {
       if (ca < item.amount) { toast.error('Cheque amount cannot be less than approved amount'); return; }
       if (!chequeNo.trim()) { toast.error('Cheque number is required'); return; }
     }
-    if (method === 'bank' && !bankRef.trim()) { toast.error('Bank reference / UTR is required'); return; }
+    if ((method === 'savings_account' || method === 'current_account') && !bankRef.trim()) { toast.error('Bank reference / UTR is required'); return; }
     const us = parseFloat(useSuspense || 0);
     if (us < 0) { toast.error('Suspense amount cannot be negative'); return; }
     if (us > item.suspense_balance + 0.01) { toast.error(`Cannot use more than available suspense (${fmt(item.suspense_balance)})`); return; }
@@ -210,7 +210,7 @@ function ReleaseDialog({ item, onClose, onDone }) {
         payment_method: method,
         cheque_amount: method === 'cheque' ? parseFloat(chequeAmount) : null,
         cheque_no: method === 'cheque' ? chequeNo : '',
-        bank_ref: method === 'bank' ? bankRef : '',
+        bank_ref: (method === 'savings_account' || method === 'current_account') ? bankRef : '',
         use_suspense_amount: us || 0,
         payment_date: paymentDate,
         notes,
@@ -255,7 +255,8 @@ function ReleaseDialog({ item, onClose, onDone }) {
               <Label className="text-xs">Payment Method</Label>
               <div className="flex gap-1 mt-1">
                 {[
-                  { k: 'bank', l: 'Bank' },
+                  { k: 'savings_account', l: 'HDFC SAVINGS' },
+                  { k: 'current_account', l: 'HDFC CURRENT' },
                   { k: 'cash', l: 'Cash' },
                   { k: 'cheque', l: 'Cheque' },
                 ].map(m => (
@@ -291,7 +292,7 @@ function ReleaseDialog({ item, onClose, onDone }) {
                 )}
               </>
             )}
-            {method === 'bank' && (
+            {(method === 'savings_account' || method === 'current_account') && (
               <div>
                 <Label className="text-xs">Bank Reference / UTR</Label>
                 <Input value={bankRef} onChange={(e) => setBankRef(e.target.value)} className="mt-1 text-sm" data-testid="alp-bank-ref" />
