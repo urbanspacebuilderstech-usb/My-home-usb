@@ -4325,8 +4325,32 @@ function ApprovalExpenseTable({ items, type, idField, amountField, altAmountFiel
 
 
 // ============ PROJECT SUMMARY TAB ============
-function ProjectSummaryTab({ overview }) {
+function ProjectSummaryTab({ overview, userRole, onRefresh }) {
   const navigate = useNavigate();
+  const isSuperAdmin = userRole === 'super_admin';
+
+  // Permanent-wipe modal state
+  const [wipeTarget, setWipeTarget] = useState(null);  // {project_id, project_name}
+  const [wipeConfirmText, setWipeConfirmText] = useState('');
+  const [wipeBusy, setWipeBusy] = useState(false);
+
+  const handleWipe = async () => {
+    if (!wipeTarget || wipeConfirmText !== 'DELETE') return;
+    setWipeBusy(true);
+    try {
+      const res = await axios.delete(`${API}/projects/${wipeTarget.project_id}/permanent-wipe`, {
+        data: { confirmation: 'DELETE' },
+      });
+      toast.success(res.data?.message || 'Project deleted');
+      setWipeTarget(null);
+      setWipeConfirmText('');
+      onRefresh?.();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to delete project');
+    } finally {
+      setWipeBusy(false);
+    }
+  };
 
   // Default to current month/year
   const _pToday = new Date();
@@ -4569,6 +4593,7 @@ function ProjectSummaryTab({ overview }) {
                   <th className="text-right px-3 py-2 font-semibold text-red-600">Expense</th>
                   <th className="text-right px-3 py-2 font-semibold text-gray-600">Balance</th>
                   <th className="text-center px-3 py-2 font-semibold text-gray-600">P&L</th>
+                  {isSuperAdmin && <th className="text-center px-3 py-2 font-semibold text-gray-600 w-12"></th>}
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -4576,23 +4601,35 @@ function ProjectSummaryTab({ overview }) {
                   const pnl = (p.income || 0) - (p.expense || 0);
                   const pnlPct = p.income ? ((pnl / p.income) * 100).toFixed(1) : '0.0';
                   return (
-                    <tr key={i} className="hover:bg-amber-50 cursor-pointer transition-colors" data-testid={`project-row-${i}`}
-                      onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}>
-                      <td className="px-3 py-2 text-gray-400">{i + 1}</td>
-                      <td className="px-3 py-2 font-medium text-blue-700 underline decoration-dotted">{(p.project_name || '').replace(/\s+/g, ' ').trim()}</td>
-                      <td className="px-3 py-2 text-right text-green-700 font-semibold"><MaskedValue value={p.income} className="text-green-700" /></td>
-                      <td className="px-3 py-2 text-right text-red-600 font-semibold"><MaskedValue value={p.expense} className="text-red-600" /></td>
-                      <td className={`px-3 py-2 text-right font-bold ${p.balance >= 0 ? 'text-green-700' : 'text-red-600'}`}><MaskedValue value={p.balance} className={p.balance >= 0 ? 'text-green-700' : 'text-red-600'} /></td>
-                      <td className="px-3 py-2 text-center">
+                    <tr key={i} className="hover:bg-amber-50 transition-colors" data-testid={`project-row-${i}`}>
+                      <td className="px-3 py-2 text-gray-400 cursor-pointer" onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}>{i + 1}</td>
+                      <td className="px-3 py-2 font-medium text-blue-700 underline decoration-dotted cursor-pointer" onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}>{(p.project_name || '').replace(/\s+/g, ' ').trim()}</td>
+                      <td className="px-3 py-2 text-right text-green-700 font-semibold cursor-pointer" onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}><MaskedValue value={p.income} className="text-green-700" /></td>
+                      <td className="px-3 py-2 text-right text-red-600 font-semibold cursor-pointer" onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}><MaskedValue value={p.expense} className="text-red-600" /></td>
+                      <td className={`px-3 py-2 text-right font-bold cursor-pointer ${p.balance >= 0 ? 'text-green-700' : 'text-red-600'}`} onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}><MaskedValue value={p.balance} className={p.balance >= 0 ? 'text-green-700' : 'text-red-600'} /></td>
+                      <td className="px-3 py-2 text-center cursor-pointer" onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}>
                         <Badge className={pnl >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
                           {pnl >= 0 ? '+' : ''}{pnlPct}%
                         </Badge>
                       </td>
+                      {isSuperAdmin && (
+                        <td className="px-3 py-2 text-center">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setWipeTarget({ project_id: p.project_id, project_name: (p.project_name || '').replace(/\s+/g, ' ').trim() }); setWipeConfirmText(''); }}
+                            data-testid={`project-delete-${p.project_id}`}
+                            className="p-1.5 rounded hover:bg-red-100 text-red-500 hover:text-red-700 transition-colors"
+                            title="Permanently delete project"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
                 {projects.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No projects found</td></tr>
+                  <tr><td colSpan={isSuperAdmin ? 7 : 6} className="px-4 py-8 text-center text-gray-400">No projects found</td></tr>
                 )}
               </tbody>
               {projects.length > 0 && (
@@ -4603,6 +4640,7 @@ function ProjectSummaryTab({ overview }) {
                     <td className="px-3 py-2 text-right text-red-600"><MaskedValue value={projects.reduce((s, p) => s + (p.expense || 0), 0)} className="text-red-600" /></td>
                     <td className={`px-3 py-2 text-right ${totals.net_balance >= 0 ? 'text-green-700' : 'text-red-600'}`}><MaskedValue value={totals.net_balance} className={totals.net_balance >= 0 ? 'text-green-700' : 'text-red-600'} /></td>
                     <td className="px-3 py-2"></td>
+                    {isSuperAdmin && <td className="px-3 py-2"></td>}
                   </tr>
                 </tfoot>
               )}
@@ -4610,10 +4648,64 @@ function ProjectSummaryTab({ overview }) {
           </div>
         </CardContent>
       </Card>
+
+      {/* Permanent-wipe confirmation modal — Super Admin only */}
+      <Dialog open={!!wipeTarget} onOpenChange={(v) => { if (!v) { setWipeTarget(null); setWipeConfirmText(''); } }}>
+        <DialogContent className="max-w-lg" data-testid="project-wipe-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-red-700 flex items-center gap-2">
+              <Trash2 className="h-5 w-5" /> Permanently Delete Project
+            </DialogTitle>
+            <DialogDescription>This action cannot be undone.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-md border-2 border-red-300 bg-red-50 p-3 text-red-800 text-xs space-y-1.5">
+              <p className="font-bold text-sm flex items-center gap-1.5">
+                ⚠ This will wipe the project + ALL associated data:
+              </p>
+              <ul className="list-disc list-inside text-red-700 space-y-0.5 pl-1">
+                <li>All <strong>stages</strong> (Payment & Work Order stages)</li>
+                <li>All <strong>RABs</strong> (raised, approved, paid)</li>
+                <li>All <strong>payments</strong>, <strong>income</strong> and <strong>expense</strong> entries</li>
+                <li>All <strong>cheques</strong> linked to this project</li>
+                <li>All <strong>additional items</strong> (Claimable, Non-Claimable, Rework)</li>
+                <li>All <strong>attendance</strong> and labour records</li>
+                <li>The project&apos;s <strong>Client Portal access</strong></li>
+                <li>All <strong>files</strong>, <strong>documents</strong> and <strong>cashflow ledger</strong> rows</li>
+              </ul>
+            </div>
+            <div className="rounded bg-gray-50 px-3 py-2 text-xs">
+              <p className="text-gray-600">Project to delete:</p>
+              <p className="font-bold text-gray-900 text-sm" data-testid="wipe-project-name">{wipeTarget?.project_name}</p>
+            </div>
+            <div>
+              <Label className="text-red-700">Type <code className="bg-red-100 px-1.5 py-0.5 rounded text-red-800 font-bold">DELETE</code> to confirm *</Label>
+              <Input
+                value={wipeConfirmText}
+                onChange={(e) => setWipeConfirmText(e.target.value)}
+                placeholder="DELETE"
+                className="mt-1 border-red-300 focus:border-red-500 focus:ring-red-500"
+                data-testid="wipe-confirm-input"
+                autoFocus
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setWipeTarget(null); setWipeConfirmText(''); }}>Cancel</Button>
+            <Button
+              onClick={handleWipe}
+              disabled={wipeConfirmText !== 'DELETE' || wipeBusy}
+              className="bg-red-600 hover:bg-red-700 gap-1"
+              data-testid="wipe-confirm-btn"
+            >
+              <Trash2 className="h-4 w-4" /> {wipeBusy ? 'Deleting...' : 'Permanently Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-
 // ============ MAIN ACCOUNTS BOARD ============
 // ==================== CARRY FORWARD TAB ====================
 // Feb 12 2026 — surfaces the Super Admin's manually-locked closing balance
@@ -5395,7 +5487,7 @@ export default function AccountsBoard() {
           </TabsContent>
 
           <TabsContent value="projects">
-            <ProjectSummaryTab overview={overview} />
+            <ProjectSummaryTab overview={overview} userRole={user?.role} onRefresh={() => fetchAll(false)} />
           </TabsContent>
 
           <TabsContent value="carry-forward">

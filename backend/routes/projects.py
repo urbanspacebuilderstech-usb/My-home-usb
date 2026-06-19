@@ -12960,3 +12960,101 @@ async def workflow_master_save_role(
     return {"message": f"Workflow saved for {WORKFLOW_ROLE_CATALOG[role]['label']}", "menus": clean}
 
 # ==================== END WORKFLOW MASTER ====================
+
+
+# ==================== PERMANENT PROJECT WIPE (Super Admin only) ====================
+# Feb 19 2026 — Hard delete a project and ALL its associated records. The
+# user must type "DELETE" in the confirmation modal before this fires.
+# Returns a per-collection count of removed docs for the audit log.
+
+class ProjectWipeRequest(BaseModel):
+    confirmation: str = Field(..., description='Must equal "DELETE" (case-sensitive) to proceed')
+
+# Collections that store data scoped to a project via `project_id`.
+PROJECT_SCOPED_COLLECTIONS = [
+    "payment_stages", "work_order_stages", "work_orders", "work_order_assignments",
+    "additional_costs", "addition_sections", "deductions", "deduction_sections",
+    "income", "income_entries", "project_income",
+    "expenses", "direct_expenses", "recorded_expenses", "material_expenses",
+    "labour_expenses", "vendor_service_expenses",
+    "cheques", "cheque_suspense",
+    "cashbook_entries", "cashflow_ledger",
+    "material_requests", "material_receipts", "project_materials",
+    "purchase_orders", "purchase_orders_v",
+    "documents", "files", "design_files", "site_photos", "site_plans",
+    "daily_progress", "daily_labour_reports", "curing_video_records",
+    "site_engineer_assignments", "se_attendance", "se_location_pings",
+    "boq_items", "scope_items", "site_stages", "project_stages",
+    "transit_tracking", "site_receipts",
+    "monthly_schedule_entries", "indirect_cost_allocations",
+    "transactions", "payment_records", "payments",
+    "approval_requests", "project_commitments", "project_vendor_assignments",
+    "user_app_completed_projects", "user_app_ongoing_projects", "user_app_upcoming_projects",
+    "user_app_home_tours", "user_app_testimonials",
+    "suspense_entries", "suspense_transactions",
+    "labour_attendance", "labour_advance_requests", "labour_work_orders",
+    "project_carry_forwards", "project_work_orders",
+    "credit_ledger", "vendor_credit_ledger", "contractor_suspense_ledger",
+    "notifications",
+    "financial_audit_logs",
+    "client_portal_access",
+]
+
+@router.delete("/projects/{project_id}/permanent-wipe")
+async def permanent_wipe_project(
+    project_id: str,
+    body: ProjectWipeRequest,
+    user: User = Depends(get_current_user),
+):
+    """Hard-delete a project and every record referencing it. SUPER_ADMIN only."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can permanently delete projects")
+    if body.confirmation != "DELETE":
+        raise HTTPException(status_code=400, detail='Type "DELETE" to confirm permanent deletion')
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1, "project_id": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project_name = project.get("name", "")
+    deleted: Dict[str, int] = {}
+    existing = await db.list_collection_names()
+
+    for coll in PROJECT_SCOPED_COLLECTIONS:
+        if coll not in existing:
+            continue
+        try:
+            res = await db[coll].delete_many({"project_id": project_id})
+            if res.deleted_count:
+                deleted[coll] = res.deleted_count
+        except Exception as e:
+            logging.warning(f"[wipe] failed to clear {coll} for {project_id}: {e}")
+
+    # Lead row attached to this project (if any)
+    if "leads" in existing:
+        try:
+            res = await db.leads.delete_many({"converted_project_id": project_id})
+            if res.deleted_count:
+                deleted["leads"] = res.deleted_count
+        except Exception:
+            pass
+
+    # Finally the project doc itself
+    proj_res = await db.projects.delete_one({"project_id": project_id})
+    deleted["projects"] = proj_res.deleted_count
+
+    # Audit
+    await create_audit_log(
+        user.user_id, "permanent_wipe", "project", project_id,
+        {"project_name": project_name, "deleted": deleted},
+    )
+
+    total = sum(deleted.values())
+    return {
+        "message": f'Project "{project_name}" and {total} associated record(s) permanently deleted.',
+        "project_id": project_id,
+        "project_name": project_name,
+        "deleted_counts": deleted,
+        "total_deleted": total,
+    }
+# ==================== END PERMANENT WIPE ====================
