@@ -283,7 +283,6 @@ export default function PMDashboard() {
           <TabsList className="bg-white border shadow-sm mb-3 flex-wrap">
             <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">All Projects</TabsTrigger>
             <TabsTrigger value="requests" className="text-xs sm:text-sm" data-testid="tab-requests">Requests<CountBadge count={requestCount} /></TabsTrigger>
-            <TabsTrigger value="team" className="text-xs sm:text-sm" data-testid="tab-team">Team ({teamMembers.length})</TabsTrigger>
           </TabsList>
 
           {/* ==================== ALL PROJECTS ==================== */}
