@@ -1362,6 +1362,7 @@ function IndirectExpenseSection({ userRole }) {
                 <table className="w-full text-xs">
                   <thead className="bg-gray-50 border-b">
                     <tr>
+                      <th className="px-3 py-2 text-center font-semibold text-gray-600 w-12">S.No</th>
                       <th className="px-3 py-2 text-left font-semibold text-gray-600">Project</th>
                       <th className="px-3 py-2 text-right font-semibold text-gray-600">Value</th>
                       <th className="px-3 py-2 text-center font-semibold text-gray-600">Share</th>
@@ -1373,11 +1374,12 @@ function IndirectExpenseSection({ userRole }) {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {(bo.projects || []).map(p => {
+                    {(bo.projects || []).map((p, idx) => {
                       const usedPct = p.indirect_budget > 0 ? (p.indirect_spent / p.indirect_budget * 100) : 0;
                       return (
-                        <tr key={p.project_id} className="hover:bg-gray-50">
-                          <td className="px-3 py-2"><span className="font-medium">{p.name}</span> <Badge variant="outline" className="text-[9px] ml-1">{p.status}</Badge></td>
+                        <tr key={p.project_id} className="hover:bg-gray-50" data-testid={`budget-row-${idx}`}>
+                          <td className="px-3 py-2 text-center text-gray-500">{idx + 1}</td>
+                          <td className="px-3 py-2"><span className="font-medium">{(p.name || '').replace(/\s+/g, ' ').trim()}</span> <Badge variant="outline" className="text-[9px] ml-1">{p.planning_status || p.status}</Badge></td>
                           <td className="px-3 py-2 text-right font-bold">₹{fmtIL(p.total_value)}</td>
                           <td className="px-3 py-2 text-center"><Badge className="bg-blue-100 text-blue-700 text-[10px]">{p.share_pct}%</Badge></td>
                           <td className="px-3 py-2 text-right text-gray-600">₹{fmtIL(p.direct_budget)}</td>
@@ -1393,7 +1395,7 @@ function IndirectExpenseSection({ userRole }) {
                       );
                     })}
                     {(!bo.projects || bo.projects.length === 0) && (
-                      <tr><td colSpan="8" className="px-4 py-8 text-center text-gray-400">No active projects</td></tr>
+                      <tr><td colSpan="9" className="px-4 py-8 text-center text-gray-400">No active projects</td></tr>
                     )}
                   </tbody>
                 </table>

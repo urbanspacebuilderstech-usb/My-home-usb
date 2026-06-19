@@ -5946,15 +5946,28 @@ async def get_project_budget_overview(user: User = Depends(get_current_user)):
     indirect_pct = await get_indirect_cost_pct()
     direct_pct = 1.0 - indirect_pct
     
+    # Feb 19 2026 — Match the real-project filter used by Accountant >
+    # Project Wise (Planning's New / Current / Delivered) so this Budget
+    # Overview also lists only the 54 real projects, not stale "in_planning"
+    # leads or sales rows. Excludes specific demo / test rows by name.
+    EXCLUDE = [
+        "Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2",
+        "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ",
+        "RE - Mr. Joseph Vijay", "RE - Mr. Joseph Vijay ", "RE-Mr. Joseph Vijay",
+        "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding",
+    ]
     projects = await db.projects.find(
-        {"status": {"$nin": ["cancelled", "completed"]}},
-        {"_id": 0, "project_id": 1, "name": 1, "total_value": 1, "status": 1}
-    ).to_list(100)
+        {
+            "planning_status": {"$in": ["new", "active", "delivered"]},
+            "name": {"$nin": EXCLUDE},
+        },
+        {"_id": 0, "project_id": 1, "name": 1, "total_value": 1, "status": 1, "planning_status": 1, "original_estimate": 1}
+    ).to_list(5000)
     
     if not projects:
         return {"projects": [], "portfolio_total": 0, "total_indirect_budget": 0, "total_indirect_spent": 0}
     
-    portfolio_total = sum(p.get("total_value", 0) for p in projects)
+    portfolio_total = sum((p.get("total_value") or p.get("original_estimate") or 0) for p in projects)
     
     # Get all confirmed indirect cost allocations grouped by project
     allocations = await db.indirect_cost_allocations.find({}, {"_id": 0}).to_list(5000)
@@ -5965,7 +5978,7 @@ async def get_project_budget_overview(user: User = Depends(get_current_user)):
     
     result = []
     for p in projects:
-        value = p.get("total_value", 0)
+        value = p.get("total_value") or p.get("original_estimate") or 0
         share_pct = (value / portfolio_total * 100) if portfolio_total > 0 else 0
         indirect_budget = value * indirect_pct
         indirect_spent = alloc_by_project.get(p["project_id"], 0)
