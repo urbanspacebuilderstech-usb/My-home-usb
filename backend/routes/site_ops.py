@@ -3212,12 +3212,26 @@ async def get_pm_dashboard(user: User = Depends(get_current_user)):
 
 @router.get("/pm/projects")
 async def get_pm_projects(user: User = Depends(get_current_user)):
-    """Get all projects for PM"""
+    """Projects visible on the PM dashboard.
+
+    Feb 19 2026 — Restricted to projects where this PM is the assigned
+    `team.project_manager` (Planning's Team Assign feature). Super Admins
+    still see everything.
+    """
     if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Project Manager can access this")
-    
-    projects = await db.projects.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
-    
+
+    query: Dict[str, Any] = {}
+    if user.role == UserRole.PROJECT_MANAGER:
+        # Match either the new `team.project_manager` slot (PATCH /projects/{id}/team)
+        # or the legacy `assigned_pm` field (seed data) for backward compat.
+        query = {"$or": [
+            {"team.project_manager": user.user_id},
+            {"assigned_pm": user.user_id},
+        ]}
+
+    projects = await db.projects.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+
     # Enrich with team assignments
     for proj in projects:
         assignments = await db.site_engineer_assignments.find({
