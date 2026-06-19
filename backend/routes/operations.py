@@ -5989,6 +5989,7 @@ async def get_project_budget_overview(user: User = Depends(get_current_user)):
             "name": p["name"],
             "total_value": value,
             "status": p["status"],
+            "planning_status": p.get("planning_status"),
             "share_pct": round(share_pct, 2),
             "direct_budget": value * direct_pct,
             "indirect_budget": indirect_budget,
