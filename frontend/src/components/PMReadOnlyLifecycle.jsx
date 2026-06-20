@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Eye, Package, HardHat, Truck, PackageCheck, FileClock, Wallet, ListChecks, Send, ClipboardList, Calendar, X, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { DayPicker } from 'react-day-picker';
 import OrderDetailDialog from './OrderDetailDialog';
+import { RABDetailDialog } from './RABDetailDialog';
 
 const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); } catch { return s || '—'; } };
@@ -395,13 +396,27 @@ export function PMLabourReadOnlyList({ items, onApprove, onReject }) {
         </div>
       )}
 
-      <LabourRabDetailDialog
-        request={detail}
-        onClose={() => setDetail(null)}
-        onApprove={doApprove}
-        onReject={doReject}
-        busy={detail && actingId === (detail.request_id || detail.labour_expense_id)}
-      />
+      {/* For RAB-style requests (have work_order_id + project_id), show
+          the FULL RAB Bill Detail dialog (Summary / Timeline / DLR Report /
+          Total RAB's tabs) — same as Site Engineer. For legacy non-RAB
+          labour requests fall back to the simpler popup. */}
+      {detail && detail.rab_number && detail.work_order_id && detail.project_id ? (
+        <RABDetailDialog
+          open={!!detail}
+          onOpenChange={(v) => { if (!v) setDetail(null); }}
+          projectId={detail.project_id}
+          workOrderId={detail.work_order_id}
+          highlightRequestId={detail.request_id}
+        />
+      ) : (
+        <LabourRabDetailDialog
+          request={detail}
+          onClose={() => setDetail(null)}
+          onApprove={doApprove}
+          onReject={doReject}
+          busy={detail && actingId === (detail.request_id || detail.labour_expense_id)}
+        />
+      )}
     </div>
   );
 }
