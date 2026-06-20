@@ -13,6 +13,21 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 19, 2026 — PM Dashboard Requests Scoped to Assigned Projects (P0)
+- **Status**: ✅ DEPLOYED to VPS (commit `1c7d600d`).
+- **User report**: Tamizhmani D (PM) saw 191 "Work Order / Labour (RAB)" rows including Mrs Lavanya project requests despite not being assigned to that project.
+- **Root cause**: 4 PM endpoints returned all requests without filtering by the PM's assigned projects.
+- **Fix** (`/app/backend/routes/site_ops.py` + `/app/backend/routes/projects.py`): Added project-scoping to all 4 PM list endpoints:
+  - `GET /api/pm/material-requests`
+  - `GET /api/pm/labour-requests`
+  - `GET /api/pm/labour-stage-requests` (Work Order / Labour RAB tab — was the one in the screenshot)
+  - `GET /api/pm/petty-cash-requests`
+  - Filter: project where `team.project_manager == user_id` OR `team.associate_pm == user_id` OR `assigned_pm == user_id`.
+  - Super Admin / General Manager bypass the filter (still see everything).
+- **Outcome**: Each PM now only sees requests for the projects they are assigned to.
+
+
+
 ### Session — Feb 19, 2026 — Project-Wise Tab: 51 Projects + Correct Aggregation (P0)
 - **Status**: ✅ FIX READY (pending VPS deploy).
 - **User reports**: (a) Accountant > Project Wise tab showed only 29 of 51 real projects; (b) Mrs. Abinaya project displayed ₹0 income despite real entries.
