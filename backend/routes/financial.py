@@ -268,8 +268,25 @@ async def _compute_project_carry_forward_row(project, cf_doc):
     #   vendor    → accounts_approved / settled / completed
     # Previously this query filtered ["paid", "approved"] which under-counted
     # by ~93% (₹67,070 in Cashbook vs ₹4,650 in Carry Forward). Feb 12 2026.
+    # Feb 20 2026 — Carry Forward direct expense must reconcile with Project
+    # Wise (cashbook-filtered) and Project Board (/projects/{id}/expenses).
+    # All three now read from the same authoritative sources:
+    #   • recorded_expenses (excl. rejected / cheque_bounced / under_correction)
+    #   • labour_expenses   (accounts_approved / paid / settled / completed)
+    #   • material_requests (approved / paid / accounts_approved)
+    # Legacy `material_expenses` / `direct_expenses` are kept as fallbacks for
+    # older data that hasn't migrated yet.
+    EXCLUDED_RE = ["rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"]
+    re_total = 0
+    async for r in db.recorded_expenses.aggregate([
+        {"$match": {"project_id": pid, "status": {"$nin": EXCLUDED_RE}}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+    ]):
+        re_total = float(r.get("total") or 0)
+
     MATERIAL_APPROVED = ["accounts_approved", "issued", "settled", "completed", "paid"]
     LABOUR_APPROVED = ["accounts_approved", "settled", "completed", "paid", "paid_full", "paid_partial"]
+    MR_APPROVED = ["approved", "paid", "accounts_approved"]
 
     mat_total = 0
     async for r in db.material_expenses.aggregate([
@@ -277,13 +294,18 @@ async def _compute_project_carry_forward_row(project, cf_doc):
         {"$group": {"_id": None, "total": {"$sum": "$final_amount"}}},
     ]):
         mat_total = float(r.get("total") or 0)
-    # Fallback to `amount` if `final_amount` was never populated for legacy docs.
     if mat_total == 0:
         async for r in db.material_expenses.aggregate([
             {"$match": {"project_id": pid, "status": {"$in": MATERIAL_APPROVED}}},
             {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
         ]):
             mat_total = float(r.get("total") or 0)
+    # Newer material_requests collection (Mrs Abinaya & others use this path).
+    async for r in db.material_requests.aggregate([
+        {"$match": {"project_id": pid, "status": {"$in": MR_APPROVED}}},
+        {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$total_amount", "$amount"]}}}},
+    ]):
+        mat_total += float(r.get("total") or 0)
 
     wo_total = 0
     async for r in db.labour_expenses.aggregate([
@@ -302,7 +324,7 @@ async def _compute_project_carry_forward_row(project, cf_doc):
     ]):
         pc_total = float(r.get("total") or 0)
 
-    direct_total = mat_total + wo_total + pc_total
+    direct_total = re_total + mat_total + wo_total + pc_total
 
     cf = cf_doc or {}
     # Feb 12 2026 — expense carry-forward now broken into 4 explicit buckets
