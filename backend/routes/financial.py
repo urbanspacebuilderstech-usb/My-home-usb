@@ -286,7 +286,7 @@ async def _compute_project_carry_forward_row(project, cf_doc):
 
     MATERIAL_APPROVED = ["accounts_approved", "issued", "settled", "completed", "paid"]
     LABOUR_APPROVED = ["accounts_approved", "settled", "completed", "paid", "paid_full", "paid_partial"]
-    MR_APPROVED = ["approved", "paid", "accounts_approved"]
+    MR_APPROVED = ["approved", "paid", "accounts_approved", "in_transit", "delivered", "issued", "completed", "settled", "procurement_verifying", "pending_accounts_approval"]
 
     mat_total = 0
     async for r in db.material_expenses.aggregate([
@@ -3758,7 +3758,7 @@ async def get_project_expenses(project_id: str, user: User = Depends(get_current
         {"$group": {"_id": None, "amt": {"$sum": "$total_amount"}, "paid": {"$sum": {"$ifNull": ["$paid_amount", 0]}}}},
     ]
     mr_pipeline = [
-        {"$match": {"project_id": project_id, "status": {"$in": ["approved", "paid", "accounts_approved"]}}},
+        {"$match": {"project_id": project_id, "status": {"$in": ["approved", "paid", "accounts_approved", "in_transit", "delivered", "issued", "completed", "settled", "procurement_verifying", "pending_accounts_approval"]}}},
         {"$group": {"_id": None, "amt": {"$sum": {"$ifNull": ["$total_amount", "$amount"]}}, "paid": {"$sum": {"$ifNull": ["$paid_amount", 0]}}}},
     ]
     re_doc = (await db.recorded_expenses.aggregate(re_pipeline).to_list(1)) or [{}]
