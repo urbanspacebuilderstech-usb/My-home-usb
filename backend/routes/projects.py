@@ -10346,6 +10346,10 @@ async def pm_labour_stage_requests(status: str = "new", user: User = Depends(get
       - new       → requested (SE just raised it)
       - forwarded → pm_approved (moved to QC)
       - all       → requested + pm_approved
+
+    Feb 19 2026 — Scoped to projects where this PM is assigned
+    (`team.project_manager` slot or legacy `assigned_pm`). Super Admin /
+    General Manager still see everything.
     """
     if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
@@ -10355,6 +10359,17 @@ async def pm_labour_stage_requests(status: str = "new", user: User = Depends(get
         "all": ["requested", "pm_approved"],
     }.get(status, ["requested"])
     rows = await _list_labour_stage_requests(target)
+    if user.role == UserRole.PROJECT_MANAGER:
+        assigned = await db.projects.find(
+            {"$or": [
+                {"team.project_manager": user.user_id},
+                {"team.associate_pm": user.user_id},
+                {"assigned_pm": user.user_id},
+            ]},
+            {"_id": 0, "project_id": 1}
+        ).to_list(None)
+        allowed = {p["project_id"] for p in assigned if p.get("project_id")}
+        rows = [r for r in rows if r.get("project_id") in allowed]
     return {"count": len(rows), "requests": rows}
 
 
