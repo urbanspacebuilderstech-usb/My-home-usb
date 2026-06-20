@@ -3731,6 +3731,9 @@ async def get_project_expenses(project_id: str, user: User = Depends(get_current
       • `recorded_expenses` (status != rejected / cheque_bounced / under_correction)
       • `labour_expenses` (accounts_approved / paid)
       • `material_requests` (approved / paid)
+    Feb 20 2026 — Added `material_expenses` (paid legacy POs) and
+    `direct_expenses` (petty cash issued items) so Project Board, Cashbook
+    and Carry Forward all reconcile to the same Total Expense.
     The per-section arrays still come from the legacy collections for
     backward-compat with the breakdown tables.
     """
@@ -3747,7 +3750,7 @@ async def get_project_expenses(project_id: str, user: User = Depends(get_current
     labour_paid = sum(e.get("total_paid", 0) for e in labour)
     vendor_paid = sum(e.get("total_paid", 0) for e in vendor)
 
-    # Authoritative project-wide totals — same sources as Cashbook.
+    # Authoritative project-wide totals — same sources as Cashbook + CF.
     EXCLUDED_STATUSES = ["rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"]
     re_pipeline = [
         {"$match": {"project_id": project_id, "status": {"$nin": EXCLUDED_STATUSES}}},
@@ -3761,11 +3764,36 @@ async def get_project_expenses(project_id: str, user: User = Depends(get_current
         {"$match": {"project_id": project_id, "status": {"$in": ["approved", "paid", "accounts_approved", "in_transit", "delivered", "issued", "completed", "settled"]}}},
         {"$group": {"_id": None, "amt": {"$sum": {"$ifNull": ["$total_amount", "$amount"]}}, "paid": {"$sum": {"$ifNull": ["$paid_amount", 0]}}}},
     ]
+    # Legacy material_expenses paid POs.
+    mx_pipeline = [
+        {"$match": {"project_id": project_id, "status": {"$in": ["accounts_approved", "issued", "settled", "completed", "paid"]}}},
+        {"$group": {"_id": None, "amt": {"$sum": {"$ifNull": ["$final_amount", "$amount"]}}, "paid": {"$sum": {"$ifNull": ["$total_paid", "$final_amount"]}}}},
+    ]
+    # Petty cash issued items.
+    de_pipeline = [
+        {"$match": {"project_id": project_id}},
+        {"$unwind": "$items"},
+        {"$group": {"_id": None, "amt": {"$sum": "$items.amount"}}},
+    ]
     re_doc = (await db.recorded_expenses.aggregate(re_pipeline).to_list(1)) or [{}]
     le_doc = (await db.labour_expenses.aggregate(le_pipeline).to_list(1)) or [{}]
     mr_doc = (await db.material_requests.aggregate(mr_pipeline).to_list(1)) or [{}]
-    cb_total = float((re_doc[0].get("amt") or 0) + (le_doc[0].get("amt") or 0) + (mr_doc[0].get("amt") or 0))
-    cb_paid = float((re_doc[0].get("paid") or 0) + (le_doc[0].get("paid") or 0) + (mr_doc[0].get("paid") or 0))
+    mx_doc = (await db.material_expenses.aggregate(mx_pipeline).to_list(1)) or [{}]
+    de_doc = (await db.direct_expenses.aggregate(de_pipeline).to_list(1)) or [{}]
+    cb_total = float(
+        (re_doc[0].get("amt") or 0)
+        + (le_doc[0].get("amt") or 0)
+        + (mr_doc[0].get("amt") or 0)
+        + (mx_doc[0].get("amt") or 0)
+        + (de_doc[0].get("amt") or 0)
+    )
+    cb_paid = float(
+        (re_doc[0].get("paid") or 0)
+        + (le_doc[0].get("paid") or 0)
+        + (mr_doc[0].get("paid") or 0)
+        + (mx_doc[0].get("paid") or 0)
+        + (de_doc[0].get("amt") or 0)
+    )
 
     return {
         "material": material,
@@ -4745,7 +4773,7 @@ async def get_cashbook_filtered(
         income_q.setdefault("created_at", {})["$lte"] = end_date + "T23:59:59"
         expense_q.setdefault("created_at", {})["$lte"] = end_date + "T23:59:59"
 
-    (incomes, recorded_exps, labour_exps, material_reqs, projects_list) = await asyncio.gather(
+    (incomes, recorded_exps, labour_exps, material_reqs, material_exps_legacy, direct_exps, projects_list) = await asyncio.gather(
         db.income.find(income_q, {"_id": 0}).sort("created_at", -1).to_list(2000),
         # Recorded (manual) expenses: only show those approved by accountant
         # or super admin in the Expense list. Pending/rejected stay in queue.
@@ -4772,6 +4800,21 @@ async def get_cashbook_filtered(
             {**expense_q, "status": {"$in": ["accounts_approved", "approved_for_po", "po_issued", "in_transit", "received", "delivered", "paid"]}},
             {"_id": 0}
         ).sort("created_at", -1).to_list(1000),
+        # Feb 20 2026 — Legacy `material_expenses` collection (Cement/Sand/
+        # Steel direct POs, pre-material_requests flow). Paid rows here were
+        # invisible in Cashbook / Expense > Material card / Project Wise even
+        # though Carry Forward already counted them, causing the Mrs.Abinaya
+        # ₹93,902.75 mismatch reported on Feb 20. Include paid / settled /
+        # accounts_approved so the Material card surfaces them.
+        db.material_expenses.find(
+            {**expense_q, "status": {"$in": ["accounts_approved", "issued", "settled", "completed", "paid"]}},
+            {"_id": 0}
+        ).sort("created_at", -1).to_list(1000),
+        # Feb 20 2026 — Petty cash issued items (`direct_expenses.items[]`)
+        # were missing from the Cashbook Petty Cash card. They're real cash-
+        # outflow once the PM/Accountant records a site spend, so include them
+        # in the unified expense_entries list. They flatten one row per item.
+        db.direct_expenses.find(expense_q, {"_id": 0}).sort("created_at", -1).to_list(1000),
         # Cashbook's All-Projects dropdown lists EVERY real project — those
         # surfaced under Planning's New / Current / Delivered tabs. The
         # explicit name $nin removes specific demo / test rows. The blanket
@@ -4940,6 +4983,35 @@ async def get_cashbook_filtered(
             "project_name": project_map.get(m.get("project_id"), ""),
             "source": "approval",
         })
+    # Legacy `material_expenses` collection — paid material POs (Cement,
+    # Sand, Steel, etc.) recorded before the material_requests flow.
+    for me in material_exps_legacy:
+        amt = me.get("final_amount") or me.get("amount") or 0
+        all_expenses.append({
+            **me,
+            "expense_id": me.get("material_expense_id") or me.get("expense_id") or str(me.get("_id", "")),
+            "expense_type": "material",
+            "amount": amt,
+            "project_name": project_map.get(me.get("project_id"), ""),
+            "source": "approval",
+        })
+    # Petty cash items issued at the site (`direct_expenses.items[]`). One
+    # row per item so the table shows individual spends.
+    for de in direct_exps:
+        items = de.get("items") or []
+        for it in items:
+            all_expenses.append({
+                "expense_id": it.get("item_id") or de.get("petty_cash_id") or de.get("direct_expense_id"),
+                "expense_type": "petty_cash",
+                "category": it.get("category") or "petty_cash",
+                "description": it.get("expense_name") or it.get("description") or "Petty cash",
+                "amount": it.get("amount") or 0,
+                "project_id": de.get("project_id"),
+                "project_name": project_map.get(de.get("project_id"), ""),
+                "payment_method": "petty_cash",
+                "created_at": de.get("created_at"),
+                "source": "approval",
+            })
 
     all_expenses.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
