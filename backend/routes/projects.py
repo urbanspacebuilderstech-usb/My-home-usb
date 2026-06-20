@@ -11243,7 +11243,7 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         for e in payment_entries_raw:
             m = (e.get("method") or "").lower()
             m = {"bank": "current_account", "savings": "savings_account"}.get(m, m)
-            if m not in ("cash", "cheque", "current_account", "savings_account"):
+            if m not in ("cash", "cheque", "current_account", "savings_account", "direct_transfer", "escrow"):
                 raise HTTPException(status_code=400, detail=f"Invalid method in entry: {m}")
             try:
                 a = float(e.get("amount") or 0)
@@ -11489,6 +11489,8 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         "savings_account": "savings_account",
         "cash": "cash",
         "cheque": "cheque",
+        "direct_transfer": "direct_transfer",
+        "escrow": "escrow",
     }
     project_doc = await db.projects.find_one({"project_id": wo.get("project_id")}, {"_id": 0, "name": 1})
     cashbook_entry = {
