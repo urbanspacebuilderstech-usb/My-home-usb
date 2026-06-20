@@ -2574,10 +2574,29 @@ async def send_petty_cash_for_correction(petty_cash_id: str, data: PettyCashCorr
 
 @router.get("/pm/petty-cash-requests")
 async def get_petty_cash_for_pm(user: User = Depends(get_current_user)):
-    """PM gets pending petty cash requests for approval"""
+    """PM gets pending petty cash requests for approval.
+
+    Feb 19 2026 — Scoped to projects where this PM is assigned
+    (`team.project_manager` slot or legacy `assigned_pm`). Super Admins
+    still see everything.
+    """
     if user.role not in [UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only PM can access this")
-    requests = await db.petty_cash.find({"status": {"$in": ["requested", "pm_approved", "accountant_processing", "payment_done", "acknowledged"]}}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    query: Dict[str, Any] = {"status": {"$in": ["requested", "pm_approved", "accountant_processing", "payment_done", "acknowledged"]}}
+    if user.role in (UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM):
+        assigned_projects = await db.projects.find(
+            {"$or": [
+                {"team.project_manager": user.user_id},
+                {"team.associate_pm": user.user_id},
+                {"assigned_pm": user.user_id},
+            ]},
+            {"_id": 0, "project_id": 1}
+        ).to_list(None)
+        project_ids = [p["project_id"] for p in assigned_projects if p.get("project_id")]
+        if not project_ids:
+            return []
+        query["project_id"] = {"$in": project_ids}
+    requests = await db.petty_cash.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
     return requests
 
 
@@ -3259,24 +3278,43 @@ async def get_pm_material_requests(status: Optional[str] = None, user: User = De
     Planning Awaiting, Revision, Awaiting Accountant, Transit, Delivered),
     so by default we return ALL statuses — not just `requested` — and let
     the frontend bucketise. An explicit `status` query param still scopes
-    the result for callers that want a narrow slice (e.g. notifications)."""
+    the result for callers that want a narrow slice (e.g. notifications).
+
+    Feb 19 2026 — Scoped to projects where this PM is assigned
+    (`team.project_manager` slot or legacy `assigned_pm`). Super Admins
+    still see everything.
+    """
     if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Project Manager can access this")
-    
-    query = {}
+
+    query: Dict[str, Any] = {}
     if status and status != "all":
         query["status"] = status
-    
+
+    if user.role == UserRole.PROJECT_MANAGER:
+        assigned_projects = await db.projects.find(
+            {"$or": [
+                {"team.project_manager": user.user_id},
+                {"team.associate_pm": user.user_id},
+                {"assigned_pm": user.user_id},
+            ]},
+            {"_id": 0, "project_id": 1}
+        ).to_list(None)
+        project_ids = [p["project_id"] for p in assigned_projects if p.get("project_id")]
+        if not project_ids:
+            return []
+        query["project_id"] = {"$in": project_ids}
+
     requests = await db.material_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
-    
+
     # Enrich with project name and requester name
     for r in requests:
         project = await db.projects.find_one({"project_id": r["project_id"]}, {"_id": 0, "name": 1})
         r["project_name"] = project["name"] if project else "Unknown"
-        
+
         requester = await db.users.find_one({"user_id": r["site_engineer_id"]}, {"_id": 0, "name": 1})
         r["requester_name"] = requester["name"] if requester else "Unknown"
-    
+
     return requests
 
 
@@ -3284,20 +3322,39 @@ async def get_pm_material_requests(status: Optional[str] = None, user: User = De
 async def get_pm_labour_requests(status: Optional[str] = None, user: User = Depends(get_current_user)):
     """Labour requests visible to the PM dashboard. Returns full lifecycle
     by default so the bucket strip ("New Request", "Awaiting Accountant",
-    "Released" etc.) can populate; pass `?status=requested` to scope."""
+    "Released" etc.) can populate; pass `?status=requested` to scope.
+
+    Feb 19 2026 — Scoped to projects where this PM is assigned
+    (`team.project_manager` slot or legacy `assigned_pm`). Super Admins
+    still see everything.
+    """
     if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Project Manager can access this")
-    
-    query = {}
+
+    query: Dict[str, Any] = {}
     if status and status != "all":
         query["status"] = status
-    
+
+    if user.role == UserRole.PROJECT_MANAGER:
+        assigned_projects = await db.projects.find(
+            {"$or": [
+                {"team.project_manager": user.user_id},
+                {"team.associate_pm": user.user_id},
+                {"assigned_pm": user.user_id},
+            ]},
+            {"_id": 0, "project_id": 1}
+        ).to_list(None)
+        project_ids = [p["project_id"] for p in assigned_projects if p.get("project_id")]
+        if not project_ids:
+            return []
+        query["project_id"] = {"$in": project_ids}
+
     requests = await db.labour_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
-    
+
     for r in requests:
         project = await db.projects.find_one({"project_id": r["project_id"]}, {"_id": 0, "name": 1})
         r["project_name"] = project["name"] if project else "Unknown"
-    
+
     return requests
 
 
