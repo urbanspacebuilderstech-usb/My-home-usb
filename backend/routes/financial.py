@@ -449,7 +449,7 @@ async def save_project_carry_forward(project_id: str, payload: Dict[str, Any], u
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Only Super Admin can update carry forward")
 
-    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "project_id": 1, "name": 1, "total_value": 1, "original_estimate": 1, "status": 1, "planning_status": 1})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
