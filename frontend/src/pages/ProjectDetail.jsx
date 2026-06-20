@@ -4549,7 +4549,14 @@ export default function ProjectDetail() {
           const deductionsTotal = summary.deductions_total || 0;
           const grandTotal = scopeTotal + additionsTotal - deductionsTotal;
           const totalIncome = summary.income_total || 0;
-          const totalExpense = (summary.material_total || 0) + (summary.labour_total || 0) + (summary.vendor_total || 0) + (summary.expenses_total || 0);
+          // Feb 20 2026 — backend `summary.total_expense` now reconciles with
+          // Cashbook / Project Board / Carry Forward (recorded_expenses +
+          // material_expenses + material_requests + labour_expenses + petty
+          // cash). Fall back to legacy per-bucket sums only if the new field
+          // is absent (e.g. older API response cached in memory).
+          const totalExpense = (summary.total_expense !== undefined && summary.total_expense !== null)
+            ? summary.total_expense
+            : ((summary.material_total || 0) + (summary.labour_total || 0) + (summary.vendor_total || 0) + (summary.expenses_total || 0));
           const receivableBalance = Math.max(0, grandTotal - totalIncome);
           const collectionPct = grandTotal > 0 ? (totalIncome / grandTotal) * 100 : 0;
           const fmtINR = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;

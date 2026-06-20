@@ -2937,7 +2937,44 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
             "completed_at": st.get("completed_at"),
             "notes": st.get("notes"),
         })
-    
+
+    # Feb 20 2026 — Aggregate Total Expense from the same 5 authoritative
+    # sources as Cashbook, Project Board (/projects/{id}/expenses) and
+    # Carry Forward. Without this the project header Financial Performance
+    # strip showed ₹0 for projects like Mr Mohan - Sithalapakkam even when
+    # ₹50,000 of approved labour expense existed in recorded_expenses.
+    EXCLUDED_RE = ["rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"]
+    MATERIAL_APPROVED = ["accounts_approved", "issued", "settled", "completed", "paid"]
+    LABOUR_APPROVED = ["accounts_approved", "settled", "completed", "paid", "paid_full", "paid_partial", "accountant_approved"]
+    MR_APPROVED = ["approved", "paid", "accounts_approved", "in_transit", "delivered", "issued", "completed", "settled"]
+    expense_total = 0.0
+    async for r in db.recorded_expenses.aggregate([
+        {"$match": {"project_id": project_id, "status": {"$nin": EXCLUDED_RE}}},
+        {"$group": {"_id": None, "amt": {"$sum": "$amount"}}},
+    ]):
+        expense_total += float(r.get("amt") or 0)
+    async for r in db.material_expenses.aggregate([
+        {"$match": {"project_id": project_id, "status": {"$in": MATERIAL_APPROVED}}},
+        {"$group": {"_id": None, "amt": {"$sum": {"$ifNull": ["$final_amount", "$amount"]}}}},
+    ]):
+        expense_total += float(r.get("amt") or 0)
+    async for r in db.material_requests.aggregate([
+        {"$match": {"project_id": project_id, "status": {"$in": MR_APPROVED}}},
+        {"$group": {"_id": None, "amt": {"$sum": {"$ifNull": ["$total_amount", "$amount"]}}}},
+    ]):
+        expense_total += float(r.get("amt") or 0)
+    async for r in db.labour_expenses.aggregate([
+        {"$match": {"project_id": project_id, "status": {"$in": LABOUR_APPROVED}}},
+        {"$group": {"_id": None, "amt": {"$sum": "$total_amount"}}},
+    ]):
+        expense_total += float(r.get("amt") or 0)
+    async for r in db.direct_expenses.aggregate([
+        {"$match": {"project_id": project_id}},
+        {"$unwind": "$items"},
+        {"$group": {"_id": None, "amt": {"$sum": "$items.amount"}}},
+    ]):
+        expense_total += float(r.get("amt") or 0)
+
     return {
         "project": project,
         "scope_items": scope_items,
@@ -2964,7 +3001,12 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
             "income_total": income_total,
             "income_by_mode": income_by_mode,
             "deductions_total": deductions_total,
-            "balance": balance
+            "balance": balance,
+            # Feb 20 2026 — authoritative Total Expense used by the project
+            # header Financial Performance strip (reconciled with Cashbook /
+            # Project Board / Carry Forward).
+            "total_expense": expense_total,
+            "expenses_total": expense_total,  # alias kept for legacy FE code
         }
     }
 
