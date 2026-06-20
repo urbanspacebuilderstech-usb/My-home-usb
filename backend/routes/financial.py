@@ -2975,6 +2975,21 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     ]):
         expense_total += float(r.get("amt") or 0)
 
+    # Feb 20 2026 — Roll Carry Forward Income & Expense into the project
+    # header totals so the Financial Performance strip and Project Wise tab
+    # always show the same ledger numbers (live + CF).
+    cf_doc = await db.project_carry_forwards.find_one({"project_id": project_id}, {"_id": 0}) or {}
+    cf_income = float(cf_doc.get("income_carry_forward") or 0) + float(cf_doc.get("income_adjustment") or 0)
+    mat_cf = float(cf_doc.get("material_carry_forward") or 0)
+    lab_cf = float(cf_doc.get("labour_carry_forward") or 0)
+    pc_cf = float(cf_doc.get("petty_cash_carry_forward") or 0)
+    ind_cf = float(cf_doc.get("indirect_carry_forward") or 0)
+    cf_expense = mat_cf + lab_cf + pc_cf + ind_cf
+    if cf_expense == 0:
+        cf_expense = float(cf_doc.get("expense_carry_forward") or 0) + float(cf_doc.get("expense_adjustment") or 0)
+    expense_total_with_cf = expense_total + cf_expense
+    income_total_with_cf = income_total + cf_income
+
     return {
         "project": project,
         "scope_items": scope_items,
@@ -2998,15 +3013,23 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
             "total_value": total_value,
             "payment_schedule_total": payment_total,
             "payment_received": payment_received,
-            "income_total": income_total,
+            # Feb 20 2026 — `income_total` now rolls CF Income in so the
+            # project header Total Income matches the Project Wise tab.
+            # `income_total_live` keeps the un-adjusted approved-income sum
+            # for callers that need the raw ledger figure.
+            "income_total": income_total_with_cf,
+            "income_total_live": income_total,
+            "cf_income": cf_income,
             "income_by_mode": income_by_mode,
             "deductions_total": deductions_total,
             "balance": balance,
             # Feb 20 2026 — authoritative Total Expense used by the project
             # header Financial Performance strip (reconciled with Cashbook /
-            # Project Board / Carry Forward).
-            "total_expense": expense_total,
-            "expenses_total": expense_total,  # alias kept for legacy FE code
+            # Project Board / Carry Forward, AND includes CF Expense).
+            "total_expense": expense_total_with_cf,
+            "total_expense_live": expense_total,
+            "cf_expense": cf_expense,
+            "expenses_total": expense_total_with_cf,  # alias kept for legacy FE code
         }
     }
 
@@ -5098,6 +5121,8 @@ async def get_cashbook_filtered(
         "project_name": p.get("name", "Unknown"),
         "income": 0,
         "expense": 0,
+        "cf_income": 0,
+        "cf_expense": 0,
     } for p in projects_list}
     for i in incomes:
         pid = i.get("project_id")
@@ -5107,9 +5132,41 @@ async def get_cashbook_filtered(
         pid = e.get("project_id")
         if pid in real_pid_set:
             project_wise_map[pid]["expense"] += e.get("amount", 0) or 0
+    # Feb 20 2026 — Add Carry Forward income / expense to each project row so
+    # Project Wise totals match the Carry Forward tab. CF Income comes from
+    # `income_carry_forward + income_adjustment`; CF Expense rolls up the 4
+    # per-bucket fields (material + labour + petty cash + indirect) and falls
+    # back to the legacy rolled-up `expense_carry_forward + expense_adjustment`
+    # when the new fields are absent.
+    cf_docs = await db.project_carry_forwards.find({}, {"_id": 0}).to_list(2000)
+    for cf in cf_docs:
+        pid = cf.get("project_id")
+        if pid not in project_wise_map:
+            continue
+        cf_inc = float(cf.get("income_carry_forward") or 0) + float(cf.get("income_adjustment") or 0)
+        mat_cf = float(cf.get("material_carry_forward") or 0)
+        lab_cf = float(cf.get("labour_carry_forward") or 0)
+        pc_cf = float(cf.get("petty_cash_carry_forward") or 0)
+        ind_cf = float(cf.get("indirect_carry_forward") or 0)
+        cf_exp = mat_cf + lab_cf + pc_cf + ind_cf
+        if cf_exp == 0:
+            cf_exp = float(cf.get("expense_carry_forward") or 0) + float(cf.get("expense_adjustment") or 0)
+        project_wise_map[pid]["cf_income"] = cf_inc
+        project_wise_map[pid]["cf_expense"] = cf_exp
     for pw in project_wise_map.values():
+        # `income` / `expense` columns now include CF so Project Wise totals
+        # reconcile with Carry Forward grand totals.
+        pw["income"] = pw["income"] + pw["cf_income"]
+        pw["expense"] = pw["expense"] + pw["cf_expense"]
         pw["balance"] = pw["income"] - pw["expense"]
     project_wise_sorted = sorted(project_wise_map.values(), key=lambda x: (-x["income"], x["project_name"]))
+
+    # Recompute the global Total Income / Total Expense headline cards
+    # to include CF roll-ups so they match the table sums below.
+    cf_inc_grand = sum(pw["cf_income"] for pw in project_wise_map.values())
+    cf_exp_grand = sum(pw["cf_expense"] for pw in project_wise_map.values())
+    total_income_with_cf = total_income + cf_inc_grand
+    total_expense_with_cf = total_expense + cf_exp_grand
 
     return {
         "income_entries": incomes[:500],
@@ -5119,9 +5176,16 @@ async def get_cashbook_filtered(
         "income_by_mode": income_by_mode,
         "expense_by_mode": expense_by_mode,
         "summary": {
-            "total_income": total_income,
-            "total_expense": total_expense,
-            "net_balance": total_income - total_expense,
+            # Feb 20 2026 — headline cards now include CF so they reconcile
+            # with the per-project rows (Income / Expense / Balance columns).
+            "total_income": total_income_with_cf,
+            "total_expense": total_expense_with_cf,
+            "net_balance": total_income_with_cf - total_expense_with_cf,
+            # Live-only totals kept for callers that need the un-adjusted view.
+            "total_income_live": total_income,
+            "total_expense_live": total_expense,
+            "total_cf_income": cf_inc_grand,
+            "total_cf_expense": cf_exp_grand,
             "income_count": len(incomes),
             "expense_count": len(all_expenses),
         }
