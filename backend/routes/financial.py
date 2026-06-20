@@ -3702,20 +3702,49 @@ async def get_pending_expense_approvals(user: User = Depends(get_current_user)):
 
 @router.get("/projects/{project_id}/expenses")
 async def get_project_expenses(project_id: str, user: User = Depends(get_current_user)):
-    """Get all expenses for a project"""
+    """Get all expenses for a project.
+
+    Feb 19 2026 — `total_expenses` / `total_paid` now read from the same
+    sources the Cashbook (and Project-Wise view) trust:
+      • `recorded_expenses` (status != rejected / cheque_bounced / under_correction)
+      • `labour_expenses` (accounts_approved / paid)
+      • `material_requests` (approved / paid)
+    The per-section arrays still come from the legacy collections for
+    backward-compat with the breakdown tables.
+    """
     material = await db.material_expenses.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
     labour = await db.labour_expenses.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
     vendor = await db.vendor_service_expenses.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
-    
-    # Calculate totals
+
+    # Legacy per-section totals (kept for backward compat with the
+    # material/labour/vendor breakdown UIs).
     material_total = sum(e.get("final_amount", 0) for e in material)
     labour_total = sum(e.get("total_amount", 0) for e in labour)
     vendor_total = sum(e.get("amount", 0) for e in vendor)
-    
     material_paid = sum(e.get("total_paid", 0) for e in material)
     labour_paid = sum(e.get("total_paid", 0) for e in labour)
     vendor_paid = sum(e.get("total_paid", 0) for e in vendor)
-    
+
+    # Authoritative project-wide totals — same sources as Cashbook.
+    EXCLUDED_STATUSES = ["rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"]
+    re_pipeline = [
+        {"$match": {"project_id": project_id, "status": {"$nin": EXCLUDED_STATUSES}}},
+        {"$group": {"_id": None, "amt": {"$sum": "$amount"}, "paid": {"$sum": {"$ifNull": ["$paid_amount", "$amount"]}}}},
+    ]
+    le_pipeline = [
+        {"$match": {"project_id": project_id, "status": {"$in": ["accounts_approved", "paid", "accountant_approved"]}}},
+        {"$group": {"_id": None, "amt": {"$sum": "$total_amount"}, "paid": {"$sum": {"$ifNull": ["$paid_amount", 0]}}}},
+    ]
+    mr_pipeline = [
+        {"$match": {"project_id": project_id, "status": {"$in": ["approved", "paid", "accounts_approved"]}}},
+        {"$group": {"_id": None, "amt": {"$sum": {"$ifNull": ["$total_amount", "$amount"]}}, "paid": {"$sum": {"$ifNull": ["$paid_amount", 0]}}}},
+    ]
+    re_doc = (await db.recorded_expenses.aggregate(re_pipeline).to_list(1)) or [{}]
+    le_doc = (await db.labour_expenses.aggregate(le_pipeline).to_list(1)) or [{}]
+    mr_doc = (await db.material_requests.aggregate(mr_pipeline).to_list(1)) or [{}]
+    cb_total = float((re_doc[0].get("amt") or 0) + (le_doc[0].get("amt") or 0) + (mr_doc[0].get("amt") or 0))
+    cb_paid = float((re_doc[0].get("paid") or 0) + (le_doc[0].get("paid") or 0) + (mr_doc[0].get("paid") or 0))
+
     return {
         "material": material,
         "labour": labour,
@@ -3727,9 +3756,9 @@ async def get_project_expenses(project_id: str, user: User = Depends(get_current
             "labour_paid": labour_paid,
             "vendor_total": vendor_total,
             "vendor_paid": vendor_paid,
-            "total_expenses": material_total + labour_total + vendor_total,
-            "total_paid": material_paid + labour_paid + vendor_paid,
-            "total_balance": (material_total - material_paid) + (labour_total - labour_paid) + (vendor_total - vendor_paid)
+            "total_expenses": cb_total,
+            "total_paid": cb_paid,
+            "total_balance": cb_total - cb_paid,
         }
     }
 
