@@ -126,8 +126,12 @@ export default function ClientPortal() {
         // Single-project clients (the common case) skip the "My Projects"
         // list and land straight on their project dashboard. The dashboard
         // IS the main view in the client portal.
+        // Feb 19 2026 — Bug fix: we used to `return;` here which skipped the
+        // `setLoading(false)` below, leaving the page stuck on the spinner
+        // forever until the user hit Ctrl+Shift+R. The second useEffect
+        // `fetchProjectData` triggers immediately after the URL change so
+        // it's safe to clear loading right away.
         navigate(`/client-portal/${all[0].project_id}`, { replace: true });
-        return;
       }
       setLoading(false);
     } catch (error) {
@@ -144,6 +148,9 @@ export default function ClientPortal() {
     } catch (error) {
       console.error('Failed to fetch project data:', error);
       toast.error('Failed to load project details');
+    } finally {
+      // Defensive — clear any lingering loading state regardless of outcome.
+      setLoading(false);
     }
   };
 
