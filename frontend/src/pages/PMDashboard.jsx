@@ -174,15 +174,16 @@ export default function PMDashboard() {
     } catch { toast.error('Failed to approve'); }
   };
 
-  const handleApproveLabour = async (req) => {
+  const handleApproveLabour = async (req, notes = '') => {
     try {
       if (req.rab_number && req.work_order_id && req.stage_id && req.project_id) {
         // New RAB stage payment request — PM-approve in the work_orders flow.
-        await axios.post(`${API}/projects/${req.project_id}/work-orders/${req.work_order_id}/stages/${req.stage_id}/payment-requests/${req.request_id}/pm-approve`);
+        const url = `${API}/projects/${req.project_id}/work-orders/${req.work_order_id}/stages/${req.stage_id}/payment-requests/${req.request_id}/pm-approve` + (notes ? `?notes=${encodeURIComponent(notes)}` : '');
+        await axios.post(url);
         toast.success(`${req.rab_number} approved — forwarded to QC.`);
       } else {
         // Legacy labour_expense flow.
-        await axios.patch(`${API}/pm/labour-requests/${req.labour_expense_id}/verify?action=approve`);
+        await axios.patch(`${API}/pm/labour-requests/${req.labour_expense_id}/verify?action=approve` + (notes ? `&notes=${encodeURIComponent(notes)}` : ''));
         toast.success('Labour request approved! Goes to Accountant for payment approval.');
       }
       fetchData(false);

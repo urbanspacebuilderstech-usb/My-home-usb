@@ -7,7 +7,7 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Eye, Package, HardHat, Truck, PackageCheck, FileClock, Wallet, ListChecks, Send, ClipboardList, Calendar, X, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { DayPicker } from 'react-day-picker';
 import OrderDetailDialog from './OrderDetailDialog';
@@ -295,6 +295,10 @@ export function PMLabourReadOnlyList({ items, onApprove, onReject }) {
   const [actingId, setActingId] = useState(null);
   // Selected RAB row → opens the inline detail Dialog with full lifecycle info.
   const [detail, setDetail] = useState(null);
+  // Feb 19 2026 — Approve-confirmation modal (Reject already has its own
+  // dialog handled by the parent via onReject).
+  const [approveTarget, setApproveTarget] = useState(null);
+  const [approveNotes, setApproveNotes] = useState('');
   const visibleItems = useMemo(() => bucket === 'all' ? items : items.filter(r => bucketForLabour(r) === bucket), [items, bucket]);
   const counts = useMemo(() => {
     const c = { all: items.length };
@@ -302,11 +306,20 @@ export function PMLabourReadOnlyList({ items, onApprove, onReject }) {
     items.forEach(r => { const b = bucketForLabour(r); c[b] = (c[b] || 0) + 1; });
     return c;
   }, [items]);
-  const doApprove = async (r) => {
-    if (!onApprove) return;
-    setActingId(r.request_id || r.labour_expense_id);
-    try { await onApprove(r); setDetail(null); } finally { setActingId(null); }
+  const askApprove = (r) => { setApproveTarget(r); setApproveNotes(''); };
+  const confirmApprove = async () => {
+    if (!onApprove || !approveTarget) return;
+    setActingId(approveTarget.request_id || approveTarget.labour_expense_id);
+    try {
+      await onApprove(approveTarget, approveNotes);
+      setApproveTarget(null);
+      setApproveNotes('');
+      setDetail(null);
+    } finally {
+      setActingId(null);
+    }
   };
+  const doApprove = (r) => askApprove(r);
   const doReject = (r) => {
     if (!onReject) return;
     setDetail(null);
@@ -369,7 +382,7 @@ export function PMLabourReadOnlyList({ items, onApprove, onReject }) {
                           size="sm"
                           variant="outline"
                           className="h-8 border-rose-300 text-rose-700 hover:bg-rose-50"
-                          onClick={() => onReject(r)}
+                          onClick={() => doReject(r)}
                           disabled={busy}
                           data-testid={`pm-lab-reject-${r.request_id || r.labour_expense_id}`}
                         >
@@ -417,6 +430,49 @@ export function PMLabourReadOnlyList({ items, onApprove, onReject }) {
           busy={detail && actingId === (detail.request_id || detail.labour_expense_id)}
         />
       )}
+
+      {/* Approve confirmation modal */}
+      <Dialog open={!!approveTarget} onOpenChange={(v) => { if (!v) { setApproveTarget(null); setApproveNotes(''); } }}>
+        <DialogContent data-testid="pm-lab-approve-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-emerald-700 flex items-center gap-2">Approve Labour Request</DialogTitle>
+            <DialogDescription>
+              {approveTarget?.rab_number
+                ? `${approveTarget.rab_number} · ${approveTarget.stage_name || 'Stage Payment'} · ${fmt(approveTarget.amount || 0)} → forwards to QC.`
+                : `${approveTarget?.labour_type || 'Labour'} · ${fmt(approveTarget?.amount || 0)} → goes to Accountant.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <div className="rounded bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs space-y-0.5">
+              <p><span className="text-gray-500">Project:</span> <strong>{approveTarget?.project_name || '—'}</strong></p>
+              <p><span className="text-gray-500">Contractor:</span> <strong>{approveTarget?.contractor_name || '—'}</strong></p>
+              {approveTarget?.requested_by_name && <p><span className="text-gray-500">Requested by:</span> <strong>{approveTarget.requested_by_name}</strong></p>}
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-700">Approval Notes <span className="text-gray-400">(optional)</span></label>
+              <textarea
+                value={approveNotes}
+                onChange={(e) => setApproveNotes(e.target.value)}
+                placeholder="Any remarks for the next approver..."
+                rows={2}
+                className="w-full mt-1 text-xs border rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                data-testid="pm-lab-approve-notes"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setApproveTarget(null); setApproveNotes(''); }} data-testid="pm-lab-approve-cancel">Cancel</Button>
+            <Button
+              onClick={confirmApprove}
+              disabled={actingId === (approveTarget?.request_id || approveTarget?.labour_expense_id)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              data-testid="pm-lab-approve-confirm"
+            >
+              {actingId === (approveTarget?.request_id || approveTarget?.labour_expense_id) ? 'Approving…' : 'Confirm Approve'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
