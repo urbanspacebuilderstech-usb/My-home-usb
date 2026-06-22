@@ -989,7 +989,10 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
       const s = (wo?.stages || []).find(x => x.stage_id === sid);
       if (!s) continue;
       let cap = stageBalanceOf(s);
-      if (reworkPR && sid === stage.stage_id) cap += (reworkPR.amount || 0);
+      // Feb 20 2026 — `se_rework` PRs are NOT subtracted from stageBalanceOf
+      // (their status isn't in the `pen` filter), so adding the rework
+      // amount back over-counted available capacity (Mrs Abinaya Additional
+      // Cost 1: showed ₹60,000 instead of ₹30,000).
       // In edit mode, the editing request's current amount must be added back
       // to the source stage's balance — otherwise the SE can't even keep the
       // same value when re-saving.
@@ -1180,7 +1183,7 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
       if (!s.is_open) { toast.error(`${s.name} is not yet opened by Planning`); return; }
       const sBal = stageBalanceOf(s);
       let cap = sBal;
-      if (reworkPR && sid === stage.stage_id) cap += (reworkPR.amount || 0);
+      // Feb 20 2026 — `se_rework` already freed from balance (not in pen).
       if (editingRequest && sid === editingRequest.stage_id) cap += (editingRequest.amount || 0);
       if (v > cap + 0.01) {
         toast.error(`${s.name}: ₹${v} exceeds stage balance ${fmt(cap)}`);
@@ -1450,8 +1453,14 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                 const totalBalAcrossSelected = Object.keys(allocations).reduce((s, sid) => {
                   const st = (wo?.stages || []).find(x => x.stage_id === sid);
                   if (!st) return s;
-                  const cap = (reworkPR && sid === stage.stage_id) ? stageBalanceOf(st) + (reworkPR.amount || 0) : stageBalanceOf(st);
-                  return s + cap;
+                  // Feb 20 2026 — `se_rework` PRs are NOT counted in `pen`
+                  // by stageBalanceOf, so the previous `+ reworkPR.amount`
+                  // add-back double-counted the rework amount and reported
+                  // a balance ~2x the truth (e.g. Mrs Abinaya Additional
+                  // Cost 1: total ₹64,000, released ₹34,000 → real balance
+                  // ₹30,000 but UI showed ₹60,000). Just use the canonical
+                  // stage balance everywhere.
+                  return s + stageBalanceOf(st);
                 }, 0);
                 const mismatch = amt > 0 && Math.abs(sumAlloc - amt) > 0.5;
                 return (
@@ -1484,7 +1493,9 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                 <div className="space-y-1.5">
                   {openStagesAll.map((s) => {
                     const checked = Object.prototype.hasOwnProperty.call(allocations, s.stage_id);
-                    const cap = (reworkPR && s.stage_id === stage.stage_id) ? stageBalanceOf(s) + (reworkPR.amount || 0) : stageBalanceOf(s);
+                    // Feb 20 2026 — see comment above on the rework add-back
+                    // double-count bug (Mrs Abinaya Additional Cost 1 case).
+                    const cap = stageBalanceOf(s);
                     const val = allocations[s.stage_id] ?? '';
                     const over = parseFloat(val || 0) > cap + 0.01;
                     return (
