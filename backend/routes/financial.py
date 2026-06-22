@@ -2155,6 +2155,15 @@ async def review_income(income_id: str, data: IncomeReviewRequest, user: User = 
                 "sent_to_planning_by": user.user_id,
                 "sent_to_planning_at": _now_iso,
                 "auto_sent_to_planning": True,
+                # Feb 20 2026 — Revive soft-deleted / archived projects on
+                # re-onboarding (see crm.py advance-verify for context).
+                "is_deleted": False,
+                "is_archived": False,
+            }, "$unset": {
+                "deleted_at": "",
+                "deleted_by": "",
+                "deleted_by_name": "",
+                "archived_at": "",
             }}
         )
 

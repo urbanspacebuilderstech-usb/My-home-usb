@@ -1587,6 +1587,18 @@ async def accountant_verify(lead_id: str, user: User = Depends(get_current_user)
                 "sent_to_planning_by": user.user_id,
                 "sent_to_planning_at": now.isoformat(),
                 "auto_sent_to_planning": True,
+                # Feb 20 2026 — Revive soft-deleted / archived projects when
+                # the same lead is re-onboarded (e.g. Praveen on 22 Jun 2026
+                # whose project carried `is_deleted: true` from an earlier
+                # Super-Admin wipe and therefore never showed in Planning >
+                # All Projects despite the planning fields being set).
+                "is_deleted": False,
+                "is_archived": False,
+            }, "$unset": {
+                "deleted_at": "",
+                "deleted_by": "",
+                "deleted_by_name": "",
+                "archived_at": "",
             }}
         )
     
