@@ -11203,32 +11203,32 @@ async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str,
     stage_total = float(target_stage.get("amount", 0) or 0)
     stage_balance = max(0.0, stage_total - released - pending_other - bill_amount)
 
-    # HDFC-only Active incoming cheques (CRE-opened, unused) — bank_name contains 'HDFC'
-    # Feb 20 2026 — Align cheque sub-status filter with the Material accountant
-    # endpoint: sub-state (issued / received / post_dated / deposited) doesn't
-    # matter for picking; only terminally-resolved ones are excluded. Previously
-    # this used `$in: ["issued", "post_dated", "deposited"]` which silently
-    # filtered out 340 cheques sitting at `received` and showed the user "No
-    # open HDFC cheques available for this row."
+    # Feb 20 2026 — Drop the HDFC-only bank filter at user's request:
+    # any opened incoming cheque (any bank) should be selectable for Labour
+    # RAB release. Status filter aligned with the Material accountant flow.
+    # 340 legacy cheques have no `is_opened` field at all → treat as locked
+    # (the CRE open-cheque workflow was added later than these legacy rows).
     _excluded_status = ["bounced", "cancelled", "cleared", "rejected"]
-    bank_filter = {"$or": [
-        {"bank_name": {"$regex": "HDFC", "$options": "i"}},
-        {"bank": {"$regex": "HDFC", "$options": "i"}},
-    ]}
     active_cheques = await db.cheques.find({
         "cheque_type": "incoming",
         "is_opened": True,
         "status": {"$nin": _excluded_status},
         "$or": [{"used_for_expense_id": {"$exists": False}}, {"used_for_expense_id": None}],
-        **bank_filter,
     }, {"_id": 0}).sort("cheque_date", -1).to_list(200)
     inactive_cheques = await db.cheques.find({
         "cheque_type": "incoming",
-        "is_opened": False,
+        "$or": [
+            {"is_opened": False},
+            {"is_opened": {"$exists": False}},
+            {"is_opened": None},
+        ],
         "status": {"$nin": _excluded_status},
-        "$or": [{"used_for_expense_id": {"$exists": False}}, {"used_for_expense_id": None}],
-        **bank_filter,
-    }, {"_id": 0}).sort("cheque_date", -1).to_list(200)
+        # And not already used for an expense:
+        "used_for_expense_id": {"$in": [None]} if False else {"$exists": False},
+    }, {"_id": 0}).sort("cheque_date", -1).to_list(500)
+    # The `$or` for used_for_expense_id can't co-exist with the outer `$or`
+    # in a single dict literal in Python — easiest to refilter in-memory.
+    inactive_cheques = [c for c in inactive_cheques if not c.get("used_for_expense_id")]
 
     # Enrich with project_name
     project_cache = {}

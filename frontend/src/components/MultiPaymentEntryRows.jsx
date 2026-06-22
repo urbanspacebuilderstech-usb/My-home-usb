@@ -210,7 +210,7 @@ function ChequePickerSubRow({ idx, row, allCheques, inactiveCheques = [], claime
   if (visible.length === 0 && visibleLocked.length === 0) {
     return (
       <p className="text-[11px] text-amber-700 italic px-1">
-        No HDFC cheques available for this row. Switch to another method or open more cheques.
+        No cheques available for this row. Switch to another method or open more cheques.
       </p>
     );
   }
