@@ -1046,34 +1046,10 @@ export default function SiteEngineerProject() {
                     <CardDescription className="text-xs sm:text-sm">Daily Labour Report &amp; Daily Progress Report submitted by Site Engineer</CardDescription>
                   </div>
                 </div>
-                <div className="flex gap-1 mt-3 border-b -mx-3 sm:-mx-6 px-3 sm:px-6">
-                  <button
-                    type="button"
-                    onClick={() => setDlrSubTab('dlr')}
-                    className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${dlrSubTab === 'dlr' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                    data-testid="dlr-subtab-dlr"
-                  >
-                    <ClipboardList className="h-3.5 w-3.5 inline mr-1" /> DLR &amp; DPR
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setDlrSubTab('payments');
-                      if (paymentStages.length === 0) {
-                        setPaymentStagesLoading(true);
-                        try {
-                          const res = await axios.get(`${API}/projects/${projectId}/payment-stages`);
-                          setPaymentStages(Array.isArray(res.data) ? res.data : []);
-                        } catch { setPaymentStages([]); }
-                        setPaymentStagesLoading(false);
-                      }
-                    }}
-                    className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${dlrSubTab === 'payments' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                    data-testid="dlr-subtab-payments"
-                  >
-                    <IndianRupee className="h-3.5 w-3.5 inline mr-1" /> Payment Schedule
-                  </button>
-                </div>
+                {/* Feb 20 2026 — Removed the Payment Schedule sub-tab from
+                    Site Engineer's DLR & DPR view at user's request. SE
+                    doesn't need the payment-schedule read-only mirror here
+                    (it's still available on the Accountant side). */}
               </CardHeader>
               <CardContent className="p-3 sm:p-6 pt-3 space-y-4">
                 {dlrSubTab === 'dlr' ? (
