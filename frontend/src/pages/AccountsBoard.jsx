@@ -69,7 +69,8 @@ import { NumericInput } from '../components/NumericInput';
 import AccountantLabourPayments from '../components/AccountantLabourPayments';
 import AccountantMaterialPayments from '../components/AccountantMaterialPayments';
 import AccountantCreditSettlements from '../components/AccountantCreditSettlements';
-import LabourAdvanceQueue from '../components/LabourAdvanceQueue';
+// Feb 20 2026 — `LabourAdvanceQueue` card removed from the Accountant
+// approvals Labour tab; import dropped.
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -3772,10 +3773,11 @@ function ApprovalsTab() {
 
         {/* Labour Approvals */}
         <TabsContent value="labour">
-          {/* Labour Advance Requests (Planning → PM → GM → Accountant) — awaiting accountant approval */}
-          <div className="mb-3" data-testid="approvals-labour-advance-queue">
-            <LabourAdvanceQueue role="accountant" />
-          </div>
+          {/* Feb 20 2026 — Removed the Labour Advance Requests pipeline card
+              from Accountant > Approvals > Labour Work Order at user's
+              request. Advances still flow through the Planning → PM → GM
+              ladder via /labour-advances; the Accountant approval queue
+              now opens directly on the Labour Payment Releases card. */}
           {/* SE Work Order V2 stage payments — forwarded by Planning, awaiting accountant release.
               Lives in db.project_work_orders.stages.payment_requests (separate from legacy labour_expenses). */}
           {filteredWoStagePayments.length > 0 && (
