@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Banknote, CheckCircle, Send, Wallet, ArrowDownToLine } from 'lucide-react';
 import { toast } from 'sonner';
 import LabourRABReleaseDialog from './LabourRABReleaseDialog';
@@ -17,6 +18,7 @@ const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { 
 
 export default function AccountantLabourPayments() {
   const [tab, setTab] = useState('pending');
+  const [projectFilter, setProjectFilter] = useState('all');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(null);
@@ -68,31 +70,74 @@ export default function AccountantLabourPayments() {
 
   useEffect(() => { fetchItems(); /* eslint-disable-next-line */ }, [tab]);
 
+  // Unique project list from the current fetch, for the project filter dropdown.
+  const projectOptions = useMemo(() => {
+    const seen = new Map();
+    for (const it of items) {
+      if (it.project_id && !seen.has(it.project_id)) {
+        seen.set(it.project_id, it.project_name || '—');
+      }
+    }
+    return Array.from(seen.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [items]);
+
+  // Reset project filter if the selected project disappears after a tab change.
+  useEffect(() => {
+    if (projectFilter !== 'all' && !projectOptions.some(p => p.id === projectFilter)) {
+      setProjectFilter('all');
+    }
+  }, [projectOptions, projectFilter]);
+
+  const visibleItems = useMemo(() => {
+    if (projectFilter === 'all') return items;
+    return items.filter(it => it.project_id === projectFilter);
+  }, [items, projectFilter]);
+
   return (
     <div className="space-y-3" data-testid="accountant-labour-payments">
-      <div className="flex gap-1 border-b bg-white rounded-t-lg px-2 pt-1">
-        <button onClick={() => setTab('pending')}
-          className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${tab === 'pending' ? 'border-amber-600 text-amber-700 bg-amber-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-          data-testid="alp-tab-pending">
-          Pending Release {tab === 'pending' && items.length > 0 && <Badge variant="outline" className="ml-1.5 bg-amber-100 text-amber-700 border-amber-300 text-[10px]">{items.length}</Badge>}
-        </button>
-        <button onClick={() => setTab('released')}
-          className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${tab === 'released' ? 'border-amber-600 text-amber-700 bg-amber-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-          data-testid="alp-tab-released">
-          Released
-        </button>
+      <div className="flex items-end justify-between gap-2 flex-wrap border-b bg-white rounded-t-lg px-2 pt-1">
+        <div className="flex gap-1">
+          <button onClick={() => setTab('pending')}
+            className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${tab === 'pending' ? 'border-amber-600 text-amber-700 bg-amber-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            data-testid="alp-tab-pending">
+            Pending Release {tab === 'pending' && visibleItems.length > 0 && <Badge variant="outline" className="ml-1.5 bg-amber-100 text-amber-700 border-amber-300 text-[10px]">{visibleItems.length}</Badge>}
+          </button>
+          <button onClick={() => setTab('released')}
+            className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${tab === 'released' ? 'border-amber-600 text-amber-700 bg-amber-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            data-testid="alp-tab-released">
+            Released {tab === 'released' && visibleItems.length > 0 && <Badge variant="outline" className="ml-1.5 bg-emerald-100 text-emerald-700 border-emerald-300 text-[10px]">{visibleItems.length}</Badge>}
+          </button>
+          <button onClick={() => setTab('all')}
+            className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${tab === 'all' ? 'border-amber-600 text-amber-700 bg-amber-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            data-testid="alp-tab-all">
+            All {tab === 'all' && visibleItems.length > 0 && <Badge variant="outline" className="ml-1.5 bg-violet-100 text-violet-700 border-violet-300 text-[10px]">{visibleItems.length}</Badge>}
+          </button>
+        </div>
+        <div className="pb-1.5 min-w-[180px]">
+          <Select value={projectFilter} onValueChange={setProjectFilter}>
+            <SelectTrigger className="h-8 text-xs" data-testid="alp-project-filter">
+              <SelectValue placeholder="All Projects" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" data-testid="alp-project-all">All Projects ({items.length})</SelectItem>
+              {projectOptions.map(p => (
+                <SelectItem key={p.id} value={p.id} data-testid={`alp-project-${p.id}`}>{p.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <Card>
         <CardHeader className="p-3 pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
-            <Banknote className="h-4 w-4 text-green-600" /> Labour Payment Releases · {items.length}
+            <Banknote className="h-4 w-4 text-green-600" /> Labour Payment Releases · {visibleItems.length}
           </CardTitle>
           <CardDescription className="text-[11px]">Forwarded by Planning. Choose payment method, vendor & process release.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? <p className="text-center text-xs text-gray-400 py-8">Loading...</p>
-          : items.length === 0 ? <p className="text-center text-xs text-gray-400 py-10">No {tab === 'pending' ? 'pending' : 'released'} payments</p>
+          : visibleItems.length === 0 ? <p className="text-center text-xs text-gray-400 py-10">No {tab === 'pending' ? 'pending' : tab === 'released' ? 'released' : ''} payments{projectFilter !== 'all' ? ' for this project' : ''}</p>
           : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -101,13 +146,14 @@ export default function AccountantLabourPayments() {
                     <th className="text-left px-3 py-2 font-semibold text-gray-600">Contractor</th>
                     <th className="text-left px-3 py-2 font-semibold text-gray-600">Project</th>
                     <th className="text-left px-3 py-2 font-semibold text-gray-600">Stage</th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-600">Status</th>
                     <th className="text-right px-3 py-2 font-semibold text-gray-600">Amount</th>
                     <th className="text-right px-3 py-2 font-semibold text-amber-700">Suspense</th>
                     <th className="text-right px-3 py-2 font-semibold text-gray-600 w-28">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {items.map(r => (
+                  {visibleItems.map(r => (
                     <tr key={r.request_id} className="hover:bg-green-50/40" data-testid={`alp-row-${r.request_id}`}>
                       <td className="px-3 py-2">
                         <p className="font-medium text-gray-900">{r.contractor_name}</p>
@@ -141,13 +187,20 @@ export default function AccountantLabourPayments() {
                           r.stage_name
                         )}
                       </td>
+                      <td className="px-3 py-2">
+                        {r.status === 'approved' ? (
+                          <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">Released</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">Pending</Badge>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-right font-bold text-amber-700">{fmt(r.amount)}</td>
                       <td className="px-3 py-2 text-right font-bold text-amber-600">{fmt(r.suspense_balance)}</td>
                       <td className="px-3 py-2 text-right">
                         <Button size="sm" className="h-7 text-xs gap-1 bg-green-600 hover:bg-green-700" onClick={() => setOpen(r)} data-testid={`alp-open-${r.request_id}`}>
-                          {tab === 'pending' ? <><Send className="h-3 w-3" /> Release</> : <>View</>}
+                          {r.status === 'planning_approved' ? <><Send className="h-3 w-3" /> Release</> : <>View</>}
                         </Button>
-                        {r.is_multi_stage && tab === 'pending' && (
+                        {r.is_multi_stage && r.status === 'planning_approved' && (
                           <p className="text-[9px] text-fuchsia-600 mt-0.5 italic">single release · {r.stage_breakdown.length} stages</p>
                         )}
                       </td>

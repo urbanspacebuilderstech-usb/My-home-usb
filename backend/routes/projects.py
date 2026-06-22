@@ -10943,13 +10943,18 @@ async def get_contractor_suspense(contractor_id: str, user: User = Depends(get_c
 async def accountant_labour_payments(status: str = "pending", user: User = Depends(get_current_user)):
     """Accountant queue: stage payment requests forwarded by Planning.
     status:
-      - pending → planning_approved (awaiting accountant action)
+      - pending  → planning_approved (awaiting accountant action)
       - released → approved (already paid)
+      - all      → both pending and released (Feb 20 2026)
     """
     if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
-    target_statuses = {"pending": ["planning_approved"], "released": ["approved"]}.get(status, ["planning_approved"])
+    target_statuses = {
+        "pending": ["planning_approved"],
+        "released": ["approved"],
+        "all": ["planning_approved", "approved"],
+    }.get(status, ["planning_approved"])
     work_orders = await db.project_work_orders.find(
         {"is_active": {"$ne": False}, "stages.payment_requests.status": {"$in": target_statuses}},
         {"_id": 0}
