@@ -272,6 +272,8 @@ export default function LabourRABReleaseDialog({ item, onClose, onDone }) {
               setEntries={setEntries}
               targetTotal={payable}
               availableCheques={ctx.active_cheques || []}
+              inactiveCheques={ctx.inactive_cheques || []}
+              onChequeOpenRequested={reload}
             />
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

@@ -7,11 +7,15 @@
 // Yields `payment_entries: [{ method, amount, bank_ref?, cheque_ids?, cheque_no? }]`.
 // Validation: sum(amounts) must equal `targetTotal`.
 // Multiple cheque rows allowed (each row can independently pick from available cheques).
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import axios from 'axios';
+import { toast } from 'sonner';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Button } from './ui/button';
-import { Banknote, CreditCard, Building2, PiggyBank, Plus, X, Search, ArrowRightLeft, Shield } from 'lucide-react';
+import { Banknote, CreditCard, Building2, PiggyBank, Plus, X, Search, ArrowRightLeft, Shield, Lock } from 'lucide-react';
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const METHOD_META = {
   savings_account: { label: 'HDFC SAVINGS', Icon: PiggyBank,      color: 'indigo' },
@@ -32,6 +36,8 @@ export default function MultiPaymentEntryRows({
   setEntries,
   targetTotal,
   availableCheques = [],
+  inactiveCheques = [],
+  onChequeOpenRequested,
 }) {
   const sum = useMemo(
     () => entries.reduce((s, e) => s + (Number(e.amount) || 0), 0),
@@ -148,8 +154,10 @@ export default function MultiPaymentEntryRows({
                 idx={idx}
                 row={row}
                 allCheques={availableCheques}
+                inactiveCheques={inactiveCheques}
                 claimedByOthers={claimedByOtherRows(idx)}
                 onToggle={(cid) => toggleCheque(idx, cid)}
+                onRequestOpened={onChequeOpenRequested}
               />
             )}
           </div>
@@ -169,35 +177,60 @@ export default function MultiPaymentEntryRows({
   );
 }
 
-function ChequePickerSubRow({ idx, row, allCheques, claimedByOthers, onToggle }) {
+function ChequePickerSubRow({ idx, row, allCheques, inactiveCheques = [], claimedByOthers, onToggle, onRequestOpened }) {
   const selectedIds = row.cheque_ids || [];
   // Hide cheques already used by other rows. Always show those selected by THIS row.
   const visible = allCheques.filter(
     (c) => selectedIds.includes(c.cheque_id) || !claimedByOthers.has(c.cheque_id)
   );
+  // Feb 20 2026 — Locked HDFC cheques shown below the picker with a
+  // "Request CRE to Open" button. The picker no longer dead-ends with
+  // "No open HDFC cheques available" when there are locked ones waiting.
+  const visibleLocked = inactiveCheques.filter((c) => !claimedByOthers.has(c.cheque_id));
+  const [requestingId, setRequestingId] = useState(null);
+  const requestOpen = async (cheque) => {
+    if (cheque.open_requested) {
+      toast.info('Already requested. CRE will open it.');
+      return;
+    }
+    setRequestingId(cheque.cheque_id);
+    try {
+      await axios.patch(`${API}/accountant/cheques/${cheque.cheque_id}/request-open`, {
+        remarks: 'Needed for Labour RAB release',
+      });
+      toast.success(`Requested CRE to open ${cheque.cheque_number}`);
+      if (onRequestOpened) onRequestOpened(cheque);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to request');
+    } finally {
+      setRequestingId(null);
+    }
+  };
 
-  if (visible.length === 0) {
+  if (visible.length === 0 && visibleLocked.length === 0) {
     return (
       <p className="text-[11px] text-amber-700 italic px-1">
-        No open HDFC cheques available for this row. Switch to another method or open more cheques.
+        No HDFC cheques available for this row. Switch to another method or open more cheques.
       </p>
     );
   }
 
   return (
-    <div className="border rounded bg-white max-h-32 overflow-y-auto" data-testid={`multi-pay-row-${idx}-cheque-picker`}>
-      <table className="w-full text-[11px]">
-        <thead className="bg-gray-50 border-b sticky top-0">
-          <tr>
-            <th className="w-6 p-1"></th>
-            <th className="text-left p-1">Cheque #</th>
-            <th className="text-left p-1">Bank</th>
-            <th className="text-right p-1">Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          {visible.map((c) => {
-            const sel = selectedIds.includes(c.cheque_id);
+    <div className="space-y-1.5">
+      {visible.length > 0 && (
+        <div className="border rounded bg-white max-h-32 overflow-y-auto" data-testid={`multi-pay-row-${idx}-cheque-picker`}>
+          <table className="w-full text-[11px]">
+            <thead className="bg-gray-50 border-b sticky top-0">
+              <tr>
+                <th className="w-6 p-1"></th>
+                <th className="text-left p-1">Cheque #</th>
+                <th className="text-left p-1">Bank</th>
+                <th className="text-right p-1">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((c) => {
+                const sel = selectedIds.includes(c.cheque_id);
             return (
               <tr
                 key={c.cheque_id}
@@ -216,6 +249,52 @@ function ChequePickerSubRow({ idx, row, allCheques, claimedByOthers, onToggle })
           })}
         </tbody>
       </table>
+        </div>
+      )}
+      {visibleLocked.length > 0 && (
+        <div className="border border-dashed border-amber-300 rounded bg-amber-50/40 p-1.5" data-testid={`multi-pay-row-${idx}-locked-cheques`}>
+          <p className="text-[10px] font-semibold text-amber-700 mb-1 flex items-center gap-1">
+            <Lock className="h-3 w-3" /> Locked — ask CRE to open before using ({visibleLocked.length})
+          </p>
+          <div className="max-h-28 overflow-y-auto">
+            <table className="w-full text-[10px]">
+              <thead className="bg-amber-100/60 border-b sticky top-0">
+                <tr>
+                  <th className="text-left p-1">Cheque #</th>
+                  <th className="text-left p-1">Bank</th>
+                  <th className="text-right p-1">Amount</th>
+                  <th className="text-right p-1 w-24">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleLocked.map((c) => (
+                  <tr key={c.cheque_id} className="border-b" data-testid={`multi-pay-row-${idx}-locked-${c.cheque_id}`}>
+                    <td className="p-1 font-mono">{c.cheque_number}</td>
+                    <td className="p-1">{c.bank_name || c.bank || '—'}</td>
+                    <td className="p-1 text-right font-semibold text-amber-700">{fmt(c.amount)}</td>
+                    <td className="p-1 text-right">
+                      {c.open_requested ? (
+                        <span className="text-[9px] text-amber-600 italic">Requested</span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-5 text-[9px] px-1.5 border-amber-400 text-amber-700 hover:bg-amber-100"
+                          disabled={requestingId === c.cheque_id}
+                          onClick={() => requestOpen(c)}
+                          data-testid={`multi-pay-row-${idx}-request-open-${c.cheque_id}`}
+                        >
+                          {requestingId === c.cheque_id ? 'Sending…' : 'Request Open'}
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
