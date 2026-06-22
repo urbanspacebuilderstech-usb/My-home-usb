@@ -1238,17 +1238,25 @@ async def delete_cashbook_expense(expense_type: str, record_id: str, user: User 
     # cashbook surfaces one row PER `direct_expenses.items[]` entry. If the
     # frontend passes the inner `item_id`, the parent doc-level lookups
     # above won't match — $pull the single item from the parent instead.
+    # IMPORTANT: filter the update by `items.item_id` directly (not by
+    # `direct_expense_id`) — older legacy docs may have an empty / missing
+    # direct_expense_id field, which would silently target the wrong doc
+    # and leave the user-visible row unchanged ("Expense deleted" toast
+    # but nothing actually removed).
     parent = await db.direct_expenses.find_one({"items.item_id": record_id}, {"_id": 0})
     if parent:
-        await db.direct_expenses.update_one(
-            {"direct_expense_id": parent.get("direct_expense_id")},
+        upd = await db.direct_expenses.update_one(
+            {"items.item_id": record_id},
             {"$pull": {"items": {"item_id": record_id}}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
         )
-        await create_audit_log(
-            user.user_id, "delete", f"expense_{expense_type}", record_id,
-            {"collection": "direct_expenses.items", "parent_id": parent.get("direct_expense_id")}
-        )
-        return {"message": "Petty cash item deleted", "type": expense_type, "from": "direct_expenses.items"}
+        if upd.modified_count > 0:
+            await create_audit_log(
+                user.user_id, "delete", f"expense_{expense_type}", record_id,
+                {"collection": "direct_expenses.items", "parent_id": parent.get("direct_expense_id") or parent.get("petty_cash_id") or "legacy"}
+            )
+            return {"message": "Petty cash item deleted", "type": expense_type, "from": "direct_expenses.items"}
+        # If $pull didn't actually modify anything, fall through to the
+        # 404 — better than lying to the user with a "deleted" toast.
 
     raise HTTPException(status_code=404, detail="Expense record not found in any cashbook collection")
 
