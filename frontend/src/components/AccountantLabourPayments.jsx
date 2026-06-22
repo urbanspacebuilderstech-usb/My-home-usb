@@ -200,7 +200,14 @@ export default function AccountantLabourPayments() {
                           <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">Pending</Badge>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right font-bold text-amber-700">{fmt(r.amount)}</td>
+                      <td className="px-3 py-2 text-right font-bold text-amber-700">
+                        {fmt(r.amount)}
+                        {r.is_multi_stage && r.bill_total !== r.pending_amount && r.pending_amount > 0 && (
+                          <p className="text-[9px] text-amber-600 font-normal italic mt-0.5">
+                            ₹{(r.pending_amount || 0).toLocaleString('en-IN')} to release
+                          </p>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-right font-bold text-amber-600">{fmt(r.suspense_balance)}</td>
                       <td className="px-3 py-2 text-right">
                         <Button size="sm" className="h-7 text-xs gap-1 bg-green-600 hover:bg-green-700" onClick={() => setOpen(r)} data-testid={`alp-open-${r.request_id}`}>

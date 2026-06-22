@@ -11027,12 +11027,23 @@ async def accountant_labour_payments(status: str = "pending", user: User = Depen
                     emitted_groups.add(grp_key)
                     released_total = sum(p.get("approved_amount", 0) for p in primary_stage.get("payment_requests", []) if p.get("status") == "approved")
                     stage_total = primary_stage.get("amount", 0)
+                    # Feb 20 2026 — `amount` now reflects the FULL bill total
+                    # (sum of all siblings) so the Accountant Queue layout
+                    # mirrors the Site Engineer view's "Requested ₹30,000"
+                    # column for multi-stage bills. The combined stage name
+                    # ("Adavance + Upto basement level") mirrors the SE
+                    # "STAGE" header. `pending_amount` is kept separately
+                    # so the UI can still show "to-release" splits.
+                    bill_total = sum(s["amount"] for s in siblings)
+                    combined_stage_name = " + ".join(s["stage_name"] for s in siblings if s.get("stage_name"))
                     out.append({
                         "request_id": primary_pr.get("request_id"),
                         "rab_number": primary_pr.get("rab_number"),
                         "rab_group_id": group_id,
                         "status": primary_pr.get("status"),
-                        "amount": pending_amount,
+                        "amount": bill_total,
+                        "bill_total": bill_total,
+                        "pending_amount": pending_amount,
                         "original_amount": primary_pr.get("original_amount", primary_pr.get("amount", 0)),
                         "planning_amount_changed": primary_pr.get("planning_amount_changed", False),
                         "planning_change_reason": primary_pr.get("planning_change_reason", ""),
@@ -11048,7 +11059,7 @@ async def accountant_labour_payments(status: str = "pending", user: User = Depen
                         "contractor_name": wo.get("contractor_name", ""),
                         "contractor_type": wo.get("contractor_type", ""),
                         "stage_id": primary_stage.get("stage_id"),
-                        "stage_name": primary_stage.get("name", ""),
+                        "stage_name": combined_stage_name or primary_stage.get("name", ""),
                         "stage_amount": stage_total,
                         "stage_released": released_total,
                         "stage_pending": pending_amount,
