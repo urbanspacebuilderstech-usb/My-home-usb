@@ -37,6 +37,7 @@ export default function RABApprovalQueue({ role, title }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('new'); // 'new' | 'forwarded'
+  const [search, setSearch] = useState('');  // Feb 20 2026 — search by project / contractor / RAB / stage
   const [decisionDialog, setDecisionDialog] = useState({ open: false, item: null, mode: 'approve', notes: '', reason: '' });
   const [rabView, setRabView] = useState({ open: false, projectId: null, workOrderId: null, requestId: null });
   const [busy, setBusy] = useState(false);
@@ -93,6 +94,18 @@ export default function RABApprovalQueue({ role, title }) {
 
   if (!cfg) return null;
 
+  // Feb 20 2026 — Client-side search. Matches project name, contractor,
+  // RAB number, stage name, requested-by name. Case-insensitive.
+  const q = (search || '').trim().toLowerCase();
+  const filteredItems = !q ? items : items.filter((it) => {
+    const blob = [
+      it.project_name, it.contractor_name, it.contractor_type, it.rab_number,
+      it.stage_name, it.requested_by_name,
+      ...(it.stage_breakdown || []).map(s => s.stage_name || ''),
+    ].filter(Boolean).join(' ').toLowerCase();
+    return blob.includes(q);
+  });
+
   const submitDecision = async () => {
     const { item, mode, notes, reason } = decisionDialog;
     if (!item) return;
@@ -123,7 +136,7 @@ export default function RABApprovalQueue({ role, title }) {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-sm flex items-center gap-2">
             <Banknote className={`h-4 w-4 text-${cfg.color}-600`} />
-            {title || `${cfg.label} — Labour RAB Queue`} ({items.length})
+            {title || `${cfg.label} — Labour RAB Queue`} ({filteredItems.length}{q ? ` of ${items.length}` : ''})
           </CardTitle>
           <div className="flex gap-1">
             <Button
@@ -142,19 +155,32 @@ export default function RABApprovalQueue({ role, title }) {
             >Forwarded ({cfg.nextRole})</Button>
           </div>
         </div>
+        {/* Feb 20 2026 — Search bar (project / contractor / RAB / stage). */}
+        <div className="mt-2">
+          <Input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by project, contractor, RAB number, or stage…"
+            className="h-8 text-xs"
+            data-testid={`rab-search-${role}`}
+          />
+        </div>
       </CardHeader>
       <CardContent className="p-3 space-y-2">
         {loading ? (
           <p className="text-xs text-gray-400 text-center py-6">Loading…</p>
-        ) : items.length === 0 ? (
+        ) : filteredItems.length === 0 ? (
           <div className="text-center py-8">
             <Banknote className="h-8 w-8 text-gray-300 mx-auto mb-2" />
             <p className="text-xs text-gray-500">
-              {view === 'new' ? 'No RABs awaiting your action.' : `No RABs forwarded to ${cfg.nextRole} yet.`}
+              {q
+                ? `No RABs match \u201C${search}\u201D.`
+                : view === 'new' ? 'No RABs awaiting your action.' : `No RABs forwarded to ${cfg.nextRole} yet.`}
             </p>
           </div>
         ) : (
-          items.map((item) => (
+          filteredItems.map((item) => (
             <div
               key={item.request_id}
               className={`border-l-4 ${colorClass} border rounded p-3 space-y-1.5`}
