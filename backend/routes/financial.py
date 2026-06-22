@@ -1170,26 +1170,34 @@ async def delete_income_entry(income_id: str, user: User = Depends(get_current_u
 @router.delete("/cashbook/expense/{expense_type}/{record_id}")
 async def delete_cashbook_expense(expense_type: str, record_id: str, user: User = Depends(get_current_user)):
     """Delete an expense from the cashbook view.
-    The cashbook surfaces three different collections — recorded_expenses,
-    labour_expenses, material_requests. We probe all three (by both
-    expense_id and request_id) since a row's `expense_type` alone
-    doesn't uniquely identify the source collection (e.g. a 'material'
-    row may live in recorded_expenses if it was a manual entry, or in
-    material_requests if it came from an approval workflow).
+
+    The cashbook now surfaces FIVE different collections —
+    recorded_expenses, labour_expenses, material_requests (new flow),
+    material_expenses (legacy POs) and direct_expenses (petty cash items).
+    We probe all of them by both their native primary-id fields and the
+    generic `expense_id` alias so the unified frontend `expense_id` always
+    resolves regardless of source.
     Only Accountant / Super Admin can delete.
     """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Only Accountant can delete expenses")
 
-    # Probe order: most specific collections first. Each collection has its
-    # own primary id field — we try every candidate so the unified frontend
-    # `expense_id` always resolves regardless of source.
+    # Probe order: most specific collections first.
     candidates = [
         (db.material_requests, "request_id"),
         (db.material_requests, "expense_id"),
         (db.labour_expenses, "labour_expense_id"),
         (db.labour_expenses, "expense_id"),
         (db.recorded_expenses, "expense_id"),
+        # Feb 20 2026 — legacy `material_expenses` (Cement/Sand/Steel paid
+        # POs) and `direct_expenses` (petty cash) were added to the
+        # Cashbook Expense list but their delete path was missing, so
+        # users hit "Expense record not found in any cashbook collection"
+        # when clicking the trash icon on those rows.
+        (db.material_expenses, "material_expense_id"),
+        (db.material_expenses, "expense_id"),
+        (db.direct_expenses, "direct_expense_id"),
+        (db.direct_expenses, "petty_cash_id"),
     ]
     for coll, id_field in candidates:
         existing = await coll.find_one({id_field: record_id}, {"_id": 0})
@@ -1221,10 +1229,26 @@ async def delete_cashbook_expense(expense_type: str, record_id: str, user: User 
                 import logging; logging.getLogger(__name__).warning(f"PR revert skipped: {e}")
             await create_audit_log(
                 user.user_id, "delete", f"expense_{expense_type}", record_id,
-                {"amount": existing.get("amount") or existing.get("total_amount") or existing.get("estimated_price", 0),
+                {"amount": existing.get("amount") or existing.get("total_amount") or existing.get("estimated_price") or existing.get("final_amount", 0),
                  "collection": coll.name}
             )
             return {"message": "Expense deleted", "type": expense_type, "from": coll.name}
+
+    # Feb 20 2026 — Final fallback: petty cash item-level delete. The
+    # cashbook surfaces one row PER `direct_expenses.items[]` entry. If the
+    # frontend passes the inner `item_id`, the parent doc-level lookups
+    # above won't match — $pull the single item from the parent instead.
+    parent = await db.direct_expenses.find_one({"items.item_id": record_id}, {"_id": 0})
+    if parent:
+        await db.direct_expenses.update_one(
+            {"direct_expense_id": parent.get("direct_expense_id")},
+            {"$pull": {"items": {"item_id": record_id}}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        await create_audit_log(
+            user.user_id, "delete", f"expense_{expense_type}", record_id,
+            {"collection": "direct_expenses.items", "parent_id": parent.get("direct_expense_id")}
+        )
+        return {"message": "Petty cash item deleted", "type": expense_type, "from": "direct_expenses.items"}
 
     raise HTTPException(status_code=404, detail="Expense record not found in any cashbook collection")
 
