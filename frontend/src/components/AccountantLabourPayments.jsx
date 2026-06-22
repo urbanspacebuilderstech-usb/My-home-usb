@@ -175,13 +175,19 @@ export default function AccountantLabourPayments() {
                       <td className="px-3 py-2 text-gray-700">
                         {r.is_multi_stage ? (
                           <div className="space-y-0.5">
-                            {r.stage_breakdown.map((sb, i) => (
-                              <div key={sb.request_id} className="flex items-center gap-1 text-[11px]">
-                                <span className="text-[9px] font-bold text-fuchsia-600 bg-fuchsia-50 rounded px-1">{i + 1}</span>
-                                <span className="truncate" title={sb.stage_name}>{sb.stage_name}</span>
-                                <span className="ml-auto text-emerald-700 font-semibold">{fmt(sb.amount)}</span>
-                              </div>
-                            ))}
+                            {r.stage_breakdown.map((sb, i) => {
+                              const isReleased = sb.status === 'approved';
+                              return (
+                                <div key={sb.request_id} className="flex items-center gap-1 text-[11px]">
+                                  <span className="text-[9px] font-bold text-fuchsia-600 bg-fuchsia-50 rounded px-1">{i + 1}</span>
+                                  <span className="truncate" title={sb.stage_name}>{sb.stage_name}</span>
+                                  <Badge variant="outline" className={`text-[9px] ml-1 ${isReleased ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                                    {isReleased ? 'Released' : 'Pending'}
+                                  </Badge>
+                                  <span className={`ml-auto font-semibold ${isReleased ? 'text-gray-400 line-through' : 'text-emerald-700'}`}>{fmt(sb.amount)}</span>
+                                </div>
+                              );
+                            })}
                           </div>
                         ) : (
                           r.stage_name

@@ -10972,6 +10972,16 @@ async def accountant_labour_payments(status: str = "pending", user: User = Depen
         suspense_map[cid] = await _get_contractor_suspense_balance(cid)
 
     out = []
+    # Feb 20 2026 — Bundle RAB-group siblings into ONE row so multi-stage
+    # bills (e.g. Mrs Abinaya RAB-05 Additional Cost 1+2, Subramani-Puzhal
+    # RAB-01 Adavance+Upto-basement) show as a single "2-STAGE BILL" entry
+    # in the Accountant queue — matching the Site Engineer view and the
+    # release dialog which already handles siblings via `rab_group_id`.
+    # When a group has mixed statuses (one planning_approved + one already
+    # `approved`), we still emit ONE row, show the full breakdown so the
+    # accountant sees the bigger bill context, but the action-amount is
+    # only the still-pending portion.
+    emitted_groups: set = set()
     for wo in work_orders:
         proj = projects.get(wo.get("project_id"), {})
         team = proj.get("team") or {}
@@ -10982,6 +10992,79 @@ async def accountant_labour_payments(status: str = "pending", user: User = Depen
             for pr in stage.get("payment_requests", []) or []:
                 if pr.get("status") not in target_statuses:
                     continue
+                # Multi-stage bundling — only emit one row per (wo, group).
+                group_id = pr.get("rab_group_id")
+                if group_id:
+                    grp_key = (wo.get("work_order_id"), group_id)
+                    if grp_key in emitted_groups:
+                        continue
+                    # Collect ALL siblings (regardless of status) for breakdown.
+                    siblings = []
+                    pending_amount = 0.0
+                    primary_pr = None
+                    primary_stage = None
+                    for st2 in wo.get("stages", []):
+                        for pr2 in st2.get("payment_requests", []) or []:
+                            if pr2.get("rab_group_id") != group_id:
+                                continue
+                            sb = {
+                                "request_id": pr2.get("request_id"),
+                                "stage_id": st2.get("stage_id"),
+                                "stage_name": st2.get("name"),
+                                "amount": float(pr2.get("amount", 0) or 0),
+                                "status": pr2.get("status"),
+                                "released_amount": float(pr2.get("approved_amount", 0) or 0) if pr2.get("status") == "approved" else 0.0,
+                            }
+                            siblings.append(sb)
+                            if pr2.get("status") in target_statuses:
+                                pending_amount += sb["amount"]
+                                if primary_pr is None:
+                                    primary_pr = pr2
+                                    primary_stage = st2
+                    if primary_pr is None:
+                        primary_pr = pr
+                        primary_stage = stage
+                    emitted_groups.add(grp_key)
+                    released_total = sum(p.get("approved_amount", 0) for p in primary_stage.get("payment_requests", []) if p.get("status") == "approved")
+                    stage_total = primary_stage.get("amount", 0)
+                    out.append({
+                        "request_id": primary_pr.get("request_id"),
+                        "rab_number": primary_pr.get("rab_number"),
+                        "rab_group_id": group_id,
+                        "status": primary_pr.get("status"),
+                        "amount": pending_amount,
+                        "original_amount": primary_pr.get("original_amount", primary_pr.get("amount", 0)),
+                        "planning_amount_changed": primary_pr.get("planning_amount_changed", False),
+                        "planning_change_reason": primary_pr.get("planning_change_reason", ""),
+                        "planning_notes": primary_pr.get("planning_notes", ""),
+                        "notes": primary_pr.get("notes", ""),
+                        "requested_at": primary_pr.get("requested_at"),
+                        "planning_approved_at": primary_pr.get("planning_approved_at"),
+                        "site_engineer_name": se_name,
+                        "project_id": wo.get("project_id"),
+                        "project_name": proj.get("name") or wo.get("project_name", ""),
+                        "work_order_id": wo.get("work_order_id"),
+                        "contractor_id": wo.get("contractor_id"),
+                        "contractor_name": wo.get("contractor_name", ""),
+                        "contractor_type": wo.get("contractor_type", ""),
+                        "stage_id": primary_stage.get("stage_id"),
+                        "stage_name": primary_stage.get("name", ""),
+                        "stage_amount": stage_total,
+                        "stage_released": released_total,
+                        "stage_pending": pending_amount,
+                        "stage_balance": max(0, stage_total - released_total),
+                        "wo_total_value": wo.get("total_value", 0),
+                        "wo_paid_amount": wo.get("paid_amount", 0),
+                        "suspense_balance": suspense_map.get(wo.get("contractor_id"), 0.0),
+                        # Bundled-bill payload that the frontend already
+                        # knows how to render (`is_multi_stage` switches the
+                        # row layout to show 2-STAGE BILL badge + breakdown).
+                        "is_multi_stage": len(siblings) > 1,
+                        "stage_breakdown": siblings,
+                    })
+                    continue
+
+                # Single-stage RAB — original per-PR row.
                 released_total = sum(p.get("approved_amount", 0) for p in stage.get("payment_requests", []) if p.get("status") == "approved")
                 pending_total = sum(p.get("amount", 0) for p in stage.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
                 stage_total = stage.get("amount", 0)
@@ -11014,6 +11097,8 @@ async def accountant_labour_payments(status: str = "pending", user: User = Depen
                     "wo_total_value": wo.get("total_value", 0),
                     "wo_paid_amount": wo.get("paid_amount", 0),
                     "suspense_balance": suspense_map.get(wo.get("contractor_id"), 0.0),
+                    "is_multi_stage": False,
+                    "stage_breakdown": [],
                 })
     out.sort(key=lambda r: r.get("planning_approved_at") or r.get("requested_at") or "", reverse=True)
     return {"count": len(out), "requests": out}
