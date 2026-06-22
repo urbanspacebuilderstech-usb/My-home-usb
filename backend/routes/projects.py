@@ -11471,10 +11471,24 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
             cheques_by_id[ch["cheque_id"]] = ch
 
     # Auto-sum cheque-row amounts from their picked cheques (multi-mode only).
+    # Feb 20 2026 — Only auto-fill when client left it blank. If the client
+    # explicitly sent `amount < sum(cheques)`, treat the diff as suspense
+    # excess (extra cheque value beyond bill → credited to contractor
+    # suspense). This is the "₹1,00,000 cheque vs ₹60,672 bill" flow.
     if multi_mode:
         for e in payment_entries_list:
             if e["method"] == "cheque" and e["cheque_ids"]:
-                e["amount"] = sum(float(cheques_by_id[cid].get("amount") or 0) for cid in e["cheque_ids"])
+                cheque_sum = sum(float(cheques_by_id[cid].get("amount") or 0) for cid in e["cheque_ids"])
+                if e.get("amount") in (None, "", 0):
+                    e["amount"] = cheque_sum
+                else:
+                    try:
+                        provided = float(e["amount"])
+                    except (TypeError, ValueError):
+                        provided = 0.0
+                    if provided > cheque_sum + 0.01:
+                        raise HTTPException(status_code=400, detail=f"Row amount ({provided}) cannot exceed picked cheques total ({cheque_sum})")
+                    e["amount"] = provided
 
     entries_sum = sum(e["amount"] for e in payment_entries_list)
     if abs(entries_sum - payable_target) > 0.5:

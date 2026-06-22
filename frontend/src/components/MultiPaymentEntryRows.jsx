@@ -64,11 +64,19 @@ export default function MultiPaymentEntryRows({
         if (i !== idx) return r;
         const cur = r.cheque_ids || [];
         const next = cur.includes(chequeId) ? cur.filter((x) => x !== chequeId) : [...cur, chequeId];
-        // Auto-sum row amount from picked cheques
+        // Auto-sum row amount from picked cheques, but CAP at the remaining
+        // payable (sum of other rows' amounts subtracted from targetTotal).
+        // Any overshoot becomes a contractor-suspense credit on the backend.
+        // Feb 20 2026 — Mr Sudharsan / Appala Naidu ₹1,00,000 cheque vs
+        // ₹60,672 bill case: extra ₹39,328 now flows to Suspense Account
+        // instead of disabling Process Release.
         const sumCheques = availableCheques
           .filter((c) => next.includes(c.cheque_id))
           .reduce((s, c) => s + (Number(c.amount) || 0), 0);
-        return { ...r, cheque_ids: next, amount: sumCheques };
+        const otherRowsSum = rows.reduce((s, e, j) => (j === i ? s : s + (Number(e.amount) || 0)), 0);
+        const cap = Math.max(0, (Number(targetTotal) || 0) - otherRowsSum);
+        const amountForBill = Math.min(sumCheques, cap);
+        return { ...r, cheque_ids: next, amount: amountForBill, cheque_total: sumCheques };
       })
     );
   };
@@ -125,6 +133,11 @@ export default function MultiPaymentEntryRows({
                   className="h-7 w-28 text-xs"
                   data-testid={`multi-pay-row-${idx}-amount`}
                 />
+                {row.method === 'cheque' && row.cheque_total > Number(row.amount || 0) && (
+                  <span className="text-[9px] text-amber-700 italic" data-testid={`multi-pay-row-${idx}-suspense-excess`}>
+                    + {fmt(row.cheque_total - Number(row.amount || 0))} → Suspense
+                  </span>
+                )}
               </div>
               {(row.method === 'current_account' || row.method === 'savings_account') && (
                 <div className="flex items-center gap-1 flex-1 min-w-[140px]">
