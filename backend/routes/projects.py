@@ -11204,6 +11204,13 @@ async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str,
     stage_balance = max(0.0, stage_total - released - pending_other - bill_amount)
 
     # HDFC-only Active incoming cheques (CRE-opened, unused) — bank_name contains 'HDFC'
+    # Feb 20 2026 — Align cheque sub-status filter with the Material accountant
+    # endpoint: sub-state (issued / received / post_dated / deposited) doesn't
+    # matter for picking; only terminally-resolved ones are excluded. Previously
+    # this used `$in: ["issued", "post_dated", "deposited"]` which silently
+    # filtered out 340 cheques sitting at `received` and showed the user "No
+    # open HDFC cheques available for this row."
+    _excluded_status = ["bounced", "cancelled", "cleared", "rejected"]
     bank_filter = {"$or": [
         {"bank_name": {"$regex": "HDFC", "$options": "i"}},
         {"bank": {"$regex": "HDFC", "$options": "i"}},
@@ -11211,14 +11218,14 @@ async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str,
     active_cheques = await db.cheques.find({
         "cheque_type": "incoming",
         "is_opened": True,
-        "status": {"$in": ["issued", "post_dated", "deposited"]},
+        "status": {"$nin": _excluded_status},
         "$or": [{"used_for_expense_id": {"$exists": False}}, {"used_for_expense_id": None}],
         **bank_filter,
     }, {"_id": 0}).sort("cheque_date", -1).to_list(200)
     inactive_cheques = await db.cheques.find({
         "cheque_type": "incoming",
         "is_opened": False,
-        "status": {"$in": ["issued", "post_dated", "deposited"]},
+        "status": {"$nin": _excluded_status},
         "$or": [{"used_for_expense_id": {"$exists": False}}, {"used_for_expense_id": None}],
         **bank_filter,
     }, {"_id": 0}).sort("cheque_date", -1).to_list(200)
