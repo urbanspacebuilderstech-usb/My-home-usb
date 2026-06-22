@@ -116,6 +116,15 @@ export default function Projects({ embedded = false }) {
         window.location.replace('/gm-dashboard');
         return;
       }
+
+      // Feb 20 2026 — Quality Check — `/projects` is the generic Super Admin
+      // list and exposes data they shouldn't see. QC always works from the
+      // dedicated QC Dashboard (with their own scoped project list +
+      // pending-approval queues), so bounce them there.
+      if (response.data.role === 'quality_check' || response.data.role === 'qc') {
+        window.location.replace('/qc-dashboard');
+        return;
+      }
       
       // Fetch projects only for non-site-engineers
       fetchProjects();

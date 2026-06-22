@@ -4261,11 +4261,12 @@ export default function ProjectDetail() {
               size="icon"
               onClick={() => {
                 // Role-aware back: CRE → CRE Board, Planning → Planning Board,
-                // GM → GM Dashboard (new sub-tab UI), everyone else → /projects.
+                // GM → GM Dashboard, QC → QC Dashboard, everyone else → /projects.
                 let dest = '/projects';
                 if (isPlanning) dest = '/planning-board';
                 else if (user?.role === 'cre') dest = '/cre-board?tab=all_projects';
                 else if (user?.role === 'general_manager') dest = '/gm-dashboard';
+                else if (user?.role === 'quality_check' || user?.role === 'qc') dest = '/qc-dashboard';
                 else if (user?.role === 'super_admin') dest = '/projects';
                 window.location.href = dest;
               }}
