@@ -286,7 +286,12 @@ async def _compute_project_carry_forward_row(project, cf_doc):
 
     MATERIAL_APPROVED = ["accounts_approved", "issued", "settled", "completed", "paid"]
     LABOUR_APPROVED = ["accounts_approved", "settled", "completed", "paid", "paid_full", "paid_partial"]
-    MR_APPROVED = ["approved", "paid", "accounts_approved", "in_transit", "delivered", "issued", "completed", "settled"]
+    # Feb 20 2026 — Strict accountant-approval rule: "approved" alone is
+    # planning-approved, NOT accountant-approved, so it does NOT count as an
+    # actual project expense. Same goes for `procurement_verifying`,
+    # `pm_approved`, `pending_accounts_approval`. Only post-accountant-approval
+    # statuses (`accounts_approved` onward) are considered real expense.
+    MR_APPROVED = ["accounts_approved", "approved_for_po", "po_issued", "in_transit", "received", "delivered", "paid", "issued", "completed", "settled"]
 
     mat_total = 0
     async for r in db.material_expenses.aggregate([
@@ -315,10 +320,20 @@ async def _compute_project_carry_forward_row(project, cf_doc):
         wo_total = float(r.get("total") or 0)
 
     # Petty cash on a site — pulled from direct_expenses (PM site expenses).
-    # No status filter — direct_expenses get recorded post-PM-approval already.
+    # Feb 20 2026 — Strict accountant-approval rule: only count items inside
+    # docs that have been accountant-approved (or legacy docs without a
+    # status field). PM-approved / pending docs do NOT count as expense.
+    DIRECT_APPROVED = ["accounts_approved", "paid", "completed", "acknowledged", "payment_done"]
     pc_total = 0
     async for r in db.direct_expenses.aggregate([
-        {"$match": {"project_id": pid}},
+        {"$match": {
+            "project_id": pid,
+            "$or": [
+                {"status": {"$in": DIRECT_APPROVED}},
+                {"status": {"$exists": False}},
+                {"status": None},
+            ],
+        }},
         {"$unwind": "$items"},
         {"$group": {"_id": None, "total": {"$sum": "$items.amount"}}},
     ]):
@@ -2946,7 +2961,10 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     EXCLUDED_RE = ["rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"]
     MATERIAL_APPROVED = ["accounts_approved", "issued", "settled", "completed", "paid"]
     LABOUR_APPROVED = ["accounts_approved", "settled", "completed", "paid", "paid_full", "paid_partial", "accountant_approved"]
-    MR_APPROVED = ["approved", "paid", "accounts_approved", "in_transit", "delivered", "issued", "completed", "settled"]
+    # Feb 20 2026 — Strict accountant-approval rule (removed planning-only
+    # "approved" status from material_requests).
+    MR_APPROVED = ["accounts_approved", "approved_for_po", "po_issued", "in_transit", "received", "delivered", "paid", "issued", "completed", "settled"]
+    DIRECT_APPROVED = ["accounts_approved", "paid", "completed", "acknowledged", "payment_done"]
     expense_total = 0.0
     async for r in db.recorded_expenses.aggregate([
         {"$match": {"project_id": project_id, "status": {"$nin": EXCLUDED_RE}}},
@@ -2969,7 +2987,11 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     ]):
         expense_total += float(r.get("amt") or 0)
     async for r in db.direct_expenses.aggregate([
-        {"$match": {"project_id": project_id}},
+        {"$match": {"project_id": project_id, "$or": [
+            {"status": {"$in": DIRECT_APPROVED}},
+            {"status": {"$exists": False}},
+            {"status": None},
+        ]}},
         {"$unwind": "$items"},
         {"$group": {"_id": None, "amt": {"$sum": "$items.amount"}}},
     ]):
@@ -3816,17 +3838,20 @@ async def get_project_expenses(project_id: str, user: User = Depends(get_current
     vendor_paid = sum(e.get("total_paid", 0) for e in vendor)
 
     # Authoritative project-wide totals — same sources as Cashbook + CF.
+    # Feb 20 2026 — Strict accountant-approval rule: removed planning-only
+    # "approved" status from material_requests, and gated direct_expenses by
+    # accountant-approval status (legacy docs without status still counted).
     EXCLUDED_STATUSES = ["rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"]
     re_pipeline = [
         {"$match": {"project_id": project_id, "status": {"$nin": EXCLUDED_STATUSES}}},
         {"$group": {"_id": None, "amt": {"$sum": "$amount"}, "paid": {"$sum": {"$ifNull": ["$paid_amount", "$amount"]}}}},
     ]
     le_pipeline = [
-        {"$match": {"project_id": project_id, "status": {"$in": ["accounts_approved", "paid", "accountant_approved"]}}},
+        {"$match": {"project_id": project_id, "status": {"$in": ["accounts_approved", "paid", "paid_full", "paid_partial", "settled", "completed", "accountant_approved"]}}},
         {"$group": {"_id": None, "amt": {"$sum": "$total_amount"}, "paid": {"$sum": {"$ifNull": ["$paid_amount", 0]}}}},
     ]
     mr_pipeline = [
-        {"$match": {"project_id": project_id, "status": {"$in": ["approved", "paid", "accounts_approved", "in_transit", "delivered", "issued", "completed", "settled"]}}},
+        {"$match": {"project_id": project_id, "status": {"$in": ["accounts_approved", "approved_for_po", "po_issued", "in_transit", "received", "delivered", "paid", "issued", "completed", "settled"]}}},
         {"$group": {"_id": None, "amt": {"$sum": {"$ifNull": ["$total_amount", "$amount"]}}, "paid": {"$sum": {"$ifNull": ["$paid_amount", 0]}}}},
     ]
     # Legacy material_expenses paid POs.
@@ -3834,9 +3859,14 @@ async def get_project_expenses(project_id: str, user: User = Depends(get_current
         {"$match": {"project_id": project_id, "status": {"$in": ["accounts_approved", "issued", "settled", "completed", "paid"]}}},
         {"$group": {"_id": None, "amt": {"$sum": {"$ifNull": ["$final_amount", "$amount"]}}, "paid": {"$sum": {"$ifNull": ["$total_paid", "$final_amount"]}}}},
     ]
-    # Petty cash issued items.
+    # Petty cash issued items — only accountant-approved docs (or legacy
+    # docs without a status field).
     de_pipeline = [
-        {"$match": {"project_id": project_id}},
+        {"$match": {"project_id": project_id, "$or": [
+            {"status": {"$in": ["accounts_approved", "paid", "completed", "acknowledged", "payment_done"]}},
+            {"status": {"$exists": False}},
+            {"status": None},
+        ]}},
         {"$unwind": "$items"},
         {"$group": {"_id": None, "amt": {"$sum": "$items.amount"}}},
     ]
@@ -4879,7 +4909,16 @@ async def get_cashbook_filtered(
         # were missing from the Cashbook Petty Cash card. They're real cash-
         # outflow once the PM/Accountant records a site spend, so include them
         # in the unified expense_entries list. They flatten one row per item.
-        db.direct_expenses.find(expense_q, {"_id": 0}).sort("created_at", -1).to_list(1000),
+        # Strict accountant-approval rule: only count items inside docs that
+        # are accountant-approved (or legacy docs without a status field).
+        db.direct_expenses.find(
+            {**expense_q, "$or": [
+                {"status": {"$in": ["accounts_approved", "paid", "completed", "acknowledged", "payment_done"]}},
+                {"status": {"$exists": False}},
+                {"status": None},
+            ]},
+            {"_id": 0}
+        ).sort("created_at", -1).to_list(1000),
         # Cashbook's All-Projects dropdown lists EVERY real project — those
         # surfaced under Planning's New / Current / Delivered tabs. The
         # explicit name $nin removes specific demo / test rows. The blanket
