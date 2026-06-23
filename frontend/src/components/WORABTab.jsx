@@ -291,7 +291,12 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
                 <Eye className="h-3 w-3 mr-1" /> View
               </Button>
             ) : null}
-            {rab.status === 'requested' && !rab.is_multi_stage && (
+            {/* Feb 20 2026 — Edit pencil now available for ALL RABs that are
+                still pre-PM-approval, including multi-stage bills and
+                `se_rework` (Returned to SE) entries. Updating an existing
+                RAB stays on the same request_id (RAB-X stays RAB-X — does
+                NOT create a new RAB-Y). */}
+            {(rab.status === 'requested' || rab.status === 'se_rework') && (
               <Button
                 size="sm"
                 variant="ghost"

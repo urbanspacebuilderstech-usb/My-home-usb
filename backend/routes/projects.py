@@ -10517,7 +10517,11 @@ async def edit_stage_payment_request(
         break
     if not target_pr:
         raise HTTPException(status_code=404, detail="RAB request not found")
-    editable_statuses = {"requested", "pm_rejected", "qc_rejected", "planning_rejected", "accountant_rejected"}
+    # Feb 20 2026 — `se_rework` (Returned to SE) also editable: SE clicked
+    # Edit pencil from Total RAB's tab on a returned bill and the backend
+    # refused. Same `request_id` is preserved on update, so RAB-X stays
+    # RAB-X (no new RAB-Y).
+    editable_statuses = {"requested", "se_rework", "pm_rejected", "qc_rejected", "planning_rejected", "accountant_rejected"}
     if target_pr.get("status") not in editable_statuses:
         raise HTTPException(status_code=400, detail=f"Cannot edit a RAB in '{target_pr.get('status')}' status — needs a rejection first")
     if target_pr.get("is_multi_stage"):
