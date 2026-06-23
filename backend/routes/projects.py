@@ -11654,7 +11654,7 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
     #     emitted with payment_method = "cheque" (because the suspense
     #     originated from a cheque-excess credit) and description tagged
     #     "Suspense applied to <stage>".
-    if multi_mode and payment_entries_list and len(payment_entries_list) > 0:
+    if multi_mode and (use_suspense > 0 or (payment_entries_list and len(payment_entries_list) > 0)):
         rows_to_insert = []
         # Suspense row first so it appears at the top of the labour list.
         if use_suspense and use_suspense > 0:
