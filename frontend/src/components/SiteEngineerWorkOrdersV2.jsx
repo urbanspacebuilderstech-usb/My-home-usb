@@ -1228,21 +1228,42 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
           toast.success(`${res.data?.rab_number || 'RAB'} submitted — awaiting PM review`);
         }
       } else {
-        // Multi-stage RAB — single endpoint that bundles every allocation
-        // under ONE rab_number + rab_group_id (one bill from the
-        // contractor's perspective). PM/QC/Planning approvals cascade
-        // automatically across sibling stages.
-        const res = await axios.post(
-          `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/multi-stage-request-payment`,
-          {
-            allocations: entries.map(([sid, v]) => ({ stage_id: sid, amount: v })),
-            notes,
-            from_date: fromDate || null,
-            to_date: toDate || null,
-            excess_dlr_reason: excessReason || null,
-          },
-        );
-        toast.success(`${res.data?.rab_number || 'RAB'} submitted (${res.data?.stages || entries.length} stages) — awaiting PM review`);
+        if (editingRequest) {
+          // Feb 20 2026 — Multi-stage RAB EDIT: PATCH each sibling PR
+          // individually so the same `rab_number` + `rab_group_id` are
+          // preserved (RAB-X stays RAB-X — no new RAB-Y is created).
+          // The sibling request_ids come from `stage_breakdown` which
+          // the backend stamps on every multi-stage row.
+          const siblings = editingRequest.stage_breakdown || [];
+          const byStage = new Map(siblings.map(sb => [sb.stage_id, sb]));
+          for (const [sid, v] of entries) {
+            const sib = byStage.get(sid);
+            if (!sib) {
+              toast.error(`Adding new stages to an existing multi-stage RAB is not supported. Delete & re-submit instead.`);
+              setSubmitting(false);
+              return;
+            }
+            await axios.patch(
+              `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${sid}/payment-requests/${sib.request_id}`,
+              { amount: v, notes },
+            );
+          }
+          toast.success(`${editingRequest.rab_number || 'RAB'} updated (${entries.length} stages)`);
+        } else {
+          // Multi-stage RAB CREATE — single endpoint that bundles every
+          // allocation under ONE rab_number + rab_group_id.
+          const res = await axios.post(
+            `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/multi-stage-request-payment`,
+            {
+              allocations: entries.map(([sid, v]) => ({ stage_id: sid, amount: v })),
+              notes,
+              from_date: fromDate || null,
+              to_date: toDate || null,
+              excess_dlr_reason: excessReason || null,
+            },
+          );
+          toast.success(`${res.data?.rab_number || 'RAB'} submitted (${res.data?.stages || entries.length} stages) — awaiting PM review`);
+        }
       }
       onSaved();
     } catch (err) {

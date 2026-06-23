@@ -10524,8 +10524,12 @@ async def edit_stage_payment_request(
     editable_statuses = {"requested", "se_rework", "pm_rejected", "qc_rejected", "planning_rejected", "accountant_rejected"}
     if target_pr.get("status") not in editable_statuses:
         raise HTTPException(status_code=400, detail=f"Cannot edit a RAB in '{target_pr.get('status')}' status — needs a rejection first")
-    if target_pr.get("is_multi_stage"):
-        raise HTTPException(status_code=400, detail="Multi-stage RAB editing is not supported yet — delete & resubmit instead")
+    # Feb 20 2026 — Allow PATCH for multi-stage siblings. Each sibling PR is
+    # patched individually by the frontend so the same `rab_number` and
+    # `rab_group_id` stay intact (the previous block forced SE to
+    # delete & resubmit, breaking the user's "edit RAB-1 stays RAB-1" flow).
+    # Each call edits ONE sibling's amount; consistency across siblings is
+    # the frontend's responsibility (it iterates through `stage_breakdown`).
 
     new_amount = data.get("amount")
     new_notes = data.get("notes")
