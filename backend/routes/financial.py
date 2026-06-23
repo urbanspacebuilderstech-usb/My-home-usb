@@ -1227,6 +1227,28 @@ async def delete_cashbook_expense(expense_type: str, record_id: str, user: User 
                     )
             except Exception as e:
                 import logging; logging.getLogger(__name__).warning(f"PR revert skipped: {e}")
+            # Feb 20 2026 — Reverse the contractor-suspense debit that was
+            # applied during this release so the suspense balance is
+            # restored (RAB-27 / Appala Naidu ₹15,000 case where the
+            # suspense was permanently lost on delete).
+            try:
+                suspense_amt = float(existing.get("suspense_applied") or 0)
+                contractor_id_h = existing.get("contractor_id")
+                if suspense_amt > 0 and contractor_id_h:
+                    await db.contractor_suspense_ledger.insert_one({
+                        "ledger_id": f"susp_{uuid.uuid4().hex[:12]}",
+                        "contractor_id": contractor_id_h,
+                        "amount": suspense_amt,
+                        "movement": "credit",
+                        "source_type": "expense_delete_reversal",
+                        "source_id": record_id,
+                        "project_id": existing.get("project_id"),
+                        "remarks": f"Reversal of suspense debit on deletion of expense {record_id}",
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "created_by": user.user_id,
+                    })
+            except Exception as e:
+                import logging; logging.getLogger(__name__).warning(f"Suspense reversal skipped: {e}")
             await create_audit_log(
                 user.user_id, "delete", f"expense_{expense_type}", record_id,
                 {"amount": existing.get("amount") or existing.get("total_amount") or existing.get("estimated_price") or existing.get("final_amount", 0),
