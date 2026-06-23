@@ -11353,7 +11353,12 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
     # `payment_method` / `cheque_ids` body still works (we synthesize a
     # single-entry list below).
     payment_entries_raw = data.get("payment_entries")
-    multi_mode = bool(payment_entries_raw and isinstance(payment_entries_raw, list))
+    # Feb 20 2026 — Multi-mode is also engaged when the client sends an
+    # empty `payment_entries: []` (this is the "100% suspense covers the
+    # bill" case — no cash/cheque rows needed). Without this, an empty list
+    # would fall through to the legacy synth branch which requires a
+    # non-empty `payment_method`, causing a 400 even though the math is fine.
+    multi_mode = isinstance(payment_entries_raw, list)
     if not multi_mode:
         # Legacy single-mode body → synthesize one entry so downstream loop
         # handles both code paths uniformly.

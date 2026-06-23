@@ -111,7 +111,10 @@ export default function LabourRABReleaseDialog({ item, onClose, onDone }) {
 
   const submit = async () => {
     if (!ctx) return;
-    if (entries.length === 0) { toast.error('Add at least one payment method'); return; }
+    // Feb 20 2026 — Allow empty payment_entries when the full bill is
+    // covered by suspense (payable = 0). Otherwise still require at least
+    // one method row.
+    if (entries.length === 0 && payable > 0) { toast.error('Add at least one payment method'); return; }
     if (!entriesMatch) {
       toast.error(`Sum of entries (${fmt(entriesSum)}) must equal payable (${fmt(payable)})`); return;
     }
@@ -322,7 +325,7 @@ export default function LabourRABReleaseDialog({ item, onClose, onDone }) {
               >
                 Reject
               </Button>
-              <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={submit} disabled={submitting || loading || !ctx || !entriesMatch || entries.length === 0} data-testid="rab-rel-submit">
+              <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={submit} disabled={submitting || loading || !ctx || !entriesMatch || (entries.length === 0 && payable > 0)} data-testid="rab-rel-submit">
                 <CheckCircle className="h-3.5 w-3.5 mr-1" />
                 {submitting ? 'Releasing…' : 'Process Release'}
               </Button>
