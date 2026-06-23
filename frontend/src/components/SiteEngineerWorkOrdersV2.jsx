@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   ChevronRight,
@@ -966,6 +966,15 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   // RAB detail popup — opens when SE clicks "View" on a Payment Summary row.
   const [rabView, setRabView] = useState({ open: false, requestId: null });
 
+  // Skip the first auto-distribute pass after entering edit mode for a
+  // multi-stage RAB so the per-stage breakdown loaded from
+  // `editingRequest.stage_breakdown` is not immediately flattened.
+  const skipNextAutoDistRef = useRef(false);
+  // Snapshot of the sibling request_ids the multi-stage RAB was edited
+  // with, so on save we know which siblings the SE unchecked (those
+  // need to be deleted with cascade=false).
+  const editSiblingsRef = useRef([]);
+
   // ── helpers ─────────────────────────────────────────────────────────────
   const stageBalanceOf = (s) => {
     if (!s) return 0;
@@ -1106,9 +1115,33 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
         setExcessReason('');
       }
       setDlrPreview(null);
-      // Reset multi-stage allocation to the originating stage with the full amount.
+      // Reset multi-stage allocation:
+      //   • Multi-stage RAB edit  → pre-fill EVERY sibling stage from
+      //     `stage_breakdown` so the SE sees both rows checked with
+      //     their original per-stage amounts and can uncheck one to
+      //     drop a stage from the bill.
+      //   • Single-stage edit/rework → just the originating stage with
+      //     the full amount.
       const preAmt = (editing || rework) ? String((editing || rework).amount || '') : '';
-      setAllocations({ [stage.stage_id]: preAmt });
+      const breakdown = (editing && Array.isArray(editing.stage_breakdown)) ? editing.stage_breakdown : [];
+      if (breakdown.length > 1) {
+        const init = {};
+        breakdown.forEach(sb => {
+          if (sb && sb.stage_id) init[sb.stage_id] = String(sb.amount ?? '');
+        });
+        setAllocations(init);
+        editSiblingsRef.current = breakdown.map(sb => ({
+          stage_id: sb.stage_id,
+          request_id: sb.request_id,
+          amount: sb.amount,
+        })).filter(x => x.stage_id && x.request_id);
+        // Block the very next [amount] effect from flattening the per-
+        // stage split via autoDistribute.
+        skipNextAutoDistRef.current = true;
+      } else {
+        setAllocations({ [stage.stage_id]: preAmt });
+        editSiblingsRef.current = [];
+      }
     }
   }, [stage, editingRequest]);
 
@@ -1117,6 +1150,10 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   // still tweak per-stage values afterwards if needed — the next Amount edit
   // (or check/uncheck) will recompute and overwrite their manual edits.
   useEffect(() => {
+    if (skipNextAutoDistRef.current) {
+      skipNextAutoDistRef.current = false;
+      return;
+    }
     setAllocations(prev => {
       const keys = Object.keys(prev);
       const checked = keys.length > 0 ? keys : (stage?.stage_id ? [stage.stage_id] : []);
@@ -1177,6 +1214,10 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
     }
 
     // Validate every targeted stage independently — open + balance check.
+    const editSiblingByStage = new Map(
+      (editingRequest && Array.isArray(editingRequest.stage_breakdown)) ?
+        editingRequest.stage_breakdown.map(sb => [sb.stage_id, sb]) : []
+    );
     for (const [sid, v] of entries) {
       const s = (wo?.stages || []).find(x => x.stage_id === sid);
       if (!s) { toast.error('Selected stage not found'); return; }
@@ -1185,6 +1226,11 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
       let cap = sBal;
       // Feb 20 2026 — `se_rework` already freed from balance (not in pen).
       if (editingRequest && sid === editingRequest.stage_id) cap += (editingRequest.amount || 0);
+      // Feb 22 2026 — In a multi-stage RAB edit, the sibling stages also
+      // have a pending PR locking up their balance; add it back so the
+      // SE can change or keep their amount during edit.
+      const sibForCap = editSiblingByStage.get(sid);
+      if (sibForCap && sid !== editingRequest?.stage_id) cap += (sibForCap.amount || 0);
       if (v > cap + 0.01) {
         toast.error(`${s.name}: ₹${v} exceeds stage balance ${fmt(cap)}`);
         return;
@@ -1193,11 +1239,17 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
 
     setSubmitting(true);
     try {
+      // Detect whether we're editing a multi-stage RAB (>1 sibling). When
+      // editing such a RAB, we must ALWAYS go through the multi-stage
+      // branch — even if the SE ends with just 1 stage checked — so the
+      // sibling-delete + amount-PATCH logic runs and the rab_number is
+      // preserved. New (non-edit) submissions use length-based routing.
+      const isMultiStageEdit = editingRequest && Array.isArray(editingRequest.stage_breakdown) && editingRequest.stage_breakdown.length > 1;
       // Single-stage path keeps the original endpoint (preserves the
       // rework / resubmit behaviour). Multi-stage loops the per-stage
       // endpoint — each call creates an independent RAB with its own
       // project-wide RAB-XX number.
-      if (entries.length === 1) {
+      if (entries.length === 1 && !isMultiStageEdit) {
         const [sid, v] = entries[0];
         const payload = {
           amount: v,
@@ -1229,26 +1281,50 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
         }
       } else {
         if (editingRequest) {
-          // Feb 20 2026 — Multi-stage RAB EDIT: PATCH each sibling PR
-          // individually so the same `rab_number` + `rab_group_id` are
-          // preserved (RAB-X stays RAB-X — no new RAB-Y is created).
-          // The sibling request_ids come from `stage_breakdown` which
-          // the backend stamps on every multi-stage row.
+          // Feb 22 2026 — Multi-stage RAB EDIT supports BOTH amount
+          // changes AND removing a sibling stage from the bill. Flow:
+          //   1. Compute removed siblings  = original − still-checked
+          //      → DELETE each one with cascade=false so the surviving
+          //      siblings keep the same rab_number/rab_group_id.
+          //   2. PATCH the still-checked siblings' amounts.
+          // Adding NEW stages is still blocked — SE must delete + re-
+          // submit if the scope of the bill expands.
           const siblings = editingRequest.stage_breakdown || [];
           const byStage = new Map(siblings.map(sb => [sb.stage_id, sb]));
-          for (const [sid, v] of entries) {
-            const sib = byStage.get(sid);
-            if (!sib) {
+          const checkedSids = new Set(entries.map(([sid]) => sid));
+          // 1. Detect newly-added stages → block
+          for (const [sid] of entries) {
+            if (!byStage.has(sid)) {
               toast.error(`Adding new stages to an existing multi-stage RAB is not supported. Delete & re-submit instead.`);
               setSubmitting(false);
               return;
             }
+          }
+          // Guard: don't allow removing ALL stages — that's effectively
+          // a delete, which has its own button.
+          if (checkedSids.size === 0) {
+            toast.error('Keep at least one stage checked. Use the delete button if you want to remove the whole RAB.');
+            setSubmitting(false);
+            return;
+          }
+          // 2. DELETE removed siblings (cascade=false so rab_number is preserved)
+          const removed = siblings.filter(sb => !checkedSids.has(sb.stage_id));
+          for (const sb of removed) {
+            await axios.delete(
+              `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${sb.stage_id}/payment-requests/${sb.request_id}`,
+              { params: { cascade: false } },
+            );
+          }
+          // 3. PATCH surviving sibling amounts
+          for (const [sid, v] of entries) {
+            const sib = byStage.get(sid);
             await axios.patch(
               `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${sid}/payment-requests/${sib.request_id}`,
               { amount: v, notes },
             );
           }
-          toast.success(`${editingRequest.rab_number || 'RAB'} updated (${entries.length} stages)`);
+          const removedNote = removed.length > 0 ? ` · ${removed.length} stage${removed.length > 1 ? 's' : ''} removed` : '';
+          toast.success(`${editingRequest.rab_number || 'RAB'} updated (${entries.length} stage${entries.length > 1 ? 's' : ''}${removedNote})`);
         } else {
           // Multi-stage RAB CREATE — single endpoint that bundles every
           // allocation under ONE rab_number + rab_group_id.
@@ -1516,7 +1592,21 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                     const checked = Object.prototype.hasOwnProperty.call(allocations, s.stage_id);
                     // Feb 20 2026 — see comment above on the rework add-back
                     // double-count bug (Mrs Abinaya Additional Cost 1 case).
-                    const cap = stageBalanceOf(s);
+                    // Feb 22 2026 — While editing a multi-stage RAB, the
+                    // sibling stage's own pending PR is locked into its
+                    // balance. Add it back so SE sees the real editable
+                    // ceiling (e.g. Additional Cost 7: shown balance
+                    // ₹7,100 but with the existing ₹10,000 sibling PR the
+                    // real ceiling is ₹17,100).
+                    let cap = stageBalanceOf(s);
+                    if (editingRequest) {
+                      if (s.stage_id === editingRequest.stage_id) {
+                        cap += (editingRequest.amount || 0);
+                      } else {
+                        const sib = (editingRequest.stage_breakdown || []).find(b => b.stage_id === s.stage_id);
+                        if (sib) cap += (sib.amount || 0);
+                      }
+                    }
                     const val = allocations[s.stage_id] ?? '';
                     const over = parseFloat(val || 0) > cap + 0.01;
                     return (

@@ -10597,6 +10597,7 @@ async def delete_stage_payment_request(
     work_order_id: str,
     stage_id: str,
     request_id: str,
+    cascade: bool = True,
     user: User = Depends(get_current_user),
 ):
     """Delete a single payment_request from a work-order stage's history.
@@ -10606,12 +10607,13 @@ async def delete_stage_payment_request(
     in that case the accountant must reverse the cashbook expense first
     (which auto-reverts the PR to `planning_approved`).
 
-    Cascade cleanup: this endpoint also purges every linked downstream row
-    so the cashbook / Expense board never carries orphaned data after a
-    RAB is deleted:
-      • recorded_expenses (manual labour expense ledger)
-      • labour_expenses (vendor-facing breakdown)
-      • cashbook_entries (Main Account ledger)
+    Query params:
+      • cascade (default true): if the PR belongs to a multi-stage RAB
+        (`rab_group_id` set), cascade-delete every sibling PR across the
+        WO so the whole group disappears. Set to `false` to delete ONLY
+        the single sibling — used when SE edits a multi-stage RAB and
+        unchecks one stage (the surviving siblings keep the same
+        rab_number).
     """
     if user.role not in [
         UserRole.PROJECT_MANAGER,
@@ -10644,9 +10646,11 @@ async def delete_stage_payment_request(
     # collect every sibling PR across other stages of the same WO so the
     # whole bill is removed in one shot (the SE Total RAB's table now
     # presents the group as a single row, so deleting one must delete all).
+    # Skipped when `cascade=false` — used by the SE multi-stage RAB editor
+    # to remove a single stage from an existing multi-stage RAB.
     group_id = target_pr.get("rab_group_id")
     sibling_targets = [{"stage_id": stage_id, "request_id": request_id}]
-    if group_id:
+    if group_id and cascade:
         for s in wo.get("stages") or []:
             for p in s.get("payment_requests") or []:
                 if p.get("rab_group_id") == group_id and p.get("request_id") != request_id:
