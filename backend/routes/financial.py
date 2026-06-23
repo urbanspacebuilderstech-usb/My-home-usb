@@ -1235,16 +1235,23 @@ async def delete_cashbook_expense(expense_type: str, record_id: str, user: User 
                 suspense_amt = float(existing.get("suspense_applied") or 0)
                 contractor_id_h = existing.get("contractor_id")
                 if suspense_amt > 0 and contractor_id_h:
+                    _now_iso = datetime.now(timezone.utc).isoformat()
                     await db.contractor_suspense_ledger.insert_one({
                         "ledger_id": f"susp_{uuid.uuid4().hex[:12]}",
                         "contractor_id": contractor_id_h,
+                        "contractor_name": existing.get("contractor_name", ""),
+                        "project_id": existing.get("project_id"),
                         "amount": suspense_amt,
-                        "movement": "credit",
+                        # Use the canonical "type" field that balance aggregation
+                        # in projects._get_contractor_suspense_balance reads from.
+                        "type": "credit",
                         "source_type": "expense_delete_reversal",
                         "source_id": record_id,
-                        "project_id": existing.get("project_id"),
+                        "reference_id": record_id,
+                        "date": _now_iso,
+                        "notes": f"Reversal of suspense debit on deletion of expense {record_id}",
                         "remarks": f"Reversal of suspense debit on deletion of expense {record_id}",
-                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "created_at": _now_iso,
                         "created_by": user.user_id,
                     })
             except Exception as e:
