@@ -131,6 +131,75 @@ class IncomeUpdate(BaseModel):
 
 CLOSING_BALANCE_DOC_ID = "closing_balance_singleton"
 
+# Feb 22 2026 — Mapping from closing-balance bucket key → payment_mode
+# value stored on `db.income`. Frontend `classifyMode` knows about these
+# values and renders them with the right colour/label (e.g. HDFC SAVINGS,
+# CASH D/T) so no extra normalisation is needed UI-side.
+_CF_LOCK_MODE_MAP = {
+    "cash": "cash",
+    "current_account": "current_account",
+    "savings": "savings_account",
+    "cheque": "cheque",
+    "direct_transfer": "direct_transfer",
+}
+_CF_LOCK_SOURCE = "carry_forward_lock"
+
+
+async def _sync_carry_forward_to_cashbook(buckets: Dict[str, Dict[str, float]], locked_at: str, user_id: str, user_name: str):
+    """Reflect Lock Closing Balance bucket-wise INCOME values as Cashbook
+    Income entries tagged `source=carry_forward_lock` so they surface
+    under the new "Carry Forward" sub-tab inside Accountant → Cashbook →
+    Income, and contribute to the Main Account totals.
+
+    Idempotent: every call first purges previous `carry_forward_lock`
+    rows and re-creates fresh ones from the current bucket totals. Zero-
+    amount buckets get no row so the tab stays clean.
+
+    Entries are created WITHOUT a `project_id` so they only appear in
+    the Cashbook Main Account view — when an Accountant filters by
+    project they are excluded automatically by the `project_id`
+    query clause on `/accountant/cashbook-filtered`.
+    """
+    # 1. Purge any prior auto-locked rows so re-locking is a clean
+    #    overwrite (option `a` confirmed by user).
+    try:
+        await db.income.delete_many({"source": _CF_LOCK_SOURCE})
+    except Exception as e:
+        logger.warning("carry_forward_lock purge failed: %s", e)
+
+    # 2. Create one income row per non-zero bucket.
+    now = datetime.now(timezone.utc).isoformat()
+    for bucket_key, mode in _CF_LOCK_MODE_MAP.items():
+        b = (buckets or {}).get(bucket_key) or {}
+        try:
+            inc_amount = float(b.get("income") or 0)
+        except (TypeError, ValueError):
+            inc_amount = 0.0
+        if inc_amount <= 0:
+            continue
+        row = {
+            "income_id": f"cflk_{uuid.uuid4().hex[:12]}",
+            "project_id": None,           # firm-level → Main Account only
+            "project_name": "Carry Forward",
+            "amount": inc_amount,
+            "payment_mode": mode,
+            "payment_date": locked_at,
+            "created_at": locked_at,
+            "approved_at": locked_at,
+            "status": "approved",
+            "source": _CF_LOCK_SOURCE,
+            "stage": "Carry Forward",
+            "description": f"Carry-forward lock — {mode} bucket",
+            "remarks": "Auto-generated from Lock Closing Balance",
+            "recorded_by": user_id,
+            "recorded_by_name": user_name,
+            "reference_number": "CF-LOCK",
+        }
+        try:
+            await db.income.insert_one(row)
+        except Exception as e:
+            logger.warning("carry_forward_lock insert failed (%s): %s", bucket_key, e)
+
 
 @router.get("/accountant/closing-balance")
 async def get_closing_balance(user: User = Depends(get_current_user)):
@@ -227,6 +296,14 @@ async def save_closing_balance(payload: Dict[str, Any], user: User = Depends(get
     await db.closing_balances.update_one(
         {"_id": CLOSING_BALANCE_DOC_ID}, {"$set": doc}, upsert=True,
     )
+    # Sync bucket-wise INCOME totals into the Cashbook Income ledger so
+    # they appear under the "Carry Forward" sub-tab and contribute to
+    # Main Account totals. Best-effort: a failure here must not block
+    # the lock itself.
+    try:
+        await _sync_carry_forward_to_cashbook(buckets_out, now, user.user_id, user.name)
+    except Exception as e:
+        logger.warning("carry_forward_lock sync skipped: %s", e)
     await create_audit_log(
         user.user_id, "lock_closing_balance", "closing_balance",
         CLOSING_BALANCE_DOC_ID,
@@ -234,6 +311,31 @@ async def save_closing_balance(payload: Dict[str, Any], user: User = Depends(get
     )
     doc.pop("_id", None)
     return doc
+
+
+@router.post("/accountant/closing-balance/sync-cashbook")
+async def backfill_closing_balance_to_cashbook(user: User = Depends(get_current_user)):
+    """One-shot backfill: take the CURRENT locked closing-balance doc and
+    sync its bucket INCOME values to the Cashbook Income ledger as
+    `source=carry_forward_lock` rows. Used immediately after the
+    Feb 22 2026 deploy so the lock the user already saved (before this
+    feature shipped) starts appearing under the new Carry Forward tab
+    without forcing them to re-enter the numbers.
+
+    Idempotent: every call cleanly overwrites any prior carry_forward_lock
+    rows.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can backfill the closing balance")
+    doc = await db.closing_balances.find_one({"_id": CLOSING_BALANCE_DOC_ID})
+    if not doc:
+        return {"message": "No closing balance locked yet — nothing to backfill", "inserted": 0}
+    locked_at = doc.get("locked_at") or datetime.now(timezone.utc).isoformat()
+    await _sync_carry_forward_to_cashbook(
+        doc.get("buckets") or {}, locked_at, user.user_id, user.name,
+    )
+    count = await db.income.count_documents({"source": _CF_LOCK_SOURCE})
+    return {"message": "Carry-forward Cashbook entries refreshed from current lock", "inserted": count}
 
 
 # ==================== PROJECT-WISE CARRY FORWARD ====================

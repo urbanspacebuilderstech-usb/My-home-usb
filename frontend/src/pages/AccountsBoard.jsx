@@ -4142,9 +4142,14 @@ function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint, onDelete
   const [tab, setTab] = useState('main');
   const [dtPayDialog, setDtPayDialog] = useState({ open: false, dtIncome: null });
   const isDT = (e) => (e.payment_mode === 'direct_transfer') || (classifyMode(e.payment_mode) === 'direct_transfer');
-  const main = (incomeEntries || []).filter(e => !isDT(e));
-  const dt = (incomeEntries || []).filter(isDT);
-  const list = tab === 'main' ? main : dt;
+  // Feb 22 2026 — Carry-forward auto-rows created by the Lock Closing
+  // Balance dialog (source='carry_forward_lock'). They live in their own
+  // sub-tab so the Main Income view stays a clean list of real receipts.
+  const isCarryForward = (e) => e?.source === 'carry_forward_lock';
+  const carryForward = (incomeEntries || []).filter(isCarryForward);
+  const main = (incomeEntries || []).filter(e => !isDT(e) && !isCarryForward(e));
+  const dt = (incomeEntries || []).filter(e => isDT(e) && !isCarryForward(e));
+  const list = tab === 'main' ? main : (tab === 'dt' ? dt : carryForward);
   const dtStatusBadge = (s) => {
     const map = {
       pending_cre_recv: { label: 'CRE: Mark Received', cls: 'bg-blue-100 text-blue-700' },
@@ -4169,6 +4174,12 @@ function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint, onDelete
           className={`px-4 py-1.5 text-xs font-medium rounded-full border transition-all ${tab === 'dt' ? 'bg-emerald-50 border-emerald-300 text-emerald-800 ring-1 ring-emerald-200' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'}`}
           data-testid="income-tab-dt"
         >Direct Transfer <span className="ml-1 font-bold">({dt.length})</span></button>
+        <button
+          type="button"
+          onClick={() => setTab('cf')}
+          className={`px-4 py-1.5 text-xs font-medium rounded-full border transition-all ${tab === 'cf' ? 'bg-indigo-50 border-indigo-300 text-indigo-800 ring-1 ring-indigo-200' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'}`}
+          data-testid="income-tab-carry-forward"
+        >Carry Forward <span className="ml-1 font-bold">({carryForward.length})</span></button>
       </div>
       <Card>
         <CardContent className="px-0">
@@ -4237,7 +4248,7 @@ function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint, onDelete
                 ))}
                 {list.length === 0 && (
                   <tr><td colSpan={8} className="text-center py-8 text-gray-400">
-                    {tab === 'main' ? 'No main income entries found' : 'No Direct Transfer entries found'}
+                    {tab === 'main' ? 'No main income entries found' : (tab === 'dt' ? 'No Direct Transfer entries found' : 'No Carry Forward entries yet — lock the closing balance with an Income value to populate this tab.')}
                   </td></tr>
                 )}
               </tbody>
@@ -4941,12 +4952,17 @@ function CarryForwardTab({ userRole }) {
     );
   }
 
+  // Feb 22 2026 — Display order & labels updated per request:
+  //   1. Cash          2. HDFC Current   3. HDFC Savings
+  //   4. Cheque        5. Cash DT
+  // DB keys (`current_account`, `savings`, `direct_transfer`) are kept
+  // untouched so legacy closing_balance docs continue to load.
   const buckets = [
-    { key: 'current_account', label: 'Current Account', Icon: Landmark, accent: 'border-l-blue-500 bg-blue-50/40' },
-    { key: 'savings', label: 'Savings', Icon: PiggyBank, accent: 'border-l-emerald-500 bg-emerald-50/40' },
     { key: 'cash', label: 'Cash', Icon: Banknote, accent: 'border-l-amber-500 bg-amber-50/40' },
+    { key: 'current_account', label: 'HDFC Current', Icon: Landmark, accent: 'border-l-blue-500 bg-blue-50/40' },
+    { key: 'savings', label: 'HDFC Savings', Icon: PiggyBank, accent: 'border-l-emerald-500 bg-emerald-50/40' },
     { key: 'cheque', label: 'Cheque', Icon: FileText, accent: 'border-l-violet-500 bg-violet-50/40' },
-    { key: 'direct_transfer', label: 'Direct Transfer', Icon: TrendingUp, accent: 'border-l-rose-500 bg-rose-50/40' },
+    { key: 'direct_transfer', label: 'Cash DT', Icon: TrendingUp, accent: 'border-l-rose-500 bg-rose-50/40' },
   ];
   const bv = (k, field) => (data?.buckets?.[k]?.[field] ?? 0);
 
