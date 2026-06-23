@@ -11630,6 +11630,93 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         "escrow": "escrow",
     }
     project_doc = await db.projects.find_one({"project_id": wo.get("project_id")}, {"_id": 0, "name": 1})
+    # Feb 20 2026 — Multi-mode releases now create ONE recorded_expense PER
+    # payment_entry so the Cashbook Expense list shows the true split (e.g.
+    # Anbu Demo Dr ₹99,993 bill = ₹75,568 Suspense + ₹24,425 across 2 Cash
+    # entries, instead of a single misleading cash row).
+    # Rules:
+    #   • Each `payment_entry` (cheque/cash/savings/etc.) → its own row with
+    #     amount = entry.amount and the entry's payment_method.
+    #   • If suspense was applied (`use_suspense > 0`) → a SEPARATE row is
+    #     emitted with payment_method = "cheque" (because the suspense
+    #     originated from a cheque-excess credit) and description tagged
+    #     "Suspense applied to <stage>".
+    if multi_mode and payment_entries_list and len(payment_entries_list) > 0:
+        rows_to_insert = []
+        # Suspense row first so it appears at the top of the labour list.
+        if use_suspense and use_suspense > 0:
+            rows_to_insert.append({
+                "method": "cheque",
+                "amount": float(use_suspense),
+                "is_suspense": True,
+                "ent": {},
+            })
+        for ent in payment_entries_list:
+            rows_to_insert.append({
+                "method": ent.get("method", "cash"),
+                "amount": float(ent.get("amount") or 0),
+                "is_suspense": False,
+                "ent": ent,
+            })
+        for idx, info in enumerate(rows_to_insert):
+            row_method = info["method"]
+            row_amount = info["amount"]
+            row_suspense = info["amount"] if info["is_suspense"] else 0.0
+            ent = info["ent"]
+            row_expense_id = expense_id if idx == 0 else f"exp_{uuid.uuid4().hex[:12]}"
+            row_entry = {
+                "expense_id": row_expense_id,
+                "project_id": wo.get("project_id"),
+                "project_name": (project_doc or {}).get("name", ""),
+                "category": "labour",
+                "expense_type": "labour",
+                "description": (
+                    (f"{wo.get('contractor_name', '')} - " + (" + ".join(affected_stage_names) if is_multi_stage_bill else target_stage.get('name', '')))
+                    + (" · Suspense applied" if info["is_suspense"] else "")
+                ),
+                "amount": row_amount,
+                "cash_paid": 0.0 if info["is_suspense"] else row_amount,
+                "approved_amount": approved_amount,
+                "suspense_applied": row_suspense,
+                "payment_method": cashbook_method_map.get(row_method, row_method),
+                "transaction_id": (ent.get("bank_ref") if ent else "") or ((ent.get("cheque_ids", [None])[0] if (ent and ent.get("cheque_ids")) else "")),
+                "cheque_no": (ent.get("cheque_ids") or [None])[0] if (ent and row_method == "cheque" and not info["is_suspense"]) else None,
+                "cheque_amount": float(ent.get("amount") or 0) if (ent and row_method == "cheque" and not info["is_suspense"]) else None,
+                "bank_ref": ent.get("bank_ref") if (ent and row_method in ("bank", "current_account", "savings_account")) else None,
+                "vendor_name": wo.get("contractor_name", ""),
+                "contractor_id": contractor_id,
+                "contractor_type": wo.get("contractor_type", ""),
+                "work_order_id": work_order_id,
+                "stage_id": stage_id,
+                "stage_name": (" + ".join(affected_stage_names) if is_multi_stage_bill else target_stage.get("name", "")),
+                "is_multi_stage_bill": is_multi_stage_bill,
+                "rab_group_id": rab_group_id,
+                "linked_request_ids": [pr.get("request_id") for _, pr in siblings_refs],
+                "stage_breakdown": [
+                    {"stage_id": stg.get("stage_id"), "stage_name": stg.get("name"), "amount": float(pr.get("amount", 0)), "request_id": pr.get("request_id")}
+                    for stg, pr in siblings_refs
+                ],
+                "request_id": request_id,
+                "request_type": "labour_stage_payment",
+                "remarks": notes,
+                "status": "approved",
+                "source": "wo_stage_release",
+                "split_index": idx,
+                "split_total": len(rows_to_insert),
+                "release_group_id": expense_id,
+                "recorded_by": user.user_id,
+                "recorded_by_name": user.name,
+                "created_at": now,
+                "approved_at": now,
+                "approved_by": user.user_id,
+                "payment_date": payment_date,
+            }
+            await db.recorded_expenses.insert_one(row_entry)
+        # Skip the legacy single-row insert below.
+        skip_legacy_cashbook_insert = True
+    else:
+        skip_legacy_cashbook_insert = False
+
     cashbook_entry = {
         "expense_id": expense_id,
         "project_id": wo.get("project_id"),
@@ -11684,7 +11771,8 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         "approved_by": user.user_id,
         "payment_date": payment_date,
     }
-    await db.recorded_expenses.insert_one(cashbook_entry)
+    if not skip_legacy_cashbook_insert:
+        await db.recorded_expenses.insert_one(cashbook_entry)
 
     # Mark each selected cheque as consumed (links to this expense; CRE/Accountant
     # views can show "Used for RAB-XX · Contractor"). Idempotent on retries.
