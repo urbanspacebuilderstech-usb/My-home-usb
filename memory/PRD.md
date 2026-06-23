@@ -13,6 +13,13 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 22, 2026 — Contractor Suspense Reversal Field-Name Bug (P0)
+- **Status**: ✅ DEPLOYED to VPS (commit `e1bc58d6`).
+- **User report**: Deleted RAB-27 (₹15,000 suspense-funded) didn't refund the suspense; user wanted Appala Naidu's final Contractor Suspense balance to be exactly ₹50,000.
+- **Root cause**: The `expense_delete_reversal` insert in `/app/backend/routes/financial.py` was writing `"movement": "credit"`, but `_get_contractor_suspense_balance` in `projects.py` aggregates strictly on `"$type" == "credit"|"debit"`. Every auto-reversal credit was silently dropped from the balance aggregation.
+- **Fix**: Updated the reversal insert to use the canonical schema (`type: "credit"`, plus `date`, `notes`, `contractor_name`, `reference_id`) used by the other suspense ledger writers in `projects.py`. Healed the stuck heal row on production (`_id: 6a3a579461e1d868cb44ba89`) by stamping `type: "credit"`.
+- **Outcome**: Live VPS aggregation now returns ₹50,000 (Credit ₹1,04,328 − Debit ₹54,328). All future suspense-funded expense deletes will automatically refund the contractor suspense balance without manual heals.
+
 ### Session — Feb 19, 2026 — PM Dashboard Requests Scoped to Assigned Projects (P0)
 - **Status**: ✅ DEPLOYED to VPS (commit `1c7d600d`).
 - **User report**: Tamizhmani D (PM) saw 191 "Work Order / Labour (RAB)" rows including Mrs Lavanya project requests despite not being assigned to that project.
