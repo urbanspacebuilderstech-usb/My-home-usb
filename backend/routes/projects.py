@@ -11641,7 +11641,15 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
             if is_multi_stage_bill else
             f"{wo.get('contractor_name', '')} - {target_stage.get('name', '')}"
         ),
-        "amount": cash_paid,
+        # Feb 20 2026 — `amount` now records the full APPROVED labour
+        # expense (₹X), not just the cash-paid portion. Suspense was already
+        # captured as a credit when the cheque excess landed in the ledger,
+        # so when that suspense is later applied to a new bill it must still
+        # show up as labour expense to keep the labour-expense list complete
+        # (otherwise the suspense-funded portion vanishes from Expense >
+        # Labour entries, exactly what Appala Naidu ₹39,328 case exhibited).
+        "amount": approved_amount,
+        "cash_paid": cash_paid,
         "approved_amount": approved_amount,
         "suspense_applied": use_suspense,
         "payment_method": cashbook_method_map.get(effective_method, effective_method),
