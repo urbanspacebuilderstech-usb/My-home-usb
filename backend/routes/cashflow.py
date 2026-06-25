@@ -347,14 +347,24 @@ async def get_summary(project_id: Optional[str] = None, user: User = Depends(get
 
         # Feb 22 2026 — Roll project_carry_forwards into the Cashflow Engine
         # so the Direct/Indirect pools reflect ALL money flow (matches the
-        # Project Wise tab convention). Income (`income_carry_forward +
-        # income_adjustment`) is split by the project's effective split;
-        # Expense (`expense_carry_forward + expense_adjustment`) is split
-        # by the SAME ratio so the pools dry out symmetrically.
+        # Project Wise tab convention).
+        #
+        # IMPORTANT: the Carry Forward dialog stores expense CF in EXPLICIT
+        # Direct/Indirect buckets — Material + Labour + Petty Cash CFs are
+        # Direct, `indirect_carry_forward` is Indirect. We must NOT split
+        # the combined total by the project's 85/15 ratio (that double-
+        # counts the indirect portion — Sai Karthick reported the gap on
+        # Mrs Lavanya: CF expense ₹84,19,788 was rendering as Direct
+        # ₹80,38,311.45 + Indirect ₹14,18,525.55 = ₹94,56,837 instead).
+        #
+        # Income side currently has no per-bucket breakdown, so we keep
+        # the 85/15 split for `income_carry_forward + income_adjustment`.
         async for cf in db.project_carry_forwards.find(
             {"project_id": {"$in": list(valid_pid_set)}},
             {"_id": 0, "project_id": 1, "income_carry_forward": 1, "income_adjustment": 1,
-             "expense_carry_forward": 1, "expense_adjustment": 1},
+             "expense_carry_forward": 1, "expense_adjustment": 1,
+             "material_carry_forward": 1, "labour_carry_forward": 1,
+             "petty_cash_carry_forward": 1, "indirect_carry_forward": 1},
         ):
             pid = cf.get("project_id")
             if pid not in agg:
@@ -362,12 +372,29 @@ async def get_summary(project_id: Optional[str] = None, user: User = Depends(get
             sp = await _get_effective_split(pid)
             dp = float(sp.get("direct_pct", 85.0)) / 100.0
             ip = float(sp.get("indirect_pct", 15.0)) / 100.0
+            # Income CF — split by the project's effective ratio.
             cf_inc = float(cf.get("income_carry_forward") or 0) + float(cf.get("income_adjustment") or 0)
-            cf_exp = float(cf.get("expense_carry_forward") or 0) + float(cf.get("expense_adjustment") or 0)
             agg[pid]["direct_in"] += round(cf_inc * dp, 2)
             agg[pid]["indirect_in"] += round(cf_inc * ip, 2)
-            agg[pid]["direct_out"] += round(cf_exp * dp, 2)
-            agg[pid]["indirect_out"] += round(cf_exp * ip, 2)
+            # Expense CF — use explicit per-bucket breakdown when present.
+            mat_cf = float(cf.get("material_carry_forward") or 0)
+            lab_cf = float(cf.get("labour_carry_forward") or 0)
+            pc_cf = float(cf.get("petty_cash_carry_forward") or 0)
+            ind_cf = float(cf.get("indirect_carry_forward") or 0)
+            direct_cf = mat_cf + lab_cf + pc_cf
+            if direct_cf == 0 and ind_cf == 0:
+                # Legacy doc (pre per-bucket schema): fall back to the
+                # rolled-up total and the 85/15 ratio. `expense_adjustment`
+                # in legacy docs duplicates `indirect_carry_forward`, so
+                # don't add it twice here.
+                legacy_total = float(cf.get("expense_carry_forward") or 0)
+                if legacy_total == 0:
+                    legacy_total = float(cf.get("expense_adjustment") or 0)
+                agg[pid]["direct_out"] += round(legacy_total * dp, 2)
+                agg[pid]["indirect_out"] += round(legacy_total * ip, 2)
+            else:
+                agg[pid]["direct_out"] += round(direct_cf, 2)
+                agg[pid]["indirect_out"] += round(ind_cf, 2)
 
         for v in agg.values():
             v["direct_balance"] = round(v["direct_in"] - v["direct_out"], 2)
