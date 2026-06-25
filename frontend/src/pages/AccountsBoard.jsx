@@ -4699,6 +4699,7 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
                   <th className="text-right px-3 py-2 font-semibold text-green-600">Income</th>
                   <th className="text-right px-3 py-2 font-semibold text-red-600">Expense</th>
                   <th className="text-right px-3 py-2 font-semibold text-gray-600">Balance</th>
+                  <th className="text-right px-3 py-2 font-semibold text-amber-700">Receivable</th>
                   <th className="text-center px-3 py-2 font-semibold text-gray-600">P&L</th>
                   {isSuperAdmin && <th className="text-center px-3 py-2 font-semibold text-gray-600 w-12"></th>}
                 </tr>
@@ -4719,6 +4720,7 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
                       <td className="px-3 py-2 text-right text-green-700 font-semibold cursor-pointer" onClick={navProj}><MaskedValue value={p.income} className="text-green-700" /></td>
                       <td className="px-3 py-2 text-right text-red-600 font-semibold cursor-pointer" onClick={navProj}><MaskedValue value={p.expense} className="text-red-600" /></td>
                       <td className={`px-3 py-2 text-right font-bold cursor-pointer ${p.balance >= 0 ? 'text-green-700' : 'text-red-600'}`} onClick={navProj}><MaskedValue value={p.balance} className={p.balance >= 0 ? 'text-green-700' : 'text-red-600'} /></td>
+                      <td className="px-3 py-2 text-right text-amber-700 font-semibold cursor-pointer" onClick={navProj}><MaskedValue value={((p.grand_total || 0) - (p.income || 0))} className="text-amber-700" /></td>
                       <td className="px-3 py-2 text-center cursor-pointer" onClick={navProj}>
                         <Badge className={pnl >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
                           {pnl >= 0 ? '+' : ''}{pnlPct}%
@@ -4741,7 +4743,7 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
                   );
                 })}
                 {projects.length === 0 && (
-                  <tr><td colSpan={isSuperAdmin ? 11 : 10} className="px-4 py-8 text-center text-gray-400">No projects found</td></tr>
+                  <tr><td colSpan={isSuperAdmin ? 12 : 11} className="px-4 py-8 text-center text-gray-400">No projects found</td></tr>
                 )}
               </tbody>
               {projects.length > 0 && (
@@ -4755,6 +4757,7 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
                     <td className="px-3 py-2 text-right text-green-700"><MaskedValue value={projects.reduce((s, p) => s + (p.income || 0), 0)} className="text-green-700" /></td>
                     <td className="px-3 py-2 text-right text-red-600"><MaskedValue value={projects.reduce((s, p) => s + (p.expense || 0), 0)} className="text-red-600" /></td>
                     <td className={`px-3 py-2 text-right ${totals.net_balance >= 0 ? 'text-green-700' : 'text-red-600'}`}><MaskedValue value={totals.net_balance} className={totals.net_balance >= 0 ? 'text-green-700' : 'text-red-600'} /></td>
+                    <td className="px-3 py-2 text-right text-amber-700"><MaskedValue value={projects.reduce((s, p) => s + ((p.grand_total || 0) - (p.income || 0)), 0)} className="text-amber-700" /></td>
                     <td className="px-3 py-2"></td>
                     {isSuperAdmin && <td className="px-3 py-2"></td>}
                   </tr>
