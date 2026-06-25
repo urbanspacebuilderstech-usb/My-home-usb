@@ -5291,8 +5291,22 @@ async def get_cashbook_filtered(
 
     all_expenses.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
-    total_income = sum(i.get("amount", 0) for i in incomes)
-    total_expense = sum(e.get("amount", 0) for e in all_expenses)
+    # Feb 22 2026 — The headline Total Income / Total Expense KPI cards must
+    # match the Project Wise table's bottom Total. The table is built ONLY
+    # from incomes/expenses whose `project_id` belongs to a "real" project
+    # (planning_status ∈ new/active/delivered, not blacklisted). Without
+    # this filter, soft-deleted / in-planning project incomes leaked into
+    # the headline while being excluded from the per-project rows — Sai
+    # Karthick reported ₹1.17 lakh phantom income on the Project Wise tab.
+    real_pid_set = {p["project_id"] for p in projects_list}
+    total_income = sum(
+        i.get("amount", 0) for i in incomes
+        if i.get("project_id") in real_pid_set
+    )
+    total_expense = sum(
+        e.get("amount", 0) for e in all_expenses
+        if e.get("project_id") in real_pid_set
+    )
 
     # Build income_by_mode and expense_by_mode for the Financial Overview cards,
     # honoring the same date/project filter so cards always match the table below.
@@ -5314,11 +5328,15 @@ async def get_cashbook_filtered(
     income_by_mode = {k: 0 for k in mode_keys}
     income_by_mode["total"] = total_income
     for i in incomes:
+        if i.get("project_id") not in real_pid_set:
+            continue
         income_by_mode[_classify(i.get("payment_mode"))] += i.get("amount", 0)
 
     expense_by_mode = {k: 0 for k in mode_keys}
     expense_by_mode["total"] = total_expense
     for e in all_expenses:
+        if e.get("project_id") not in real_pid_set:
+            continue
         expense_by_mode[_classify(e.get("payment_method") or e.get("payment_mode"))] += e.get("amount", 0)
 
     # Build project-wise breakdown from the FULL incomes/expenses lists
@@ -5326,7 +5344,7 @@ async def get_cashbook_filtered(
     # so the Project-Wise tab always shows all 51 projects — including
     # those with zero balance and those whose entries fell outside the
     # top-500 window (e.g. Mrs. Abinaya's older incomes).
-    real_pid_set = {p["project_id"] for p in projects_list}
+    # `real_pid_set` already computed above (for filtered totals).
     project_wise_map = {p["project_id"]: {
         "project_id": p["project_id"],
         "project_name": p.get("name", "Unknown"),
