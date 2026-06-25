@@ -4760,6 +4760,8 @@ function CarryForwardTab({ userRole }) {
   });
   // Project-wise table state (Feb 2026)
   const [projectRows, setProjectRows] = useState([]);
+  // Feb 22 2026 — Search filter for Project-wise Carry Forward table.
+  const [cfRowSearch, setCfRowSearch] = useState('');
   const [projectTotals, setProjectTotals] = useState(null);
   const [projectLoading, setProjectLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -5035,18 +5037,39 @@ function CarryForwardTab({ userRole }) {
 
       {/* ─── Project-wise Carry Forward Table (Feb 2026) ─────────────── */}
       <Card className="mt-6">
-        <CardHeader className="pb-2 flex flex-row items-center justify-between">
-          <div>
+        <CardHeader className="pb-2 flex flex-row items-center justify-between gap-3">
+          <div className="min-w-0">
             <CardTitle className="text-base">Project-wise Carry Forward</CardTitle>
             <p className="text-[11px] text-gray-500">Manual one-time adjustments to align live ledger with offline records.</p>
           </div>
-          {projectTotals && (
-            <div className="text-right text-[11px] text-gray-600">
-              <div>Total Income: <span className="font-semibold text-emerald-700">₹{projectTotals.grand_income.toLocaleString('en-IN')}</span></div>
-              <div>Total Expense: <span className="font-semibold text-rose-700">₹{projectTotals.grand_expense.toLocaleString('en-IN')}</span></div>
-              <div>Difference: <span className={`font-semibold ${projectTotals.difference >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>₹{projectTotals.difference.toLocaleString('en-IN')}</span></div>
+          <div className="flex items-center gap-3">
+            <div className="relative w-56 sm:w-64">
+              <Input
+                type="text"
+                placeholder="Search project…"
+                value={cfRowSearch}
+                onChange={(e) => setCfRowSearch(e.target.value)}
+                className="h-8 text-xs pl-3 pr-7"
+                data-testid="cf-row-search"
+              />
+              {cfRowSearch && (
+                <button
+                  type="button"
+                  onClick={() => setCfRowSearch('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm leading-none"
+                  data-testid="cf-row-search-clear"
+                  aria-label="Clear search"
+                >×</button>
+              )}
             </div>
-          )}
+            {projectTotals && (
+              <div className="text-right text-[11px] text-gray-600">
+                <div>Total Income: <span className="font-semibold text-emerald-700">₹{projectTotals.grand_income.toLocaleString('en-IN')}</span></div>
+                <div>Total Expense: <span className="font-semibold text-rose-700">₹{projectTotals.grand_expense.toLocaleString('en-IN')}</span></div>
+                <div>Difference: <span className={`font-semibold ${projectTotals.difference >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>₹{projectTotals.difference.toLocaleString('en-IN')}</span></div>
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {projectLoading ? (
@@ -5072,7 +5095,15 @@ function CarryForwardTab({ userRole }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {projectRows.map((r, idx) => (
+                  {(() => {
+                    const q = cfRowSearch.trim().toLowerCase();
+                    const filtered = projectRows.filter(r => !q || (r.project_name || '').toLowerCase().includes(q));
+                    if (filtered.length === 0) {
+                      return (
+                        <tr><td colSpan={canEdit ? 9 : 8} className="text-center text-sm text-gray-400 py-8">No project matches &quot;{cfRowSearch}&quot;</td></tr>
+                      );
+                    }
+                    return filtered.map((r, idx) => (
                     <tr key={r.project_id} className="border-t hover:bg-amber-50/30">
                       <td className="px-3 py-2 text-gray-500 tabular-nums" data-testid={`cf-row-sno-${r.project_id}`}>{idx + 1}</td>
                       <td className="px-3 py-2 font-medium text-gray-900">{r.project_name}</td>
@@ -5112,7 +5143,8 @@ function CarryForwardTab({ userRole }) {
                         </td>
                       )}
                     </tr>
-                  ))}
+                    ));
+                  })()}
                 </tbody>
               </table>
             </div>
