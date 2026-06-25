@@ -296,7 +296,34 @@ async def get_summary(project_id: Optional[str] = None, user: User = Depends(get
     # Per-project mini summary (only when not filtering by single project)
     per_project: List[Dict[str, Any]] = []
     if not project_id:
+        # Feb 22 2026 — Limit the table to the SAME 51 "real" projects that
+        # the Cashbook → Project Wise tab shows. Without this, soft-deleted
+        # in-planning leads and demo projects leak into the Cashflow Engine
+        # (Sai Karthick reported 53 rows where Project Wise shows 51).
+        _CF_BLACKLIST = [
+            "Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2",
+            "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ",
+            "RE - Mr. Joseph Vijay", "RE - Mr. Joseph Vijay ", "RE-Mr. Joseph Vijay",
+            "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding",
+        ]
+        valid_projects = await db.projects.find(
+            {"planning_status": {"$in": ["new", "active", "delivered"]}, "name": {"$nin": _CF_BLACKLIST}},
+            {"_id": 0, "project_id": 1, "name": 1, "client_name": 1},
+        ).to_list(5000)
+        valid_pid_set = {p["project_id"] for p in valid_projects}
+        # Seed every valid project so zero-balance projects also appear in
+        # the table (mirrors Project Wise where all 51 are listed even if
+        # they have no money movement yet).
+        agg: Dict[str, Dict[str, Any]] = {
+            p["project_id"]: {
+                "project_id": p["project_id"],
+                "project_name": p.get("name") or p.get("client_name") or "",
+                "direct_in": 0.0, "indirect_in": 0.0,
+                "direct_out": 0.0, "indirect_out": 0.0,
+            } for p in valid_projects
+        }
         pp_pipeline = [
+            {"$match": {"project_id": {"$in": list(valid_pid_set)}}},
             {"$group": {
                 "_id": {"project_id": "$project_id", "kind": "$kind"},
                 "direct": {"$sum": "$direct_amount"},
@@ -304,32 +331,66 @@ async def get_summary(project_id: Optional[str] = None, user: User = Depends(get
                 "project_name": {"$first": "$project_name"},
             }}
         ]
-        agg: Dict[str, Dict[str, Any]] = {}
         async for row in db.cashflow_ledger.aggregate(pp_pipeline):
-            pid = row["_id"].get("project_id") or "_unassigned_"
+            pid = row["_id"].get("project_id")
             kind = row["_id"].get("kind")
-            agg.setdefault(pid, {"project_id": pid, "project_name": row.get("project_name") or "", "direct_in": 0.0, "indirect_in": 0.0, "direct_out": 0.0, "indirect_out": 0.0})
+            if pid not in agg:
+                continue
+            if row.get("project_name") and not agg[pid]["project_name"]:
+                agg[pid]["project_name"] = row["project_name"]
             if kind == "income":
                 agg[pid]["direct_in"] += row.get("direct", 0.0) or 0.0
                 agg[pid]["indirect_in"] += row.get("indirect", 0.0) or 0.0
             else:
                 agg[pid]["direct_out"] += row.get("direct", 0.0) or 0.0
                 agg[pid]["indirect_out"] += row.get("indirect", 0.0) or 0.0
+
+        # Feb 22 2026 — Roll project_carry_forwards into the Cashflow Engine
+        # so the Direct/Indirect pools reflect ALL money flow (matches the
+        # Project Wise tab convention). Income (`income_carry_forward +
+        # income_adjustment`) is split by the project's effective split;
+        # Expense (`expense_carry_forward + expense_adjustment`) is split
+        # by the SAME ratio so the pools dry out symmetrically.
+        async for cf in db.project_carry_forwards.find(
+            {"project_id": {"$in": list(valid_pid_set)}},
+            {"_id": 0, "project_id": 1, "income_carry_forward": 1, "income_adjustment": 1,
+             "expense_carry_forward": 1, "expense_adjustment": 1},
+        ):
+            pid = cf.get("project_id")
+            if pid not in agg:
+                continue
+            sp = await _get_effective_split(pid)
+            dp = float(sp.get("direct_pct", 85.0)) / 100.0
+            ip = float(sp.get("indirect_pct", 15.0)) / 100.0
+            cf_inc = float(cf.get("income_carry_forward") or 0) + float(cf.get("income_adjustment") or 0)
+            cf_exp = float(cf.get("expense_carry_forward") or 0) + float(cf.get("expense_adjustment") or 0)
+            agg[pid]["direct_in"] += round(cf_inc * dp, 2)
+            agg[pid]["indirect_in"] += round(cf_inc * ip, 2)
+            agg[pid]["direct_out"] += round(cf_exp * dp, 2)
+            agg[pid]["indirect_out"] += round(cf_exp * ip, 2)
+
         for v in agg.values():
             v["direct_balance"] = round(v["direct_in"] - v["direct_out"], 2)
             v["indirect_balance"] = round(v["indirect_in"] - v["indirect_out"], 2)
             v["net"] = round(v["direct_balance"] + v["indirect_balance"], 2)
             # Attach effective split + override flag so the UI can show "85% / 15% (Override)" per row
-            if v["project_id"] and v["project_id"] != "_unassigned_":
-                split = await _get_effective_split(v["project_id"])
-                override = await db.cashflow_config.find_one({"_id": f"project:{v['project_id']}"}, {"_id": 1})
-                v["effective_split"] = split
-                v["has_override"] = bool(override)
-            else:
-                v["effective_split"] = await _get_global_split()
-                v["has_override"] = False
+            split = await _get_effective_split(v["project_id"])
+            override = await db.cashflow_config.find_one({"_id": f"project:{v['project_id']}"}, {"_id": 1})
+            v["effective_split"] = split
+            v["has_override"] = bool(override)
             per_project.append(v)
         per_project.sort(key=lambda x: -(x["net"] or 0))
+
+        # Feb 22 2026 — Top KPI cards must match the per_project totals so
+        # the Cashflow Overview and the per-project rows tell the same story.
+        # Replaces the earlier global aggregation (which ignored the valid-
+        # project filter and CF amounts).
+        direct_in = round(sum(v["direct_in"] for v in per_project), 2)
+        indirect_in = round(sum(v["indirect_in"] for v in per_project), 2)
+        direct_out = round(sum(v["direct_out"] for v in per_project), 2)
+        indirect_out = round(sum(v["indirect_out"] for v in per_project), 2)
+        income_total = round(direct_in + indirect_in, 2)
+        expense_total = round(direct_out + indirect_out, 2)
 
     return {
         "income_total": round(income_total, 2),
