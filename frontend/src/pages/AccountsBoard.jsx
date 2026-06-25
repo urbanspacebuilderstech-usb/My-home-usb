@@ -4483,7 +4483,17 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
   })();
 
   const totals = filteredData?.summary
-    ? { total_income: filteredData.summary.total_income, total_expense: filteredData.summary.total_expense, net_balance: filteredData.summary.net_balance }
+    ? {
+        total_income: filteredData.summary.total_income,
+        total_expense: filteredData.summary.total_expense,
+        net_balance: filteredData.summary.net_balance,
+        // Feb 22 2026 — Project Value Calculation cards on Project Wise tab.
+        scope_value: filteredData.summary.scope_value || 0,
+        additions_total: filteredData.summary.additions_total || 0,
+        deductions_total: filteredData.summary.deductions_total || 0,
+        grand_total_value: filteredData.summary.grand_total_value || 0,
+        receivable: filteredData.summary.receivable || 0,
+      }
     : (overview?.totals || {});
 
   return (
