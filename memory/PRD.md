@@ -13,6 +13,23 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 22, 2026 (Part 2) — Account / Cashflow Engine accuracy sweep
+- **Status**: ✅ ALL DEPLOYED (commits `bf45760e` → `6ff33493`).
+- **a) Contractor Suspense bug** — fixed canonical `type` vs `movement` field; Appala Naidu balance now exactly ₹50,000.
+- **b) Suspense-only release** routed through multi-mode insert so payment_method = "cheque" (was wrongly showing HDFC SAVINGS).
+- **c) Multi-stage RAB Edit** now pre-checks every sibling stage from `stage_breakdown`. SE can uncheck a stage to drop it; backend DELETE accepts `cascade=false` so RAB-XX number is preserved.
+- **d) Lock Closing Balance popup** reordered & relabelled (Cash → HDFC Current → HDFC Savings → Cheque → Cash DT). Each Income value now auto-creates a Cashbook Income row tagged `source=carry_forward_lock`; surfaces under a new 3rd "Carry Forward" sub-tab next to Main Income & Direct Transfer.
+- **e) Project Wise Total Income / Project Wise table mismatch** — backend `cashbook-filtered` summary + per-mode breakdowns now filter to the 51 valid `real_pid_set` projects (excludes orphan in-planning / blacklisted demos), removing ₹99,900 phantom inflow.
+- **f) Cashflow Engine 53→51 rows** — `get_summary` per_project now filters to the same valid project set, seeds zero-balance rows so all 51 show.
+- **g) Carry Forward roll-up** into Cashflow Engine — income CF split 85/15; expense CF now uses EXPLICIT per-bucket fields (`material_carry_forward + labour_carry_forward + petty_cash_carry_forward` → Direct Out; `indirect_carry_forward` → Indirect Out). Fixed double-counting bug (was treating `expense_adjustment` as separate when it duplicates `indirect_carry_forward`).
+- **h) Phantom expense ledger heal** — purged 39 orphan cashflow_ledger expense rows totalling ₹9,55,571.40 whose source `recorded_expenses` had been deleted. Patched `delete_cashbook_expense` to call `reverse_allocation()` so future deletes auto-purge.
+- **i) Bounced-cheque ledger heal** — purged 3 income (₹1,62,279) + 13 expense bounced-cheque cashflow_ledger rows. Patched cheque-bounce endpoint to call `reverse_allocation()`.
+- **j) S.No column** added to Per-Project Cashflow + Project-wise Carry Forward tables.
+- **k) Search bars** added on Cashflow Engine Per-Project + Carry Forward Project-wise tables.
+- **l) Project Wise KPI redesign** — replaced 3-card row (Income/Expense/Net) with two grouped sections:
+  - **Project Value Calculation**: Scope Value (₹21.07Cr) + Additions (₹3.43Cr) − Deductions (₹21.55L) = Grand Total (₹24.29Cr)
+  - **Financial Performance**: Total Income (₹12.87Cr, 52.99%) + Total Expense (₹7.70Cr, 59.88%) + Total Balance (₹5.16Cr) + Receivable (₹11.42Cr, Grand Total − Income)
+
 ### Session — Feb 22, 2026 — Contractor Suspense Reversal Field-Name Bug (P0)
 - **Status**: ✅ DEPLOYED to VPS (commit `e1bc58d6`).
 - **User report**: Deleted RAB-27 (₹15,000 suspense-funded) didn't refund the suspense; user wanted Appala Naidu's final Contractor Suspense balance to be exactly ₹50,000.
