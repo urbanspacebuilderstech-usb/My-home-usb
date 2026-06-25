@@ -5417,6 +5417,48 @@ async def get_cashbook_filtered(
     total_income_with_cf = total_income + cf_inc_grand
     total_expense_with_cf = total_expense + cf_exp_grand
 
+    # Feb 22 2026 — Project Value Calculation KPIs on the Project Wise tab.
+    # Sai Karthick replaced the old 3-card row (Total Income / Total Expense
+    # / Net Balance) with two grouped sections:
+    #   • Project Value Calculation: Scope Value + Additions − Deductions
+    #     = Grand Total
+    #   • Financial Performance:      Total Income, Total Expense, Total
+    #     Balance, Receivable (Grand Total − Total Income)
+    # Computed across the SAME 51 real projects so all cards reconcile.
+    scope_value = 0.0
+    additions_total = 0.0
+    deductions_total = 0.0
+    if real_pid_set:
+        proj_ids_list = list(real_pid_set)
+        # Per-project scope = sum of scope_items.total_amount, falling back
+        # to projects.total_value when no scope_items exist (legacy projects).
+        scope_rows = await db.scope_items.find(
+            {"project_id": {"$in": proj_ids_list}},
+            {"_id": 0, "project_id": 1, "total_amount": 1},
+        ).to_list(50000)
+        scope_by_pid: Dict[str, float] = {}
+        for s in scope_rows:
+            scope_by_pid[s["project_id"]] = scope_by_pid.get(s["project_id"], 0.0) + float(s.get("total_amount") or 0)
+        proj_value_lookup = {p["project_id"]: float(p.get("total_value") or 0) for p in projects_list}
+        for pid in proj_ids_list:
+            scope_value += scope_by_pid.get(pid) if pid in scope_by_pid else proj_value_lookup.get(pid, 0.0)
+        # Additions / Deductions only count when CLIENT has approved them
+        # (mirrors /admin/dashboard-summary aggregation).
+        add_pipeline = [
+            {"$match": {"project_id": {"$in": proj_ids_list}, "client_approval_status": "client_approved"}},
+            {"$group": {"_id": None, "t": {"$sum": "$estimated_amount"}}},
+        ]
+        async for r in db.additional_costs.aggregate(add_pipeline):
+            additions_total += float(r.get("t") or 0)
+        ded_pipeline = [
+            {"$match": {"project_id": {"$in": proj_ids_list}, "client_approval_status": "client_approved"}},
+            {"$group": {"_id": None, "t": {"$sum": "$amount"}}},
+        ]
+        async for r in db.deductions.aggregate(ded_pipeline):
+            deductions_total += float(r.get("t") or 0)
+    grand_total_value = round(scope_value + additions_total - deductions_total, 2)
+    receivable = round(grand_total_value - total_income_with_cf, 2)
+
     return {
         "income_entries": incomes[:500],
         "expense_entries": all_expenses[:500],
@@ -5437,6 +5479,12 @@ async def get_cashbook_filtered(
             "total_cf_expense": cf_exp_grand,
             "income_count": len(incomes),
             "expense_count": len(all_expenses),
+            # Feb 22 2026 — Project Value Calculation cards on Project Wise tab.
+            "scope_value": round(scope_value, 2),
+            "additions_total": round(additions_total, 2),
+            "deductions_total": round(deductions_total, 2),
+            "grand_total_value": grand_total_value,
+            "receivable": receivable,
         }
     }
 

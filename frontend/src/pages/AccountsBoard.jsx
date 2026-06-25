@@ -1719,7 +1719,17 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
   const inc = cashbookData?.income_by_mode || overview?.income_by_mode || {};
   const exp = cashbookData?.expense_by_mode || overview?.expense_by_mode || {};
   const totals = cashbookData?.summary
-    ? { total_income: cashbookData.summary.total_income, total_expense: cashbookData.summary.total_expense, net_balance: cashbookData.summary.net_balance }
+    ? {
+        total_income: cashbookData.summary.total_income,
+        total_expense: cashbookData.summary.total_expense,
+        net_balance: cashbookData.summary.net_balance,
+        // Feb 22 2026 — Project Value Calculation cards on Project Wise tab.
+        scope_value: cashbookData.summary.scope_value || 0,
+        additions_total: cashbookData.summary.additions_total || 0,
+        deductions_total: cashbookData.summary.deductions_total || 0,
+        grand_total_value: cashbookData.summary.grand_total_value || 0,
+        receivable: cashbookData.summary.receivable || 0,
+      }
     : (overview?.totals || {});
 
   // Expense category calc
@@ -4582,26 +4592,79 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-3 gap-3">
-        <Card className="border-l-4 border-l-green-500">
-          <CardContent className="p-3">
-            <p className="text-xs text-gray-500">Total Income</p>
-            <p className="text-lg font-bold text-green-700"><MaskedValue value={totals.total_income} className="text-green-700" testId="masked-proj-income" /></p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-red-500">
-          <CardContent className="p-3">
-            <p className="text-xs text-gray-500">Total Expense</p>
-            <p className="text-lg font-bold text-red-600"><MaskedValue value={totals.total_expense} className="text-red-600" testId="masked-proj-expense" /></p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-amber-500">
-          <CardContent className="p-3">
-            <p className="text-xs text-gray-500">Net Balance</p>
-            <p className={`text-lg font-bold ${(totals.net_balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}><MaskedValue value={totals.net_balance} className={(totals.net_balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'} testId="masked-proj-net" /></p>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Feb 22 2026 — Project Wise hero cards split into two grouped
+          sections: Project Value Calculation (Scope + Additions − Deductions
+          = Grand Total) and Financial Performance (Income / Expense /
+          Balance / Receivable). Replaces the legacy 3-card row. */}
+      {(() => {
+        const sv = totals.scope_value || 0;
+        const ad = totals.additions_total || 0;
+        const dd = totals.deductions_total || 0;
+        const gt = totals.grand_total_value || 0;
+        const ti = totals.total_income || 0;
+        const te = totals.total_expense || 0;
+        const tb = totals.net_balance || 0;
+        const rc = totals.receivable || 0;
+        const pctOfValue = gt > 0 ? ((ti / gt) * 100).toFixed(1) : '0.0';
+        const pctOfIncome = ti > 0 ? ((te / ti) * 100).toFixed(1) : '0.0';
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Project Value Calculation */}
+            <Card className="border-t-4 border-t-indigo-300 bg-indigo-50/30">
+              <CardContent className="p-3">
+                <p className="text-[10px] uppercase tracking-wider text-indigo-700/80 font-bold mb-2">Project Value Calculation</p>
+                <div className="grid grid-cols-4 gap-2">
+                  <div className="bg-white rounded-md border border-blue-200 p-2.5 text-center" data-testid="pw-scope-value">
+                    <p className="text-[10px] uppercase text-gray-500 font-semibold">Scope Value</p>
+                    <p className="text-sm font-bold text-blue-700 mt-1 break-words"><MaskedValue value={sv} className="text-blue-700" testId="masked-scope" /></p>
+                  </div>
+                  <div className="bg-white rounded-md border border-cyan-200 p-2.5 text-center" data-testid="pw-additions">
+                    <p className="text-[10px] uppercase text-gray-500 font-semibold">Additions</p>
+                    <p className="text-sm font-bold text-cyan-700 mt-1 break-words"><MaskedValue value={ad} className="text-cyan-700" testId="masked-additions" /></p>
+                  </div>
+                  <div className="bg-white rounded-md border border-orange-200 p-2.5 text-center" data-testid="pw-deductions">
+                    <p className="text-[10px] uppercase text-gray-500 font-semibold">Deductions</p>
+                    <p className="text-sm font-bold text-orange-700 mt-1 break-words"><MaskedValue value={dd} className="text-orange-700" testId="masked-deductions" /></p>
+                  </div>
+                  <div className="bg-violet-600 rounded-md border border-violet-700 p-2.5 text-center text-white" data-testid="pw-grand-total">
+                    <p className="text-[10px] uppercase text-violet-100 font-semibold">Grand Total</p>
+                    <p className="text-sm font-bold mt-1 break-words"><MaskedValue value={gt} className="text-white" testId="masked-grand-total" /></p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Financial Performance */}
+            <Card className="border-t-4 border-t-emerald-300 bg-emerald-50/30">
+              <CardContent className="p-3">
+                <p className="text-[10px] uppercase tracking-wider text-emerald-700/80 font-bold mb-2">Financial Performance</p>
+                <div className="grid grid-cols-4 gap-2">
+                  <div className="bg-white rounded-md border border-emerald-200 p-2.5 text-center" data-testid="pw-total-income">
+                    <p className="text-[10px] uppercase text-gray-500 font-semibold">Total Income</p>
+                    <p className="text-sm font-bold text-emerald-700 mt-1 break-words"><MaskedValue value={ti} className="text-emerald-700" testId="masked-proj-income" /></p>
+                    <p className="text-[9px] text-gray-400 mt-0.5">{pctOfValue}% of value</p>
+                  </div>
+                  <div className="bg-white rounded-md border border-rose-200 p-2.5 text-center" data-testid="pw-total-expense">
+                    <p className="text-[10px] uppercase text-gray-500 font-semibold">Total Expense</p>
+                    <p className="text-sm font-bold text-rose-700 mt-1 break-words"><MaskedValue value={te} className="text-rose-700" testId="masked-proj-expense" /></p>
+                    <p className="text-[9px] text-gray-400 mt-0.5">{pctOfIncome}% of income</p>
+                  </div>
+                  <div className="bg-white rounded-md border border-indigo-200 p-2.5 text-center" data-testid="pw-total-balance">
+                    <p className="text-[10px] uppercase text-gray-500 font-semibold">Total Balance</p>
+                    <p className={`text-sm font-bold mt-1 break-words ${tb >= 0 ? 'text-indigo-700' : 'text-rose-700'}`}><MaskedValue value={tb} className={tb >= 0 ? 'text-indigo-700' : 'text-rose-700'} testId="masked-proj-net" /></p>
+                    <p className="text-[9px] text-gray-400 mt-0.5">Income − Expense</p>
+                  </div>
+                  <div className="bg-amber-500 rounded-md border border-amber-600 p-2.5 text-center text-white" data-testid="pw-receivable">
+                    <p className="text-[10px] uppercase text-amber-100 font-semibold">Receivable</p>
+                    <p className="text-sm font-bold mt-1 break-words"><MaskedValue value={rc} className="text-white" testId="masked-receivable" /></p>
+                    <p className="text-[9px] text-amber-100 mt-0.5">Yet to receive</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        );
+      })()}
 
       <Card>
         <CardHeader className="py-3 px-4 border-b">
