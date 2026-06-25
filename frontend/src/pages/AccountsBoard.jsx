@@ -4692,6 +4692,10 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
                 <tr>
                   <th className="text-left px-3 py-2 font-semibold text-gray-600">S.No</th>
                   <th className="text-left px-3 py-2 font-semibold text-gray-600">Project</th>
+                  <th className="text-right px-3 py-2 font-semibold text-blue-700">Scope Value</th>
+                  <th className="text-right px-3 py-2 font-semibold text-cyan-700">Additions</th>
+                  <th className="text-right px-3 py-2 font-semibold text-orange-700">Deductions</th>
+                  <th className="text-right px-3 py-2 font-semibold text-violet-700">Grand Total</th>
                   <th className="text-right px-3 py-2 font-semibold text-green-600">Income</th>
                   <th className="text-right px-3 py-2 font-semibold text-red-600">Expense</th>
                   <th className="text-right px-3 py-2 font-semibold text-gray-600">Balance</th>
@@ -4703,14 +4707,19 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
                 {projects.map((p, i) => {
                   const pnl = (p.income || 0) - (p.expense || 0);
                   const pnlPct = p.income ? ((pnl / p.income) * 100).toFixed(1) : '0.0';
+                  const navProj = () => p.project_id && navigate(`/projects/${p.project_id}`);
                   return (
                     <tr key={i} className="hover:bg-amber-50 transition-colors" data-testid={`project-row-${i}`}>
-                      <td className="px-3 py-2 text-gray-400 cursor-pointer" onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}>{i + 1}</td>
-                      <td className="px-3 py-2 font-medium text-blue-700 underline decoration-dotted cursor-pointer" onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}>{(p.project_name || '').replace(/\s+/g, ' ').trim()}</td>
-                      <td className="px-3 py-2 text-right text-green-700 font-semibold cursor-pointer" onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}><MaskedValue value={p.income} className="text-green-700" /></td>
-                      <td className="px-3 py-2 text-right text-red-600 font-semibold cursor-pointer" onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}><MaskedValue value={p.expense} className="text-red-600" /></td>
-                      <td className={`px-3 py-2 text-right font-bold cursor-pointer ${p.balance >= 0 ? 'text-green-700' : 'text-red-600'}`} onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}><MaskedValue value={p.balance} className={p.balance >= 0 ? 'text-green-700' : 'text-red-600'} /></td>
-                      <td className="px-3 py-2 text-center cursor-pointer" onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}>
+                      <td className="px-3 py-2 text-gray-400 cursor-pointer" onClick={navProj}>{i + 1}</td>
+                      <td className="px-3 py-2 font-medium text-blue-700 underline decoration-dotted cursor-pointer" onClick={navProj}>{(p.project_name || '').replace(/\s+/g, ' ').trim()}</td>
+                      <td className="px-3 py-2 text-right text-blue-700 font-medium cursor-pointer" onClick={navProj}><MaskedValue value={p.scope_value || 0} className="text-blue-700" /></td>
+                      <td className="px-3 py-2 text-right text-cyan-700 font-medium cursor-pointer" onClick={navProj}><MaskedValue value={p.additions || 0} className="text-cyan-700" /></td>
+                      <td className="px-3 py-2 text-right text-orange-700 font-medium cursor-pointer" onClick={navProj}><MaskedValue value={p.deductions || 0} className="text-orange-700" /></td>
+                      <td className="px-3 py-2 text-right text-violet-700 font-bold cursor-pointer" onClick={navProj}><MaskedValue value={p.grand_total || 0} className="text-violet-700" /></td>
+                      <td className="px-3 py-2 text-right text-green-700 font-semibold cursor-pointer" onClick={navProj}><MaskedValue value={p.income} className="text-green-700" /></td>
+                      <td className="px-3 py-2 text-right text-red-600 font-semibold cursor-pointer" onClick={navProj}><MaskedValue value={p.expense} className="text-red-600" /></td>
+                      <td className={`px-3 py-2 text-right font-bold cursor-pointer ${p.balance >= 0 ? 'text-green-700' : 'text-red-600'}`} onClick={navProj}><MaskedValue value={p.balance} className={p.balance >= 0 ? 'text-green-700' : 'text-red-600'} /></td>
+                      <td className="px-3 py-2 text-center cursor-pointer" onClick={navProj}>
                         <Badge className={pnl >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
                           {pnl >= 0 ? '+' : ''}{pnlPct}%
                         </Badge>
@@ -4732,13 +4741,17 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
                   );
                 })}
                 {projects.length === 0 && (
-                  <tr><td colSpan={isSuperAdmin ? 7 : 6} className="px-4 py-8 text-center text-gray-400">No projects found</td></tr>
+                  <tr><td colSpan={isSuperAdmin ? 11 : 10} className="px-4 py-8 text-center text-gray-400">No projects found</td></tr>
                 )}
               </tbody>
               {projects.length > 0 && (
                 <tfoot className="bg-gray-100 border-t-2 border-gray-300">
                   <tr className="font-bold">
                     <td className="px-3 py-2" colSpan={2}>Total ({projects.length} projects)</td>
+                    <td className="px-3 py-2 text-right text-blue-700"><MaskedValue value={projects.reduce((s, p) => s + (p.scope_value || 0), 0)} className="text-blue-700" /></td>
+                    <td className="px-3 py-2 text-right text-cyan-700"><MaskedValue value={projects.reduce((s, p) => s + (p.additions || 0), 0)} className="text-cyan-700" /></td>
+                    <td className="px-3 py-2 text-right text-orange-700"><MaskedValue value={projects.reduce((s, p) => s + (p.deductions || 0), 0)} className="text-orange-700" /></td>
+                    <td className="px-3 py-2 text-right text-violet-700"><MaskedValue value={projects.reduce((s, p) => s + (p.grand_total || 0), 0)} className="text-violet-700" /></td>
                     <td className="px-3 py-2 text-right text-green-700"><MaskedValue value={projects.reduce((s, p) => s + (p.income || 0), 0)} className="text-green-700" /></td>
                     <td className="px-3 py-2 text-right text-red-600"><MaskedValue value={projects.reduce((s, p) => s + (p.expense || 0), 0)} className="text-red-600" /></td>
                     <td className={`px-3 py-2 text-right ${totals.net_balance >= 0 ? 'text-green-700' : 'text-red-600'}`}><MaskedValue value={totals.net_balance} className={totals.net_balance >= 0 ? 'text-green-700' : 'text-red-600'} /></td>

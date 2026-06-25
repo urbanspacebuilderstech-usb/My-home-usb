@@ -5425,9 +5425,17 @@ async def get_cashbook_filtered(
     #   • Financial Performance:      Total Income, Total Expense, Total
     #     Balance, Receivable (Grand Total − Total Income)
     # Computed across the SAME 51 real projects so all cards reconcile.
+    #
+    # Same per-project numbers are also stamped onto each
+    # `project_wise_map[pid]` row so the All Projects table can render
+    # the new Scope/Additions/Deductions/Grand-Total columns next to
+    # Income/Expense/Balance.
     scope_value = 0.0
     additions_total = 0.0
     deductions_total = 0.0
+    per_pid_scope: Dict[str, float] = {}
+    per_pid_add: Dict[str, float] = {}
+    per_pid_ded: Dict[str, float] = {}
     if real_pid_set:
         proj_ids_list = list(real_pid_set)
         # Per-project scope = sum of scope_items.total_amount, falling back
@@ -5441,21 +5449,34 @@ async def get_cashbook_filtered(
             scope_by_pid[s["project_id"]] = scope_by_pid.get(s["project_id"], 0.0) + float(s.get("total_amount") or 0)
         proj_value_lookup = {p["project_id"]: float(p.get("total_value") or 0) for p in projects_list}
         for pid in proj_ids_list:
-            scope_value += scope_by_pid.get(pid) if pid in scope_by_pid else proj_value_lookup.get(pid, 0.0)
+            pid_scope = scope_by_pid.get(pid) if pid in scope_by_pid else proj_value_lookup.get(pid, 0.0)
+            per_pid_scope[pid] = pid_scope
+            scope_value += pid_scope
         # Additions / Deductions only count when CLIENT has approved them
         # (mirrors /admin/dashboard-summary aggregation).
         add_pipeline = [
             {"$match": {"project_id": {"$in": proj_ids_list}, "client_approval_status": "client_approved"}},
-            {"$group": {"_id": None, "t": {"$sum": "$estimated_amount"}}},
+            {"$group": {"_id": "$project_id", "t": {"$sum": "$estimated_amount"}}},
         ]
         async for r in db.additional_costs.aggregate(add_pipeline):
+            per_pid_add[r["_id"]] = float(r.get("t") or 0)
             additions_total += float(r.get("t") or 0)
         ded_pipeline = [
             {"$match": {"project_id": {"$in": proj_ids_list}, "client_approval_status": "client_approved"}},
-            {"$group": {"_id": None, "t": {"$sum": "$amount"}}},
+            {"$group": {"_id": "$project_id", "t": {"$sum": "$amount"}}},
         ]
         async for r in db.deductions.aggregate(ded_pipeline):
+            per_pid_ded[r["_id"]] = float(r.get("t") or 0)
             deductions_total += float(r.get("t") or 0)
+        # Stamp per-project numbers onto the project_wise rows.
+        for pid, pw in project_wise_map.items():
+            pw_scope = per_pid_scope.get(pid, 0.0)
+            pw_add = per_pid_add.get(pid, 0.0)
+            pw_ded = per_pid_ded.get(pid, 0.0)
+            pw["scope_value"] = round(pw_scope, 2)
+            pw["additions"] = round(pw_add, 2)
+            pw["deductions"] = round(pw_ded, 2)
+            pw["grand_total"] = round(pw_scope + pw_add - pw_ded, 2)
     grand_total_value = round(scope_value + additions_total - deductions_total, 2)
     receivable = round(grand_total_value - total_income_with_cf, 2)
 
