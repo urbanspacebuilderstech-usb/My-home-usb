@@ -260,6 +260,7 @@ export default function CashflowEngine() {
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 border-y text-[11px] uppercase text-gray-500">
                       <tr>
+                        <th className="px-4 py-2 text-center w-12">S.No</th>
                         <th className="px-4 py-2 text-left">Project</th>
                         <th className="px-4 py-2 text-center">Split</th>
                         <th className="px-4 py-2 text-right">Direct In</th>
@@ -273,9 +274,10 @@ export default function CashflowEngine() {
                     </thead>
                     <tbody className="divide-y">
                       {(summary?.per_project || []).length === 0 ? (
-                        <tr><td colSpan="9" className="p-6 text-center text-gray-400">No allocations yet — approve income or run "Recompute From Source".</td></tr>
-                      ) : (summary.per_project.map(p => (
+                        <tr><td colSpan="10" className="p-6 text-center text-gray-400">No allocations yet — approve income or run "Recompute From Source".</td></tr>
+                      ) : (summary.per_project.map((p, idx) => (
                         <tr key={p.project_id} className="hover:bg-gray-50" data-testid={`cf-summary-row-${p.project_id}`}>
+                          <td className="px-4 py-2.5 text-center text-gray-500 tabular-nums">{idx + 1}</td>
                           <td className="px-4 py-2.5">
                             <Link to={`/projects/${p.project_id}`} className="text-indigo-600 hover:underline font-medium">{p.project_name || '— Unassigned —'}</Link>
                           </td>
