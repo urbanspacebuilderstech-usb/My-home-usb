@@ -1305,6 +1305,26 @@ async def delete_cashbook_expense(expense_type: str, record_id: str, user: User 
         existing = await coll.find_one({id_field: record_id}, {"_id": 0})
         if existing:
             await coll.delete_one({id_field: record_id})
+            # Feb 22 2026 — Reverse the cashflow_ledger allocation so the
+            # Direct/Indirect pool balances + Per-Project Cashflow rows
+            # don't carry phantom expenses forever after a cashbook delete.
+            # (Sai Karthick reported Anbu Demo Dr showed ₹2,24,993 Direct
+            # Out from 5 labour expenses that had already been deleted —
+            # because the cashflow_ledger row was never purged.)
+            try:
+                from routes.cashflow import reverse_allocation
+                # Probe both the native and unified id keys — different
+                # collections used different `source_id` values when the
+                # ledger was first seeded.
+                for probe_id in {record_id, existing.get("expense_id"),
+                                 existing.get("labour_expense_id"),
+                                 existing.get("material_expense_id"),
+                                 existing.get("request_id"),
+                                 existing.get("direct_expense_id")}:
+                    if probe_id:
+                        await reverse_allocation(probe_id, kind="expense")
+            except Exception as e:
+                import logging; logging.getLogger(__name__).warning(f"cashflow reverse_allocation failed for expense {record_id}: {e}")
             # Side-effect: reverse the matching work_order payment_request so
             # the Site Engineer view stops showing "Paid" for the deleted
             # advance. recorded_expenses from `wo_stage_release` carry the
