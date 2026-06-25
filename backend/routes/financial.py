@@ -5783,6 +5783,20 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
             remaining = 0
             new_status = income.get("status")
         await db.income.update_one({"income_id": income_id}, {"$set": update})
+        # Feb 22 2026 — Keep the cashflow_ledger in sync with the bounce.
+        #   • Full bounce → income is dropped from totals, so reverse the
+        #     entire allocation.
+        #   • Partial bounce → reverse the allocation and re-allocate the
+        #     reduced amount so Direct/Indirect pools stay accurate.
+        try:
+            from routes.cashflow import reverse_allocation, allocate_income
+            await reverse_allocation(income_id, kind="income")
+            if new_status != "cheque_bounced":
+                refreshed = await db.income.find_one({"income_id": income_id}, {"_id": 0})
+                if refreshed:
+                    await allocate_income(refreshed)
+        except Exception as e:
+            import logging; logging.getLogger(__name__).warning(f"cashflow reverse_allocation failed for bounced income {income_id}: {e}")
         if stage_id:
             stage_deltas[stage_id] = stage_deltas.get(stage_id, 0.0) + deduct
         reversal_summary["total_income_reversed"] += deduct
@@ -5863,6 +5877,14 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
                     "updated_at": now,
                 }}
             )
+            # Feb 22 2026 — Reverse the matching cashflow_ledger allocation
+            # so the Cashflow Engine Direct/Indirect pools no longer count
+            # this bounced expense.
+            try:
+                from routes.cashflow import reverse_allocation
+                await reverse_allocation(expense_id, kind="expense")
+            except Exception as e:
+                import logging; logging.getLogger(__name__).warning(f"cashflow reverse_allocation failed for bounced expense {expense_id}: {e}")
             # Re-open the approval request row so it appears in the Materials queue again
             req_id = rec_exp.get("approval_id") or rec_exp.get("request_id")
             req_type = rec_exp.get("request_type") or rec_exp.get("expense_type") or rec_exp.get("category")
