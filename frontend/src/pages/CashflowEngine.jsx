@@ -29,6 +29,9 @@ export default function CashflowEngine() {
   // Lock state: global split is locked once saved; admin must enter password to re-edit.
   const [globalLocked, setGlobalLocked] = useState(true);
   const [pwDialog, setPwDialog] = useState({ open: false, password: '', verifying: false });
+  // Feb 22 2026 — Per-Project Cashflow search filter (case-insensitive,
+  // matches project name).
+  const [ppSearch, setPpSearch] = useState('');
 
   const fetchAll = async () => {
     setLoading(true);
@@ -254,7 +257,28 @@ export default function CashflowEngine() {
           {/* SUMMARY: Per-project breakdown */}
           <TabsContent value="summary">
             <Card>
-              <CardHeader><CardTitle className="text-base">Per-Project Cashflow</CardTitle></CardHeader>
+              <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
+                <CardTitle className="text-base">Per-Project Cashflow</CardTitle>
+                <div className="relative w-64 max-w-full">
+                  <Input
+                    type="text"
+                    placeholder="Search project…"
+                    value={ppSearch}
+                    onChange={(e) => setPpSearch(e.target.value)}
+                    className="h-8 text-xs pl-3 pr-8"
+                    data-testid="cf-summary-project-search"
+                  />
+                  {ppSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setPpSearch('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm leading-none"
+                      data-testid="cf-summary-project-search-clear"
+                      aria-label="Clear search"
+                    >×</button>
+                  )}
+                </div>
+              </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -273,9 +297,17 @@ export default function CashflowEngine() {
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {(summary?.per_project || []).length === 0 ? (
-                        <tr><td colSpan="10" className="p-6 text-center text-gray-400">No allocations yet — approve income or run "Recompute From Source".</td></tr>
-                      ) : (summary.per_project.map((p, idx) => (
+                      {(() => {
+                        const q = ppSearch.trim().toLowerCase();
+                        const rows = (summary?.per_project || []).filter(p => !q || (p.project_name || '').toLowerCase().includes(q));
+                        if (rows.length === 0) {
+                          return (
+                            <tr><td colSpan="10" className="p-6 text-center text-gray-400">
+                              {q ? `No project matches "${ppSearch}"` : 'No allocations yet — approve income or run "Recompute From Source".'}
+                            </td></tr>
+                          );
+                        }
+                        return rows.map((p, idx) => (
                         <tr key={p.project_id} className="hover:bg-gray-50" data-testid={`cf-summary-row-${p.project_id}`}>
                           <td className="px-4 py-2.5 text-center text-gray-500 tabular-nums">{idx + 1}</td>
                           <td className="px-4 py-2.5">
@@ -297,7 +329,8 @@ export default function CashflowEngine() {
                           <td className="px-4 py-2.5 text-right font-semibold">{fmt(p.indirect_balance)}</td>
                           <td className={`px-4 py-2.5 text-right font-bold ${p.net >= 0 ? 'text-violet-700' : 'text-rose-700'}`}>{fmt(p.net)}</td>
                         </tr>
-                      )))}
+                        ));
+                      })()}
                     </tbody>
                   </table>
                 </div>
