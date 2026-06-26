@@ -1083,6 +1083,9 @@ function IndirectExpenseSection({ userRole }) {
   const [createDialog, setCreateDialog] = useState(false);
   const [approveDialog, setApproveDialog] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(false);
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [costToDelete, setCostToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const [selectedCost, setSelectedCost] = useState(null);
   const [distributionPreview, setDistributionPreview] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
@@ -1181,10 +1184,27 @@ function IndirectExpenseSection({ userRole }) {
     }
   };
 
+  const handleDeleteCost = async () => {
+    if (!costToDelete) return;
+    setDeleting(true);
+    try {
+      await axios.delete(`${API}/financial/indirect-costs/${costToDelete.indirect_cost_id}`);
+      toast.success('Indirect cost deleted');
+      setDeleteDialog(false);
+      setCostToDelete(null);
+      fetchIndirect(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const getCategoryLabel = (v) => categories.find(c => c.value === v)?.label || v;
   const canCreate = ['accountant', 'super_admin'].includes(userRole);
   const canApprove = ['super_admin', 'general_manager'].includes(userRole);
   const canConfirm = ['accountant', 'super_admin'].includes(userRole);
+  const canDelete = ['accountant', 'super_admin'].includes(userRole);
   const canEditPct = userRole === 'super_admin';
 
   const handleSavePct = async () => {
@@ -1411,6 +1431,18 @@ function IndirectExpenseSection({ userRole }) {
                           )}
                           {cost.status === 'confirmed' && <span className="text-[10px] text-green-600"><Lock className="h-3 w-3 inline" /> Locked</span>}
                           {cost.status === 'rejected' && <span className="text-[10px] text-red-500 truncate max-w-[100px] inline-block">{cost.rejection_reason || 'Rejected'}</span>}
+                          {canDelete && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0 text-red-600 hover:bg-red-50 inline-flex"
+                              onClick={() => { setCostToDelete(cost); setDeleteDialog(true); }}
+                              data-testid={`indirect-delete-${cost.indirect_cost_id}`}
+                              title="Delete indirect cost"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </td>
                       </tr>
                       );
@@ -1652,6 +1684,37 @@ function IndirectExpenseSection({ userRole }) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmDialog(false)}>Cancel</Button>
             <Button onClick={handleConfirmPayment} className="bg-green-600 hover:bg-green-700" data-testid="indirect-confirm-payment-btn"><Lock className="h-4 w-4 mr-1" /> Confirm & Distribute</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Indirect Cost Confirmation */}
+      <Dialog open={deleteDialog} onOpenChange={(o) => { if (!o) { setDeleteDialog(false); setCostToDelete(null); } }}>
+        <DialogContent className="max-w-md" data-testid="indirect-delete-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-red-700 flex items-center gap-2">
+              <Trash2 className="h-4 w-4" /> Delete Indirect Cost
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              This will permanently remove the indirect cost, all per-project allocations, and reverse the cashflow ledger entries.
+              {costToDelete?.status === 'confirmed' && ' This entry is currently CONFIRMED & LOCKED — deleting will roll back its impact on every project.'}
+            </DialogDescription>
+          </DialogHeader>
+          {costToDelete && (
+            <Card className="bg-red-50 border-red-200">
+              <CardContent className="p-3 space-y-1">
+                <p className="font-semibold text-sm">{costToDelete.description}</p>
+                <p className="text-2xl font-bold text-red-700">{fmtI(costToDelete.amount)}</p>
+                <p className="text-xs text-gray-600">Status: <span className="font-medium">{costToDelete.status}</span> · Category: {getCategoryLabel(costToDelete.category)}</p>
+                {costToDelete.vendor_name && <p className="text-xs text-gray-600">Vendor: {costToDelete.vendor_name}</p>}
+              </CardContent>
+            </Card>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDeleteDialog(false); setCostToDelete(null); }} disabled={deleting} data-testid="indirect-delete-cancel">Cancel</Button>
+            <Button onClick={handleDeleteCost} disabled={deleting} className="bg-red-600 hover:bg-red-700" data-testid="indirect-delete-confirm">
+              <Trash2 className="h-4 w-4 mr-1" /> {deleting ? 'Deleting...' : 'Delete Permanently'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

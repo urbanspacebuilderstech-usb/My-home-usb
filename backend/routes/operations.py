@@ -5929,6 +5929,63 @@ async def confirm_indirect_cost(cost_id: str, data: IndirectCostConfirm, user: U
 
 
 
+# ==================== INDIRECT COST DELETE (Super Admin / Accountant) ====================
+@router.delete("/financial/indirect-costs/{cost_id}")
+async def delete_indirect_cost(cost_id: str, user: User = Depends(get_current_user)):
+    """Delete an indirect cost and all derived records.
+
+    Reverses:
+      • All `indirect_cost_allocations` for this cost_id.
+      • Cashflow ledger rows whose `source_id` is one of those allocation_ids
+        (multi-project allocated flow writes via `allocate_expense`).
+      • Cashflow ledger rows whose `source_id` is the cost_id itself
+        (defensive — covers legacy auto-distribute flow).
+      • The `indirect_costs` doc itself.
+
+    Audit-logged. Super Admin or Accountant only.
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant or Super Admin can delete indirect costs")
+
+    cost = await db.indirect_costs.find_one({"indirect_cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Indirect cost not found")
+
+    # Local import to avoid circular dependency at module load
+    from routes.cashflow import reverse_allocation
+
+    allocs = await db.indirect_cost_allocations.find(
+        {"indirect_cost_id": cost_id}, {"_id": 0, "allocation_id": 1}
+    ).to_list(5000)
+
+    cf_removed = 0
+    for a in allocs:
+        aid = a.get("allocation_id")
+        if aid:
+            cf_removed += await reverse_allocation(aid, kind="expense")
+    # Defensive: also remove any cashflow ledger row keyed by the cost_id itself
+    cf_removed += await reverse_allocation(cost_id, kind="expense")
+
+    alloc_res = await db.indirect_cost_allocations.delete_many({"indirect_cost_id": cost_id})
+    cost_res = await db.indirect_costs.delete_one({"indirect_cost_id": cost_id})
+
+    await create_financial_audit_log(
+        entity_type="indirect_cost",
+        entity_id=cost_id,
+        action=FinancialAuditAction.CANCELLED,
+        description=f"Indirect cost deleted: {cost.get('description')} (₹{cost.get('amount', 0):,.0f})",
+        user=user,
+        amount=cost.get("amount"),
+    )
+
+    return {
+        "message": "Indirect cost deleted",
+        "cost_deleted": cost_res.deleted_count,
+        "allocations_deleted": alloc_res.deleted_count,
+        "cashflow_rows_reversed": cf_removed,
+    }
+
+
 # ==================== INDIRECT COST AUTO-DISTRIBUTION ====================
 
 async def get_indirect_cost_pct():
