@@ -2051,6 +2051,70 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
         })()}
       </div>
 
+      {/* Feb 26 2026 — Per-bucket Cashbook summary cards (matches the Carry
+          Forward tab visual). Aggregates the live Cashbook by payment_mode
+          so the Accountant sees Income / Expense / Balance per channel
+          (Cash, HDFC Current, HDFC Savings, Cheque, Cash DT, Total) above
+          the legacy Financial Overview row. */}
+      {(() => {
+        const cbBuckets = [
+          { key: 'cash',             label: 'Cash',         accent: 'border-l-amber-500 bg-amber-50/40',   Icon: Banknote },
+          { key: 'current_account',  label: 'HDFC Current', accent: 'border-l-blue-500 bg-blue-50/40',     Icon: Landmark },
+          { key: 'savings_account',  label: 'HDFC Savings', accent: 'border-l-emerald-500 bg-emerald-50/40', Icon: PiggyBank },
+          { key: 'cheque',           label: 'Cheque',       accent: 'border-l-violet-500 bg-violet-50/40', Icon: FileText },
+          { key: 'direct_transfer',  label: 'Cash DT',      accent: 'border-l-rose-500 bg-rose-50/40',     Icon: TrendingUp },
+        ];
+        const totalInc = cbBuckets.reduce((s, b) => s + (inc[b.key] || 0), 0);
+        const totalExp = cbBuckets.reduce((s, b) => s + (exp[b.key] || 0), 0);
+        return (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5" data-testid="cashbook-bucket-cards">
+            {cbBuckets.map(b => {
+              const i = inc[b.key] || 0;
+              const e = exp[b.key] || 0;
+              const bal = i - e;
+              const Icon = b.Icon;
+              return (
+                <div key={b.key} className={`rounded-lg border-l-4 ${b.accent} p-3 shadow-sm`} data-testid={`cb-bucket-${b.key}`}>
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-gray-600 font-semibold mb-2">
+                    <Icon className="h-3 w-3" /> {b.label}
+                  </div>
+                  <div className="flex items-baseline justify-between text-[11px]">
+                    <span className="text-emerald-700">Income</span>
+                    <span className="font-semibold text-emerald-700"><MaskedValue value={i} className="text-emerald-700" /></span>
+                  </div>
+                  <div className="flex items-baseline justify-between text-[11px] mt-0.5">
+                    <span className="text-rose-700">Expense</span>
+                    <span className="font-semibold text-rose-700"><MaskedValue value={e} className="text-rose-700" /></span>
+                  </div>
+                  <div className="border-t mt-2 pt-1.5 flex items-baseline justify-between text-[11px]">
+                    <span className="text-gray-700">Balance</span>
+                    <span className={`font-bold ${bal >= 0 ? 'text-gray-900' : 'text-rose-700'}`}><MaskedValue value={bal} className={bal >= 0 ? 'text-gray-900' : 'text-rose-700'} /></span>
+                  </div>
+                </div>
+              );
+            })}
+            {/* Total card — dark theme to match the Carry Forward tab. */}
+            <div className="rounded-lg p-3 shadow-sm bg-slate-900 text-white" data-testid="cb-bucket-total">
+              <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-slate-300 font-semibold mb-2">
+                <TrendingUp className="h-3 w-3" /> Total
+              </div>
+              <div className="flex items-baseline justify-between text-[11px]">
+                <span className="text-emerald-300">Income</span>
+                <span className="font-semibold"><MaskedValue value={totalInc} className="text-white" /></span>
+              </div>
+              <div className="flex items-baseline justify-between text-[11px] mt-0.5">
+                <span className="text-rose-300">Expense</span>
+                <span className="font-semibold"><MaskedValue value={totalExp} className="text-white" /></span>
+              </div>
+              <div className="border-t border-slate-700 mt-2 pt-1.5 flex items-baseline justify-between text-[11px]">
+                <span className="text-slate-300">Balance</span>
+                <span className={`font-bold ${(totalInc - totalExp) >= 0 ? 'text-white' : 'text-rose-300'}`}><MaskedValue value={totalInc - totalExp} className={(totalInc - totalExp) >= 0 ? 'text-white' : 'text-rose-300'} /></span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Financial Overview - Clickable Cards */}
       <Card className="border-l-4 border-l-amber-500" style={{ backgroundColor: '#dcfce7' }}>
         <CardHeader className="pb-2 pt-3 px-4">
