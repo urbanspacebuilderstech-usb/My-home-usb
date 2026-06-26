@@ -96,6 +96,8 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
             stage_name: s.name || s.stage_name || `Stage ${idx + 1}`,
             sl_no: s.sl_no || `S${idx + 1}`,
             is_section_header: false,
+            is_addition: !!s.is_addition,
+            claim_type: s.claim_type || (s.is_addition ? 'claimable' : null),
           }));
           if (stages.length > 0) { setProjectStages(stages); return; }
           // Contractor has NO open stages — leave empty so the picker tells
@@ -408,16 +410,46 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
                     <SelectValue placeholder={projectStages.length ? "Select an open stage..." : "No open stages for this contractor — ask Planning to unlock one"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {projectStages
-                      .filter(s => !s.is_section_header)
-                      .map((s, idx) => {
-                        const code = s.sl_no || `PO${idx + 1}`;
-                        return (
-                          <SelectItem key={s.stage_id} value={s.stage_id}>
-                            {code} {s.stage_name}
-                          </SelectItem>
-                        );
-                      })}
+                    {(() => {
+                      const ADD_GROUPS = [
+                        { key: 'claimable', label: 'Additional — Claimable From Client' },
+                        { key: 'non_claimable', label: 'Additional — Non-Claimable From Client' },
+                        { key: 'rework_se', label: 'Additional — Rework (Site Engineer)' },
+                        { key: 'rework_client', label: 'Additional — Rework (Client)' },
+                      ];
+                      const items = projectStages.filter(s => !s.is_section_header);
+                      const regular = items.filter(s => !s.is_addition);
+                      const blocks = [];
+                      if (regular.length > 0) {
+                        blocks.push(<div key="hdr-regular" className="px-2 py-1 text-[10px] uppercase tracking-wider text-gray-500 bg-gray-50">Payment Schedule Stages</div>);
+                        regular.forEach((s, idx) => {
+                          const code = s.sl_no || `S${idx + 1}`;
+                          blocks.push(<SelectItem key={s.stage_id} value={s.stage_id}>{code} {s.stage_name}</SelectItem>);
+                        });
+                      }
+                      ADD_GROUPS.forEach(g => {
+                        const groupItems = items.filter(s => {
+                          if (!s.is_addition) return false;
+                          const ct = s.claim_type || 'claimable';
+                          if (g.key === 'rework_se') return ct === 'rework_se' || ct === 'rework';
+                          return ct === g.key;
+                        });
+                        if (groupItems.length === 0) return;
+                        blocks.push(<div key={`hdr-${g.key}`} className="px-2 py-1 text-[10px] uppercase tracking-wider text-violet-700 bg-violet-50 mt-1">{g.label}</div>);
+                        groupItems.forEach((s, idx) => {
+                          const code = s.sl_no || `A${idx + 1}`;
+                          blocks.push(
+                            <SelectItem key={s.stage_id} value={s.stage_id}>
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-violet-100 text-violet-700">ADD</span>
+                                {code} {s.stage_name}
+                              </span>
+                            </SelectItem>
+                          );
+                        });
+                      });
+                      return blocks;
+                    })()}
                   </SelectContent>
                 </Select>
               </div>
