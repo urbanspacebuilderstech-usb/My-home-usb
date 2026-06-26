@@ -1604,12 +1604,12 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
       setSubTab(s);
     }
   }, [location.search]);
-  // Default to current month/year
-  const _today = new Date();
-  const _mStart = `${_today.getFullYear()}-${String(_today.getMonth() + 1).padStart(2, '0')}-01`;
-  const _mEnd = (() => { const d = new Date(_today.getFullYear(), _today.getMonth() + 1, 0); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
-  const [dateFrom, setDateFrom] = useState(_mStart);
-  const [dateTo, setDateTo] = useState(_mEnd);
+  // Feb 26 2026 — Cashbook date filter starts EMPTY by default (show
+  // all data). The Accountant can manually pick a range via the date
+  // chip if they want a per-month view. Previously defaulted to the
+  // current calendar month which silently hid older data.
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [filterProject, setFilterProject] = useState('');
   const [expenseSubTab, setExpenseSubTab] = useState('material');
   const [sourceFilter, setSourceFilter] = useState('all'); // 'all' | 'manual' | 'approval'
