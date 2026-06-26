@@ -2474,11 +2474,13 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, workOrders,
       try {
         if (effectiveWO?.work_order_id) {
           const wr = await axios.get(`${API}/projects/${projectId}/work-orders/${effectiveWO.work_order_id}`);
-          // Only "purely Open" stages — is_open=true AND no RAB in flight.
-          // A stage with an Awaiting-PM RAB is locked from the SE's perspective
-          // until that workflow clears (or gets rejected), so it must be hidden.
-          const PENDING_RAB = new Set(['requested', 'pm_approved', 'qc_approved', 'planning_approved']);
-          const isStrictlyOpen = (s) => s.is_open === true && !(s.payment_requests || []).some(p => PENDING_RAB.has(p.status));
+          // Feb 26 2026 — DLR is daily labour reporting, independent of
+          // the RAB workflow. Show EVERY stage currently flagged Open by
+          // Planning, even when a RAB is in flight ("Awaiting Accountant"
+          // etc.) — Sai Karthick reported Yuvaraja's 8 open stages were
+          // collapsing to 3 because stages 1–5 each had a planning_approved
+          // RAB waiting for accountant release.
+          const isStrictlyOpen = (s) => s.is_open === true;
           // Feb 26 2026 — include `is_addition` + `claim_type` so the dropdown
           // can group stages into Regular vs Additional buckets (Claimable /
           // Non-Claimable / Rework SE / Rework Client). Without this the SE

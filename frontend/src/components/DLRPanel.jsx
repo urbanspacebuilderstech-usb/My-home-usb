@@ -89,8 +89,12 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
           // non-released approval state. If a RAB is awaiting PM/QC/Planning/
           // Accountant, the stage is functionally locked and must not appear
           // in the DLR stage picker — only stages an SE can actively work on.
-          const PENDING_RAB = new Set(['requested', 'pm_approved', 'qc_approved', 'planning_approved']);
-          const isStrictlyOpen = (s) => s.is_open === true && !(s.payment_requests || []).some(p => PENDING_RAB.has(p.status));
+          const PENDING_RAB = new Set(['requested', 'pm_approved', 'qc_approved', 'planning_approved']); // kept for reference
+          // Feb 26 2026 — DLR is independent of RAB workflow. Show every
+          // Open stage even if a RAB is in flight (Awaiting Accountant etc.).
+          // void usage to satisfy lint without removing the constant.
+          void PENDING_RAB;
+          const isStrictlyOpen = (s) => s.is_open === true;
           const stages = (wr.data?.stages || []).filter(isStrictlyOpen).map((s, idx) => ({
             stage_id: s.stage_id,
             stage_name: s.name || s.stage_name || `Stage ${idx + 1}`,
