@@ -5481,7 +5481,11 @@ async def get_cashbook_filtered(
     receivable = round(grand_total_value - total_income_with_cf, 2)
 
     return {
-        "income_entries": incomes[:500],
+        # Feb 26 2026 — Drop the [:500] truncation on incomes so the
+        # bucket-card drilldown ("Cash — Breakdown" etc.) sums to the
+        # SAME number as the card's headline. Total income docs are
+        # ~700 firm-wide so the JSON payload stays small.
+        "income_entries": incomes,
         "expense_entries": all_expenses[:500],
         "projects": projects_list,
         "project_wise": project_wise_sorted,
