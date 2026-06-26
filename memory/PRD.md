@@ -13,6 +13,16 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 26, 2026 — Account/SE UX & Reconciliation Round 2
+- **Status**: ✅ ALL DEPLOYED (commits `8f8f257a` → `6fb5bb6b`).
+- **Project Wise tab full redesign**: replaced 3-card row with two grouped sections — **Project Value Calculation** (Scope ₹21.07Cr + Additions ₹3.43Cr − Deductions ₹21.55L = Grand Total ₹24.29Cr) + **Financial Performance** (Income ₹12.87Cr · Expense ₹7.70Cr · Balance ₹5.16Cr · Receivable ₹11.42Cr).
+- **All Projects table**: added 5 new columns (Scope Value / Additions / Deductions / Grand Total / Receivable) per project + footer totals.
+- **Cashflow Engine fixes**: limited to the same 51 real projects, CF expense now uses explicit per-bucket fields (material+labour+petty_cash → Direct, indirect → Indirect, no 85/15 split) — fixed Mrs Lavanya double-counting bug.
+- **Cashflow ledger data heals**: purged 39 orphan expense rows (₹9.55L), 3 bounced income rows (₹1.62L), 13 bounced expense rows. Wired `reverse_allocation()` into `delete_cashbook_expense` + cheque-bounce endpoints so future flows stay in sync.
+- **S.No columns** added on Per-Project Cashflow + Project-wise Carry Forward tables, plus search bars on both.
+- **SE Global DLR Report dropdown** now groups Payment Schedule Stages vs Additional (4 sub-groups: Claimable / Non-Claimable / Rework SE / Rework Client) with violet ADD badges. Mirrored in the per-WO DLR tab.
+- **Cashbook 6-card row** (Cash / HDFC Current / HDFC Savings / Cheque / Cash DT / Total) added at the top of the Cashbook tab, mirroring the Carry Forward visual; each card shows live Income / Expense / Balance per channel.
+
 ### Session — Feb 22, 2026 (Part 2) — Account / Cashflow Engine accuracy sweep
 - **Status**: ✅ ALL DEPLOYED (commits `bf45760e` → `6ff33493`).
 - **a) Contractor Suspense bug** — fixed canonical `type` vs `movement` field; Appala Naidu balance now exactly ₹50,000.
