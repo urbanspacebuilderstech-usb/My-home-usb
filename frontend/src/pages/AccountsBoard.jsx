@@ -240,21 +240,32 @@ const classifyMode = (mode) => {
 };
 
 // ============ DRILLDOWN VIEW ============
-function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = false }) {
+function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = false, hideHeader = false }) {
   return (
     <div className="space-y-3" data-testid="drilldown-view">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" className="h-8 gap-1" onClick={onBack} data-testid="drilldown-back">
-          <ArrowLeft className="h-4 w-4" /> Back
-        </Button>
-        <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
-        <Badge variant="outline" className="text-xs">{entries.length} entries</Badge>
-        <span className="ml-auto text-sm font-bold">
-          Total: <span className={type === 'income' ? 'text-green-700' : 'text-red-600'}>
-            <MaskedValue value={entries.reduce((s, e) => s + (e.amount || 0), 0)} className={type === 'income' ? 'text-green-700' : 'text-red-600'} />
+      {!hideHeader && (
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" className="h-8 gap-1" onClick={onBack} data-testid="drilldown-back">
+            <ArrowLeft className="h-4 w-4" /> Back
+          </Button>
+          <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
+          <Badge variant="outline" className="text-xs">{entries.length} entries</Badge>
+          <span className="ml-auto text-sm font-bold">
+            Total: <span className={type === 'income' ? 'text-green-700' : 'text-red-600'}>
+              <MaskedValue value={entries.reduce((s, e) => s + (e.amount || 0), 0)} className={type === 'income' ? 'text-green-700' : 'text-red-600'} />
+            </span>
           </span>
-        </span>
-      </div>
+        </div>
+      )}
+      {hideHeader && (
+        <div className="flex items-center justify-end">
+          <span className="text-sm font-bold">
+            Total: <span className={type === 'income' ? 'text-green-700' : 'text-red-600'}>
+              <MaskedValue value={entries.reduce((s, e) => s + (e.amount || 0), 0)} className={type === 'income' ? 'text-green-700' : 'text-red-600'} />
+            </span>
+          </span>
+        </div>
+      )}
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -310,6 +321,74 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ============ MODE DRILLDOWN (Cash / HDFC Current / HDFC Savings / Cheque / Cash DT) ============
+// Single back arrow + project search bar shared across Income/Expense tabs.
+function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDelete, onDeleteIncome, onDeleteExpense }) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const matchesQuery = (e) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (e.project_name && e.project_name.toLowerCase().includes(q)) ||
+      (e.project_id && String(e.project_id).toLowerCase().includes(q))
+    );
+  };
+  const filteredIncome = incomeEntries.filter(matchesQuery);
+  const filteredExpense = expenseEntries.filter(matchesQuery);
+  return (
+    <div className="space-y-3" data-testid="mode-drilldown">
+      <div className="flex items-center gap-3 flex-wrap">
+        <Button variant="ghost" size="sm" className="h-8 gap-1" onClick={onBack} data-testid="mode-drilldown-back">
+          <ArrowLeft className="h-4 w-4" /> Back
+        </Button>
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+          <Input
+            placeholder="Search project..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-8 pl-7 text-xs"
+            data-testid="mode-drilldown-search"
+          />
+        </div>
+        <Badge variant="outline" className="text-xs">{label}</Badge>
+      </div>
+      <Tabs defaultValue="income">
+        <TabsList className="grid grid-cols-2 w-full mb-3">
+          <TabsTrigger value="income" className="data-[state=active]:bg-green-100 data-[state=active]:text-green-800 gap-1">
+            <ArrowDownRight className="h-3.5 w-3.5" /> Income ({filteredIncome.length})
+          </TabsTrigger>
+          <TabsTrigger value="expense" className="data-[state=active]:bg-red-100 data-[state=active]:text-red-800 gap-1">
+            <ArrowUpRight className="h-3.5 w-3.5" /> Expense ({filteredExpense.length})
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="income">
+          <DrilldownView
+            title={`${label} Income`}
+            entries={filteredIncome}
+            type="income"
+            onBack={onBack}
+            canDelete={canDelete}
+            onDelete={onDeleteIncome}
+            hideHeader
+          />
+        </TabsContent>
+        <TabsContent value="expense">
+          <DrilldownView
+            title={`${label} Expenses`}
+            entries={filteredExpense}
+            type="expense"
+            onBack={onBack}
+            canDelete={canDelete}
+            onDelete={onDeleteExpense}
+            hideHeader
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -1847,44 +1926,15 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
   if (drilldown?.type === 'mode') {
     const allowAcctActions = userRole === 'accountant' || userRole === 'super_admin';
     return (
-      <div className="space-y-3" data-testid="mode-drilldown">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" className="h-8 gap-1" onClick={() => setDrilldown(null)} data-testid="mode-drilldown-back">
-            <ArrowLeft className="h-4 w-4" /> Back
-          </Button>
-          <h3 className="text-sm font-semibold text-gray-800">{drilldown.label} — Breakdown</h3>
-        </div>
-        <Tabs defaultValue="income">
-          <TabsList className="grid grid-cols-2 w-full mb-3">
-            <TabsTrigger value="income" className="data-[state=active]:bg-green-100 data-[state=active]:text-green-800 gap-1">
-              <ArrowDownRight className="h-3.5 w-3.5" /> Income ({drilldown.incomeEntries.length})
-            </TabsTrigger>
-            <TabsTrigger value="expense" className="data-[state=active]:bg-red-100 data-[state=active]:text-red-800 gap-1">
-              <ArrowUpRight className="h-3.5 w-3.5" /> Expense ({drilldown.expenseEntries.length})
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="income">
-            <DrilldownView
-              title={`${drilldown.label} Income`}
-              entries={drilldown.incomeEntries}
-              type="income"
-              onBack={() => setDrilldown(null)}
-              canDelete={allowAcctActions}
-              onDelete={(e) => { handleDeleteIncome(e); setDrilldown(null); }}
-            />
-          </TabsContent>
-          <TabsContent value="expense">
-            <DrilldownView
-              title={`${drilldown.label} Expenses`}
-              entries={drilldown.expenseEntries}
-              type="expense"
-              onBack={() => setDrilldown(null)}
-              canDelete={allowAcctActions}
-              onDelete={(e) => { handleDeleteExpense(e); setDrilldown(null); }}
-            />
-          </TabsContent>
-        </Tabs>
-      </div>
+      <ModeDrilldownView
+        label={drilldown.label}
+        incomeEntries={drilldown.incomeEntries}
+        expenseEntries={drilldown.expenseEntries}
+        onBack={() => setDrilldown(null)}
+        canDelete={allowAcctActions}
+        onDeleteIncome={(e) => { handleDeleteIncome(e); setDrilldown(null); }}
+        onDeleteExpense={(e) => { handleDeleteExpense(e); setDrilldown(null); }}
+      />
     );
   }
 

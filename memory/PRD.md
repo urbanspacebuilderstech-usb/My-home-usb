@@ -13,6 +13,15 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 26, 2026 (Round 3) — Cashbook Mode Drilldown UX Cleanup
+- **Status**: ✅ Local (preview verified). Pending VPS deploy.
+- **Mode drilldown polish (Cash / HDFC Current / HDFC Savings / Cheque / Cash DT)**:
+  - Removed **double back arrow** + redundant "<Mode> — Breakdown" header.
+  - Added a **project search bar** above the Income/Expense tabs that filters entries by `project_name` / `project_id` (live).
+  - Added `hideHeader` prop to `DrilldownView` so the inner duplicate header is suppressed when used inside the mode drilldown.
+  - New `ModeDrilldownView` component holds the single back arrow + search input + label badge; both tabs share the filtered list.
+- **Files**: `frontend/src/pages/AccountsBoard.jsx` (DrilldownView, ModeDrilldownView, mode drilldown render block).
+
 ### Session — Feb 26, 2026 — Cashbook Bucket Cards + DLR & UX Polishing Round
 - **Status**: ✅ ALL DEPLOYED (commits `6fb5bb6b` → `5d38dc19`).
 - **Cashbook 6-bucket row** (Cash / HDFC Current / HDFC Savings / Cheque / Cash DT / Total) at top — live cashbook expense + Lock-dialog per-bucket CF expense.
