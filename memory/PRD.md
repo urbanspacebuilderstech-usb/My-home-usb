@@ -13,7 +13,16 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
-### Session — Feb 26, 2026 — Account/SE UX & Reconciliation Round 2
+### Session — Feb 26, 2026 — Cashbook Bucket Cards + DLR & UX Polishing Round
+- **Status**: ✅ ALL DEPLOYED (commits `6fb5bb6b` → `5d38dc19`).
+- **Cashbook 6-bucket row** (Cash / HDFC Current / HDFC Savings / Cheque / Cash DT / Total) at top — live cashbook expense + Lock-dialog per-bucket CF expense.
+- **Removed Financial Overview + Expense Breakdown sections** + Profit card → only 3 hero cards remain (Income / Expense / Balance).
+- **Cashbook date filter** now defaults to empty (no calendar-month preset).
+- **DLR dropdown stage grouping** — Regular Stages vs Additional (Claimable / Non-Claimable / Rework SE / Rework Client) with violet ADD badges. Mirrored across Global DLR dialog + per-WO DLR tab. Removed PENDING_RAB filter so DLR can be logged against any Open stage regardless of RAB-workflow status (was hiding Yuvaraja's 5 of 8 open stages).
+- **Backend cashbook-filtered** now returns `closing_balance_buckets` so frontend cards can show per-mode CF expense.
+- **Cashflow Engine search bar** + Project-wise Carry Forward search bar.
+
+### Session — Feb 26, 2026 (Round 1) — Account/SE UX & Reconciliation
 - **Status**: ✅ ALL DEPLOYED (commits `8f8f257a` → `6fb5bb6b`).
 - **Project Wise tab full redesign**: replaced 3-card row with two grouped sections — **Project Value Calculation** (Scope ₹21.07Cr + Additions ₹3.43Cr − Deductions ₹21.55L = Grand Total ₹24.29Cr) + **Financial Performance** (Income ₹12.87Cr · Expense ₹7.70Cr · Balance ₹5.16Cr · Receivable ₹11.42Cr).
 - **All Projects table**: added 5 new columns (Scope Value / Additions / Deductions / Grand Total / Receivable) per project + footer totals.
