@@ -2054,8 +2054,10 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
       {/* Feb 26 2026 — Per-bucket Cashbook summary cards (matches the Carry
           Forward tab visual). Aggregates the live Cashbook by payment_mode
           so the Accountant sees Income / Expense / Balance per channel
-          (Cash, HDFC Current, HDFC Savings, Cheque, Cash DT, Total) above
-          the legacy Financial Overview row. */}
+          (Cash, HDFC Current, HDFC Savings, Cheque, Cash DT, Total).
+          Carry-forward expense (no payment_mode stored) is lumped into the
+          Cheque bucket per user preference so the Total Expense reconciles
+          with the firm-level number on the Project Wise tab. */}
       {(() => {
         const cbBuckets = [
           { key: 'cash',             label: 'Cash',         accent: 'border-l-amber-500 bg-amber-50/40',   Icon: Banknote },
@@ -2064,19 +2066,25 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
           { key: 'cheque',           label: 'Cheque',       accent: 'border-l-violet-500 bg-violet-50/40', Icon: FileText },
           { key: 'direct_transfer',  label: 'Cash DT',      accent: 'border-l-rose-500 bg-rose-50/40',     Icon: TrendingUp },
         ];
-        const totalInc = cbBuckets.reduce((s, b) => s + (inc[b.key] || 0), 0);
-        const totalExp = cbBuckets.reduce((s, b) => s + (exp[b.key] || 0), 0);
+        const cfExp = cashbookData?.summary?.total_cf_expense || 0;
+        const cfInc = cashbookData?.summary?.total_cf_income || 0;
+        const expFor = (k) => (exp[k] || 0) + (k === 'cheque' ? cfExp : 0);
+        const incFor = (k) => (inc[k] || 0) + (k === 'cheque' ? cfInc : 0);
+        const totalInc = cbBuckets.reduce((s, b) => s + incFor(b.key), 0);
+        const totalExp = cbBuckets.reduce((s, b) => s + expFor(b.key), 0);
         return (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5" data-testid="cashbook-bucket-cards">
             {cbBuckets.map(b => {
-              const i = inc[b.key] || 0;
-              const e = exp[b.key] || 0;
+              const i = incFor(b.key);
+              const e = expFor(b.key);
               const bal = i - e;
               const Icon = b.Icon;
+              const cfHint = b.key === 'cheque' && (cfInc > 0 || cfExp > 0);
               return (
                 <div key={b.key} className={`rounded-lg border-l-4 ${b.accent} p-3 shadow-sm`} data-testid={`cb-bucket-${b.key}`}>
                   <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-gray-600 font-semibold mb-2">
                     <Icon className="h-3 w-3" /> {b.label}
+                    {cfHint && <span className="ml-auto text-[8px] font-bold text-violet-600 bg-violet-100 px-1 rounded">+CF</span>}
                   </div>
                   <div className="flex items-baseline justify-between text-[11px]">
                     <span className="text-emerald-700">Income</span>
@@ -2115,108 +2123,6 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
         );
       })()}
 
-      {/* Financial Overview - Clickable Cards */}
-      <Card className="border-l-4 border-l-amber-500" style={{ backgroundColor: '#dcfce7' }}>
-        <CardHeader className="pb-2 pt-3 px-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2" style={{ color: '#15803d' }}>
-              <Wallet className="h-4 w-4" style={{ color: '#15803d' }} /> Financial Overview
-            </CardTitle>
-            <div className="flex items-center gap-2 sm:gap-3 text-[11px] sm:text-xs flex-wrap">
-              <span className="font-semibold" style={{ color: '#15803d' }}>Income: <MaskedValue value={totals.total_income} className="font-semibold" style={{ color: '#15803d' }} testId="masked-total-income" /></span>
-              <span className="text-red-600 font-semibold">Expense: <MaskedValue value={totals.total_expense} className="text-red-600" testId="masked-total-expense" /></span>
-              <Badge className={totals.net_balance >= 0 ? 'bg-green-100' : 'bg-red-100 text-red-700'} style={totals.net_balance >= 0 ? { color: '#15803d' } : undefined}>
-                Net: <MaskedValue value={totals.net_balance} testId="masked-net-balance" style={totals.net_balance >= 0 ? { color: '#15803d' } : { color: '#dc2626' }} />
-              </Badge>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="px-3 sm:px-4 pb-3">
-          <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-8 gap-1.5 sm:gap-2">
-            {(() => {
-              const totalNet = (inc.total || 0) - (exp.total || 0);
-              return (
-                <div className="rounded-lg p-1.5 sm:p-2 text-center text-white col-span-3 sm:col-span-1" style={{ backgroundColor: '#15803d' }}>
-                  <IndianRupee className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5" />
-                  <p className="text-[9px] sm:text-[10px] font-medium">Total</p>
-                  <p className="text-[10px] sm:text-xs font-bold text-white">
-                    <MaskedValue
-                      value={totalNet}
-                      formatFn={(n) => n > 0 ? `+${fmt(n)}` : n < 0 ? `-${fmt(Math.abs(n))}` : '0'}
-                      className="text-[10px] sm:text-xs font-bold text-white"
-                    />
-                  </p>
-                </div>
-              );
-            })()}
-            {Object.keys(MODE_LABELS).filter(m => m !== 'suspense_account' && m !== 'petty_cash').map(mode => {
-              const Icon = MODE_ICONS[mode];
-              const net = (inc[mode] || 0) - (exp[mode] || 0);
-              return (
-                <div key={mode}
-                  className="rounded-lg border p-1.5 sm:p-2 text-center cursor-pointer transition-all hover:shadow-md hover:scale-[1.03]"
-                  style={{ backgroundColor: '#dcfce7', borderColor: '#bbf7d0', color: '#15803d' }}
-                  onClick={() => handleModeClick(mode)}
-                  data-testid={`mode-card-${mode}`}
-                >
-                  <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5 opacity-70" style={{ color: '#15803d' }} />
-                  <p className="text-[9px] sm:text-[10px] font-medium truncate" style={{ color: '#15803d' }}>{MODE_LABELS[mode]}</p>
-                  <p
-                    className="text-[10px] sm:text-xs font-bold"
-                    style={{ color: net > 0 ? '#15803d' : net < 0 ? '#dc2626' : '#15803d' }}
-                  >
-                    <MaskedValue
-                      value={net}
-                      formatFn={(n) => n > 0 ? `+${fmt(n)}` : n < 0 ? `-${fmt(Math.abs(n))}` : '0'}
-                      style={{ color: net > 0 ? '#15803d' : net < 0 ? '#dc2626' : '#15803d' }}
-                      className="text-[10px] sm:text-xs font-bold"
-                    />
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Expense Category Breakdown - Clickable (red mirror of Financial Overview) */}
-      <Card className="border-l-4 border-l-red-500" style={{ backgroundColor: '#fee2e2' }}>
-        <CardHeader className="pb-2 pt-3 px-4">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2" style={{ color: '#b91c1c' }}>
-            <IndianRupee className="h-4 w-4" style={{ color: '#b91c1c' }} /> Expense Breakdown
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="px-3 sm:px-4 pb-3">
-          <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 sm:gap-2">
-            {EXP_CATEGORIES.map((cat, idx) => {
-              const Icon = cat.icon;
-              const isFirst = idx === 0;  // "Overall Expense" → solid dark red
-              return (
-                <div key={cat.key}
-                  className="rounded-lg border p-1.5 sm:p-2 text-center cursor-pointer transition-all hover:shadow-md hover:scale-[1.03]"
-                  style={isFirst
-                    ? { backgroundColor: '#b91c1c', borderColor: '#b91c1c', color: '#ffffff' }
-                    : { backgroundColor: '#fee2e2', borderColor: '#fecaca', color: '#b91c1c' }
-                  }
-                  onClick={() => handleCategoryClick(cat.key)}
-                  data-testid={`exp-cat-${cat.key}`}
-                >
-                  <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5 opacity-80" style={{ color: isFirst ? '#ffffff' : '#b91c1c' }} />
-                  <p className="text-[9px] sm:text-[10px] font-medium truncate" style={{ color: isFirst ? '#ffffff' : '#b91c1c' }}>{cat.label}</p>
-                  <p className="text-[10px] sm:text-xs font-bold" style={{ color: isFirst ? '#ffffff' : '#b91c1c' }}>
-                    <MaskedValue
-                      value={expByCategory[cat.key] || 0}
-                      formatFn={(n) => n > 0 ? fmt(n) : '0'}
-                      style={{ color: isFirst ? '#ffffff' : '#b91c1c' }}
-                      className="text-[10px] sm:text-xs font-bold"
-                    />
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
       </>
       )}
 
