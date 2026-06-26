@@ -2682,13 +2682,8 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, workOrders,
                 <SelectTrigger className="mt-1 h-9 text-xs" data-testid="wov2-dlr-form-stage">
                   <SelectValue placeholder={projectStages.length ? "Select an open stage..." : "No open stages for this contractor — ask Planning to unlock one"} />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-w-[420px] max-h-[320px] overflow-y-auto">
                   {(() => {
-                    // Feb 26 2026 — Group the dropdown into Regular Stages
-                    // vs Additional buckets so the SE can clearly spot
-                    // Additional work items alongside payment-schedule
-                    // stages. Empty groups are skipped so the picker
-                    // stays compact when a contractor has no additions.
                     const ADD_GROUPS = [
                       { key: 'claimable', label: 'Additional — Claimable From Client' },
                       { key: 'non_claimable', label: 'Additional — Non-Claimable From Client' },

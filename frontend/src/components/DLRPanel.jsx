@@ -413,7 +413,7 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
                   <SelectTrigger className="mt-1 h-9 text-xs" data-testid="dlr-form-stage">
                     <SelectValue placeholder={projectStages.length ? "Select an open stage..." : "No open stages for this contractor — ask Planning to unlock one"} />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-w-[420px] max-h-[320px] overflow-y-auto">
                     {(() => {
                       const ADD_GROUPS = [
                         { key: 'claimable', label: 'Additional — Claimable From Client' },
