@@ -2058,7 +2058,16 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
               const Icon = b.Icon;
               const hasCf = cfExp(b.lockKey) > 0;
               return (
-                <div key={b.key} className={`rounded-lg border-l-4 ${b.accent} p-3 shadow-sm`} data-testid={`cb-bucket-${b.key}`}>
+                <div
+                  key={b.key}
+                  className={`rounded-lg border-l-4 ${b.accent} p-3 shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all`}
+                  data-testid={`cb-bucket-${b.key}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => handleModeClick(b.key)}
+                  onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') handleModeClick(b.key); }}
+                  title={`View all ${b.label} income & expense entries`}
+                >
                   <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-gray-600 font-semibold mb-2">
                     <Icon className="h-3 w-3" /> {b.label}
                     {hasCf && <span className="ml-auto text-[8px] font-bold text-violet-600 bg-violet-100 px-1 rounded">+CF</span>}
@@ -2078,8 +2087,17 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                 </div>
               );
             })}
-            {/* Total card — dark theme to match the Carry Forward tab. */}
-            <div className="rounded-lg p-3 shadow-sm bg-slate-900 text-white" data-testid="cb-bucket-total">
+            {/* Total card — dark theme to match the Carry Forward tab.
+                Clicking opens a combined Income+Expense drilldown across all modes. */}
+            <div
+              className="rounded-lg p-3 shadow-sm bg-slate-900 text-white cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all"
+              data-testid="cb-bucket-total"
+              role="button"
+              tabIndex={0}
+              onClick={() => setDrilldown({ type: 'mode', mode: 'all', incomeEntries: incomeEntries, expenseEntries: allExpenseEntries, label: 'All Channels (Total)' })}
+              onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') setDrilldown({ type: 'mode', mode: 'all', incomeEntries: incomeEntries, expenseEntries: allExpenseEntries, label: 'All Channels (Total)' }); }}
+              title="View all income & expense entries across every channel"
+            >
               <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-slate-300 font-semibold mb-2">
                 <TrendingUp className="h-3 w-3" /> Total
               </div>
