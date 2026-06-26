@@ -1948,13 +1948,15 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
     <div className="space-y-4" data-testid="cashbook-tab">
       {!expenseOnly && (
       <>
-      {/* Top KPI cards: Overall Income / Expense / Balance / Profit
+      {/* Top KPI cards: Overall Income / Expense / Balance.
           Each card is clickable — opens an itemised drilldown showing
           every contributing row. The Expense card is especially important
           because the headline number includes the hidden "Other" category
           rows (e.g. uncategorised manual expenses) that aren't visible on
-          the Direct Expense tab below. */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="kpi-cards">
+          the Direct Expense tab below.
+          Feb 26 2026 — Profit (all-time cumulative) card removed per user
+          request; only 3 cards now show. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" data-testid="kpi-cards">
         <Card
           className="border-l-4 border-l-green-500 bg-gradient-to-br from-green-50 to-white cursor-pointer hover:shadow-md transition-shadow"
           onClick={() => setDrilldown({ type: 'category', category: 'overall_income', entries: incomeEntries, label: 'Overall Income' })}
@@ -2014,35 +2016,6 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                   </div>
                   <div className={`h-10 w-10 rounded-full ${isPos ? 'bg-blue-100' : 'bg-orange-100'} flex items-center justify-center`}>
                     <Wallet className={`h-5 w-5 ${isPos ? 'text-blue-600' : 'text-orange-600'}`} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })()}
-
-        {(() => {
-          // Profit = lifetime cumulative net (ignores date filter) — uses overview endpoint totals
-          const lifetimeIncome = overview?.totals?.total_income || 0;
-          const lifetimeExpense = overview?.totals?.total_expense || 0;
-          const profit = lifetimeIncome - lifetimeExpense;
-          const isPos = profit >= 0;
-          return (
-            <Card
-              className={`border-l-4 ${isPos ? 'border-l-emerald-500 bg-gradient-to-br from-emerald-50 to-white' : 'border-l-rose-500 bg-gradient-to-br from-rose-50 to-white'} cursor-pointer hover:shadow-md transition-shadow`}
-              onClick={() => setDrilldown({ type: 'category', category: 'overall_expense', entries: allExpenseEntries, label: 'All Expense (Profit contribution)' })}
-              data-testid="kpi-card-profit"
-              title="Click to see all expense rows"
-            >
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Profit</p>
-                    <p className={`text-2xl font-bold mt-1 ${isPos ? 'text-emerald-700' : 'text-rose-600'}`}><MaskedValue value={profit} className={isPos ? 'text-emerald-700' : 'text-rose-600'} formatFn={fmtFull} testId="kpi-profit" /></p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">All-time cumulative</p>
-                  </div>
-                  <div className={`h-10 w-10 rounded-full ${isPos ? 'bg-emerald-100' : 'bg-rose-100'} flex items-center justify-center`}>
-                    <TrendingUp className={`h-5 w-5 ${isPos ? 'text-emerald-600' : 'text-rose-600'}`} />
                   </div>
                 </div>
               </CardContent>
