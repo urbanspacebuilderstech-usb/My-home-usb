@@ -2052,39 +2052,43 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
       </div>
 
       {/* Feb 26 2026 — Per-bucket Cashbook summary cards (matches the Carry
-          Forward tab visual). Aggregates the live Cashbook by payment_mode
-          so the Accountant sees Income / Expense / Balance per channel
-          (Cash, HDFC Current, HDFC Savings, Cheque, Cash DT, Total).
-          Carry-forward expense (no payment_mode stored) is lumped into the
-          Cheque bucket per user preference so the Total Expense reconciles
-          with the firm-level number on the Project Wise tab. */}
+          Forward tab visual). Each bucket Expense = live Cashbook expense
+          for that payment_mode + Carry-Forward Expense the Accountant
+          entered in the Lock Closing Balance dialog for that bucket. Same
+          for Income. So Cash Expense ≠ 0 even when no live expense rows
+          exist as long as the lock has a non-zero Cash → Expense value. */}
       {(() => {
         const cbBuckets = [
-          { key: 'cash',             label: 'Cash',         accent: 'border-l-amber-500 bg-amber-50/40',   Icon: Banknote },
-          { key: 'current_account',  label: 'HDFC Current', accent: 'border-l-blue-500 bg-blue-50/40',     Icon: Landmark },
-          { key: 'savings_account',  label: 'HDFC Savings', accent: 'border-l-emerald-500 bg-emerald-50/40', Icon: PiggyBank },
-          { key: 'cheque',           label: 'Cheque',       accent: 'border-l-violet-500 bg-violet-50/40', Icon: FileText },
-          { key: 'direct_transfer',  label: 'Cash DT',      accent: 'border-l-rose-500 bg-rose-50/40',     Icon: TrendingUp },
+          { key: 'cash',             lockKey: 'cash',             label: 'Cash',         accent: 'border-l-amber-500 bg-amber-50/40',   Icon: Banknote },
+          { key: 'current_account',  lockKey: 'current_account',  label: 'HDFC Current', accent: 'border-l-blue-500 bg-blue-50/40',     Icon: Landmark },
+          { key: 'savings_account',  lockKey: 'savings',          label: 'HDFC Savings', accent: 'border-l-emerald-500 bg-emerald-50/40', Icon: PiggyBank },
+          { key: 'cheque',           lockKey: 'cheque',           label: 'Cheque',       accent: 'border-l-violet-500 bg-violet-50/40', Icon: FileText },
+          { key: 'direct_transfer',  lockKey: 'direct_transfer',  label: 'Cash DT',      accent: 'border-l-rose-500 bg-rose-50/40',     Icon: TrendingUp },
         ];
-        const cfExp = cashbookData?.summary?.total_cf_expense || 0;
-        const cfInc = cashbookData?.summary?.total_cf_income || 0;
-        const expFor = (k) => (exp[k] || 0) + (k === 'cheque' ? cfExp : 0);
-        const incFor = (k) => (inc[k] || 0) + (k === 'cheque' ? cfInc : 0);
-        const totalInc = cbBuckets.reduce((s, b) => s + incFor(b.key), 0);
-        const totalExp = cbBuckets.reduce((s, b) => s + expFor(b.key), 0);
+        const lockBuckets = cashbookData?.closing_balance_buckets || {};
+        // NOTE: lock.income values flow into the live cashbook via the
+        // `carry_forward_lock` sync in the backend (each non-zero lock
+        // income is written to db.income with the matching payment_mode).
+        // So `inc[key]` already includes them — adding cfInc here would
+        // double-count. lock.expense has NO sync sibling, so we add it.
+        const cfExp = (lk) => Number((lockBuckets[lk] || {}).expense || 0);
+        const incFor = (b) => (inc[b.key] || 0);
+        const expFor = (b) => (exp[b.key] || 0) + cfExp(b.lockKey);
+        const totalInc = cbBuckets.reduce((s, b) => s + incFor(b), 0);
+        const totalExp = cbBuckets.reduce((s, b) => s + expFor(b), 0);
         return (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5" data-testid="cashbook-bucket-cards">
             {cbBuckets.map(b => {
-              const i = incFor(b.key);
-              const e = expFor(b.key);
+              const i = incFor(b);
+              const e = expFor(b);
               const bal = i - e;
               const Icon = b.Icon;
-              const cfHint = b.key === 'cheque' && (cfInc > 0 || cfExp > 0);
+              const hasCf = cfExp(b.lockKey) > 0;
               return (
                 <div key={b.key} className={`rounded-lg border-l-4 ${b.accent} p-3 shadow-sm`} data-testid={`cb-bucket-${b.key}`}>
                   <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-gray-600 font-semibold mb-2">
                     <Icon className="h-3 w-3" /> {b.label}
-                    {cfHint && <span className="ml-auto text-[8px] font-bold text-violet-600 bg-violet-100 px-1 rounded">+CF</span>}
+                    {hasCf && <span className="ml-auto text-[8px] font-bold text-violet-600 bg-violet-100 px-1 rounded">+CF</span>}
                   </div>
                   <div className="flex items-baseline justify-between text-[11px]">
                     <span className="text-emerald-700">Income</span>

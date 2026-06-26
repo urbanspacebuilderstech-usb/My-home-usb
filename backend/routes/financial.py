@@ -5506,7 +5506,16 @@ async def get_cashbook_filtered(
             "deductions_total": round(deductions_total, 2),
             "grand_total_value": grand_total_value,
             "receivable": receivable,
-        }
+        },
+        # Feb 26 2026 — Closing Balance lock per-bucket carry-forward values
+        # so the Cashbook tab can render
+        #     Total Expense card = live cashbook expense + lock CF expense
+        #     Total Income  card = live cashbook income  + lock CF income
+        # per bucket (Cash / HDFC Current / HDFC Savings / Cheque / Cash DT).
+        # Returned regardless of date / project filter — these are firm-wide.
+        "closing_balance_buckets": (await db.closing_balances.find_one(
+            {"_id": CLOSING_BALANCE_DOC_ID}, {"_id": 0, "buckets": 1}
+        ) or {}).get("buckets") or {},
     }
 
 
