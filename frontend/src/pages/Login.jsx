@@ -67,6 +67,16 @@ export default function Login() {
   const [selectedEmail, setSelectedEmail] = useState('admin@constructionos.com');
   const [needs2FA, setNeeds2FA] = useState(false);
   const [totpCode, setTotpCode] = useState('');
+
+  // Feb 26 2026 — Branding (app name + logo URL) loaded from /api/branding
+  // so the Super Admin can change them without a deploy.
+  const [branding, setBranding] = useState({
+    app_name: 'My Home USB',
+    logo_url: '/logo.webp',
+  });
+  useEffect(() => {
+    axios.get(`${API}/branding`).then(r => setBranding(r.data)).catch(() => {});
+  }, []);
   const [demoMode, setDemoMode] = useState(false);
 
   // Check if setup is needed
@@ -167,8 +177,8 @@ export default function Login() {
         {/* Header / Branding */}
         <div className="flex flex-col items-center pt-8 pb-4 px-6">
           <img
-            src="/logo.webp"
-            alt="Urban Space Builders"
+            src={branding.logo_url || '/logo.webp'}
+            alt={branding.app_name || 'App logo'}
             className="w-28 object-contain mb-3"
             style={{ mixBlendMode: 'multiply' }}
             data-testid="login-logo"
@@ -177,7 +187,7 @@ export default function Login() {
             className="text-3xl font-extrabold tracking-tight text-slate-800"
             data-testid="login-title"
           >
-            My Home USB
+            {branding.app_name || 'My Home USB'}
           </h1>
           <p
             className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-600/80 mt-1"

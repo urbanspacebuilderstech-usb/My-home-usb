@@ -110,6 +110,26 @@ axios.interceptors.request.use(config => {
 
 function AppRouter() {
   const location = useLocation();
+
+  // Feb 26 2026 — Sync the browser tab title and favicon with the
+  // app-name / favicon configured in Super Admin → Settings → Branding.
+  // One fetch per mount, kept lightweight (public endpoint, no auth).
+  useEffect(() => {
+    axios.get(`${API}/branding`).then(r => {
+      const b = r.data || {};
+      if (b.app_name) {
+        try { document.title = b.app_name; } catch (e) { /* ignore */ }
+      }
+      if (b.favicon_url) {
+        try {
+          const link = document.querySelector("link[rel*='icon']") || document.createElement('link');
+          link.rel = 'icon';
+          link.href = b.favicon_url;
+          document.head.appendChild(link);
+        } catch (e) { /* ignore */ }
+      }
+    }).catch(() => {});
+  }, []);
   
   return (
     <Routes>

@@ -80,6 +80,49 @@ export default function Settings() {
     }
   };
 
+  // Feb 26 2026 — Branding (Super Admin only).
+  const [branding, setBranding] = useState(null);
+  const [brandName, setBrandName] = useState('');
+  const [brandSaving, setBrandSaving] = useState(false);
+
+  useEffect(() => {
+    axios.get(`${API}/branding`).then(r => {
+      setBranding(r.data);
+      setBrandName(r.data?.app_name || '');
+    }).catch(() => {});
+  }, []);
+
+  const saveBrandName = async () => {
+    const n = (brandName || '').trim();
+    if (!n) { toast.error('App name cannot be empty'); return; }
+    setBrandSaving(true);
+    try {
+      const r = await axios.patch(`${API}/admin/branding`, { app_name: n });
+      setBranding(r.data);
+      try { document.title = n; } catch (e) { /* ignore */ }
+      toast.success('App name updated.');
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to save app name');
+    } finally { setBrandSaving(false); }
+  };
+
+  const uploadBrandAsset = async (slot, fileEvt) => {
+    const f = fileEvt?.target?.files?.[0];
+    if (!f) return;
+    if (f.size > 2 * 1024 * 1024) { toast.error('Max 2 MB'); return; }
+    const fd = new FormData();
+    fd.append('file', f);
+    try {
+      const r = await axios.post(`${API}/admin/branding/upload?slot=${slot}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setBranding(r.data);
+      toast.success(`${slot === 'logo' ? 'Logo' : 'Favicon'} uploaded. New version live.`);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || `Failed to upload ${slot}`);
+    } finally {
+      try { fileEvt.target.value = ''; } catch (e) { /* ignore */ }
+    }
+  };
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -242,6 +285,11 @@ export default function Settings() {
             {user?.role === 'super_admin' && (
               <TabsTrigger value="cre-module" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-cre-module-tab">
                 <Headphones className="h-3 w-3 sm:h-4 sm:w-4" /> CRE Module
+              </TabsTrigger>
+            )}
+            {user?.role === 'super_admin' && (
+              <TabsTrigger value="branding" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-branding-tab">
+                <Building2 className="h-3 w-3 sm:h-4 sm:w-4" /> Branding
               </TabsTrigger>
             )}
           </TabsList>
@@ -513,6 +561,67 @@ export default function Settings() {
                   </div>
                   <p className="text-[11px] text-gray-400 pt-2 border-t">
                     Settings are saved instantly. CRE users will see the change on their next page load.
+                  </p>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+
+          {user?.role === 'super_admin' && (
+            <TabsContent value="branding">
+              <Card>
+                <CardHeader className="p-4 sm:p-6">
+                  <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                    <Building2 className="h-5 w-5 text-indigo-600" /> App Branding
+                  </CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">
+                    Change the app name, login logo, and favicon. New images take effect immediately for everyone (browsers will auto-bust the cache via a version query string).
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-4 sm:p-6 pt-0 space-y-5">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="brand-name-input" className="text-sm">App Name</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="brand-name-input"
+                        value={brandName}
+                        onChange={(e) => setBrandName(e.target.value)}
+                        placeholder="My Home USB"
+                        maxLength={80}
+                        data-testid="branding-name-input"
+                      />
+                      <Button onClick={saveBrandName} disabled={brandSaving} data-testid="branding-name-save">
+                        <Save className="h-4 w-4 mr-1" /> {brandSaving ? 'Saving…' : 'Save'}
+                      </Button>
+                    </div>
+                    <p className="text-[11px] text-gray-500">Shown on the browser tab, login screen, and sidebar header.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="rounded-lg border p-4 bg-slate-50">
+                      <p className="text-sm font-semibold mb-2">Login Logo</p>
+                      <div className="h-24 w-24 mx-auto rounded-md bg-white border flex items-center justify-center overflow-hidden">
+                        {branding?.logo_url && (
+                          <img src={branding.logo_url} alt="logo" className="max-h-full max-w-full object-contain" data-testid="branding-logo-preview" />
+                        )}
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-2 text-center">Recommended: 500 × 500 PNG / WebP, ≤ 2 MB</p>
+                      <Input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(e) => uploadBrandAsset('logo', e)} className="mt-2" data-testid="branding-logo-upload" />
+                    </div>
+                    <div className="rounded-lg border p-4 bg-slate-50">
+                      <p className="text-sm font-semibold mb-2">Favicon</p>
+                      <div className="h-24 w-24 mx-auto rounded-md bg-white border flex items-center justify-center overflow-hidden">
+                        {branding?.favicon_url && (
+                          <img src={branding.favicon_url} alt="favicon" className="max-h-full max-w-full object-contain" data-testid="branding-favicon-preview" />
+                        )}
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-2 text-center">Recommended: 512 × 512 PNG, ≤ 2 MB (used for browser tab + PWA install)</p>
+                      <Input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => uploadBrandAsset('favicon', e)} className="mt-2" data-testid="branding-favicon-upload" />
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-gray-400 pt-2 border-t">
+                    Last updated: {branding?.updated_at ? new Date(branding.updated_at).toLocaleString() : '—'} · Logo v{branding?.logo_version ?? 0} · Favicon v{branding?.favicon_version ?? 0}
                   </p>
                 </CardContent>
               </Card>

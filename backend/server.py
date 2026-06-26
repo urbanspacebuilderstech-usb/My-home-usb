@@ -91,6 +91,7 @@ from routes.procurement import router as procurement_router
 from routes.operations import router as operations_router
 from routes.crm import router as crm_router
 from routes.files import router as files_router
+from routes.branding import router as branding_router
 from routes.architect import router as architect_router
 from routes.contractors import router as contractors_router
 from routes.hr import router as hr_router
@@ -113,6 +114,7 @@ app.include_router(procurement_router, prefix="/api")
 app.include_router(operations_router, prefix="/api")
 app.include_router(crm_router, prefix="/api")
 app.include_router(files_router, prefix="/api")
+app.include_router(branding_router, prefix="/api")
 app.include_router(architect_router, prefix="/api")
 app.include_router(contractors_router, prefix="/api")
 app.include_router(hr_router, prefix="/api")
