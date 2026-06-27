@@ -2593,9 +2593,17 @@ async def get_petty_cash_for_pm(user: User = Depends(get_current_user)):
             {"_id": 0, "project_id": 1}
         ).to_list(None)
         project_ids = [p["project_id"] for p in assigned_projects if p.get("project_id")]
-        if not project_ids:
-            return []
-        query["project_id"] = {"$in": project_ids}
+        # Include unassigned "General" petty cash (project_id empty / missing / None)
+        # so every PM sees site-engineer requests that aren't tied to a project.
+        # Any PM can approve them; once approved, status changes and they fall out
+        # of the queue for the others.
+        project_scope_clause: List[Dict[str, Any]] = [
+            {"project_id": {"$in": ["", None]}},
+            {"project_id": {"$exists": False}},
+        ]
+        if project_ids:
+            project_scope_clause.append({"project_id": {"$in": project_ids}})
+        query["$or"] = project_scope_clause
     requests = await db.petty_cash.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
     return requests
 
