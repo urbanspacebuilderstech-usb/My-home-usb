@@ -3198,6 +3198,40 @@ async def get_recorded_expenses(
     return expenses
 
 
+@router.get("/pm/recorded-expenses")
+async def get_pm_recorded_expenses(user: User = Depends(get_current_user)):
+    """Project Manager view of SE-recorded petty-cash expenses.
+
+    Scope:
+      • PM / Associate-PM → expenses on their assigned projects + any "General"
+        (no project_id) entries so they can review unscoped site spend.
+      • Super Admin → everything.
+    """
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only PM can access this")
+
+    query: Dict[str, Any] = {}
+    if user.role in (UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM):
+        assigned = await db.projects.find(
+            {"$or": [
+                {"team.project_manager": user.user_id},
+                {"team.associate_pm": user.user_id},
+                {"assigned_pm": user.user_id},
+            ]},
+            {"_id": 0, "project_id": 1}
+        ).to_list(None)
+        project_ids = [p["project_id"] for p in assigned if p.get("project_id")]
+        clause: List[Dict[str, Any]] = [
+            {"project_id": {"$in": ["", None]}},
+            {"project_id": {"$exists": False}},
+        ]
+        if project_ids:
+            clause.append({"project_id": {"$in": project_ids}})
+        query["$or"] = clause
+
+    return await db.recorded_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+
 
 
 # ==================== PROJECT MANAGER MODULE ====================

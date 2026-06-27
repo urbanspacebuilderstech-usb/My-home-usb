@@ -1,5 +1,7 @@
-// PM Dashboard — Petty Cash tab with Income / Expense sub-tabs.
-// Both flows show lifecycle filter cards + list. PM is the first approver in the chain.
+// PM Dashboard — Petty Cash tab with two views:
+//   1. "Req Petty Cash"  → SE-raised petty cash requests (existing flow).
+//   2. "Record Expense"  → SE-recorded petty-cash expenses awaiting accountant.
+// Both share the same 3 lifecycle buckets: New Expense | Awaiting Accountant | Expense Recorded.
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import axios from 'axios';
 import { Card, CardContent } from './ui/card';
@@ -8,69 +10,59 @@ import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
-import { Banknote, ThumbsUp, ThumbsDown, Loader2, ArrowDownCircle, ArrowUpCircle, RefreshCw } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, Loader2, Wallet, FileText, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
-const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }); } catch { return s || '—'; } };
+const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
 
-// Lifecycle bucket definitions per user spec.
-const EXPENSE_BUCKETS = [
-  { key: 'new',                 label: 'New Expense',          cls: 'bg-amber-50 border-amber-200 text-amber-700',     active: 'bg-amber-600 text-white' },
-  { key: 'awaiting_accountant', label: 'Awaiting Accountant',  cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white' },
-  { key: 'revisions',           label: 'Revisions',            cls: 'bg-orange-50 border-orange-200 text-orange-700',  active: 'bg-orange-600 text-white' },
-  { key: 'expense_recorded',    label: 'Expense Recorded',     cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white' },
-];
-const INCOME_BUCKETS = [
-  { key: 'new',                 label: 'New Request',          cls: 'bg-amber-50 border-amber-200 text-amber-700',     active: 'bg-amber-600 text-white' },
-  { key: 'awaiting_accountant', label: 'Awaiting Accountant',  cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white' },
-  { key: 'revisions',           label: 'Revisions',            cls: 'bg-orange-50 border-orange-200 text-orange-700',  active: 'bg-orange-600 text-white' },
-  { key: 'acknowledged',        label: 'Acknowledged',         cls: 'bg-blue-50 border-blue-200 text-blue-700',        active: 'bg-blue-600 text-white' },
-  { key: 'payment_done',        label: 'Payment Done',         cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white' },
+// Shared 3-bucket lifecycle (per user spec — Revisions removed).
+const BUCKETS = [
+  { key: 'new',                 label: 'New Expense',         cls: 'bg-amber-50 border-amber-200 text-amber-700',       active: 'bg-amber-600 text-white' },
+  { key: 'awaiting_accountant', label: 'Awaiting Accountant', cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',          active: 'bg-cyan-600 text-white' },
+  { key: 'expense_recorded',    label: 'Expense Recorded',    cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white' },
 ];
 
-// Map petty_cash status → expense bucket. PM is first approver.
-function bucketForExpense(p) {
+// Map petty_cash request → bucket. Revisions (rejected) roll back into "New Expense".
+function bucketForPettyCash(p) {
   const s = (p.status || '').toLowerCase();
   if (s === 'requested') return 'new';
+  if (s === 'rejected' || s === 'pm_rejected' || s === 'accountant_rejected') return 'new'; // SE will re-submit
   if (s === 'pm_approved') return 'awaiting_accountant';
-  if (s === 'rejected' || s === 'pm_rejected') return 'revisions';
-  if (['issued', 'partially_settled', 'settled', 'completed', 'approved'].includes(s)) return 'expense_recorded';
+  if (['issued', 'partially_settled', 'settled', 'completed', 'approved', 'payment_done', 'acknowledged'].includes(s)) return 'expense_recorded';
   return 'new';
 }
-// Map income.status → income bucket.
-function bucketForIncome(i) {
-  const s = (i.status || '').toLowerCase();
-  if (s === 'requested' || s === 'pending') return 'new';
-  if (s === 'pm_approved' || s === 'under_review') return 'awaiting_accountant';
-  if (s === 'rejected' || s === 'revision_requested') return 'revisions';
-  if (s === 'acknowledged' || s === 'pm_acknowledged') return 'acknowledged';
-  if (s === 'approved' || s === 'payment_done') return 'payment_done';
-  return 'new';
+
+// Map recorded_expense → bucket.
+function bucketForRecordedExpense(e) {
+  const s = (e.status || '').toLowerCase();
+  if (s === 'approved' || s === 'verified' || s === 'recorded_into_cashbook') return 'expense_recorded';
+  if (s === 'pm_reviewed' || s === 'awaiting_accountant') return 'awaiting_accountant';
+  return 'new'; // 'recorded' (fresh from SE) → New Expense
 }
 
 export default function PMPettyCashTabs({ pettyCashRequests, onRefresh }) {
-  const [subTab, setSubTab] = useState('expense');
-  const [incomeEntries, setIncomeEntries] = useState([]);
-  const [incomeLoading, setIncomeLoading] = useState(false);
+  const [subTab, setSubTab] = useState('req_petty_cash');
+  const [recordedExpenses, setRecordedExpenses] = useState([]);
+  const [reLoading, setReLoading] = useState(false);
 
-  const fetchIncome = useCallback(async () => {
-    setIncomeLoading(true);
+  const fetchRecorded = useCallback(async () => {
+    setReLoading(true);
     try {
-      const res = await axios.get(`${API}/income`);
-      setIncomeEntries(res.data || []);
-    } catch { setIncomeEntries([]); }
-    finally { setIncomeLoading(false); }
+      const res = await axios.get(`${API}/pm/recorded-expenses`);
+      setRecordedExpenses(res.data || []);
+    } catch { setRecordedExpenses([]); }
+    finally { setReLoading(false); }
   }, []);
-  useEffect(() => { if (subTab === 'income') fetchIncome(); }, [subTab, fetchIncome]);
+  useEffect(() => { if (subTab === 'record_expense') fetchRecorded(); }, [subTab, fetchRecorded]);
 
   return (
     <div className="space-y-3" data-testid="pm-petty-cash-tab">
       <div className="inline-flex rounded-md border border-gray-200 bg-white p-0.5" data-testid="pm-pc-subtabs">
         {[
-          { key: 'expense', label: 'Expense', Icon: ArrowUpCircle, color: 'amber' },
-          { key: 'income',  label: 'Income',  Icon: ArrowDownCircle, color: 'emerald' },
+          { key: 'req_petty_cash', label: 'Req Petty Cash', Icon: Wallet,   activeCls: 'bg-amber-600 text-white shadow-sm' },
+          { key: 'record_expense', label: 'Record Expense', Icon: FileText, activeCls: 'bg-emerald-600 text-white shadow-sm' },
         ].map(t => {
           const Icon = t.Icon;
           const active = subTab === t.key;
@@ -78,7 +70,7 @@ export default function PMPettyCashTabs({ pettyCashRequests, onRefresh }) {
             <button
               key={t.key}
               onClick={() => setSubTab(t.key)}
-              className={`flex items-center gap-1.5 px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-medium rounded transition-all ${active ? `bg-${t.color}-600 text-white shadow-sm` : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-medium rounded transition-all ${active ? t.activeCls : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`}
               data-testid={`pm-pc-subtab-${t.key}`}
             >
               <Icon className="h-3.5 w-3.5" /> {t.label}
@@ -87,30 +79,29 @@ export default function PMPettyCashTabs({ pettyCashRequests, onRefresh }) {
         })}
       </div>
 
-      {subTab === 'expense' && (
-        <ExpenseView items={pettyCashRequests} onRefresh={onRefresh} />
+      {subTab === 'req_petty_cash' && (
+        <PettyCashRequestsView items={pettyCashRequests} onRefresh={onRefresh} />
       )}
-      {subTab === 'income' && (
-        <IncomeView items={incomeEntries} loading={incomeLoading} onRefresh={fetchIncome} />
+      {subTab === 'record_expense' && (
+        <RecordExpenseView items={recordedExpenses} loading={reLoading} onRefresh={fetchRecorded} />
       )}
     </div>
   );
 }
 
-// ----- Expense (existing petty_cash flow) -----
-function ExpenseView({ items, onRefresh }) {
+// ----- Req Petty Cash (SE-raised petty cash request lifecycle) -----
+function PettyCashRequestsView({ items, onRefresh }) {
   const [bucket, setBucket] = useState('new');
   const [actDialog, setActDialog] = useState({ open: false, item: null, action: null, reason: '' });
   const [submitting, setSubmitting] = useState(false);
 
   const counts = useMemo(() => {
     const c = {};
-    EXPENSE_BUCKETS.forEach(b => { c[b.key] = 0; });
-    items.forEach(p => { const b = bucketForExpense(p); c[b] = (c[b] || 0) + 1; });
+    BUCKETS.forEach(b => { c[b.key] = 0; });
+    items.forEach(p => { const b = bucketForPettyCash(p); c[b] = (c[b] || 0) + 1; });
     return c;
   }, [items]);
-
-  const visible = useMemo(() => items.filter(p => bucketForExpense(p) === bucket), [items, bucket]);
+  const visible = useMemo(() => items.filter(p => bucketForPettyCash(p) === bucket), [items, bucket]);
 
   const submitAction = async () => {
     if (actDialog.action === 'reject' && !actDialog.reason.trim()) { toast.error('Reason required'); return; }
@@ -132,11 +123,11 @@ function ExpenseView({ items, onRefresh }) {
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5" data-testid="pm-pc-expense-buckets">
-        {EXPENSE_BUCKETS.map(b => {
+      <div className="grid grid-cols-3 gap-1.5" data-testid="pm-pc-req-buckets">
+        {BUCKETS.map(b => {
           const active = bucket === b.key;
           return (
-            <button key={b.key} onClick={() => setBucket(b.key)} className={`flex flex-col items-center justify-center gap-0.5 px-2 py-2 rounded-md border text-[10px] sm:text-[11px] font-medium transition-all min-h-[58px] ${active ? b.active + ' shadow-sm' : b.cls + ' hover:shadow-sm'}`} data-testid={`pm-pc-expense-${b.key}`}>
+            <button key={b.key} onClick={() => setBucket(b.key)} className={`flex flex-col items-center justify-center gap-0.5 px-2 py-2 rounded-md border text-[10px] sm:text-[11px] font-medium transition-all min-h-[58px] ${active ? b.active + ' shadow-sm' : b.cls + ' hover:shadow-sm'}`} data-testid={`pm-pc-req-${b.key}`}>
               <span className="leading-tight text-center">{b.label}</span>
               <span className={`text-base font-bold ${active ? 'text-white' : ''}`}>{counts[b.key] || 0}</span>
             </button>
@@ -144,14 +135,14 @@ function ExpenseView({ items, onRefresh }) {
         })}
       </div>
       {visible.length === 0 ? (
-        <Card><CardContent className="p-8 text-center text-xs text-gray-400">No expense entries in this bucket</CardContent></Card>
+        <Card><CardContent className="p-8 text-center text-xs text-gray-400">No petty-cash requests in this bucket</CardContent></Card>
       ) : (
-        <div className="space-y-2" data-testid="pm-pc-expense-list">
+        <div className="space-y-2" data-testid="pm-pc-req-list">
           {visible.map(p => {
-            const cfg = EXPENSE_BUCKETS.find(b => b.key === bucketForExpense(p));
-            const isNew = bucketForExpense(p) === 'new';
+            const cfg = BUCKETS.find(b => b.key === bucketForPettyCash(p));
+            const isNew = bucketForPettyCash(p) === 'new' && (p.status || '').toLowerCase() === 'requested';
             return (
-              <Card key={p.petty_cash_id} data-testid={`pm-pc-expense-card-${p.petty_cash_id}`}>
+              <Card key={p.petty_cash_id} data-testid={`pm-pc-req-card-${p.petty_cash_id}`}>
                 <CardContent className="p-3">
                   <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -209,42 +200,27 @@ function ExpenseView({ items, onRefresh }) {
   );
 }
 
-// ----- Income (only petty-cash–related incomes; not all client payments) -----
-function IncomeView({ items: allItems, loading, onRefresh }) {
+// ----- Record Expense (SE-recorded petty-cash expense lifecycle) -----
+function RecordExpenseView({ items, loading, onRefresh }) {
   const [bucket, setBucket] = useState('new');
-  // Restrict to incomes actually tied to the petty-cash flow (refunds, returns,
-  // SE settlements). Without this filter the API's `/income` returns every
-  // payment collection in the app, flooding the petty-cash tab with thousands
-  // of unrelated rows.
-  const items = useMemo(() => {
-    const re = /petty[\s_-]*cash/i;
-    return (allItems || []).filter(i => {
-      if (i.petty_cash_id || i.linked_petty_cash_id || i.petty_cash_request_id) return true;
-      if (['petty_cash', 'petty_cash_refund', 'petty_cash_return', 'petty_cash_settlement'].includes((i.source || '').toLowerCase())) return true;
-      if (['petty_cash', 'petty_cash_refund', 'petty_cash_return'].includes((i.category || '').toLowerCase())) return true;
-      if (i.description && re.test(i.description)) return true;
-      return false;
-    });
-  }, [allItems]);
   const counts = useMemo(() => {
     const c = {};
-    INCOME_BUCKETS.forEach(b => { c[b.key] = 0; });
-    items.forEach(i => { const b = bucketForIncome(i); c[b] = (c[b] || 0) + 1; });
+    BUCKETS.forEach(b => { c[b.key] = 0; });
+    items.forEach(i => { const b = bucketForRecordedExpense(i); c[b] = (c[b] || 0) + 1; });
     return c;
   }, [items]);
-  const visible = useMemo(() => items.filter(i => bucketForIncome(i) === bucket), [items, bucket]);
+  const visible = useMemo(() => items.filter(i => bucketForRecordedExpense(i) === bucket), [items, bucket]);
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-emerald-700 flex items-center gap-2"><Banknote className="h-4 w-4" /> Income ({items.length})</h3>
+      <div className="flex items-center justify-end">
         <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={onRefresh}><RefreshCw className="h-3 w-3" /> Refresh</Button>
       </div>
-      <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5" data-testid="pm-pc-income-buckets">
-        {INCOME_BUCKETS.map(b => {
+      <div className="grid grid-cols-3 gap-1.5" data-testid="pm-pc-record-buckets">
+        {BUCKETS.map(b => {
           const active = bucket === b.key;
           return (
-            <button key={b.key} onClick={() => setBucket(b.key)} className={`flex flex-col items-center justify-center gap-0.5 px-2 py-2 rounded-md border text-[10px] sm:text-[11px] font-medium transition-all min-h-[58px] ${active ? b.active + ' shadow-sm' : b.cls + ' hover:shadow-sm'}`} data-testid={`pm-pc-income-${b.key}`}>
+            <button key={b.key} onClick={() => setBucket(b.key)} className={`flex flex-col items-center justify-center gap-0.5 px-2 py-2 rounded-md border text-[10px] sm:text-[11px] font-medium transition-all min-h-[58px] ${active ? b.active + ' shadow-sm' : b.cls + ' hover:shadow-sm'}`} data-testid={`pm-pc-record-${b.key}`}>
               <span className="leading-tight text-center">{b.label}</span>
               <span className={`text-base font-bold ${active ? 'text-white' : ''}`}>{counts[b.key] || 0}</span>
             </button>
@@ -254,26 +230,34 @@ function IncomeView({ items: allItems, loading, onRefresh }) {
       {loading ? (
         <Card><CardContent className="p-8 text-center text-xs text-gray-400 flex items-center justify-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</CardContent></Card>
       ) : visible.length === 0 ? (
-        <Card><CardContent className="p-8 text-center text-xs text-gray-400">No income entries in this bucket</CardContent></Card>
+        <Card><CardContent className="p-8 text-center text-xs text-gray-400">No recorded expenses in this bucket</CardContent></Card>
       ) : (
-        <div className="space-y-2" data-testid="pm-pc-income-list">
-          {visible.map(i => {
-            const cfg = INCOME_BUCKETS.find(b => b.key === bucketForIncome(i));
+        <div className="space-y-2" data-testid="pm-pc-record-list">
+          {visible.map(e => {
+            const cfg = BUCKETS.find(b => b.key === bucketForRecordedExpense(e));
             return (
-              <Card key={i.income_id} data-testid={`pm-pc-income-card-${i.income_id}`}>
+              <Card key={e.expense_id} data-testid={`pm-pc-record-card-${e.expense_id}`}>
                 <CardContent className="p-3">
                   <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {cfg && <Badge variant="outline" className={`text-[10px] ${cfg.cls}`}>{cfg.label}</Badge>}
-                      <span className="text-[10px] text-gray-400 font-mono">#{i.income_id}</span>
+                      <span className="text-[10px] text-gray-400 font-mono">#{e.expense_id}</span>
+                      {e.category && <Badge variant="outline" className="text-[9px] capitalize">{e.category.replace(/_/g, ' ')}</Badge>}
                     </div>
-                    <span className="text-sm font-semibold text-emerald-700">{fmt(i.amount)}</span>
+                    <span className="text-sm font-semibold text-red-700">{fmt(e.amount)}</span>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                    <div className="sm:col-span-2"><p className="text-[10px] uppercase font-semibold text-gray-400">Source / Description</p><p className="font-medium truncate">{i.description || i.source || '—'}</p></div>
-                    <div><p className="text-[10px] uppercase font-semibold text-gray-400">Project</p><p className="font-medium truncate">{i.project_name || '—'}</p></div>
-                    <div><p className="text-[10px] uppercase font-semibold text-gray-400">Date</p><p className="font-medium">{fmtDate(i.income_date || i.created_at)}</p></div>
+                    <div className="sm:col-span-2"><p className="text-[10px] uppercase font-semibold text-gray-400">Description</p><p className="font-medium truncate">{e.description || '—'}</p></div>
+                    <div><p className="text-[10px] uppercase font-semibold text-gray-400">Vendor / Payee</p><p className="font-medium truncate">{e.vendor_name || '—'}</p></div>
+                    <div><p className="text-[10px] uppercase font-semibold text-gray-400">Project</p><p className="font-medium truncate">{e.project_name || '—'}</p></div>
+                    <div><p className="text-[10px] uppercase font-semibold text-gray-400">Recorded by</p><p className="font-medium truncate">{e.recorded_by_name || '—'}</p></div>
+                    <div><p className="text-[10px] uppercase font-semibold text-gray-400">Date</p><p className="font-medium">{fmtDate(e.created_at)}</p></div>
                   </div>
+                  {e.bill_file_id && (
+                    <div className="mt-1">
+                      <a href={`${API}/files/${e.bill_file_id}/download`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 underline">View bill</a>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             );
