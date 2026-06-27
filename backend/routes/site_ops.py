@@ -3203,40 +3203,27 @@ async def get_pm_recorded_expenses(user: User = Depends(get_current_user)):
     """Project Manager view of SE-recorded petty-cash expenses.
 
     Scope:
-      • PM / Associate-PM → expenses on their assigned projects + any "General"
-        (no project_id) entries so they can review unscoped site spend.
-      • Super Admin → everything.
+      • All PMs / Associate-PMs see every SE-recorded expense regardless of
+        project assignment. Site Engineers often log spends against projects
+        they aren't formally rostered to, and the current rule was hiding
+        legitimate expenses (e.g. Venkateshan E's spends on "Mr Susikar
+        Robert" were invisible to every PM not assigned to that project).
+        Any PM with a free slot can clear the queue; once cleared, the row
+        falls out for everyone.
+      • Super Admin → everything (same query).
 
-    Source filter — we ONLY surface rows the Site Engineer raised. Accountant-
-    side bookkeeping mirrors (cash issuance to SE, manual cashbook entries,
-    petty cash settlements) carry `source` in
-    {approval, manual, petty_cash_settle, settle} and must not show up in the
-    PM approval queue — they were already cleared upstream.
+    Source filter — ONLY rows the Site Engineer raised. Accountant-side
+    bookkeeping mirrors (cash issuance to SE, manual cashbook entries, work
+    order stage release) must not show up here — they were already cleared
+    upstream.
     """
     if user.role not in [UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only PM can access this")
 
     se_sources = ["site_engineer_direct", "site_engineer", "se_direct"]
-    query: Dict[str, Any] = {"source": {"$in": se_sources}}
-    if user.role in (UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM):
-        assigned = await db.projects.find(
-            {"$or": [
-                {"team.project_manager": user.user_id},
-                {"team.associate_pm": user.user_id},
-                {"assigned_pm": user.user_id},
-            ]},
-            {"_id": 0, "project_id": 1}
-        ).to_list(None)
-        project_ids = [p["project_id"] for p in assigned if p.get("project_id")]
-        clause: List[Dict[str, Any]] = [
-            {"project_id": {"$in": ["", None]}},
-            {"project_id": {"$exists": False}},
-        ]
-        if project_ids:
-            clause.append({"project_id": {"$in": project_ids}})
-        query["$or"] = clause
-
-    return await db.recorded_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return await db.recorded_expenses.find(
+        {"source": {"$in": se_sources}}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
 
 
 # ---------- Record Expense: PM → Accountant approval ladder ----------
