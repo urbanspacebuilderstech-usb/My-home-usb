@@ -1444,41 +1444,53 @@ async def get_unified_approvals(
         labour_statuses = ["requested", "planning_approved", "pending_accounts_approval"]
         vendor_statuses = ["requested", "planning_approved", "pending_accounts_approval"]
         petty_cash_statuses = ["pm_approved", "planning_approved", "awaiting_accountant", "accountant_processing"]
+        recorded_expense_statuses = ["pm_approved"]
     elif sf == "approved":
         income_statuses = ["approved", "verified", "accountant_verified"]
         material_statuses = ["accounts_approved", "issued", "settled", "completed"]
         labour_statuses = ["accounts_approved", "settled", "completed"]
         vendor_statuses = ["accounts_approved", "settled", "completed"]
         petty_cash_statuses = ["issued", "partially_spent", "pending_settlement", "settled", "completed", "payment_done", "acknowledged"]
+        recorded_expense_statuses = ["approved", "verified", "recorded_into_cashbook"]
     elif sf == "rejected":
         income_statuses = ["rejected", "accountant_rejected", "accounts_rejected"]
         material_statuses = ["rejected", "accountant_rejected", "accounts_rejected"]
         labour_statuses = ["rejected", "accountant_rejected", "accounts_rejected"]
         vendor_statuses = ["rejected", "accountant_rejected", "accounts_rejected"]
         petty_cash_statuses = ["rejected", "accountant_rejected", "pm_rejected"]
+        recorded_expense_statuses = ["accountant_rejected", "rejected"]
     elif sf == "under_correction":
         income_statuses = ["under_correction"]
         material_statuses = ["under_correction"]
         labour_statuses = ["under_correction"]
         vendor_statuses = ["under_correction"]
         petty_cash_statuses = ["under_correction"]
+        recorded_expense_statuses = ["under_correction"]
     else:  # 'all'
         income_statuses = None  # None = no status filter
         material_statuses = None
         labour_statuses = None
         vendor_statuses = None
         petty_cash_statuses = None
+        recorded_expense_statuses = None
 
     def _q(statuses):
         return {} if statuses is None else {"status": {"$in": statuses}}
 
+    # Recorded expenses are scoped to SE-origin rows only (mirrors PM's filter)
+    se_sources = ["site_engineer_direct", "site_engineer", "se_direct"]
+    rec_query: Dict[str, Any] = {"source": {"$in": se_sources}}
+    if recorded_expense_statuses is not None:
+        rec_query["status"] = {"$in": recorded_expense_statuses}
+
     # Parallel fetch
-    (incomes, materials, labour, vendor, petty_cash, projects_list) = await asyncio.gather(
+    (incomes, materials, labour, vendor, petty_cash, recorded_expenses_q, projects_list) = await asyncio.gather(
         db.income.find(_q(income_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
         db.material_expenses.find(_q(material_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
         db.labour_expenses.find(_q(labour_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
         db.vendor_service_expenses.find(_q(vendor_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
         db.petty_cash.find(_q(petty_cash_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
+        db.recorded_expenses.find(rec_query, {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000),
     )
 
@@ -1493,6 +1505,9 @@ async def get_unified_approvals(
         if item.get("project_id"):
             item["project_name"] = project_map.get(item["project_id"], item.get("project_name") or "Unknown")
         # else: keep whatever was stored ("General" or similar)
+    for item in recorded_expenses_q:
+        if item.get("project_id"):
+            item["project_name"] = project_map.get(item["project_id"], item.get("project_name") or "Unknown")
 
     return {
         "status_filter": sf,
@@ -1501,6 +1516,7 @@ async def get_unified_approvals(
         "labour": labour,
         "vendor": vendor,
         "petty_cash": petty_cash,
+        "recorded_expenses": recorded_expenses_q,
         "summary": {
             "income_count": len(incomes),
             "income_total": sum(i.get("amount", 0) for i in incomes),
@@ -1512,6 +1528,8 @@ async def get_unified_approvals(
             "vendor_total": sum(v.get("amount", 0) for v in vendor),
             "petty_cash_count": len(petty_cash),
             "petty_cash_total": sum(p.get("amount_requested", 0) or p.get("amount_issued", 0) for p in petty_cash),
+            "recorded_expense_count": len(recorded_expenses_q),
+            "recorded_expense_total": sum(r.get("amount", 0) for r in recorded_expenses_q),
         }
     }
 

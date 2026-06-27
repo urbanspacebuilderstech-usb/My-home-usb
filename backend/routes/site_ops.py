@@ -3313,6 +3313,31 @@ async def accountant_approve_recorded_expense(expense_id: str, payload: Recorded
     return {"message": "Recorded into cashbook", "expense_id": expense_id}
 
 
+@router.patch("/accountant/recorded-expenses/{expense_id}/reject")
+async def accountant_reject_recorded_expense(expense_id: str, payload: RecordedExpenseReviewPayload = None, user: User = Depends(get_current_user)):
+    """Accountant rejects a PM-approved recorded expense — bounces all the way
+    back to the SE. Status: pm_approved → accountant_rejected."""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can reject")
+    exp = await db.recorded_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not exp:
+        raise HTTPException(status_code=404, detail="Recorded expense not found")
+    reason = (payload.reason if payload else None) or "Rejected by Accountant"
+    now = datetime.now(timezone.utc).isoformat()
+    await db.recorded_expenses.update_one(
+        {"expense_id": expense_id},
+        {"$set": {
+            "status": "accountant_rejected",
+            "accountant_rejected_by": user.user_id,
+            "accountant_rejected_by_name": user.name,
+            "accountant_rejected_at": now,
+            "rejection_reason": reason,
+            "updated_at": now,
+        }}
+    )
+    return {"message": "Rejected and bounced back", "expense_id": expense_id}
+
+
 
 
 # ==================== PROJECT MANAGER MODULE ====================
