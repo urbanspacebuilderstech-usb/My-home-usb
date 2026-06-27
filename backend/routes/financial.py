@@ -6687,6 +6687,79 @@ async def reject_request(approval_id: str, data: ApprovalAction = None, user: Us
 
     return {"message": f"{req['entry_type'].capitalize()} rejected", "approval_id": approval_id}
 
+
+# ==================== REJECT LEGACY MATERIAL EXPENSE (orphan / pre-procurement-simple) ====================
+class LegacyRejectPayload(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.post("/approvals/material/{expense_id}/reject")
+async def reject_material_expense(expense_id: str, payload: LegacyRejectPayload = None, user: User = Depends(get_current_user)):
+    """Reject a legacy material expense (mirrors the procurement-simple reject path).
+
+    Used to clear orphan `material_expenses` rows whose parent `material_requests`
+    no longer exist (and any non-paid mexp row still in the approval queue).
+    Sets status to `accountant_rejected`, records the reason, and notifies the
+    requester. If a parent material_request still exists, it is also marked
+    rejected so the queue counter stays consistent.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant or Super Admin can reject")
+
+    exp = await db.material_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not exp:
+        raise HTTPException(status_code=404, detail="Material expense not found")
+
+    # Block reject if already paid (real money moved) — protect ledger integrity
+    paid = float(exp.get("paid_amount") or exp.get("amount_paid") or 0)
+    if paid > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot reject — already paid ₹{paid:,.0f}. Use a reversal instead.")
+
+    if exp.get("status") in ("paid", "completed", "accountant_rejected", "rejected"):
+        raise HTTPException(status_code=400, detail=f"Already in terminal state: {exp.get('status')}")
+
+    reason = (payload.reason if payload else None) or "Rejected by accountant"
+    now = datetime.now(timezone.utc).isoformat()
+
+    await db.material_expenses.update_one(
+        {"expense_id": expense_id},
+        {"$set": {
+            "status": "accountant_rejected",
+            "rejection_reason": reason,
+            "rejected_by": user.user_id,
+            "rejected_by_name": user.name,
+            "rejected_at": now,
+            "updated_at": now,
+        }}
+    )
+
+    # Mirror status on the parent material_request if it still exists
+    src = exp.get("source_request_id")
+    parent_synced = False
+    if src:
+        upd = await db.material_requests.update_one(
+            {"request_id": src},
+            {"$set": {"status": "accountant_rejected", "rejection_reason": reason, "updated_at": now}}
+        )
+        parent_synced = upd.modified_count > 0
+
+    # Notify the requester (best-effort)
+    if exp.get("requested_by"):
+        try:
+            await create_notification(
+                exp["requested_by"],
+                f"Material expense for ₹{(exp.get('final_amount') or exp.get('estimated_cost') or 0):,.0f} was rejected. Reason: {reason}"
+            )
+        except Exception:
+            pass
+
+    return {
+        "message": "Material expense rejected",
+        "expense_id": expense_id,
+        "parent_synced": parent_synced,
+    }
+
+
 # ==================== UNIFIED PAY APPROVAL ENDPOINT ====================
 # Single endpoint handles payment for material/labour/petty_cash requests.
 # Logic:
