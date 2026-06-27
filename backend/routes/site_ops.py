@@ -3206,11 +3206,18 @@ async def get_pm_recorded_expenses(user: User = Depends(get_current_user)):
       • PM / Associate-PM → expenses on their assigned projects + any "General"
         (no project_id) entries so they can review unscoped site spend.
       • Super Admin → everything.
+
+    Source filter — we ONLY surface rows the Site Engineer raised. Accountant-
+    side bookkeeping mirrors (cash issuance to SE, manual cashbook entries,
+    petty cash settlements) carry `source` in
+    {approval, manual, petty_cash_settle, settle} and must not show up in the
+    PM approval queue — they were already cleared upstream.
     """
     if user.role not in [UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only PM can access this")
 
-    query: Dict[str, Any] = {}
+    se_sources = ["site_engineer_direct", "site_engineer", "se_direct"]
+    query: Dict[str, Any] = {"source": {"$in": se_sources}}
     if user.role in (UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM):
         assigned = await db.projects.find(
             {"$or": [
