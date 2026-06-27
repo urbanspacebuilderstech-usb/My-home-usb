@@ -3851,7 +3851,7 @@ function ApprovalsTab() {
           {/* Procurement → Planning → Accountant material payments (full / advance / balance).
               Uses the unified PayApprovalDialog with cheque suspense + CRE-opened cheque picker. */}
           <div className="mb-3" data-testid="approvals-procurement-materials">
-            <AccountantMaterialPayments onRefresh={() => fetchApprovals(false)} />
+            <AccountantMaterialPayments onRefresh={() => fetchApprovals(false)} legacyExpenses={filteredMaterials} />
           </div>
           {/* Vendor credit ledger settlements awaiting accountant release */}
           <div className="mb-3" data-testid="approvals-credit-settlements">

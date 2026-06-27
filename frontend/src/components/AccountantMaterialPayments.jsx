@@ -20,7 +20,7 @@ const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency:
  * CRE-opened cheque picker + auto excess-to-suspense). Each material_request
  * carries an `expense_id` back-link to its mirrored material_expenses row.
  */
-export default function AccountantMaterialPayments({ onRefresh }) {
+export default function AccountantMaterialPayments({ onRefresh, legacyExpenses = [] }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [payDialog, setPayDialog] = useState({ open: false, requestId: '' });
@@ -45,8 +45,14 @@ export default function AccountantMaterialPayments({ onRefresh }) {
     setPayDialog({ open: true, requestId: req.expense_id });
   };
 
+  // Legacy material_expenses (no live material_request parent). Dedupe by
+  // expense_id against live items so we don't show the same row twice when
+  // both collections are populated.
+  const liveExpenseIds = new Set(items.map(i => i.expense_id).filter(Boolean));
+  const legacyToShow = (legacyExpenses || []).filter(e => e.expense_id && !liveExpenseIds.has(e.expense_id));
+
   if (loading) return <p className="text-center text-xs text-gray-400 py-6">Loading material payments…</p>;
-  if (items.length === 0) return <p className="text-center text-xs text-gray-400 py-6">No pending material payments</p>;
+  if (items.length === 0 && legacyToShow.length === 0) return <p className="text-center text-xs text-gray-400 py-6">No pending material payments</p>;
 
   return (
     <>
@@ -112,6 +118,49 @@ export default function AccountantMaterialPayments({ onRefresh }) {
                 <div className="flex justify-end mt-2">
                   <Button size="sm" className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => openPayDialog(req)} data-testid={`acc-mat-release-${req.request_id}`}>
                     <Wallet className="h-3 w-3" /> {(req.status === 'partially_paid' || req.last_partial_paid_at) ? 'Pay Balance' : `Release ${phase === 'balance' ? 'Balance' : (phase === 'advance' ? 'Advance' : 'Payment')}`}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+
+        {/* Legacy material_expenses (orphan / no live parent material_request) */}
+        {legacyToShow.map(exp => {
+          const amt = exp.final_amount || exp.estimated_cost || exp.estimated_price || 0;
+          return (
+            <Card key={`legacy-${exp.expense_id}`} className="hover:shadow-md transition-shadow border-l-4" style={{ borderLeftColor: '#6b7280' }}>
+              <CardContent className="p-3 sm:p-4">
+                <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <Badge variant="outline" className="text-[10px] bg-gray-50 text-gray-700 border-gray-300">Legacy</Badge>
+                    <Badge variant="outline" className="text-[10px] capitalize">{(exp.payment_phase || 'full')} payment</Badge>
+                    {exp.payment_mode && <Badge variant="outline" className="text-[10px] capitalize">{exp.payment_mode.replace(/_/g, ' ')}</Badge>}
+                    {exp.source_request_id && <span className="text-[10px] text-gray-400 font-mono">#{exp.source_request_id}</span>}
+                  </div>
+                  <span className="text-base font-bold text-emerald-700">{fmt(amt)}</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div>
+                    <p className="text-[10px] uppercase text-gray-400 font-semibold">Material</p>
+                    <p className="font-medium truncate">{exp.material_name || exp.description || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-gray-400 font-semibold">Vendor</p>
+                    <p className="font-medium truncate">{exp.vendor_name || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-gray-400 font-semibold">Project</p>
+                    <p className="font-medium truncate">{exp.project_name || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-gray-400 font-semibold">Status</p>
+                    <p className="font-medium truncate">{(exp.status || '').replace(/_/g, ' ')}</p>
+                  </div>
+                </div>
+                <div className="flex justify-end mt-2">
+                  <Button size="sm" className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => setPayDialog({ open: true, requestId: exp.expense_id })} data-testid={`acc-mat-release-legacy-${exp.expense_id}`}>
+                    <Wallet className="h-3 w-3" /> Release Payment
                   </Button>
                 </div>
               </CardContent>
