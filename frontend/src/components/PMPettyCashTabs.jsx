@@ -209,9 +209,23 @@ function ExpenseView({ items, onRefresh }) {
   );
 }
 
-// ----- Income (existing /income flow, view-only for PM) -----
-function IncomeView({ items, loading, onRefresh }) {
+// ----- Income (only petty-cash–related incomes; not all client payments) -----
+function IncomeView({ items: allItems, loading, onRefresh }) {
   const [bucket, setBucket] = useState('new');
+  // Restrict to incomes actually tied to the petty-cash flow (refunds, returns,
+  // SE settlements). Without this filter the API's `/income` returns every
+  // payment collection in the app, flooding the petty-cash tab with thousands
+  // of unrelated rows.
+  const items = useMemo(() => {
+    const re = /petty[\s_-]*cash/i;
+    return (allItems || []).filter(i => {
+      if (i.petty_cash_id || i.linked_petty_cash_id || i.petty_cash_request_id) return true;
+      if (['petty_cash', 'petty_cash_refund', 'petty_cash_return', 'petty_cash_settlement'].includes((i.source || '').toLowerCase())) return true;
+      if (['petty_cash', 'petty_cash_refund', 'petty_cash_return'].includes((i.category || '').toLowerCase())) return true;
+      if (i.description && re.test(i.description)) return true;
+      return false;
+    });
+  }, [allItems]);
   const counts = useMemo(() => {
     const c = {};
     INCOME_BUCKETS.forEach(b => { c[b.key] = 0; });
