@@ -37,9 +37,14 @@ function bucketForPettyCash(p) {
 // Map recorded_expense → bucket.
 function bucketForRecordedExpense(e) {
   const s = (e.status || '').toLowerCase();
-  if (s === 'approved' || s === 'verified' || s === 'recorded_into_cashbook') return 'expense_recorded';
-  if (s === 'pm_reviewed' || s === 'awaiting_accountant') return 'awaiting_accountant';
-  return 'new'; // 'recorded' (fresh from SE) → New Expense
+  // SE just submitted (or PM bounced it back) → PM action needed
+  if (s === 'recorded' || s === 'pm_rejected' || s === '') return 'new';
+  // PM has cleared it, accountant is the next gate
+  if (s === 'pm_approved') return 'awaiting_accountant';
+  // Accountant signed off (final) — old `approved` rows from before the gate
+  // existed are also surfaced here so the history is not lost.
+  if (['approved', 'verified', 'recorded_into_cashbook'].includes(s)) return 'expense_recorded';
+  return 'new';
 }
 
 export default function PMPettyCashTabs({ pettyCashRequests, onRefresh }) {
@@ -203,6 +208,9 @@ function PettyCashRequestsView({ items, onRefresh }) {
 // ----- Record Expense (SE-recorded petty-cash expense lifecycle) -----
 function RecordExpenseView({ items, loading, onRefresh }) {
   const [bucket, setBucket] = useState('new');
+  const [actDialog, setActDialog] = useState({ open: false, item: null, action: null, reason: '' });
+  const [submitting, setSubmitting] = useState(false);
+
   const counts = useMemo(() => {
     const c = {};
     BUCKETS.forEach(b => { c[b.key] = 0; });
@@ -210,6 +218,21 @@ function RecordExpenseView({ items, loading, onRefresh }) {
     return c;
   }, [items]);
   const visible = useMemo(() => items.filter(i => bucketForRecordedExpense(i) === bucket), [items, bucket]);
+
+  const submitAction = async () => {
+    if (actDialog.action === 'reject' && !actDialog.reason.trim()) { toast.error('Reason required'); return; }
+    setSubmitting(true);
+    try {
+      const path = actDialog.action === 'approve' ? 'approve' : 'reject';
+      const body = actDialog.action === 'approve' ? { remarks: actDialog.reason } : { reason: actDialog.reason };
+      await axios.patch(`${API}/pm/recorded-expenses/${actDialog.item.expense_id}/${path}`, body);
+      toast.success(actDialog.action === 'approve' ? 'Approved — sent to Accountant' : 'Rejected — returned to SE');
+      setActDialog({ open: false, item: null, action: null, reason: '' });
+      onRefresh?.();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Action failed');
+    } finally { setSubmitting(false); }
+  };
 
   return (
     <div className="space-y-2">
@@ -235,6 +258,8 @@ function RecordExpenseView({ items, loading, onRefresh }) {
         <div className="space-y-2" data-testid="pm-pc-record-list">
           {visible.map(e => {
             const cfg = BUCKETS.find(b => b.key === bucketForRecordedExpense(e));
+            const status = (e.status || '').toLowerCase();
+            const showActions = bucket === 'new' && (status === 'recorded' || status === 'pm_rejected' || status === '');
             return (
               <Card key={e.expense_id} data-testid={`pm-pc-record-card-${e.expense_id}`}>
                 <CardContent className="p-3">
@@ -243,9 +268,15 @@ function RecordExpenseView({ items, loading, onRefresh }) {
                       {cfg && <Badge variant="outline" className={`text-[10px] ${cfg.cls}`}>{cfg.label}</Badge>}
                       <span className="text-[10px] text-gray-400 font-mono">#{e.expense_id}</span>
                       {e.category && <Badge variant="outline" className="text-[9px] capitalize">{e.category.replace(/_/g, ' ')}</Badge>}
+                      {status === 'pm_rejected' && <Badge className="text-[9px] bg-red-100 text-red-700 border-red-200" variant="outline">PM Rejected</Badge>}
                     </div>
                     <span className="text-sm font-semibold text-red-700">{fmt(e.amount)}</span>
                   </div>
+                  {status === 'pm_rejected' && e.rejection_reason && (
+                    <div className="mb-1 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
+                      Reason: {e.rejection_reason}
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                     <div className="sm:col-span-2"><p className="text-[10px] uppercase font-semibold text-gray-400">Description</p><p className="font-medium truncate">{e.description || '—'}</p></div>
                     <div><p className="text-[10px] uppercase font-semibold text-gray-400">Vendor / Payee</p><p className="font-medium truncate">{e.vendor_name || '—'}</p></div>
@@ -258,12 +289,45 @@ function RecordExpenseView({ items, loading, onRefresh }) {
                       <a href={`${API}/files/${e.bill_file_id}/download`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 underline">View bill</a>
                     </div>
                   )}
+                  {showActions && (
+                    <div className="mt-2 flex justify-end gap-2">
+                      <Button size="sm" variant="outline" className="h-7 text-xs gap-1 border-red-300 text-red-700 hover:bg-red-50" onClick={() => setActDialog({ open: true, item: e, action: 'reject', reason: '' })} data-testid={`pm-pc-record-reject-${e.expense_id}`}>
+                        <ThumbsDown className="h-3 w-3" /> Reject
+                      </Button>
+                      <Button size="sm" className="h-7 text-xs gap-1 bg-green-600 hover:bg-green-700" onClick={() => setActDialog({ open: true, item: e, action: 'approve', reason: '' })} data-testid={`pm-pc-record-approve-${e.expense_id}`}>
+                        <ThumbsUp className="h-3 w-3" /> Approve
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             );
           })}
         </div>
       )}
+
+      <Dialog open={actDialog.open} onOpenChange={(o) => !o && setActDialog({ open: false, item: null, action: null, reason: '' })}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {actDialog.action === 'approve' ? <><ThumbsUp className="h-5 w-5 text-green-700" /> Approve Recorded Expense</> : <><ThumbsDown className="h-5 w-5 text-red-700" /> Reject Recorded Expense</>}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {actDialog.item?.description} · {fmt(actDialog.item?.amount)}
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label className="text-xs">{actDialog.action === 'reject' ? 'Reason *' : 'Remarks (optional)'}</Label>
+            <Textarea rows={3} value={actDialog.reason} onChange={(e) => setActDialog({ ...actDialog, reason: e.target.value })} className="mt-1 text-sm" data-testid="pm-pc-record-action-reason" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setActDialog({ open: false, item: null, action: null, reason: '' })} disabled={submitting}>Cancel</Button>
+            <Button size="sm" className={actDialog.action === 'approve' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'} onClick={submitAction} disabled={submitting} data-testid="pm-pc-record-action-confirm">
+              {submitting ? '…' : (actDialog.action === 'approve' ? 'Approve' : 'Reject')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

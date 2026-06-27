@@ -3232,6 +3232,93 @@ async def get_pm_recorded_expenses(user: User = Depends(get_current_user)):
     return await db.recorded_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
 
 
+# ---------- Record Expense: PM → Accountant approval ladder ----------
+# Status lifecycle (recorded_expenses.status):
+#   "recorded"      → SE just submitted (PM bucket: New Expense)
+#   "pm_approved"   → PM cleared it     (PM bucket: Awaiting Accountant)
+#   "approved"      → Accountant cleared (PM bucket: Expense Recorded)
+#   "pm_rejected"   → PM bounced (shows in New Expense with banner)
+class RecordedExpenseReviewPayload(BaseModel):
+    remarks: Optional[str] = None
+    reason: Optional[str] = None
+
+
+@router.patch("/pm/recorded-expenses/{expense_id}/approve")
+async def pm_approve_recorded_expense(expense_id: str, payload: RecordedExpenseReviewPayload = None, user: User = Depends(get_current_user)):
+    """PM signs off on an SE-recorded petty-cash expense. Status: recorded → pm_approved."""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only PM can approve")
+    exp = await db.recorded_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not exp:
+        raise HTTPException(status_code=404, detail="Recorded expense not found")
+    if (exp.get("status") or "").lower() not in ("recorded", "pm_rejected"):
+        raise HTTPException(status_code=400, detail=f"Cannot approve from status '{exp.get('status')}'")
+    now = datetime.now(timezone.utc).isoformat()
+    remarks = (payload.remarks if payload else None)
+    await db.recorded_expenses.update_one(
+        {"expense_id": expense_id},
+        {"$set": {
+            "status": "pm_approved",
+            "pm_approved_by": user.user_id,
+            "pm_approved_by_name": user.name,
+            "pm_approved_at": now,
+            "pm_remarks": remarks,
+            "updated_at": now,
+        }}
+    )
+    return {"message": "Approved and sent to Accountant", "expense_id": expense_id}
+
+
+@router.patch("/pm/recorded-expenses/{expense_id}/reject")
+async def pm_reject_recorded_expense(expense_id: str, payload: RecordedExpenseReviewPayload = None, user: User = Depends(get_current_user)):
+    """PM rejects an SE-recorded expense — bounces back to SE for correction.
+    Status: recorded → pm_rejected."""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only PM can reject")
+    exp = await db.recorded_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not exp:
+        raise HTTPException(status_code=404, detail="Recorded expense not found")
+    reason = (payload.reason if payload else None) or "Rejected by PM"
+    now = datetime.now(timezone.utc).isoformat()
+    await db.recorded_expenses.update_one(
+        {"expense_id": expense_id},
+        {"$set": {
+            "status": "pm_rejected",
+            "pm_rejected_by": user.user_id,
+            "pm_rejected_by_name": user.name,
+            "pm_rejected_at": now,
+            "rejection_reason": reason,
+            "updated_at": now,
+        }}
+    )
+    return {"message": "Rejected and returned to Site Engineer", "expense_id": expense_id}
+
+
+@router.patch("/accountant/recorded-expenses/{expense_id}/approve")
+async def accountant_approve_recorded_expense(expense_id: str, payload: RecordedExpenseReviewPayload = None, user: User = Depends(get_current_user)):
+    """Accountant final approval. Status: pm_approved → approved."""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can approve")
+    exp = await db.recorded_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not exp:
+        raise HTTPException(status_code=404, detail="Recorded expense not found")
+    if (exp.get("status") or "").lower() not in ("pm_approved", "recorded"):
+        raise HTTPException(status_code=400, detail=f"Cannot approve from status '{exp.get('status')}'")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.recorded_expenses.update_one(
+        {"expense_id": expense_id},
+        {"$set": {
+            "status": "approved",
+            "accountant_approved_by": user.user_id,
+            "accountant_approved_by_name": user.name,
+            "accountant_approved_at": now,
+            "accountant_remarks": (payload.remarks if payload else None),
+            "updated_at": now,
+        }}
+    )
+    return {"message": "Recorded into cashbook", "expense_id": expense_id}
+
+
 
 
 # ==================== PROJECT MANAGER MODULE ====================
