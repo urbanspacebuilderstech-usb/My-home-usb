@@ -2987,6 +2987,67 @@ async def get_direct_expenses(project_id: Optional[str] = None, date_from: Optio
         else:
             query["created_at"] = {"$gte": query["created_at"], "$lte": date_to + "T23:59:59"}
     records = await db.direct_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+
+    # Enrich with approval status from the linked `recorded_expenses` rows.
+    # Each `direct_expense` mirrors one row per item; we attach the per-item
+    # status and a single "stage" badge per card (derived from the worst
+    # status across items).
+    if records:
+        dexp_ids = [r["expense_id"] for r in records if r.get("expense_id")]
+        rec_rows = await db.recorded_expenses.find(
+            {"direct_expense_id": {"$in": dexp_ids}, "source": {"$in": ["site_engineer_direct", "site_engineer", "se_direct"]}},
+            {"_id": 0, "expense_id": 1, "direct_expense_id": 1, "direct_expense_item_id": 1, "status": 1, "rejection_reason": 1, "pm_approved_by_name": 1, "accountant_approved_by_name": 1}
+        ).to_list(2000)
+        # Index per (direct_expense_id -> [recorded_expense rows])
+        by_parent: Dict[str, List[Dict[str, Any]]] = {}
+        for rr in rec_rows:
+            by_parent.setdefault(rr["direct_expense_id"], []).append(rr)
+
+        # Stage priority — lowest = most-needs-attention bubbles up to the card label
+        STAGE_PRIORITY = {
+            "accountant_rejected": 0,
+            "pm_rejected": 1,
+            "rejected": 1,
+            "recorded": 2,
+            "": 2,
+            "pm_approved": 3,
+            "approved": 4,
+            "verified": 4,
+            "recorded_into_cashbook": 4,
+        }
+        STAGE_LABEL = {
+            "recorded": "Awaiting PM",
+            "": "Awaiting PM",
+            "pm_approved": "Awaiting Accountant",
+            "approved": "Approved",
+            "verified": "Approved",
+            "recorded_into_cashbook": "Approved",
+            "pm_rejected": "Rejected by PM",
+            "rejected": "Rejected",
+            "accountant_rejected": "Rejected by Accountant",
+        }
+        for r in records:
+            kids = by_parent.get(r["expense_id"], [])
+            # Attach per-item status by matching item_id (zip by index as fallback)
+            item_status_by_id: Dict[str, Dict[str, Any]] = {}
+            for k in kids:
+                key = k.get("direct_expense_item_id")
+                if key:
+                    item_status_by_id[key] = k
+            items = r.get("items") or []
+            statuses: List[str] = []
+            for idx, it in enumerate(items):
+                k = item_status_by_id.get(it.get("item_id")) or (kids[idx] if idx < len(kids) else None)
+                s = ((k or {}).get("status") or "").lower()
+                it["status"] = s
+                it["stage_label"] = STAGE_LABEL.get(s, "Awaiting PM")
+                it["rejection_reason"] = (k or {}).get("rejection_reason")
+                statuses.append(s)
+            # Worst (lowest priority) status drives the card-level stage
+            worst = min(statuses, key=lambda x: STAGE_PRIORITY.get(x, 99)) if statuses else ""
+            r["overall_status"] = worst
+            r["stage_label"] = STAGE_LABEL.get(worst, "Awaiting PM")
+
     return records
 
 

@@ -1740,7 +1740,20 @@ export default function SiteEngineerDashboard() {
                         <CardContent className="p-3">
                           <div className="flex justify-between items-start mb-2">
                             <div>
-                              <h4 className="font-semibold text-sm">{de.project_name}</h4>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="font-semibold text-sm">{de.project_name}</h4>
+                                {de.stage_label && (() => {
+                                  const s = (de.overall_status || '').toLowerCase();
+                                  const cls = s === 'approved' || s === 'verified' || s === 'recorded_into_cashbook'
+                                    ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                                    : s === 'pm_approved'
+                                      ? 'bg-cyan-100 text-cyan-700 border-cyan-200'
+                                      : s === 'pm_rejected' || s === 'accountant_rejected' || s === 'rejected'
+                                        ? 'bg-red-100 text-red-700 border-red-200'
+                                        : 'bg-amber-100 text-amber-700 border-amber-200';
+                                  return <Badge variant="outline" className={`text-[10px] ${cls}`} data-testid={`dexp-stage-${de.expense_id}`}>{de.stage_label}</Badge>;
+                                })()}
+                              </div>
                               <p className="text-[10px] text-gray-400">{new Date(de.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })} {new Date(de.created_at).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' })}</p>
                             </div>
                             <p className="text-base font-bold text-red-600">₹{de.total_amount?.toLocaleString('en-IN')}</p>
@@ -1748,14 +1761,22 @@ export default function SiteEngineerDashboard() {
                           <div className="bg-gray-50 rounded p-2 space-y-1">
                             {de.items?.map((item, i) => (
                               <div key={i} className="flex justify-between text-xs">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <Badge variant="outline" className="text-[10px] px-1 py-0">{item.category}</Badge>
                                   <span className="text-gray-700">{item.expense_name}</span>
                                   {item.bill_filename && <span className="text-blue-500 text-[10px]">[bill]</span>}
+                                  {item.stage_label && item.stage_label !== de.stage_label && (
+                                    <span className="text-[9px] text-gray-500 italic">— {item.stage_label}</span>
+                                  )}
                                 </div>
                                 <span className="font-medium">₹{item.amount?.toLocaleString('en-IN')}</span>
                               </div>
                             ))}
+                            {(de.overall_status === 'pm_rejected' || de.overall_status === 'accountant_rejected' || de.overall_status === 'rejected') && (de.items || []).some(x => x.rejection_reason) && (
+                              <div className="mt-1 text-[10px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
+                                Reason: {(de.items || []).filter(x => x.rejection_reason)[0]?.rejection_reason}
+                              </div>
+                            )}
                           </div>
                         </CardContent>
                       </Card>
