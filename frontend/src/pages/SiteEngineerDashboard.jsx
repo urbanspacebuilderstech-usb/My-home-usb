@@ -1623,14 +1623,16 @@ export default function SiteEngineerDashboard() {
                           <div className="flex justify-between items-start mb-2">
                             <div>
                               <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                                <h4 className="font-semibold text-sm">{pc.project_name}</h4>
+                                <h4 className="font-semibold text-sm">{pc.purpose || 'Petty Cash'}</h4>
                                 <StatusPill
                                   status={pc.status}
                                   data-testid={`pc-status-${pc.petty_cash_id}`}
                                   onClick={['accountant_rejected','under_correction'].includes(pc.status) ? () => setCorrectionPC(pc) : undefined}
                                 />
                               </div>
-                              <p className="text-xs text-gray-500">{pc.purpose}</p>
+                              {pc.project_name && pc.project_name !== 'General' && (
+                                <p className="text-xs text-gray-500">Project: {pc.project_name}</p>
+                              )}
                               <p className="text-[10px] text-gray-400 mt-0.5">{new Date(pc.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
                             </div>
                             <div className="text-right">
