@@ -12,7 +12,9 @@ import { Badge } from "./ui/badge";
  *   - correction (red)    — was approved, accountant pulled it back. Cashflow rolled back.
  */
 const STATE_MAP = {
-  // awaiting (pre-approval review queue)
+  // awaiting PM (just created by the requester, PM hasn't reviewed yet)
+  requested: "awaiting_pm",
+  // awaiting accountant (PM/Planning has cleared it, waiting on accountant)
   awaiting_accountant: "awaiting",
   pending: "awaiting",
   pending_approval: "awaiting",
@@ -20,7 +22,6 @@ const STATE_MAP = {
   planning_approved: "awaiting",
   pending_accounts_approval: "awaiting",
   accountant_pending: "awaiting",
-  requested: "awaiting",
   // rejected (never approved — original requester must edit + resubmit)
   accountant_rejected: "rejected",
   rejected: "rejected",
@@ -41,6 +42,11 @@ const STATE_MAP = {
 };
 
 const STYLES = {
+  awaiting_pm: {
+    label: "Awaiting PM",
+    cls: "bg-amber-50 text-amber-800 border border-amber-300",
+    dot: "bg-amber-400",
+  },
   awaiting: {
     label: "Awaiting Accountant",
     cls: "bg-amber-100 text-amber-800 border border-amber-300",
