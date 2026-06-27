@@ -5286,6 +5286,13 @@ async def get_cashbook_filtered(
     # which collection it came from.
     all_expenses = []
     for e in recorded_exps:
+        # SE-direct expenses only hit the cashbook AFTER the accountant approves
+        # them. Any earlier status (`recorded`, `pm_approved`, rejected) is still
+        # in the workflow and must not show as a confirmed cashbook spend.
+        e_source = e.get("source") or ""
+        if e_source in ("site_engineer_direct", "site_engineer", "se_direct"):
+            if (e.get("status") or "").lower() not in ("approved", "verified", "recorded_into_cashbook"):
+                continue
         all_expenses.append({
             **e,
             "expense_id": e.get("expense_id") or str(e.get("_id", "")),
@@ -5324,23 +5331,11 @@ async def get_cashbook_filtered(
             "project_name": project_map.get(me.get("project_id"), ""),
             "source": "approval",
         })
-    # Petty cash items issued at the site (`direct_expenses.items[]`). One
-    # row per item so the table shows individual spends.
-    for de in direct_exps:
-        items = de.get("items") or []
-        for it in items:
-            all_expenses.append({
-                "expense_id": it.get("item_id") or de.get("petty_cash_id") or de.get("direct_expense_id"),
-                "expense_type": "petty_cash",
-                "category": it.get("category") or "petty_cash",
-                "description": it.get("expense_name") or it.get("description") or "Petty cash",
-                "amount": it.get("amount") or 0,
-                "project_id": de.get("project_id"),
-                "project_name": project_map.get(de.get("project_id"), ""),
-                "payment_method": "petty_cash",
-                "created_at": de.get("created_at"),
-                "source": "approval",
-            })
+    # NOTE: We no longer emit a row per `direct_expenses.items[]` here. Every
+    # SE-direct expense already lives in `recorded_expenses` (mirrored on
+    # submit) — emitting both produced two cashbook rows per spend (one
+    # "Manual", one "Approval"). The `recorded_expenses` mirror is the
+    # source of truth and is gated by the accountant-approval filter above.
 
     all_expenses.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
