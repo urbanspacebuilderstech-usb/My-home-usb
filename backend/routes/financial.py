@@ -1443,36 +1443,42 @@ async def get_unified_approvals(
         material_statuses = ["requested", "planning_approved", "procurement_priced", "pending_accounts_approval", "pending_advance_payment", "pending_balance_payment"]
         labour_statuses = ["requested", "planning_approved", "pending_accounts_approval"]
         vendor_statuses = ["requested", "planning_approved", "pending_accounts_approval"]
+        petty_cash_statuses = ["pm_approved", "planning_approved", "awaiting_accountant", "accountant_processing"]
     elif sf == "approved":
         income_statuses = ["approved", "verified", "accountant_verified"]
         material_statuses = ["accounts_approved", "issued", "settled", "completed"]
         labour_statuses = ["accounts_approved", "settled", "completed"]
         vendor_statuses = ["accounts_approved", "settled", "completed"]
+        petty_cash_statuses = ["issued", "partially_spent", "pending_settlement", "settled", "completed", "payment_done", "acknowledged"]
     elif sf == "rejected":
         income_statuses = ["rejected", "accountant_rejected", "accounts_rejected"]
         material_statuses = ["rejected", "accountant_rejected", "accounts_rejected"]
         labour_statuses = ["rejected", "accountant_rejected", "accounts_rejected"]
         vendor_statuses = ["rejected", "accountant_rejected", "accounts_rejected"]
+        petty_cash_statuses = ["rejected", "accountant_rejected", "pm_rejected"]
     elif sf == "under_correction":
         income_statuses = ["under_correction"]
         material_statuses = ["under_correction"]
         labour_statuses = ["under_correction"]
         vendor_statuses = ["under_correction"]
+        petty_cash_statuses = ["under_correction"]
     else:  # 'all'
         income_statuses = None  # None = no status filter
         material_statuses = None
         labour_statuses = None
         vendor_statuses = None
+        petty_cash_statuses = None
 
     def _q(statuses):
         return {} if statuses is None else {"status": {"$in": statuses}}
 
     # Parallel fetch
-    (incomes, materials, labour, vendor, projects_list) = await asyncio.gather(
+    (incomes, materials, labour, vendor, petty_cash, projects_list) = await asyncio.gather(
         db.income.find(_q(income_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
         db.material_expenses.find(_q(material_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
         db.labour_expenses.find(_q(labour_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
         db.vendor_service_expenses.find(_q(vendor_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
+        db.petty_cash.find(_q(petty_cash_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000),
     )
 
@@ -1481,6 +1487,12 @@ async def get_unified_approvals(
         item["project_name"] = project_map.get(item.get("project_id"), "Unknown")
     for item in materials + labour + vendor:
         item["project_name"] = project_map.get(item.get("project_id"), "Unknown")
+    for item in petty_cash:
+        # Petty cash often has no project link (General). Preserve existing
+        # project_name (e.g., "General") if no real project_id is set.
+        if item.get("project_id"):
+            item["project_name"] = project_map.get(item["project_id"], item.get("project_name") or "Unknown")
+        # else: keep whatever was stored ("General" or similar)
 
     return {
         "status_filter": sf,
@@ -1488,6 +1500,7 @@ async def get_unified_approvals(
         "materials": materials,
         "labour": labour,
         "vendor": vendor,
+        "petty_cash": petty_cash,
         "summary": {
             "income_count": len(incomes),
             "income_total": sum(i.get("amount", 0) for i in incomes),
@@ -1497,6 +1510,8 @@ async def get_unified_approvals(
             "labour_total": sum(l.get("total_amount", 0) for l in labour),
             "vendor_count": len(vendor),
             "vendor_total": sum(v.get("amount", 0) for v in vendor),
+            "petty_cash_count": len(petty_cash),
+            "petty_cash_total": sum(p.get("amount_requested", 0) or p.get("amount_issued", 0) for p in petty_cash),
         }
     }
 

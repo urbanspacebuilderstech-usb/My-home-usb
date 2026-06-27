@@ -3590,6 +3590,7 @@ function ApprovalsTab() {
   const filteredMaterials = filterByDateRange(data.materials || [], appDateFrom, appDateTo, r => r.created_at);
   const filteredLabour = filterByDateRange(data.labour || [], appDateFrom, appDateTo, r => r.created_at);
   const filteredVendor = filterByDateRange(data.vendor || [], appDateFrom, appDateTo, r => r.created_at);
+  const filteredPettyCash = filterByDateRange(data.petty_cash || [], appDateFrom, appDateTo, r => r.created_at);
   // WO stage payments use planning_approved_at (or requested_at) — apply same date filter so the
   // labour tab badge/count stays consistent with what's actually rendered.
   const filteredWoStagePayments = filterByDateRange(
@@ -3608,8 +3609,10 @@ function ApprovalsTab() {
                  + filteredWoStagePayments.reduce((sum, x) => sum + (x.amount || 0), 0),
     vendor_count: filteredVendor.length,
     vendor_total: filteredVendor.reduce((sum, x) => sum + (x.amount || 0), 0),
+    petty_cash_count: filteredPettyCash.length,
+    petty_cash_total: filteredPettyCash.reduce((sum, x) => sum + (x.amount_requested || x.amount_issued || 0), 0),
   };
-  const totalPending = fSummary.income_count + fSummary.material_count + fSummary.labour_count + fSummary.vendor_count;
+  const totalPending = fSummary.income_count + fSummary.material_count + fSummary.labour_count + fSummary.vendor_count + fSummary.petty_cash_count;
   // Keep s in scope for any downstream usage (e.g., non-filtered pieces)
   void s;
 
@@ -3745,7 +3748,7 @@ function ApprovalsTab() {
               <Wallet className="h-3.5 w-3.5" /> Labour Work Order ({fSummary.labour_count})
             </TabsTrigger>
             <TabsTrigger value="vendor" className="text-xs sm:text-sm data-[state=active]:bg-orange-100 data-[state=active]:text-orange-800 gap-1">
-              <CreditCard className="h-3.5 w-3.5" /> Petty Cash ({fSummary.vendor_count})
+              <CreditCard className="h-3.5 w-3.5" /> Petty Cash ({fSummary.petty_cash_count})
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -3887,19 +3890,75 @@ function ApprovalsTab() {
           />
         </TabsContent>
 
-        {/* Vendor/Supplier Approvals */}
+        {/* Petty Cash Approvals (PM-approved → Accountant) */}
         <TabsContent value="vendor">
-          <ApprovalExpenseTable
-            items={filteredVendor}
-            type="vendor-service"
-            idField="expense_id"
-            amountField="amount"
-            descField="vendor_name"
-            processing={processing}
-            getApprovalAction={getApprovalAction}
-            onApprove={handleApproveExpense}
-            onReject={(id) => setRejectDialog({ open: true, type: 'vendor-service', id, reason: '' })}
-          />
+          {filteredPettyCash.length === 0 ? (
+            <Card><CardContent className="py-10 text-center text-gray-400">
+              <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-300" />No pending petty-cash approvals
+            </CardContent></Card>
+          ) : (
+            <div className="space-y-2" data-testid="approvals-petty-cash-list">
+              {filteredPettyCash.map((pc) => (
+                <Card key={pc.petty_cash_id} className="border-l-4 border-l-orange-500" data-testid={`approval-petty-card-${pc.petty_cash_id}`}>
+                  <CardContent className="p-3">
+                    <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant="outline" className="text-[10px] capitalize bg-amber-50 text-amber-800 border-amber-300">{(pc.status || '').replace(/_/g, ' ')}</Badge>
+                        <span className="text-[10px] text-gray-400 font-mono">#{pc.petty_cash_id}</span>
+                        <span className="text-sm font-semibold">{pc.purpose || 'Petty Cash'}</span>
+                      </div>
+                      <span className="text-base font-bold text-emerald-700">₹{(pc.amount_requested || pc.amount_issued || 0).toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                      <div><p className="text-[10px] uppercase text-gray-400 font-semibold">Requested By</p><p className="font-medium truncate">{pc.requested_by_name || '-'}</p></div>
+                      <div><p className="text-[10px] uppercase text-gray-400 font-semibold">Project</p><p className="font-medium truncate">{pc.project_name || 'General'}</p></div>
+                      <div><p className="text-[10px] uppercase text-gray-400 font-semibold">PM Approved</p><p className="font-medium truncate">{pc.pm_approved_by_name || '-'}</p></div>
+                      <div><p className="text-[10px] uppercase text-gray-400 font-semibold">Date</p><p className="font-medium">{new Date(pc.created_at).toLocaleDateString('en-IN')}</p></div>
+                    </div>
+                    <div className="flex justify-end gap-2 mt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-[11px] gap-1 border-red-300 text-red-700 hover:bg-red-50"
+                        data-testid={`approval-petty-reject-${pc.petty_cash_id}`}
+                        onClick={async () => {
+                          const reason = window.prompt('Reason for rejecting this petty cash request? (will be sent to the SE)');
+                          if (!reason || !reason.trim()) return;
+                          try {
+                            await axios.patch(`${API}/accountant/petty-cash/${pc.petty_cash_id}/reject`, { reason: reason.trim() });
+                            toast.success('Rejected');
+                            fetchApprovals(false);
+                          } catch (e) {
+                            toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to reject');
+                          }
+                        }}
+                      >
+                        <XCircle className="h-3 w-3" /> Reject
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 text-[11px] gap-1 bg-emerald-600 hover:bg-emerald-700"
+                        data-testid={`approval-petty-issue-${pc.petty_cash_id}`}
+                        onClick={async () => {
+                          const ok = window.confirm(`Issue ₹${(pc.amount_requested || 0).toLocaleString('en-IN')} petty cash to ${pc.requested_by_name || 'this SE'}?`);
+                          if (!ok) return;
+                          try {
+                            await axios.patch(`${API}/accountant/petty-cash/${pc.petty_cash_id}/issue`, { amount: pc.amount_requested || pc.amount_issued || 0 });
+                            toast.success('Petty cash issued');
+                            fetchApprovals(false);
+                          } catch (e) {
+                            toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to issue');
+                          }
+                        }}
+                      >
+                        <Wallet className="h-3 w-3" /> Issue Cash
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 
