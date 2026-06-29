@@ -270,25 +270,81 @@ export default function LabourRABReleaseDialog({ item, onClose, onDone }) {
               </div>
             </div>
 
-            <MultiPaymentEntryRows
-              entries={entries}
-              setEntries={setEntries}
-              targetTotal={payable}
-              availableCheques={ctx.active_cheques || []}
-              inactiveCheques={ctx.inactive_cheques || []}
-              onChequeOpenRequested={reload}
-            />
+            {/* Feb 28 2026 — Released RAB view: show payment_record as
+                read-only summary instead of empty entry rows. */}
+            {ctx.request?.status === 'approved' && ctx.request?.payment_record ? (
+              <div className="border-2 border-emerald-200 rounded-md p-3 bg-emerald-50/40 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-emerald-800 uppercase flex items-center gap-1">
+                    <CheckCircle className="h-3.5 w-3.5" /> Payment Released
+                  </p>
+                  <span className="text-[10px] text-gray-500">{fmtDate(ctx.request.payment_record.released_at || ctx.request.payment_record.payment_date)}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-gray-500">Released by:</span>{' '}
+                    <span className="font-medium">{ctx.request.payment_record.released_by_name || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Total paid:</span>{' '}
+                    <span className="font-semibold text-emerald-700">{fmt(ctx.request.approved_amount || ctx.request.amount)}</span>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-600 uppercase mb-1">Payment Method(s)</p>
+                  {(() => {
+                    const pr = ctx.request.payment_record;
+                    const legs = pr.legs || pr.payment_entries || pr.payment_legs || [];
+                    const rows = legs.length > 0 ? legs : [{
+                      method: pr.method || pr.payment_method,
+                      amount: pr.amount || ctx.request.approved_amount || ctx.request.amount,
+                      bank_ref: pr.bank_ref || pr.transaction_id || pr.utr,
+                      cheque_no: pr.cheque_no,
+                    }];
+                    const labelOf = (m) => ({
+                      savings_account: 'HDFC SAVINGS', current_account: 'HDFC CURRENT',
+                      direct_transfer: 'CASH D/T', cash: 'Cash', cheque: 'Cheque', escrow: 'Escrow',
+                    }[m] || m || '—');
+                    return rows.map((r, i) => (
+                      <div key={i} className="flex items-center justify-between bg-white border rounded px-2 py-1 mb-1 text-xs" data-testid={`rab-rel-paid-leg-${i}`}>
+                        <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-semibold">
+                          {labelOf(r.method)}
+                        </Badge>
+                        <span className="font-bold text-gray-800">{fmt(r.amount)}</span>
+                        <span className="text-[10px] text-gray-500 truncate ml-2 flex-1 text-right">
+                          {r.cheque_no ? `Cheque #${r.cheque_no}` : (r.bank_ref ? `UTR: ${r.bank_ref}` : '')}
+                        </span>
+                      </div>
+                    ));
+                  })()}
+                </div>
+                {ctx.request.payment_record.notes && (
+                  <p className="text-[11px] text-gray-600 italic">Notes: {ctx.request.payment_record.notes}</p>
+                )}
+              </div>
+            ) : (
+              <MultiPaymentEntryRows
+                entries={entries}
+                setEntries={setEntries}
+                targetTotal={payable}
+                availableCheques={ctx.active_cheques || []}
+                inactiveCheques={ctx.inactive_cheques || []}
+                onChequeOpenRequested={reload}
+              />
+            )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div>
-                <Label className="text-xs">Payment Date</Label>
-                <Input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className="mt-1 h-8" data-testid="rab-rel-payment-date" />
+            {ctx.request?.status !== 'approved' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">Payment Date</Label>
+                  <Input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className="mt-1 h-8" data-testid="rab-rel-payment-date" />
+                </div>
+                <div>
+                  <Label className="text-xs">Notes (optional)</Label>
+                  <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Internal remark" className="mt-1 h-8" data-testid="rab-rel-notes" />
+                </div>
               </div>
-              <div>
-                <Label className="text-xs">Notes (optional)</Label>
-                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Internal remark" className="mt-1 h-8" data-testid="rab-rel-notes" />
-              </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -313,6 +369,8 @@ export default function LabourRABReleaseDialog({ item, onClose, onDone }) {
                 </Button>
               </div>
             </div>
+          ) : ctx?.request?.status === 'approved' ? (
+            <Button variant="outline" onClick={onClose} disabled={submitting} data-testid="rab-rel-close-view">Close</Button>
           ) : (
             <>
               <Button variant="outline" onClick={onClose} disabled={submitting}>Close</Button>

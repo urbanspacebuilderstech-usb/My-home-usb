@@ -11264,6 +11264,7 @@ async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str,
             "siblings": siblings,
             "amount": total_bill_amount,  # aggregated when multi-stage so dialog shows the right payable
             "primary_amount": bill_amount,
+            "status": target_pr.get("status"),
             "notes": target_pr.get("notes"),
             "dlr_summary": target_pr.get("dlr_summary"),
             "requested_at": target_pr.get("requested_at"),
@@ -11277,6 +11278,11 @@ async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str,
             "planning_approved_by_name": target_pr.get("planning_approved_by_name"),
             "planning_approved_at": target_pr.get("planning_approved_at"),
             "planning_notes": target_pr.get("planning_notes"),
+            # Feb 28 2026 — Expose the historical payment_record so the
+            # Accountant "View" mode on a released RAB can show the legs/
+            # method/UTR/cheques instead of an empty entry form.
+            "payment_record": target_pr.get("payment_record") or {},
+            "approved_amount": target_pr.get("approved_amount"),
         },
         "stage": {
             "stage_id": stage_id,
