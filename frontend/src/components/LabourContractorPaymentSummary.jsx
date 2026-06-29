@@ -53,6 +53,7 @@ export default function LabourContractorPaymentSummary() {
               <table className="w-full text-xs">
                 <thead className="bg-gray-100 border-y">
                   <tr>
+                    <th className="text-center px-3 py-2 font-semibold text-gray-600 w-12">S.No</th>
                     <th className="text-left px-3 py-2 font-semibold text-gray-600">Contractor</th>
                     <th className="text-left px-3 py-2 font-semibold text-gray-600">Type</th>
                     <th className="text-left px-3 py-2 font-semibold text-gray-600">Projects</th>
@@ -66,6 +67,7 @@ export default function LabourContractorPaymentSummary() {
                 <tbody className="divide-y">
                   {rows.map((r, i) => (
                     <tr key={i} className="hover:bg-violet-50/40">
+                      <td className="px-3 py-2 text-center text-gray-500">{i + 1}</td>
                       <td className="px-3 py-2 font-medium text-gray-900">{r.contractor_name}</td>
                       <td className="px-3 py-2"><Badge variant="outline" className="text-[9px] bg-amber-50 text-amber-700 border-amber-200">{r.contractor_type || '—'}</Badge></td>
                       <td className="px-3 py-2 text-gray-700 text-[11px]">{(r.projects || []).join(', ') || '—'}</td>

@@ -11876,6 +11876,13 @@ async def labour_contractor_payment_summary(user: User = Depends(get_current_use
     proj_ids = list({wo.get("project_id") for wo in work_orders})
     projects = {p["project_id"]: p for p in await db.projects.find({"project_id": {"$in": proj_ids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(2000)}
 
+    # Drop orphan work orders whose project no longer exists in db.projects.
+    # These slip in when a project is hard-deleted but its work-order docs are
+    # left behind, causing rows like "Kumar Masonry Works → (no project)" to
+    # surface in the Contractor Summary.
+    live_pids = set(projects.keys())
+    work_orders = [wo for wo in work_orders if wo.get("project_id") in live_pids]
+
     by_contractor = {}
     for wo in work_orders:
         cid = wo.get("contractor_id") or wo.get("contractor_name")
