@@ -234,8 +234,13 @@ const classifyMode = (mode) => {
     rtgs: 'current_account', imps: 'current_account', upi: 'current_account',
     cheque: 'cheque', petty_cash: 'petty_cash', savings: 'savings_account',
     savings_account: 'savings_account', current_account: 'current_account',
+    // IssueCashDialog emits these underscored values:
+    hdfc_current: 'current_account', hdfc_savings: 'savings_account',
+    hdfc_curr: 'current_account', hdfc_sav: 'savings_account',
+    hdfccurrent: 'current_account', hdfcsavings: 'savings_account',
     miscellaneous: 'miscellaneous', direct_transfer: 'direct_transfer',
-    dt: 'direct_transfer', suspense: 'suspense_account', suspense_account: 'suspense_account'
+    dt: 'direct_transfer', cash_dt: 'direct_transfer',
+    suspense: 'suspense_account', suspense_account: 'suspense_account'
   };
   return map[m] || 'miscellaneous';
 };
