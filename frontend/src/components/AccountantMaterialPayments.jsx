@@ -26,7 +26,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [payDialog, setPayDialog] = useState({ open: false, requestId: '' });
-  const [rejectDialog, setRejectDialog] = useState({ open: false, exp: null, reason: '', busy: false });
+  const [rejectDialog, setRejectDialog] = useState({ open: false, exp: null, kind: '', reason: '', busy: false });
 
   const fetchQueue = useCallback(async () => {
     setLoading(true);
@@ -50,14 +50,22 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
 
   const submitReject = async () => {
     const exp = rejectDialog.exp;
-    if (!exp?.expense_id) return;
+    if (!exp) return;
     setRejectDialog(d => ({ ...d, busy: true }));
     try {
-      await axios.post(`${API}/approvals/material/${exp.expense_id}/reject`, {
-        reason: rejectDialog.reason || 'Rejected by accountant'
-      });
-      toast.success('Material expense rejected');
-      setRejectDialog({ open: false, exp: null, reason: '', busy: false });
+      if (rejectDialog.kind === 'request' && exp.request_id) {
+        // New procurement-flow material request
+        await axios.patch(`${API}/accountant/material-requests/${exp.request_id}/reject?reason=${encodeURIComponent(rejectDialog.reason || 'Rejected by accountant')}`);
+      } else if (exp.expense_id) {
+        // Legacy mirrored expense entry
+        await axios.post(`${API}/approvals/material/${exp.expense_id}/reject`, {
+          reason: rejectDialog.reason || 'Rejected by accountant'
+        });
+      } else {
+        throw new Error('No id available for reject');
+      }
+      toast.success('Material request rejected');
+      setRejectDialog({ open: false, exp: null, kind: '', reason: '', busy: false });
       fetchQueue();
       if (onRefresh) onRefresh();
     } catch (e) {
@@ -136,7 +144,16 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     <p className="font-medium">{fmt(total)} / {fmt(paid)}</p>
                   </div>
                 </div>
-                <div className="flex justify-end mt-2">
+                <div className="flex justify-end gap-2 mt-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs gap-1 border-red-300 text-red-600 hover:bg-red-50"
+                    onClick={() => setRejectDialog({ open: true, exp: req, kind: 'request', reason: '', busy: false })}
+                    data-testid={`acc-mat-reject-${req.request_id}`}
+                  >
+                    <XCircle className="h-3 w-3" /> Reject
+                  </Button>
                   <Button size="sm" className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => openPayDialog(req)} data-testid={`acc-mat-release-${req.request_id}`}>
                     <Wallet className="h-3 w-3" /> {(req.status === 'partially_paid' || req.last_partial_paid_at) ? 'Pay Balance' : `Release ${phase === 'balance' ? 'Balance' : (phase === 'advance' ? 'Advance' : 'Payment')}`}
                   </Button>
@@ -184,7 +201,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     size="sm"
                     variant="outline"
                     className="h-8 text-xs gap-1 border-red-300 text-red-600 hover:bg-red-50"
-                    onClick={() => setRejectDialog({ open: true, exp, reason: '', busy: false })}
+                    onClick={() => setRejectDialog({ open: true, exp, kind: 'legacy', reason: '', busy: false })}
                     data-testid={`acc-mat-reject-legacy-${exp.expense_id}`}
                   >
                     <XCircle className="h-3 w-3" /> Reject
@@ -207,11 +224,11 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
         onPaid={() => { setPayDialog({ open: false, requestId: '' }); fetchQueue(); if (onRefresh) onRefresh(); }}
       />
 
-      <Dialog open={rejectDialog.open} onOpenChange={(o) => !o && !rejectDialog.busy && setRejectDialog({ open: false, exp: null, reason: '', busy: false })}>
-        <DialogContent className="max-w-md" data-testid="legacy-reject-dialog">
+      <Dialog open={rejectDialog.open} onOpenChange={(o) => !o && !rejectDialog.busy && setRejectDialog({ open: false, exp: null, kind: '', reason: '', busy: false })}>
+        <DialogContent className="max-w-md" data-testid="material-reject-dialog">
           <DialogHeader>
             <DialogTitle className="text-red-700 flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4" /> Reject Material Expense
+              <AlertTriangle className="h-4 w-4" /> Reject Material {rejectDialog.kind === 'request' ? 'Request' : 'Expense'}
             </DialogTitle>
             <DialogDescription className="text-xs">
               This will mark the entry as rejected and remove it from the Accountant Approvals queue.
@@ -224,23 +241,23 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                 <p className="font-semibold text-sm">{rejectDialog.exp.material_name || rejectDialog.exp.description}</p>
                 <p>Vendor: <span className="font-medium">{rejectDialog.exp.vendor_name || '-'}</span></p>
                 <p>Project: <span className="font-medium">{rejectDialog.exp.project_name || '-'}</span></p>
-                <p>Amount: <span className="font-bold text-red-700">{fmt(rejectDialog.exp.final_amount || rejectDialog.exp.estimated_cost || 0)}</span></p>
+                <p>Amount: <span className="font-bold text-red-700">{fmt(rejectDialog.exp.total_amount || rejectDialog.exp.final_amount || rejectDialog.exp.estimated_price || rejectDialog.exp.estimated_cost || 0)}</span></p>
               </CardContent>
             </Card>
           )}
           <div>
-            <label className="text-xs font-medium text-gray-600">Reason (optional)</label>
+            <label className="text-xs font-medium text-gray-600">Reason</label>
             <Textarea
               value={rejectDialog.reason}
               onChange={(e) => setRejectDialog(d => ({ ...d, reason: e.target.value }))}
-              placeholder="e.g. Orphan entry — parent request deleted"
+              placeholder="e.g. Wrong vendor / incorrect quantity / duplicate entry"
               rows={2}
-              data-testid="legacy-reject-reason"
+              data-testid="material-reject-reason"
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectDialog({ open: false, exp: null, reason: '', busy: false })} disabled={rejectDialog.busy} data-testid="legacy-reject-cancel">Cancel</Button>
-            <Button onClick={submitReject} disabled={rejectDialog.busy} className="bg-red-600 hover:bg-red-700" data-testid="legacy-reject-submit">
+            <Button variant="outline" onClick={() => setRejectDialog({ open: false, exp: null, kind: '', reason: '', busy: false })} disabled={rejectDialog.busy} data-testid="material-reject-cancel">Cancel</Button>
+            <Button onClick={submitReject} disabled={rejectDialog.busy} className="bg-red-600 hover:bg-red-700" data-testid="material-reject-submit">
               <XCircle className="h-4 w-4 mr-1" /> {rejectDialog.busy ? 'Rejecting...' : 'Confirm Reject'}
             </Button>
           </DialogFooter>
