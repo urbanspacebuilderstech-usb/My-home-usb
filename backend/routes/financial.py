@@ -1530,6 +1530,7 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
     now_iso = datetime.now(timezone.utc).isoformat()
 
     candidates = [
+        (db.recorded_expenses, "expense_id"),
         (db.material_requests, "request_id"),
         (db.material_requests, "expense_id"),
         (db.material_expenses, "material_expense_id"),
@@ -1589,6 +1590,24 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
             {found_field: record_id},
             {"$set": set_fields, "$unset": unset_fields}
         )
+    elif coll_name == "recorded_expenses":
+        # Cashbook mirror of a material release. Delete the mirror entirely
+        # (we don't want a phantom row hanging around) AND reset the parent
+        # material_request / material_expense so it re-surfaces in
+        # Approvals → Materials.
+        parent_id = found.get("request_id") or found.get("material_request_id") or found.get("material_expense_id")
+        await db.recorded_expenses.delete_one({found_field: record_id})
+        if parent_id:
+            # Try material_requests first (mreq_...), then material_expenses (mexp_...).
+            res = await db.material_requests.update_one(
+                {"request_id": parent_id},
+                {"$set": {**set_fields, "next_payment_phase": "full"}, "$unset": unset_fields}
+            )
+            if res.matched_count == 0:
+                await db.material_expenses.update_one(
+                    {"$or": [{"expense_id": parent_id}, {"material_expense_id": parent_id}]},
+                    {"$set": set_fields, "$unset": unset_fields}
+                )
 
     audit_fields = {"action": "send_back_to_approvals", "record_id": record_id, "from": coll_name, "by": user.user_id, "by_name": user.name}
     await create_audit_log(user.user_id, "send_back", "material_expense", record_id, audit_fields)
@@ -5505,6 +5524,16 @@ async def get_cashbook_filtered(
             "source": "approval",
         })
     for m in material_reqs:
+        # Feb 28 2026 — Dedupe: every payment release ALREADY inserts a
+        # `recorded_expenses` row (the cashbook mirror). Emitting the
+        # parent material_request on top of that created duplicate rows
+        # (one as "Miscellaneous" from the parent, one with the real
+        # payment_method from the mirror). Skip the parent row if a
+        # mirror exists or the request is in a post-release state.
+        if m.get("last_expense_id"):
+            continue
+        if (m.get("status") or "") in ("in_transit", "received", "delivered", "paid"):
+            continue
         amt = m.get("estimated_price", 0) or m.get("final_price", 0)
         all_expenses.append({
             **m,
@@ -5516,7 +5545,18 @@ async def get_cashbook_filtered(
         })
     # Legacy `material_expenses` collection — paid material POs (Cement,
     # Sand, Steel, etc.) recorded before the material_requests flow.
+    # Feb 28 2026 — Dedupe against recorded_expenses mirrors. The unified
+    # PayApprovalDialog creates a recorded_expense linked to material_expense
+    # via `request_id`; emitting both rows produced the cement-duplicate
+    # bug (one as "Miscellaneous" or actual mode from material_expenses,
+    # one with real mode from recorded_expenses).
+    mirrored_mexp_ids = {
+        e.get("request_id") for e in recorded_exps
+        if e.get("category") == "material" and (e.get("request_id") or "").startswith("mexp_")
+    }
     for me in material_exps_legacy:
+        if me.get("material_expense_id") in mirrored_mexp_ids or me.get("expense_id") in mirrored_mexp_ids:
+            continue
         amt = me.get("final_amount") or me.get("amount") or 0
         all_expenses.append({
             **me,
