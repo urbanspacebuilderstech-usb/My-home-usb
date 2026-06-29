@@ -300,10 +300,10 @@ export default function SuspenseAccountPage() {
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <p className="font-semibold text-sm">{pc.project_name}</p>
+                        <p className="font-semibold text-sm">{pc.purpose || 'Petty Cash'}</p>
                         <Badge className={pc.status === 'settled' ? 'bg-green-100 text-green-800' : pc.status === 'issued' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'} data-testid={`petty-status-${pc.petty_cash_id}`}>{pc.status}</Badge>
                       </div>
-                      <p className="text-xs text-gray-500 mt-0.5">{pc.purpose} | By: {pc.requested_by_name}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{pc.project_name || 'General'} | By: {pc.requested_by_name}</p>
                       <div className="flex gap-4 mt-1 text-xs">
                         <span>Requested: <strong>{fmt(pc.amount_requested)}</strong></span>
                         <span>Issued: <strong className="text-amber-600">{fmt(pc.amount_issued)}</strong></span>
