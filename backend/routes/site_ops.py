@@ -2386,6 +2386,11 @@ async def get_petty_cash_for_accountant(status: Optional[str] = None, user: User
 class PettyCashIssueInput(BaseModel):
     amount: float
     remarks: Optional[str] = None
+    payment_mode: Optional[str] = "cash"          # cash | hdfc_current | hdfc_savings | cheque | direct_transfer | suspense
+    reference_number: Optional[str] = None         # txn / UTR / cheque#
+    bank_name: Optional[str] = None                # for cheque or transfer
+    cheque_date: Optional[str] = None              # ISO date
+    payment_date: Optional[str] = None             # ISO date (defaults to now if absent)
 
 
 
@@ -2400,6 +2405,7 @@ async def issue_petty_cash(petty_cash_id: str, data: PettyCashIssueInput, user: 
         raise HTTPException(status_code=404, detail="Petty cash request not found")
 
     now = datetime.now(timezone.utc).isoformat()
+    payment_mode = (data.payment_mode or "cash").lower()
     await db.petty_cash.update_one(
         {"petty_cash_id": petty_cash_id},
         {"$set": {
@@ -2409,6 +2415,11 @@ async def issue_petty_cash(petty_cash_id: str, data: PettyCashIssueInput, user: 
             "issued_by_name": user.name,
             "issued_at": now,
             "issue_remarks": data.remarks,
+            "payment_mode": payment_mode,
+            "reference_number": data.reference_number,
+            "bank_name": data.bank_name,
+            "cheque_date": data.cheque_date,
+            "payment_date": data.payment_date or now,
         }}
     )
 
@@ -2420,7 +2431,10 @@ async def issue_petty_cash(petty_cash_id: str, data: PettyCashIssueInput, user: 
         "category": "petty_cash",
         "description": f"Petty cash issued to {pc.get('requested_by_name')} - {pc.get('purpose', '')}",
         "amount": data.amount,
-        "payment_method": "cash",
+        "payment_method": payment_mode,
+        "payment_mode": payment_mode,
+        "reference_number": data.reference_number,
+        "bank_name": data.bank_name,
         "vendor_name": pc.get("requested_by_name"),
         "recorded_by": user.user_id,
         "recorded_by_name": user.name,
@@ -3323,6 +3337,13 @@ async def get_pm_recorded_expenses(user: User = Depends(get_current_user)):
 class RecordedExpenseReviewPayload(BaseModel):
     remarks: Optional[str] = None
     reason: Optional[str] = None
+    # Mode-of-payment fields surface on the Accountant approve dialog so the
+    # cashbook bucket can be tagged correctly when the expense lands.
+    payment_mode: Optional[str] = None             # cash | hdfc_current | hdfc_savings | cheque | direct_transfer | suspense
+    reference_number: Optional[str] = None
+    bank_name: Optional[str] = None
+    cheque_date: Optional[str] = None
+    payment_date: Optional[str] = None
 
 
 @router.patch("/pm/recorded-expenses/{expense_id}/approve")
@@ -3387,17 +3408,27 @@ async def accountant_approve_recorded_expense(expense_id: str, payload: Recorded
     if (exp.get("status") or "").lower() not in ("pm_approved", "recorded"):
         raise HTTPException(status_code=400, detail=f"Cannot approve from status '{exp.get('status')}'")
     now = datetime.now(timezone.utc).isoformat()
-    await db.recorded_expenses.update_one(
-        {"expense_id": expense_id},
-        {"$set": {
-            "status": "approved",
-            "accountant_approved_by": user.user_id,
-            "accountant_approved_by_name": user.name,
-            "accountant_approved_at": now,
-            "accountant_remarks": (payload.remarks if payload else None),
-            "updated_at": now,
-        }}
-    )
+    updates: Dict[str, Any] = {
+        "status": "approved",
+        "accountant_approved_by": user.user_id,
+        "accountant_approved_by_name": user.name,
+        "accountant_approved_at": now,
+        "accountant_remarks": (payload.remarks if payload else None),
+        "updated_at": now,
+    }
+    if payload and payload.payment_mode:
+        pm_mode = payload.payment_mode.lower()
+        updates["payment_mode"] = pm_mode
+        updates["payment_method"] = pm_mode
+        if payload.reference_number:
+            updates["reference_number"] = payload.reference_number
+        if payload.bank_name:
+            updates["bank_name"] = payload.bank_name
+        if payload.cheque_date:
+            updates["cheque_date"] = payload.cheque_date
+        if payload.payment_date:
+            updates["payment_date"] = payload.payment_date
+    await db.recorded_expenses.update_one({"expense_id": expense_id}, {"$set": updates})
     return {"message": "Recorded into cashbook", "expense_id": expense_id}
 
 

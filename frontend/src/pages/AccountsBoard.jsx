@@ -69,6 +69,7 @@ import { NumericInput } from '../components/NumericInput';
 import AccountantLabourPayments from '../components/AccountantLabourPayments';
 import AccountantMaterialPayments from '../components/AccountantMaterialPayments';
 import AccountantCreditSettlements from '../components/AccountantCreditSettlements';
+import IssueCashDialog from '../components/IssueCashDialog';
 // Feb 20 2026 — `LabourAdvanceQueue` card removed from the Accountant
 // approvals Labour tab; import dropped.
 
@@ -3371,6 +3372,8 @@ function ApprovalsTab() {
   const [reviewDialog, setReviewDialog] = useState({ open: false, income: null });
   // Pay-approval dialog (unified Pay & Settle for material / labour / petty_cash)
   const [payDialog, setPayDialog] = useState({ open: false, reqType: '', requestId: '' });
+  // Issue Cash / Approve dialog for Petty Cash → Req Petty Cash & Record Expense sub-tabs
+  const [issueDialog, setIssueDialog] = useState({ open: false, kind: 'issue', item: null });
   const [reviewForm, setReviewForm] = useState({
     verification_mode: '',
     denomination: { '2000': 0, '500': 0, '200': 0, '100': 0, '50': 0, '20': 0, '10': 0, '5': 0, '2': 0, '1': 0 },
@@ -3951,17 +3954,7 @@ function ApprovalsTab() {
                             size="sm"
                             className="h-7 text-[11px] gap-1 bg-emerald-600 hover:bg-emerald-700"
                             data-testid={`approval-petty-issue-${pc.petty_cash_id}`}
-                            onClick={async () => {
-                              const ok = window.confirm(`Issue ₹${(pc.amount_requested || 0).toLocaleString('en-IN')} petty cash to ${pc.requested_by_name || 'this SE'}?`);
-                              if (!ok) return;
-                              try {
-                                await axios.patch(`${API}/accountant/petty-cash/${pc.petty_cash_id}/issue`, { amount: pc.amount_requested || pc.amount_issued || 0 });
-                                toast.success('Petty cash issued');
-                                fetchApprovals(false);
-                              } catch (e) {
-                                toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to issue');
-                              }
-                            }}
+                            onClick={() => setIssueDialog({ open: true, kind: 'issue', item: pc })}
                           >
                             <Wallet className="h-3 w-3" /> Issue Cash
                           </Button>
@@ -4028,15 +4021,7 @@ function ApprovalsTab() {
                             size="sm"
                             className="h-7 text-[11px] gap-1 bg-emerald-600 hover:bg-emerald-700"
                             data-testid={`approval-record-approve-${re.expense_id}`}
-                            onClick={async () => {
-                              try {
-                                await axios.patch(`${API}/accountant/recorded-expenses/${re.expense_id}/approve`, { remarks: '' });
-                                toast.success('Approved — recorded into cashbook');
-                                fetchApprovals(false);
-                              } catch (e) {
-                                toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to approve');
-                              }
-                            }}
+                            onClick={() => setIssueDialog({ open: true, kind: 'approve', item: re })}
                           >
                             <CheckCircle className="h-3 w-3" /> Approve
                           </Button>
@@ -4362,6 +4347,53 @@ function ApprovalsTab() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <IssueCashDialog
+        open={issueDialog.open}
+        onOpenChange={(o) => setIssueDialog({ open: o, kind: issueDialog.kind, item: issueDialog.item })}
+        variant={issueDialog.kind === 'approve' ? 'approve' : 'issue'}
+        defaultAmount={
+          issueDialog.kind === 'approve'
+            ? Number(issueDialog.item?.amount || 0)
+            : Number(issueDialog.item?.amount_requested || issueDialog.item?.amount_issued || 0)
+        }
+        title={issueDialog.kind === 'approve' ? 'Approve Recorded Expense' : 'Issue Petty Cash'}
+        subtitle={
+          issueDialog.kind === 'approve'
+            ? `${issueDialog.item?.description || ''} • ${issueDialog.item?.recorded_by_name || ''}`
+            : `${issueDialog.item?.requested_by_name || ''} • ${issueDialog.item?.purpose || ''}`
+        }
+        onSubmit={async (vals) => {
+          try {
+            if (issueDialog.kind === 'approve') {
+              await axios.patch(`${API}/accountant/recorded-expenses/${issueDialog.item.expense_id}/approve`, {
+                remarks: vals.remarks,
+                payment_mode: vals.payment_mode,
+                reference_number: vals.reference_number,
+                bank_name: vals.bank_name,
+                cheque_date: vals.cheque_date,
+                payment_date: vals.payment_date,
+              });
+              toast.success('Approved — recorded into cashbook');
+            } else {
+              await axios.patch(`${API}/accountant/petty-cash/${issueDialog.item.petty_cash_id}/issue`, {
+                amount: vals.amount,
+                remarks: vals.remarks,
+                payment_mode: vals.payment_mode,
+                reference_number: vals.reference_number,
+                bank_name: vals.bank_name,
+                cheque_date: vals.cheque_date,
+                payment_date: vals.payment_date,
+              });
+              toast.success('Petty cash issued');
+            }
+            fetchApprovals(false);
+          } catch (e) {
+            toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Action failed');
+            throw e;
+          }
+        }}
+      />
 
       {/* Refresh button */}
       <div className="flex justify-center pt-2">
