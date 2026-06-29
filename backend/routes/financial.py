@@ -7168,15 +7168,17 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             leg_chq_total = sum(float(c.get("amount", 0) or 0) for c in cheque_docs if c["cheque_id"] in (leg.cheque_ids or []))
             if abs(leg_chq_total - leg_amount) > 0.5:
                 raise HTTPException(status_code=400, detail=f"Cheque leg amount ₹{leg_amount:,.0f} must match selected cheques total ₹{leg_chq_total:,.0f}")
-        elif leg.method in ("current_account", "savings"):
-            if not leg.transaction_id or not leg.transaction_id.strip():
-                raise HTTPException(status_code=400, detail=f"transaction_id required for {leg.method} leg")
+        elif leg.method in ("current_account", "savings", "hdfc_current", "hdfc_savings", "direct_transfer", "escrow"):
+            # Transaction ID is optional (Feb 28 2026 user request — accountant
+            # may not have UTR/ref at payment time; back-fill later from
+            # Cheque Mgmt / Cashbook drilldown).
+            pass
         elif leg.method == "cash":
-            if not leg.denominations:
-                raise HTTPException(status_code=400, detail="denominations required for cash leg")
-            denom_total = sum(d.note * d.count for d in leg.denominations)
-            if abs(denom_total - leg_amount) > 0.5:
-                raise HTTPException(status_code=400, detail=f"Cash denominations ₹{denom_total:,.0f} ≠ leg amount ₹{leg_amount:,.0f}")
+            # Denominations are optional. If supplied they must reconcile.
+            if leg.denominations:
+                denom_total = sum(d.note * d.count for d in leg.denominations)
+                if abs(denom_total - leg_amount) > 0.5:
+                    raise HTTPException(status_code=400, detail=f"Cash denominations ₹{denom_total:,.0f} ≠ leg amount ₹{leg_amount:,.0f}")
         else:
             raise HTTPException(status_code=400, detail=f"Invalid leg method: {leg.method}")
         total_leg_amount += leg_amount
