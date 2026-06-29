@@ -16,12 +16,18 @@ const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
 const DENOMS = [2000, 500, 200, 100, 50, 20, 10, 5, 2, 1];
 const newLegId = () => `leg_${Math.random().toString(36).slice(2, 8)}`;
 
+// Feb 28 2026 — 6 payment modes per user spec (mirrors IssueCashDialog).
 const METHOD_OPTS = [
-  { v: 'cheque', label: 'Cheque', icon: FileText },
-  { v: 'current_account', label: 'Current A/c', icon: Building2 },
-  { v: 'savings', label: 'Savings A/c', icon: CreditCard },
-  { v: 'cash', label: 'Cash', icon: Banknote },
+  { v: 'hdfc_savings',    label: 'HDFC Savings',    icon: CreditCard },
+  { v: 'hdfc_current',    label: 'HDFC Current',    icon: Building2 },
+  { v: 'direct_transfer', label: 'Cash D/T',        icon: Banknote },
+  { v: 'cash',            label: 'Cash',            icon: Banknote },
+  { v: 'cheque',          label: 'Cheque',          icon: FileText },
+  { v: 'escrow',          label: 'Escrow',          icon: Wallet },
 ];
+
+// Bank-like methods require a transaction reference but no denom/cheque list.
+const isBankLike = (m) => m === 'hdfc_current' || m === 'hdfc_savings' || m === 'direct_transfer' || m === 'escrow' || m === 'current_account' || m === 'savings';
 
 // One payment leg = method + amount + method-specific input fields
 const makeLeg = (method = 'cheque') => ({
@@ -156,7 +162,7 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
         if (!l.chequeIds || l.chequeIds.length === 0) { toast.error('Cheque leg needs at least one cheque selected'); return; }
         const chTotal = l.chequeIds.reduce((s, cid) => s + Number(allCheques[cid]?.amount || 0), 0);
         if (Math.abs(chTotal - amt) > 0.5) { toast.error(`Cheque leg amount ${fmt(amt)} must match selected cheques total ${fmt(chTotal)}`); return; }
-      } else if (l.method === 'current_account' || l.method === 'savings') {
+      } else if (isBankLike(l.method)) {
         if (!l.transactionId || !l.transactionId.trim()) { toast.error(`Transaction ID required for ${l.method} leg`); return; }
       } else if (l.method === 'cash') {
         const denomTotal = Object.entries(l.denoms || {}).reduce((s, [n, c]) => s + (Number(n) * Number(c || 0)), 0);
@@ -174,7 +180,7 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
         method: l.method,
         amount: Number(l.amount),
         ...(l.method === 'cheque' ? { cheque_ids: l.chequeIds } : {}),
-        ...((l.method === 'current_account' || l.method === 'savings') ? { transaction_id: l.transactionId } : {}),
+        ...(isBankLike(l.method) ? { transaction_id: l.transactionId } : {}),
         ...(l.method === 'cash' ? {
           denominations: Object.entries(l.denoms).filter(([, c]) => Number(c) > 0).map(([n, c]) => ({ note: Number(n), count: Number(c) }))
         } : {}),
@@ -473,7 +479,7 @@ function LegEditor({ leg, idx, canRemove, ctx, allCheques, claimedByOther, updat
           </div>
         )}
 
-        {(leg.method === 'current_account' || leg.method === 'savings') && (
+        {isBankLike(leg.method) && (
           <div>
             <Label className="text-[11px] text-gray-600 mb-1 block">Transaction / UTR ID *</Label>
             <Input value={leg.transactionId} onChange={e => update({ transactionId: e.target.value })} placeholder="e.g. UTR202604271234567" className="h-8 text-xs" data-testid={`leg-txn-${idx}`} />
