@@ -1412,6 +1412,97 @@ async def delete_cashbook_expense(expense_type: str, record_id: str, user: User 
     raise HTTPException(status_code=404, detail="Expense record not found in any cashbook collection")
 
 
+# Feb 28 2026 — "Send Back to Approvals" for Petty Cash entries.
+# Replaces the destructive delete for petty_cash rows in the Cashbook
+# Expense view. Instead of purging the row, we:
+#   1. Reverse the cashflow_ledger allocation (so totals don't double-count
+#      once the entry is re-approved).
+#   2. Reset the entry's status so it shows back up under
+#      Approvals → Petty Cash → "Record Expense" sub-tab for re-review.
+#   3. Tag the source/category so the unified approvals query picks it up
+#      even when the original entry was a Manual one created directly by
+#      the accountant (no SE origin).
+@router.post("/cashbook/expense/petty_cash/{record_id}/send-back-to-approvals")
+async def send_petty_cash_back_to_approvals(record_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can pull back petty cash entries")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    audit_fields = {"action": "send_back_to_approvals", "record_id": record_id, "at": now_iso, "by": user.user_id, "by_name": user.name}
+
+    # Probe order mirrors delete_cashbook_expense so the same id (passed by
+    # the unified frontend `expense_id`) resolves regardless of source.
+    # We touch THREE collections that can surface a petty_cash row in the
+    # cashbook Expense view: recorded_expenses, direct_expenses, petty_cash.
+    candidates = [
+        (db.recorded_expenses, "expense_id"),
+        (db.direct_expenses, "direct_expense_id"),
+        (db.direct_expenses, "petty_cash_id"),
+        (db.petty_cash, "petty_cash_id"),
+    ]
+
+    found = None
+    found_coll = None
+    found_field = None
+    for coll, id_field in candidates:
+        doc = await coll.find_one({id_field: record_id}, {"_id": 0})
+        if doc:
+            found = doc
+            found_coll = coll
+            found_field = id_field
+            break
+
+    if not found:
+        raise HTTPException(status_code=404, detail="Petty cash entry not found")
+
+    # 1) Reverse cashflow allocation so re-approval doesn't double-debit.
+    try:
+        from routes.cashflow import reverse_allocation
+        for probe_id in {record_id, found.get("expense_id"), found.get("direct_expense_id"), found.get("petty_cash_id")}:
+            if probe_id:
+                await reverse_allocation(probe_id, kind="expense")
+    except Exception as e:
+        import logging; logging.getLogger(__name__).warning(f"cashflow reverse_allocation failed in send-back {record_id}: {e}")
+
+    # 2) Flip status back to a state the unified approvals query picks up.
+    update_set = {
+        "sent_back_to_approvals_at": now_iso,
+        "sent_back_to_approvals_by": user.user_id,
+        "sent_back_to_approvals_by_name": user.name,
+        "updated_at": now_iso,
+    }
+
+    if found_coll is db.recorded_expenses:
+        # Approvals → Record Expense sub-tab filters by status="pm_approved"
+        # AND source ∈ se_sources. Tag the source as "sent_back" so we can
+        # whitelist it in the unified approvals query (see filter below).
+        update_set["status"] = "pm_approved"
+        update_set["category"] = found.get("category") or "petty_cash"
+        update_set["pulled_back_from_cashbook"] = True
+        await db.recorded_expenses.update_one({found_field: record_id}, {"$set": update_set})
+    elif found_coll is db.direct_expenses:
+        # direct_expenses rows are accountant-issued petty cash. Their
+        # primary surface is db.petty_cash via petty_cash_id link; we set
+        # the corresponding petty_cash status back to "pm_approved" so it
+        # appears under Req Petty Cash, and tag the direct_expenses row.
+        update_set["status"] = "sent_back"
+        update_set["pulled_back_from_cashbook"] = True
+        await db.direct_expenses.update_one({found_field: record_id}, {"$set": update_set})
+        pc_id = found.get("petty_cash_id")
+        if pc_id:
+            await db.petty_cash.update_one(
+                {"petty_cash_id": pc_id},
+                {"$set": {"status": "pm_approved", "pulled_back_from_cashbook": True, "updated_at": now_iso}}
+            )
+    elif found_coll is db.petty_cash:
+        # Already a petty_cash request — just reset status to pm_approved.
+        update_set["status"] = "pm_approved"
+        update_set["pulled_back_from_cashbook"] = True
+        await db.petty_cash.update_one({found_field: record_id}, {"$set": update_set})
+
+    await create_audit_log(user.user_id, "send_back", "petty_cash_expense", record_id, audit_fields)
+    return {"message": "Sent back to Approvals → Petty Cash", "from": found_coll.name}
+
 
 # ==================== UNIFIED APPROVALS ENDPOINT ====================
 
@@ -1478,8 +1569,15 @@ async def get_unified_approvals(
         return {} if statuses is None else {"status": {"$in": statuses}}
 
     # Recorded expenses are scoped to SE-origin rows only (mirrors PM's filter)
+    # Feb 28 2026 — also include rows pulled back from the Cashbook
+    # Expense view via "Send Back to Approvals", regardless of original
+    # source. The frontend pull-back tags `pulled_back_from_cashbook=true`
+    # so accountant manual entries also re-surface here for re-review.
     se_sources = ["site_engineer_direct", "site_engineer", "se_direct"]
-    rec_query: Dict[str, Any] = {"source": {"$in": se_sources}}
+    rec_query: Dict[str, Any] = {"$or": [
+        {"source": {"$in": se_sources}},
+        {"pulled_back_from_cashbook": True},
+    ]}
     if recorded_expense_statuses is not None:
         rec_query["status"] = {"$in": recorded_expense_statuses}
 

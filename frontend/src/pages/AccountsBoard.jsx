@@ -61,7 +61,8 @@ import {
   PieChart,
   Truck,
   Check,
-  Trash2
+  Trash2,
+  Undo2
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -1857,6 +1858,23 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
     }
   };
 
+  // Feb 28 2026 — "Send Back to Approvals" replaces destructive delete for
+  // Petty Cash rows. Reverses the cashflow allocation and re-surfaces the
+  // entry under Approvals → Petty Cash → Record Expense for re-review.
+  const handleSendPettyCashBackToApprovals = async (entry) => {
+    const recordId = entry.expense_id || entry.request_id;
+    if (!recordId) { toast.error('Missing expense id'); return; }
+    if (!window.confirm(`Send this Petty Cash entry of ₹${(entry.amount || 0).toLocaleString('en-IN')} back to Approvals → Petty Cash for re-review?\n\nThe cashflow allocation will be reversed.`)) return;
+    try {
+      await axios.post(`${API}/cashbook/expense/petty_cash/${recordId}/send-back-to-approvals`);
+      toast.success('Sent back to Approvals → Petty Cash');
+      fetchCashbook();
+      onRefresh && onRefresh();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to send back');
+    }
+  };
+
   const incomeEntries = cashbookData?.income_entries || overview?.income_entries || [];
   const allExpenseEntries = cashbookData?.expense_entries || overview?.expense_entries || [];
   const summary = cashbookData?.summary || overview?.totals || {};
@@ -2547,16 +2565,29 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                           <div className="flex items-center justify-center gap-1">
                             <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { setSelectedEntry(entry); setViewDialog(true); }}><Eye className="h-3 w-3" /></Button>
                             <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-600" onClick={() => handlePrintReceipt(entry)}><Printer className="h-3 w-3" /></Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0 text-red-600 hover:bg-red-50"
-                              onClick={() => handleDeleteExpense(entry)}
-                              data-testid={`expense-delete-btn-${entry.expense_id || entry.request_id || i}`}
-                              title="Delete expense"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
+                            {entry.expense_type === 'petty_cash' ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0 text-orange-600 hover:bg-orange-50"
+                                onClick={() => handleSendPettyCashBackToApprovals(entry)}
+                                data-testid={`expense-send-back-btn-${entry.expense_id || entry.request_id || i}`}
+                                title="Send back to Approvals → Petty Cash"
+                              >
+                                <Undo2 className="h-3 w-3" />
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0 text-red-600 hover:bg-red-50"
+                                onClick={() => handleDeleteExpense(entry)}
+                                data-testid={`expense-delete-btn-${entry.expense_id || entry.request_id || i}`}
+                                title="Delete expense"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>
