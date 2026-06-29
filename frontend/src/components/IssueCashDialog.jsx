@@ -3,6 +3,7 @@
 //   • Req Petty Cash → Issue Cash (calls PATCH /accountant/petty-cash/{id}/issue)
 //   • Record Expense → Approve     (calls PATCH /accountant/recorded-expenses/{id}/approve)
 import { useEffect, useState } from 'react';
+import axios from 'axios';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -10,6 +11,8 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Wallet, CheckCircle, AlertTriangle } from 'lucide-react';
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 // 6 payment modes the user asked for.
 export const PAYMENT_MODES = [
@@ -53,6 +56,10 @@ export default function IssueCashDialog({
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
   const [remarks, setRemarks] = useState('');
   const [busy, setBusy] = useState(false);
+  // Open cheques (status: issued/post_dated) — surfaced as a picker when
+  // mode=cheque so the accountant doesn't have to type the cheque number.
+  const [openCheques, setOpenCheques] = useState([]);
+  const [chequesLoading, setChequesLoading] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -63,6 +70,27 @@ export default function IssueCashDialog({
       setRemarks(''); setBusy(false);
     }
   }, [open, defaultAmount]);
+
+  // Lazy-load the open cheque list the first time the user selects Cheque mode
+  useEffect(() => {
+    if (!open || paymentMode !== 'cheque' || openCheques.length || chequesLoading) return;
+    setChequesLoading(true);
+    axios.get(`${API}/accountant/uncleared-cheques`)
+      .then(r => setOpenCheques(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setOpenCheques([]))
+      .finally(() => setChequesLoading(false));
+  }, [open, paymentMode, openCheques.length, chequesLoading]);
+
+  // When user picks a cheque from the list, auto-fill bank + cheque date
+  const onPickCheque = (chequeId) => {
+    const c = openCheques.find(x => (x.cheque_id || x.id) === chequeId);
+    if (!c) return;
+    setRefNum(c.cheque_number || '');
+    if (c.bank_name) setBankName(c.bank_name);
+    if (c.cheque_date) {
+      try { setChequeDate(new Date(c.cheque_date).toISOString().slice(0, 10)); } catch { /* ignore */ }
+    }
+  };
 
   const refLabel = isCheque(paymentMode) ? 'Cheque Number *'
     : isBank(paymentMode) ? 'Transaction / UTR / Reference *'
@@ -133,13 +161,46 @@ export default function IssueCashDialog({
           {paymentMode !== 'cash' && (
             <div>
               <Label className="text-xs">{refLabel}</Label>
-              <Input
-                value={refNum}
-                onChange={(e) => setRefNum(e.target.value)}
-                placeholder={isCheque(paymentMode) ? 'e.g., 100234' : isBank(paymentMode) ? 'e.g., UTR2026123456' : ''}
-                className="mt-1"
-                data-testid="issue-cash-reference"
-              />
+              {isCheque(paymentMode) ? (
+                <>
+                  <Select
+                    value={refNum && openCheques.find(c => c.cheque_number === refNum) ? (openCheques.find(c => c.cheque_number === refNum).cheque_id || openCheques.find(c => c.cheque_number === refNum).id) : ''}
+                    onValueChange={onPickCheque}
+                  >
+                    <SelectTrigger className="mt-1" data-testid="issue-cash-cheque-picker">
+                      <SelectValue placeholder={chequesLoading ? 'Loading open cheques…' : (openCheques.length === 0 ? 'No open cheques available' : 'Select an open cheque')} />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-80">
+                      {openCheques.map(c => {
+                        const cid = c.cheque_id || c.id;
+                        const dt = c.cheque_date ? new Date(c.cheque_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+                        return (
+                          <SelectItem key={cid} value={cid} data-testid={`issue-cash-cheque-opt-${c.cheque_number}`}>
+                            #{c.cheque_number} · {c.bank_name || 'Bank'}{dt ? ` · ${dt}` : ''}{c.amount ? ` · ₹${Number(c.amount).toLocaleString('en-IN')}` : ''}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                  <div className="mt-1 flex items-center gap-2">
+                    <Input
+                      value={refNum}
+                      onChange={(e) => setRefNum(e.target.value)}
+                      placeholder="Or type cheque number manually"
+                      className="text-xs"
+                      data-testid="issue-cash-reference"
+                    />
+                  </div>
+                </>
+              ) : (
+                <Input
+                  value={refNum}
+                  onChange={(e) => setRefNum(e.target.value)}
+                  placeholder={isBank(paymentMode) ? 'e.g., UTR2026123456' : ''}
+                  className="mt-1"
+                  data-testid="issue-cash-reference"
+                />
+              )}
               {refRequired && !refNum.trim() && (
                 <p className="text-[10px] text-red-600 mt-0.5 flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> Reference is required for {PAYMENT_MODES.find(m => m.value === paymentMode)?.label}</p>
               )}
