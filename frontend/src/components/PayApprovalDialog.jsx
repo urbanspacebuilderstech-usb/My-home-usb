@@ -163,10 +163,14 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
         const chTotal = l.chequeIds.reduce((s, cid) => s + Number(allCheques[cid]?.amount || 0), 0);
         if (Math.abs(chTotal - amt) > 0.5) { toast.error(`Cheque leg amount ${fmt(amt)} must match selected cheques total ${fmt(chTotal)}`); return; }
       } else if (isBankLike(l.method)) {
-        if (!l.transactionId || !l.transactionId.trim()) { toast.error(`Transaction ID required for ${l.method} leg`); return; }
+        // Transaction ID is optional — accountant may not have UTR/ref at
+        // payment time; it can be back-filled later from Cheque Mgmt /
+        // Cashbook drilldown. (Feb 28 2026 user request.)
       } else if (l.method === 'cash') {
         const denomTotal = Object.entries(l.denoms || {}).reduce((s, [n, c]) => s + (Number(n) * Number(c || 0)), 0);
-        if (Math.abs(denomTotal - amt) > 0.5) { toast.error(`Cash denominations ${fmt(denomTotal)} ≠ leg amount ${fmt(amt)}`); return; }
+        // Denominations are optional — if filled they must reconcile with
+        // the leg amount, but an empty breakdown is allowed.
+        if (denomTotal > 0 && Math.abs(denomTotal - amt) > 0.5) { toast.error(`Cash denominations ${fmt(denomTotal)} ≠ leg amount ${fmt(amt)}`); return; }
       }
     }
     if (nonChequeOverpaying) {
@@ -481,7 +485,7 @@ function LegEditor({ leg, idx, canRemove, ctx, allCheques, claimedByOther, updat
 
         {isBankLike(leg.method) && (
           <div>
-            <Label className="text-[11px] text-gray-600 mb-1 block">Transaction / UTR ID *</Label>
+            <Label className="text-[11px] text-gray-600 mb-1 block">Transaction / UTR ID (optional)</Label>
             <Input value={leg.transactionId} onChange={e => update({ transactionId: e.target.value })} placeholder="e.g. UTR202604271234567" className="h-8 text-xs" data-testid={`leg-txn-${idx}`} />
           </div>
         )}
