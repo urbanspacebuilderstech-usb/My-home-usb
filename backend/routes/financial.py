@@ -1570,10 +1570,12 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
         "updated_at": now_iso,
     }
     # Clear payment fields so accountant can re-enter via PayApprovalDialog.
+    # NOTE: `next_payment_phase` is NOT in $unset because the material_requests
+    # branch needs to $set it to "full" (Mongo forbids touching the same path
+    # in both $set and $unset → WriteError code 40).
     unset_fields = {
         "paid_amount": "", "paid_at": "", "paid_by": "", "paid_by_name": "",
         "payment_method": "", "payment_mode": "", "payment_phase": "",
-        "next_payment_phase": "",
         "transaction_id": "", "bank_ref": "", "cheque_no": "", "cheque_id": "",
         "released_at": "", "released_by": "", "released_by_name": "",
     }
