@@ -2576,34 +2576,42 @@ async def send_petty_cash_for_correction(petty_cash_id: str, data: PettyCashCorr
 async def get_petty_cash_for_pm(user: User = Depends(get_current_user)):
     """PM gets pending petty cash requests for approval.
 
-    Feb 19 2026 — Scoped to projects where this PM is assigned
-    (`team.project_manager` slot or legacy `assigned_pm`). Super Admins
-    still see everything.
+    Routing — team-based. A PM sees a petty-cash request if it satisfies ANY of:
+      • It has a `project_id` belonging to one of their assigned projects, OR
+      • Its `requested_by` user is on the SE roster of one of their assigned
+        projects (catches "General" / unscoped requests raised by their SE), OR
+      • The PM has no team mapping yet (fallback: see everything so new PMs
+        aren't stuck looking at an empty queue).
+    Super Admins always see everything.
     """
     if user.role not in [UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only PM can access this")
     query: Dict[str, Any] = {"status": {"$in": ["requested", "pm_approved", "accountant_processing", "payment_done", "acknowledged"]}}
     if user.role in (UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM):
-        assigned_projects = await db.projects.find(
+        team_projects = await db.projects.find(
             {"$or": [
                 {"team.project_manager": user.user_id},
                 {"team.associate_pm": user.user_id},
                 {"assigned_pm": user.user_id},
             ]},
-            {"_id": 0, "project_id": 1}
+            {"_id": 0, "project_id": 1, "team": 1}
         ).to_list(None)
-        project_ids = [p["project_id"] for p in assigned_projects if p.get("project_id")]
-        # Include unassigned "General" petty cash (project_id empty / missing / None)
-        # so every PM sees site-engineer requests that aren't tied to a project.
-        # Any PM can approve them; once approved, status changes and they fall out
-        # of the queue for the others.
-        project_scope_clause: List[Dict[str, Any]] = [
-            {"project_id": {"$in": ["", None]}},
-            {"project_id": {"$exists": False}},
-        ]
-        if project_ids:
-            project_scope_clause.append({"project_id": {"$in": project_ids}})
-        query["$or"] = project_scope_clause
+        project_ids = [p["project_id"] for p in team_projects if p.get("project_id")]
+        team_se_ids = set()
+        for p in team_projects:
+            t = p.get("team") or {}
+            for k in ("site_engineer", "sr_site_engineer", "associate_pm"):
+                v = t.get(k)
+                if v:
+                    team_se_ids.add(v)
+        if project_ids or team_se_ids:
+            or_clause: List[Dict[str, Any]] = []
+            if project_ids:
+                or_clause.append({"project_id": {"$in": project_ids}})
+            if team_se_ids:
+                or_clause.append({"requested_by": {"$in": list(team_se_ids)}})
+            query["$or"] = or_clause
+        # else: no team mapping → leave query unrestricted (fallback)
     requests = await db.petty_cash.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
     return requests
 
@@ -3263,28 +3271,47 @@ async def get_recorded_expenses(
 async def get_pm_recorded_expenses(user: User = Depends(get_current_user)):
     """Project Manager view of SE-recorded petty-cash expenses.
 
-    Scope:
-      • All PMs / Associate-PMs see every SE-recorded expense regardless of
-        project assignment. Site Engineers often log spends against projects
-        they aren't formally rostered to, and the current rule was hiding
-        legitimate expenses (e.g. Venkateshan E's spends on "Mr Susikar
-        Robert" were invisible to every PM not assigned to that project).
-        Any PM with a free slot can clear the queue; once cleared, the row
-        falls out for everyone.
-      • Super Admin → everything (same query).
+    Routing logic — "team-based":
+      • For a PM, gather every project where they are listed as PM (project_manager
+        / associate_pm / assigned_pm).
+      • Collect the SE user_ids from those projects' team (site_engineer,
+        sr_site_engineer, associate_pm, project_manager themselves).
+      • Show expenses whose `recorded_by` matches any of those team SEs.
+      • Super Admin → everything.
+      • Falls back to "everything" if PM has no team mapping yet (so newly
+        created PMs aren't stuck with an empty queue).
 
-    Source filter — ONLY rows the Site Engineer raised. Accountant-side
-    bookkeeping mirrors (cash issuance to SE, manual cashbook entries, work
-    order stage release) must not show up here — they were already cleared
-    upstream.
+    Source filter retained: ONLY rows the Site Engineer raised. Accountant
+    cash issuances / WO stage releases / manual cashbook entries stay out.
     """
     if user.role not in [UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only PM can access this")
 
     se_sources = ["site_engineer_direct", "site_engineer", "se_direct"]
-    return await db.recorded_expenses.find(
-        {"source": {"$in": se_sources}}, {"_id": 0}
-    ).sort("created_at", -1).to_list(500)
+    query: Dict[str, Any] = {"source": {"$in": se_sources}}
+
+    if user.role in (UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM):
+        team_projects = await db.projects.find(
+            {"$or": [
+                {"team.project_manager": user.user_id},
+                {"team.associate_pm": user.user_id},
+                {"assigned_pm": user.user_id},
+            ]},
+            {"_id": 0, "team": 1}
+        ).to_list(None)
+        # Collect SE user_ids from those teams
+        team_se_ids = set()
+        for p in team_projects:
+            t = p.get("team") or {}
+            for k in ("site_engineer", "sr_site_engineer", "associate_pm"):
+                v = t.get(k)
+                if v:
+                    team_se_ids.add(v)
+        if team_se_ids:
+            query["recorded_by"] = {"$in": list(team_se_ids)}
+        # else: no team mapping yet — show everything so the PM can still work
+
+    return await db.recorded_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
 
 
 # ---------- Record Expense: PM → Accountant approval ladder ----------
