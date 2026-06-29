@@ -325,6 +325,7 @@ export default function SiteEngineerDashboard() {
   // 'all' shows everything; 'pending' = requested (awaiting PM); 'waiting' = pm_approved/accountant_processing.
   const [pcStatusFilter, setPcStatusFilter] = useState('all');
   const [pettyCashDialog, setPettyCashDialog] = useState(false);
+  const [editingPettyCashId, setEditingPettyCashId] = useState(null);
   const [pettyCashExpenseDialog, setPettyCashExpenseDialog] = useState(false);
   const [selectedPettyCash, setSelectedPettyCash] = useState(null);
   const [pettyCashForm, setPettyCashForm] = useState({
@@ -735,19 +736,55 @@ export default function SiteEngineerDashboard() {
       return;
     }
     try {
-      await axios.post(`${API}/site-engineer/petty-cash/request`, {
-        amount: parseFloat(pettyCashForm.amount),
-        purpose: pettyCashForm.purpose,
-        remarks: pettyCashForm.remarks
-      });
-      toast.success('Petty cash requested! Goes to PM for approval.');
+      if (editingPettyCashId) {
+        await axios.patch(`${API}/site-engineer/petty-cash/${editingPettyCashId}/resubmit`, {
+          amount: parseFloat(pettyCashForm.amount),
+          purpose: pettyCashForm.purpose,
+          remarks: pettyCashForm.remarks,
+        });
+        toast.success('Petty cash resubmitted to PM!');
+      } else {
+        await axios.post(`${API}/site-engineer/petty-cash/request`, {
+          amount: parseFloat(pettyCashForm.amount),
+          purpose: pettyCashForm.purpose,
+          remarks: pettyCashForm.remarks
+        });
+        toast.success('Petty cash requested! Goes to PM for approval.');
+      }
       setPettyCashDialog(false);
+      setEditingPettyCashId(null);
       setPettyCashForm({ project_id: '', amount: '', purpose: '', remarks: '' });
       fetchData(false);
       fetchPettyCashSummary();
     } catch (error) {
-      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request petty cash');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed');
     }
+  };
+
+  // Feb 28 2026 — Delete own petty cash request (only while pending or
+  // PM-rejected; locked after accountant has touched it).
+  const handleDeletePettyCashRequest = async (pc) => {
+    if (!window.confirm(`Delete this petty cash request of ₹${(pc.amount_requested || pc.amount_issued || 0).toLocaleString('en-IN')}?\n\n${pc.purpose || ''}\n\nThis cannot be undone.`)) return;
+    try {
+      await axios.delete(`${API}/site-engineer/petty-cash/${pc.petty_cash_id}`);
+      toast.success('Petty cash request deleted');
+      fetchData(false);
+      fetchPettyCashSummary();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to delete');
+    }
+  };
+
+  // Feb 28 2026 — Edit & resubmit a PM-rejected petty cash request.
+  const handleEditPettyCashRequest = (pc) => {
+    setEditingPettyCashId(pc.petty_cash_id);
+    setPettyCashForm({
+      project_id: pc.project_id || '',
+      amount: String(pc.amount_requested || pc.amount_issued || ''),
+      purpose: pc.purpose || '',
+      remarks: pc.remarks || '',
+    });
+    setPettyCashDialog(true);
   };
   
   const handleAddExpense = async () => {
@@ -1673,6 +1710,32 @@ export default function SiteEngineerDashboard() {
                             </div>
                             <div className="text-right">
                               <p className="text-base font-bold text-green-600">₹{(pc.amount_issued || pc.amount_requested).toLocaleString('en-IN')}</p>
+                              <div className="flex items-center justify-end gap-1 mt-1">
+                                {pc.status === 'pm_rejected' && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
+                                    onClick={() => handleEditPettyCashRequest(pc)}
+                                    data-testid={`pc-edit-${pc.petty_cash_id}`}
+                                    title="Edit and resubmit"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                                {!['issued','partially_spent','settled','payment_done','acknowledged','accountant_processing'].includes(pc.status) && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 w-7 p-0 text-red-500 hover:bg-red-50"
+                                    onClick={() => handleDeletePettyCashRequest(pc)}
+                                    data-testid={`pc-delete-${pc.petty_cash_id}`}
+                                    title="Delete request"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                              </div>
                             </div>
                           </div>
 
@@ -2233,12 +2296,12 @@ export default function SiteEngineerDashboard() {
       </Dialog>
 
       {/* Petty Cash Request Dialog */}
-      <Dialog open={pettyCashDialog} onOpenChange={setPettyCashDialog}>
+      <Dialog open={pettyCashDialog} onOpenChange={(o) => { if (!o) { setEditingPettyCashId(null); } setPettyCashDialog(o); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Request Petty Cash</DialogTitle>
+            <DialogTitle>{editingPettyCashId ? 'Edit & Resubmit Petty Cash' : 'Request Petty Cash'}</DialogTitle>
             <DialogDescription>
-              Global petty cash request. Goes to PM for approval.
+              {editingPettyCashId ? 'Update the details and resubmit to PM for approval.' : 'Global petty cash request. Goes to PM for approval.'}
             </DialogDescription>
           </DialogHeader>
           
@@ -2274,9 +2337,9 @@ export default function SiteEngineerDashboard() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPettyCashDialog(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setPettyCashDialog(false); setEditingPettyCashId(null); }}>Cancel</Button>
             <Button onClick={handleRequestPettyCash} className="bg-green-600 hover:bg-green-700">
-              <Wallet className="h-4 w-4 mr-2" /> Request
+              <Wallet className="h-4 w-4 mr-2" /> {editingPettyCashId ? 'Resubmit' : 'Request'}
             </Button>
           </DialogFooter>
         </DialogContent>

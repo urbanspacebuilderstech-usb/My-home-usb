@@ -2295,6 +2295,66 @@ async def get_my_petty_cash(project_id: Optional[str] = None, user: User = Depen
     return petty_cash_list
 
 
+# Feb 28 2026 — SE can delete their OWN petty cash request when it's
+# still pending or PM-rejected. Once accountant has issued the cash the
+# entry is locked.
+@router.delete("/site-engineer/petty-cash/{petty_cash_id}")
+async def delete_my_petty_cash(petty_cash_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id}, {"_id": 0})
+    if not pc:
+        raise HTTPException(status_code=404, detail="Petty cash request not found")
+
+    if user.role not in [UserRole.SUPER_ADMIN] and pc.get("requested_by") != user.user_id:
+        raise HTTPException(status_code=403, detail="You can only delete your own requests")
+
+    locked = ["issued", "partially_spent", "settled", "payment_done", "acknowledged", "accountant_processing"]
+    if (pc.get("status") or "").lower() in locked:
+        raise HTTPException(status_code=400, detail="This request has already been processed by Accountant and cannot be deleted.")
+
+    await db.petty_cash.delete_one({"petty_cash_id": petty_cash_id})
+    return {"message": "Petty cash request deleted"}
+
+
+# Feb 28 2026 — SE can edit a PM-rejected petty cash request and resubmit.
+# Resets status to `requested` and clears the PM-rejection metadata so the
+# request re-surfaces in the PM approval queue.
+@router.patch("/site-engineer/petty-cash/{petty_cash_id}/resubmit")
+async def resubmit_my_petty_cash(petty_cash_id: str, data: dict, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id}, {"_id": 0})
+    if not pc:
+        raise HTTPException(status_code=404, detail="Petty cash request not found")
+
+    if user.role not in [UserRole.SUPER_ADMIN] and pc.get("requested_by") != user.user_id:
+        raise HTTPException(status_code=403, detail="You can only edit your own requests")
+
+    if (pc.get("status") or "").lower() not in ("pm_rejected", "rejected"):
+        raise HTTPException(status_code=400, detail="Only PM-rejected requests can be edited & resubmitted")
+
+    set_fields = {
+        "amount_requested": float(data.get("amount") or pc.get("amount_requested") or 0),
+        "purpose": (data.get("purpose") or pc.get("purpose") or "").strip(),
+        "remarks": data.get("remarks") or pc.get("remarks") or "",
+        "status": "requested",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "resubmitted_at": datetime.now(timezone.utc).isoformat(),
+    }
+    unset_fields = {
+        "pm_rejected_reason": "", "pm_rejected_by": "", "pm_rejected_at": "",
+        "rejection_reason": "", "rejected_by": "", "rejected_at": "",
+    }
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": set_fields, "$unset": unset_fields}
+    )
+    return {"message": "Petty cash request resubmitted for PM approval"}
+
+
 @router.post("/site-engineer/petty-cash/{petty_cash_id}/expense")
 async def add_petty_cash_expense(petty_cash_id: str, data: PettyCashExpenseCreate, user: User = Depends(get_current_user)):
     """Site Engineer records petty cash expense"""
