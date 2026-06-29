@@ -1587,11 +1587,32 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
             {found_field: record_id},
             {"$set": set_fields, "$unset": unset_fields}
         )
+        # Feb 28 2026 — Also reset the linked material_expenses doc so the
+        # entry actually disappears from Cashbook → Expense → Material.
+        # material_requests.expense_id ↔ material_expenses.expense_id
+        # material_requests.request_id ↔ material_expenses.source_request_id
+        link_filter = {"$or": []}
+        if found.get("expense_id"):
+            link_filter["$or"].append({"expense_id": found.get("expense_id")})
+        if found.get("request_id"):
+            link_filter["$or"].append({"source_request_id": found.get("request_id")})
+        if link_filter["$or"]:
+            await db.material_expenses.update_many(
+                link_filter,
+                {"$set": {**{k: v for k, v in set_fields.items() if k != "next_payment_phase"}}, "$unset": unset_fields}
+            )
     elif coll_name == "material_expenses":
         await db.material_expenses.update_one(
             {found_field: record_id},
             {"$set": set_fields, "$unset": unset_fields}
         )
+        # Also reset the linked parent material_request (if any).
+        src = found.get("source_request_id")
+        if src:
+            await db.material_requests.update_one(
+                {"request_id": src},
+                {"$set": {**set_fields, "next_payment_phase": "full"}, "$unset": unset_fields}
+            )
     elif coll_name == "recorded_expenses":
         # Cashbook mirror of a material release. Delete the mirror entirely
         # (we don't want a phantom row hanging around) AND reset the parent
