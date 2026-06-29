@@ -42,6 +42,7 @@ import {
   RefreshCw,
   Eye,
   Trash2,
+  Pencil,
   Boxes,
   Ruler,
   Search
@@ -362,6 +363,7 @@ export default function SiteEngineerDashboard() {
   const [incomeHistory, setIncomeHistory] = useState([]);
   const [directExpensesList, setDirectExpensesList] = useState([]);
   const [directExpenseDialog, setDirectExpenseDialog] = useState(false);
+  const [editingExpenseId, setEditingExpenseId] = useState(null);
   const [directExpProject, setDirectExpProject] = useState('');
   const [directExpItems, setDirectExpItems] = useState([{category:'',expense_name:'',amount:'',bill_file_id:null,bill_filename:''}]);
   const [directExpLoading, setDirectExpLoading] = useState(false);
@@ -527,12 +529,46 @@ export default function SiteEngineerDashboard() {
         project_id: directExpProject,
         items: validItems.map(i => ({ category: i.category || 'Miscellaneous', expense_name: i.expense_name, amount: parseFloat(i.amount), bill_file_id: i.bill_file_id, bill_filename: i.bill_filename })),
       });
-      toast.success('Expense recorded!');
+      // Feb 28 2026 — Edit-as-resubmit: if we were editing a rejected
+      // record, delete the old one once the new one is in.
+      if (editingExpenseId) {
+        try { await axios.delete(`${API}/site-engineer/direct-expense/${editingExpenseId}`); } catch (_) { /* non-fatal */ }
+        setEditingExpenseId(null);
+      }
+      toast.success(editingExpenseId ? 'Expense re-submitted!' : 'Expense recorded!');
       setDirectExpenseDialog(false);
       fetchDirectExpenses(expenseFilterProject, expenseFilterFrom, expenseFilterTo);
       fetchPettyCashSummary();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to save'); }
     setDirectExpLoading(false);
+  };
+
+  // Feb 28 2026 — Delete own direct expense (SE can clean up pending or
+  // PM/Accountant-rejected entries).
+  const handleDeleteDirectExpense = async (de) => {
+    if (!window.confirm(`Delete this expense of ₹${(de.total_amount || 0).toLocaleString('en-IN')}?\n\nThis cannot be undone.`)) return;
+    try {
+      await axios.delete(`${API}/site-engineer/direct-expense/${de.expense_id}`);
+      toast.success('Expense deleted');
+      fetchDirectExpenses(expenseFilterProject, expenseFilterFrom, expenseFilterTo);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to delete');
+    }
+  };
+
+  // Feb 28 2026 — Edit a rejected expense: pre-fill the Record Expense
+  // dialog with the rejected items so the SE can correct and re-submit.
+  const handleEditDirectExpense = (de) => {
+    setEditingExpenseId(de.expense_id);
+    setDirectExpProject(de.project_id || '');
+    setDirectExpItems((de.items || []).map(it => ({
+      category: it.category || '',
+      expense_name: it.expense_name || '',
+      amount: String(it.amount || ''),
+      bill_file_id: it.bill_file_id || null,
+      bill_filename: it.bill_filename || '',
+    })));
+    setDirectExpenseDialog(true);
   };
 
   const handleBillUpload = async (idx, file) => {
@@ -1756,7 +1792,42 @@ export default function SiteEngineerDashboard() {
                               </div>
                               <p className="text-[10px] text-gray-400">{new Date(de.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })} {new Date(de.created_at).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' })}</p>
                             </div>
-                            <p className="text-base font-bold text-red-600">₹{de.total_amount?.toLocaleString('en-IN')}</p>
+                            <div className="flex items-center gap-1">
+                              <p className="text-base font-bold text-red-600">₹{de.total_amount?.toLocaleString('en-IN')}</p>
+                              {(() => {
+                                const s = (de.overall_status || '').toLowerCase();
+                                const isRejected = s === 'pm_rejected' || s === 'accountant_rejected' || s === 'rejected';
+                                const isLocked = s === 'approved' || s === 'verified' || s === 'recorded_into_cashbook' || s === 'accountant_approved';
+                                return (
+                                  <>
+                                    {isRejected && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50 ml-1"
+                                        onClick={() => handleEditDirectExpense(de)}
+                                        data-testid={`dexp-edit-${de.expense_id}`}
+                                        title="Edit and resubmit"
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
+                                    {!isLocked && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-7 w-7 p-0 text-red-500 hover:bg-red-50"
+                                        onClick={() => handleDeleteDirectExpense(de)}
+                                        data-testid={`dexp-delete-${de.expense_id}`}
+                                        title="Delete expense"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </div>
                           </div>
                           <div className="bg-gray-50 rounded p-2 space-y-1">
                             {de.items?.map((item, i) => (
@@ -2429,9 +2500,9 @@ export default function SiteEngineerDashboard() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDirectExpenseDialog(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setDirectExpenseDialog(false); setEditingExpenseId(null); }}>Cancel</Button>
             <Button onClick={handleDirectExpenseSubmit} className="bg-orange-600 hover:bg-orange-700" disabled={directExpLoading} data-testid="dexp-submit-btn">
-              {directExpLoading ? 'Saving...' : 'Record Expense'}
+              {directExpLoading ? 'Saving...' : (editingExpenseId ? 'Resubmit Expense' : 'Record Expense')}
             </Button>
           </DialogFooter>
         </DialogContent>

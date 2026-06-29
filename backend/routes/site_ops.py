@@ -2992,6 +2992,31 @@ async def record_direct_expense(request: Request, user: User = Depends(get_curre
     return record
 
 
+# Feb 28 2026 — SE can delete their OWN direct-expense records when they
+# are still pending or have been rejected by PM/Accountant. Approved or
+# already-recorded entries are read-only (the ledger has consumed them).
+@router.delete("/site-engineer/direct-expense/{expense_id}")
+async def delete_direct_expense(expense_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    rec = await db.recorded_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Expense record not found")
+
+    # SE can only delete their own records (super_admin can delete any).
+    if user.role not in [UserRole.SUPER_ADMIN] and rec.get("recorded_by") != user.user_id:
+        raise HTTPException(status_code=403, detail="You can only delete your own expense records")
+
+    # Lock down approved / cashbook-recorded entries.
+    locked = ["approved", "verified", "recorded_into_cashbook", "accountant_approved"]
+    if (rec.get("status") or "").lower() in locked:
+        raise HTTPException(status_code=400, detail="Approved expenses cannot be deleted. Contact your accountant to reverse the entry.")
+
+    await db.recorded_expenses.delete_one({"expense_id": expense_id})
+    return {"message": "Expense record deleted"}
+
+
 @router.get("/site-engineer/direct-expenses")
 async def get_direct_expenses(project_id: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None, user: User = Depends(get_current_user)):
     """Get direct expense history for SE"""
