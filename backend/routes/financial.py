@@ -1549,7 +1549,7 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
             break
 
     if not found:
-        raise HTTPException(status_code=404, detail="Material entry not found")
+        raise HTTPException(status_code=404, detail="Material entry not found — please hard-refresh (Ctrl+Shift+R) and try again. It may have already been sent back.")
 
     # 1) Reverse cashflow allocation.
     try:
