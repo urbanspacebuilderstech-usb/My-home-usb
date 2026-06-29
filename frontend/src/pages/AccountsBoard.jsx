@@ -1874,6 +1874,23 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
     }
   };
 
+  // Feb 28 2026 — Same pattern for Material rows: pulls back to
+  // Approvals → Expense Approvals → Materials so the accountant can
+  // re-edit amount / payment-mode and Pay & Settle again.
+  const handleSendMaterialBackToApprovals = async (entry) => {
+    const recordId = entry.expense_id || entry.request_id;
+    if (!recordId) { toast.error('Missing material id'); return; }
+    if (!window.confirm(`Send this Material entry of ₹${(entry.amount || 0).toLocaleString('en-IN')} back to Approvals → Materials for re-review?\n\nThe cashflow allocation will be reversed and payment fields cleared.`)) return;
+    try {
+      await axios.post(`${API}/cashbook/expense/material/${recordId}/send-back-to-approvals`);
+      toast.success('Sent back to Approvals → Materials');
+      fetchCashbook();
+      onRefresh && onRefresh();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to send back');
+    }
+  };
+
   const incomeEntries = cashbookData?.income_entries || overview?.income_entries || [];
   const allExpenseEntries = cashbookData?.expense_entries || overview?.expense_entries || [];
   const summary = cashbookData?.summary || overview?.totals || {};
@@ -2572,6 +2589,17 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                                 onClick={() => handleSendPettyCashBackToApprovals(entry)}
                                 data-testid={`expense-send-back-btn-${entry.expense_id || entry.request_id || i}`}
                                 title="Send back to Approvals → Petty Cash"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            ) : entry.expense_type === 'material' ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0 text-red-600 hover:bg-red-50"
+                                onClick={() => handleSendMaterialBackToApprovals(entry)}
+                                data-testid={`expense-mat-send-back-btn-${entry.expense_id || entry.request_id || i}`}
+                                title="Send back to Approvals → Materials"
                               >
                                 <Trash2 className="h-3 w-3" />
                               </Button>

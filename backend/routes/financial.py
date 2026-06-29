@@ -1511,6 +1511,90 @@ async def send_petty_cash_back_to_approvals(record_id: str, user: User = Depends
     return {"message": "Sent back to Approvals → Petty Cash", "from": coll_name}
 
 
+# Feb 28 2026 — "Send Back to Approvals" for Material expense rows.
+# Mirrors the petty_cash send-back behaviour:
+#   1. Reverse the cashflow_ledger allocation.
+#   2. Reset the parent material_request (new flow) / material_expense
+#      (legacy) status to `pending_accounts_approval` so it shows back up
+#      under Approvals → Expense Approvals → Materials for re-edit + Pay
+#      & Settle.
+#   3. Drop paid_amount + payment-method fields so the accountant can
+#      re-enter them via PayApprovalDialog.
+#   4. Tag `pulled_back_from_cashbook=true` so the cashbook view excludes
+#      the row until it's re-released.
+@router.post("/cashbook/expense/material/{record_id}/send-back-to-approvals")
+async def send_material_back_to_approvals(record_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can pull back material entries")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    candidates = [
+        (db.material_requests, "request_id"),
+        (db.material_requests, "expense_id"),
+        (db.material_expenses, "material_expense_id"),
+        (db.material_expenses, "expense_id"),
+    ]
+
+    found = None
+    found_coll = None
+    found_field = None
+    for coll, id_field in candidates:
+        doc = await coll.find_one({id_field: record_id}, {"_id": 0})
+        if doc:
+            found = doc
+            found_coll = coll
+            found_field = id_field
+            break
+
+    if not found:
+        raise HTTPException(status_code=404, detail="Material entry not found")
+
+    # 1) Reverse cashflow allocation.
+    try:
+        from routes.cashflow import reverse_allocation
+        for probe_id in {record_id, found.get("expense_id"), found.get("request_id"), found.get("material_expense_id")}:
+            if probe_id:
+                await reverse_allocation(probe_id, kind="expense")
+    except Exception as e:
+        import logging; logging.getLogger(__name__).warning(f"cashflow reverse_allocation failed in material send-back {record_id}: {e}")
+
+    coll_name = found_coll.name
+    set_fields = {
+        "status": "pending_accounts_approval",
+        "pulled_back_from_cashbook": True,
+        "sent_back_to_approvals_at": now_iso,
+        "sent_back_to_approvals_by": user.user_id,
+        "sent_back_to_approvals_by_name": user.name,
+        "updated_at": now_iso,
+    }
+    # Clear payment fields so accountant can re-enter via PayApprovalDialog.
+    unset_fields = {
+        "paid_amount": "", "paid_at": "", "paid_by": "", "paid_by_name": "",
+        "payment_method": "", "payment_mode": "", "payment_phase": "",
+        "next_payment_phase": "",
+        "transaction_id": "", "bank_ref": "", "cheque_no": "", "cheque_id": "",
+        "released_at": "", "released_by": "", "released_by_name": "",
+    }
+
+    if coll_name == "material_requests":
+        # Re-stage for accounts approval; reset paid_amount and remaining.
+        set_fields["next_payment_phase"] = "full"
+        await db.material_requests.update_one(
+            {found_field: record_id},
+            {"$set": set_fields, "$unset": unset_fields}
+        )
+    elif coll_name == "material_expenses":
+        await db.material_expenses.update_one(
+            {found_field: record_id},
+            {"$set": set_fields, "$unset": unset_fields}
+        )
+
+    audit_fields = {"action": "send_back_to_approvals", "record_id": record_id, "from": coll_name, "by": user.user_id, "by_name": user.name}
+    await create_audit_log(user.user_id, "send_back", "material_expense", record_id, audit_fields)
+    return {"message": "Sent back to Approvals → Materials", "from": coll_name}
+
+
 # ==================== UNIFIED APPROVALS ENDPOINT ====================
 
 @router.get("/approvals/unified")
@@ -5221,8 +5305,9 @@ async def get_cashbook_filtered(
         # accountant or already paid. Pending / planning-only / procurement-
         # priced statuses stay in the Approvals queue. Without this filter
         # the same material card showed up in both Approvals AND Expense.
+        # Feb 28 2026 — also exclude rows pulled back to Approvals.
         db.material_requests.find(
-            {**expense_q, "status": {"$in": ["accounts_approved", "approved_for_po", "po_issued", "in_transit", "received", "delivered", "paid"]}},
+            {**expense_q, "status": {"$in": ["accounts_approved", "approved_for_po", "po_issued", "in_transit", "received", "delivered", "paid"]}, "pulled_back_from_cashbook": {"$ne": True}},
             {"_id": 0}
         ).sort("created_at", -1).to_list(1000),
         # Feb 20 2026 — Legacy `material_expenses` collection (Cement/Sand/
@@ -5232,7 +5317,7 @@ async def get_cashbook_filtered(
         # ₹93,902.75 mismatch reported on Feb 20. Include paid / settled /
         # accounts_approved so the Material card surfaces them.
         db.material_expenses.find(
-            {**expense_q, "status": {"$in": ["accounts_approved", "issued", "settled", "completed", "paid"]}},
+            {**expense_q, "status": {"$in": ["accounts_approved", "issued", "settled", "completed", "paid"]}, "pulled_back_from_cashbook": {"$ne": True}},
             {"_id": 0}
         ).sort("created_at", -1).to_list(1000),
         # Feb 20 2026 — Petty cash issued items (`direct_expenses.items[]`)
