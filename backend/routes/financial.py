@@ -1465,28 +1465,27 @@ async def send_petty_cash_back_to_approvals(record_id: str, user: User = Depends
         import logging; logging.getLogger(__name__).warning(f"cashflow reverse_allocation failed in send-back {record_id}: {e}")
 
     # 2) Flip status back to a state the unified approvals query picks up.
+    # Use collection name (string) rather than `is` — motor's __getattr__
+    # returns a fresh Collection wrapper each call, so identity comparison
+    # always fails. (Bug observed on Feb 28 2026: audit logged success but
+    # the doc was never updated.)
+    coll_name = found_coll.name
     update_set = {
+        "status": "pm_approved",
+        "pulled_back_from_cashbook": True,
         "sent_back_to_approvals_at": now_iso,
         "sent_back_to_approvals_by": user.user_id,
         "sent_back_to_approvals_by_name": user.name,
         "updated_at": now_iso,
     }
 
-    if found_coll is db.recorded_expenses:
-        # Approvals → Record Expense sub-tab filters by status="pm_approved"
-        # AND source ∈ se_sources. Tag the source as "sent_back" so we can
-        # whitelist it in the unified approvals query (see filter below).
-        update_set["status"] = "pm_approved"
+    if coll_name == "recorded_expenses":
         update_set["category"] = found.get("category") or "petty_cash"
-        update_set["pulled_back_from_cashbook"] = True
         await db.recorded_expenses.update_one({found_field: record_id}, {"$set": update_set})
-    elif found_coll is db.direct_expenses:
+    elif coll_name == "direct_expenses":
         # direct_expenses rows are accountant-issued petty cash. Their
-        # primary surface is db.petty_cash via petty_cash_id link; we set
-        # the corresponding petty_cash status back to "pm_approved" so it
-        # appears under Req Petty Cash, and tag the direct_expenses row.
+        # primary surface is db.petty_cash via petty_cash_id link.
         update_set["status"] = "sent_back"
-        update_set["pulled_back_from_cashbook"] = True
         await db.direct_expenses.update_one({found_field: record_id}, {"$set": update_set})
         pc_id = found.get("petty_cash_id")
         if pc_id:
@@ -1494,14 +1493,22 @@ async def send_petty_cash_back_to_approvals(record_id: str, user: User = Depends
                 {"petty_cash_id": pc_id},
                 {"$set": {"status": "pm_approved", "pulled_back_from_cashbook": True, "updated_at": now_iso}}
             )
-    elif found_coll is db.petty_cash:
-        # Already a petty_cash request — just reset status to pm_approved.
-        update_set["status"] = "pm_approved"
-        update_set["pulled_back_from_cashbook"] = True
+    elif coll_name == "petty_cash":
         await db.petty_cash.update_one({found_field: record_id}, {"$set": update_set})
 
+    # If the recorded_expense was mirrored from a direct_expenses.items[]
+    # entry (SE-direct petty cash), the parent direct_expenses doc may
+    # still surface stale data. Tag it too.
+    if coll_name == "recorded_expenses":
+        de_id = found.get("direct_expense_id")
+        if de_id:
+            await db.direct_expenses.update_one(
+                {"direct_expense_id": de_id},
+                {"$set": {"pulled_back_from_cashbook": True, "updated_at": now_iso}}
+            )
+
     await create_audit_log(user.user_id, "send_back", "petty_cash_expense", record_id, audit_fields)
-    return {"message": "Sent back to Approvals → Petty Cash", "from": found_coll.name}
+    return {"message": "Sent back to Approvals → Petty Cash", "from": coll_name}
 
 
 # ==================== UNIFIED APPROVALS ENDPOINT ====================
@@ -5384,6 +5391,11 @@ async def get_cashbook_filtered(
     # which collection it came from.
     all_expenses = []
     for e in recorded_exps:
+        # Feb 28 2026 — Skip entries pulled back from cashbook (sent back
+        # to Approvals). They must vanish from the Expense view until
+        # re-approved by the accountant.
+        if e.get("pulled_back_from_cashbook"):
+            continue
         # SE-direct expenses only hit the cashbook AFTER the accountant approves
         # them. Any earlier status (`recorded`, `pm_approved`, rejected) is still
         # in the workflow and must not show as a confirmed cashbook spend.
