@@ -61,8 +61,7 @@ import {
   PieChart,
   Truck,
   Check,
-  Trash2,
-  Undo2
+  Trash2
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -2569,12 +2568,12 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-6 w-6 p-0 text-orange-600 hover:bg-orange-50"
+                                className="h-6 w-6 p-0 text-red-600 hover:bg-red-50"
                                 onClick={() => handleSendPettyCashBackToApprovals(entry)}
                                 data-testid={`expense-send-back-btn-${entry.expense_id || entry.request_id || i}`}
                                 title="Send back to Approvals → Petty Cash"
                               >
-                                <Undo2 className="h-3 w-3" />
+                                <Trash2 className="h-3 w-3" />
                               </Button>
                             ) : (
                               <Button
