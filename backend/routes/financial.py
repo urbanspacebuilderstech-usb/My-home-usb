@@ -1580,6 +1580,42 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
         "released_at": "", "released_by": "", "released_by_name": "",
     }
 
+    # Feb 28 2026 — Helper: free any cheques used for a recorded_expense
+    # and delete the mirror so the cashbook stops showing it.
+    async def _cleanup_mirrors_for_parent(parent_request_id=None, parent_expense_id=None):
+        if not (parent_request_id or parent_expense_id):
+            return
+        mirror_filter = {"$or": []}
+        if parent_request_id:
+            mirror_filter["$or"].append({"request_id": parent_request_id})
+            mirror_filter["$or"].append({"material_request_id": parent_request_id})
+        if parent_expense_id:
+            mirror_filter["$or"].append({"request_id": parent_expense_id})
+            mirror_filter["$or"].append({"material_expense_id": parent_expense_id})
+        mirrors = await db.recorded_expenses.find(mirror_filter, {"_id": 0}).to_list(50)
+        for m in mirrors:
+            cheque_ids_to_free = set()
+            if m.get("cheque_id"):
+                cheque_ids_to_free.add(m["cheque_id"])
+            for leg in (m.get("payment_legs") or []):
+                if leg.get("cheque_id"):
+                    cheque_ids_to_free.add(leg["cheque_id"])
+            for cid in cheque_ids_to_free:
+                await db.cheques.update_one(
+                    {"cheque_id": cid},
+                    {"$unset": {"used_for_expense_id": "", "used_at": "", "used_by": "", "used_by_name": ""},
+                     "$set": {"is_opened": True, "updated_at": now_iso}}
+                )
+            # Drop any vendor suspense credit that was created from this
+            # release's cheque excess so the next Pay & Settle dialog
+            # shows the real Net Payable instead of "covered by suspense".
+            exp_id = m.get("expense_id")
+            if exp_id:
+                await db.suspense_entries.delete_many({"linked_expense_id": exp_id})
+            if cheque_ids_to_free:
+                await db.suspense_entries.delete_many({"linked_cheque_ids": {"$in": list(cheque_ids_to_free)}})
+            await db.recorded_expenses.delete_one({"expense_id": exp_id})
+
     if coll_name == "material_requests":
         # Re-stage for accounts approval; reset paid_amount and remaining.
         set_fields["next_payment_phase"] = "full"
@@ -1587,10 +1623,13 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
             {found_field: record_id},
             {"$set": set_fields, "$unset": unset_fields}
         )
-        # Feb 28 2026 — Also reset the linked material_expenses doc so the
-        # entry actually disappears from Cashbook → Expense → Material.
-        # material_requests.expense_id ↔ material_expenses.expense_id
-        # material_requests.request_id ↔ material_expenses.source_request_id
+        # Free any cheque-mirrors linked to this material_request, then
+        # also reset the linked material_expenses doc so the entry actually
+        # disappears from Cashbook → Expense → Material.
+        await _cleanup_mirrors_for_parent(
+            parent_request_id=found.get("request_id"),
+            parent_expense_id=found.get("expense_id"),
+        )
         link_filter = {"$or": []}
         if found.get("expense_id"):
             link_filter["$or"].append({"expense_id": found.get("expense_id")})
@@ -1606,6 +1645,10 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
             {found_field: record_id},
             {"$set": set_fields, "$unset": unset_fields}
         )
+        await _cleanup_mirrors_for_parent(
+            parent_expense_id=found.get("expense_id") or found.get("material_expense_id"),
+            parent_request_id=found.get("source_request_id"),
+        )
         # Also reset the linked parent material_request (if any).
         src = found.get("source_request_id")
         if src:
@@ -1614,14 +1657,32 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
                 {"$set": {**set_fields, "next_payment_phase": "full"}, "$unset": unset_fields}
             )
     elif coll_name == "recorded_expenses":
-        # Cashbook mirror of a material release. Delete the mirror entirely
-        # (we don't want a phantom row hanging around) AND reset the parent
-        # material_request / material_expense so it re-surfaces in
-        # Approvals → Materials.
+        # Cashbook mirror of a material release. BEFORE deleting, free any
+        # cheque(s) used so they can be reused. (Feb 28 2026 user request:
+        # "i use in cheque i need that cheque also go back".)
+        cheque_ids_to_free = set()
+        if found.get("cheque_id"):
+            cheque_ids_to_free.add(found["cheque_id"])
+        for leg in (found.get("payment_legs") or []):
+            if leg.get("cheque_id"):
+                cheque_ids_to_free.add(leg["cheque_id"])
+        for cid in cheque_ids_to_free:
+            await db.cheques.update_one(
+                {"cheque_id": cid},
+                {"$unset": {"used_for_expense_id": "", "used_at": "", "used_by": "", "used_by_name": ""},
+                 "$set": {"is_opened": True, "updated_at": now_iso}}
+            )
+        # Drop any vendor suspense credit that was created from this
+        # release's cheque excess.
+        await db.suspense_entries.delete_many({"linked_expense_id": record_id})
+        if cheque_ids_to_free:
+            await db.suspense_entries.delete_many({"linked_cheque_ids": {"$in": list(cheque_ids_to_free)}})
+
+        # Now delete the mirror AND reset the parent material_request /
+        # material_expense so it re-surfaces in Approvals → Materials.
         parent_id = found.get("request_id") or found.get("material_request_id") or found.get("material_expense_id")
         await db.recorded_expenses.delete_one({found_field: record_id})
         if parent_id:
-            # Try material_requests first (mreq_...), then material_expenses (mexp_...).
             res = await db.material_requests.update_one(
                 {"request_id": parent_id},
                 {"$set": {**set_fields, "next_payment_phase": "full"}, "$unset": unset_fields}
