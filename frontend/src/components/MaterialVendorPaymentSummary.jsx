@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -53,8 +53,35 @@ export default function MaterialVendorPaymentSummary() {
     finally { setLedgerLoading(false); }
   };
 
+  const totals = useMemo(() => rows.reduce((acc, r) => ({
+    total: acc.total + Number(r.total_value || 0),
+    paid: acc.paid + Number(r.paid_amount || 0),
+    pending: acc.pending + Number(r.pending_amount || 0),
+    suspense: acc.suspense + Number(r.suspense_balance || 0),
+  }), { total: 0, paid: 0, pending: 0, suspense: 0 }), [rows]);
+
   return (
     <div className="space-y-3" data-testid="material-vendor-summary">
+      {/* Roll-up summary pills — Total | Paid | Pending | Suspense */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" data-testid="mv-summary-pills">
+        <div className="rounded-full bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 px-4 py-2.5 shadow-sm">
+          <p className="text-[9px] font-semibold text-blue-600 uppercase tracking-wider">Total</p>
+          <p className="text-base font-bold text-blue-900" data-testid="mv-total">{fmt(totals.total)}</p>
+        </div>
+        <div className="rounded-full bg-gradient-to-br from-green-50 to-green-100 border border-green-200 px-4 py-2.5 shadow-sm">
+          <p className="text-[9px] font-semibold text-green-700 uppercase tracking-wider">Paid</p>
+          <p className="text-base font-bold text-green-900" data-testid="mv-paid">{fmt(totals.paid)}</p>
+        </div>
+        <div className="rounded-full bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200 px-4 py-2.5 shadow-sm">
+          <p className="text-[9px] font-semibold text-indigo-700 uppercase tracking-wider">Pending</p>
+          <p className="text-base font-bold text-indigo-900" data-testid="mv-pending">{fmt(totals.pending)}</p>
+        </div>
+        <div className={`rounded-full bg-gradient-to-br ${totals.suspense < 0 ? 'from-rose-50 to-rose-100 border-rose-200' : 'from-amber-50 to-amber-100 border-amber-200'} border px-4 py-2.5 shadow-sm`}>
+          <p className={`text-[9px] font-semibold uppercase tracking-wider ${totals.suspense < 0 ? 'text-rose-700' : 'text-amber-700'}`}>Suspense</p>
+          <p className={`text-base font-bold ${totals.suspense < 0 ? 'text-rose-900' : 'text-amber-900'}`} data-testid="mv-suspense">{fmt(totals.suspense)}</p>
+        </div>
+      </div>
+
       <Card>
         <CardHeader className="p-3 pb-2">
           <CardTitle className="text-sm flex items-center gap-2">

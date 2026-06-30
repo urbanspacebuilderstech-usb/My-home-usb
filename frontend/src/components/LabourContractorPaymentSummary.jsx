@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +27,13 @@ export default function LabourContractorPaymentSummary() {
     })();
   }, []);
 
+  const totals = useMemo(() => rows.reduce((acc, r) => ({
+    total: acc.total + Number(r.total_value || 0),
+    paid: acc.paid + Number(r.paid_amount || 0),
+    pending: acc.pending + Number(r.pending_amount || 0),
+    suspense: acc.suspense + Number(r.suspense_balance || 0),
+  }), { total: 0, paid: 0, pending: 0, suspense: 0 }), [rows]);
+
   const openLedgerFor = async (row) => {
     setOpenLedger(row);
     if (!row.contractor_id) { setLedger([]); return; }
@@ -38,6 +45,26 @@ export default function LabourContractorPaymentSummary() {
 
   return (
     <div className="space-y-3" data-testid="labour-contractor-summary">
+      {/* Roll-up summary pills — Total | Paid | Pending | Suspense */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" data-testid="lcs-summary-pills">
+        <div className="rounded-full bg-gradient-to-br from-violet-50 to-violet-100 border border-violet-200 px-4 py-2.5 shadow-sm">
+          <p className="text-[9px] font-semibold text-violet-600 uppercase tracking-wider">Total WO</p>
+          <p className="text-base font-bold text-violet-900" data-testid="lcs-total">{fmt(totals.total)}</p>
+        </div>
+        <div className="rounded-full bg-gradient-to-br from-green-50 to-green-100 border border-green-200 px-4 py-2.5 shadow-sm">
+          <p className="text-[9px] font-semibold text-green-700 uppercase tracking-wider">Paid</p>
+          <p className="text-base font-bold text-green-900" data-testid="lcs-paid">{fmt(totals.paid)}</p>
+        </div>
+        <div className="rounded-full bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 px-4 py-2.5 shadow-sm">
+          <p className="text-[9px] font-semibold text-blue-700 uppercase tracking-wider">Pending</p>
+          <p className="text-base font-bold text-blue-900" data-testid="lcs-pending">{fmt(totals.pending)}</p>
+        </div>
+        <div className="rounded-full bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200 px-4 py-2.5 shadow-sm">
+          <p className="text-[9px] font-semibold text-amber-700 uppercase tracking-wider">Suspense</p>
+          <p className="text-base font-bold text-amber-900" data-testid="lcs-suspense">{fmt(totals.suspense)}</p>
+        </div>
+      </div>
+
       <Card>
         <CardHeader className="p-3 pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
