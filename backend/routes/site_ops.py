@@ -3123,42 +3123,49 @@ async def delete_direct_expense(expense_id: str, user: User = Depends(get_curren
     if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    rec = await db.recorded_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
-    if not rec:
+    # Feb 28 2026 — Expense cards in SE Dashboard pass either the
+    # `direct_expenses.expense_id` (dexp_…) OR a mirror's
+    # `recorded_expenses.expense_id` (exp_…). Probe both so delete works
+    # from any surface.
+    de = await db.direct_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    rec = None
+    if not de:
+        rec = await db.recorded_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+        if rec and rec.get("direct_expense_id"):
+            de = await db.direct_expenses.find_one({"expense_id": rec["direct_expense_id"]}, {"_id": 0})
+    if not de and not rec:
         raise HTTPException(status_code=404, detail="Expense record not found")
 
-    # SE can only delete their own records (super_admin can delete any).
-    if user.role not in [UserRole.SUPER_ADMIN] and rec.get("recorded_by") != user.user_id:
+    owner_id = (de or rec or {}).get("recorded_by")
+    if user.role not in [UserRole.SUPER_ADMIN] and owner_id and owner_id != user.user_id:
         raise HTTPException(status_code=403, detail="You can only delete your own expense records")
 
-    # Lock down approved / cashbook-recorded entries.
     locked = ["approved", "verified", "recorded_into_cashbook", "accountant_approved"]
-    if (rec.get("status") or "").lower() in locked:
+    status_to_check = (rec.get("status") if rec else "") or ""
+    if status_to_check.lower() in locked:
         raise HTTPException(status_code=400, detail="Approved expenses cannot be deleted. Contact your accountant to reverse the entry.")
 
-    # Feb 28 2026 — Refund every linked petty-cash bucket (multi-split aware)
-    # so the SE's available balance bounces back when the rejected/pending
-    # expense is removed.
-    de_id = rec.get("direct_expense_id")
-    if de_id:
-        de = await db.direct_expenses.find_one({"expense_id": de_id}, {"_id": 0, "linked_petty_cash_id": 1, "linked_petty_cash_splits": 1, "total_amount": 1})
-        if de:
-            splits = de.get("linked_petty_cash_splits") or []
-            if splits:
-                for s in splits:
-                    if s.get("petty_cash_id"):
-                        await db.petty_cash.update_one(
-                            {"petty_cash_id": s["petty_cash_id"]},
-                            {"$inc": {"amount_spent": -float(s.get("amount") or 0)}}
-                        )
-            elif de.get("linked_petty_cash_id"):
-                await db.petty_cash.update_one(
-                    {"petty_cash_id": de["linked_petty_cash_id"]},
-                    {"$inc": {"amount_spent": -float(de.get("total_amount") or 0)}}
-                )
-            await db.direct_expenses.delete_one({"expense_id": de_id})
+    # Refund every linked petty-cash bucket so balances bounce back.
+    if de:
+        splits = de.get("linked_petty_cash_splits") or []
+        if splits:
+            for s in splits:
+                if s.get("petty_cash_id"):
+                    await db.petty_cash.update_one(
+                        {"petty_cash_id": s["petty_cash_id"]},
+                        {"$inc": {"amount_spent": -float(s.get("amount") or 0)}}
+                    )
+        elif de.get("linked_petty_cash_id"):
+            await db.petty_cash.update_one(
+                {"petty_cash_id": de["linked_petty_cash_id"]},
+                {"$inc": {"amount_spent": -float(de.get("total_amount") or 0)}}
+            )
+        # Wipe every recorded_expenses mirror for this direct expense.
+        await db.recorded_expenses.delete_many({"direct_expense_id": de["expense_id"]})
+        await db.direct_expenses.delete_one({"expense_id": de["expense_id"]})
+    elif rec:
+        await db.recorded_expenses.delete_one({"expense_id": rec["expense_id"]})
 
-    await db.recorded_expenses.delete_one({"expense_id": expense_id})
     return {"message": "Expense record deleted"}
 
 
