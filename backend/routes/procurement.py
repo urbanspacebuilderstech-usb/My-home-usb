@@ -3828,3 +3828,265 @@ async def procurement_simple_credit_settle(ledger_id: str, data: dict, user: Use
             {"$set": {"paid_amount": entry.get("amount", 0), "balance_amount": 0, "credit_settled_at": now}},
         )
     return {"message": "Credit settled", "expense_id": expense_id}
+
+
+# ==================== MATERIAL VENDOR PAYMENTS SUMMARY ====================
+# Mirrors /labour-contractor-payments/summary but for material vendors. Powers
+# Finance Board → Labour Payments → Material Vendor tab (Feb 28 2026).
+
+def _mv_vendor_key(vendor_id: Optional[str], vendor_name: Optional[str]) -> str:
+    """Stable bucket key — falls back to name when id is missing."""
+    return (vendor_id or f"name:{(vendor_name or '').strip().lower()}").strip() or "unknown"
+
+
+@router.get("/material-vendor-payments/summary")
+async def material_vendor_payments_summary(user: User = Depends(get_current_user)):
+    """Cross-project payment summary per Material Vendor.
+
+    Columns surfaced in the UI:
+      S.No | Vendor | Type | Projects | Total | Paid | Pending | Suspense | Ledger
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PROCUREMENT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    (material_requests, material_exps_legacy, recorded_payments, vendor_credits, vendor_master_docs, projects_list) = await asyncio.gather(
+        db.material_requests.find({}, {"_id": 0}).to_list(5000),
+        db.material_expenses.find({}, {"_id": 0}).to_list(5000),
+        db.recorded_expenses.find(
+            {"category": "material", "status": {"$in": ["approved", "accounts_approved", "super_admin_approved"]}},
+            {"_id": 0},
+        ).to_list(5000),
+        db.vendor_credit_ledger.find({}, {"_id": 0}).to_list(2000),
+        db.vendor_master.find({"category": {"$in": ["material", "Material", None]}}, {"_id": 0}).to_list(2000),
+        db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(2000),
+    )
+    project_map = {p["project_id"]: p.get("name") for p in projects_list}
+    vendor_meta = {v.get("vendor_id"): v for v in vendor_master_docs if v.get("vendor_id")}
+
+    PENDING_REQ_STATUSES = {
+        "planning_initial_pending", "procurement_verifying", "pending_accounts_approval",
+        "pending_advance_payment", "pm_approved", "in_transit",
+    }
+    PAID_REQ_STATUSES = {"paid", "delivered", "received"}
+    OPEN_CREDIT_STATUSES = {"pending", "active", "overdue", "partially_paid"}
+
+    buckets: Dict[str, Dict[str, Any]] = {}
+    timelines: Dict[str, List[Dict[str, Any]]] = {}
+
+    def _ensure(vendor_id, vendor_name, vendor_type=None):
+        key = _mv_vendor_key(vendor_id, vendor_name)
+        b = buckets.get(key)
+        if not b:
+            meta = vendor_meta.get(vendor_id) or {}
+            b = buckets.setdefault(key, {
+                "vendor_id": vendor_id or meta.get("vendor_id"),
+                "vendor_name": vendor_name or meta.get("name") or "Unknown Vendor",
+                "vendor_type": vendor_type or meta.get("category") or "Material",
+                "projects": [],
+                "total_value": 0.0,
+                "paid_amount": 0.0,
+                "pending_amount": 0.0,
+                "suspense_balance": 0.0,
+            })
+            timelines[key] = []
+        return b, key
+
+    # --- material_requests (current procurement flow) ---
+    for mr in material_requests:
+        b, key = _ensure(mr.get("vendor_id"), mr.get("vendor_name"))
+        amt = float(mr.get("final_price") or mr.get("estimated_price") or 0)
+        status = (mr.get("status") or "").lower()
+        proj_name = mr.get("project_name") or project_map.get(mr.get("project_id"), "")
+        if proj_name and proj_name not in b["projects"]:
+            b["projects"].append(proj_name)
+        if status in PAID_REQ_STATUSES or status == "paid":
+            b["total_value"] += amt
+        elif status in PENDING_REQ_STATUSES:
+            b["total_value"] += amt
+            b["pending_amount"] += amt
+        timelines[key].append({
+            "date": mr.get("created_at"),
+            "type": "request",
+            "source_type": "material_request",
+            "amount": amt,
+            "project": proj_name,
+            "material": mr.get("material_name"),
+            "status": status,
+            "notes": f"{mr.get('material_name', 'Material')} request — {status}",
+        })
+
+    # --- legacy material_expenses ---
+    for me in material_exps_legacy:
+        b, key = _ensure(me.get("vendor_id"), me.get("vendor_name"))
+        amt = float(me.get("final_amount") or me.get("amount") or 0)
+        status = (me.get("status") or "").lower()
+        proj_name = me.get("project_name") or project_map.get(me.get("project_id"), "")
+        if proj_name and proj_name not in b["projects"]:
+            b["projects"].append(proj_name)
+        if status in ("paid", "settled", "completed"):
+            b["total_value"] += amt
+        elif status in ("pending_accounts_approval", "accounts_pending", "issued"):
+            b["total_value"] += amt
+            b["pending_amount"] += amt
+        timelines[key].append({
+            "date": me.get("created_at"),
+            "type": "request",
+            "source_type": "material_expense",
+            "amount": amt,
+            "project": proj_name,
+            "material": me.get("material_name"),
+            "status": status,
+            "notes": f"{me.get('material_name', 'Material')} PO — {status}",
+        })
+
+    # --- recorded_expenses (paid leg) ---
+    for rx in recorded_payments:
+        b, key = _ensure(rx.get("vendor_id"), rx.get("vendor_name"))
+        amt = float(rx.get("amount") or 0)
+        b["paid_amount"] += amt
+        proj_name = rx.get("project_name") or project_map.get(rx.get("project_id"), "")
+        if proj_name and proj_name not in b["projects"]:
+            b["projects"].append(proj_name)
+        timelines[key].append({
+            "date": rx.get("created_at"),
+            "type": "payment",
+            "source_type": "recorded_expense",
+            "amount": amt,
+            "project": proj_name,
+            "material": rx.get("material_name") or rx.get("description"),
+            "payment_mode": rx.get("payment_mode") or rx.get("payment_method"),
+            "reference": rx.get("reference_number") or rx.get("cheque_number"),
+            "notes": rx.get("description") or "Vendor payment",
+        })
+
+    # --- vendor_credit_ledger (suspense) ---
+    for vc in vendor_credits:
+        b, key = _ensure(vc.get("vendor_id"), vc.get("vendor_name"))
+        outstanding = float(vc.get("balance") if vc.get("balance") is not None else (vc.get("amount") or 0))
+        status = (vc.get("status") or "").lower()
+        if status in OPEN_CREDIT_STATUSES and outstanding > 0:
+            b["suspense_balance"] += outstanding
+        proj_name = project_map.get(vc.get("project_id"), "")
+        if proj_name and proj_name not in b["projects"]:
+            b["projects"].append(proj_name)
+        timelines[key].append({
+            "date": vc.get("created_at") or vc.get("delivered_at"),
+            "type": "credit",
+            "source_type": "vendor_credit",
+            "amount": outstanding,
+            "project": proj_name,
+            "material": vc.get("material_name"),
+            "status": status,
+            "due_date": vc.get("due_date"),
+            "notes": f"Credit purchase — due {vc.get('due_date', '—')[:10] if vc.get('due_date') else '—'}",
+        })
+
+    # --- Seed inactive/zero-activity vendors from vendor_master so the table
+    #     still lists every material vendor (matches the contractor pattern). ---
+    for v in vendor_master_docs:
+        if not v.get("vendor_id"):
+            continue
+        _ensure(v.get("vendor_id"), v.get("name"), v.get("category"))
+
+    rows = []
+    for key, b in buckets.items():
+        # Drop empty vendor rows with nothing to show
+        if not (b["total_value"] or b["paid_amount"] or b["pending_amount"] or b["suspense_balance"]):
+            continue
+        b["balance"] = b["total_value"] - b["paid_amount"]
+        rows.append({**b, "_key": key})
+    rows.sort(key=lambda r: (r.get("vendor_name") or "").lower())
+    return {"count": len(rows), "rows": rows}
+
+
+@router.get("/material-vendor-payments/{vendor_key}/ledger")
+async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(get_current_user)):
+    """Timeline for a single material vendor — recompute on demand so we don't
+    keep a giant nested ledger inside the summary response."""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PROCUREMENT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    # vendor_key is either the vendor_id or "name:<lowercased name>".
+    if vendor_key.startswith("name:"):
+        vendor_name_q = vendor_key[len("name:"):]
+        match_id = None
+    else:
+        vendor_name_q = None
+        match_id = vendor_key
+
+    def _matches(doc):
+        if match_id and doc.get("vendor_id") == match_id:
+            return True
+        if vendor_name_q and (doc.get("vendor_name") or "").strip().lower() == vendor_name_q:
+            return True
+        return False
+
+    (material_requests, material_exps_legacy, recorded_payments, vendor_credits, projects_list) = await asyncio.gather(
+        db.material_requests.find({}, {"_id": 0}).to_list(5000),
+        db.material_expenses.find({}, {"_id": 0}).to_list(5000),
+        db.recorded_expenses.find({"category": "material"}, {"_id": 0}).to_list(5000),
+        db.vendor_credit_ledger.find({}, {"_id": 0}).to_list(2000),
+        db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(2000),
+    )
+    pmap = {p["project_id"]: p.get("name") for p in projects_list}
+
+    timeline: List[Dict[str, Any]] = []
+    for mr in material_requests:
+        if not _matches(mr):
+            continue
+        timeline.append({
+            "date": mr.get("created_at"),
+            "type": "request",
+            "source_type": "material_request",
+            "amount": float(mr.get("final_price") or mr.get("estimated_price") or 0),
+            "project": mr.get("project_name") or pmap.get(mr.get("project_id"), ""),
+            "material": mr.get("material_name"),
+            "status": mr.get("status"),
+            "notes": f"{mr.get('material_name', 'Material')} — {mr.get('status', '')}",
+        })
+    for me in material_exps_legacy:
+        if not _matches(me):
+            continue
+        timeline.append({
+            "date": me.get("created_at"),
+            "type": "request",
+            "source_type": "material_expense",
+            "amount": float(me.get("final_amount") or me.get("amount") or 0),
+            "project": me.get("project_name") or pmap.get(me.get("project_id"), ""),
+            "material": me.get("material_name"),
+            "status": me.get("status"),
+            "notes": f"{me.get('material_name', 'Material')} PO — {me.get('status', '')}",
+        })
+    for rx in recorded_payments:
+        if not _matches(rx):
+            continue
+        timeline.append({
+            "date": rx.get("created_at"),
+            "type": "payment",
+            "source_type": "recorded_expense",
+            "amount": float(rx.get("amount") or 0),
+            "project": rx.get("project_name") or pmap.get(rx.get("project_id"), ""),
+            "material": rx.get("material_name") or rx.get("description"),
+            "payment_mode": rx.get("payment_mode") or rx.get("payment_method"),
+            "reference": rx.get("reference_number") or rx.get("cheque_number"),
+            "status": rx.get("status"),
+            "notes": rx.get("description") or "Vendor payment",
+        })
+    for vc in vendor_credits:
+        if not _matches(vc):
+            continue
+        timeline.append({
+            "date": vc.get("created_at") or vc.get("delivered_at"),
+            "type": "credit",
+            "source_type": "vendor_credit",
+            "amount": float(vc.get("balance") if vc.get("balance") is not None else (vc.get("amount") or 0)),
+            "project": pmap.get(vc.get("project_id"), ""),
+            "material": vc.get("material_name"),
+            "status": vc.get("status"),
+            "due_date": vc.get("due_date"),
+            "notes": f"Credit purchase — due {vc.get('due_date', '—')[:10] if vc.get('due_date') else '—'}",
+        })
+
+    # Newest first
+    timeline.sort(key=lambda l: (l.get("date") or ""), reverse=True)
+    return {"ledger": timeline, "count": len(timeline)}

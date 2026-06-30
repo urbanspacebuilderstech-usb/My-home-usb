@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
 import AccountantLabourPayments from '../components/AccountantLabourPayments';
 import LabourContractorPaymentSummary from '../components/LabourContractorPaymentSummary';
+import MaterialVendorPaymentSummary from '../components/MaterialVendorPaymentSummary';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -28,12 +29,16 @@ export default function LabourPaymentsPage() {
           <TabsList className="bg-white border w-full sm:w-auto">
             <TabsTrigger value="queue" data-testid="lp-tab-queue" className="data-[state=active]:bg-amber-50 data-[state=active]:text-amber-700 text-xs sm:text-sm">Pending Releases</TabsTrigger>
             <TabsTrigger value="summary" data-testid="lp-tab-summary" className="data-[state=active]:bg-amber-50 data-[state=active]:text-amber-700 text-xs sm:text-sm">Contractor Summary</TabsTrigger>
+            <TabsTrigger value="material_vendor" data-testid="lp-tab-material-vendor" className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700 text-xs sm:text-sm">Material Vendor</TabsTrigger>
           </TabsList>
           <TabsContent value="queue" className="mt-3">
             <AccountantLabourPayments />
           </TabsContent>
           <TabsContent value="summary" className="mt-3">
             <LabourContractorPaymentSummary />
+          </TabsContent>
+          <TabsContent value="material_vendor" className="mt-3">
+            <MaterialVendorPaymentSummary />
           </TabsContent>
         </Tabs>
       </div>
