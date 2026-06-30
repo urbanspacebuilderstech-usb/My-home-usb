@@ -535,30 +535,31 @@ export default function SiteEngineerDashboard() {
     const validItems = directExpItems.filter(i => i.expense_name && i.amount);
     if (validItems.length === 0) { toast.error('Add at least one expense item'); return; }
     const totalAmount = validItems.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
-    // Validate splits.
+    // Feb 28 2026 — Auto-distribute the expense total across the picked
+    // buckets FIFO (in the order checked). User no longer enters amounts
+    // manually per bucket.
+    let computedSplits = [];
     if (linkedPettyCashSplits.length > 0) {
-      for (const s of linkedPettyCashSplits) {
-        const amt = parseFloat(s.amount) || 0;
-        if (amt <= 0) {
-          toast.error(`Enter the amount to draw from "${s.purpose}"`);
-          return;
-        }
-        if (amt > (s.max || 0) + 0.5) {
-          toast.error(`"${s.purpose}" only has ₹${(s.max || 0).toLocaleString('en-IN')} available`);
-          return;
-        }
-      }
-      const splitSum = linkedPettyCashSplits.reduce((s, x) => s + (parseFloat(x.amount) || 0), 0);
-      if (Math.abs(splitSum - totalAmount) > 0.5) {
-        toast.error(`Picked total ₹${splitSum.toLocaleString('en-IN')} ≠ Expense total ₹${totalAmount.toLocaleString('en-IN')}`);
+      const totalAvailable = linkedPettyCashSplits.reduce((s, x) => s + (x.max || 0), 0);
+      if (totalAmount > totalAvailable + 0.5) {
+        toast.error(`Expense ₹${totalAmount.toLocaleString('en-IN')} exceeds picked balance ₹${totalAvailable.toLocaleString('en-IN')}. Pick more buckets.`);
         return;
+      }
+      let remaining = totalAmount;
+      for (const s of linkedPettyCashSplits) {
+        if (remaining <= 0) break;
+        const take = Math.min(remaining, s.max || 0);
+        if (take > 0) {
+          computedSplits.push({ petty_cash_id: s.petty_cash_id, amount: take });
+          remaining -= take;
+        }
       }
     }
     setDirectExpLoading(true);
     try {
       await axios.post(`${API}/site-engineer/direct-expense`, {
         project_id: directExpProject,
-        linked_petty_cash_splits: linkedPettyCashSplits.map(s => ({ petty_cash_id: s.petty_cash_id, amount: parseFloat(s.amount) || 0 })),
+        linked_petty_cash_splits: computedSplits,
         items: validItems.map(i => ({ category: i.category || 'Miscellaneous', expense_name: i.expense_name, amount: parseFloat(i.amount), bill_file_id: i.bill_file_id, bill_filename: i.bill_filename })),
       });
       if (editingExpenseId) {
@@ -2563,12 +2564,13 @@ export default function SiteEngineerDashboard() {
                     setLinkedPettyCashSplits(linkedPettyCashSplits.filter(s => s.petty_cash_id !== pc.petty_cash_id));
                   } else {
                     const balance = (pc.amount_issued || 0) - (pc.amount_spent || 0);
-                    setLinkedPettyCashSplits([...linkedPettyCashSplits, { petty_cash_id: pc.petty_cash_id, amount: '', max: balance, mode: pc.payment_mode || pc.mode || 'cash', purpose: pc.purpose || 'Petty Cash' }]);
+                    // Feb 28 2026 — User asked to remove the manual "₹
+                    // from this" input. The split amount is now computed
+                    // FIFO on submit from the expense total. We just
+                    // remember the picked bucket + its balance/mode here.
+                    setLinkedPettyCashSplits([...linkedPettyCashSplits, { petty_cash_id: pc.petty_cash_id, max: balance, mode: pc.payment_mode || pc.mode || 'cash', purpose: pc.purpose || 'Petty Cash' }]);
                     if (pc.project_id && !directExpProject) setDirectExpProject(pc.project_id);
                   }
-                };
-                const updateSplitAmount = (pcId, val) => {
-                  setLinkedPettyCashSplits(linkedPettyCashSplits.map(s => s.petty_cash_id === pcId ? { ...s, amount: val } : s));
                 };
                 return (
                   <div className="mt-1 max-h-[180px] overflow-y-auto border rounded divide-y">
@@ -2588,17 +2590,6 @@ export default function SiteEngineerDashboard() {
                           <span className="flex-1 truncate">
                             {pc.purpose || 'Petty Cash'} · <span className="font-medium">{fmtMode(pc.payment_mode || pc.mode)}</span> · ₹{balance.toLocaleString('en-IN')}
                           </span>
-                          {checked && (
-                            <Input
-                              type="number"
-                              placeholder="₹ from this"
-                              className="h-7 w-24 text-[11px]"
-                              value={split.amount}
-                              onChange={(e) => updateSplitAmount(pc.petty_cash_id, e.target.value)}
-                              onClick={(e) => e.preventDefault()}
-                              data-testid={`dexp-pc-split-${pc.petty_cash_id}`}
-                            />
-                          )}
                         </label>
                       );
                     })}
@@ -2607,7 +2598,7 @@ export default function SiteEngineerDashboard() {
               })()}
               {linkedPettyCashSplits.length > 0 && (
                 <div className="text-[10px] text-gray-500 mt-1">
-                  Picked: <span className="font-semibold text-orange-700">₹{linkedPettyCashSplits.reduce((s, x) => s + (parseFloat(x.amount) || 0), 0).toLocaleString('en-IN')}</span> from {linkedPettyCashSplits.length} bucket{linkedPettyCashSplits.length > 1 ? 's' : ''}
+                  Picked {linkedPettyCashSplits.length} bucket{linkedPettyCashSplits.length > 1 ? 's' : ''} · Total available: <span className="font-semibold text-orange-700">₹{linkedPettyCashSplits.reduce((s, x) => s + (x.max || 0), 0).toLocaleString('en-IN')}</span>
                 </div>
               )}
             </div>
