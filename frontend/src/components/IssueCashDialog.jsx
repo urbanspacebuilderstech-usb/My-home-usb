@@ -107,7 +107,12 @@ export default function IssueCashDialog({
     try {
       await onSubmit({
         amount: Number(amount),
-        payment_mode: paymentMode,
+        // Feb 28 2026 — In the "approve" variant the Mode of Payment is
+        // hidden, so we must NOT overwrite the recorded_expense's mode
+        // that was carried forward from the SE's picked petty cash (e.g.
+        // HDFC CURRENT). Sending payment_mode here would clobber it back
+        // to "cash" (the dialog's default state).
+        payment_mode: variant === 'approve' ? null : paymentMode,
         reference_number: refNum || null,
         bank_name: bankName || null,
         cheque_date: chequeDate || null,
