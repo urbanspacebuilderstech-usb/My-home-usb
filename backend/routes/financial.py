@@ -7255,8 +7255,8 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
         if pid:
             ch["project_name"] = project_cache.get(pid) or ch.get("project_name")
 
-    payable = max(0.0, bill_amount - existing_suspense)
-    credit_used = min(existing_suspense, bill_amount)
+    payable = max(0.0, bill_amount - max(0.0, existing_suspense))
+    credit_used = min(max(0.0, existing_suspense), bill_amount)
 
     # Partial payment continuation — if the request already has paid_amount from
     # a prior partial settlement, the remaining payable shrinks accordingly and

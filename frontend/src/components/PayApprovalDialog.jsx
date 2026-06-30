@@ -250,8 +250,30 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
               <CardContent className="p-3">
                 <div className="grid grid-cols-4 gap-2 text-sm">
                   <div className="text-center bg-white rounded-md p-2">
-                    <p className="text-[10px] text-gray-500 uppercase">Suspense Credit</p>
-                    <p className="font-bold text-blue-700">−{fmt(ctx.suspense.credit_to_apply || 0)}</p>
+                    <p className="text-[10px] text-gray-500 uppercase">Vendor Suspense</p>
+                    {(() => {
+                      const vbal = Number(ctx.suspense.vendor_balance || 0);
+                      const applied = Number(ctx.suspense.credit_to_apply || 0);
+                      // Positive vendor_balance = vendor has credit (auto-applied to this bill).
+                      // Negative vendor_balance = vendor owes us (held separately, NOT auto-netted).
+                      if (vbal > 0.5) {
+                        return (
+                          <>
+                            <p className="font-bold text-blue-700">−{fmt(applied)}</p>
+                            {applied > 0 && <p className="text-[9px] text-blue-600 mt-0.5">applied to bill</p>}
+                          </>
+                        );
+                      }
+                      if (vbal < -0.5) {
+                        return (
+                          <>
+                            <p className="font-bold text-amber-700">{fmt(vbal)}</p>
+                            <p className="text-[9px] text-amber-600 mt-0.5">vendor owes — held separately</p>
+                          </>
+                        );
+                      }
+                      return <p className="font-bold text-gray-500">{fmt(0)}</p>;
+                    })()}
                   </div>
                   <div className="text-center bg-white rounded-md p-2 ring-2 ring-orange-300">
                     <p className="text-[10px] text-gray-500 uppercase">Net Payable</p>
