@@ -292,10 +292,17 @@ export default function SuspenseAccountPage() {
           </TabsList>
 
           <TabsContent value="petty_cash" className="mt-4">
-            {(petty.all_requests || []).length === 0 ? (
-              <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No petty cash requests</CardContent></Card>
-            ) : (
-              <Card><CardContent className="p-0 overflow-x-auto">
+            {(() => {
+              // Feb 28 2026 — Suspense A/c → Petty Cash should only show
+              // entries that the Accountant has approved/issued. PM-only
+              // approvals and pending requests still belong to the PM /
+              // Approvals queue and shouldn't pollute the Suspense ledger.
+              const ACCOUNT_APPROVED = new Set(['issued', 'partially_spent', 'settled', 'submitted', 'acknowledged', 'payment_done', 'accountant_processing']);
+              const filteredPetty = (petty.all_requests || []).filter(pc => ACCOUNT_APPROVED.has((pc.status || '').toLowerCase()));
+              return filteredPetty.length === 0 ? (
+                <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No accountant-approved petty cash entries</CardContent></Card>
+              ) : (
+                <Card><CardContent className="p-0 overflow-x-auto">
                 <table className="w-full text-xs" data-testid="suspense-petty-table">
                   <thead className="bg-gray-50 border-b">
                     <tr>
@@ -313,7 +320,7 @@ export default function SuspenseAccountPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {(petty.all_requests || []).map((pc, idx) => {
+                    {filteredPetty.map((pc, idx) => {
                       const issued = Number(pc.amount_issued || 0);
                       const spent = Number(pc.amount_spent || 0);
                       const balance = issued - spent;
@@ -360,7 +367,8 @@ export default function SuspenseAccountPage() {
                   </tbody>
                 </table>
               </CardContent></Card>
-            )}
+              );
+            })()}
           </TabsContent>
 
           <TabsContent value="materials" className="mt-4">
