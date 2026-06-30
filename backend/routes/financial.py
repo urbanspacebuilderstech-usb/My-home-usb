@@ -7455,20 +7455,31 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
 
     # 6. Insert one recorded_expense per leg (clean audit) — first leg uses
     # `primary_expense_id`, the rest get their own ids but link to primary.
+    #
+    # IMPORTANT (Feb 28 2026 user fix): the cashbook must reflect the
+    # *bill amount* applied, not the cheque face value. So for each leg we
+    # cap `amount` at the still-unallocated portion of `payable`; the rest
+    # (cheque excess) is captured via `new_suspense_credit` and routed to
+    # vendor suspense below.
     cheque_ids_used_all = [c["cheque_id"] for c in cheque_docs] if cheque_docs else []
     cheque_numbers_used = [c.get("cheque_number") for c in cheque_docs] if cheque_docs else []
     leg_expense_ids = []
+    remaining_to_apply = payable
     for idx, leg in enumerate(legs):
         leg_exp_id = primary_expense_id if idx == 0 else f"exp_{uuid.uuid4().hex[:12]}"
         leg_expense_ids.append(leg_exp_id)
         leg_cheque_ids = list(leg.cheque_ids or [])
+        leg_face = float(leg.amount)
+        leg_effective = max(0.0, min(leg_face, remaining_to_apply))
+        remaining_to_apply -= leg_effective
         await db.recorded_expenses.insert_one({
             "expense_id": leg_exp_id,
             "project_id": project_id,
             "category": suspense_type,
             "expense_type": suspense_type,
             "description": req.get("material_name") or req.get("labour_type") or f"{suspense_type} payment",
-            "amount": float(leg.amount),  # cheque legs carry face value; excess is separately credited
+            "amount": leg_effective,  # portion applied to the bill (excess → vendor suspense)
+            "tendered_amount": leg_face,  # cheque face / cash tendered for traceability
             "payment_method": leg.method,
             "transaction_id": leg.transaction_id,
             "cheque_id": leg_cheque_ids[0] if leg_cheque_ids else None,
