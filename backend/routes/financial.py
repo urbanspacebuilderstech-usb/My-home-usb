@@ -2828,17 +2828,40 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
     VENDOR_OPEN_STATUSES = ["pending", "active", "overdue", "partially_paid"]
     LABOUR_OPEN_STATUSES = ["pm_approved", "accounts_pending"]
     
-    (petty_cash, vendor_credits_v2, credit_ledger_v1, labour_expenses, projects_list) = await asyncio.gather(
+    (petty_cash, vendor_credits_v2, credit_ledger_v1, labour_expenses, projects_list, ac_approved_rexps) = await asyncio.gather(
         db.petty_cash.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000),
         db.vendor_credit_ledger.find({"status": {"$in": VENDOR_OPEN_STATUSES}}, {"_id": 0}).to_list(1000),
         db.credit_ledger.find({"status": {"$in": VENDOR_OPEN_STATUSES}}, {"_id": 0}).to_list(1000),
         db.labour_expenses.find({"status": {"$in": LABOUR_OPEN_STATUSES}}, {"_id": 0}).to_list(1000),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000),
+        # Feb 28 2026 — Per-bucket Accountant-approved spend, used to surface a
+        # dedicated "A/C Approved" column in Suspense → Petty Cash. We sum the
+        # recorded_expenses mirror rows that are linked to a petty_cash bucket
+        # AND already passed the accountant gate (status in approved /
+        # accounts_approved / super_admin_approved). Total Spent stays as
+        # petty_cash.amount_spent (which counts every SE-recorded expense,
+        # approved or not), so A/C Approved ≤ Spent.
+        db.recorded_expenses.find(
+            {"linked_petty_cash_id": {"$exists": True, "$ne": None},
+             "status": {"$in": ["approved", "accounts_approved", "super_admin_approved"]}},
+            {"_id": 0, "linked_petty_cash_id": 1, "amount": 1},
+        ).to_list(5000),
     )
-    
+
+    # Roll up A/C-approved totals by petty_cash bucket so the frontend can
+    # render Issued | A/C Approved | Spent | Balance.
+    ac_approved_by_pc: Dict[str, float] = {}
+    for r in ac_approved_rexps:
+        pid = r.get("linked_petty_cash_id")
+        if pid:
+            ac_approved_by_pc[pid] = ac_approved_by_pc.get(pid, 0) + float(r.get("amount") or 0)
+    for p in petty_cash:
+        p["amount_ac_approved"] = ac_approved_by_pc.get(p.get("petty_cash_id"), 0)
+
     # ---- Petty Cash ----
     petty_active = [p for p in petty_cash if p.get("status") in PETTY_ACTIVE_STATUSES]
     petty_total_issued = sum(p.get("amount_issued", 0) or 0 for p in petty_active)
+    petty_total_ac_approved = sum(p.get("amount_ac_approved", 0) or 0 for p in petty_active)
     petty_total_spent = sum(p.get("amount_spent", 0) or 0 for p in petty_active)
     petty_balance = petty_total_issued - petty_total_spent
     
@@ -2885,6 +2908,7 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
         "petty_cash": {
             "active_requests": petty_active,
             "total_issued": petty_total_issued,
+            "total_ac_approved": petty_total_ac_approved,
             "total_spent": petty_total_spent,
             "balance": petty_balance,
             "all_requests": petty_cash,

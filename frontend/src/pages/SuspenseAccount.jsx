@@ -260,8 +260,9 @@ export default function SuspenseAccountPage() {
           <Card data-testid="petty-summary" className="border-l-4 border-l-amber-500 cursor-pointer" onClick={() => setActiveTab('petty_cash')}>
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-2"><Banknote className="h-4 w-4 text-amber-500" /><span className="text-sm font-bold text-gray-700">Petty Cash</span></div>
-              <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="grid grid-cols-4 gap-2 text-center">
                 <div><p className="text-[10px] text-gray-400">Issued</p><p className="text-sm font-bold text-amber-600">{fmt(petty.total_issued)}</p></div>
+                <div><p className="text-[10px] text-gray-400">A/C Approved</p><p className="text-sm font-bold text-blue-600">{fmt(petty.total_ac_approved || 0)}</p></div>
                 <div><p className="text-[10px] text-gray-400">Spent</p><p className="text-sm font-bold text-red-600">{fmt(petty.total_spent)}</p></div>
                 <div><p className="text-[10px] text-gray-400">Balance</p><p className="text-sm font-bold text-green-600">{fmt(petty.balance)}</p></div>
               </div>
@@ -313,6 +314,7 @@ export default function SuspenseAccountPage() {
                       <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
                       <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">SE</th>
                       <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Issued</th>
+                      <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">A/C Approved</th>
                       <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Spent</th>
                       <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Balance</th>
                       <th className="px-2 py-2 text-center text-[10px] font-semibold text-gray-500 uppercase">Status</th>
@@ -322,6 +324,7 @@ export default function SuspenseAccountPage() {
                   <tbody className="divide-y">
                     {filteredPetty.map((pc, idx) => {
                       const issued = Number(pc.amount_issued || 0);
+                      const acApproved = Number(pc.amount_ac_approved || 0);
                       const spent = Number(pc.amount_spent || 0);
                       const balance = issued - spent;
                       const dt = pc.issued_at || pc.created_at;
@@ -342,6 +345,7 @@ export default function SuspenseAccountPage() {
                           <td className="px-2 py-2 text-gray-600 max-w-[140px] truncate" title={pc.project_name || 'General'}>{pc.project_name || 'General'}</td>
                           <td className="px-2 py-2 text-gray-600 whitespace-nowrap">{pc.requested_by_name || '-'}</td>
                           <td className="px-2 py-2 text-right font-semibold text-amber-700">{fmt(issued)}</td>
+                          <td className="px-2 py-2 text-right font-semibold text-blue-700" data-testid={`petty-ac-approved-${pc.petty_cash_id}`}>{fmt(acApproved)}</td>
                           <td className="px-2 py-2 text-right text-red-600">{fmt(spent)}</td>
                           <td className="px-2 py-2 text-right font-semibold text-emerald-700">{fmt(balance)}</td>
                           <td className="px-2 py-2 text-center">
