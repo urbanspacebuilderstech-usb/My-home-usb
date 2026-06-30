@@ -280,8 +280,11 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
                     <p className="font-bold text-orange-700 text-base">{fmt(payable)}</p>
                   </div>
                   <div className="text-center bg-white rounded-md p-2">
-                    <p className="text-[10px] text-gray-500 uppercase">Paid So Far</p>
-                    <p className="font-bold text-emerald-700 text-base">{fmt(totalLegAmount)}</p>
+                    <p className="text-[10px] text-gray-500 uppercase">Applied to Bill</p>
+                    <p className="font-bold text-emerald-700 text-base">{fmt(Math.min(totalLegAmount, payable))}</p>
+                    {totalLegAmount > payable + 0.5 && (
+                      <p className="text-[9px] text-gray-500 mt-0.5">Tendered: {fmt(totalLegAmount)}</p>
+                    )}
                   </div>
                   <div className={`text-center rounded-md p-2 ring-2 ${isExact ? 'bg-emerald-100 ring-emerald-400' : isOver ? 'bg-blue-100 ring-blue-400' : 'bg-amber-100 ring-amber-400'}`}>
                     <p className="text-[10px] text-gray-500 uppercase">{isOver ? 'Excess → Suspense' : 'Remaining'}</p>
