@@ -6165,7 +6165,7 @@ class RETemplateUpdate(BaseModel):
 
 @router.post("/crm/re-templates")
 async def create_re_template(data: RETemplateCreate, user: User = Depends(get_current_user)):
-    if user.role not in ["planning", "super_admin", "general_manager"]:
+    if user.role not in ["planning", "planning_person", "super_admin", "general_manager"]:
         raise HTTPException(status_code=403, detail="Access denied")
     if not data.name.strip():
         raise HTTPException(status_code=400, detail="Template name is required")
@@ -6194,7 +6194,7 @@ async def create_re_template(data: RETemplateCreate, user: User = Depends(get_cu
 
 @router.get("/crm/re-templates")
 async def get_re_templates(user: User = Depends(get_current_user)):
-    if user.role not in ["planning", "super_admin", "general_manager", "cre", "sales"]:
+    if user.role not in ["planning", "planning_person", "super_admin", "general_manager", "cre", "sales"]:
         raise HTTPException(status_code=403, detail="Access denied")
     templates = await db.re_templates.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
     return templates
@@ -6210,7 +6210,7 @@ async def get_re_template(template_id: str, user: User = Depends(get_current_use
 
 @router.patch("/crm/re-templates/{template_id}")
 async def update_re_template(template_id: str, data: RETemplateUpdate, user: User = Depends(get_current_user)):
-    if user.role not in ["planning", "super_admin", "general_manager"]:
+    if user.role not in ["planning", "planning_person", "super_admin", "general_manager"]:
         raise HTTPException(status_code=403, detail="Access denied")
 
     template = await db.re_templates.find_one({"template_id": template_id})
@@ -6238,7 +6238,7 @@ async def update_re_template(template_id: str, data: RETemplateUpdate, user: Use
 
 @router.delete("/crm/re-templates/{template_id}")
 async def delete_re_template(template_id: str, user: User = Depends(get_current_user)):
-    if user.role not in ["planning", "super_admin", "general_manager"]:
+    if user.role not in ["planning", "planning_person", "super_admin", "general_manager"]:
         raise HTTPException(status_code=403, detail="Access denied")
     result = await db.re_templates.delete_one({"template_id": template_id})
     if result.deleted_count == 0:
