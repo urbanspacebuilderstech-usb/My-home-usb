@@ -1606,14 +1606,21 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
                     {"$unset": {"used_for_expense_id": "", "used_at": "", "used_by": "", "used_by_name": ""},
                      "$set": {"is_opened": True, "updated_at": now_iso}}
                 )
-            # Drop any vendor suspense credit that was created from this
-            # release's cheque excess so the next Pay & Settle dialog
-            # shows the real Net Payable instead of "covered by suspense".
+            # Drop any vendor suspense credit AND any "credit applied" entry
+            # that was linked to this release's cheque excess. Match on
+            # linked_expense_id (recorded_expense id), linked_request_id
+            # (material_request/expense id), or any linked cheque id.
             exp_id = m.get("expense_id")
+            req_id = m.get("request_id") or m.get("material_request_id") or m.get("material_expense_id")
+            or_clauses = []
             if exp_id:
-                await db.suspense_entries.delete_many({"linked_expense_id": exp_id})
+                or_clauses.append({"linked_expense_id": exp_id})
+            if req_id:
+                or_clauses.append({"linked_request_id": req_id})
             if cheque_ids_to_free:
-                await db.suspense_entries.delete_many({"linked_cheque_ids": {"$in": list(cheque_ids_to_free)}})
+                or_clauses.append({"linked_cheque_ids": {"$in": list(cheque_ids_to_free)}})
+            if or_clauses:
+                await db.suspense_entries.delete_many({"$or": or_clauses})
             await db.recorded_expenses.delete_one({"expense_id": exp_id})
 
     if coll_name == "material_requests":
@@ -1672,11 +1679,17 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
                 {"$unset": {"used_for_expense_id": "", "used_at": "", "used_by": "", "used_by_name": ""},
                  "$set": {"is_opened": True, "updated_at": now_iso}}
             )
-        # Drop any vendor suspense credit that was created from this
-        # release's cheque excess.
-        await db.suspense_entries.delete_many({"linked_expense_id": record_id})
+        # Drop any vendor suspense credit AND any "credit applied" entry
+        # that was created from this release. Match on linked_expense_id
+        # (this recorded_expense), linked_request_id (parent material id), or
+        # any linked cheque id.
+        parent_id_for_suspense = found.get("request_id") or found.get("material_request_id") or found.get("material_expense_id")
+        suspense_or = [{"linked_expense_id": record_id}]
+        if parent_id_for_suspense:
+            suspense_or.append({"linked_request_id": parent_id_for_suspense})
         if cheque_ids_to_free:
-            await db.suspense_entries.delete_many({"linked_cheque_ids": {"$in": list(cheque_ids_to_free)}})
+            suspense_or.append({"linked_cheque_ids": {"$in": list(cheque_ids_to_free)}})
+        await db.suspense_entries.delete_many({"$or": suspense_or})
 
         # Now delete the mirror AND reset the parent material_request /
         # material_expense so it re-surfaces in Approvals → Materials.
