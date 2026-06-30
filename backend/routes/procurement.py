@@ -3855,7 +3855,7 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
     if user.role not in [UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PROCUREMENT]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
-    (material_requests, material_exps_legacy, recorded_payments, vendor_credits, vendor_master_docs, projects_list) = await asyncio.gather(
+    (material_requests, material_exps_legacy, recorded_payments, vendor_credits, suspense_entries, vendor_master_docs, projects_list) = await asyncio.gather(
         db.material_requests.find({}, {"_id": 0}).to_list(5000),
         db.material_expenses.find({}, {"_id": 0}).to_list(5000),
         db.recorded_expenses.find(
@@ -3863,6 +3863,10 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
             {"_id": 0},
         ).to_list(5000),
         db.vendor_credit_ledger.find({}, {"_id": 0}).to_list(2000),
+        # Same source the Pay & Settle dialog uses for live vendor suspense
+        # balance — sum of signed amounts per vendor. Negative = vendor owes,
+        # positive = we have credit with vendor.
+        db.suspense_entries.find({"type": "material"}, {"_id": 0}).to_list(5000),
         db.vendor_master.find({"category": {"$in": ["material", "Material", None]}}, {"_id": 0}).to_list(2000),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(2000),
     )
@@ -3991,6 +3995,21 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
             "notes": f"Credit purchase — due {vc.get('due_date', '—')[:10] if vc.get('due_date') else '—'}",
         })
 
+    # --- suspense_entries (live Pay & Settle balance — signed) ---
+    for se in suspense_entries:
+        if not se.get("vendor_name"):
+            continue
+        b, key = _ensure(None, se.get("vendor_name"))
+        amt = float(se.get("amount") or 0)
+        b["suspense_balance"] += amt  # signed: negative = vendor owes, positive = we credit
+        timelines[key].append({
+            "date": se.get("created_at"),
+            "type": "suspense",
+            "source_type": "suspense_entry",
+            "amount": amt,
+            "notes": se.get("description") or "Suspense entry",
+        })
+
     # --- Seed inactive/zero-activity vendors from vendor_master so the table
     #     still lists every material vendor (matches the contractor pattern). ---
     for v in vendor_master_docs:
@@ -4000,8 +4019,8 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
 
     rows = []
     for key, b in buckets.items():
-        # Drop empty vendor rows with nothing to show
-        if not (b["total_value"] or b["paid_amount"] or b["pending_amount"] or b["suspense_balance"]):
+        # Drop empty vendor rows with nothing to show (suspense can be negative)
+        if not (b["total_value"] or b["paid_amount"] or b["pending_amount"] or abs(b["suspense_balance"])):
             continue
         b["balance"] = b["total_value"] - b["paid_amount"]
         rows.append({**b, "_key": key})
@@ -4031,11 +4050,12 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
             return True
         return False
 
-    (material_requests, material_exps_legacy, recorded_payments, vendor_credits, projects_list) = await asyncio.gather(
+    (material_requests, material_exps_legacy, recorded_payments, vendor_credits, suspense_entries, projects_list) = await asyncio.gather(
         db.material_requests.find({}, {"_id": 0}).to_list(5000),
         db.material_expenses.find({}, {"_id": 0}).to_list(5000),
         db.recorded_expenses.find({"category": "material"}, {"_id": 0}).to_list(5000),
         db.vendor_credit_ledger.find({}, {"_id": 0}).to_list(2000),
+        db.suspense_entries.find({"type": "material"}, {"_id": 0}).to_list(5000),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(2000),
     )
     pmap = {p["project_id"]: p.get("name") for p in projects_list}
@@ -4097,6 +4117,16 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
             "status": vc.get("status"),
             "due_date": vc.get("due_date"),
             "notes": f"Credit purchase — due {vc.get('due_date', '—')[:10] if vc.get('due_date') else '—'}",
+        })
+    for se in suspense_entries:
+        if not _matches(se):
+            continue
+        timeline.append({
+            "date": se.get("created_at"),
+            "type": "suspense",
+            "source_type": "suspense_entry",
+            "amount": float(se.get("amount") or 0),
+            "notes": se.get("description") or "Suspense entry",
         })
 
     # Newest first

@@ -14,11 +14,13 @@ const TYPE_ICON = {
   payment: ArrowUpCircle,
   request: ArrowDownCircle,
   credit: Clock,
+  suspense: Clock,
 };
 const TYPE_BG = {
   payment: 'bg-green-50 text-green-700 border-green-200',
   request: 'bg-blue-50 text-blue-700 border-blue-200',
   credit: 'bg-amber-50 text-amber-700 border-amber-200',
+  suspense: 'bg-purple-50 text-purple-700 border-purple-200',
 };
 
 export default function MaterialVendorPaymentSummary() {
@@ -91,7 +93,13 @@ export default function MaterialVendorPaymentSummary() {
                       <td className="px-3 py-2 text-right">{fmt(r.total_value)}</td>
                       <td className="px-3 py-2 text-right text-green-700 font-semibold">{fmt(r.paid_amount)}</td>
                       <td className="px-3 py-2 text-right text-blue-700">{fmt(r.pending_amount)}</td>
-                      <td className="px-3 py-2 text-right font-bold text-amber-700">{fmt(r.suspense_balance)}</td>
+                      <td className="px-3 py-2 text-right font-bold" data-testid={`mv-suspense-${i}`}>
+                        <span className={Number(r.suspense_balance || 0) < 0 ? 'text-rose-700' : Number(r.suspense_balance || 0) > 0 ? 'text-amber-700' : 'text-gray-400'}>
+                          {fmt(r.suspense_balance)}
+                        </span>
+                        {Number(r.suspense_balance || 0) < 0 && <p className="text-[9px] text-rose-600 font-normal mt-0.5">vendor owes</p>}
+                        {Number(r.suspense_balance || 0) > 0 && <p className="text-[9px] text-amber-600 font-normal mt-0.5">credit avl.</p>}
+                      </td>
                       <td className="px-3 py-2 text-right">
                         <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 border-blue-300 text-blue-700 hover:bg-blue-50" onClick={() => openLedgerFor(r)} data-testid={`mv-ledger-btn-${i}`}>
                           <Eye className="h-3 w-3" /> View
