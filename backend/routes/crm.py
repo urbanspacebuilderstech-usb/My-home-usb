@@ -3118,7 +3118,47 @@ async def get_re_projects(
     
     projects = await db.re_projects.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
     projects = await filter_contacts_re_projects(db, projects, user.role)
+
+    # Feb 28 2026 — Back-fill prepared_by_name for older RE projects that
+    # were claimed before we started persisting the planner display name.
+    missing_planner_ids = list({p.get("prepared_by") for p in projects if p.get("prepared_by") and not p.get("prepared_by_name")})
+    if missing_planner_ids:
+        users = await db.users.find({"user_id": {"$in": missing_planner_ids}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(500)
+        name_map = {u["user_id"]: u.get("name", "") for u in users}
+        for p in projects:
+            if p.get("prepared_by") and not p.get("prepared_by_name"):
+                p["prepared_by_name"] = name_map.get(p["prepared_by"], "")
     return projects
+
+
+# Feb 28 2026 — "Start Work" endpoint: claims an RE for the current
+# planner without requiring any field edits. Used from the New Request
+# card so other planners immediately see who's working on each estimate.
+@router.post("/crm/re-projects/{re_project_id}/start-work")
+async def start_re_work(re_project_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="RE project not found")
+    if project.get("status") not in ["re_requested", "re_rejected"]:
+        # Another planner may have already claimed it.
+        return {
+            "message": "Already in progress",
+            "prepared_by": project.get("prepared_by"),
+            "prepared_by_name": project.get("prepared_by_name", ""),
+            "status": project.get("status"),
+        }
+    u = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
+    update = {
+        "status": "re_in_progress",
+        "prepared_by": user.user_id,
+        "prepared_by_name": (u or {}).get("name", ""),
+        "prepared_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    await db.re_projects.update_one({"re_project_id": re_project_id}, {"$set": update})
+    return {"message": "RE claimed", **update, "prepared_at": update["prepared_at"].isoformat()}
 
 
 @router.get("/crm/re-projects/search")
@@ -3308,6 +3348,11 @@ async def update_re_project(re_project_id: str, data: REProjectUpdate, user: Use
         update["status"] = "re_in_progress"
         update["prepared_by"] = user.user_id
         update["prepared_at"] = datetime.now(timezone.utc)
+        # Feb 28 2026 — Persist the planner's display name so other
+        # planners (and the Sales board) can see who's working on each RE
+        # without an extra users-collection lookup.
+        u = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
+        update["prepared_by_name"] = (u or {}).get("name", "")
     
     await db.re_projects.update_one({"re_project_id": re_project_id}, {"$set": update})
     

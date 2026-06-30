@@ -145,6 +145,23 @@ export default function REProjectsPage({ embedded = false }) {
     window.location.href = '/login';
   };
 
+  // Feb 28 2026 — Claim an RE for the current planner. Sets status to
+  // re_in_progress and persists prepared_by + prepared_by_name so every
+  // other planner sees "Working: <name>" on the card immediately.
+  const handleStartWork = async (project) => {
+    try {
+      const res = await axios.post(`${API}/crm/re-projects/${project.re_project_id}/start-work`);
+      if (res.data?.prepared_by && res.data.prepared_by !== user?.user_id) {
+        toast.warning(`Already claimed by ${res.data.prepared_by_name || 'another planner'}`);
+      } else {
+        toast.success(`You're now working on ${project.re_number}`);
+      }
+      await fetchData(false);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to start work');
+    }
+  };
+
   const openEditDialog = (project) => {
     setSelectedProject(project);
     setEditForm({
@@ -514,6 +531,13 @@ export default function REProjectsPage({ embedded = false }) {
                               {RE_STATUS_CONFIG[project.status].label}
                             </Badge>
                           )}
+                          {/* Feb 28 2026 — Show which planner has claimed
+                              the RE so other planners don't double-work. */}
+                          {project.prepared_by_name && project.status !== 're_requested' && (
+                            <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200" data-testid={`re-planner-${project.re_project_id}`}>
+                              <RefreshCw className="h-3 w-3 mr-1" /> {project.prepared_by_name} (Planning Person)
+                            </Badge>
+                          )}
                         </div>
                         
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
@@ -568,6 +592,16 @@ export default function REProjectsPage({ embedded = false }) {
                       </div>
                       
                       <div className="flex items-center gap-2 ml-4">
+                        {canEdit && project.status === 're_requested' && (
+                          <Button
+                            size="sm"
+                            className="bg-amber-600 hover:bg-amber-700"
+                            onClick={() => handleStartWork(project)}
+                            data-testid={`start-work-${project.re_project_id}`}
+                          >
+                            <RefreshCw className="h-4 w-4 mr-1" /> Start Work
+                          </Button>
+                        )}
                         {canEdit && (
                           <>
                             <Button 

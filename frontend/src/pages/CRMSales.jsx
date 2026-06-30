@@ -2892,6 +2892,11 @@ export default function CRMSales() {
                 {selectedREProject.revision_requested && (
                   <Badge className="bg-amber-100 text-amber-700 text-[10px]">Revision Requested</Badge>
                 )}
+                {selectedREProject.prepared_by_name && (
+                  <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px]" data-testid="sales-re-planner">
+                    Prepared by {selectedREProject.prepared_by_name}
+                  </Badge>
+                )}
               </div>
               
               {/* Client Info */}
