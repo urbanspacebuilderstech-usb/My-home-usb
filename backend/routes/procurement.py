@@ -3835,8 +3835,14 @@ async def procurement_simple_credit_settle(ledger_id: str, data: dict, user: Use
 # Finance Board → Labour Payments → Material Vendor tab (Feb 28 2026).
 
 def _mv_vendor_key(vendor_id: Optional[str], vendor_name: Optional[str]) -> str:
-    """Stable bucket key — falls back to name when id is missing."""
-    return (vendor_id or f"name:{(vendor_name or '').strip().lower()}").strip() or "unknown"
+    """Stable bucket key — vendor_name is the unique grouping key since
+    legacy rows often have vendor_id=null while still pointing at the same
+    vendor. Falls back to vendor_id (then 'unknown') only when name is blank.
+    """
+    name = (vendor_name or "").strip().lower()
+    if name:
+        return f"name:{name}"
+    return vendor_id or "unknown"
 
 
 @router.get("/material-vendor-payments/summary")
@@ -3915,8 +3921,12 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
             "notes": f"{mr.get('material_name', 'Material')} request — {status}",
         })
 
-    # --- legacy material_expenses ---
+    # --- legacy material_expenses (skip mirrors of material_requests) ---
     for me in material_exps_legacy:
+        # Skip rows that are just legacy mirrors of an already-counted
+        # material_request to avoid double-counting in totals + timeline.
+        if me.get("source_request_id"):
+            continue
         b, key = _ensure(me.get("vendor_id"), me.get("vendor_name"))
         amt = float(me.get("final_amount") or me.get("amount") or 0)
         status = (me.get("status") or "").lower()
@@ -4045,6 +4055,8 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
             "notes": f"{mr.get('material_name', 'Material')} — {mr.get('status', '')}",
         })
     for me in material_exps_legacy:
+        if me.get("source_request_id"):
+            continue  # mirror of material_request — skip to avoid duplicates
         if not _matches(me):
             continue
         timeline.append({
