@@ -2978,10 +2978,29 @@ async def record_direct_expense(request: Request, user: User = Depends(get_curre
     data = await request.json()
     project_id = data.get("project_id")
     items = data.get("items", [])
+    # Feb 28 2026 — Mandatory: SE must link this expense to one of their
+    # already-issued petty cash buckets so the payment_mode (HDFC SAVINGS /
+    # HDFC CURRENT / Cash etc.) flows through to Suspense A/c + Cashbook.
+    linked_pc_id = (data.get("linked_petty_cash_id") or "").strip() or None
     if not project_id:
         raise HTTPException(status_code=400, detail="project_id is required")
     if not items:
         raise HTTPException(status_code=400, detail="At least one expense item is required")
+
+    linked_pc = None
+    linked_mode = "cash"
+    if linked_pc_id:
+        linked_pc = await db.petty_cash.find_one({"petty_cash_id": linked_pc_id}, {"_id": 0})
+        if not linked_pc:
+            raise HTTPException(status_code=404, detail="Linked petty cash not found")
+        if (linked_pc.get("requested_by") != user.user_id) and user.role != UserRole.SUPER_ADMIN:
+            raise HTTPException(status_code=403, detail="You can only spend from petty cash issued to you")
+        balance = (linked_pc.get("amount_issued") or 0) - (linked_pc.get("amount_spent") or 0)
+        total_amt = sum(float(item.get("amount", 0)) for item in items)
+        if total_amt > balance + 0.5:
+            raise HTTPException(status_code=400, detail=f"Total ₹{total_amt:,.0f} exceeds available balance ₹{balance:,.0f} on the picked petty cash")
+        linked_mode = linked_pc.get("payment_mode") or linked_pc.get("mode") or "cash"
+
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
     now = datetime.now(timezone.utc).isoformat()
     expense_id = f"dexp_{secrets.token_hex(6)}"
@@ -2993,6 +3012,8 @@ async def record_direct_expense(request: Request, user: User = Depends(get_curre
         "project_name": project.get("name", "") if project else "",
         "recorded_by": user.user_id,
         "recorded_by_name": user.name,
+        "linked_petty_cash_id": linked_pc_id,
+        "payment_mode": linked_mode,
         "items": [{
             "item_id": f"di_{secrets.token_hex(4)}",
             "category": item.get("category", "Miscellaneous"),
@@ -3020,8 +3041,13 @@ async def record_direct_expense(request: Request, user: User = Depends(get_curre
             "category": "petty_cash",
             "description": raw_item.get("expense_name") or raw_item.get("category", "Direct Expense"),
             "amount": raw_item["amount"],
-            "payment_method": "cash",
-            "payment_mode": "cash",
+            # Feb 28 2026 — Stamp the mode from the linked petty cash so
+            # Cashbook → Expense → Petty Cash displays the right column
+            # (HDFC SAVINGS instead of generic Cash) and Suspense A/c
+            # debits the correct bucket.
+            "payment_method": linked_mode,
+            "payment_mode": linked_mode,
+            "linked_petty_cash_id": linked_pc_id,
             "bill_file_id": raw_item.get("bill_file_id"),
             "bill_filename": raw_item.get("bill_filename"),
             "vendor_name": raw_item.get("category", ""),
@@ -3033,6 +3059,14 @@ async def record_direct_expense(request: Request, user: User = Depends(get_curre
             "direct_expense_item_id": raw_item["item_id"],
             "created_at": now,
         })
+
+    # Feb 28 2026 — Increment amount_spent on the linked petty_cash so the
+    # SE's available balance / Suspense A/c bucket reflects the new spend.
+    if linked_pc_id:
+        await db.petty_cash.update_one(
+            {"petty_cash_id": linked_pc_id},
+            {"$inc": {"amount_spent": total}, "$set": {"updated_at": now}}
+        )
     
     # Increment amount_spent on the SE's most recent open petty cash entry
     # so the SE Dashboard "Balance" tile + Accountant Petty Cash Management
@@ -3072,6 +3106,19 @@ async def delete_direct_expense(expense_id: str, user: User = Depends(get_curren
     locked = ["approved", "verified", "recorded_into_cashbook", "accountant_approved"]
     if (rec.get("status") or "").lower() in locked:
         raise HTTPException(status_code=400, detail="Approved expenses cannot be deleted. Contact your accountant to reverse the entry.")
+
+    # Feb 28 2026 — Refund the linked petty cash bucket so the SE's
+    # available balance bounces back when the rejected/pending expense is
+    # removed.
+    de_id = rec.get("direct_expense_id")
+    if de_id:
+        de = await db.direct_expenses.find_one({"expense_id": de_id}, {"_id": 0, "linked_petty_cash_id": 1, "total_amount": 1})
+        if de and de.get("linked_petty_cash_id"):
+            await db.petty_cash.update_one(
+                {"petty_cash_id": de["linked_petty_cash_id"]},
+                {"$inc": {"amount_spent": -float(de.get("total_amount") or 0)}}
+            )
+            await db.direct_expenses.delete_one({"expense_id": de_id})
 
     await db.recorded_expenses.delete_one({"expense_id": expense_id})
     return {"message": "Expense record deleted"}

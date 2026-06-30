@@ -365,6 +365,9 @@ export default function SiteEngineerDashboard() {
   const [directExpensesList, setDirectExpensesList] = useState([]);
   const [directExpenseDialog, setDirectExpenseDialog] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState(null);
+  // Feb 28 2026 — Picked petty_cash bucket the SE wants to record this
+  // expense against. Mandatory at submit (per user spec).
+  const [linkedPettyCashId, setLinkedPettyCashId] = useState('');
   const [directExpProject, setDirectExpProject] = useState('');
   const [directExpItems, setDirectExpItems] = useState([{category:'',expense_name:'',amount:'',bill_file_id:null,bill_filename:''}]);
   const [directExpLoading, setDirectExpLoading] = useState(false);
@@ -522,24 +525,41 @@ export default function SiteEngineerDashboard() {
 
   const handleDirectExpenseSubmit = async () => {
     if (!directExpProject) { toast.error('Select a project'); return; }
+    if (!linkedPettyCashId && !editingExpenseId) {
+      toast.error('Please pick an approved petty cash to record this expense against');
+      return;
+    }
     const validItems = directExpItems.filter(i => i.expense_name && i.amount);
     if (validItems.length === 0) { toast.error('Add at least one expense item'); return; }
+    const totalAmount = validItems.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+    // Block submit if total exceeds the picked petty cash's remaining balance.
+    if (linkedPettyCashId) {
+      const pc = (pettyCashList || []).find(p => p.petty_cash_id === linkedPettyCashId);
+      if (pc) {
+        const balance = (pc.amount_issued || 0) - (pc.amount_spent || 0);
+        if (totalAmount > balance + 0.5) {
+          toast.error(`Total ₹${totalAmount.toLocaleString('en-IN')} exceeds available balance ₹${balance.toLocaleString('en-IN')} on the picked petty cash.`);
+          return;
+        }
+      }
+    }
     setDirectExpLoading(true);
     try {
       await axios.post(`${API}/site-engineer/direct-expense`, {
         project_id: directExpProject,
+        linked_petty_cash_id: linkedPettyCashId || null,
         items: validItems.map(i => ({ category: i.category || 'Miscellaneous', expense_name: i.expense_name, amount: parseFloat(i.amount), bill_file_id: i.bill_file_id, bill_filename: i.bill_filename })),
       });
-      // Feb 28 2026 — Edit-as-resubmit: if we were editing a rejected
-      // record, delete the old one once the new one is in.
       if (editingExpenseId) {
         try { await axios.delete(`${API}/site-engineer/direct-expense/${editingExpenseId}`); } catch (_) { /* non-fatal */ }
         setEditingExpenseId(null);
       }
       toast.success(editingExpenseId ? 'Expense re-submitted!' : 'Expense recorded!');
       setDirectExpenseDialog(false);
+      setLinkedPettyCashId('');
       fetchDirectExpenses(expenseFilterProject, expenseFilterFrom, expenseFilterTo);
       fetchPettyCashSummary();
+      fetchData(false);
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to save'); }
     setDirectExpLoading(false);
   };
@@ -2503,6 +2523,45 @@ export default function SiteEngineerDashboard() {
             <DialogDescription>Add expense line items directly — no approval needed.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {/* Feb 28 2026 — Mandatory pick from approved/issued petty cash */}
+            <div>
+              <Label className="text-xs font-medium">Pick from Approved Petty Cash *</Label>
+              {(() => {
+                const MODE_LABEL = {
+                  cash: 'Cash', hdfc_current: 'HDFC CURRENT', hdfc_savings: 'HDFC SAVINGS',
+                  cheque: 'Cheque', direct_transfer: 'CASH D/T', escrow: 'Escrow',
+                  current_account: 'HDFC CURRENT', savings_account: 'HDFC SAVINGS',
+                };
+                const fmtMode = (m) => MODE_LABEL[m] || (m ? m.replace(/_/g, ' ').toUpperCase() : '—');
+                const available = (pettyCashList || []).filter(pc => {
+                  const balance = (pc.amount_issued || 0) - (pc.amount_spent || 0);
+                  return pc.status === 'issued' && balance > 0;
+                });
+                return available.length === 0 ? (
+                  <div className="mt-1 p-3 bg-amber-50 border border-amber-200 rounded text-[11px] text-amber-700">
+                    No issued petty cash available. Ask the Accountant to issue petty cash to you first.
+                  </div>
+                ) : (
+                  <Select value={linkedPettyCashId} onValueChange={(v) => {
+                    setLinkedPettyCashId(v);
+                    const pc = available.find(p => p.petty_cash_id === v);
+                    if (pc && pc.project_id) setDirectExpProject(pc.project_id);
+                  }}>
+                    <SelectTrigger data-testid="dexp-petty-cash-select"><SelectValue placeholder="Select an issued petty cash..." /></SelectTrigger>
+                    <SelectContent>
+                      {available.map(pc => {
+                        const balance = (pc.amount_issued || 0) - (pc.amount_spent || 0);
+                        return (
+                          <SelectItem key={pc.petty_cash_id} value={pc.petty_cash_id} data-testid={`dexp-pc-opt-${pc.petty_cash_id}`}>
+                            {pc.purpose || 'Petty Cash'} · {fmtMode(pc.payment_mode || pc.mode)} · ₹{balance.toLocaleString('en-IN')}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                );
+              })()}
+            </div>
             <div>
               <Label className="text-xs font-medium">Select Project *</Label>
               <Select value={directExpProject} onValueChange={setDirectExpProject}>
@@ -2563,7 +2622,7 @@ export default function SiteEngineerDashboard() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setDirectExpenseDialog(false); setEditingExpenseId(null); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setDirectExpenseDialog(false); setEditingExpenseId(null); setLinkedPettyCashId(''); }}>Cancel</Button>
             <Button onClick={handleDirectExpenseSubmit} className="bg-orange-600 hover:bg-orange-700" disabled={directExpLoading} data-testid="dexp-submit-btn">
               {directExpLoading ? 'Saving...' : (editingExpenseId ? 'Resubmit Expense' : 'Record Expense')}
             </Button>
