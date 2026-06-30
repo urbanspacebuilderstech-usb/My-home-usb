@@ -96,7 +96,9 @@ export default function IssueCashDialog({
     : isBank(paymentMode) ? 'Transaction / UTR / Reference *'
     : paymentMode === 'suspense' ? 'Suspense Reference (optional)'
     : 'Reference (optional)';
-  const refRequired = isCheque(paymentMode) || isBank(paymentMode);
+  // When Mode of Payment is hidden (approve variant) the reference fields
+  // are also hidden, so they're never required.
+  const refRequired = (variant !== 'approve') && (isCheque(paymentMode) || isBank(paymentMode));
 
   const handleSubmit = async () => {
     if (!amount || amount <= 0) { return; }
@@ -119,6 +121,10 @@ export default function IssueCashDialog({
   };
 
   const isApprove = variant === 'approve';
+  // Feb 28 2026 — User asked to remove Mode of Payment from the
+  // "Approve Recorded Expense" flow. The accountant just confirms the
+  // amount + payment date and clicks Approve & Record.
+  const showPaymentMode = !isApprove;
   const headerIcon = isApprove ? <CheckCircle className="h-5 w-5 text-emerald-700" /> : <Wallet className="h-5 w-5 text-emerald-700" />;
   const cta = isApprove ? 'Approve & Record' : 'Issue Cash';
 
@@ -146,19 +152,21 @@ export default function IssueCashDialog({
             />
           </div>
 
-          <div>
-            <Label className="text-xs">Mode of Payment *</Label>
-            <Select value={paymentMode} onValueChange={setPaymentMode}>
-              <SelectTrigger className="mt-1" data-testid="issue-cash-mode"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {PAYMENT_MODES.map(m => (
-                  <SelectItem key={m.value} value={m.value} data-testid={`issue-cash-mode-${m.value}`}>{m.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {showPaymentMode && (
+            <div>
+              <Label className="text-xs">Mode of Payment *</Label>
+              <Select value={paymentMode} onValueChange={setPaymentMode}>
+                <SelectTrigger className="mt-1" data-testid="issue-cash-mode"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_MODES.map(m => (
+                    <SelectItem key={m.value} value={m.value} data-testid={`issue-cash-mode-${m.value}`}>{m.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
-          {paymentMode !== 'cash' && (
+          {showPaymentMode && paymentMode !== 'cash' && (
             <div>
               <Label className="text-xs">{refLabel}</Label>
               {isCheque(paymentMode) ? (
@@ -207,14 +215,14 @@ export default function IssueCashDialog({
             </div>
           )}
 
-          {(isBank(paymentMode) || isCheque(paymentMode)) && (
+          {showPaymentMode && (isBank(paymentMode) || isCheque(paymentMode)) && (
             <div>
               <Label className="text-xs">Bank Name {isCheque(paymentMode) ? '*' : '(optional)'}</Label>
               <Input value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="e.g., HDFC Bank" className="mt-1" data-testid="issue-cash-bank" />
             </div>
           )}
 
-          {isCheque(paymentMode) && (
+          {showPaymentMode && isCheque(paymentMode) && (
             <div>
               <Label className="text-xs">Cheque Date *</Label>
               <Input type="date" value={chequeDate} onChange={(e) => setChequeDate(e.target.value)} className="mt-1" data-testid="issue-cash-cheque-date" />
