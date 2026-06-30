@@ -291,50 +291,76 @@ export default function SuspenseAccountPage() {
             <TabsTrigger value="labour">Labour ({(labSus.balances || []).length})</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="petty_cash" className="mt-4 space-y-3">
+          <TabsContent value="petty_cash" className="mt-4">
             {(petty.all_requests || []).length === 0 ? (
               <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No petty cash requests</CardContent></Card>
-            ) : (petty.all_requests || []).map((pc) => (
-              <Card key={pc.petty_cash_id} data-testid={`petty-${pc.petty_cash_id}`}>
-                <CardContent className="p-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-semibold text-sm">{pc.purpose || 'Petty Cash'}</p>
-                        <Badge className={pc.status === 'settled' ? 'bg-green-100 text-green-800' : pc.status === 'issued' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'} data-testid={`petty-status-${pc.petty_cash_id}`}>{pc.status}</Badge>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-0.5">{pc.project_name || 'General'} | By: {pc.requested_by_name}</p>
-                      <div className="flex gap-4 mt-1 text-xs">
-                        <span>Requested: <strong>{fmt(pc.amount_requested)}</strong></span>
-                        <span>Issued: <strong className="text-amber-600">{fmt(pc.amount_issued)}</strong></span>
-                        <span>Spent: <strong className="text-red-600">{fmt(pc.amount_spent)}</strong></span>
-                      </div>
-                      {pc.expenses && pc.expenses.length > 0 && (
-                        <div className="mt-2 space-y-1">
-                          {pc.expenses.map((exp, i) => (
-                            <div key={i} className="text-xs text-gray-500 flex justify-between bg-gray-50 px-2 py-1 rounded">
-                              <span>{exp.description}</span><span className="font-medium">{fmt(exp.amount)}</span>
+            ) : (
+              <Card><CardContent className="p-0 overflow-x-auto">
+                <table className="w-full text-xs" data-testid="suspense-petty-table">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
+                      <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Date &amp; Time</th>
+                      <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Mode</th>
+                      <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Purpose</th>
+                      <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
+                      <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">SE</th>
+                      <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Issued</th>
+                      <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Spent</th>
+                      <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Balance</th>
+                      <th className="px-2 py-2 text-center text-[10px] font-semibold text-gray-500 uppercase">Status</th>
+                      <th className="px-2 py-2 w-20"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {(petty.all_requests || []).map((pc, idx) => {
+                      const issued = Number(pc.amount_issued || 0);
+                      const spent = Number(pc.amount_spent || 0);
+                      const balance = issued - spent;
+                      const dt = pc.issued_at || pc.created_at;
+                      const dtStr = dt ? new Date(dt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
+                      const modeRaw = (pc.payment_mode || pc.mode || '').toString();
+                      const modeMap = {
+                        cash: 'Cash', hdfc_current: 'HDFC Current', hdfc_savings: 'HDFC Savings',
+                        cheque: 'Cheque', direct_transfer: 'CASH D/T', suspense: 'Suspense', escrow: 'Escrow',
+                        current_account: 'HDFC Current', savings_account: 'HDFC Savings',
+                      };
+                      const modeLabel = modeMap[modeRaw] || (modeRaw ? modeRaw.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '-');
+                      return (
+                        <tr key={pc.petty_cash_id} className="hover:bg-gray-50" data-testid={`petty-${pc.petty_cash_id}`}>
+                          <td className="px-2 py-2 text-gray-600">{idx + 1}</td>
+                          <td className="px-2 py-2 whitespace-nowrap text-gray-600">{dtStr}</td>
+                          <td className="px-2 py-2 whitespace-nowrap"><Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">{modeLabel}</Badge></td>
+                          <td className="px-2 py-2 font-medium text-gray-800 max-w-[180px] truncate" title={pc.purpose || 'Petty Cash'}>{pc.purpose || 'Petty Cash'}</td>
+                          <td className="px-2 py-2 text-gray-600 max-w-[140px] truncate" title={pc.project_name || 'General'}>{pc.project_name || 'General'}</td>
+                          <td className="px-2 py-2 text-gray-600 whitespace-nowrap">{pc.requested_by_name || '-'}</td>
+                          <td className="px-2 py-2 text-right font-semibold text-amber-700">{fmt(issued)}</td>
+                          <td className="px-2 py-2 text-right text-red-600">{fmt(spent)}</td>
+                          <td className="px-2 py-2 text-right font-semibold text-emerald-700">{fmt(balance)}</td>
+                          <td className="px-2 py-2 text-center">
+                            <Badge className={pc.status === 'settled' ? 'bg-green-100 text-green-800' : pc.status === 'issued' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'} data-testid={`petty-status-${pc.petty_cash_id}`}>{pc.status}</Badge>
+                          </td>
+                          <td className="px-2 py-2">
+                            <div className="flex items-center justify-end gap-1">
+                              {(pc.status === 'submitted' || pc.status === 'partially_settled') && (
+                                <Button size="sm" className="h-7 px-2 bg-green-600 hover:bg-green-700 text-[10px]" onClick={() => handleSettlePettyCash(pc.petty_cash_id)} data-testid={`settle-${pc.petty_cash_id}`}>
+                                  <CheckCircle className="h-3 w-3 mr-0.5" />Settle
+                                </Button>
+                              )}
+                              {canDelete && (
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-600 hover:bg-red-50" onClick={() => deletePettyCash(pc)} data-testid={`delete-petty-${pc.petty_cash_id}`} title="Delete">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {(pc.status === 'submitted' || pc.status === 'partially_settled') && (
-                        <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleSettlePettyCash(pc.petty_cash_id)} data-testid={`settle-${pc.petty_cash_id}`}>
-                          <CheckCircle className="h-3.5 w-3.5 mr-1" />Settle
-                        </Button>
-                      )}
-                      {canDelete && (
-                        <Button size="sm" variant="outline" className="border-red-200 text-red-600 hover:bg-red-50" onClick={() => deletePettyCash(pc)} data-testid={`delete-petty-${pc.petty_cash_id}`}>
-                          <Trash2 className="h-3.5 w-3.5 mr-1" />Delete
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </CardContent></Card>
+            )}
           </TabsContent>
 
           <TabsContent value="materials" className="mt-4">
