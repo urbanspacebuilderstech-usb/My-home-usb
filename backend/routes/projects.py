@@ -8494,6 +8494,35 @@ async def create_project_work_order(project_id: str, data: WorkOrderCreate, user
     wo.pop("_id", None)
     return {"work_order_id": wo["work_order_id"], "message": "Work order created", "total_value": wo["total_value"]}
 
+@router.patch("/projects/{project_id}/work-orders/{work_order_id}/labour-rates")
+async def update_work_order_labour_rates(project_id: str, work_order_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Feb 28 2026 — Update ONLY the labour day rates (skilled / semi /
+    unskilled) for a work order without touching scope items, stages,
+    additional work, deductions or notes. Used when a Planner edits the
+    DLR rates from the WO edit dialog and expects nothing else to change.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.CRE]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    rates = data.get("labour_rates") or {}
+    update = {
+        "labour_rates": {
+            "skilled": float(rates.get("skilled") or 0),
+            "semi_skilled": float(rates.get("semi_skilled") or 0),
+            "unskilled": float(rates.get("unskilled") or 0),
+        },
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if "notes" in data and data.get("notes") is not None:
+        update["notes"] = data.get("notes") or ""
+    result = await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": update}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    return {"message": "Labour rates updated"}
+
+
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}")
 async def update_project_work_order(project_id: str, work_order_id: str, data: WorkOrderCreate, user: User = Depends(get_current_user)):
     """Update a work order"""

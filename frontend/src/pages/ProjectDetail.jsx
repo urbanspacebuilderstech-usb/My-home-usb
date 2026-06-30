@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import {
@@ -1593,6 +1593,12 @@ export default function ProjectDetail() {
     } catch { setWorkOrders([]); }
   };
 
+  // Feb 28 2026 — Snapshot of the WO form taken when the edit dialog
+  // opens. On save we diff against this to detect whether ONLY the
+  // labour_rates changed (in which case we route to the lightweight
+  // /labour-rates endpoint and leave scope/stages/additional untouched).
+  const woFormSnapshotRef = useRef(null);
+
   const openWoDialog = async (wo = null) => {
     setEditingWo(wo);
     setWoViewId(null);
@@ -1611,7 +1617,7 @@ export default function ProjectDetail() {
 
     if (wo) {
       setWoSelectedType(wo.contractor_type || '');
-      setWoForm({
+      const initial = {
         contractor_id: wo.contractor_id || '',
         notes: wo.notes || '',
         scope_items: (wo.scope_items || []).map(s => ({ name: s.name, unit: s.unit, quantity: s.quantity, unit_rate: s.unit_rate })),
@@ -1620,10 +1626,13 @@ export default function ProjectDetail() {
         additional_work: (wo.additional_work || []).map(a => ({ description: a.description, unit: a.unit, quantity: a.quantity, unit_rate: a.unit_rate, claim_type: a.claim_type || 'claimable', is_locked: a.is_locked !== false })),
         deductions: (wo.deductions || []).map(d => ({ description: d.description, unit: d.unit, quantity: d.quantity, unit_rate: d.unit_rate })),
         labour_rates: wo.labour_rates || { skilled: 0, semi_skilled: 0, unskilled: 0 },
-      });
+      };
+      setWoForm(initial);
+      woFormSnapshotRef.current = JSON.parse(JSON.stringify(initial));
     } else {
       setWoSelectedType('');
       setWoForm({ contractor_id: '', notes: '', scope_items: [], stages: [], additional_work: [], deductions: [], labour_rates: { skilled: 0, semi_skilled: 0, unskilled: 0 } });
+      woFormSnapshotRef.current = null;
     }
     setWoSubTab('scope');
     setWoMainTab('work_order');
@@ -1825,6 +1834,29 @@ export default function ProjectDetail() {
   const handleSaveWo = async () => {
     if (!woForm.contractor_id) { toast.error('Select a contractor'); return; }
     try {
+      // Feb 28 2026 — Detect "labour-rates-only" edits and route them to
+      // the dedicated lightweight endpoint so stages / scope_items /
+      // additional / deductions / contractor are NOT re-written. This
+      // prevents already-paid stages from getting a fresh stage_id /
+      // recomputed amount when the planner just bumps DLR rates.
+      if (editingWo && woFormSnapshotRef.current) {
+        const snap = woFormSnapshotRef.current;
+        const ratesChanged = JSON.stringify(snap.labour_rates || {}) !== JSON.stringify(woForm.labour_rates || {});
+        const notesChanged = (snap.notes || '') !== (woForm.notes || '');
+        const heavyKeys = ['contractor_id', 'scope_items', 'stages', 'additional_work', 'deductions'];
+        const heavyChanged = heavyKeys.some(k => JSON.stringify(snap[k]) !== JSON.stringify(woForm[k]));
+        if (ratesChanged && !heavyChanged) {
+          await axios.patch(`${API}/projects/${projectId}/work-orders/${editingWo.work_order_id}/labour-rates`, {
+            labour_rates: woForm.labour_rates,
+            ...(notesChanged ? { notes: woForm.notes } : {}),
+          });
+          toast.success('Labour rates updated');
+          setWoDialog(false);
+          fetchWorkOrders();
+          return;
+        }
+      }
+
       // Auto-derive one fixed-amount payment stage per Additional row.
       // Rule (per product owner): every Additional cost is its own locked
       // payment stage; user-defined % stages compute on Scope only — never on
