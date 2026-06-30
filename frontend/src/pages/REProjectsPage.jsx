@@ -340,8 +340,11 @@ export default function REProjectsPage({ embedded = false }) {
     }
   };
 
-  const canEdit = user?.role === 'planning' || user?.role === 'super_admin' || user?.role === 'general_manager';
-  const canApprove = user?.role === 'general_manager' || user?.role === 'super_admin';
+  // Feb 28 2026 — planning_person role must also be able to Edit /
+  // Start Work / Submit / Delete REs. Without this, the Planning Person
+  // logged in via /planning-board sees the cards but no action buttons.
+  const canEdit = ['planning', 'planning_person', 'super_admin', 'general_manager'].includes(user?.role);
+  const canApprove = ['general_manager', 'super_admin'].includes(user?.role);
   const canDelete = canEdit; // Same roles can delete
   const [changeLogs, setChangeLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
