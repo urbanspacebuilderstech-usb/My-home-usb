@@ -238,6 +238,9 @@ export default function CRMSales() {
   const [prospectDialog, setProspectDialog] = useState({ open: false, lead: null });
   // Quote-link state for the currently-open lead (Live / Expired chip + URL)
   const [quoteLink, setQuoteLink] = useState({ status: 'none', link: null });
+  // Feb 28 2026 — Planner name for the linked RE project (shown in the
+  // "RE Sent to Client" banner so Sales can see who prepared the estimate).
+  const [linkedREPlanner, setLinkedREPlanner] = useState('');
   const [quoteLinkLoading, setQuoteLinkLoading] = useState(false);
   // Regenerate-RE remarks dialog
   const [regenDialog, setRegenDialog] = useState({ open: false, lead: null });
@@ -895,11 +898,21 @@ export default function CRMSales() {
     setDetailTab('overview');
     setViewLeadDialog(true);
     setQuoteLink({ status: 'none', link: null });
+    setLinkedREPlanner('');
     // Fetch full lead detail
     try {
       const res = await axios.get(`${API}/crm/leads/${lead.lead_id}`);
       setLeadDetail(res.data);
       setSummary(res.data.summary || '');
+      // Feb 28 2026 — Pull the linked RE's planner name so the
+      // "RE Sent to Client" banner can show "Prepared by <name>".
+      const reId = res.data?.re_project_id || lead.re_project_id;
+      if (reId) {
+        try {
+          const reRes = await axios.get(`${API}/crm/re-projects/${reId}`);
+          setLinkedREPlanner(reRes.data?.prepared_by_name || '');
+        } catch { /* non-fatal */ }
+      }
     } catch {
       setLeadDetail(lead);
       setSummary(lead.summary || '');
@@ -2130,6 +2143,11 @@ export default function CRMSales() {
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-gray-800">RE Sent to Client — Awaiting Decision</p>
                           <p className="text-xs text-gray-600 mt-0.5">Share the public RE link, regenerate if revisions are needed, or record the client decision.</p>
+                          {linkedREPlanner && (
+                            <Badge className="mt-1 text-[10px] bg-indigo-50 text-indigo-700 border-indigo-200" data-testid="sales-banner-re-planner">
+                              Prepared by {linkedREPlanner} (Planning Person)
+                            </Badge>
+                          )}
                           {quoteLink?.link?.token && (
                             <div className="mt-2 flex items-center gap-2 flex-wrap">
                               <Badge className={`${quoteLink.status === 'expired' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'} border-0 text-[10px]`} data-testid="quote-link-status-chip">

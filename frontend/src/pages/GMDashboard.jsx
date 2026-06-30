@@ -731,6 +731,11 @@ const GMDashboard = () => {
                             </Badge>
                             <p className="font-semibold text-gray-900">{re.project_name || `RE - ${re.client_name}`}</p>
                             {getStatusBadge(re.status)}
+                            {re.prepared_by_name && (
+                              <Badge className="text-[10px] bg-indigo-50 text-indigo-700 border-indigo-200" data-testid={`gm-re-planner-${re.re_project_id}`}>
+                                {re.prepared_by_name} (Planning Person)
+                              </Badge>
+                            )}
                           </div>
                           <p className="text-sm text-gray-600">Client: {re.client_name}</p>
                           <p className="text-sm text-gray-500">Location: {re.location || '-'}</p>
