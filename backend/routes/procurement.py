@@ -3404,6 +3404,31 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
     projects = {p["project_id"]: p for p in await db.projects.find(
         {"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "name": 1}
     ).to_list(500)} if project_ids else {}
+
+    # Feb 28 2026 — Self-heal: when a material_request has no back-link to
+    # its material_expense mirror (causing the dialog to throw "Expense
+    # entry not yet mirrored…"), look up the mirror by source_request_id
+    # and patch the missing expense_id field both in the doc and in the
+    # response so Release Payment works immediately.
+    missing_links = [r for r in rows if not r.get("expense_id")]
+    if missing_links:
+        req_ids = [r["request_id"] for r in missing_links if r.get("request_id")]
+        mirrors = await db.material_expenses.find(
+            {"source_request_id": {"$in": req_ids}},
+            {"_id": 0, "expense_id": 1, "source_request_id": 1},
+        ).to_list(500)
+        mirror_map = {m["source_request_id"]: m["expense_id"] for m in mirrors if m.get("source_request_id")}
+        for r in missing_links:
+            mexp_id = mirror_map.get(r.get("request_id"))
+            if mexp_id:
+                r["expense_id"] = mexp_id
+                # Persist the back-link so subsequent fetches don't need
+                # to re-heal.
+                await db.material_requests.update_one(
+                    {"request_id": r["request_id"]},
+                    {"$set": {"expense_id": mexp_id}}
+                )
+
     for r in rows:
         r["project_name"] = (projects.get(r.get("project_id")) or {}).get("name", r.get("project_name") or "Unknown")
     return {"count": len(rows), "requests": rows}
