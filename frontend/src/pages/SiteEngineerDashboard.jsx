@@ -537,22 +537,28 @@ export default function SiteEngineerDashboard() {
     const totalAmount = validItems.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
     // Feb 28 2026 — Auto-distribute the expense total across the picked
     // buckets FIFO (in the order checked). User no longer enters amounts
-    // manually per bucket.
+    // Feb 28 2026 — Bucket picking is mandatory. Without a bucket link, the
+    // recorded_expense ends up with payment_mode='cash' by default, which
+    // creates confusion downstream in the Accountant Approve dialog and
+    // Cashbook. Force the SE to pick at least one petty cash bucket so the
+    // Mode of Payment is always explicit (HDFC Current / Savings / etc.).
     let computedSplits = [];
-    if (linkedPettyCashSplits.length > 0) {
-      const totalAvailable = linkedPettyCashSplits.reduce((s, x) => s + (x.max || 0), 0);
-      if (totalAmount > totalAvailable + 0.5) {
-        toast.error(`Expense ₹${totalAmount.toLocaleString('en-IN')} exceeds picked balance ₹${totalAvailable.toLocaleString('en-IN')}. Pick more buckets.`);
-        return;
-      }
-      let remaining = totalAmount;
-      for (const s of linkedPettyCashSplits) {
-        if (remaining <= 0) break;
-        const take = Math.min(remaining, s.max || 0);
-        if (take > 0) {
-          computedSplits.push({ petty_cash_id: s.petty_cash_id, amount: take });
-          remaining -= take;
-        }
+    if (linkedPettyCashSplits.length === 0) {
+      toast.error('Pick at least one Approved Petty Cash bucket before recording the expense.');
+      return;
+    }
+    const totalAvailable = linkedPettyCashSplits.reduce((s, x) => s + (x.max || 0), 0);
+    if (totalAmount > totalAvailable + 0.5) {
+      toast.error(`Expense ₹${totalAmount.toLocaleString('en-IN')} exceeds picked balance ₹${totalAvailable.toLocaleString('en-IN')}. Pick more buckets.`);
+      return;
+    }
+    let remaining = totalAmount;
+    for (const s of linkedPettyCashSplits) {
+      if (remaining <= 0) break;
+      const take = Math.min(remaining, s.max || 0);
+      if (take > 0) {
+        computedSplits.push({ petty_cash_id: s.petty_cash_id, amount: take });
+        remaining -= take;
       }
     }
     setDirectExpLoading(true);
