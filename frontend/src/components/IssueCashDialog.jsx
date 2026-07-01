@@ -108,12 +108,12 @@ export default function IssueCashDialog({
     try {
       await onSubmit({
         amount: Number(amount),
-        // Feb 28 2026 — In the "approve" variant the Mode of Payment is
-        // hidden, so we must NOT overwrite the recorded_expense's mode
-        // that was carried forward from the SE's picked petty cash (e.g.
-        // HDFC CURRENT). Sending payment_mode here would clobber it back
-        // to "cash" (the dialog's default state).
-        payment_mode: variant === 'approve' ? null : paymentMode,
+        // Feb 28 2026 — In the "approve" variant when the SE explicitly
+        // picked a non-cash bucket, we send null so the backend keeps the
+        // recorded_expense's original payment_mode (e.g., HDFC CURRENT).
+        // When the SE did NOT pick a bucket, the dropdown is shown and we
+        // send the accountant's picked mode.
+        payment_mode: (variant === 'approve' && inheritedIsExplicit) ? null : paymentMode,
         reference_number: refNum || null,
         bank_name: bankName || null,
         cheque_date: chequeDate || null,
@@ -127,10 +127,13 @@ export default function IssueCashDialog({
   };
 
   const isApprove = variant === 'approve';
-  // Feb 28 2026 — User asked to remove Mode of Payment from the
-  // "Approve Recorded Expense" flow. The accountant just confirms the
-  // amount + payment date and clicks Approve & Record.
-  const showPaymentMode = !isApprove;
+  // Feb 28 2026 — Only hide the dropdown when the SE explicitly picked a
+  // non-cash bucket (HDFC / Cheque / Suspense …). If the record came in with
+  // the default 'cash' mode (no bucket link), we still show the picker so the
+  // accountant can select the actual mode of payment instead of forcing it
+  // into a generic "Cash" bucket.
+  const inheritedIsExplicit = isApprove && inheritedPaymentMode && inheritedPaymentMode !== 'cash';
+  const showPaymentMode = !isApprove || !inheritedIsExplicit;
   const headerIcon = isApprove ? <CheckCircle className="h-5 w-5 text-emerald-700" /> : <Wallet className="h-5 w-5 text-emerald-700" />;
   const cta = isApprove ? 'Approve & Record' : 'Issue Cash';
 
@@ -157,8 +160,9 @@ export default function IssueCashDialog({
               data-testid="issue-cash-amount"
             />
             {/* Approve variant — show the SE's original bucket mode as
-                read-only info (no dropdown, no override). */}
-            {isApprove && inheritedPaymentMode && (
+                read-only info (no dropdown, no override) — ONLY when the SE
+                actually picked a non-cash bucket. */}
+            {inheritedIsExplicit && (
               <p className="mt-1.5 text-[11px] text-gray-600 flex items-center gap-1.5" data-testid="approve-inherited-mode">
                 <span className="text-gray-400">Mode:</span>
                 <span className="font-semibold text-emerald-700 uppercase">
