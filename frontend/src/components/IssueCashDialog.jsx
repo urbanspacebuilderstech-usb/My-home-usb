@@ -46,6 +46,7 @@ export default function IssueCashDialog({
   amountEditable = true,
   title,
   subtitle,
+  inheritedPaymentMode,  // approve variant: SE's original bucket mode, shown read-only
   onSubmit,
 }) {
   const [amount, setAmount] = useState(defaultAmount);
@@ -155,6 +156,16 @@ export default function IssueCashDialog({
               className="mt-1"
               data-testid="issue-cash-amount"
             />
+            {/* Approve variant — show the SE's original bucket mode as
+                read-only info (no dropdown, no override). */}
+            {isApprove && inheritedPaymentMode && (
+              <p className="mt-1.5 text-[11px] text-gray-600 flex items-center gap-1.5" data-testid="approve-inherited-mode">
+                <span className="text-gray-400">Mode:</span>
+                <span className="font-semibold text-emerald-700 uppercase">
+                  {(PAYMENT_MODES.find(m => m.value === inheritedPaymentMode)?.label) || String(inheritedPaymentMode).replace(/_/g, ' ')}
+                </span>
+              </p>
+            )}
           </div>
 
           {showPaymentMode && (

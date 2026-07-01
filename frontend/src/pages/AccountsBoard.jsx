@@ -4420,6 +4420,11 @@ function ApprovalsTab() {
             ? Number(issueDialog.item?.amount || 0)
             : Number(issueDialog.item?.amount_requested || issueDialog.item?.amount_issued || 0)
         }
+        inheritedPaymentMode={
+          issueDialog.kind === 'approve'
+            ? (issueDialog.item?.payment_mode || issueDialog.item?.payment_method)
+            : null
+        }
         title={issueDialog.kind === 'approve' ? 'Approve Recorded Expense' : 'Issue Petty Cash'}
         subtitle={
           issueDialog.kind === 'approve'
