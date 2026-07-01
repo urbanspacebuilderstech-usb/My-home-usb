@@ -7536,6 +7536,7 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             "amount": new_suspense_credit,
             "description": f"Excess from cheque(s) {', '.join(cheque_numbers_used)} on {req_type} bill ({request_id})",
             "linked_expense_id": primary_expense_id,
+            "linked_request_id": request_id,  # so pullback cleanup can match by parent bill id
             "linked_cheque_ids": cheque_ids_used_all,
             "created_at": now,
             "created_by": user.user_id,
