@@ -2,9 +2,10 @@ import { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Package, Eye, ArrowDownCircle, ArrowUpCircle, Clock } from 'lucide-react';
+import { Package, Eye, ArrowDownCircle, ArrowUpCircle, Clock, Search } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
@@ -29,6 +30,7 @@ export default function MaterialVendorPaymentSummary() {
   const [openVendor, setOpenVendor] = useState(null);
   const [ledger, setLedger] = useState([]);
   const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -53,12 +55,18 @@ export default function MaterialVendorPaymentSummary() {
     finally { setLedgerLoading(false); }
   };
 
-  const totals = useMemo(() => rows.reduce((acc, r) => ({
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(r => (r.vendor_name || '').toLowerCase().includes(q));
+  }, [rows, search]);
+
+  const totals = useMemo(() => filteredRows.reduce((acc, r) => ({
     total: acc.total + Number(r.total_value || 0),
     paid: acc.paid + Number(r.paid_amount || 0),
     pending: acc.pending + Number(r.pending_amount || 0),
     suspense: acc.suspense + Number(r.suspense_balance || 0),
-  }), { total: 0, paid: 0, pending: 0, suspense: 0 }), [rows]);
+  }), { total: 0, paid: 0, pending: 0, suspense: 0 }), [filteredRows]);
 
   return (
     <div className="space-y-3" data-testid="material-vendor-summary">
@@ -84,14 +92,28 @@ export default function MaterialVendorPaymentSummary() {
 
       <Card>
         <CardHeader className="p-3 pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Package className="h-4 w-4 text-blue-600" /> Material Vendor Payment Summary
-          </CardTitle>
-          <CardDescription className="text-[11px]">Cross-project material vendor payment & suspense overview · Accountant / Planning / Procurement / Super Admin only</CardDescription>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Package className="h-4 w-4 text-blue-600" /> Material Vendor Payment Summary
+              </CardTitle>
+              <CardDescription className="text-[11px]">Cross-project material vendor payment & suspense overview · Accountant / Planning / Procurement / Super Admin only</CardDescription>
+            </div>
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search vendor..."
+                className="h-8 pl-8 text-xs"
+                data-testid="mv-search"
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? <p className="text-center text-xs text-gray-400 py-8">Loading...</p>
-          : rows.length === 0 ? <p className="text-center text-xs text-gray-400 py-10">No material vendors yet</p>
+          : filteredRows.length === 0 ? <p className="text-center text-xs text-gray-400 py-10">{search ? `No vendor matches "${search}"` : 'No material vendors yet'}</p>
           : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -109,7 +131,7 @@ export default function MaterialVendorPaymentSummary() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {rows.map((r, i) => (
+                  {filteredRows.map((r, i) => (
                     <tr key={r._key || i} className="hover:bg-blue-50/40" data-testid={`mv-row-${i}`}>
                       <td className="px-3 py-2 text-center text-gray-500">{i + 1}</td>
                       <td className="px-3 py-2 font-medium text-gray-900">{r.vendor_name}</td>
@@ -121,11 +143,11 @@ export default function MaterialVendorPaymentSummary() {
                       <td className="px-3 py-2 text-right text-green-700 font-semibold">{fmt(r.paid_amount)}</td>
                       <td className="px-3 py-2 text-right text-blue-700">{fmt(r.pending_amount)}</td>
                       <td className="px-3 py-2 text-right font-bold" data-testid={`mv-suspense-${i}`}>
-                        <span className={Number(r.suspense_balance || 0) < 0 ? 'text-rose-700' : Number(r.suspense_balance || 0) > 0 ? 'text-amber-700' : 'text-gray-400'}>
+                        <span className={Number(r.suspense_balance || 0) < -0.5 ? 'text-rose-700' : Number(r.suspense_balance || 0) > 0.5 ? 'text-amber-700' : 'text-gray-400'}>
                           {fmt(r.suspense_balance)}
                         </span>
-                        {Number(r.suspense_balance || 0) < 0 && <p className="text-[9px] text-rose-600 font-normal mt-0.5">vendor owes</p>}
-                        {Number(r.suspense_balance || 0) > 0 && <p className="text-[9px] text-amber-600 font-normal mt-0.5">credit avl.</p>}
+                        {Number(r.suspense_balance || 0) < -0.5 && <p className="text-[9px] text-rose-600 font-normal mt-0.5">vendor owes</p>}
+                        {Number(r.suspense_balance || 0) > 0.5 && <p className="text-[9px] text-amber-600 font-normal mt-0.5">credit avl.</p>}
                       </td>
                       <td className="px-3 py-2 text-right">
                         <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 border-blue-300 text-blue-700 hover:bg-blue-50" onClick={() => openLedgerFor(r)} data-testid={`mv-ledger-btn-${i}`}>

@@ -11910,6 +11910,14 @@ async def labour_contractor_payment_summary(user: User = Depends(get_current_use
     work_orders = await db.project_work_orders.find({"is_active": {"$ne": False}}, {"_id": 0}).to_list(2000)
     proj_ids = list({wo.get("project_id") for wo in work_orders})
     projects = {p["project_id"]: p for p in await db.projects.find({"project_id": {"$in": proj_ids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(2000)}
+    # Load contractor master so we can hide inactive/deleted entries from the
+    # summary (they still linger in old work orders otherwise). Feb 28 2026.
+    inactive_contractors = await db.labour_contractors.find(
+        {"$or": [{"is_active": False}, {"is_deleted": True}, {"deleted": True}, {"status": "deleted"}]},
+        {"_id": 0, "contractor_id": 1, "name": 1},
+    ).to_list(500)
+    inactive_ids = {c.get("contractor_id") for c in inactive_contractors if c.get("contractor_id")}
+    inactive_names = {(c.get("name") or "").strip().lower() for c in inactive_contractors if c.get("name")}
 
     # Drop orphan work orders whose project no longer exists in db.projects.
     # These slip in when a project is hard-deleted but its work-order docs are
@@ -11922,6 +11930,11 @@ async def labour_contractor_payment_summary(user: User = Depends(get_current_use
     for wo in work_orders:
         cid = wo.get("contractor_id") or wo.get("contractor_name")
         if not cid:
+            continue
+        # Skip work orders belonging to deleted / inactive contractors.
+        if wo.get("contractor_id") in inactive_ids:
+            continue
+        if (wo.get("contractor_name") or "").strip().lower() in inactive_names and not wo.get("contractor_id"):
             continue
         bucket = by_contractor.setdefault(cid, {
             "contractor_id": wo.get("contractor_id"),

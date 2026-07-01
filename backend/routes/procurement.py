@@ -3867,11 +3867,25 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
         # balance — sum of signed amounts per vendor. Negative = vendor owes,
         # positive = we have credit with vendor.
         db.suspense_entries.find({"type": "material"}, {"_id": 0}).to_list(5000),
-        db.vendor_master.find({"category": {"$in": ["material", "Material", None]}}, {"_id": 0}).to_list(2000),
+        # Load ALL vendor_master docs — we need is_active flags for inactive
+        # filtering, not just material-tagged ones (some legacy vendors have
+        # no category set).
+        db.vendor_master.find({}, {"_id": 0}).to_list(2000),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(2000),
     )
     project_map = {p["project_id"]: p.get("name") for p in projects_list}
     vendor_meta = {v.get("vendor_id"): v for v in vendor_master_docs if v.get("vendor_id")}
+    # Names of inactive / deleted vendors — dedup against them at bucket time.
+    inactive_vendor_names = {
+        (v.get("name") or "").strip().lower()
+        for v in vendor_master_docs
+        if v.get("is_active") is False or v.get("is_deleted") or v.get("deleted") or v.get("status") == "deleted"
+    }
+    inactive_vendor_ids = {
+        v.get("vendor_id")
+        for v in vendor_master_docs
+        if v.get("vendor_id") and (v.get("is_active") is False or v.get("is_deleted") or v.get("deleted") or v.get("status") == "deleted")
+    }
 
     PENDING_REQ_STATUSES = {
         "planning_initial_pending", "procurement_verifying", "pending_accounts_approval",
@@ -4019,8 +4033,14 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
 
     rows = []
     for key, b in buckets.items():
+        # Skip vendors marked inactive/deleted in master.
+        name_lc = (b.get("vendor_name") or "").strip().lower()
+        if name_lc in inactive_vendor_names:
+            continue
+        if b.get("vendor_id") and b.get("vendor_id") in inactive_vendor_ids:
+            continue
         # Drop empty vendor rows with nothing to show (suspense can be negative)
-        if not (b["total_value"] or b["paid_amount"] or b["pending_amount"] or abs(b["suspense_balance"])):
+        if not (b["total_value"] or b["paid_amount"] or b["pending_amount"] or abs(b["suspense_balance"]) > 0.5):
             continue
         b["balance"] = b["total_value"] - b["paid_amount"]
         rows.append({**b, "_key": key})
