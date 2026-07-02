@@ -1834,22 +1834,31 @@ export default function SiteEngineerDashboard() {
                   <div className="overflow-x-auto border rounded-lg">
                     <table className="w-full text-sm" data-testid="income-history-table">
                       <thead><tr className="bg-gray-50 border-b">
-                        <th className="px-3 py-2 text-left font-medium text-gray-600 text-xs">Date</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-600 text-xs">Project</th>
+                        <th className="px-3 py-2 text-center font-medium text-gray-600 text-xs w-12">S.No</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600 text-xs whitespace-nowrap">Date</th>
                         <th className="px-3 py-2 text-left font-medium text-gray-600 text-xs">Purpose</th>
-                        <th className="px-3 py-2 text-right font-medium text-gray-600 text-xs">Amount</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-600 text-xs">Req Amount</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-600 text-xs">Spent</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-600 text-xs">Balance</th>
                         <th className="px-3 py-2 text-center font-medium text-gray-600 text-xs">Status</th>
                       </tr></thead>
                       <tbody>
-                        {incomeHistory.map(r => (
-                          <tr key={r.petty_cash_id} className="border-b hover:bg-gray-50">
-                            <td className="px-3 py-2 text-xs whitespace-nowrap">{new Date(r.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</td>
-                            <td className="px-3 py-2 text-xs">{r.project_name}</td>
-                            <td className="px-3 py-2 text-xs text-gray-600">{r.purpose}</td>
-                            <td className="px-3 py-2 text-xs text-right font-semibold text-green-700">₹{(r.amount_issued || 0).toLocaleString('en-IN')}</td>
-                            <td className="px-3 py-2 text-center">{getPettyCashStatusBadge(r.status)}</td>
-                          </tr>
-                        ))}
+                        {incomeHistory.map((r, idx) => {
+                          const req = Number(r.amount_issued || 0);
+                          const spent = Number(r.amount_spent || 0);
+                          const balance = req - spent;
+                          return (
+                            <tr key={r.petty_cash_id} className="border-b hover:bg-gray-50" data-testid={`income-row-${idx}`}>
+                              <td className="px-3 py-2 text-xs text-center text-gray-500">{idx + 1}</td>
+                              <td className="px-3 py-2 text-xs whitespace-nowrap">{new Date(r.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</td>
+                              <td className="px-3 py-2 text-xs text-gray-700">{r.purpose}</td>
+                              <td className="px-3 py-2 text-xs text-right font-semibold text-green-700">₹{req.toLocaleString('en-IN')}</td>
+                              <td className="px-3 py-2 text-xs text-right text-red-600">₹{spent.toLocaleString('en-IN')}</td>
+                              <td className="px-3 py-2 text-xs text-right font-semibold text-blue-700">₹{balance.toLocaleString('en-IN')}</td>
+                              <td className="px-3 py-2 text-center">{getPettyCashStatusBadge(r.status)}</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
