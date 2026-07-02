@@ -2555,7 +2555,11 @@ export default function SiteEngineerDashboard() {
                 const fmtMode = (m) => MODE_LABEL[m] || (m ? m.replace(/_/g, ' ').toUpperCase() : '—');
                 const available = (pettyCashList || []).filter(pc => {
                   const balance = (pc.amount_issued || 0) - (pc.amount_spent || 0);
-                  return pc.status === 'issued' && balance > 0;
+                  // Include both freshly issued buckets AND partially_spent
+                  // ones — after the SE records any expense, the bucket flips
+                  // to partially_spent but still has remaining balance the SE
+                  // can pick from for the next expense.
+                  return (pc.status === 'issued' || pc.status === 'partially_spent') && balance > 0;
                 });
                 if (available.length === 0) {
                   return (
