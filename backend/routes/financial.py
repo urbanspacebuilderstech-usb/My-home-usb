@@ -7241,8 +7241,12 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
 
     # All active CRE-opened incoming cheques that haven't been consumed yet.
     # Status sub-state (issued / received / post_dated / deposited) doesn't matter
-    # for picking — we only exclude terminally-resolved ones (bounced, cancelled, cleared).
-    _excluded_status = ["bounced", "cancelled", "cleared", "rejected"]
+    # for picking — we only exclude terminally-resolved / removed ones
+    # (bounced, cancelled, cleared, rejected, deleted, disabled).
+    # NOTE (Feb 28 2026): `deleted` was missing here — a soft-deleted cheque
+    # (which Cheque Management already hides) was leaking into this picker
+    # and showing up as pickable in the Pay & Settle dialog.
+    _excluded_status = ["bounced", "cancelled", "cleared", "rejected", "deleted", "disabled"]
     active_cheques = await db.cheques.find({
         "cheque_type": "incoming",
         "is_opened": True,
@@ -7397,6 +7401,8 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
                 cd = await db.cheques.find_one({"cheque_id": cid}, {"_id": 0})
                 if not cd:
                     raise HTTPException(status_code=404, detail=f"Cheque {cid} not found")
+                if cd.get("status") in ("deleted", "disabled", "cancelled", "bounced", "cleared", "rejected"):
+                    raise HTTPException(status_code=400, detail=f"Cheque {cd.get('cheque_number')} is {cd.get('status')} and cannot be used")
                 if not cd.get("is_opened"):
                     raise HTTPException(status_code=400, detail=f"Cheque {cd.get('cheque_number')} is not opened by CRE yet")
                 if cd.get("used_for_expense_id"):

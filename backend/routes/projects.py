@@ -11249,7 +11249,9 @@ async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str,
     # RAB release. Status filter aligned with the Material accountant flow.
     # 340 legacy cheques have no `is_opened` field at all → treat as locked
     # (the CRE open-cheque workflow was added later than these legacy rows).
-    _excluded_status = ["bounced", "cancelled", "cleared", "rejected"]
+    # Feb 28 2026 — also exclude `deleted` and `disabled` cheques (Cheque
+    # Management already hides them; they must never reappear as pickable).
+    _excluded_status = ["bounced", "cancelled", "cleared", "rejected", "deleted", "disabled"]
     active_cheques = await db.cheques.find({
         "cheque_type": "incoming",
         "is_opened": True,
@@ -11516,6 +11518,8 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         if len(docs) != len(all_cheque_ids):
             raise HTTPException(status_code=400, detail="One or more selected cheques not found")
         for ch in docs:
+            if ch.get("status") in ("deleted", "disabled", "cancelled", "bounced", "cleared", "rejected"):
+                raise HTTPException(status_code=400, detail=f"Cheque {ch.get('cheque_number')} is {ch.get('status')} and cannot be used")
             if ch.get("used_for_expense_id"):
                 raise HTTPException(status_code=400, detail=f"Cheque {ch.get('cheque_number')} already used")
             if not ch.get("is_opened"):

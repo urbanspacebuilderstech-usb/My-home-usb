@@ -13,6 +13,16 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 28, 2026 — Deleted-cheque leak into Pay & Settle picker
+- **Status**: 🟡 CODE READY (awaiting Save to GitHub + deploy).
+- **Bug (reported)**: A ₹10,00,000 SBI cheque #366935 for "Mr Gopinath - nanmangalam" appeared as pickable in the **Active** tab of the Material Pay & Settle dialog, but Cheque Management → **Opened** tab showed 0.
+- **Root cause**: Duplicate cheque numbers in DB — one row was `status='deleted'` but still had `is_opened=true` and no `used_for_expense_id`. The Pay & Settle picker's exclusion list was `["bounced","cancelled","cleared","rejected"]` — it did NOT exclude `deleted` or `disabled`. Cheque Management's `/accountant/cheques` endpoint already hides `deleted`, hence the divergence.
+- **Fix**:
+  - `backend/routes/financial.py::get_pay_context` (line 7245) — added `"deleted"` and `"disabled"` to `_excluded_status`.
+  - `backend/routes/financial.py::pay_approval` (leg-validation, line ~7404) — added defensive check that rejects any cheque with terminal status (`deleted/disabled/cancelled/bounced/cleared/rejected`).
+  - `backend/routes/projects.py` Labour picker (line 11252) — same exclusion list update.
+  - `backend/routes/projects.py::accountant_release_labour_payment` (line ~11521) — same defensive terminal-status guard.
+
 ### Session — Feb 28, 2026 — Pay & Settle Mode of Payment fix (Positive Suspense)
 - **Status**: ✅ DEPLOYED (commit `c3d31c55`).
 - **Bug**: A/C → Expense Approvals → Material Approvals → Release Payment was hiding the "Mode of Payment" dropdown for vendors with **positive** suspense credit. Auto-netting reduced Net Payable to ₹0 and the frontend suppressed the picker, forcing silent zero-value settlements.
