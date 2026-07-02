@@ -10952,17 +10952,49 @@ async def se_resubmit_labour_payment(project_id: str, work_order_id: str, stage_
 # CONTRACTOR SUSPENSE / EXTRA CREDIT — visible only to Accountant, Planning, Super Admin
 # =====================================================================
 async def _get_contractor_suspense_balance(contractor_id: str) -> float:
+    """Return the LIVE suspense balance for a contractor.
+
+    Feb 28 2026 — Rule change per user's request:
+    Only ledger entries whose `reference_id` (payment_request) still has a
+    LIVE labour `recorded_expense` are counted. `expense_delete_reversal` and
+    manual heal rows are excluded — they exist purely to compensate for
+    deleted expenses, and once we drop those deleted-expense debits, the
+    reversals must be dropped too (else we double-count).
+    """
     if not contractor_id:
         return 0.0
-    pipeline = [
-        {"$match": {"contractor_id": contractor_id}},
-        {"$group": {"_id": None, "credit": {"$sum": {"$cond": [{"$eq": ["$type", "credit"]}, "$amount", 0]}},
-                    "debit": {"$sum": {"$cond": [{"$eq": ["$type", "debit"]}, "$amount", 0]}}}},
-    ]
-    res = await db.contractor_suspense_ledger.aggregate(pipeline).to_list(1)
-    if not res:
-        return 0.0
-    return float(res[0].get("credit", 0)) - float(res[0].get("debit", 0))
+    # 1. Live payment_request IDs for this contractor from recorded_expenses.
+    live_pr_ids: set = set()
+    _EXCLUDED = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    async for exp in db.recorded_expenses.find(
+        {"category": "labour", "contractor_id": contractor_id},
+        {"_id": 0, "request_id": 1, "linked_request_ids": 1, "status": 1, "is_deleted": 1},
+    ):
+        if (exp.get("status") or "").lower() in _EXCLUDED:
+            continue
+        if exp.get("is_deleted"):
+            continue
+        if exp.get("request_id"):
+            live_pr_ids.add(exp["request_id"])
+        for pr in (exp.get("linked_request_ids") or []):
+            live_pr_ids.add(pr)
+    # 2. Sum ledger rows filtered by live reference_id.
+    total = 0.0
+    async for row in db.contractor_suspense_ledger.find(
+        {"contractor_id": contractor_id},
+        {"_id": 0, "amount": 1, "type": 1, "movement": 1, "source_type": 1, "reference_id": 1},
+    ):
+        st = (row.get("source_type") or "").lower()
+        # Skip pure compensation rows — they only exist to offset deleted debits.
+        if st.startswith("expense_delete_reversal") or st.startswith("susp_heal"):
+            continue
+        ref = row.get("reference_id")
+        if not ref or ref not in live_pr_ids:
+            continue  # orphan — its release expense no longer exists
+        amt = float(row.get("amount") or 0)
+        mv = (row.get("type") or row.get("movement") or "").lower()
+        total += amt if mv == "credit" else -amt
+    return total
 
 
 @router.get("/contractors/{contractor_id}/suspense")
@@ -12051,12 +12083,25 @@ async def labour_contractor_payment_ledger(contractor_id: str, user: User = Depe
     (work_orders, recorded_payments, suspense_entries) = await asyncio.gather(
         db.project_work_orders.find({"is_active": {"$ne": False}}, {"_id": 0}).to_list(2000),
         db.recorded_expenses.find({"category": "labour"}, {"_id": 0}).to_list(5000),
-        # Labour suspense lives in `contractor_suspense_ledger` (NOT
-        # `suspense_entries` — that's for material vendors). Each row has
-        # `type: credit | debit` and an unsigned `amount`. We normalise to a
-        # signed amount below when building the timeline.
+        # Labour suspense lives in `contractor_suspense_ledger`. We filter it
+        # further below (only entries whose reference_id → live expense).
         db.contractor_suspense_ledger.find({}, {"_id": 0}).to_list(5000),
     )
+
+    # Feb 28 2026 — Compute live payment_request IDs for THIS contractor from
+    # the labour recorded_expenses so we can drop orphan suspense rows whose
+    # underlying release-expense no longer exists.
+    _CTR_LIVE_PRS: set = set()
+    _EXCL_STATUS = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    for exp in recorded_payments:
+        if not _match_contractor(exp):
+            continue
+        if (exp.get("status") or "").lower() in _EXCL_STATUS or exp.get("is_deleted"):
+            continue
+        if exp.get("request_id"):
+            _CTR_LIVE_PRS.add(exp["request_id"])
+        for pr in (exp.get("linked_request_ids") or []):
+            _CTR_LIVE_PRS.add(pr)
 
     _EXCLUDED_EXPENSE_STATUSES = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
     timeline: List[Dict[str, Any]] = []
@@ -12118,10 +12163,16 @@ async def labour_contractor_payment_ledger(contractor_id: str, user: User = Depe
             continue
         if not _project_ok(se.get("project_id")):
             continue
+        # Feb 28 2026 — only show entries backed by a live recorded_expense.
+        st = (se.get("source_type") or "").lower()
+        if st.startswith("expense_delete_reversal") or st.startswith("susp_heal"):
+            continue
+        ref = se.get("reference_id")
+        if not ref or ref not in _CTR_LIVE_PRS:
+            continue
         # contractor_suspense_ledger rows have `type: credit | debit` (unsigned
         # amount). Convert to signed: credit = +ve (we owe contractor), debit
-        # = -ve (contractor spent from credit). Fall back to `movement` for
-        # legacy heal rows.
+        # = -ve (contractor spent from credit).
         raw_type = (se.get("type") or se.get("movement") or "").lower()
         raw_amt = float(se.get("amount") or 0)
         signed = raw_amt if raw_type == "credit" else -raw_amt

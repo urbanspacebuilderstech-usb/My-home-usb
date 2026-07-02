@@ -4033,11 +4033,26 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
         })
 
     # --- suspense_entries (live Pay & Settle balance — signed) ---
+    # Feb 28 2026 — Only count suspense whose linked recorded_expense is still
+    # LIVE (not deleted/rejected). Build the live set once from
+    # recorded_payments already loaded above.
+    _EXCL_STATUS = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    _live_expense_ids = {
+        (rx.get("expense_id") or "")
+        for rx in recorded_payments
+        if rx.get("expense_id")
+        and (rx.get("status") or "").lower() not in _EXCL_STATUS
+        and not rx.get("is_deleted")
+    }
     for se in suspense_entries:
         if not se.get("vendor_name"):
             continue
         pid = se.get("project_id")
         if pid and pid not in live_project_ids:
+            continue
+        # Skip suspense whose linked expense no longer exists in the Cashbook.
+        linked = se.get("linked_expense_id") or se.get("expense_id")
+        if linked and linked not in _live_expense_ids:
             continue
         b, key = _ensure(None, se.get("vendor_name"))
         amt = float(se.get("amount") or 0)
@@ -4179,8 +4194,21 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
             "due_date": vc.get("due_date"),
             "notes": f"Credit purchase — due {vc.get('due_date', '—')[:10] if vc.get('due_date') else '—'}",
         })
+    # Feb 28 2026 — Same live-expense filter as summary: skip suspense whose
+    # linked expense is missing/deleted.
+    _EXCL_STATUS_L = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    _live_expense_ids_l = {
+        rx.get("expense_id")
+        for rx in recorded_payments
+        if rx.get("expense_id")
+        and (rx.get("status") or "").lower() not in _EXCL_STATUS_L
+        and not rx.get("is_deleted")
+    }
     for se in suspense_entries:
         if not _matches(se) or not _project_ok(se):
+            continue
+        linked = se.get("linked_expense_id") or se.get("expense_id")
+        if linked and linked not in _live_expense_ids_l:
             continue
         timeline.append({
             "date": se.get("created_at"),

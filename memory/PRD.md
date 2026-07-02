@@ -13,6 +13,16 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 28, 2026 — Suspense visibility rule: "only live-expense-backed"
+- **Status**: 🟡 CODE READY (awaiting Save to GitHub + deploy).
+- **User rule**: Only ledger rows whose underlying `recorded_expense` is still LIVE (not deleted / rejected / bounced) should be counted in Contractor Summary + Material Vendor summary. Pure compensating rows (`expense_delete_reversal`, `susp_heal_*`) are dropped.
+- **Impact example** — Appala Naidu had 0 labour expenses in `recorded_expenses`, so all 21 orphan ledger rows are now filtered out → suspense drops from ₹2,34,328 to ₹0. Across the DB there were 5 `cheque_excess` credits (₹5,32,053), 9 `release` debits (₹1,46,097), 7 `expense_delete_reversal` credits (₹1,16,728) — most orphaned.
+- **Fix**:
+  - `backend/routes/projects.py::_get_contractor_suspense_balance` — rewritten to first build `live_pr_ids` from labour `recorded_expenses` (`request_id` + `linked_request_ids`), then sum only ledger rows where `reference_id ∈ live_pr_ids`. Excludes `expense_delete_reversal` and `susp_heal_*` source types.
+  - `backend/routes/projects.py::labour_contractor_payment_ledger` — same filter applied to the timeline view.
+  - `backend/routes/procurement.py::material_vendor_payments_summary` — added live-expense filter on `suspense_entries` via `linked_expense_id`.
+  - `backend/routes/procurement.py::material_vendor_payment_ledger` — same filter on the ledger timeline.
+
 ### Session — Feb 28, 2026 — Contractor Summary Timeline + Paid accuracy
 - **Status**: 🟡 CODE READY (awaiting Save to GitHub + deploy).
 - **Problem**: (1) Clicking "View" on Contractor Summary opened only a "Suspense Ledger" that showed just suspense entries — no work orders, payments or pending requests visible for accountants to verify. (2) `paid_amount` on the summary trusted `wo.paid_amount` cache which can drift after cheque bounces / reversals.
