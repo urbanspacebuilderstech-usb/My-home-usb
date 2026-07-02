@@ -487,6 +487,42 @@ async def create_allocated_indirect_cost(data: AllocatedIndirectCostCreate, user
             project_name=name_map.get(a.project_id, ""),
             source="indirect_cost",
         )
+        # Feb 28 2026 — Mirror to recorded_expenses so the entry surfaces in
+        # Accounts → Cashbook → Expense (Other category). Cashbook reads
+        # exclusively from recorded_expenses / labour_expenses / material_*,
+        # so without this mirror the indirect cost only shows up on the
+        # Expense Split screen and never lands in the general cashbook.
+        await db.recorded_expenses.insert_one({
+            "expense_id": f"exp_{uuid.uuid4().hex[:12]}",
+            "project_id": a.project_id,
+            "project_name": name_map.get(a.project_id, ""),
+            "category": "other",
+            "expense_type": "indirect_cost",
+            "top_category_id": data.top_category_id,
+            "top_category_name": top.get("name"),
+            "sub_category_id": data.sub_category_id,
+            "sub_category_name": sub_name,
+            "sub_sub_category_id": data.sub_sub_category_id,
+            "sub_sub_category_name": sub_sub_name,
+            "description": data.description,
+            "amount": float(a.amount),
+            "payment_method": data.payment_method,
+            "payment_mode": data.payment_method,
+            "reference_number": data.reference_number,
+            "vendor_name": data.vendor_name,
+            "invoice_number": data.invoice_number,
+            "remarks": data.remarks,
+            "status": "approved",
+            "source": "indirect_cost",
+            "indirect_cost_id": cost_id,
+            "allocation_id": alloc_doc["allocation_id"],
+            "recorded_by": user.user_id,
+            "recorded_by_name": user.name,
+            "approved_by": user.user_id,
+            "approved_by_name": user.name,
+            "approved_at": now,
+            "created_at": now,
+        })
 
     if alloc_docs:
         await db.indirect_cost_allocations.insert_many(alloc_docs)
