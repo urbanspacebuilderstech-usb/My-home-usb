@@ -7268,8 +7268,15 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
         if pid:
             ch["project_name"] = project_cache.get(pid) or ch.get("project_name")
 
-    payable = max(0.0, bill_amount - max(0.0, existing_suspense))
-    credit_used = min(max(0.0, existing_suspense), bill_amount)
+    # Feb 28 2026 — User asked to STOP auto-netting vendor suspense (positive
+    # OR negative) against the bill. Net Payable now always equals the bill
+    # amount minus what's been directly paid — vendor suspense stays visible
+    # as a separate signed balance and never silently reduces the amount due.
+    # This keeps the Mode of Payment picker visible on every Pay & Settle
+    # dialog, and lets the accountant explicitly decide whether/how to
+    # reconcile the suspense later.
+    payable = max(0.0, bill_amount)
+    credit_used = 0.0
 
     # Partial payment continuation — if the request already has paid_amount from
     # a prior partial settlement, the remaining payable shrinks accordingly and
@@ -7331,29 +7338,17 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     already_paid = float(req.get("paid_amount") or 0)
     is_continuation = already_paid > 0 and req.get("status") == "partially_paid"
 
-    # 1. Existing suspense balance — only auto-apply on the FIRST payment call.
-    # On continuation (partial) payments, the original suspense was already
-    # consumed during the first call so we don't re-apply.
+    # Feb 28 2026 — Auto-netting of vendor suspense (positive OR negative)
+    # against the bill has been disabled at the user's request. Net Payable
+    # now equals bill_amount minus what's already been paid. The vendor's
+    # signed suspense balance stays visible on the ledger and can be
+    # reconciled explicitly later. This keeps the Mode of Payment picker
+    # visible on every Pay & Settle dialog even when the vendor is in credit.
     existing_suspense = 0.0
     credit_used = 0.0
-    if not is_continuation:
-        suspense_query = {"type": suspense_type}
-        if suspense_type == "material":
-            suspense_query["vendor_name"] = vendor_name
-        elif suspense_type == "labour":
-            suspense_query["contractor_name"] = vendor_name
-        else:
-            se_id = req.get("requested_by") or req.get("site_engineer_id")
-            if se_id:
-                suspense_query["site_engineer_id"] = se_id
-            else:
-                suspense_query["vendor_name"] = vendor_name
-        sus_entries = await db.suspense_entries.find(suspense_query, {"_id": 0}).to_list(1000)
-        existing_suspense = sum(float(e.get("amount", 0) or 0) for e in sus_entries)
-        credit_used = min(max(0.0, existing_suspense), bill_amount)
 
-    # Net payable after suspense credit + prior partial payments
-    payable = max(0.0, bill_amount - credit_used - already_paid)
+    # Net payable = bill amount minus prior partial payments (no suspense netting)
+    payable = max(0.0, bill_amount - already_paid)
 
     # 2. Normalize input → list of legs.
     # Fast-path: if there's nothing to pay (suspense fully covered the bill),
