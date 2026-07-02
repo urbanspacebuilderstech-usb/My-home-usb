@@ -2926,8 +2926,15 @@ async def get_petty_cash_summary(user: User = Depends(get_current_user)):
     all_pc = await db.petty_cash.find(query, {"_id": 0}).to_list(500)
     direct_expenses = await db.direct_expenses.find({"recorded_by": user.user_id} if user.role not in [UserRole.SUPER_ADMIN] else {}, {"_id": 0}).to_list(500)
 
-    total_cash_in_hand = sum(pc.get("amount_issued", 0) - pc.get("amount_spent", 0) for pc in all_pc if pc.get("status") in ["acknowledged", "issued", "partially_spent"])
-    total_expenses = sum(sum(item.get("amount", 0) for item in de.get("items", [])) for de in direct_expenses)
+    # Feb 28 2026 — Cash in Hand = total ever issued across active buckets
+    # (not net of spent). The frontend computes BALANCE = Cash in Hand -
+    # Expenses, so subtracting spent here caused Balance to always end up
+    # near 0 (double-subtraction). Expenses is the source-of-truth spent
+    # figure derived from petty_cash.amount_spent, which mirrors every
+    # bucketed direct_expense the SE has submitted.
+    active_pc = [pc for pc in all_pc if pc.get("status") in ["acknowledged", "issued", "partially_spent", "settled", "payment_done"]]
+    total_cash_in_hand = sum(pc.get("amount_issued", 0) or 0 for pc in active_pc)
+    total_expenses = sum(pc.get("amount_spent", 0) or 0 for pc in active_pc)
     pending_requests = len([pc for pc in all_pc if pc.get("status") in ["requested"]])
     waiting_approval = len([pc for pc in all_pc if pc.get("status") in ["pm_approved", "accountant_processing"]])
 
