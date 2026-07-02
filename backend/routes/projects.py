@@ -12051,7 +12051,11 @@ async def labour_contractor_payment_ledger(contractor_id: str, user: User = Depe
     (work_orders, recorded_payments, suspense_entries) = await asyncio.gather(
         db.project_work_orders.find({"is_active": {"$ne": False}}, {"_id": 0}).to_list(2000),
         db.recorded_expenses.find({"category": "labour"}, {"_id": 0}).to_list(5000),
-        db.suspense_entries.find({"type": "labour"}, {"_id": 0}).to_list(2000),
+        # Labour suspense lives in `contractor_suspense_ledger` (NOT
+        # `suspense_entries` — that's for material vendors). Each row has
+        # `type: credit | debit` and an unsigned `amount`. We normalise to a
+        # signed amount below when building the timeline.
+        db.contractor_suspense_ledger.find({}, {"_id": 0}).to_list(5000),
     )
 
     _EXCLUDED_EXPENSE_STATUSES = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
@@ -12114,16 +12118,22 @@ async def labour_contractor_payment_ledger(contractor_id: str, user: User = Depe
             continue
         if not _project_ok(se.get("project_id")):
             continue
-        amt = float(se.get("amount") or 0)
+        # contractor_suspense_ledger rows have `type: credit | debit` (unsigned
+        # amount). Convert to signed: credit = +ve (we owe contractor), debit
+        # = -ve (contractor spent from credit). Fall back to `movement` for
+        # legacy heal rows.
+        raw_type = (se.get("type") or se.get("movement") or "").lower()
+        raw_amt = float(se.get("amount") or 0)
+        signed = raw_amt if raw_type == "credit" else -raw_amt
         timeline.append({
-            "date": se.get("created_at"),
+            "date": se.get("date") or se.get("created_at"),
             "type": "suspense",
-            "source_type": "suspense_entry",
-            "amount": amt,
+            "source_type": se.get("source_type") or "suspense_entry",
+            "amount": signed,
             "project": project_map.get(se.get("project_id"), "") or se.get("project_name", ""),
-            "status": se.get("status"),
-            "notes": se.get("description") or ("Suspense " + ("credit" if amt >= 0 else "debit")),
-            "reference": se.get("cheque_number"),
+            "status": raw_type,
+            "notes": se.get("notes") or se.get("description") or se.get("remarks") or ("Suspense " + raw_type),
+            "reference": se.get("cheque_no") or se.get("reference_id") or se.get("ledger_id"),
         })
 
     timeline.sort(key=lambda l: (l.get("date") or ""), reverse=True)
