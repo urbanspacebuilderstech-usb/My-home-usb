@@ -13,6 +13,15 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 28, 2026 — Contractor/Vendor Summary leak from soft-deleted projects
+- **Status**: 🟡 CODE READY (awaiting Save to GitHub + deploy).
+- **Bug (reported)**: Labour Payments → Contractor Summary was showing entries for projects that had been deleted (`Swathi 60L G+2`, `Mani Demo Project - Onbording`). DB verified both have `is_deleted: true` + `deleted_at`.
+- **Root cause**: `labour_contractor_payment_summary` and `material_vendor_payments_summary` both fetched `db.projects.find({})` without filtering `is_deleted`, so soft-deleted projects stayed in `live_project_ids` and their work orders / material rows kept surfacing.
+- **Fix**:
+  - `backend/routes/projects.py::labour_contractor_payment_summary` (line 11916) — added `is_deleted/deleted/status='deleted'` exclusion on the projects fetch. Existing "drop WOs whose project_id ∉ live_pids" clause now correctly removes soft-deleted rows.
+  - `backend/routes/procurement.py::material_vendor_payments_summary` (line 3874) — same exclusion + explicit `if pid and pid not in live_project_ids: continue` guards on every source loop (`material_requests`, `material_expenses`, `recorded_payments`, `vendor_credit_ledger`, `suspense_entries`).
+  - `backend/routes/procurement.py::material_vendor_payment_ledger` (line 4105) — same exclusion + `_project_ok()` helper applied to each timeline source.
+
 ### Session — Feb 28, 2026 — Deleted-cheque leak into Pay & Settle picker
 - **Status**: 🟡 CODE READY (awaiting Save to GitHub + deploy).
 - **Bug (reported)**: A ₹10,00,000 SBI cheque #366935 for "Mr Gopinath - nanmangalam" appeared as pickable in the **Active** tab of the Material Pay & Settle dialog, but Cheque Management → **Opened** tab showed 0.

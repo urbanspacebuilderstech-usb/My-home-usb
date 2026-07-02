@@ -3871,9 +3871,20 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
         # filtering, not just material-tagged ones (some legacy vendors have
         # no category set).
         db.vendor_master.find({}, {"_id": 0}).to_list(2000),
-        db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(2000),
+        # Feb 28 2026 — exclude soft-deleted projects so their vendor entries
+        # disappear from the Material Vendor summary (mirror of the labour
+        # contractor fix).
+        db.projects.find(
+            {
+                "is_deleted": {"$ne": True},
+                "deleted": {"$ne": True},
+                "status": {"$ne": "deleted"},
+            },
+            {"_id": 0, "project_id": 1, "name": 1},
+        ).to_list(2000),
     )
     project_map = {p["project_id"]: p.get("name") for p in projects_list}
+    live_project_ids = set(project_map.keys())
     vendor_meta = {v.get("vendor_id"): v for v in vendor_master_docs if v.get("vendor_id")}
     # Names of inactive / deleted vendors — dedup against them at bucket time.
     inactive_vendor_names = {
@@ -3917,6 +3928,9 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
 
     # --- material_requests (current procurement flow) ---
     for mr in material_requests:
+        pid = mr.get("project_id")
+        if pid and pid not in live_project_ids:
+            continue  # skip rows tied to soft-deleted projects
         b, key = _ensure(mr.get("vendor_id"), mr.get("vendor_name"))
         amt = float(mr.get("final_price") or mr.get("estimated_price") or 0)
         status = (mr.get("status") or "").lower()
@@ -3945,6 +3959,9 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
         # material_request to avoid double-counting in totals + timeline.
         if me.get("source_request_id"):
             continue
+        pid = me.get("project_id")
+        if pid and pid not in live_project_ids:
+            continue
         b, key = _ensure(me.get("vendor_id"), me.get("vendor_name"))
         amt = float(me.get("final_amount") or me.get("amount") or 0)
         status = (me.get("status") or "").lower()
@@ -3969,6 +3986,9 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
 
     # --- recorded_expenses (paid leg) ---
     for rx in recorded_payments:
+        pid = rx.get("project_id")
+        if pid and pid not in live_project_ids:
+            continue
         b, key = _ensure(rx.get("vendor_id"), rx.get("vendor_name"))
         amt = float(rx.get("amount") or 0)
         b["paid_amount"] += amt
@@ -3989,6 +4009,9 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
 
     # --- vendor_credit_ledger (suspense) ---
     for vc in vendor_credits:
+        pid = vc.get("project_id")
+        if pid and pid not in live_project_ids:
+            continue
         b, key = _ensure(vc.get("vendor_id"), vc.get("vendor_name"))
         outstanding = float(vc.get("balance") if vc.get("balance") is not None else (vc.get("amount") or 0))
         status = (vc.get("status") or "").lower()
@@ -4012,6 +4035,9 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
     # --- suspense_entries (live Pay & Settle balance — signed) ---
     for se in suspense_entries:
         if not se.get("vendor_name"):
+            continue
+        pid = se.get("project_id")
+        if pid and pid not in live_project_ids:
             continue
         b, key = _ensure(None, se.get("vendor_name"))
         amt = float(se.get("amount") or 0)
@@ -4076,13 +4102,28 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
         db.recorded_expenses.find({"category": "material"}, {"_id": 0}).to_list(5000),
         db.vendor_credit_ledger.find({}, {"_id": 0}).to_list(2000),
         db.suspense_entries.find({"type": "material"}, {"_id": 0}).to_list(5000),
-        db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(2000),
+        # Feb 28 2026 — same soft-deleted project filter as the summary
+        # endpoint so a vendor's ledger doesn't show entries from projects
+        # that no longer exist.
+        db.projects.find(
+            {
+                "is_deleted": {"$ne": True},
+                "deleted": {"$ne": True},
+                "status": {"$ne": "deleted"},
+            },
+            {"_id": 0, "project_id": 1, "name": 1},
+        ).to_list(2000),
     )
     pmap = {p["project_id"]: p.get("name") for p in projects_list}
+    live_project_ids = set(pmap.keys())
+
+    def _project_ok(doc):
+        pid = doc.get("project_id")
+        return not pid or pid in live_project_ids
 
     timeline: List[Dict[str, Any]] = []
     for mr in material_requests:
-        if not _matches(mr):
+        if not _matches(mr) or not _project_ok(mr):
             continue
         timeline.append({
             "date": mr.get("created_at"),
@@ -4097,7 +4138,7 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
     for me in material_exps_legacy:
         if me.get("source_request_id"):
             continue  # mirror of material_request — skip to avoid duplicates
-        if not _matches(me):
+        if not _matches(me) or not _project_ok(me):
             continue
         timeline.append({
             "date": me.get("created_at"),
@@ -4110,7 +4151,7 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
             "notes": f"{me.get('material_name', 'Material')} PO — {me.get('status', '')}",
         })
     for rx in recorded_payments:
-        if not _matches(rx):
+        if not _matches(rx) or not _project_ok(rx):
             continue
         timeline.append({
             "date": rx.get("created_at"),
@@ -4125,7 +4166,7 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
             "notes": rx.get("description") or "Vendor payment",
         })
     for vc in vendor_credits:
-        if not _matches(vc):
+        if not _matches(vc) or not _project_ok(vc):
             continue
         timeline.append({
             "date": vc.get("created_at") or vc.get("delivered_at"),
@@ -4139,7 +4180,7 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
             "notes": f"Credit purchase — due {vc.get('due_date', '—')[:10] if vc.get('due_date') else '—'}",
         })
     for se in suspense_entries:
-        if not _matches(se):
+        if not _matches(se) or not _project_ok(se):
             continue
         timeline.append({
             "date": se.get("created_at"),

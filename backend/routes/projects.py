@@ -11913,7 +11913,23 @@ async def labour_contractor_payment_summary(user: User = Depends(get_current_use
 
     work_orders = await db.project_work_orders.find({"is_active": {"$ne": False}}, {"_id": 0}).to_list(2000)
     proj_ids = list({wo.get("project_id") for wo in work_orders})
-    projects = {p["project_id"]: p for p in await db.projects.find({"project_id": {"$in": proj_ids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(2000)}
+    # Feb 28 2026 — exclude soft-deleted projects (is_deleted=true) so their
+    # work-order rows disappear from Contractor Summary. Previously the query
+    # returned every project regardless of delete state, letting rows like
+    # "Swathi 60L G+2" and "Mani Demo Project - Onbording" persist after
+    # deletion.
+    projects = {
+        p["project_id"]: p
+        for p in await db.projects.find(
+            {
+                "project_id": {"$in": proj_ids},
+                "is_deleted": {"$ne": True},
+                "deleted": {"$ne": True},
+                "status": {"$ne": "deleted"},
+            },
+            {"_id": 0, "project_id": 1, "name": 1},
+        ).to_list(2000)
+    }
     # Load contractor master so we can hide inactive/deleted entries from the
     # summary (they still linger in old work orders otherwise). Feb 28 2026.
     inactive_contractors = await db.labour_contractors.find(
