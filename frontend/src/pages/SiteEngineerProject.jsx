@@ -1831,10 +1831,12 @@ export default function SiteEngineerProject() {
                                 <th className="text-left px-3 py-2 font-medium text-gray-600">Material</th>
                                 <th className="text-center px-2 py-2 font-medium text-gray-600">Unit</th>
                                 <th className="text-center px-2 py-2 font-medium text-blue-700">Current Stock</th>
+                                <th className="text-right px-2 py-2 font-medium text-blue-700">Stock Amount</th>
                                 <th className="text-center px-2 py-2 font-medium text-green-700">Last In At</th>
                                 <th className="text-center px-2 py-2 font-medium text-red-700">Last Out At</th>
                                 <th className="text-center px-2 py-2 font-medium text-green-700">Total Received</th>
                                 <th className="text-center px-2 py-2 font-medium text-red-700">Total Used</th>
+                                <th className="text-right px-2 py-2 font-medium text-red-700">Out Amount</th>
                                 <th className="text-center px-2 py-2 font-medium text-amber-700">Min</th>
                                 <th className="text-center px-2 py-2 font-medium text-gray-600">Status</th>
                                 <th className="text-center px-2 py-2 font-medium text-gray-600">Action</th>
@@ -1856,10 +1858,16 @@ export default function SiteEngineerProject() {
                                   <td className="px-3 py-2 font-medium">{m.material_name}</td>
                                   <td className="px-2 py-2 text-center text-gray-500">{m.unit}</td>
                                   <td className={`px-2 py-2 text-center font-bold ${m.is_low_stock ? 'text-red-700' : 'text-blue-700'}`}>{m.current_stock}</td>
+                                  <td className="px-2 py-2 text-right font-semibold text-blue-700 whitespace-nowrap" data-testid={`inv-stock-amount-${m.material_name}`}>
+                                    ₹{Number(m.current_stock_amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                  </td>
                                   <td className="px-2 py-2 text-center text-gray-600 whitespace-nowrap">{fmtAt(m.last_in_at)}</td>
                                   <td className="px-2 py-2 text-center text-gray-600 whitespace-nowrap">{fmtAt(m.last_out_at)}</td>
                                   <td className="px-2 py-2 text-center text-green-700">{m.total_received}</td>
                                   <td className="px-2 py-2 text-center text-red-600">{m.total_used}</td>
+                                  <td className="px-2 py-2 text-right font-semibold text-red-600 whitespace-nowrap" data-testid={`inv-out-amount-${m.material_name}`}>
+                                    ₹{Number(m.stock_out_amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                  </td>
                                   <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
                                     <Input
                                       type="number" min="0"

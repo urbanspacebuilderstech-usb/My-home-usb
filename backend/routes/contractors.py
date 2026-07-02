@@ -638,6 +638,32 @@ async def get_inventory_dashboard(
     ]
     results = await db.material_inventory.aggregate(pipeline).to_list(500)
 
+    # Feb 28 2026 — Compute per-material average unit cost from approved
+    # material_requests / material_expenses in this project so we can surface
+    # "Current Stock Amount" (current_stock × avg unit cost) and "Stock Out
+    # Amount" (total_used × avg unit cost) alongside the qty numbers.
+    price_pipeline = [
+        {"$match": {"project_id": project_id}},
+        {"$group": {
+            "_id": "$material_name",
+            "total_value": {"$sum": {"$ifNull": ["$final_price", {"$ifNull": ["$estimated_price", 0]}]}},
+            "total_qty": {"$sum": {"$ifNull": ["$quantity", 0]}},
+        }},
+    ]
+    price_map: Dict[str, float] = {}
+    for src_coll in ("material_requests", "material_expenses"):
+        rows = await getattr(db, src_coll).aggregate(price_pipeline).to_list(500)
+        for row in rows:
+            name = row.get("_id")
+            qty = float(row.get("total_qty") or 0)
+            val = float(row.get("total_value") or 0)
+            if not name or qty <= 0:
+                continue
+            unit = val / qty if qty > 0 else 0
+            # Prefer material_requests (more current) over legacy material_expenses.
+            if src_coll == "material_requests" or name not in price_map:
+                price_map[name] = unit
+
     # Get thresholds
     thresholds = {}
     threshold_docs = await db.inventory_thresholds.find({"project_id": project_id}, {"_id": 0}).to_list(500)
@@ -657,6 +683,9 @@ async def get_inventory_dashboard(
         is_low = closing <= threshold and threshold > 0
         if is_low:
             low_stock_count += 1
+        unit_cost = float(price_map.get(material_name, 0) or 0)
+        stock_qty = float(closing or 0)
+        used_qty = float(r.get("total_used", 0) or latest.get("total_used", 0) or 0)
         materials.append({
             "material_name": material_name,
             "unit": latest.get("unit", ""),
@@ -669,6 +698,9 @@ async def get_inventory_dashboard(
             "min_threshold": threshold,
             "is_low_stock": is_low,
             "entry_count": r.get("entry_count", 0),
+            "unit_cost": unit_cost,
+            "current_stock_amount": round(stock_qty * unit_cost, 2),
+            "stock_out_amount": round(used_qty * unit_cost, 2),
         })
 
     materials.sort(key=lambda x: (not x["is_low_stock"], x["material_name"]))
