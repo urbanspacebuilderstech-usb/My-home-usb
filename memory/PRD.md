@@ -13,6 +13,15 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 28, 2026 — Pay & Settle Mode of Payment fix (Positive Suspense)
+- **Status**: ✅ DEPLOYED (commit `c3d31c55`).
+- **Bug**: A/C → Expense Approvals → Material Approvals → Release Payment was hiding the "Mode of Payment" dropdown for vendors with **positive** suspense credit. Auto-netting reduced Net Payable to ₹0 and the frontend suppressed the picker, forcing silent zero-value settlements.
+- **Fix (`backend/routes/financial.py`)**:
+  - `get_pay_context` (line 7268-7279): removed `payable = bill - suspense` / `credit_used = min(suspense, bill)` — now `payable = bill_amount` and `credit_used = 0.0`.
+  - `pay_approval` (line 7341-7351): matching change — vendor suspense balance is no longer auto-consumed during release. `payable = bill_amount - already_paid` only.
+- **Behavior**: Vendor suspense (positive or negative) stays visible on the ledger as an informational balance. Accountant must explicitly reconcile via a suspense-only release when desired. Mode of Payment picker is always visible.
+
+
 ### Session — Feb 26, 2026 (Round 3) — Cashbook Mode Drilldown UX Cleanup
 - **Status**: ✅ Local (preview verified). Pending VPS deploy.
 - **Mode drilldown polish (Cash / HDFC Current / HDFC Savings / Cheque / Cash DT)**:
