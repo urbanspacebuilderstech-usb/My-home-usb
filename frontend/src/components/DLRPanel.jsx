@@ -143,7 +143,7 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
     if (!validEntries.length) { toast.error('Enter worker count for at least one type'); return; }
     if (!form.date) { toast.error('Select a date'); return; }
     if (!form.stage_id) { toast.error('Select Current Project Stage'); return; }
-    if (!form.work_summary?.trim()) { toast.error('Work Summary is required'); return; }
+    if (!form.stage_id) { toast.error('Current Project Stage is required'); return; }
 
     // Check rates are set
     const missingRates = validEntries.filter(r => !Number(r.rate_per_day));
