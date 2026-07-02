@@ -2519,7 +2519,7 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, workOrders,
     if (!valid.length) { toast.error('Enter worker count for at least one type'); return; }
     if (!date) { toast.error('Select a date'); return; }
     if (!stageId) { toast.error('Select Current Project Stage'); return; }
-    // Feb 28 2026 — Work Summary is optional; SE can Add DPR later via row button.
+    if (!workSummary.trim()) { toast.error('Work Summary is required'); return; }
     // Client-side DLR Date Module enforcement (backend re-validates).
     if (dlrDateMode === 'ontime' && date !== today) {
       toast.error('DLR can only be recorded for today\'s date.'); return;

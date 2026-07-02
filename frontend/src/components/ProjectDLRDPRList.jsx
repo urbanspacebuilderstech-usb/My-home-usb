@@ -57,7 +57,7 @@ const ProjectDLRDPRList = ({ projectId }) => {
   useEffect(() => { fetchEntries(); /* eslint-disable-next-line */ }, [projectId, dateFrom, dateTo]);
 
   const openDprDialog = (entry) => {
-    setDprDialog({ open: true, entry, summary: entry.work_summary || '', saving: false });
+    setDprDialog({ open: true, entry, summary: entry.dpr_summary || '', saving: false });
   };
 
   const saveDpr = async () => {
@@ -70,7 +70,7 @@ const ProjectDLRDPRList = ({ projectId }) => {
     try {
       await axios.patch(
         `${API}/projects/${projectId}/work-orders/${entry.work_order_id}/dlr/${entry.dlr_id}/dpr`,
-        { work_summary: summary.trim() }
+        { dpr_summary: summary.trim() }
       );
       toast.success('DPR Summary saved');
       setDprDialog({ open: false, entry: null, summary: '', saving: false });
@@ -235,16 +235,23 @@ const ProjectDLRDPRList = ({ projectId }) => {
                 </div>
               )}
 
-              {/* Work Summary (DPR) — shown when present, else Add DPR CTA */}
-              {e.work_summary ? (
+              {/* Work Summary (DLR — morning entry, read-only in this list) */}
+              {e.work_summary && (
+                <p className="mt-1.5 text-[11px] text-gray-700 bg-emerald-50/40 border border-emerald-100 rounded px-2 py-1.5">
+                  <span className="font-semibold text-emerald-700">Work Summary:</span> {e.work_summary}
+                </p>
+              )}
+
+              {/* DPR Summary (evening entry — added separately via Add DPR button) */}
+              {e.dpr_summary ? (
                 <div className="mt-1.5 flex items-start gap-2">
-                  <p className="flex-1 text-[11px] text-gray-700 bg-emerald-50/40 border border-emerald-100 rounded px-2 py-1.5">
-                    <span className="font-semibold text-emerald-700">Work Summary:</span> {e.work_summary}
+                  <p className="flex-1 text-[11px] text-gray-700 bg-indigo-50/40 border border-indigo-100 rounded px-2 py-1.5">
+                    <span className="font-semibold text-indigo-700">DPR Summary:</span> {e.dpr_summary}
                   </p>
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="h-7 px-2 text-[10px] gap-1 text-emerald-700 hover:bg-emerald-50 shrink-0"
+                    className="h-7 px-2 text-[10px] gap-1 text-indigo-700 hover:bg-indigo-50 shrink-0"
                     onClick={() => openDprDialog(e)}
                     data-testid={`dlr-edit-dpr-${e.dlr_id}`}
                   >
@@ -255,7 +262,7 @@ const ProjectDLRDPRList = ({ projectId }) => {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="mt-2 h-7 text-[11px] gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                  className="mt-2 h-7 text-[11px] gap-1.5 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
                   onClick={() => openDprDialog(e)}
                   data-testid={`dlr-add-dpr-${e.dlr_id}`}
                 >
@@ -369,9 +376,17 @@ const ProjectDLRDPRList = ({ projectId }) => {
                 </div>
               )}
               <div>
-                <p className="text-[10px] text-gray-500 uppercase mb-1">DPR — Work Summary</p>
+                <p className="text-[10px] text-gray-500 uppercase mb-1">Work Summary (DLR)</p>
                 {viewEntry.work_summary ? (
                   <p className="text-xs text-gray-700 bg-emerald-50/40 border border-emerald-100 rounded px-2 py-1.5 whitespace-pre-wrap">{viewEntry.work_summary}</p>
+                ) : (
+                  <p className="text-xs text-gray-400 italic">Not recorded.</p>
+                )}
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase mb-1">DPR Summary (Evening)</p>
+                {viewEntry.dpr_summary ? (
+                  <p className="text-xs text-gray-700 bg-indigo-50/40 border border-indigo-100 rounded px-2 py-1.5 whitespace-pre-wrap">{viewEntry.dpr_summary}</p>
                 ) : (
                   <p className="text-xs text-gray-400 italic">DPR not yet added.</p>
                 )}

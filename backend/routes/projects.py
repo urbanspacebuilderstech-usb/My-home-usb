@@ -12651,14 +12651,14 @@ async def create_dlr(project_id: str, wo_id: str, data: DLRCreate, user: User = 
     if not entries:
         raise HTTPException(status_code=400, detail="At least one entry with count > 0 is required")
 
-    # Feb 28 2026 — Work Summary (DPR) is now OPTIONAL at DLR creation time.
-    # SEs can submit just the labour report first and add the DPR summary
-    # later via the "Add DPR" button on each row. Stage is still required.
+    # Mandatory: Stage + Work Summary (DPR fields unified into DLR)
     stage_id = (data.stage_id or "").strip()
     stage_name = (data.stage_name or "").strip()
     work_summary = (data.work_summary or "").strip()
     if not stage_id or not stage_name:
         raise HTTPException(status_code=400, detail="Current Project Stage is required")
+    if not work_summary:
+        raise HTTPException(status_code=400, detail="Work Summary is required")
 
     # Feb 12 2026 — Work-order stages live INLINE on the WO doc (under
     # `project_work_orders.stages[]` with stage_id like "wos_*"), NOT in the
@@ -12711,49 +12711,49 @@ async def create_dlr(project_id: str, wo_id: str, data: DLRCreate, user: User = 
     dlr.pop("_id", None)
 
     # Mirror to daily_progress (DPR) collection for unified reporting under
-    # Planning — only when the DPR Summary was submitted alongside the DLR.
-    # If left blank, the SE will add it later via the PATCH /dpr endpoint
-    # below which creates the mirror on demand.
-    if work_summary:
-        try:
-            project_doc = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
-            dpr_entry = {
-                "progress_id": f"dp_{uuid.uuid4().hex[:12]}",
-                "project_id": project_id,
-                "project_name": project_doc.get("name") if project_doc else "",
-                "site_engineer_id": user.user_id,
-                "site_engineer_name": user.name,
-                "date": data.date,
-                "day": datetime.strptime(data.date, "%Y-%m-%d").strftime("%A") if data.date else "",
-                "summary": work_summary,
-                "current_stage": stage_name,
-                "stage_id": stage_id,
-                "source": "dlr",
-                "dlr_id": dlr["dlr_id"],
-                "work_order_id": wo_id,
-                "created_at": now,
-            }
-            await db.daily_progress.insert_one(dpr_entry)
-        except Exception as _e:
-            # DPR mirror failure should not block DLR creation
-            pass
+    # Planning. Uses the DLR's Work Summary at creation time; if the SE adds
+    # a dedicated DPR Summary later via the PATCH endpoint below, that
+    # summary overrides in the mirror.
+    try:
+        project_doc = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
+        dpr_entry = {
+            "progress_id": f"dp_{uuid.uuid4().hex[:12]}",
+            "project_id": project_id,
+            "project_name": project_doc.get("name") if project_doc else "",
+            "site_engineer_id": user.user_id,
+            "site_engineer_name": user.name,
+            "date": data.date,
+            "day": datetime.strptime(data.date, "%Y-%m-%d").strftime("%A") if data.date else "",
+            "summary": work_summary,
+            "current_stage": stage_name,
+            "stage_id": stage_id,
+            "source": "dlr",
+            "dlr_id": dlr["dlr_id"],
+            "work_order_id": wo_id,
+            "created_at": now,
+        }
+        await db.daily_progress.insert_one(dpr_entry)
+    except Exception as _e:
+        # DPR mirror failure should not block DLR creation
+        pass
 
     return dlr
 
 
 @router.patch("/projects/{project_id}/work-orders/{wo_id}/dlr/{dlr_id}/dpr")
 async def upsert_dlr_dpr(project_id: str, wo_id: str, dlr_id: str, request: Request, user: User = Depends(get_current_user)):
-    """Add or update the DPR Summary on an existing DLR entry.
+    """Add or update the evening DPR Summary on an existing DLR entry.
 
-    Feb 28 2026 — Since Work Summary is now optional at DLR creation time,
-    the SE can call this endpoint later to attach the DPR summary via the
-    "Add DPR" button in the UI. Also refreshes the mirrored daily_progress row.
+    Feb 28 2026 — DPR is a separate DAILY EVENING record captured against a
+    DLR entry. Stored in `dpr_summary` field (distinct from `work_summary`
+    entered in the morning). Also refreshes the daily_progress mirror using
+    the DPR summary when set (falls back to work_summary otherwise).
     """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.PROJECT_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     body = await request.json()
-    summary = (body.get("work_summary") or body.get("dpr_summary") or "").strip()
+    summary = (body.get("dpr_summary") or body.get("summary") or "").strip()
     if not summary:
         raise HTTPException(status_code=400, detail="DPR Summary cannot be empty")
 
@@ -12764,10 +12764,10 @@ async def upsert_dlr_dpr(project_id: str, wo_id: str, dlr_id: str, request: Requ
     now = datetime.now(timezone.utc).isoformat()
     await db.daily_labour_reports.update_one(
         {"dlr_id": dlr_id},
-        {"$set": {"work_summary": summary, "dpr_updated_at": now, "dpr_updated_by": user.user_id, "dpr_updated_by_name": user.name}},
+        {"$set": {"dpr_summary": summary, "dpr_updated_at": now, "dpr_updated_by": user.user_id, "dpr_updated_by_name": user.name}},
     )
 
-    # Refresh daily_progress mirror
+    # Refresh daily_progress mirror using the new DPR summary
     existing_dpr = await db.daily_progress.find_one({"dlr_id": dlr_id})
     if existing_dpr:
         await db.daily_progress.update_one({"dlr_id": dlr_id}, {"$set": {"summary": summary, "updated_at": now}})
@@ -12790,7 +12790,7 @@ async def upsert_dlr_dpr(project_id: str, wo_id: str, dlr_id: str, request: Requ
             "created_at": now,
         })
 
-    return {"message": "DPR Summary saved", "dlr_id": dlr_id, "work_summary": summary}
+    return {"message": "DPR Summary saved", "dlr_id": dlr_id, "dpr_summary": summary}
 
 
 @router.get("/projects/{project_id}/work-orders/{wo_id}/dlr")
