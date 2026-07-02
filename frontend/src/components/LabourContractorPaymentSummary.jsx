@@ -5,17 +5,37 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Wallet, Eye, Search } from 'lucide-react';
+import { Wallet, Eye, ArrowDownCircle, ArrowUpCircle, Clock, Search, FileText } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
-const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
+const fmtDateTime = (s) => { try { return new Date(s).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return s || '—'; } };
+
+const TYPE_ICON = {
+  wo: FileText,
+  payment: ArrowUpCircle,
+  request: ArrowDownCircle,
+  suspense: Clock,
+};
+const TYPE_BG = {
+  wo: 'bg-violet-50 text-violet-700 border-violet-200',
+  payment: 'bg-green-50 text-green-700 border-green-200',
+  request: 'bg-blue-50 text-blue-700 border-blue-200',
+  suspense: 'bg-amber-50 text-amber-700 border-amber-200',
+};
+const TYPE_LABEL = {
+  wo: 'Work Order',
+  payment: 'Payment',
+  request: 'Pending',
+  suspense: 'Suspense',
+};
 
 export default function LabourContractorPaymentSummary() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [openLedger, setOpenLedger] = useState(null);
+  const [openContractor, setOpenContractor] = useState(null);
   const [ledger, setLedger] = useState([]);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
@@ -43,12 +63,15 @@ export default function LabourContractorPaymentSummary() {
   }), { total: 0, paid: 0, pending: 0, suspense: 0 }), [filteredRows]);
 
   const openLedgerFor = async (row) => {
-    setOpenLedger(row);
-    if (!row.contractor_id) { setLedger([]); return; }
+    setOpenContractor(row);
+    setLedger([]);
+    setLedgerLoading(true);
     try {
-      const res = await axios.get(`${API}/contractors/${row.contractor_id}/suspense`);
+      const key = row.contractor_id || row.contractor_name;
+      const res = await axios.get(`${API}/labour-contractor-payments/${encodeURIComponent(key)}/ledger`);
       setLedger(res.data?.ledger || []);
     } catch { setLedger([]); }
+    finally { setLedgerLoading(false); }
   };
 
   return (
@@ -80,7 +103,7 @@ export default function LabourContractorPaymentSummary() {
               <CardTitle className="text-sm flex items-center gap-2">
                 <Wallet className="h-4 w-4 text-violet-600" /> Labour Contractor Payment Summary
               </CardTitle>
-              <CardDescription className="text-[11px]">Cross-project payment & suspense overview · Accountant / Planning / Super Admin only</CardDescription>
+              <CardDescription className="text-[11px]">Cross-project payment &amp; suspense overview · Accountant / Planning / Super Admin only</CardDescription>
             </div>
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -138,37 +161,52 @@ export default function LabourContractorPaymentSummary() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!openLedger} onOpenChange={(v) => { if (!v) { setOpenLedger(null); setLedger([]); } }}>
-        <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="lcs-dialog">
+      <Dialog open={!!openContractor} onOpenChange={(v) => { if (!v) { setOpenContractor(null); setLedger([]); } }}>
+        <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto" data-testid="lcs-ledger-dialog">
           <DialogHeader>
-            <DialogTitle className="text-base">{openLedger?.contractor_name} · Suspense Ledger</DialogTitle>
-            <DialogDescription className="text-xs">Current Balance: <span className="font-bold text-amber-700">{fmt(openLedger?.suspense_balance)}</span></DialogDescription>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <Wallet className="h-4 w-4 text-violet-600" /> {openContractor?.contractor_name} · Activity Timeline
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Total <span className="font-semibold">{fmt(openContractor?.total_value)}</span>
+              {' · '}Paid <span className="font-semibold text-green-700">{fmt(openContractor?.paid_amount)}</span>
+              {' · '}Pending <span className="font-semibold text-blue-700">{fmt(openContractor?.pending_amount)}</span>
+              {' · '}Suspense <span className="font-semibold text-amber-700">{fmt(openContractor?.suspense_balance)}</span>
+            </DialogDescription>
           </DialogHeader>
-          {ledger.length === 0 ? (
-            <p className="text-center text-xs text-gray-400 py-6">No suspense entries</p>
+          {ledgerLoading ? (
+            <p className="text-center text-xs text-gray-400 py-6">Loading timeline…</p>
+          ) : ledger.length === 0 ? (
+            <p className="text-center text-xs text-gray-400 py-6">No activity yet</p>
           ) : (
-            <table className="w-full text-xs">
-              <thead className="bg-gray-100 border-y">
-                <tr>
-                  <th className="text-left px-3 py-2">Date</th>
-                  <th className="text-left px-3 py-2">Type</th>
-                  <th className="text-left px-3 py-2">Source</th>
-                  <th className="text-right px-3 py-2">Amount</th>
-                  <th className="text-left px-3 py-2">Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {ledger.map((l, i) => (
-                  <tr key={i}>
-                    <td className="px-3 py-2 whitespace-nowrap">{fmtDate(l.date)}</td>
-                    <td className="px-3 py-2"><Badge variant="outline" className={`text-[9px] ${l.type === 'credit' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{l.type}</Badge></td>
-                    <td className="px-3 py-2 capitalize text-gray-600">{(l.source_type || '').replace('_', ' ')}</td>
-                    <td className={`px-3 py-2 text-right font-semibold ${l.type === 'credit' ? 'text-green-700' : 'text-red-700'}`}>{l.type === 'credit' ? '+' : '−'}{fmt(l.amount)}</td>
-                    <td className="px-3 py-2 text-gray-600 text-[11px]">{l.notes || '—'}{l.cheque_no ? ` (Chq ${l.cheque_no})` : ''}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <ol className="relative border-l-2 border-violet-100 ml-3 space-y-3 py-2">
+              {ledger.map((l, i) => {
+                const Icon = TYPE_ICON[l.type] || Clock;
+                const amtPrefix = l.type === 'payment' ? '+' : l.type === 'suspense' ? (Number(l.amount) >= 0 ? '+' : '−') : '';
+                const amtVal = l.type === 'suspense' ? Math.abs(Number(l.amount) || 0) : l.amount;
+                return (
+                  <li key={i} className="ml-4" data-testid={`lcs-ledger-entry-${i}`}>
+                    <span className={`absolute -left-3 flex items-center justify-center w-6 h-6 rounded-full border ${TYPE_BG[l.type] || 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </span>
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <Badge variant="outline" className={`text-[9px] capitalize ${TYPE_BG[l.type] || ''}`}>{TYPE_LABEL[l.type] || l.type}</Badge>
+                      <span className={`text-sm font-semibold ${l.type === 'payment' ? 'text-green-700' : l.type === 'request' ? 'text-blue-700' : l.type === 'suspense' ? 'text-amber-700' : 'text-violet-800'}`}>
+                        {amtPrefix}{fmt(amtVal)}
+                      </span>
+                      <span className="text-[10px] text-gray-400">{fmtDateTime(l.date)}</span>
+                      {l.status && <Badge variant="outline" className="text-[9px] bg-gray-50 text-gray-700 border-gray-200 capitalize">{(l.status || '').replace(/_/g, ' ')}</Badge>}
+                    </div>
+                    <p className="text-xs text-gray-700 mt-0.5">{l.notes}</p>
+                    <div className="text-[10px] text-gray-500 mt-0.5 flex flex-wrap gap-2">
+                      {l.project && <span>Project: <span className="text-gray-700">{l.project}</span></span>}
+                      {l.payment_mode && <span>· Mode: <span className="text-gray-700 uppercase">{(l.payment_mode || '').replace(/_/g, ' ')}</span></span>}
+                      {l.reference && <span>· Ref: <span className="text-gray-700">{l.reference}</span></span>}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
           )}
         </DialogContent>
       </Dialog>

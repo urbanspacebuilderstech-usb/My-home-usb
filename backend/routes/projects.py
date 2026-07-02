@@ -11969,11 +11969,37 @@ async def labour_contractor_payment_summary(user: User = Depends(get_current_use
         if proj_name and proj_name not in bucket["projects"]:
             bucket["projects"].append(proj_name)
         bucket["total_value"] += float(wo.get("total_value", 0))
-        bucket["paid_amount"] += float(wo.get("paid_amount", 0))
         for stage in wo.get("stages", []):
             for pr in stage.get("payment_requests", []) or []:
                 if pr.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"]:
                     bucket["pending_amount"] += float(pr.get("amount", 0))
+
+    # Feb 28 2026 — Compute paid_amount from recorded_expenses (source of truth
+    # in the Cashbook) rather than the cached wo.paid_amount which can drift
+    # after reversals / cheque bounces / manual adjustments. Every approved
+    # labour recorded_expense whose project is still live counts.
+    _EXCLUDED_STATUSES = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    labour_expenses = await db.recorded_expenses.find(
+        {"category": "labour"},
+        {"_id": 0, "contractor_id": 1, "contractor_name": 1, "vendor_name": 1, "amount": 1, "project_id": 1, "status": 1},
+    ).to_list(10000)
+    for rx in labour_expenses:
+        if (rx.get("status") or "").lower() in _EXCLUDED_STATUSES:
+            continue
+        pid = rx.get("project_id")
+        if pid and pid not in live_pids:
+            continue  # drop payments to deleted projects
+        cid = rx.get("contractor_id") or rx.get("contractor_name") or rx.get("vendor_name")
+        if not cid or cid not in by_contractor:
+            # Match by name when contractor_id not stored on the expense.
+            name_lc = (rx.get("contractor_name") or rx.get("vendor_name") or "").strip().lower()
+            if name_lc:
+                for bucket in by_contractor.values():
+                    if (bucket.get("contractor_name") or "").strip().lower() == name_lc:
+                        bucket["paid_amount"] += float(rx.get("amount") or 0)
+                        break
+            continue
+        by_contractor[cid]["paid_amount"] += float(rx.get("amount") or 0)
 
     rows = []
     for cid, bucket in by_contractor.items():
@@ -11982,6 +12008,126 @@ async def labour_contractor_payment_summary(user: User = Depends(get_current_use
         rows.append(bucket)
     rows.sort(key=lambda r: r.get("contractor_name", "").lower())
     return {"count": len(rows), "rows": rows}
+
+
+@router.get("/labour-contractor-payments/{contractor_id}/ledger")
+async def labour_contractor_payment_ledger(contractor_id: str, user: User = Depends(get_current_user)):
+    """Comprehensive activity timeline for a single contractor — mirrors
+    /material-vendor-payments/{key}/ledger. Combines:
+      • Work Orders issued (per project)
+      • Payment requests still pending in the queue
+      • Payments released (recorded_expenses / labour category)
+      • Suspense entries (signed — +credit / −debit)
+    Sorted newest first. Feb 28 2026.
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    contractor = await db.labour_contractors.find_one({"contractor_id": contractor_id}, {"_id": 0})
+    contractor_name = (contractor or {}).get("name") or contractor_id
+    name_lc = (contractor_name or "").strip().lower()
+
+    # Live projects only — hide entries from soft-deleted projects.
+    projects_list = await db.projects.find(
+        {
+            "is_deleted": {"$ne": True},
+            "deleted": {"$ne": True},
+            "status": {"$ne": "deleted"},
+        },
+        {"_id": 0, "project_id": 1, "name": 1},
+    ).to_list(2000)
+    project_map = {p["project_id"]: p.get("name") for p in projects_list}
+    live_pids = set(project_map.keys())
+
+    def _project_ok(pid: Optional[str]) -> bool:
+        return not pid or pid in live_pids
+
+    def _match_contractor(doc: Dict[str, Any]) -> bool:
+        if doc.get("contractor_id") and doc.get("contractor_id") == contractor_id:
+            return True
+        cname = (doc.get("contractor_name") or doc.get("vendor_name") or "").strip().lower()
+        return bool(name_lc) and cname == name_lc
+
+    (work_orders, recorded_payments, suspense_entries) = await asyncio.gather(
+        db.project_work_orders.find({"is_active": {"$ne": False}}, {"_id": 0}).to_list(2000),
+        db.recorded_expenses.find({"category": "labour"}, {"_id": 0}).to_list(5000),
+        db.suspense_entries.find({"type": "labour"}, {"_id": 0}).to_list(2000),
+    )
+
+    _EXCLUDED_EXPENSE_STATUSES = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    timeline: List[Dict[str, Any]] = []
+
+    for wo in work_orders:
+        if not _match_contractor(wo):
+            continue
+        if not _project_ok(wo.get("project_id")):
+            continue
+        proj_name = project_map.get(wo.get("project_id")) or wo.get("project_name", "")
+        timeline.append({
+            "date": wo.get("created_at") or wo.get("issued_at"),
+            "type": "wo",
+            "source_type": "work_order",
+            "amount": float(wo.get("total_value") or 0),
+            "project": proj_name,
+            "status": wo.get("status"),
+            "reference": wo.get("work_order_id"),
+            "notes": f"Work Order — {len(wo.get('stages', []))} stage(s)",
+        })
+        for stage in wo.get("stages", []) or []:
+            for pr in stage.get("payment_requests", []) or []:
+                status = (pr.get("status") or "").lower()
+                # pending requests
+                if status in ("requested", "pm_approved", "qc_approved", "planning_approved"):
+                    timeline.append({
+                        "date": pr.get("requested_at") or pr.get("created_at"),
+                        "type": "request",
+                        "source_type": "payment_request",
+                        "amount": float(pr.get("amount") or 0),
+                        "project": proj_name,
+                        "status": status,
+                        "reference": pr.get("request_id"),
+                        "notes": f"Stage: {stage.get('name') or stage.get('stage_name') or '—'} — {status.replace('_', ' ')}",
+                    })
+
+    for rx in recorded_payments:
+        if not _match_contractor(rx):
+            continue
+        if not _project_ok(rx.get("project_id")):
+            continue
+        if (rx.get("status") or "").lower() in _EXCLUDED_EXPENSE_STATUSES:
+            continue
+        proj_name = rx.get("project_name") or project_map.get(rx.get("project_id"), "")
+        timeline.append({
+            "date": rx.get("payment_date") or rx.get("created_at"),
+            "type": "payment",
+            "source_type": "recorded_expense",
+            "amount": float(rx.get("amount") or 0),
+            "project": proj_name,
+            "status": rx.get("status"),
+            "payment_mode": rx.get("payment_method") or rx.get("payment_mode"),
+            "reference": rx.get("cheque_number") or rx.get("reference_number") or rx.get("expense_id"),
+            "notes": rx.get("description") or "Labour payment",
+        })
+
+    for se in suspense_entries:
+        if not _match_contractor(se):
+            continue
+        if not _project_ok(se.get("project_id")):
+            continue
+        amt = float(se.get("amount") or 0)
+        timeline.append({
+            "date": se.get("created_at"),
+            "type": "suspense",
+            "source_type": "suspense_entry",
+            "amount": amt,
+            "project": project_map.get(se.get("project_id"), "") or se.get("project_name", ""),
+            "status": se.get("status"),
+            "notes": se.get("description") or ("Suspense " + ("credit" if amt >= 0 else "debit")),
+            "reference": se.get("cheque_number"),
+        })
+
+    timeline.sort(key=lambda l: (l.get("date") or ""), reverse=True)
+    return {"ledger": timeline, "count": len(timeline), "contractor_name": contractor_name}
 
 
 

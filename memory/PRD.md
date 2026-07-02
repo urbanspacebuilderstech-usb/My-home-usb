@@ -13,6 +13,14 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 28, 2026 — Contractor Summary Timeline + Paid accuracy
+- **Status**: 🟡 CODE READY (awaiting Save to GitHub + deploy).
+- **Problem**: (1) Clicking "View" on Contractor Summary opened only a "Suspense Ledger" that showed just suspense entries — no work orders, payments or pending requests visible for accountants to verify. (2) `paid_amount` on the summary trusted `wo.paid_amount` cache which can drift after cheque bounces / reversals.
+- **Fix**:
+  - `backend/routes/projects.py::labour_contractor_payment_summary` — `paid_amount` now sums directly from `recorded_expenses (category='labour', status ∉ excluded)`, cross-checked against `live_pids` so deleted-project payments never leak. Fallback name-match when `contractor_id` isn't stored on the expense doc.
+  - Added new `GET /api/labour-contractor-payments/{contractor_id}/ledger` endpoint returning a comprehensive **Activity Timeline** with 4 entry types: `wo` (Work Order issued), `request` (pending payment request), `payment` (released expense), `suspense` (± signed). Filtered by live projects and contractor id/name.
+  - `frontend/src/components/LabourContractorPaymentSummary.jsx` — dialog rewritten to mirror `MaterialVendorPaymentSummary` pattern: header shows Total/Paid/Pending/Suspense, body is a vertical timeline (icons + colored badges) with project · mode · reference metadata on each entry.
+
 ### Session — Feb 28, 2026 — Contractor/Vendor Summary leak from soft-deleted projects
 - **Status**: 🟡 CODE READY (awaiting Save to GitHub + deploy).
 - **Bug (reported)**: Labour Payments → Contractor Summary was showing entries for projects that had been deleted (`Swathi 60L G+2`, `Mani Demo Project - Onbording`). DB verified both have `is_deleted: true` + `deleted_at`.
