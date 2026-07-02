@@ -5967,6 +5967,10 @@ async def delete_indirect_cost(cost_id: str, user: User = Depends(get_current_us
     cf_removed += await reverse_allocation(cost_id, kind="expense")
 
     alloc_res = await db.indirect_cost_allocations.delete_many({"indirect_cost_id": cost_id})
+    # Feb 28 2026 — Also drop the recorded_expenses mirrors created by
+    # expense_split.create_allocated_indirect_cost so the deletion is visible
+    # in Accounts → Cashbook → Expense too (not just in the Indirect tab).
+    rx_res = await db.recorded_expenses.delete_many({"indirect_cost_id": cost_id, "source": "indirect_cost"})
     cost_res = await db.indirect_costs.delete_one({"indirect_cost_id": cost_id})
 
     await create_financial_audit_log(
@@ -5982,6 +5986,7 @@ async def delete_indirect_cost(cost_id: str, user: User = Depends(get_current_us
         "message": "Indirect cost deleted",
         "cost_deleted": cost_res.deleted_count,
         "allocations_deleted": alloc_res.deleted_count,
+        "recorded_expenses_deleted": rx_res.deleted_count,
         "cashflow_rows_reversed": cf_removed,
     }
 
