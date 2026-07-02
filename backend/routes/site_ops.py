@@ -3100,18 +3100,41 @@ async def record_direct_expense(request: Request, user: User = Depends(get_curre
     # Increment amount_spent on the SE's most recent open petty cash entry
     # so the SE Dashboard "Balance" tile + Accountant Petty Cash Management
     # SE balance both stay accurate.
-    open_pc = await db.petty_cash.find_one(
-        {"requested_by": user.user_id, "status": {"$in": ["payment_done", "acknowledged", "issued", "partially_spent"]}},
-        sort=[("created_at", -1)],
-        projection={"_id": 0, "petty_cash_id": 1, "amount_spent": 1, "amount_issued": 1},
-    )
-    if open_pc:
-        new_spent = (open_pc.get("amount_spent") or 0) + total
-        new_status = "partially_spent" if new_spent < (open_pc.get("amount_issued") or 0) else "settled"
-        await db.petty_cash.update_one(
-            {"petty_cash_id": open_pc["petty_cash_id"]},
-            {"$set": {"amount_spent": new_spent, "status": new_status}},
+    #
+    # Feb 28 2026 — CRITICAL: only run this "most recent open" bump for the
+    # LEGACY branch (no splits). When resolved_splits is truthy, each linked
+    # petty_cash bucket already had its amount_spent incremented above per
+    # split — running this block again would double-count the expense.
+    if not resolved_splits:
+        open_pc = await db.petty_cash.find_one(
+            {"requested_by": user.user_id, "status": {"$in": ["payment_done", "acknowledged", "issued", "partially_spent"]}},
+            sort=[("created_at", -1)],
+            projection={"_id": 0, "petty_cash_id": 1, "amount_spent": 1, "amount_issued": 1},
         )
+        if open_pc:
+            new_spent = (open_pc.get("amount_spent") or 0) + total
+            new_status = "partially_spent" if new_spent < (open_pc.get("amount_issued") or 0) else "settled"
+            await db.petty_cash.update_one(
+                {"petty_cash_id": open_pc["petty_cash_id"]},
+                {"$set": {"amount_spent": new_spent, "status": new_status}},
+            )
+    else:
+        # For the split path we still need to update each linked bucket's
+        # `status` (partially_spent / settled) based on the new spent total.
+        for s in resolved_splits:
+            pc_after = await db.petty_cash.find_one(
+                {"petty_cash_id": s["petty_cash_id"]},
+                {"_id": 0, "amount_issued": 1, "amount_spent": 1},
+            )
+            if not pc_after:
+                continue
+            spent = pc_after.get("amount_spent") or 0
+            issued = pc_after.get("amount_issued") or 0
+            new_status = "settled" if spent >= issued else "partially_spent"
+            await db.petty_cash.update_one(
+                {"petty_cash_id": s["petty_cash_id"]},
+                {"$set": {"status": new_status}},
+            )
     return record
 
 
