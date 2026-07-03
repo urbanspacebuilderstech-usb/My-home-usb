@@ -4137,9 +4137,25 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
         return not pid or pid in live_project_ids
 
     timeline: List[Dict[str, Any]] = []
+    # Jul 03 2026 — Map material-request status → who currently holds the
+    # request. Mirrors the labour side. Only workflow statuses get a
+    # "pending_with"; terminal states (delivered / rejected / in_transit)
+    # keep just the status badge.
+    _mat_pending_with = {
+        "requested": "PM",
+        "pm_approved": "Procurement",
+        "procurement_priced": "Planning",
+        "procurement_revision": "Procurement",
+        "pending_accounts_approval": "Accountant",
+        "pending_balance_payment": "Accountant",
+        "payment_approved": "Accountant",
+    }
     for mr in material_requests:
         if not _matches(mr) or not _project_ok(mr):
             continue
+        st = (mr.get("status") or "").lower()
+        pending_with = _mat_pending_with.get(st)
+        notes = f"{mr.get('material_name', 'Material')} — pending with {pending_with}" if pending_with else f"{mr.get('material_name', 'Material')} — {mr.get('status', '')}"
         timeline.append({
             "date": mr.get("created_at"),
             "type": "request",
@@ -4148,13 +4164,17 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
             "project": mr.get("project_name") or pmap.get(mr.get("project_id"), ""),
             "material": mr.get("material_name"),
             "status": mr.get("status"),
-            "notes": f"{mr.get('material_name', 'Material')} — {mr.get('status', '')}",
+            "pending_with": pending_with,
+            "notes": notes,
         })
     for me in material_exps_legacy:
         if me.get("source_request_id"):
             continue  # mirror of material_request — skip to avoid duplicates
         if not _matches(me) or not _project_ok(me):
             continue
+        st = (me.get("status") or "").lower()
+        pending_with = _mat_pending_with.get(st)
+        notes = f"{me.get('material_name', 'Material')} PO — pending with {pending_with}" if pending_with else f"{me.get('material_name', 'Material')} PO — {me.get('status', '')}"
         timeline.append({
             "date": me.get("created_at"),
             "type": "request",
@@ -4163,7 +4183,8 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
             "project": me.get("project_name") or pmap.get(me.get("project_id"), ""),
             "material": me.get("material_name"),
             "status": me.get("status"),
-            "notes": f"{me.get('material_name', 'Material')} PO — {me.get('status', '')}",
+            "pending_with": pending_with,
+            "notes": notes,
         })
     for rx in recorded_payments:
         if not _matches(rx) or not _project_ok(rx):

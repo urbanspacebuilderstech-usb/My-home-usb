@@ -195,7 +195,13 @@ export default function MaterialVendorPaymentSummary() {
                         {l.type === 'payment' ? '+' : l.type === 'credit' ? '⏳' : ''}{fmt(l.amount)}
                       </span>
                       <span className="text-[10px] text-gray-400">{fmtDateTime(l.date)}</span>
-                      {l.status && <Badge variant="outline" className="text-[9px] bg-gray-50 text-gray-700 border-gray-200 capitalize">{(l.status || '').replace(/_/g, ' ')}</Badge>}
+                      {l.type === 'request' && l.pending_with ? (
+                        <Badge variant="outline" className="text-[9px] bg-orange-50 text-orange-700 border-orange-300 font-semibold" data-testid={`mvs-pending-with-${i}`}>
+                          With {l.pending_with}
+                        </Badge>
+                      ) : l.status && (
+                        <Badge variant="outline" className="text-[9px] bg-gray-50 text-gray-700 border-gray-200 capitalize">{(l.status || '').replace(/_/g, ' ')}</Badge>
+                      )}
                     </div>
                     <p className="text-xs text-gray-700 mt-0.5">{l.notes}</p>
                     <div className="text-[10px] text-gray-500 mt-0.5 flex flex-wrap gap-2">
