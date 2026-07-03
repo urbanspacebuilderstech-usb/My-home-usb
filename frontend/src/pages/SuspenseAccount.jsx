@@ -181,6 +181,12 @@ export default function SuspenseAccountPage() {
   const labSus = data?.labour_suspense || {};
   const projects = data?.projects || [];
 
+  // Jul 03 2026 — Kept in sync with backend `PETTY_ACTIVE_STATUSES` in
+  // `financial.py::get_suspense_overview` so the tab count, the visible
+  // rows and the "Issued" card total all agree.
+  const ACCOUNT_APPROVED_PETTY = new Set(['issued', 'partially_spent', 'settled', 'submitted', 'acknowledged', 'payment_done', 'accountant_processing']);
+  const visiblePetty = (petty.all_requests || []).filter(pc => ACCOUNT_APPROVED_PETTY.has((pc.status || '').toLowerCase()));
+
   return (
     <div className="min-h-screen bg-gray-50" data-testid="suspense-page">
       <AppHeader user={user} unreadNotifs={unreadNotifs} />
@@ -318,7 +324,7 @@ export default function SuspenseAccountPage() {
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList data-testid="suspense-tabs">
-            <TabsTrigger value="petty_cash">Petty Cash ({(petty.all_requests || []).length})</TabsTrigger>
+            <TabsTrigger value="petty_cash">Petty Cash ({visiblePetty.length})</TabsTrigger>
             <TabsTrigger value="materials">Materials ({(matSus.balances || []).length})</TabsTrigger>
             <TabsTrigger value="labour">Labour ({(labSus.balances || []).length})</TabsTrigger>
           </TabsList>
@@ -329,8 +335,9 @@ export default function SuspenseAccountPage() {
               // entries that the Accountant has approved/issued. PM-only
               // approvals and pending requests still belong to the PM /
               // Approvals queue and shouldn't pollute the Suspense ledger.
-              const ACCOUNT_APPROVED = new Set(['issued', 'partially_spent', 'settled', 'submitted', 'acknowledged', 'payment_done', 'accountant_processing']);
-              const filteredPetty = (petty.all_requests || []).filter(pc => ACCOUNT_APPROVED.has((pc.status || '').toLowerCase()));
+              // Filter list is defined once above (`ACCOUNT_APPROVED_PETTY`)
+              // and kept in sync with backend `PETTY_ACTIVE_STATUSES`.
+              const filteredPetty = visiblePetty;
               return filteredPetty.length === 0 ? (
                 <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No accountant-approved petty cash entries</CardContent></Card>
               ) : (

@@ -2837,7 +2837,13 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    PETTY_ACTIVE_STATUSES = ["payment_done", "acknowledged", "partially_spent", "issued"]
+    # Jul 03 2026 — Kept in sync with the frontend `ACCOUNT_APPROVED` filter
+    # in `SuspenseAccount.jsx` so the "Issued" card total ALWAYS equals the
+    # sum of the rows actually visible in the Petty Cash tab.
+    PETTY_ACTIVE_STATUSES = [
+        "payment_done", "acknowledged", "partially_spent", "issued",
+        "settled", "submitted", "accountant_processing",
+    ]
 
     # Jul 03 2026 — Material & Labour suspense now read from the SAME
     # collections and use the SAME "only-live-expense-backed" filter as the
