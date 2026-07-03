@@ -472,14 +472,22 @@ async def full_recompute(user: User = Depends(get_current_user)):
 
     # Replay recorded expenses
     expense_count = 0
-    async for exp in db.recorded_expenses.find({}, {"_id": 0, "expense_id": 1, "project_id": 1, "amount": 1, "category": 1, "project_name": 1}):
+    async for exp in db.recorded_expenses.find({}, {"_id": 0, "expense_id": 1, "project_id": 1, "amount": 1, "category": 1, "expense_type": 1, "source": 1, "project_name": 1}):
         try:
             amt = float(exp.get("amount") or 0)
             if amt <= 0:
                 continue
             pid = exp.get("project_id")
             pname = exp.get("project_name") or project_name_map.get(pid, "")
-            await allocate_expense(exp["expense_id"], pid, amt, exp.get("category", ""), pname, source="expense_replay")
+            # Mar 04 2026 — Indirect-cost mirrors are stored with
+            # `category="other"` (so they show up under Cashbook > Expense >
+            # Other) but their real classification is INDIRECT. Detect via
+            # `expense_type` / `source` and force category to `overhead` so
+            # `_classify_expense_pool` routes them to the indirect pool.
+            cat = exp.get("category", "")
+            if exp.get("expense_type") == "indirect_cost" or exp.get("source") == "indirect_cost":
+                cat = "overhead"
+            await allocate_expense(exp["expense_id"], pid, amt, cat, pname, source="expense_replay")
             expense_count += 1
         except Exception:
             continue
