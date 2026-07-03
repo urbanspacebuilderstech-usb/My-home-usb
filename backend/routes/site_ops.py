@@ -3075,10 +3075,15 @@ async def record_direct_expense(request: Request, user: User = Depends(get_curre
                 "direct_expense_id": expense_id,
                 "created_at": now,
             })
-            # Increment amount_spent on each linked bucket.
+            # Jul 03 2026 — amount_spent is NO LONGER incremented here. It now
+            # moves only when the Accountant approves each recorded_expense
+            # mirror (see `accountant_approve_recorded_expense`). Before A/C
+            # approval the SE-recorded expense sits in a "reserved" state — the
+            # bucket balance stays untouched so PM/A/C decisions can reject
+            # without any rollback logic. `updated_at` still bumps for sorting.
             await db.petty_cash.update_one(
                 {"petty_cash_id": s["petty_cash_id"]},
-                {"$inc": {"amount_spent": s["amount"]}, "$set": {"updated_at": now}}
+                {"$set": {"updated_at": now}}
             )
     else:
         # Legacy fallback — no PC link (shouldn't happen with mandatory pick).
@@ -3104,43 +3109,20 @@ async def record_direct_expense(request: Request, user: User = Depends(get_curre
                 "created_at": now,
             })
     
-    # Increment amount_spent on the SE's most recent open petty cash entry
-    # so the SE Dashboard "Balance" tile + Accountant Petty Cash Management
-    # SE balance both stay accurate.
-    #
-    # Feb 28 2026 — CRITICAL: only run this "most recent open" bump for the
-    # LEGACY branch (no splits). When resolved_splits is truthy, each linked
-    # petty_cash bucket already had its amount_spent incremented above per
-    # split — running this block again would double-count the expense.
+    # Jul 03 2026 — amount_spent is no longer bumped at SE-submission time.
+    # The Accountant approve endpoint owns that increment (per-mirror). We
+    # still touch `updated_at` on affected buckets for sorting; status stays
+    # unchanged until real spend flows in via A/C approval.
     if not resolved_splits:
         open_pc = await db.petty_cash.find_one(
             {"requested_by": user.user_id, "status": {"$in": ["payment_done", "acknowledged", "issued", "partially_spent"]}},
             sort=[("created_at", -1)],
-            projection={"_id": 0, "petty_cash_id": 1, "amount_spent": 1, "amount_issued": 1},
+            projection={"_id": 0, "petty_cash_id": 1},
         )
         if open_pc:
-            new_spent = (open_pc.get("amount_spent") or 0) + total
-            new_status = "partially_spent" if new_spent < (open_pc.get("amount_issued") or 0) else "settled"
             await db.petty_cash.update_one(
                 {"petty_cash_id": open_pc["petty_cash_id"]},
-                {"$set": {"amount_spent": new_spent, "status": new_status}},
-            )
-    else:
-        # For the split path we still need to update each linked bucket's
-        # `status` (partially_spent / settled) based on the new spent total.
-        for s in resolved_splits:
-            pc_after = await db.petty_cash.find_one(
-                {"petty_cash_id": s["petty_cash_id"]},
-                {"_id": 0, "amount_issued": 1, "amount_spent": 1},
-            )
-            if not pc_after:
-                continue
-            spent = pc_after.get("amount_spent") or 0
-            issued = pc_after.get("amount_issued") or 0
-            new_status = "settled" if spent >= issued else "partially_spent"
-            await db.petty_cash.update_one(
-                {"petty_cash_id": s["petty_cash_id"]},
-                {"$set": {"status": new_status}},
+                {"$set": {"updated_at": now}},
             )
     return record
 
@@ -3636,6 +3618,34 @@ async def accountant_approve_recorded_expense(expense_id: str, payload: Recorded
         if payload.payment_date:
             updates["payment_date"] = payload.payment_date
     await db.recorded_expenses.update_one({"expense_id": expense_id}, {"$set": updates})
+    # Jul 03 2026 — Increment `amount_spent` on the linked petty_cash bucket
+    # ONLY at Accountant approval time. Before this moment the SE-recorded
+    # expense sat in a "reserved" state and did not consume bucket balance;
+    # now that it's officially into the Cashbook, it counts.
+    pc_id = exp.get("linked_petty_cash_id")
+    if pc_id:
+        amt = float(exp.get("amount") or 0)
+        await db.petty_cash.update_one(
+            {"petty_cash_id": pc_id},
+            {"$inc": {"amount_spent": amt}, "$set": {"updated_at": now}},
+        )
+        pc_after = await db.petty_cash.find_one(
+            {"petty_cash_id": pc_id},
+            {"_id": 0, "amount_issued": 1, "amount_spent": 1},
+        )
+        if pc_after:
+            spent = pc_after.get("amount_spent") or 0
+            issued = pc_after.get("amount_issued") or 0
+            if spent >= issued > 0:
+                await db.petty_cash.update_one(
+                    {"petty_cash_id": pc_id},
+                    {"$set": {"status": "settled"}},
+                )
+            elif spent > 0:
+                await db.petty_cash.update_one(
+                    {"petty_cash_id": pc_id, "status": {"$in": ["payment_done", "acknowledged", "issued"]}},
+                    {"$set": {"status": "partially_spent"}},
+                )
     return {"message": "Recorded into cashbook", "expense_id": expense_id}
 
 
