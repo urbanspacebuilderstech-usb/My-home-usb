@@ -3002,10 +3002,28 @@ async def get_petty_cash_delete_impact(petty_cash_id: str, user: User = Depends(
     pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id}, {"_id": 0})
     if not pc:
         raise HTTPException(status_code=404, detail="Petty cash request not found")
+    # Mirror rows in the Cashbook (recorded_expenses)
     linked = await db.recorded_expenses.find(
         {"linked_petty_cash_id": petty_cash_id},
         {"_id": 0, "expense_id": 1, "amount": 1, "description": 1, "status": 1, "created_at": 1, "vendor_name": 1},
     ).to_list(500)
+    # Jul 03 2026 — SE source rows in `direct_expenses` (Record Expense flow).
+    # A single direct_expense can have splits across multiple buckets, so we
+    # only affect the split(s) that match THIS bucket.
+    direct_exps = await db.direct_expenses.find(
+        {"linked_petty_cash_splits.petty_cash_id": petty_cash_id},
+        {"_id": 0, "expense_id": 1, "total_amount": 1, "linked_petty_cash_splits": 1, "created_at": 1},
+    ).to_list(500)
+    direct_affected = 0
+    direct_removed = 0
+    direct_total = 0.0
+    for d in direct_exps:
+        remaining = [s for s in (d.get("linked_petty_cash_splits") or []) if s.get("petty_cash_id") != petty_cash_id]
+        removed_amt = sum(float(s.get("amount") or 0) for s in (d.get("linked_petty_cash_splits") or []) if s.get("petty_cash_id") == petty_cash_id)
+        direct_affected += 1
+        direct_total += removed_amt
+        if not remaining:
+            direct_removed += 1
     linked_total = sum(float(e.get("amount") or 0) for e in linked)
     return {
         "petty_cash_id": petty_cash_id,
@@ -3015,37 +3033,138 @@ async def get_petty_cash_delete_impact(petty_cash_id: str, user: User = Depends(
         "site_engineer_name": pc.get("site_engineer_name"),
         "linked_expense_count": len(linked),
         "linked_expense_total": linked_total,
-        "linked_expenses": linked[:20],  # preview only first 20
+        "linked_expenses": linked[:20],
+        "direct_expense_affected": direct_affected,   # affected — may just have a split removed
+        "direct_expense_removed": direct_removed,      # will be fully deleted
+        "direct_expense_total": direct_total,
     }
 
 
 @router.delete("/suspense/petty-cash/{petty_cash_id}")
 async def delete_petty_cash_request(petty_cash_id: str, user: User = Depends(get_current_user)):
-    """Cascade-delete a petty-cash bucket AND every linked recorded_expense
-    that was booked against it. Jul 03 2026 — cascade added at user request so
-    a single click clears the bucket + SE-side entries + Cashbook mirror rows
-    in one go. Audit log records the counts.
+    """Cascade-delete a petty-cash bucket AND every linked artefact:
+      • `recorded_expenses` rows (Cashbook mirror) via `linked_petty_cash_id`
+      • `direct_expenses` splits (Record Expense flow) via
+        `linked_petty_cash_splits.petty_cash_id` — if the direct_expense had
+        splits ONLY on this bucket, the whole row is removed; otherwise the
+        matching split is dropped and `total_amount` is recomputed.
+      • `petty_cash_audit_log` entries for this bucket
+      • The bucket itself
+    Jul 03 2026 — cascade expanded so the SE's "Record Expense (Awaiting PM)"
+    list also clears in one shot.
     """
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Only Super Admin can delete suspense entries")
     pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id}, {"_id": 0})
     if not pc:
         raise HTTPException(status_code=404, detail="Petty cash request not found")
-    # 1. Cascade — expenses linked to this bucket.
+    # 1. Recorded_expenses mirrors — direct match.
     linked_res = await db.recorded_expenses.delete_many({"linked_petty_cash_id": petty_cash_id})
-    # 2. Cascade — audit trail entries specific to this bucket (if any).
+    # 2. Direct_expenses — remove the matching split; delete the row entirely
+    # only when no other splits remain.
+    direct_rows = await db.direct_expenses.find(
+        {"linked_petty_cash_splits.petty_cash_id": petty_cash_id},
+        {"_id": 0},
+    ).to_list(2000)
+    direct_removed = 0
+    direct_updated = 0
+    for d in direct_rows:
+        remaining = [s for s in (d.get("linked_petty_cash_splits") or []) if s.get("petty_cash_id") != petty_cash_id]
+        if not remaining:
+            await db.direct_expenses.delete_one({"expense_id": d["expense_id"]})
+            direct_removed += 1
+        else:
+            new_total = sum(float(s.get("amount") or 0) for s in remaining)
+            await db.direct_expenses.update_one(
+                {"expense_id": d["expense_id"]},
+                {"$set": {"linked_petty_cash_splits": remaining, "total_amount": new_total}},
+            )
+            direct_updated += 1
+    # 3. Audit log entries for this bucket.
     await db.petty_cash_audit_log.delete_many({"petty_cash_id": petty_cash_id})
-    # 3. The bucket itself.
+    # 4. The bucket itself.
     await db.petty_cash.delete_one({"petty_cash_id": petty_cash_id})
     await create_audit_log(user.user_id, "delete_petty_cash", "petty_cash", petty_cash_id, {
         "amount_issued": pc.get("amount_issued"),
         "purpose": pc.get("purpose"),
         "cascaded_expenses": linked_res.deleted_count,
+        "direct_expense_removed": direct_removed,
+        "direct_expense_updated": direct_updated,
     })
     return {
         "message": "Petty cash request deleted",
         "petty_cash_id": petty_cash_id,
         "cascaded_expenses": linked_res.deleted_count,
+        "direct_expense_removed": direct_removed,
+        "direct_expense_updated": direct_updated,
+    }
+
+
+@router.get("/suspense/petty-cash/{petty_cash_id}/ledger")
+async def get_petty_cash_ledger(petty_cash_id: str, user: User = Depends(get_current_user)):
+    """Activity Timeline for a single Petty Cash bucket — used by the eye-icon
+    dialog in Suspense A/c → Petty Cash. Combines:
+      • Issued event (bucket created)
+      • Every recorded_expense mirror row (SE-side spending)
+      • Every direct_expense split with its bill items
+    Sorted newest first. Jul 03 2026.
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id}, {"_id": 0})
+    if not pc:
+        raise HTTPException(status_code=404, detail="Petty cash bucket not found")
+    (recorded, direct) = await asyncio.gather(
+        db.recorded_expenses.find({"linked_petty_cash_id": petty_cash_id}, {"_id": 0}).to_list(500),
+        db.direct_expenses.find({"linked_petty_cash_splits.petty_cash_id": petty_cash_id}, {"_id": 0}).to_list(500),
+    )
+    timeline: List[Dict[str, Any]] = [{
+        "date": pc.get("created_at") or pc.get("issued_at"),
+        "type": "issued",
+        "amount": float(pc.get("amount_issued") or 0),
+        "notes": f"Petty Cash issued — {pc.get('purpose', '')}",
+        "actor": pc.get("issued_by_name") or pc.get("created_by_name") or "Accountant",
+        "mode": pc.get("payment_mode") or pc.get("payment_method"),
+    }]
+    for rx in recorded:
+        timeline.append({
+            "date": rx.get("created_at"),
+            "type": "spent",
+            "amount": float(rx.get("amount") or 0),
+            "notes": rx.get("description") or rx.get("vendor_name") or "Expense recorded",
+            "actor": rx.get("recorded_by_name") or "Site Engineer",
+            "status": rx.get("status"),
+            "mode": rx.get("payment_method"),
+            "reference": rx.get("expense_id"),
+        })
+    for d in direct:
+        # Only surface the split(s) that belong to this bucket.
+        split_amt = sum(float(s.get("amount") or 0) for s in (d.get("linked_petty_cash_splits") or []) if s.get("petty_cash_id") == petty_cash_id)
+        if split_amt <= 0:
+            continue
+        timeline.append({
+            "date": d.get("created_at"),
+            "type": "direct",
+            "amount": split_amt,
+            "notes": f"Direct expense — {len(d.get('items', []))} bill item(s)",
+            "actor": d.get("recorded_by_name") or "Site Engineer",
+            "reference": d.get("expense_id"),
+            "items": [{
+                "name": it.get("expense_name"),
+                "category": it.get("category"),
+                "amount": float(it.get("amount") or 0),
+            } for it in (d.get("items") or [])[:20]],
+        })
+    timeline.sort(key=lambda l: (l.get("date") or ""), reverse=True)
+    return {
+        "petty_cash_id": petty_cash_id,
+        "purpose": pc.get("purpose"),
+        "site_engineer_name": pc.get("site_engineer_name"),
+        "amount_issued": float(pc.get("amount_issued") or 0),
+        "amount_spent": float(pc.get("amount_spent") or 0),
+        "balance": float(pc.get("amount_issued") or 0) - float(pc.get("amount_spent") or 0),
+        "ledger": timeline,
+        "count": len(timeline),
     }
 
 

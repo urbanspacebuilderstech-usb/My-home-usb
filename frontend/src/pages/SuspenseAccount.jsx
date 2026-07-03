@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from 'react';
 import axios from 'axios';
-import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, AlertTriangle, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, AlertTriangle, Trash2, ChevronDown, ChevronRight, Eye, ArrowDownCircle, ArrowUpCircle, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -76,6 +76,19 @@ export default function SuspenseAccountPage() {
   // confirm. Handles all three suspense types.
   const [deleteDlg, setDeleteDlg] = useState({ open: false, kind: null, target: null, impact: null, loading: false });
 
+  // Jul 03 2026 — Activity Timeline (eye icon) dialog for a Petty Cash bucket.
+  const [ledgerDlg, setLedgerDlg] = useState({ open: false, bucket: null, data: null, loading: false });
+  const openLedger = async (pc) => {
+    setLedgerDlg({ open: true, bucket: pc, data: null, loading: true });
+    try {
+      const res = await axios.get(`${API}/suspense/petty-cash/${pc.petty_cash_id}/ledger`);
+      setLedgerDlg((s) => ({ ...s, data: res.data, loading: false }));
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to load timeline');
+      setLedgerDlg({ open: false, bucket: null, data: null, loading: false });
+    }
+  };
+
   const openDeleteDialog = async (kind, target) => {
     setDeleteDlg({ open: true, kind, target, impact: null, loading: kind === 'petty' });
     if (kind === 'petty') {
@@ -94,7 +107,11 @@ export default function SuspenseAccountPage() {
     try {
       if (kind === 'petty') {
         const res = await axios.delete(`${API}/suspense/petty-cash/${target.petty_cash_id}`);
-        toast.success(`Deleted bucket + ${res.data.cascaded_expenses || 0} linked expense${(res.data.cascaded_expenses || 0) === 1 ? '' : 's'}`);
+        const parts = [];
+        if (res.data.cascaded_expenses) parts.push(`${res.data.cascaded_expenses} Cashbook expense${res.data.cascaded_expenses === 1 ? '' : 's'}`);
+        if (res.data.direct_expense_removed) parts.push(`${res.data.direct_expense_removed} Record Expense${res.data.direct_expense_removed === 1 ? '' : 's'}`);
+        if (res.data.direct_expense_updated) parts.push(`${res.data.direct_expense_updated} split-only`);
+        toast.success(parts.length ? `Deleted bucket + ${parts.join(' + ')}` : 'Petty Cash bucket deleted');
       } else if (kind === 'material') {
         await axios.delete(`${API}/suspense/material-entry/${target.ledger_id}`);
         toast.success('Material suspense entry deleted');
@@ -372,6 +389,9 @@ export default function SuspenseAccountPage() {
                                   <CheckCircle className="h-3 w-3 mr-0.5" />Settle
                                 </Button>
                               )}
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-violet-600 hover:bg-violet-50" onClick={() => openLedger(pc)} data-testid={`ledger-petty-${pc.petty_cash_id}`} title="View Activity Timeline">
+                                <Eye className="h-3.5 w-3.5" />
+                              </Button>
                               {canDelete && (
                                 <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-600 hover:bg-red-50" onClick={() => deletePettyCash(pc)} data-testid={`delete-petty-${pc.petty_cash_id}`} title="Delete">
                                   <Trash2 className="h-3.5 w-3.5" />
@@ -520,6 +540,71 @@ export default function SuspenseAccountPage() {
       </div>
       <MobileBottomNav user={user} />
 
+      {/* Petty Cash Activity Timeline dialog */}
+      <Dialog open={ledgerDlg.open} onOpenChange={(v) => !v && setLedgerDlg({ open: false, bucket: null, data: null, loading: false })}>
+        <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="petty-ledger-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <Wallet className="h-4 w-4 text-violet-600" />
+              {ledgerDlg.bucket?.purpose || 'Petty Cash'} · Activity Timeline
+            </DialogTitle>
+            {ledgerDlg.data && (
+              <div className="text-xs text-gray-600 mt-1">
+                Issued <span className="font-semibold text-amber-700">{fmt(ledgerDlg.data.amount_issued)}</span>
+                {' · '}Spent <span className="font-semibold text-red-600">{fmt(ledgerDlg.data.amount_spent)}</span>
+                {' · '}Balance <span className="font-semibold text-green-700">{fmt(ledgerDlg.data.balance)}</span>
+                {ledgerDlg.data.site_engineer_name && <> · SE: <span className="font-medium">{ledgerDlg.data.site_engineer_name}</span></>}
+              </div>
+            )}
+          </DialogHeader>
+          {ledgerDlg.loading ? (
+            <p className="text-center text-xs text-gray-400 py-6">Loading timeline…</p>
+          ) : !ledgerDlg.data?.ledger?.length ? (
+            <p className="text-center text-xs text-gray-400 py-6">No activity yet</p>
+          ) : (
+            <ol className="relative border-l-2 border-violet-100 ml-3 space-y-3 py-2">
+              {ledgerDlg.data.ledger.map((l, i) => {
+                const meta = l.type === 'issued'
+                  ? { Icon: ArrowDownCircle, bg: 'bg-amber-50 text-amber-700 border-amber-200', label: 'Issued', color: 'text-amber-800', prefix: '' }
+                  : l.type === 'spent'
+                    ? { Icon: ArrowUpCircle, bg: 'bg-red-50 text-red-700 border-red-200', label: 'Spent (Cashbook)', color: 'text-red-700', prefix: '−' }
+                    : { Icon: FileText, bg: 'bg-blue-50 text-blue-700 border-blue-200', label: 'Record Expense', color: 'text-blue-700', prefix: '−' };
+                const { Icon } = meta;
+                return (
+                  <li key={i} className="ml-4" data-testid={`petty-ledger-entry-${i}`}>
+                    <span className={`absolute -left-3 flex items-center justify-center w-6 h-6 rounded-full border ${meta.bg}`}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </span>
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <Badge variant="outline" className={`text-[9px] ${meta.bg}`}>{meta.label}</Badge>
+                      <span className={`text-sm font-semibold ${meta.color}`}>{meta.prefix}{fmt(l.amount)}</span>
+                      <span className="text-[10px] text-gray-400">{l.date ? new Date(l.date).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                      {l.status && <Badge variant="outline" className="text-[9px] bg-gray-50 text-gray-700 border-gray-200 capitalize">{(l.status || '').replace(/_/g, ' ')}</Badge>}
+                    </div>
+                    <p className="text-xs text-gray-700 mt-0.5">{l.notes}</p>
+                    <div className="text-[10px] text-gray-500 mt-0.5 flex flex-wrap gap-2">
+                      {l.actor && <span>By: <span className="text-gray-700">{l.actor}</span></span>}
+                      {l.mode && <span>· Mode: <span className="text-gray-700 uppercase">{(l.mode || '').replace(/_/g, ' ')}</span></span>}
+                      {l.reference && <span>· Ref: <span className="text-gray-700">{l.reference}</span></span>}
+                    </div>
+                    {l.items?.length > 0 && (
+                      <ul className="mt-1 text-[11px] text-gray-600 space-y-0.5 pl-2 border-l border-gray-200">
+                        {l.items.map((it, j) => (
+                          <li key={j} className="flex justify-between">
+                            <span className="truncate mr-2">{it.name} <span className="text-gray-400">· {it.category}</span></span>
+                            <span className="font-medium text-gray-700">{fmt(it.amount)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Cascade-delete confirmation dialog */}
       <AlertDialog open={deleteDlg.open} onOpenChange={(v) => !v && setDeleteDlg({ open: false, kind: null, target: null, impact: null, loading: false })}>
         <AlertDialogContent data-testid="delete-suspense-dialog">
@@ -541,10 +626,16 @@ export default function SuspenseAccountPage() {
                     <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded">
                       <p className="font-semibold text-red-700">This will also delete:</p>
                       <p className="text-red-700">
-                        <b>{deleteDlg.impact.linked_expense_count}</b> linked expense record{deleteDlg.impact.linked_expense_count === 1 ? '' : 's'}
-                        {' '}totaling <b>{fmt(deleteDlg.impact.linked_expense_total)}</b>
-                        {' '}from Cashbook + SE ledger.
+                        <b>{deleteDlg.impact.linked_expense_count}</b> Cashbook expense record{deleteDlg.impact.linked_expense_count === 1 ? '' : 's'}
+                        {' '}totaling <b>{fmt(deleteDlg.impact.linked_expense_total)}</b>.
                       </p>
+                      {deleteDlg.impact.direct_expense_affected > 0 && (
+                        <p className="text-red-700 mt-1">
+                          <b>{deleteDlg.impact.direct_expense_affected}</b> SE Record Expense entr{deleteDlg.impact.direct_expense_affected === 1 ? 'y' : 'ies'}
+                          {' '}({deleteDlg.impact.direct_expense_removed} fully removed · {deleteDlg.impact.direct_expense_affected - deleteDlg.impact.direct_expense_removed} split-only)
+                          {' '}totaling <b>{fmt(deleteDlg.impact.direct_expense_total)}</b>.
+                        </p>
+                      )}
                       {deleteDlg.impact.linked_expenses?.length > 0 && (
                         <ul className="mt-2 text-[11px] max-h-32 overflow-y-auto space-y-0.5">
                           {deleteDlg.impact.linked_expenses.map((e, idx) => (
