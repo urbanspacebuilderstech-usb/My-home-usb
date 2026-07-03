@@ -348,7 +348,6 @@ export default function SuspenseAccountPage() {
                       <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">A/C Approved</th>
                       <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Spent</th>
                       <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Balance</th>
-                      <th className="px-2 py-2 text-center text-[10px] font-semibold text-gray-500 uppercase">Status</th>
                       <th className="px-2 py-2 w-20"></th>
                     </tr>
                   </thead>
@@ -379,9 +378,6 @@ export default function SuspenseAccountPage() {
                           <td className="px-2 py-2 text-right font-semibold text-blue-700" data-testid={`petty-ac-approved-${pc.petty_cash_id}`}>{fmt(acApproved)}</td>
                           <td className="px-2 py-2 text-right text-red-600">{fmt(spent)}</td>
                           <td className="px-2 py-2 text-right font-semibold text-emerald-700">{fmt(balance)}</td>
-                          <td className="px-2 py-2 text-center">
-                            <Badge className={pc.status === 'settled' ? 'bg-green-100 text-green-800' : pc.status === 'issued' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'} data-testid={`petty-status-${pc.petty_cash_id}`}>{pc.status}</Badge>
-                          </td>
                           <td className="px-2 py-2">
                             <div className="flex items-center justify-end gap-1">
                               {(pc.status === 'submitted' || pc.status === 'partially_settled') && (
