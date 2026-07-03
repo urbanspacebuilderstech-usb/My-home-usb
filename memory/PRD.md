@@ -13,6 +13,13 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Jul 03, 2026 — Fix `delete_direct_expense` bug (negative `amount_spent`)
+- **Status**: ✅ DEPLOYED (commit `289f639b`).
+- **Bug**: SE > Petty Cash > Record Expense — recording ₹1,000 then deleting it drove `amount_spent` from 0 → **-₹1,000**, inflating the visible balance by ₹1,000. Introduced when the July 03 change moved the `amount_spent` increment from SE-submission time to Accountant-approval time; the delete path still unconditionally decremented.
+- **Fix**: `backend/routes/site_ops.py::delete_direct_expense` — removed the unconditional `$inc: amount_spent: -amount`. Added a guard: if any mirror `recorded_expenses` row is in `approved / verified / recorded_into_cashbook / accountant_approved` status, block the delete (ask A/C to reverse). Otherwise wipe direct + mirror rows with no refund (bucket was never bumped).
+- **Data heal**: `construction_crm.petty_cash` — buckets `pc_1af8b2d2380c` (was -₹1,000) and `pc_899a219f1eba` (was -₹2,200) → `amount_spent` reset to 0.
+
+
 ### Session — Jul 03, 2026 — PM Dashboard: Project + Date filters on Labour + Petty Cash
 - **Status**: 🟡 CODE READY (awaiting Save to GitHub + deploy).
 - **Ask**: Add "All Projects" dropdown + "Date" range popover to PM → Work Order / Labour (RAB), Petty Cash → Req Petty Cash, and Petty Cash → Record Expense (parity with Material Requests tab which already has them).
