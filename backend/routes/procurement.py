@@ -4146,9 +4146,11 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
         "pm_approved": "Procurement",
         "procurement_priced": "Planning",
         "procurement_revision": "Procurement",
+        "pending_advance_payment": "Accountant",
         "pending_accounts_approval": "Accountant",
         "pending_balance_payment": "Accountant",
         "payment_approved": "Accountant",
+        "accounts_approved": "Accountant",
     }
     for mr in material_requests:
         if not _matches(mr) or not _project_ok(mr):
