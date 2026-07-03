@@ -3157,25 +3157,27 @@ async def delete_direct_expense(expense_id: str, user: User = Depends(get_curren
     if status_to_check.lower() in locked:
         raise HTTPException(status_code=400, detail="Approved expenses cannot be deleted. Contact your accountant to reverse the entry.")
 
-    # Refund every linked petty-cash bucket so balances bounce back.
+    # Mar 04 2026 — Refund `amount_spent` per-split ONLY when that specific
+    # mirror was already accountant-approved (spent counter had been bumped
+    # at approval time). For `recorded` / `pm_approved` mirrors the bucket
+    # balance was never touched, so we must NOT decrement — doing so pushes
+    # `amount_spent` negative and inflates the visible balance (Feb 2026 bug).
     if de:
-        splits = de.get("linked_petty_cash_splits") or []
-        if splits:
-            for s in splits:
-                if s.get("petty_cash_id"):
-                    await db.petty_cash.update_one(
-                        {"petty_cash_id": s["petty_cash_id"]},
-                        {"$inc": {"amount_spent": -float(s.get("amount") or 0)}}
-                    )
-        elif de.get("linked_petty_cash_id"):
-            await db.petty_cash.update_one(
-                {"petty_cash_id": de["linked_petty_cash_id"]},
-                {"$inc": {"amount_spent": -float(de.get("total_amount") or 0)}}
-            )
-        # Wipe every recorded_expenses mirror for this direct expense.
+        # If ANY mirror for this direct expense is in a locked (approved) state,
+        # block the delete outright. The ledger has consumed it.
+        approved_mirror = await db.recorded_expenses.find_one(
+            {"direct_expense_id": de["expense_id"], "status": {"$in": locked}},
+            {"_id": 0, "expense_id": 1}
+        )
+        if approved_mirror:
+            raise HTTPException(status_code=400, detail="One or more splits of this expense are already approved by the Accountant. Ask them to reverse the entry first.")
+
+        # No mirror is approved → bucket `amount_spent` was never incremented,
+        # so we simply wipe mirrors and the direct expense with no refund.
         await db.recorded_expenses.delete_many({"direct_expense_id": de["expense_id"]})
         await db.direct_expenses.delete_one({"expense_id": de["expense_id"]})
     elif rec:
+        # Single-mirror delete path (status already validated above as unlocked).
         await db.recorded_expenses.delete_one({"expense_id": rec["expense_id"]})
 
     return {"message": "Expense record deleted"}
