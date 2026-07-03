@@ -58,9 +58,10 @@ export default function LabourContractorPaymentSummary() {
   const totals = useMemo(() => filteredRows.reduce((acc, r) => ({
     total: acc.total + Number(r.total_value || 0),
     paid: acc.paid + Number(r.paid_amount || 0),
-    pending: acc.pending + Number(r.pending_amount || 0),
+    pending_with_pm: acc.pending_with_pm + Number(r.pending_with_pm || 0),
+    pending_ready: acc.pending_ready + Number(r.pending_ready || 0),
     suspense: acc.suspense + Number(r.suspense_balance || 0),
-  }), { total: 0, paid: 0, pending: 0, suspense: 0 }), [filteredRows]);
+  }), { total: 0, paid: 0, pending_with_pm: 0, pending_ready: 0, suspense: 0 }), [filteredRows]);
 
   const openLedgerFor = async (row) => {
     setOpenContractor(row);
@@ -76,8 +77,8 @@ export default function LabourContractorPaymentSummary() {
 
   return (
     <div className="space-y-3" data-testid="labour-contractor-summary">
-      {/* Roll-up summary pills — Total | Paid | Pending | Suspense */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" data-testid="lcs-summary-pills">
+      {/* Roll-up summary pills — Total | Paid | With PM | Ready | Suspense */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2" data-testid="lcs-summary-pills">
         <div className="rounded-full bg-gradient-to-br from-violet-50 to-violet-100 border border-violet-200 px-4 py-2.5 shadow-sm">
           <p className="text-[9px] font-semibold text-violet-600 uppercase tracking-wider">Total WO</p>
           <p className="text-base font-bold text-violet-900" data-testid="lcs-total">{fmt(totals.total)}</p>
@@ -86,9 +87,13 @@ export default function LabourContractorPaymentSummary() {
           <p className="text-[9px] font-semibold text-green-700 uppercase tracking-wider">Paid</p>
           <p className="text-base font-bold text-green-900" data-testid="lcs-paid">{fmt(totals.paid)}</p>
         </div>
+        <div className="rounded-full bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200 px-4 py-2.5 shadow-sm">
+          <p className="text-[9px] font-semibold text-orange-700 uppercase tracking-wider">With PM</p>
+          <p className="text-base font-bold text-orange-900" data-testid="lcs-pending-pm">{fmt(totals.pending_with_pm)}</p>
+        </div>
         <div className="rounded-full bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 px-4 py-2.5 shadow-sm">
-          <p className="text-[9px] font-semibold text-blue-700 uppercase tracking-wider">Pending</p>
-          <p className="text-base font-bold text-blue-900" data-testid="lcs-pending">{fmt(totals.pending)}</p>
+          <p className="text-[9px] font-semibold text-blue-700 uppercase tracking-wider">Ready to Pay</p>
+          <p className="text-base font-bold text-blue-900" data-testid="lcs-pending-ready">{fmt(totals.pending_ready)}</p>
         </div>
         <div className="rounded-full bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200 px-4 py-2.5 shadow-sm">
           <p className="text-[9px] font-semibold text-amber-700 uppercase tracking-wider">Suspense</p>
@@ -131,7 +136,8 @@ export default function LabourContractorPaymentSummary() {
                     <th className="text-left px-3 py-2 font-semibold text-gray-600">Projects</th>
                     <th className="text-right px-3 py-2 font-semibold text-gray-600">Total WO</th>
                     <th className="text-right px-3 py-2 font-semibold text-green-700">Paid</th>
-                    <th className="text-right px-3 py-2 font-semibold text-blue-700">Pending</th>
+                    <th className="text-right px-3 py-2 font-semibold text-orange-700" title="Requested / PM Approved / QC Approved">With PM</th>
+                    <th className="text-right px-3 py-2 font-semibold text-blue-700" title="Planning approved · awaiting Accountant">Ready to Pay</th>
                     <th className="text-right px-3 py-2 font-semibold text-amber-700">Suspense</th>
                     <th className="text-right px-3 py-2 font-semibold text-gray-600 w-20">Ledger</th>
                   </tr>
@@ -145,7 +151,8 @@ export default function LabourContractorPaymentSummary() {
                       <td className="px-3 py-2 text-gray-700 text-[11px]">{(r.projects || []).join(', ') || '—'}</td>
                       <td className="px-3 py-2 text-right">{fmt(r.total_value)}</td>
                       <td className="px-3 py-2 text-right text-green-700 font-semibold">{fmt(r.paid_amount)}</td>
-                      <td className="px-3 py-2 text-right text-blue-700">{fmt(r.pending_amount)}</td>
+                      <td className="px-3 py-2 text-right text-orange-700">{fmt(r.pending_with_pm)}</td>
+                      <td className="px-3 py-2 text-right text-blue-700 font-semibold">{fmt(r.pending_ready)}</td>
                       <td className="px-3 py-2 text-right font-bold text-amber-700">{fmt(r.suspense_balance)}</td>
                       <td className="px-3 py-2 text-right">
                         <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 border-violet-300 text-violet-700 hover:bg-violet-50" onClick={() => openLedgerFor(r)} data-testid={`lcs-ledger-${i}`}>
@@ -170,7 +177,8 @@ export default function LabourContractorPaymentSummary() {
             <DialogDescription className="text-xs">
               Total <span className="font-semibold">{fmt(openContractor?.total_value)}</span>
               {' · '}Paid <span className="font-semibold text-green-700">{fmt(openContractor?.paid_amount)}</span>
-              {' · '}Pending <span className="font-semibold text-blue-700">{fmt(openContractor?.pending_amount)}</span>
+              {' · '}With PM <span className="font-semibold text-orange-700">{fmt(openContractor?.pending_with_pm)}</span>
+              {' · '}Ready <span className="font-semibold text-blue-700">{fmt(openContractor?.pending_ready)}</span>
               {' · '}Suspense <span className="font-semibold text-amber-700">{fmt(openContractor?.suspense_balance)}</span>
             </DialogDescription>
           </DialogHeader>

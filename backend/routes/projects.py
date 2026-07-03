@@ -11996,6 +11996,12 @@ async def labour_contractor_payment_summary(user: User = Depends(get_current_use
             "total_value": 0.0,
             "paid_amount": 0.0,
             "pending_amount": 0.0,
+            # Feb 28 2026 — Split "Pending" into 2 buckets so accountants can
+            # see at a glance where a request is stuck:
+            #   pending_with_pm  → still with SE / PM / QC (not in A/C queue)
+            #   pending_ready    → planning_approved (in Expense Approvals)
+            "pending_with_pm": 0.0,
+            "pending_ready": 0.0,
         })
         proj_name = (projects.get(wo.get("project_id")) or {}).get("name") or wo.get("project_name", "")
         if proj_name and proj_name not in bucket["projects"]:
@@ -12003,8 +12009,14 @@ async def labour_contractor_payment_summary(user: User = Depends(get_current_use
         bucket["total_value"] += float(wo.get("total_value", 0))
         for stage in wo.get("stages", []):
             for pr in stage.get("payment_requests", []) or []:
-                if pr.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"]:
-                    bucket["pending_amount"] += float(pr.get("amount", 0))
+                status = pr.get("status")
+                amt = float(pr.get("amount", 0))
+                if status in ["requested", "pm_approved", "qc_approved"]:
+                    bucket["pending_with_pm"] += amt
+                    bucket["pending_amount"] += amt
+                elif status == "planning_approved":
+                    bucket["pending_ready"] += amt
+                    bucket["pending_amount"] += amt
 
     # Feb 28 2026 — Compute paid_amount from recorded_expenses (source of truth
     # in the Cashbook) rather than the cached wo.paid_amount which can drift

@@ -13,6 +13,14 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Mar 03, 2026 — Split Pending into "With PM" + "Ready to Pay"
+- **Status**: 🟡 CODE READY (awaiting Save to GitHub + deploy).
+- **Bug (reported)**: Alli muthu showed ₹65,000 Pending in Contractor Summary but nothing in Accountant's Expense Approvals. User couldn't figure out where the request was stuck.
+- **Root cause**: The single "Pending" column merged 4 workflow states (`requested`, `pm_approved`, `qc_approved`, `planning_approved`). Only `planning_approved` reaches the Accountant queue.
+- **Fix**:
+  - `backend/routes/projects.py::labour_contractor_payment_summary` — split bucket into `pending_with_pm` (requested/pm_approved/qc_approved) + `pending_ready` (planning_approved). Total `pending_amount` retained for backward-compat.
+  - `frontend/src/components/LabourContractorPaymentSummary.jsx` — table now shows 2 columns ("With PM" 🟠 vs "Ready to Pay" 🔵) with tooltips. Top pill row expanded from 4 → 5 pills. Timeline dialog header also shows the split.
+
 ### Session — Feb 28, 2026 — Suspense visibility rule: "only live-expense-backed"
 - **Status**: 🟡 CODE READY (awaiting Save to GitHub + deploy).
 - **User rule**: Only ledger rows whose underlying `recorded_expense` is still LIVE (not deleted / rejected / bounced) should be counted in Contractor Summary + Material Vendor summary. Pure compensating rows (`expense_delete_reversal`, `susp_heal_*`) are dropped.
