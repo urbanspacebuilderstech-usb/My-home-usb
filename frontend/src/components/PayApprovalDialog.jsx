@@ -253,14 +253,15 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
                     <p className="text-[10px] text-gray-500 uppercase">Vendor Suspense</p>
                     {(() => {
                       const vbal = Number(ctx.suspense.vendor_balance || 0);
-                      const applied = Number(ctx.suspense.credit_to_apply || 0);
-                      // Positive vendor_balance = vendor has credit (auto-applied to this bill).
-                      // Negative vendor_balance = vendor owes us (held separately, NOT auto-netted).
+                      // Positive vendor_balance = vendor holds our credit (accountant
+                      // can OPTIONALLY apply it via the "Suspense" leg below —
+                      // no longer auto-netted since Feb 28 2026 per user request).
+                      // Negative vendor_balance = vendor owes us (held separately).
                       if (vbal > 0.5) {
                         return (
                           <>
-                            <p className="font-bold text-blue-700">−{fmt(applied)}</p>
-                            {applied > 0 && <p className="text-[9px] text-blue-600 mt-0.5">applied to bill</p>}
+                            <p className="font-bold text-blue-700">+{fmt(vbal)}</p>
+                            <p className="text-[9px] text-blue-600 mt-0.5">vendor credit — apply manually</p>
                           </>
                         );
                       }
