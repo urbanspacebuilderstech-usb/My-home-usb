@@ -2991,18 +2991,62 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
 # how an aggregate balance row in the UI gets "cleared". Restricted to
 # Super Admin because they bypass the normal Process Payment flow.
 
-@router.delete("/suspense/petty-cash/{petty_cash_id}")
-async def delete_petty_cash_request(petty_cash_id: str, user: User = Depends(get_current_user)):
+@router.get("/suspense/petty-cash/{petty_cash_id}/impact")
+async def get_petty_cash_delete_impact(petty_cash_id: str, user: User = Depends(get_current_user)):
+    """Preview what will be cascade-deleted when this petty-cash bucket is
+    removed. Called BEFORE the DELETE endpoint so the UI can show the user
+    exactly how many linked expenses / rupees will go with the bucket.
+    """
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Only Super Admin can delete suspense entries")
     pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id}, {"_id": 0})
     if not pc:
         raise HTTPException(status_code=404, detail="Petty cash request not found")
+    linked = await db.recorded_expenses.find(
+        {"linked_petty_cash_id": petty_cash_id},
+        {"_id": 0, "expense_id": 1, "amount": 1, "description": 1, "status": 1, "created_at": 1, "vendor_name": 1},
+    ).to_list(500)
+    linked_total = sum(float(e.get("amount") or 0) for e in linked)
+    return {
+        "petty_cash_id": petty_cash_id,
+        "purpose": pc.get("purpose"),
+        "amount_issued": pc.get("amount_issued"),
+        "amount_spent": pc.get("amount_spent"),
+        "site_engineer_name": pc.get("site_engineer_name"),
+        "linked_expense_count": len(linked),
+        "linked_expense_total": linked_total,
+        "linked_expenses": linked[:20],  # preview only first 20
+    }
+
+
+@router.delete("/suspense/petty-cash/{petty_cash_id}")
+async def delete_petty_cash_request(petty_cash_id: str, user: User = Depends(get_current_user)):
+    """Cascade-delete a petty-cash bucket AND every linked recorded_expense
+    that was booked against it. Jul 03 2026 — cascade added at user request so
+    a single click clears the bucket + SE-side entries + Cashbook mirror rows
+    in one go. Audit log records the counts.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can delete suspense entries")
+    pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id}, {"_id": 0})
+    if not pc:
+        raise HTTPException(status_code=404, detail="Petty cash request not found")
+    # 1. Cascade — expenses linked to this bucket.
+    linked_res = await db.recorded_expenses.delete_many({"linked_petty_cash_id": petty_cash_id})
+    # 2. Cascade — audit trail entries specific to this bucket (if any).
+    await db.petty_cash_audit_log.delete_many({"petty_cash_id": petty_cash_id})
+    # 3. The bucket itself.
     await db.petty_cash.delete_one({"petty_cash_id": petty_cash_id})
     await create_audit_log(user.user_id, "delete_petty_cash", "petty_cash", petty_cash_id, {
-        "amount_issued": pc.get("amount_issued"), "purpose": pc.get("purpose"),
+        "amount_issued": pc.get("amount_issued"),
+        "purpose": pc.get("purpose"),
+        "cascaded_expenses": linked_res.deleted_count,
     })
-    return {"message": "Petty cash request deleted", "petty_cash_id": petty_cash_id}
+    return {
+        "message": "Petty cash request deleted",
+        "petty_cash_id": petty_cash_id,
+        "cascaded_expenses": linked_res.deleted_count,
+    }
 
 
 @router.delete("/suspense/material-entry/{ledger_id}")

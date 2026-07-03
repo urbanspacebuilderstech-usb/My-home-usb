@@ -9,20 +9,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { NumericInput } from '../components/NumericInput';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-const fmt = (n) => {
-  if (!n && n !== 0) return '₹0';
-  const num = Number(n);
-  if (num >= 10000000) return `₹${(num / 10000000).toFixed(2)}Cr`;
-  if (num >= 100000) return `₹${(num / 100000).toFixed(2)}L`;
-  if (num >= 1000) return `₹${(num / 1000).toFixed(1)}K`;
-  return `₹${num.toLocaleString('en-IN')}`;
-};
+// Jul 03 2026 — Full Indian-format amounts (₹3,600 / ₹1,04,000 / ₹4,17,000)
+// per user request. No more K/L/Cr compaction — accountants need to see
+// the exact rupee amount on every row.
+const fmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
 export default function SuspenseAccountPage() {
   const [user, setUser] = useState(null);
@@ -74,33 +71,50 @@ export default function SuspenseAccountPage() {
   const [expandedSuspense, setExpandedSuspense] = useState({}); // key → bool
   const toggleExpanded = (key) => setExpandedSuspense(s => ({ ...s, [key]: !s[key] }));
 
-  const deletePettyCash = async (pc) => {
-    if (!window.confirm(`Delete petty cash request "${pc.purpose}" of ${fmt(pc.amount_issued)}?\nThis cannot be undone.`)) return;
+  // Jul 03 2026 — Rich delete confirmation dialog that fetches the cascade
+  // impact (linked recorded_expenses count + total) before letting the user
+  // confirm. Handles all three suspense types.
+  const [deleteDlg, setDeleteDlg] = useState({ open: false, kind: null, target: null, impact: null, loading: false });
+
+  const openDeleteDialog = async (kind, target) => {
+    setDeleteDlg({ open: true, kind, target, impact: null, loading: kind === 'petty' });
+    if (kind === 'petty') {
+      try {
+        const res = await axios.get(`${API}/suspense/petty-cash/${target.petty_cash_id}/impact`);
+        setDeleteDlg((d) => ({ ...d, impact: res.data, loading: false }));
+      } catch (e) {
+        toast.error(e.response?.data?.detail || 'Failed to load impact');
+        setDeleteDlg({ open: false, kind: null, target: null, impact: null, loading: false });
+      }
+    }
+  };
+
+  const confirmDelete = async () => {
+    const { kind, target } = deleteDlg;
     try {
-      await axios.delete(`${API}/suspense/petty-cash/${pc.petty_cash_id}`);
-      toast.success('Petty cash request deleted');
+      if (kind === 'petty') {
+        const res = await axios.delete(`${API}/suspense/petty-cash/${target.petty_cash_id}`);
+        toast.success(`Deleted bucket + ${res.data.cascaded_expenses || 0} linked expense${(res.data.cascaded_expenses || 0) === 1 ? '' : 's'}`);
+      } else if (kind === 'material') {
+        await axios.delete(`${API}/suspense/material-entry/${target.ledger_id}`);
+        toast.success('Material suspense entry deleted');
+      } else if (kind === 'labour') {
+        await axios.delete(`${API}/suspense/labour-entry/${target.labour_expense_id}`);
+        toast.success('Labour suspense entry deleted');
+      }
+      setDeleteDlg({ open: false, kind: null, target: null, impact: null, loading: false });
       fetchData(false);
     } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
   };
 
-  const deleteMaterialEntry = async (entry) => {
+  const deletePettyCash = (pc) => openDeleteDialog('petty', pc);
+  const deleteMaterialEntry = (entry) => {
     if (!entry.ledger_id) { toast.error('Missing ledger id'); return; }
-    if (!window.confirm(`Delete material suspense entry of ${fmt(entry.balance)}?\nThis cannot be undone.`)) return;
-    try {
-      await axios.delete(`${API}/suspense/material-entry/${entry.ledger_id}`);
-      toast.success('Material suspense entry deleted');
-      fetchData(false);
-    } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
+    openDeleteDialog('material', entry);
   };
-
-  const deleteLabourEntry = async (entry) => {
+  const deleteLabourEntry = (entry) => {
     if (!entry.labour_expense_id) { toast.error('Missing labour expense id'); return; }
-    if (!window.confirm(`Delete labour suspense entry of ${fmt(entry.balance)}?\nThis cannot be undone.`)) return;
-    try {
-      await axios.delete(`${API}/suspense/labour-entry/${entry.labour_expense_id}`);
-      toast.success('Labour suspense entry deleted');
-      fetchData(false);
-    } catch (e) { toast.error(e.response?.data?.detail || 'Delete failed'); }
+    openDeleteDialog('labour', entry);
   };
 
   const handlePayment = async (e) => {
@@ -505,6 +519,68 @@ export default function SuspenseAccountPage() {
         </Tabs>
       </div>
       <MobileBottomNav user={user} />
+
+      {/* Cascade-delete confirmation dialog */}
+      <AlertDialog open={deleteDlg.open} onOpenChange={(v) => !v && setDeleteDlg({ open: false, kind: null, target: null, impact: null, loading: false })}>
+        <AlertDialogContent data-testid="delete-suspense-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-red-600 flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              {deleteDlg.kind === 'petty' ? 'Delete Petty Cash Bucket?' : deleteDlg.kind === 'material' ? 'Delete Material Suspense Entry?' : 'Delete Labour Suspense Entry?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="text-sm text-gray-700 space-y-2">
+                {deleteDlg.kind === 'petty' && deleteDlg.loading && (
+                  <p>Checking linked expenses…</p>
+                )}
+                {deleteDlg.kind === 'petty' && deleteDlg.impact && (
+                  <>
+                    <p><b>Purpose:</b> {deleteDlg.impact.purpose}</p>
+                    <p><b>Issued:</b> {fmt(deleteDlg.impact.amount_issued)} · <b>Spent:</b> {fmt(deleteDlg.impact.amount_spent)}</p>
+                    <p><b>Site Engineer:</b> {deleteDlg.impact.site_engineer_name || '—'}</p>
+                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded">
+                      <p className="font-semibold text-red-700">This will also delete:</p>
+                      <p className="text-red-700">
+                        <b>{deleteDlg.impact.linked_expense_count}</b> linked expense record{deleteDlg.impact.linked_expense_count === 1 ? '' : 's'}
+                        {' '}totaling <b>{fmt(deleteDlg.impact.linked_expense_total)}</b>
+                        {' '}from Cashbook + SE ledger.
+                      </p>
+                      {deleteDlg.impact.linked_expenses?.length > 0 && (
+                        <ul className="mt-2 text-[11px] max-h-32 overflow-y-auto space-y-0.5">
+                          {deleteDlg.impact.linked_expenses.map((e, idx) => (
+                            <li key={idx} className="flex justify-between">
+                              <span className="truncate mr-2">{e.description || e.vendor_name || e.expense_id}</span>
+                              <span className="text-red-700 font-medium">{fmt(e.amount)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 italic">This action cannot be undone.</p>
+                  </>
+                )}
+                {(deleteDlg.kind === 'material' || deleteDlg.kind === 'labour') && (
+                  <>
+                    <p>You are about to delete a {deleteDlg.kind} suspense entry of <b>{fmt(deleteDlg.target?.balance)}</b>.</p>
+                    <p className="text-xs text-gray-500 italic">This action cannot be undone.</p>
+                  </>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="delete-suspense-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              disabled={deleteDlg.loading}
+              className="bg-red-600 hover:bg-red-700"
+              data-testid="delete-suspense-confirm"
+            >
+              Delete permanently
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
