@@ -7377,6 +7377,12 @@ class PaymentLeg(BaseModel):
 class PayApprovalRequest(BaseModel):
     # New multi-leg path (preferred): a single request can split across cheque + cash + bank
     payment_legs: Optional[List[PaymentLeg]] = None
+    # Jul 03 2026 — Optional manual suspense-apply amount. When > 0, this
+    # much of the vendor's positive suspense credit is netted against the
+    # bill (debits the vendor's suspense ledger and reduces the payable).
+    # Since auto-netting was disabled Feb 28, accountants use this to
+    # opt-in explicitly per payment.
+    apply_suspense: Optional[float] = 0.0
     # Legacy single-leg fields (still supported for backward compatibility)
     payment_method: Optional[str] = None
     transaction_id: Optional[str] = None
@@ -7549,16 +7555,40 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     is_continuation = already_paid > 0 and req.get("status") == "partially_paid"
 
     # Feb 28 2026 — Auto-netting of vendor suspense (positive OR negative)
-    # against the bill has been disabled at the user's request. Net Payable
-    # now equals bill_amount minus what's already been paid. The vendor's
-    # signed suspense balance stays visible on the ledger and can be
-    # reconciled explicitly later. This keeps the Mode of Payment picker
-    # visible on every Pay & Settle dialog even when the vendor is in credit.
+    # against the bill has been disabled at the user's request.
+    # Jul 03 2026 — Accountants can now opt-in per payment by passing
+    # `apply_suspense: <amount>` in the payload. We validate it doesn't
+    # exceed the vendor's available positive suspense OR the bill amount,
+    # then treat it as `credit_used` for the rest of the pipeline.
     existing_suspense = 0.0
     credit_used = 0.0
+    apply_req = max(0.0, float(data.apply_suspense or 0))
+    if apply_req > 0.5:
+        sus_query = {"type": suspense_type}
+        if suspense_type == "material":
+            sus_query["vendor_name"] = vendor_name
+        elif suspense_type == "labour":
+            sus_query["contractor_name"] = vendor_name
+        else:
+            se_id = req.get("requested_by") or req.get("site_engineer_id")
+            if se_id:
+                sus_query["site_engineer_id"] = se_id
+            else:
+                sus_query["vendor_name"] = vendor_name
+        sus_entries = await db.suspense_entries.find(sus_query, {"_id": 0}).to_list(1000)
+        existing_suspense = sum(float(e.get("amount", 0) or 0) for e in sus_entries)
+        # Cap the applied suspense to the smaller of: what's available,
+        # what's payable on this bill (after prior partial payments).
+        remaining_payable_pre = max(0.0, bill_amount - already_paid)
+        credit_used = min(apply_req, max(0.0, existing_suspense), remaining_payable_pre)
+        if credit_used < apply_req - 0.5:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Requested apply_suspense {apply_req:.0f} exceeds vendor credit {max(0.0, existing_suspense):.0f} or payable {remaining_payable_pre:.0f}",
+            )
 
-    # Net payable = bill amount minus prior partial payments (no suspense netting)
-    payable = max(0.0, bill_amount - already_paid)
+    # Net payable = bill amount minus prior partial payments minus applied suspense
+    payable = max(0.0, bill_amount - already_paid - credit_used)
 
     # 2. Normalize input → list of legs.
     # Fast-path: if there's nothing to pay (suspense fully covered the bill),

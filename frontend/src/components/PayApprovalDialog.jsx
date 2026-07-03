@@ -49,6 +49,8 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
   const [legs, setLegs] = useState([makeLeg('cheque')]);
   const [remarks, setRemarks] = useState('');
   const [requestingOpen, setRequestingOpen] = useState(null);
+  // Jul 03 2026 — Accountant-set amount to net off from vendor suspense credit.
+  const [applySuspense, setApplySuspense] = useState('');
 
   const reload = async () => {
     setLoading(true);
@@ -70,11 +72,16 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
     setCtx(null);
     setLegs([makeLeg('cheque')]);
     setRemarks('');
+    setApplySuspense('');
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, requestId, reqType]);
 
-  const payable = ctx?.payable_after_suspense || 0;
+  const vendorCredit = Math.max(0, Number(ctx?.suspense?.vendor_balance || 0));
+  const applySusNum = Math.min(Number(applySuspense) || 0, vendorCredit);
+  const billAmountRaw = ctx?.request?.bill_amount || 0;
+  const alreadyPaidRaw = ctx?.request?.already_paid || 0;
+  const payable = Math.max(0, billAmountRaw - alreadyPaidRaw - applySusNum);
   const billAmount = ctx?.request?.bill_amount || 0;
   const alreadyPaid = ctx?.request?.already_paid || 0;
   const isContinuation = !!ctx?.request?.is_continuation;
@@ -143,7 +150,7 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
     if (payable <= 0) {
       try {
         setSubmitting(true);
-        const r = await axios.post(`${API}/approvals/${reqType}/${requestId}/pay`, { remarks: remarks || null });
+        const r = await axios.post(`${API}/approvals/${reqType}/${requestId}/pay`, { remarks: remarks || null, apply_suspense: applySusNum > 0.5 ? applySusNum : 0 });
         toast.success('Payment fully covered by vendor suspense.');
         onPaid && onPaid(r.data);
         onOpenChange(false);
@@ -180,6 +187,7 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
 
     const payload = {
       remarks: remarks || null,
+      apply_suspense: applySusNum > 0.5 ? applySusNum : 0,
       payment_legs: legs.map(l => ({
         method: l.method,
         amount: Number(l.amount),
@@ -253,15 +261,23 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
                     <p className="text-[10px] text-gray-500 uppercase">Vendor Suspense</p>
                     {(() => {
                       const vbal = Number(ctx.suspense.vendor_balance || 0);
-                      // Positive vendor_balance = vendor holds our credit (accountant
-                      // can OPTIONALLY apply it via the "Suspense" leg below —
-                      // no longer auto-netted since Feb 28 2026 per user request).
-                      // Negative vendor_balance = vendor owes us (held separately).
                       if (vbal > 0.5) {
                         return (
                           <>
                             <p className="font-bold text-blue-700">+{fmt(vbal)}</p>
-                            <p className="text-[9px] text-blue-600 mt-0.5">vendor credit — apply manually</p>
+                            <div className="mt-1.5 flex items-center gap-1.5 justify-center">
+                              <Label className="text-[10px] text-blue-700 shrink-0">Apply ₹</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                max={Math.min(vbal, Math.max(0, (ctx?.request?.bill_amount || 0) - (ctx?.request?.already_paid || 0)))}
+                                value={applySuspense}
+                                onChange={(e) => setApplySuspense(e.target.value)}
+                                placeholder="0"
+                                className="h-6 text-[11px] py-0 w-20 text-center"
+                                data-testid="pay-apply-suspense-amount"
+                              />
+                            </div>
                           </>
                         );
                       }
