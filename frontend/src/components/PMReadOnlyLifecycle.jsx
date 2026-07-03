@@ -12,6 +12,7 @@ import { Eye, Package, HardHat, Truck, PackageCheck, FileClock, Wallet, ListChec
 import { DayPicker } from 'react-day-picker';
 import OrderDetailDialog from './OrderDetailDialog';
 import { RABDetailDialog } from './RABDetailDialog';
+import { PMProjectDateFilter, useProjectDateFilter } from './PMProjectDateFilter';
 
 const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); } catch { return s || '—'; } };
@@ -299,13 +300,16 @@ export function PMLabourReadOnlyList({ items, onApprove, onReject }) {
   // dialog handled by the parent via onReject).
   const [approveTarget, setApproveTarget] = useState(null);
   const [approveNotes, setApproveNotes] = useState('');
-  const visibleItems = useMemo(() => bucket === 'all' ? items : items.filter(r => bucketForLabour(r) === bucket), [items, bucket]);
+  // Jul 03 2026 — Project + Date filters (mirror of Material Requests).
+  const projDateFilter = useProjectDateFilter(items);
+  const filteredItems = projDateFilter.filteredItems;
+  const visibleItems = useMemo(() => bucket === 'all' ? filteredItems : filteredItems.filter(r => bucketForLabour(r) === bucket), [filteredItems, bucket]);
   const counts = useMemo(() => {
-    const c = { all: items.length };
+    const c = { all: filteredItems.length };
     LABOUR_BUCKETS.forEach(b => { if (b.key !== 'all') c[b.key] = 0; });
-    items.forEach(r => { const b = bucketForLabour(r); c[b] = (c[b] || 0) + 1; });
+    filteredItems.forEach(r => { const b = bucketForLabour(r); c[b] = (c[b] || 0) + 1; });
     return c;
-  }, [items]);
+  }, [filteredItems]);
   const askApprove = (r) => { setApproveTarget(r); setApproveNotes(''); };
   const confirmApprove = async () => {
     if (!onApprove || !approveTarget) return;
@@ -328,7 +332,8 @@ export function PMLabourReadOnlyList({ items, onApprove, onReject }) {
 
   return (
     <div className="space-y-2" data-testid="pm-lab-readonly">
-      <h3 className="text-sm font-semibold text-amber-700 flex items-center gap-2"><HardHat className="h-4 w-4" /> Work Order / Labour ({items.length})</h3>
+      <h3 className="text-sm font-semibold text-amber-700 flex items-center gap-2"><HardHat className="h-4 w-4" /> Work Order / Labour ({filteredItems.length})</h3>
+      <PMProjectDateFilter filter={projDateFilter} itemsCount={items.length} testIdPrefix="pm-lab" />
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
         {LABOUR_BUCKETS.map(b => {
           const active = bucket === b.key;

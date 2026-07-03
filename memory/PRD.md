@@ -13,6 +13,14 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Jul 03, 2026 — PM Dashboard: Project + Date filters on Labour + Petty Cash
+- **Status**: 🟡 CODE READY (awaiting Save to GitHub + deploy).
+- **Ask**: Add "All Projects" dropdown + "Date" range popover to PM → Work Order / Labour (RAB), Petty Cash → Req Petty Cash, and Petty Cash → Record Expense (parity with Material Requests tab which already has them).
+- **Fix**:
+  - New reusable `frontend/src/components/PMProjectDateFilter.jsx` exposing `useProjectDateFilter(items)` hook + `<PMProjectDateFilter>` UI (Select dropdown for projects, DayPicker range popover with 6 presets: Today / Yesterday / This Week / Last 7 Days / This Month / All Requests).
+  - `PMReadOnlyLifecycle.jsx::PMLabourReadOnlyList` now uses the shared hook; filters apply BEFORE bucket counts so the bucket badges reflect the narrowed set.
+  - `PMPettyCashTabs.jsx::PettyCashRequestsView` + `RecordExpenseView` — same filters wired in.
+
 ### Session — Mar 03, 2026 — Split Pending into "With PM" + "Ready to Pay"
 - **Status**: 🟡 CODE READY (awaiting Save to GitHub + deploy).
 - **Bug (reported)**: Alli muthu showed ₹65,000 Pending in Contractor Summary but nothing in Accountant's Expense Approvals. User couldn't figure out where the request was stuck.

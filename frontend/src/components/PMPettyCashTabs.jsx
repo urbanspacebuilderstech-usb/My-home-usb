@@ -12,6 +12,7 @@ import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
 import { ThumbsUp, ThumbsDown, Loader2, Wallet, FileText, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
+import { PMProjectDateFilter, useProjectDateFilter } from './PMProjectDateFilter';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
@@ -100,13 +101,17 @@ function PettyCashRequestsView({ items, onRefresh }) {
   const [actDialog, setActDialog] = useState({ open: false, item: null, action: null, reason: '' });
   const [submitting, setSubmitting] = useState(false);
 
+  // Jul 03 2026 — Project + Date filters (parity with Material Requests tab).
+  const projDateFilter = useProjectDateFilter(items);
+  const filteredItems = projDateFilter.filteredItems;
+
   const counts = useMemo(() => {
     const c = {};
     BUCKETS.forEach(b => { c[b.key] = 0; });
-    items.forEach(p => { const b = bucketForPettyCash(p); c[b] = (c[b] || 0) + 1; });
+    filteredItems.forEach(p => { const b = bucketForPettyCash(p); c[b] = (c[b] || 0) + 1; });
     return c;
-  }, [items]);
-  const visible = useMemo(() => items.filter(p => bucketForPettyCash(p) === bucket), [items, bucket]);
+  }, [filteredItems]);
+  const visible = useMemo(() => filteredItems.filter(p => bucketForPettyCash(p) === bucket), [filteredItems, bucket]);
 
   const submitAction = async () => {
     if (actDialog.action === 'reject' && !actDialog.reason.trim()) { toast.error('Reason required'); return; }
@@ -128,6 +133,7 @@ function PettyCashRequestsView({ items, onRefresh }) {
 
   return (
     <div className="space-y-2">
+      <PMProjectDateFilter filter={projDateFilter} itemsCount={items.length} testIdPrefix="pm-pc-req" />
       <div className="grid grid-cols-3 gap-1.5" data-testid="pm-pc-req-buckets">
         {BUCKETS.map(b => {
           const active = bucket === b.key;
@@ -211,13 +217,17 @@ function RecordExpenseView({ items, loading, onRefresh }) {
   const [actDialog, setActDialog] = useState({ open: false, item: null, action: null, reason: '' });
   const [submitting, setSubmitting] = useState(false);
 
+  // Jul 03 2026 — Project + Date filters.
+  const projDateFilter = useProjectDateFilter(items);
+  const filteredItems = projDateFilter.filteredItems;
+
   const counts = useMemo(() => {
     const c = {};
     BUCKETS.forEach(b => { c[b.key] = 0; });
-    items.forEach(i => { const b = bucketForRecordedExpense(i); c[b] = (c[b] || 0) + 1; });
+    filteredItems.forEach(i => { const b = bucketForRecordedExpense(i); c[b] = (c[b] || 0) + 1; });
     return c;
-  }, [items]);
-  const visible = useMemo(() => items.filter(i => bucketForRecordedExpense(i) === bucket), [items, bucket]);
+  }, [filteredItems]);
+  const visible = useMemo(() => filteredItems.filter(i => bucketForRecordedExpense(i) === bucket), [filteredItems, bucket]);
 
   const submitAction = async () => {
     if (actDialog.action === 'reject' && !actDialog.reason.trim()) { toast.error('Reason required'); return; }
@@ -236,7 +246,8 @@ function RecordExpenseView({ items, loading, onRefresh }) {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <PMProjectDateFilter filter={projDateFilter} itemsCount={items.length} testIdPrefix="pm-pc-record" />
         <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={onRefresh}><RefreshCw className="h-3 w-3" /> Refresh</Button>
       </div>
       <div className="grid grid-cols-3 gap-1.5" data-testid="pm-pc-record-buckets">
