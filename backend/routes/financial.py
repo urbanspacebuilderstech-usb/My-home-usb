@@ -7742,6 +7742,45 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             "approved_by": user.user_id,
         })
 
+    # Jul 03 2026 — When the accountant applies vendor suspense to (fully or
+    # partially) cover the bill, record a separate `recorded_expenses` row
+    # with payment_method="suspense" so the Cashbook / Approvals list shows
+    # the correct mode (previously fell back to "Miscellaneous" because no
+    # mirror row was created when the whole bill was covered by suspense).
+    if credit_used > 0.5:
+        suspense_expense_id = primary_expense_id if not legs else f"exp_{uuid.uuid4().hex[:12]}"
+        await db.recorded_expenses.insert_one({
+            "expense_id": suspense_expense_id,
+            "project_id": project_id,
+            "category": suspense_type,
+            "expense_type": suspense_type,
+            "description": (req.get("material_name") or req.get("labour_type") or f"{suspense_type} payment") + " (via suspense)",
+            "amount": credit_used,
+            "tendered_amount": credit_used,
+            "payment_method": "suspense",
+            "vendor_name": vendor_name,
+            "request_id": request_id,
+            "request_type": req_type,
+            "credit_applied": credit_used,
+            "new_suspense_credit": 0,
+            "leg_index": len(legs),
+            "leg_count": len(legs) + 1,
+            "primary_expense_id": primary_expense_id if legs else suspense_expense_id,
+            "is_partial": not is_full_payment,
+            "recorded_by": user.user_id,
+            "recorded_by_name": user.name,
+            "remarks": (data.remarks or "") + " [Suspense credit applied]" if data.remarks else "Suspense credit applied",
+            "status": "approved",
+            "source": "approval_suspense",
+            "approval_id": request_id,
+            "created_at": now,
+            "approved_at": now,
+            "approved_by": user.user_id,
+        })
+        if not legs:
+            primary_expense_id = suspense_expense_id
+            leg_expense_ids.append(suspense_expense_id)
+
     # 7. Suspense ledger updates — only on the first call so we don't double-debit
     def _suspense_key():
         if suspense_type == "material":
