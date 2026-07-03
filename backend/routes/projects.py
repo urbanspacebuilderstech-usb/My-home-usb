@@ -12127,6 +12127,15 @@ async def labour_contractor_payment_ledger(contractor_id: str, user: User = Depe
                 status = (pr.get("status") or "").lower()
                 # pending requests
                 if status in ("requested", "pm_approved", "qc_approved", "planning_approved"):
+                    # Feb 28 2026 — Surface WHERE the request is stuck so
+                    # accountants can chase the right person.
+                    _pending_with_map = {
+                        "requested": "PM",
+                        "pm_approved": "QC",
+                        "qc_approved": "Planning",
+                        "planning_approved": "Accountant",
+                    }
+                    pending_with = _pending_with_map.get(status, status.replace("_", " ").title())
                     timeline.append({
                         "date": pr.get("requested_at") or pr.get("created_at"),
                         "type": "request",
@@ -12134,8 +12143,9 @@ async def labour_contractor_payment_ledger(contractor_id: str, user: User = Depe
                         "amount": float(pr.get("amount") or 0),
                         "project": proj_name,
                         "status": status,
+                        "pending_with": pending_with,
                         "reference": pr.get("request_id"),
-                        "notes": f"Stage: {stage.get('name') or stage.get('stage_name') or '—'} — {status.replace('_', ' ')}",
+                        "notes": f"Stage: {stage.get('name') or stage.get('stage_name') or '—'} — pending with {pending_with}",
                     })
 
     for rx in recorded_payments:
