@@ -7744,20 +7744,72 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
 
     # Jul 03 2026 — When the accountant applies vendor suspense to (fully or
     # partially) cover the bill, record a separate `recorded_expenses` row
-    # with payment_method="suspense" so the Cashbook / Approvals list shows
-    # the correct mode (previously fell back to "Miscellaneous" because no
-    # mirror row was created when the whole bill was covered by suspense).
+    # so the Cashbook shows the correct mode. Per user request, that mode
+    # inherits from the ORIGINAL source expense (typically the cheque that
+    # created the suspense credit) — not the generic "suspense" tag. FIFO
+    # by created_at picks the oldest positive credit as the source.
     if credit_used > 0.5:
+        sus_query = {"type": suspense_type}
+        if suspense_type == "material":
+            sus_query["vendor_name"] = vendor_name
+        elif suspense_type == "labour":
+            sus_query["contractor_name"] = vendor_name
+        else:
+            se_id = req.get("requested_by") or req.get("site_engineer_id")
+            if se_id:
+                sus_query["site_engineer_id"] = se_id
+            else:
+                sus_query["vendor_name"] = vendor_name
+        # Oldest positive credit — the "first in, first out" source.
+        source_entry = None
+        source_expense = None
+        async for se in db.suspense_entries.find(sus_query).sort("created_at", 1):
+            if float(se.get("amount") or 0) <= 0:
+                continue
+            linked = se.get("linked_expense_id")
+            if not linked:
+                continue
+            src = await db.recorded_expenses.find_one({"expense_id": linked}, {"_id": 0})
+            if src and (src.get("payment_method") or "").strip():
+                source_entry = se
+                source_expense = src
+                break
+        inherited_method = (source_expense or {}).get("payment_method") or "suspense"
+        inherited_cheque_id = None
+        inherited_cheque_ids = []
+        if source_expense and inherited_method == "cheque":
+            inherited_cheque_ids = source_expense.get("cheque_ids") or []
+            inherited_cheque_id = source_expense.get("cheque_id") or (inherited_cheque_ids[0] if inherited_cheque_ids else None)
+        inherited_ref = (source_expense or {}).get("transaction_id")
+        source_cheque_no = None
+        if inherited_cheque_id:
+            ch = await db.cheques.find_one({"cheque_id": inherited_cheque_id}, {"_id": 0, "cheque_number": 1})
+            source_cheque_no = (ch or {}).get("cheque_number")
+
         suspense_expense_id = primary_expense_id if not legs else f"exp_{uuid.uuid4().hex[:12]}"
+        # Description highlights the source (cheque #, bank ref) so accountants
+        # can trace where the ₹ physically came from.
+        src_hint = ""
+        if inherited_method == "cheque" and source_cheque_no:
+            src_hint = f" (via Cheque #{source_cheque_no} suspense)"
+        elif inherited_method != "suspense":
+            src_hint = f" (via {inherited_method.replace('_', ' ')} suspense)"
+        else:
+            src_hint = " (via suspense)"
+
         await db.recorded_expenses.insert_one({
             "expense_id": suspense_expense_id,
             "project_id": project_id,
             "category": suspense_type,
             "expense_type": suspense_type,
-            "description": (req.get("material_name") or req.get("labour_type") or f"{suspense_type} payment") + " (via suspense)",
+            "description": (req.get("material_name") or req.get("labour_type") or f"{suspense_type} payment") + src_hint,
             "amount": credit_used,
             "tendered_amount": credit_used,
-            "payment_method": "suspense",
+            "payment_method": inherited_method,
+            "transaction_id": inherited_ref,
+            "cheque_id": inherited_cheque_id,
+            "cheque_ids": inherited_cheque_ids,
+            "cheque_number": source_cheque_no,
             "vendor_name": vendor_name,
             "request_id": request_id,
             "request_type": req_type,
@@ -7772,6 +7824,7 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             "remarks": (data.remarks or "") + " [Suspense credit applied]" if data.remarks else "Suspense credit applied",
             "status": "approved",
             "source": "approval_suspense",
+            "source_of_suspense_expense_id": (source_expense or {}).get("expense_id"),
             "approval_id": request_id,
             "created_at": now,
             "approved_at": now,
