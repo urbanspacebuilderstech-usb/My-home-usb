@@ -2838,26 +2838,34 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Access denied")
     
     PETTY_ACTIVE_STATUSES = ["payment_done", "acknowledged", "partially_spent", "issued"]
-    VENDOR_OPEN_STATUSES = ["pending", "active", "overdue", "partially_paid"]
-    LABOUR_OPEN_STATUSES = ["pm_approved", "accounts_pending"]
-    
-    (petty_cash, vendor_credits_v2, credit_ledger_v1, labour_expenses, projects_list, ac_approved_rexps) = await asyncio.gather(
+
+    # Jul 03 2026 — Material & Labour suspense now read from the SAME
+    # collections and use the SAME "only-live-expense-backed" filter as the
+    # Labour Payments → Contractor Summary + Material Vendor tabs, so the
+    # numbers reconcile across all screens.
+    #   Material → db.suspense_entries (Pay & Settle balances)
+    #   Labour  → db.contractor_suspense_ledger (credit/debit per contractor)
+    _EXCLUDED_EXPENSE_STATUSES = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+
+    (petty_cash, projects_list, ac_approved_rexps,
+     mat_suspense_entries, contractor_suspense_rows,
+     material_recorded_exps, labour_recorded_exps) = await asyncio.gather(
         db.petty_cash.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000),
-        db.vendor_credit_ledger.find({"status": {"$in": VENDOR_OPEN_STATUSES}}, {"_id": 0}).to_list(1000),
-        db.credit_ledger.find({"status": {"$in": VENDOR_OPEN_STATUSES}}, {"_id": 0}).to_list(1000),
-        db.labour_expenses.find({"status": {"$in": LABOUR_OPEN_STATUSES}}, {"_id": 0}).to_list(1000),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000),
-        # Feb 28 2026 — Per-bucket Accountant-approved spend, used to surface a
-        # dedicated "A/C Approved" column in Suspense → Petty Cash. We sum the
-        # recorded_expenses mirror rows that are linked to a petty_cash bucket
-        # AND already passed the accountant gate (status in approved /
-        # accounts_approved / super_admin_approved). Total Spent stays as
-        # petty_cash.amount_spent (which counts every SE-recorded expense,
-        # approved or not), so A/C Approved ≤ Spent.
         db.recorded_expenses.find(
             {"linked_petty_cash_id": {"$exists": True, "$ne": None},
              "status": {"$in": ["approved", "accounts_approved", "super_admin_approved"]}},
             {"_id": 0, "linked_petty_cash_id": 1, "amount": 1},
+        ).to_list(5000),
+        db.suspense_entries.find({"type": "material"}, {"_id": 0}).to_list(5000),
+        db.contractor_suspense_ledger.find({}, {"_id": 0}).to_list(5000),
+        db.recorded_expenses.find(
+            {"category": "material"},
+            {"_id": 0, "expense_id": 1, "status": 1, "is_deleted": 1},
+        ).to_list(5000),
+        db.recorded_expenses.find(
+            {"category": "labour"},
+            {"_id": 0, "contractor_id": 1, "request_id": 1, "linked_request_ids": 1, "status": 1, "is_deleted": 1},
         ).to_list(5000),
     )
 
@@ -2878,44 +2886,79 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
     petty_total_spent = sum(p.get("amount_spent", 0) or 0 for p in petty_active)
     petty_balance = petty_total_issued - petty_total_spent
     
-    # ---- Material Suspense (vendor credit) ----
+    # ---- Material Suspense (Pay & Settle) ----
+    # Build live-material-expense set → drop suspense_entries whose
+    # linked_expense_id no longer exists in the Cashbook.
+    _live_mat_expense_ids = {
+        r.get("expense_id") for r in material_recorded_exps
+        if r.get("expense_id")
+        and (r.get("status") or "").lower() not in _EXCLUDED_EXPENSE_STATUSES
+        and not r.get("is_deleted")
+    }
     material_suspense = {}  # vendor_name -> { balance, entries:[] }
-    for entry in vendor_credits_v2 + credit_ledger_v1:
-        vendor = entry.get("vendor_name") or "Unknown Vendor"
-        outstanding = entry.get("balance")
-        if outstanding is None or outstanding == 0:
-            outstanding = entry.get("amount", 0) or 0
-        if outstanding <= 0:
+    for se in mat_suspense_entries:
+        vendor = se.get("vendor_name") or "Unknown Vendor"
+        linked = se.get("linked_expense_id") or se.get("expense_id")
+        if linked and linked not in _live_mat_expense_ids:
+            continue
+        amt = float(se.get("amount") or 0)
+        if amt == 0:
             continue
         bucket = material_suspense.setdefault(vendor, {"name": vendor, "balance": 0, "entries": []})
-        bucket["balance"] += outstanding
+        bucket["balance"] += amt
         bucket["entries"].append({
-            "ledger_id": entry.get("ledger_id"),
-            "material": entry.get("material") or entry.get("material_name", ""),
-            "project_id": entry.get("project_id"),
-            "amount": entry.get("amount", 0),
-            "balance": outstanding,
-            "due_date": entry.get("due_date"),
-            "status": entry.get("status"),
+            "entry_id": se.get("entry_id"),
+            "description": se.get("description") or "",
+            "project_id": se.get("project_id"),
+            "amount": amt,
+            "balance": amt,
+            "linked_expense_id": linked,
         })
-    
-    # ---- Labour Suspense ----
-    labour_suspense = {}
-    for exp in labour_expenses:
-        contractor = exp.get("contractor_name") or "Unknown Contractor"
-        outstanding = (exp.get("total_amount", 0) or 0) - (exp.get("paid_amount", 0) or 0)
-        if outstanding <= 0:
+    # Drop vendors whose balance netted to (approximately) 0.
+    material_suspense = {k: v for k, v in material_suspense.items() if abs(v["balance"]) > 0.5}
+
+    # ---- Labour Suspense (contractor ledger with live-request filter) ----
+    # Group live payment_request IDs by contractor_id so we know which ledger
+    # rows to count.
+    live_prs_by_contractor: Dict[str, set] = {}
+    for exp in labour_recorded_exps:
+        if (exp.get("status") or "").lower() in _EXCLUDED_EXPENSE_STATUSES or exp.get("is_deleted"):
             continue
-        bucket = labour_suspense.setdefault(contractor, {"name": contractor, "balance": 0, "entries": []})
-        bucket["balance"] += outstanding
+        cid = exp.get("contractor_id")
+        if not cid:
+            continue
+        prs = live_prs_by_contractor.setdefault(cid, set())
+        if exp.get("request_id"):
+            prs.add(exp["request_id"])
+        for pr in (exp.get("linked_request_ids") or []):
+            prs.add(pr)
+
+    labour_suspense = {}
+    for row in contractor_suspense_rows:
+        cid = row.get("contractor_id")
+        cname = row.get("contractor_name") or "Unknown Contractor"
+        st = (row.get("source_type") or "").lower()
+        if st.startswith("expense_delete_reversal") or st.startswith("susp_heal"):
+            continue
+        ref = row.get("reference_id")
+        live_prs = live_prs_by_contractor.get(cid, set())
+        if not ref or ref not in live_prs:
+            continue
+        amt = float(row.get("amount") or 0)
+        mv = (row.get("type") or row.get("movement") or "").lower()
+        signed = amt if mv == "credit" else -amt
+        bucket = labour_suspense.setdefault(cname, {"name": cname, "contractor_id": cid, "balance": 0, "entries": []})
+        bucket["balance"] += signed
         bucket["entries"].append({
-            "labour_expense_id": exp.get("labour_expense_id"),
-            "description": exp.get("description"),
-            "project_id": exp.get("project_id"),
-            "amount": exp.get("total_amount", 0),
-            "balance": outstanding,
-            "status": exp.get("status"),
+            "ledger_id": row.get("ledger_id"),
+            "description": row.get("notes") or row.get("remarks") or "",
+            "project_id": row.get("project_id"),
+            "amount": signed,
+            "balance": signed,
+            "reference_id": ref,
+            "cheque_no": row.get("cheque_no"),
         })
+    labour_suspense = {k: v for k, v in labour_suspense.items() if abs(v["balance"]) > 0.5}
     
     return {
         "petty_cash": {
