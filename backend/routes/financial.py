@@ -706,7 +706,13 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
             "cheque": "cheque", "petty_cash": "petty_cash", "savings": "savings_account",
             "savings_account": "savings_account", "current_account": "current_account",
             "miscellaneous": "miscellaneous", "direct_transfer": "direct_transfer",
-            "dt": "direct_transfer", "suspense": "suspense_account", "suspense_account": "suspense_account"
+            "dt": "direct_transfer", "suspense": "suspense_account", "suspense_account": "suspense_account",
+            # Mar 04 2026 — Alias variants used by the Expense UI dropdowns so
+            # legacy rows tagged "hdfc_savings" / "hdfc_current" don't fall
+            # into the invisible Miscellaneous bucket. Keeps the card totals
+            # and the "TOTAL" row in Cashbook reconciling to the same value.
+            "hdfc_savings": "savings_account", "hdfc savings": "savings_account",
+            "hdfc_current": "current_account", "hdfc current": "current_account",
         }
         return mapping.get(mode, "miscellaneous")
     
