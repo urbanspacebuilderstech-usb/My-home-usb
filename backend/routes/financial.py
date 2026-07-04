@@ -7442,6 +7442,21 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
         p = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
         if p: project_name = p.get("name")
 
+    # Mar 04 2026 — Lookup vendor bank details so the Pay & Settle "Request
+    # Details" card can display the A/C No the accountant should transfer to.
+    vendor_account_number = None
+    vendor_bank_name = None
+    vendor_ifsc = None
+    if vendor_name:
+        vm = await db.vendor_master.find_one(
+            {"name": vendor_name},
+            {"_id": 0, "account_number": 1, "bank_name": 1, "ifsc_code": 1},
+        )
+        if vm:
+            vendor_account_number = vm.get("account_number") or None
+            vendor_bank_name = vm.get("bank_name") or None
+            vendor_ifsc = vm.get("ifsc_code") or None
+
     # Vendor suspense balance — sum existing entries
     suspense_query = {"type": suspense_type}
     if suspense_type == "material":
@@ -7515,6 +7530,9 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
             "id": request_id,
             "type": req_type,
             "vendor_name": vendor_name,
+            "vendor_account_number": vendor_account_number,
+            "vendor_bank_name": vendor_bank_name,
+            "vendor_ifsc": vendor_ifsc,
             "project_id": project_id,
             "project_name": project_name,
             "bill_amount": bill_amount,

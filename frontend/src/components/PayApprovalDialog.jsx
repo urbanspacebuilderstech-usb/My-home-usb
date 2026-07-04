@@ -244,6 +244,13 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
                   <div><span className="text-gray-500 text-[11px]">Description</span><p className="font-medium truncate" title={ctx.request.description}>{ctx.request.description}</p></div>
                   <div><span className="text-gray-500 text-[11px]">Bill Amount</span><p className="font-bold text-amber-700">{fmt(billAmount)}</p></div>
                 </div>
+                {(ctx.request.vendor_account_number || ctx.request.vendor_bank_name || ctx.request.vendor_ifsc) && (
+                  <div className="mt-2 pt-2 border-t border-amber-200 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs" data-testid="pay-vendor-bank-details">
+                    <div><span className="text-gray-500 text-[11px]">Vendor A/C No</span><p className="font-medium font-mono">{ctx.request.vendor_account_number || '—'}</p></div>
+                    <div><span className="text-gray-500 text-[11px]">Bank</span><p className="font-medium">{ctx.request.vendor_bank_name || '—'}</p></div>
+                    <div><span className="text-gray-500 text-[11px]">IFSC</span><p className="font-medium font-mono">{ctx.request.vendor_ifsc || '—'}</p></div>
+                  </div>
+                )}
                 {alreadyPaid > 0 && (
                   <div className="mt-2 pt-2 border-t border-amber-200 flex justify-between text-xs">
                     <span className="text-gray-600">Already paid in previous legs:</span>
