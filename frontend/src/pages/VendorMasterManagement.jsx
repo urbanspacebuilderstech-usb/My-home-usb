@@ -95,6 +95,8 @@ export default function VendorMasterManagement({ embedded = false }) {
 
   const handleSubmit = async () => {
     if (!form.name.trim()) return toast.error('Vendor name is required');
+    const phoneDigits = (form.phone || '').replace(/\D/g, '');
+    if (!phoneDigits || phoneDigits.length < 10) return toast.error('Phone number is required (min 10 digits)');
     try {
       if (editingVendor) {
         await axios.patch(`${API}/vendor-master/${editingVendor.vendor_id}`, form);
@@ -335,8 +337,8 @@ export default function VendorMasterManagement({ embedded = false }) {
                     <Input data-testid="vendor-contact" value={form.contact_person} onChange={e => setForm({ ...form, contact_person: e.target.value })} />
                   </div>
                   <div>
-                    <Label>Phone</Label>
-                    <Input data-testid="vendor-phone" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
+                    <Label>Phone <span className="text-red-500">*</span></Label>
+                    <Input data-testid="vendor-phone" placeholder="e.g. 9876543210" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
                   </div>
                   <div>
                     <Label>Email</Label>
