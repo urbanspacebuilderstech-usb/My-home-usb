@@ -106,7 +106,7 @@ function bucketForMaterial(req) {
   return 'all';
 }
 
-function RequestsTab({ dateRange }) {
+function RequestsTab({ dateRange, projectFilter }) {
   const [bucket, setBucket] = useState('new_request');
   // Sub-filter for "Awaiting Accountant" bucket — split Full Amount vs Advance
   // so Procurement can see what's stuck with the Accountant for advance approval
@@ -139,16 +139,20 @@ function RequestsTab({ dateRange }) {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Apply date filter on created_at before bucketing
+  // Apply project + date filter on created_at before bucketing
   const filteredItems = useMemo(() => {
-    if (!dateRange?.from || !dateRange?.to) return allItems;
-    const fromTs = new Date(dateRange.from + 'T00:00:00').getTime();
-    const toTs = new Date(dateRange.to + 'T23:59:59').getTime();
+    const fromTs = dateRange?.from ? new Date(dateRange.from + 'T00:00:00').getTime() : null;
+    const toTs = dateRange?.to ? new Date(dateRange.to + 'T23:59:59').getTime() : null;
     return allItems.filter(r => {
-      const t = new Date(r.created_at || 0).getTime();
-      return t >= fromTs && t <= toTs;
+      if (projectFilter && projectFilter !== 'all' && r.project_id !== projectFilter) return false;
+      if (fromTs || toTs) {
+        const t = new Date(r.created_at || 0).getTime();
+        if (fromTs && t < fromTs) return false;
+        if (toTs && t > toTs) return false;
+      }
+      return true;
     });
-  }, [allItems, dateRange]);
+  }, [allItems, dateRange, projectFilter]);
 
   // Filter out items hidden from Procurement (e.g. planning_initial_pending)
   const procurementVisible = useMemo(
@@ -809,6 +813,19 @@ function DashboardTab() {
     return params.get('subtab') || 'material_req';
   });
   const [dateRange, setDateRange] = useState(null); // {from, to, label, preset}
+  const [projectFilter, setProjectFilter] = useState('all');
+  const [projectOptions, setProjectOptions] = useState([]);
+
+  useEffect(() => {
+    // Load real live projects for the filter dropdown (same source as the
+    // All Projects tab so the list stays consistent).
+    axios.get(`${API}/procurement-simple/projects-summary`)
+      .then(r => {
+        const opts = (r.data?.projects || []).map(p => ({ id: p.project_id, name: p.name }));
+        setProjectOptions(opts);
+      })
+      .catch(() => setProjectOptions([]));
+  }, []);
 
   const setSub = (v) => {
     setSubTab(v);
@@ -819,7 +836,7 @@ function DashboardTab() {
 
   return (
     <div className="space-y-3" data-testid="proc-dashboard-tab">
-      {/* Sub-tab pill bar + global date filter */}
+      {/* Sub-tab pill bar + global project + date filter */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="inline-flex rounded-md border border-gray-200 bg-white p-0.5 flex-wrap" data-testid="proc-subtabs">
           {[
@@ -842,16 +859,28 @@ function DashboardTab() {
             </button>
           ))}
         </div>
-        {/* Date filter only meaningful for the Material Req / Credit
-            Management sub-tabs — All Projects and Material Vendors render
-            their own filtering UIs. */}
+        {/* Project + Date filters — only for Material Req / Credit Management.
+            All Projects and Material Vendors have their own filter UIs. */}
         {(subTab === 'material_req' || subTab === 'credit_management') && (
-          <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset={null} />
+          <div className="flex items-center gap-2 flex-wrap">
+            <Select value={projectFilter} onValueChange={setProjectFilter}>
+              <SelectTrigger className="h-8 w-48 text-xs bg-white" data-testid="proc-project-filter">
+                <SelectValue placeholder="All Projects" />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                <SelectItem value="all">All Projects</SelectItem>
+                {projectOptions.map(p => (
+                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset={null} />
+          </div>
         )}
       </div>
 
-      {subTab === 'material_req' && <RequestsTab dateRange={dateRange} />}
-      {subTab === 'credit_management' && <CreditManagementTab dateRange={dateRange} />}
+      {subTab === 'material_req' && <RequestsTab dateRange={dateRange} projectFilter={projectFilter} />}
+      {subTab === 'credit_management' && <CreditManagementTab dateRange={dateRange} projectFilter={projectFilter} />}
       {subTab === 'all_projects' && <ProcurementAllProjectsTab />}
       {subTab === 'material_vendors' && <MaterialVendorsTab />}
     </div>
@@ -958,7 +987,7 @@ function daysBetween(fromIso, toIso) {
   } catch { return null; }
 }
 
-function CreditManagementTab({ dateRange }) {
+function CreditManagementTab({ dateRange, projectFilter }) {
   const [bucket, setBucket] = useState('pending');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -980,17 +1009,23 @@ function CreditManagementTab({ dateRange }) {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  // Filter by project before bucketing so counts + rows both honour it.
+  const projectFiltered = useMemo(() => {
+    if (!projectFilter || projectFilter === 'all') return items;
+    return items.filter(it => it.project_id === projectFilter);
+  }, [items, projectFilter]);
+
   const counts = useMemo(() => {
-    const c = { all: items.length };
+    const c = { all: projectFiltered.length };
     CREDIT_BUCKETS.forEach(b => { if (b.key !== 'all') c[b.key] = 0; });
-    items.forEach(it => { c[it.status] = (c[it.status] || 0) + 1; });
+    projectFiltered.forEach(it => { c[it.status] = (c[it.status] || 0) + 1; });
     return c;
-  }, [items]);
+  }, [projectFiltered]);
 
   const visibleItems = useMemo(() => {
-    if (bucket === 'all') return items;
-    return items.filter(it => it.status === bucket);
-  }, [items, bucket]);
+    if (bucket === 'all') return projectFiltered;
+    return projectFiltered.filter(it => it.status === bucket);
+  }, [projectFiltered, bucket]);
 
   const submitCollect = async () => {
     if (!collectDialog.entry) return;
