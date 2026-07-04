@@ -1331,6 +1331,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   const [unitPrice, setUnitPrice] = useState('');
   const [approvedQty, setApprovedQty] = useState('');
   const [transport, setTransport] = useState('0');
+  const [discount, setDiscount] = useState('0');
   const [remarks, setRemarks] = useState('');
   const [submitting, setSubmitting] = useState(false);
   // Phase-1 new fields
@@ -1358,6 +1359,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
     setUnitPrice(String(item.unit_rate || item.unit_price || ''));
     setApprovedQty(String(item.approved_quantity ?? item.quantity ?? ''));
     setTransport(String(item.transport_cost || 0));
+    setDiscount(String(item.discount || 0));
     setRemarks(item.procurement_remarks || '');
     setTimelineType(item.timeline_type || 'date');
     if (item.timeline_type === 'days') {
@@ -1392,6 +1394,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   const qty = parseFloat(approvedQty) || 0;
   const price = parseFloat(unitPrice) || 0;
   const tCost = parseFloat(transport) || 0;
+  const disc = parseFloat(discount) || 0;
   // Feb 12 2026 — when this request has steel_specs.items, total is the SUM
   // of per-diameter (weight × unit_price) rows, not the single qty × price.
   const steelItems = item?.steel_specs?.items || [];
@@ -1405,8 +1408,8 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   const steelWeightTotal = steelLineTotals.reduce((s, r) => s + r.weight, 0);
   const weightedAvgUnitPrice = steelWeightTotal > 0 ? steelSubtotal / steelWeightTotal : 0;
   const total = isSteelBreakdown
-    ? Math.max(0, steelSubtotal + tCost)
-    : Math.max(0, qty * price + tCost);
+    ? Math.max(0, steelSubtotal + tCost - disc)
+    : Math.max(0, qty * price + tCost - disc);
   const computedAdvance = useMemo(() => {
     if (paymentMode !== 'advance') return 0;
     if (advanceMode === 'percent') {
@@ -1486,7 +1489,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
         unit_price: effectiveUnitPrice,
         approved_quantity: effectiveQty,
         transport_cost: tCost,
-        discount: 0,
+        discount: disc,
         remarks,
         timeline_type: timelineType,
         timeline_value: timelineType === 'date' ? timelineDate : timelineDays,
@@ -1600,6 +1603,19 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
             <div>
               <Label className="text-xs">Transport (₹)</Label>
               <Input type="number" min="0" value={transport} onChange={(e) => setTransport(e.target.value)} disabled={readOnly} className="mt-1" />
+            </div>
+            <div>
+              <Label className="text-xs">Discount (₹)</Label>
+              <Input
+                type="number"
+                min="0"
+                placeholder="e.g. 500"
+                value={discount}
+                onChange={(e) => setDiscount(e.target.value)}
+                disabled={readOnly}
+                className="mt-1"
+                data-testid="proc-assign-discount"
+              />
             </div>
           </div>
 
