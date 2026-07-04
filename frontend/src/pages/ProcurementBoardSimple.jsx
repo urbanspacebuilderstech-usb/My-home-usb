@@ -900,6 +900,7 @@ function ProcurementAllProjectsTab() {
           <table className="w-full text-sm">
             <thead className="bg-amber-50 text-amber-900 uppercase text-[11px]">
               <tr>
+                <th className="text-left px-3 py-2 w-12">S.No</th>
                 <th className="text-left px-3 py-2">Project Name</th>
                 <th className="text-left px-3 py-2">Stage</th>
                 <th className="text-right px-3 py-2">Total Orders</th>
@@ -910,13 +911,14 @@ function ProcurementAllProjectsTab() {
             </thead>
             <tbody>
               {loading && (
-                <tr><td colSpan={6} className="text-center px-3 py-8 text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={7} className="text-center px-3 py-8 text-gray-400">Loading…</td></tr>
               )}
               {!loading && filtered.length === 0 && (
-                <tr><td colSpan={6} className="text-center px-3 py-8 text-gray-400">No projects found.</td></tr>
+                <tr><td colSpan={7} className="text-center px-3 py-8 text-gray-400">No projects found.</td></tr>
               )}
-              {!loading && filtered.map((r) => (
+              {!loading && filtered.map((r, idx) => (
                 <tr key={r.project_id} className="border-t hover:bg-gray-50" data-testid={`proc-proj-${r.project_id}`}>
+                  <td className="px-3 py-2 text-gray-500 text-xs">{idx + 1}</td>
                   <td className="px-3 py-2 font-medium text-slate-800">{r.name}</td>
                   <td className="px-3 py-2">
                     <Badge variant="outline" className="text-[10px] capitalize bg-violet-50 text-violet-700 border-violet-200">
