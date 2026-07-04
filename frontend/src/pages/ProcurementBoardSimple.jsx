@@ -1294,7 +1294,6 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   const [unitPrice, setUnitPrice] = useState('');
   const [approvedQty, setApprovedQty] = useState('');
   const [transport, setTransport] = useState('0');
-  const [vendorPhone, setVendorPhone] = useState('');
   const [remarks, setRemarks] = useState('');
   const [submitting, setSubmitting] = useState(false);
   // Phase-1 new fields
@@ -1322,7 +1321,6 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
     setUnitPrice(String(item.unit_rate || item.unit_price || ''));
     setApprovedQty(String(item.approved_quantity ?? item.quantity ?? ''));
     setTransport(String(item.transport_cost || 0));
-    setVendorPhone(String(item.vendor_phone || ''));
     setRemarks(item.procurement_remarks || '');
     setTimelineType(item.timeline_type || 'date');
     if (item.timeline_type === 'days') {
@@ -1408,12 +1406,6 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
 
   const submit = async () => {
     if (!vendorId) { toast.error('Select a vendor'); return; }
-    // Vendor phone is mandatory — must be at least 10 digits
-    const phoneDigits = (vendorPhone || '').replace(/\D/g, '');
-    if (!phoneDigits || phoneDigits.length < 10) {
-      toast.error('Vendor phone number is required (min 10 digits)');
-      return;
-    }
     // Validation differs for steel breakdown vs single unit price.
     if (isSteelBreakdown) {
       const blanks = steelPrices.findIndex(p => !p || parseFloat(p) <= 0);
@@ -1458,7 +1450,6 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
         approved_quantity: effectiveQty,
         transport_cost: tCost,
         discount: 0,
-        vendor_phone: vendorPhone.trim(),
         remarks,
         timeline_type: timelineType,
         timeline_value: timelineType === 'date' ? timelineDate : timelineDays,
@@ -1569,23 +1560,9 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
                 </div>
               </>
             )}
-            <div className={isSteelBreakdown ? '' : ''}>
+            <div>
               <Label className="text-xs">Transport (₹)</Label>
               <Input type="number" min="0" value={transport} onChange={(e) => setTransport(e.target.value)} disabled={readOnly} className="mt-1" />
-            </div>
-            <div>
-              <Label className="text-xs">Vendor Phone Number <span className="text-red-500">*</span></Label>
-              <Input
-                type="tel"
-                inputMode="numeric"
-                maxLength={15}
-                placeholder="e.g. 9876543210"
-                value={vendorPhone}
-                onChange={(e) => setVendorPhone(e.target.value.replace(/[^0-9+\-\s]/g, ''))}
-                disabled={readOnly}
-                className="mt-1"
-                data-testid="proc-assign-vendor-phone"
-              />
             </div>
           </div>
 
