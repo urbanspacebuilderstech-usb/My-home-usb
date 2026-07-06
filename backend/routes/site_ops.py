@@ -3016,12 +3016,24 @@ async def record_direct_expense(request: Request, user: User = Depends(get_curre
                 raise HTTPException(status_code=404, detail=f"Petty cash {pc_id} not found")
             if (pc.get("requested_by") != user.user_id) and user.role != UserRole.SUPER_ADMIN:
                 raise HTTPException(status_code=403, detail="You can only spend from petty cash issued to you")
-            balance = (pc.get("amount_issued") or 0) - (pc.get("amount_spent") or 0)
+            # Mar 04 2026 — Since `amount_spent` is now only incremented at
+            # Accountant-approval time, we must ALSO deduct pending mirrors
+            # (status ∈ recorded / pm_approved) to compute the true remaining
+            # bucket balance. Without this the SE could record ₹5,000 twice
+            # against a ₹5,000 bucket because both mirrors sit at "recorded"
+            # and neither has bumped `amount_spent` yet.
+            pending_cursor = db.recorded_expenses.aggregate([
+                {"$match": {"linked_petty_cash_id": pc_id, "status": {"$in": ["recorded", "pm_approved"]}}},
+                {"$group": {"_id": None, "t": {"$sum": "$amount"}}},
+            ])
+            pending_docs = await pending_cursor.to_list(1)
+            pending_total = float(pending_docs[0]["t"]) if pending_docs else 0.0
+            balance = (pc.get("amount_issued") or 0) - (pc.get("amount_spent") or 0) - pending_total
             amt = float(s.get("amount") or 0) if s.get("amount") is not None else total
             if amt <= 0:
                 raise HTTPException(status_code=400, detail=f"Split amount for {pc.get('purpose') or 'petty cash'} must be > 0")
             if amt > balance + 0.5:
-                raise HTTPException(status_code=400, detail=f"'{pc.get('purpose') or 'Petty cash'}' has only ₹{balance:,.0f} available")
+                raise HTTPException(status_code=400, detail=f"'{pc.get('purpose') or 'Petty cash'}' has only ₹{balance:,.0f} available (₹{pending_total:,.0f} already awaiting Accountant approval)")
             resolved_splits.append({
                 "petty_cash_id": pc_id,
                 "amount": amt,
