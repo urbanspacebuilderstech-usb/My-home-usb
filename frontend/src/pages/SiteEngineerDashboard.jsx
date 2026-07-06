@@ -1696,7 +1696,8 @@ export default function SiteEngineerDashboard() {
                 data-testid="pc-exp-waiting-tile"
               ><CardContent className="p-3 text-center">
                 <p className="text-[10px] text-cyan-700 font-medium uppercase">Exp Waiting A/C</p>
-                <p className="text-lg font-bold text-cyan-800" data-testid="pc-exp-waiting">{pettyCashSummary.expense_waiting_accountant || 0}</p>
+                <p className="text-lg font-bold text-cyan-800" data-testid="pc-exp-waiting">₹{(pettyCashSummary.expense_waiting_accountant_amount || 0).toLocaleString('en-IN')}</p>
+                <p className="text-[10px] text-cyan-600 mt-0.5">{pettyCashSummary.expense_waiting_accountant || 0} entries</p>
               </CardContent></Card>
             </div>
 
