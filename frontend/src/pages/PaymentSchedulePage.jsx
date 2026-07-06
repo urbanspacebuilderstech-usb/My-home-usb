@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -84,29 +84,28 @@ export default function PaymentSchedulePage() {
   const collectedArr = allEntries.filter(isCollectedEntry);
   const baseEntries = subTab === 'pending' ? pendingArr : subTab === 'collected' ? collectedArr : allEntries;
 
-  // Apply Search + Date filter (Feb 2026)
-  const entries = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    const fromTs = dateRange?.from ? new Date(dateRange.from + 'T00:00:00').getTime() : null;
-    const toTs = dateRange?.to ? new Date(dateRange.to + 'T23:59:59').getTime() : null;
-    return baseEntries.filter(e => {
-      if (q) {
-        const hay = [
-          e.project_name, e.client_name, e.stage_name, e.stage_title,
-          e.stage_description, e.description, e.sub_stage_name,
-        ].filter(Boolean).join(' | ').toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      if (fromTs || toTs) {
-        const dRaw = e.expected_at || e.due_date || e.scheduled_date || e.created_at;
-        if (!dRaw) return false;
-        const t = new Date(dRaw).getTime();
-        if (fromTs && t < fromTs) return false;
-        if (toTs && t > toTs) return false;
-      }
-      return true;
-    });
-  }, [baseEntries, searchQuery, dateRange]);
+  // Apply Search + Date filter (Feb 2026) — plain filter, not useMemo,
+  // because hooks cannot run after the `if (loading) return ...` above.
+  const q = searchQuery.trim().toLowerCase();
+  const fromTs = dateRange?.from ? new Date(dateRange.from + 'T00:00:00').getTime() : null;
+  const toTs = dateRange?.to ? new Date(dateRange.to + 'T23:59:59').getTime() : null;
+  const entries = baseEntries.filter(e => {
+    if (q) {
+      const hay = [
+        e.project_name, e.client_name, e.stage_name, e.stage_title,
+        e.stage_description, e.description, e.sub_stage_name,
+      ].filter(Boolean).join(' | ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    if (fromTs || toTs) {
+      const dRaw = e.expected_at || e.due_date || e.scheduled_date || e.created_at;
+      if (!dRaw) return false;
+      const t = new Date(dRaw).getTime();
+      if (fromTs && t < fromTs) return false;
+      if (toTs && t > toTs) return false;
+    }
+    return true;
+  });
   const sum = schedule.summary || {};
 
   return (
