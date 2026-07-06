@@ -14,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popove
 import { DayPicker } from 'react-day-picker';
 import { CashbookDateFilter, filterByDateRange } from '../components/CashbookDateFilter';
 import ChequeListView from '../components/ChequeListView';
+import MetaDateFilter from '../components/MetaDateFilter';
 import PayApprovalDialog from '../components/PayApprovalDialog';
 import DTSelectToPayDialog from '../components/DTSelectToPayDialog';
 import { StatusPill, pillState } from '../components/StatusPill';
@@ -334,33 +335,51 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
 // ============ MODE DRILLDOWN (Cash / HDFC Current / HDFC Savings / Cheque / Cash DT) ============
 // Single back arrow + project search bar shared across Income/Expense tabs.
 function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDelete, onDeleteIncome, onDeleteExpense }) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const matchesQuery = (e) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      (e.project_name && e.project_name.toLowerCase().includes(q)) ||
-      (e.project_id && String(e.project_id).toLowerCase().includes(q))
-    );
+  const [projectFilter, setProjectFilter] = useState('');
+  const [dateRange, setDateRange] = useState(null); // { from, to }
+
+  // Build unique project list from all entries in this bucket
+  const projects = React.useMemo(() => {
+    const map = new Map();
+    [...incomeEntries, ...expenseEntries].forEach(e => {
+      const pid = e.project_id || e.project_name;
+      if (!pid) return;
+      if (!map.has(pid)) map.set(pid, { project_id: pid, name: e.project_name || pid });
+    });
+    return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [incomeEntries, expenseEntries]);
+
+  const matchesFilters = (e) => {
+    if (projectFilter) {
+      const eid = e.project_id || e.project_name;
+      if (eid !== projectFilter) return false;
+    }
+    if (dateRange?.from || dateRange?.to) {
+      const dRaw = e.created_at || e.date || e.payment_date || e.expected_at;
+      if (!dRaw) return false;
+      const t = new Date(dRaw).getTime();
+      if (dateRange.from && t < new Date(dateRange.from + 'T00:00:00').getTime()) return false;
+      if (dateRange.to && t > new Date(dateRange.to + 'T23:59:59').getTime()) return false;
+    }
+    return true;
   };
-  const filteredIncome = incomeEntries.filter(matchesQuery);
-  const filteredExpense = expenseEntries.filter(matchesQuery);
+  const filteredIncome = incomeEntries.filter(matchesFilters);
+  const filteredExpense = expenseEntries.filter(matchesFilters);
   return (
     <div className="space-y-3" data-testid="mode-drilldown">
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         <Button variant="ghost" size="sm" className="h-8 gap-1" onClick={onBack} data-testid="mode-drilldown-back">
           <ArrowLeft className="h-4 w-4" /> Back
         </Button>
-        <div className="relative flex-1 min-w-[220px] max-w-md">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
-          <Input
-            placeholder="Search project..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-8 pl-7 text-xs"
-            data-testid="mode-drilldown-search"
-          />
-        </div>
+        <ProjectSearchSelect
+          value={projectFilter}
+          onChange={setProjectFilter}
+          projects={projects}
+          placeholder="All Projects"
+          width="w-56"
+          testId="mode-drilldown-project"
+        />
+        <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset={null} />
         <Badge variant="outline" className="text-xs">{label}</Badge>
       </div>
       <Tabs defaultValue="income">
