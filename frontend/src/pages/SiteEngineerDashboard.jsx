@@ -1672,7 +1672,7 @@ export default function SiteEngineerDashboard() {
               <Card className="bg-emerald-50 border-emerald-200"><CardContent className="p-3 text-center">
                 <p className="text-[10px] text-emerald-600 font-medium uppercase">Balance</p>
                 <p className="text-lg font-bold text-emerald-700" data-testid="pc-balance">
-                  ₹{Math.max(0, (pettyCashSummary.total_cash_in_hand || 0) - (pettyCashSummary.total_expenses || 0)).toLocaleString('en-IN')}
+                  ₹{Math.max(0, (pettyCashSummary.total_cash_in_hand || 0) - (pettyCashSummary.total_expenses || 0) - (pettyCashSummary.expense_waiting_accountant_amount || 0)).toLocaleString('en-IN')}
                 </p>
               </CardContent></Card>
               <Card
