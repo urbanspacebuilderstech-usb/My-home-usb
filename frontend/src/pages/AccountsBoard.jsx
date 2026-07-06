@@ -30,6 +30,7 @@ import {
   FileText,
   ArrowUpRight,
   ArrowDownRight,
+  Download,
   TrendingUp,
   Banknote,
   Landmark,
@@ -365,6 +366,38 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
   };
   const filteredIncome = incomeEntries.filter(matchesFilters);
   const filteredExpense = expenseEntries.filter(matchesFilters);
+
+  // ---- CSV export (opens in Excel) ----
+  const downloadCsv = (rows, type) => {
+    const csvEscape = (v) => {
+      if (v === null || v === undefined) return '';
+      const s = String(v).replace(/"/g, '""');
+      return /[",\n]/.test(s) ? `"${s}"` : s;
+    };
+    const header = ['S.No', 'Date', 'Description', 'Project', 'Mode', 'Amount'];
+    const dataLines = rows.map((r, idx) => {
+      const dRaw = r.created_at || r.date || r.payment_date || r.expected_at || '';
+      const d = dRaw ? new Date(dRaw).toLocaleDateString('en-GB') : '';
+      const desc = r.description || r.narration || r.category || r.expense_type || '';
+      const proj = r.project_name || '';
+      const mode = (r.payment_mode || r.payment_method || '').toString().replace(/_/g, ' ');
+      const amt = Number(r.amount || 0);
+      return [idx + 1, d, desc, proj, mode, amt].map(csvEscape).join(',');
+    });
+    const csv = '\uFEFF' + [header.join(','), ...dataLines].join('\n');
+    const filename = `${label.replace(/[^a-z0-9]/gi, '_')}_${type}_${new Date().toISOString().slice(0, 10)}.csv`;
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 500);
+  };
+
   return (
     <div className="space-y-3" data-testid="mode-drilldown">
       <div className="flex items-center gap-2 flex-wrap">
@@ -392,6 +425,11 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
           </TabsTrigger>
         </TabsList>
         <TabsContent value="income">
+          <div className="flex justify-end mb-2">
+            <Button size="sm" variant="outline" onClick={() => downloadCsv(filteredIncome, 'Income')} data-testid="mode-drilldown-download-income" className="h-8 gap-1.5 text-xs">
+              <Download className="h-3.5 w-3.5" /> Download Excel
+            </Button>
+          </div>
           <DrilldownView
             title={`${label} Income`}
             entries={filteredIncome}
@@ -403,6 +441,11 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
           />
         </TabsContent>
         <TabsContent value="expense">
+          <div className="flex justify-end mb-2">
+            <Button size="sm" variant="outline" onClick={() => downloadCsv(filteredExpense, 'Expense')} data-testid="mode-drilldown-download-expense" className="h-8 gap-1.5 text-xs">
+              <Download className="h-3.5 w-3.5" /> Download Excel
+            </Button>
+          </div>
           <DrilldownView
             title={`${label} Expenses`}
             entries={filteredExpense}
