@@ -3565,6 +3565,32 @@ async def pm_approve_recorded_expense(expense_id: str, payload: RecordedExpenseR
         raise HTTPException(status_code=404, detail="Recorded expense not found")
     if (exp.get("status") or "").lower() not in ("recorded", "pm_rejected"):
         raise HTTPException(status_code=400, detail=f"Cannot approve from status '{exp.get('status')}'")
+
+    # Mar 04 2026 — PM must not approve if the cumulative pm_approved amount
+    # for this petty_cash bucket would exceed the bucket balance. Prevents
+    # scenarios like the "Site expense the week" bug where 2 × ₹5,000
+    # expenses were approved against a single ₹5,000 bucket.
+    pc_id = exp.get("linked_petty_cash_id")
+    if pc_id:
+        pc = await db.petty_cash.find_one({"petty_cash_id": pc_id}, {"_id": 0, "amount_issued": 1, "amount_spent": 1, "purpose": 1})
+        if pc:
+            cursor = db.recorded_expenses.aggregate([
+                {"$match": {"linked_petty_cash_id": pc_id, "status": "pm_approved", "expense_id": {"$ne": expense_id}}},
+                {"$group": {"_id": None, "t": {"$sum": "$amount"}}},
+            ])
+            docs = await cursor.to_list(1)
+            already_pm_approved = float(docs[0]["t"]) if docs else 0.0
+            issued = float(pc.get("amount_issued") or 0)
+            spent = float(pc.get("amount_spent") or 0)
+            remaining = issued - spent - already_pm_approved
+            this_amt = float(exp.get("amount") or 0)
+            if this_amt > remaining + 0.5:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"'{pc.get('purpose') or 'Petty cash'}' has only ₹{remaining:,.0f} available. "
+                           f"Bucket: ₹{issued:,.0f} issued, ₹{spent:,.0f} spent, ₹{already_pm_approved:,.0f} already PM-approved. "
+                           f"Ask the Accountant to reduce the pending queue first or increase the petty cash issuance."
+                )
     now = datetime.now(timezone.utc).isoformat()
     remarks = (payload.remarks if payload else None)
     await db.recorded_expenses.update_one(
