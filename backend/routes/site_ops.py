@@ -494,6 +494,12 @@ async def get_site_engineer_projects(user: User = Depends(get_current_user)):
     for a in assignments:
         project = await db.projects.find_one({"project_id": a["project_id"]}, {"_id": 0})
         if project:
+            # Mar 04 2026 — Skip soft-deleted projects. They were already
+            # removed from Planning / All Projects but were still leaking into
+            # the SE "My Projects" list because this endpoint never checked
+            # the `is_deleted` flag on the project doc.
+            if project.get("is_deleted") is True:
+                continue
             # IMPORTANT: Remove financial details - Site Engineers cannot see client payments
             project.pop("total_value", None)
             project.pop("advance_amount", None)
