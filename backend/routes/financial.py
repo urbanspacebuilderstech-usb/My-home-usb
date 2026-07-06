@@ -2865,8 +2865,15 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
         db.petty_cash.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000),
         db.recorded_expenses.find(
+            # Mar 04 2026 — Column semantics: "A/C Approved" now represents
+            # amounts sitting in the Accountant's queue (SE-recorded and/or
+            # PM-approved but not yet finalised by the Accountant). Once the
+            # Accountant approves, the row's status flips to `approved` and
+            # `amount_spent` picks up the number instead. This matches the
+            # user-mental model: A/C Approved drops from 500 → 0 and Spent
+            # rises 0 → 500 on approval.
             {"linked_petty_cash_id": {"$exists": True, "$ne": None},
-             "status": {"$in": ["approved", "accounts_approved", "super_admin_approved"]}},
+             "status": {"$in": ["recorded", "pm_approved"]}},
             {"_id": 0, "linked_petty_cash_id": 1, "amount": 1},
         ).to_list(5000),
         db.suspense_entries.find({"type": "material"}, {"_id": 0}).to_list(5000),
