@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
+import { Input } from '../components/ui/input';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
@@ -10,11 +11,14 @@ import {
   IndianRupee,
   RefreshCw,
   Calendar,
-  Eye
+  Eye,
+  Search,
+  X
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useNavigate } from 'react-router-dom';
 import { PaymentStageDetailDialog } from '../components/PaymentStageDetailDialog';
+import MetaDateFilter from '../components/MetaDateFilter';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -26,6 +30,8 @@ export default function PaymentSchedulePage() {
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
   const [subTab, setSubTab] = useState('pending'); // pending | collected | all
+  const [dateRange, setDateRange] = useState(null); // {from, to} filter within schedule
+  const [searchQuery, setSearchQuery] = useState('');
   // Super-Admin View popup state
   const [stageDetailDlg, setStageDetailDlg] = useState({ open: false, stageId: null });
   const navigate = useNavigate();
@@ -76,7 +82,31 @@ export default function PaymentSchedulePage() {
   const allEntries = schedule.entries || [];
   const pendingArr = allEntries.filter(e => !isCollectedEntry(e));
   const collectedArr = allEntries.filter(isCollectedEntry);
-  const entries = subTab === 'pending' ? pendingArr : subTab === 'collected' ? collectedArr : allEntries;
+  const baseEntries = subTab === 'pending' ? pendingArr : subTab === 'collected' ? collectedArr : allEntries;
+
+  // Apply Search + Date filter (Feb 2026)
+  const entries = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const fromTs = dateRange?.from ? new Date(dateRange.from + 'T00:00:00').getTime() : null;
+    const toTs = dateRange?.to ? new Date(dateRange.to + 'T23:59:59').getTime() : null;
+    return baseEntries.filter(e => {
+      if (q) {
+        const hay = [
+          e.project_name, e.client_name, e.stage_name, e.stage_title,
+          e.stage_description, e.description, e.sub_stage_name,
+        ].filter(Boolean).join(' | ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (fromTs || toTs) {
+        const dRaw = e.expected_at || e.due_date || e.scheduled_date || e.created_at;
+        if (!dRaw) return false;
+        const t = new Date(dRaw).getTime();
+        if (fromTs && t < fromTs) return false;
+        if (toTs && t > toTs) return false;
+      }
+      return true;
+    });
+  }, [baseEntries, searchQuery, dateRange]);
   const sum = schedule.summary || {};
 
   return (
@@ -121,7 +151,7 @@ export default function PaymentSchedulePage() {
         </div>
 
         {/* Sub-tabs: Pending | Collected | All */}
-        <div className="flex gap-2 flex-wrap mb-3" data-testid="acc-ps-subtabs">
+        <div className="flex gap-2 flex-wrap mb-3 items-center" data-testid="acc-ps-subtabs">
           {[
             { key: 'pending', label: 'Pending', count: pendingArr.length, activeBg: 'bg-amber-600' },
             { key: 'collected', label: 'Collected', count: collectedArr.length, activeBg: 'bg-emerald-600' },
@@ -145,6 +175,31 @@ export default function PaymentSchedulePage() {
               )}
             </button>
           ))}
+          {/* Date filter + Search bar (Feb 2026) */}
+          <div className="flex items-center gap-2 ml-auto flex-wrap">
+            <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset={null} />
+            <div className="relative">
+              <Search className="h-4 w-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Input
+                type="text"
+                placeholder="Search project, client, stage…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-8 pl-8 pr-8 text-xs w-64 bg-white"
+                data-testid="ps-search-input"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+                  data-testid="ps-search-clear"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Table */}
