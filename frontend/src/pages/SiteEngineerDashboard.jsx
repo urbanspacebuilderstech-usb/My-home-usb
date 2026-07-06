@@ -1660,7 +1660,7 @@ export default function SiteEngineerDashboard() {
             </div>
             
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
               <Card className="bg-green-50 border-green-200"><CardContent className="p-3 text-center">
                 <p className="text-[10px] text-green-600 font-medium uppercase">Cash in Hand</p>
                 <p className="text-lg font-bold text-green-700" data-testid="pc-cash-in-hand">₹{pettyCashSummary.total_cash_in_hand?.toLocaleString('en-IN') || '0'}</p>
@@ -1690,6 +1690,13 @@ export default function SiteEngineerDashboard() {
               ><CardContent className="p-3 text-center">
                 <p className="text-[10px] text-blue-600 font-medium uppercase">Waiting Approval</p>
                 <p className="text-lg font-bold text-blue-700" data-testid="pc-waiting">{pettyCashSummary.waiting_approval || 0}</p>
+              </CardContent></Card>
+              <Card
+                className="bg-cyan-50 border-cyan-200"
+                data-testid="pc-exp-waiting-tile"
+              ><CardContent className="p-3 text-center">
+                <p className="text-[10px] text-cyan-700 font-medium uppercase">Exp Waiting A/C</p>
+                <p className="text-lg font-bold text-cyan-800" data-testid="pc-exp-waiting">{pettyCashSummary.expense_waiting_accountant || 0}</p>
               </CardContent></Card>
             </div>
 

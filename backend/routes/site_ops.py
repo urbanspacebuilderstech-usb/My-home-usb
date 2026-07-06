@@ -2944,11 +2944,21 @@ async def get_petty_cash_summary(user: User = Depends(get_current_user)):
     pending_requests = len([pc for pc in all_pc if pc.get("status") in ["requested"]])
     waiting_approval = len([pc for pc in all_pc if pc.get("status") in ["pm_approved", "accountant_processing"]])
 
+    # Mar 04 2026 — Count recorded expenses (SE's individual expense entries)
+    # currently sitting with the Accountant. `pm_approved` = SE submitted +
+    # PM approved, Accountant hasn't finalised. This drives the new
+    # "Expense Waiting A/C" tile on the SE dashboard.
+    exp_query = {"status": "pm_approved"}
+    if user.role not in [UserRole.SUPER_ADMIN]:
+        exp_query["recorded_by"] = user.user_id
+    expense_waiting_accountant = await db.recorded_expenses.count_documents(exp_query)
+
     return {
         "total_cash_in_hand": total_cash_in_hand,
         "total_expenses": total_expenses,
         "pending_requests": pending_requests,
         "waiting_approval": waiting_approval,
+        "expense_waiting_accountant": expense_waiting_accountant,
     }
 
 
