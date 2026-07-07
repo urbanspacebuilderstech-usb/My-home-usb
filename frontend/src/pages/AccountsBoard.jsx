@@ -3509,6 +3509,8 @@ function ApprovalsTab() {
   });
   // Status filter — pending / approved / rejected / under_correction / all
   const [statusFilter, setStatusFilter] = useState('pending');
+  // Project filter — applies to BOTH Income & Expense approval queues
+  const [appProjectFilter, setAppProjectFilter] = useState('');
   // Send-for-correction modal state (post-approval pullback by accountant)
   const [correctionIncome, setCorrectionIncome] = useState(null);
   const [correctionIncomeReason, setCorrectionIncomeReason] = useState('');
@@ -3713,21 +3715,41 @@ function ApprovalsTab() {
   };
 
   const s = data.summary || {};
+  // Project filter helper — rows carry project_id (fallback project_name for
+  // General petty-cash rows). Empty filter = All Projects.
+  const byProject = (rows) => !appProjectFilter
+    ? rows
+    : rows.filter(r => (r.project_id || r.project_name) === appProjectFilter);
   // Apply unified date filter to data arrays (client-side, using created_at)
-  const filteredIncome = filterByDateRange(data.income || [], appDateFrom, appDateTo, r => r.created_at);
-  const filteredMaterials = filterByDateRange(data.materials || [], appDateFrom, appDateTo, r => r.created_at);
-  const filteredLabour = filterByDateRange(data.labour || [], appDateFrom, appDateTo, r => r.created_at);
-  const filteredVendor = filterByDateRange(data.vendor || [], appDateFrom, appDateTo, r => r.created_at);
-  const filteredPettyCash = filterByDateRange(data.petty_cash || [], appDateFrom, appDateTo, r => r.created_at);
-  const filteredRecordedExpenses = filterByDateRange(data.recorded_expenses || [], appDateFrom, appDateTo, r => r.created_at);
+  const filteredIncome = byProject(filterByDateRange(data.income || [], appDateFrom, appDateTo, r => r.created_at));
+  const filteredMaterials = byProject(filterByDateRange(data.materials || [], appDateFrom, appDateTo, r => r.created_at));
+  const filteredLabour = byProject(filterByDateRange(data.labour || [], appDateFrom, appDateTo, r => r.created_at));
+  const filteredVendor = byProject(filterByDateRange(data.vendor || [], appDateFrom, appDateTo, r => r.created_at));
+  const filteredPettyCash = byProject(filterByDateRange(data.petty_cash || [], appDateFrom, appDateTo, r => r.created_at));
+  const filteredRecordedExpenses = byProject(filterByDateRange(data.recorded_expenses || [], appDateFrom, appDateTo, r => r.created_at));
   // WO stage payments use planning_approved_at (or requested_at) — apply same date filter so the
   // labour tab badge/count stays consistent with what's actually rendered.
-  const filteredWoStagePayments = filterByDateRange(
+  const filteredWoStagePayments = byProject(filterByDateRange(
     woStagePayments,
     appDateFrom,
     appDateTo,
     r => r.planning_approved_at || r.requested_at,
-  );
+  ));
+  // Unique project list for the dropdown — built from ALL rows in the current
+  // status queue (before project filtering) so options don't disappear.
+  const approvalProjects = React.useMemo(() => {
+    const map = new Map();
+    [
+      ...(data.income || []), ...(data.materials || []), ...(data.labour || []),
+      ...(data.vendor || []), ...(data.petty_cash || []), ...(data.recorded_expenses || []),
+      ...woStagePayments,
+    ].forEach(r => {
+      const pid = r.project_id || r.project_name;
+      if (!pid) return;
+      if (!map.has(pid)) map.set(pid, { project_id: pid, name: r.project_name || pid });
+    });
+    return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [data, woStagePayments]);
   const fSummary = {
     income_count: filteredIncome.length,
     income_total: filteredIncome.reduce((sum, x) => sum + (x.amount || 0), 0),
@@ -3766,6 +3788,14 @@ function ApprovalsTab() {
               setDateTo={setAppDateTo}
               testIdPrefix="approvals"
               accent="amber"
+            />
+            <ProjectSearchSelect
+              value={appProjectFilter}
+              onChange={setAppProjectFilter}
+              projects={approvalProjects}
+              placeholder="All Projects"
+              width="w-52"
+              testId="approvals-project-filter"
             />
             <div className="flex items-center gap-1 ml-auto flex-wrap" data-testid="approvals-status-filter">
               <span className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mr-1">Status:</span>
@@ -3983,7 +4013,7 @@ function ApprovalsTab() {
           {/* Procurement → Planning → Accountant material payments (full / advance / balance).
               Uses the unified PayApprovalDialog with cheque suspense + CRE-opened cheque picker. */}
           <div className="mb-3" data-testid="approvals-procurement-materials">
-            <AccountantMaterialPayments onRefresh={() => fetchApprovals(false)} legacyExpenses={filteredMaterials} />
+            <AccountantMaterialPayments onRefresh={() => fetchApprovals(false)} legacyExpenses={filteredMaterials} projectFilter={appProjectFilter} />
           </div>
           {/* Vendor credit ledger settlements awaiting accountant release */}
           <div className="mb-3" data-testid="approvals-credit-settlements">

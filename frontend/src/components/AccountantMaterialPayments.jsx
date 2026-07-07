@@ -22,8 +22,12 @@ const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency:
  * CRE-opened cheque picker + auto excess-to-suspense). Each material_request
  * carries an `expense_id` back-link to its mirrored material_expenses row.
  */
-export default function AccountantMaterialPayments({ onRefresh, legacyExpenses = [] }) {
-  const [items, setItems] = useState([]);
+export default function AccountantMaterialPayments({ onRefresh, legacyExpenses = [], projectFilter = '' }) {
+  const [rawItems, setRawItems] = useState([]);
+  // Project filter (from Approvals header) — applies to live queue rows.
+  const items = !projectFilter
+    ? rawItems
+    : rawItems.filter(r => (r.project_id || r.project_name) === projectFilter);
   const [loading, setLoading] = useState(true);
   const [payDialog, setPayDialog] = useState({ open: false, requestId: '' });
   const [rejectDialog, setRejectDialog] = useState({ open: false, exp: null, kind: '', reason: '', busy: false });
@@ -32,9 +36,9 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
     setLoading(true);
     try {
       const r = await axios.get(`${API}/procurement-simple/accountant/queue`);
-      setItems(r.data?.requests || []);
+      setRawItems(r.data?.requests || []);
     } catch {
-      setItems([]);
+      setRawItems([]);
     } finally { setLoading(false); }
   }, []);
 

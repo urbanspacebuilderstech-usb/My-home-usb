@@ -783,7 +783,13 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
   - `AppHeader.jsx` + `Login.jsx` — call `window.__clearAuthCache()` on logout/re-login, which removes the sessionStorage key.
   - **Verified via Playwright**: spinner NOT visible immediately after `page.reload()`; cache persists through refresh. Ready to deploy.
 
-### Session — April 27, 2026 (Latest — Custom RE Share Links)
+### Session — Jul 7, 2026 (Latest — Approvals Project Filter)
+- **Accountant Approvals → Project Filter**: Added a searchable Project dropdown (`ProjectSearchSelect`, testid `approvals-project-filter`) to the Approvals tab header (next to Date + Status filters). Filters BOTH Income Approvals and Expense Approvals (Materials / Labour Work Order / Petty Cash + Recorded Expenses + WO Stage Payments) and all 5 summary count tiles.
+  - `frontend/src/pages/AccountsBoard.jsx` — `appProjectFilter` state, `byProject()` helper applied to all filtered arrays, `approvalProjects` memo built from unified queue rows.
+  - `frontend/src/components/AccountantMaterialPayments.jsx` — accepts `projectFilter` prop; live procurement queue rows (`/procurement-simple/accountant/queue`) filtered by project too.
+  - Verified via Playwright screenshot on preview (dropdown renders with All Projects/General/project options). NOT yet deployed to VPS.
+
+### Session — April 27, 2026 (Custom RE Share Links)
 - **Pivot from Prospect Login → Public Token URL** (`/quote/:token`): Sales now share Rough Estimates via a no-login link that expires in 30 days. New module `/app/backend/routes/quote_links.py` (HMAC-signed token = `quote_id.signature[:24]`).
   - Backend endpoints (under `/api`):
     - `POST /leads/{lead_id}/generate-quote-link` — creates link, auto-revokes prior live link, advances lead to `stg_re_to_client` (requires RE to be GM-approved).
