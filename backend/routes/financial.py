@@ -145,6 +145,58 @@ _CF_LOCK_MODE_MAP = {
 _CF_LOCK_SOURCE = "carry_forward_lock"
 
 
+# Jul 7 2026 — SINGLE SOURCE OF TRUTH for payment-mode bucketing.
+# Previously this mapping was duplicated in /accountant/dashboard and
+# /accountant/cashbook-filtered (plus a frontend alias map) and the copies
+# drifted: `hdfc_current` / `hdfc_savings` rows silently fell into the
+# invisible Miscellaneous bucket in one endpoint but not the other,
+# under-counting HDFC tiles by lakhs. Every endpoint MUST use this helper.
+PAYMENT_MODE_KEYS = ["cash", "current_account", "savings_account", "cheque", "petty_cash", "miscellaneous", "direct_transfer", "suspense_account"]
+
+_PAYMENT_MODE_MAP = {
+    "cash": "cash",
+    "bank_transfer": "current_account", "neft": "current_account",
+    "rtgs": "current_account", "imps": "current_account", "escrow": "current_account",
+    "cheque": "cheque", "petty_cash": "petty_cash",
+    "savings": "savings_account", "savings_account": "savings_account",
+    "current_account": "current_account",
+    "hdfc_savings": "savings_account", "hdfc_current": "current_account",
+    "miscellaneous": "miscellaneous",
+    "direct_transfer": "direct_transfer", "dt": "direct_transfer",
+    "cash_dt": "direct_transfer", "upi": "current_account",
+    "suspense": "suspense_account", "suspense_account": "suspense_account",
+}
+
+
+def classify_payment_mode(mode) -> str:
+    """Bucket a raw payment_mode/payment_method tag into a canonical key.
+
+    Fuzzy fallback guarantees future alias variants (e.g. "sbi_current",
+    "hdfc savings a/c") still land in the right bucket instead of
+    disappearing into Miscellaneous — the recurring reconciliation bug.
+    """
+    if not mode:
+        return "cash"
+    m = str(mode).lower().strip().replace(" ", "_")
+    if m in _PAYMENT_MODE_MAP:
+        return _PAYMENT_MODE_MAP[m]
+    if "savings" in m:
+        return "savings_account"
+    if "current" in m or "bank" in m or "neft" in m or "rtgs" in m or "imps" in m:
+        return "current_account"
+    if "cheque" in m or "check" in m:
+        return "cheque"
+    if "petty" in m:
+        return "petty_cash"
+    if "suspense" in m:
+        return "suspense_account"
+    if "transfer" in m:
+        return "direct_transfer"
+    if "cash" in m:
+        return "cash"
+    return "miscellaneous"
+
+
 async def _sync_carry_forward_to_cashbook(buckets: Dict[str, Dict[str, float]], locked_at: str, user_id: str, user_name: str):
     """Reflect Lock Closing Balance bucket-wise INCOME values as Cashbook
     Income entries tagged `source=carry_forward_lock` so they surface
@@ -715,28 +767,9 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
     
     project_map = {p["project_id"]: p["name"] for p in projects_list}
     
-    # Payment mode categories
-    mode_keys = ["cash", "current_account", "savings_account", "cheque", "petty_cash", "miscellaneous", "direct_transfer", "suspense_account"]
-    
-    def classify_mode(mode):
-        if not mode:
-            return "cash"
-        mode = mode.lower().replace(" ", "_")
-        mapping = {
-            "cash": "cash", "bank_transfer": "current_account", "neft": "current_account",
-            "rtgs": "current_account", "imps": "current_account", "escrow": "current_account",
-            "cheque": "cheque", "petty_cash": "petty_cash", "savings": "savings_account",
-            "savings_account": "savings_account", "current_account": "current_account",
-            "miscellaneous": "miscellaneous", "direct_transfer": "direct_transfer",
-            "dt": "direct_transfer", "suspense": "suspense_account", "suspense_account": "suspense_account",
-            # Mar 04 2026 — Alias variants used by the Expense UI dropdowns so
-            # legacy rows tagged "hdfc_savings" / "hdfc_current" don't fall
-            # into the invisible Miscellaneous bucket. Keeps the card totals
-            # and the "TOTAL" row in Cashbook reconciling to the same value.
-            "hdfc_savings": "savings_account", "hdfc savings": "savings_account",
-            "hdfc_current": "current_account", "hdfc current": "current_account",
-        }
-        return mapping.get(mode, "miscellaneous")
+    # Payment mode categories — single source of truth (see top of file).
+    mode_keys = PAYMENT_MODE_KEYS
+    classify_mode = classify_payment_mode
     
     # Income by mode
     income_by_mode = {k: 0 for k in mode_keys}
@@ -5923,26 +5956,10 @@ async def get_cashbook_filtered(
 
     # Build income_by_mode and expense_by_mode for the Financial Overview cards,
     # honoring the same date/project filter so cards always match the table below.
-    mode_keys = ["cash", "current_account", "savings_account", "cheque", "petty_cash", "miscellaneous", "direct_transfer", "suspense_account"]
-    def _classify(mode):
-        if not mode:
-            return "cash"
-        m = str(mode).lower().replace(" ", "_")
-        mp = {
-            "cash": "cash", "bank_transfer": "current_account", "neft": "current_account",
-            "rtgs": "current_account", "imps": "current_account", "escrow": "current_account",
-            "cheque": "cheque", "petty_cash": "petty_cash", "savings": "savings_account",
-            "savings_account": "savings_account", "current_account": "current_account",
-            "miscellaneous": "miscellaneous", "direct_transfer": "direct_transfer",
-            "dt": "direct_transfer", "suspense": "suspense_account", "suspense_account": "suspense_account",
-            # Jul 7 2026 — HDFC aliases (same as dashboard classify). Without
-            # these, rows tagged hdfc_current/hdfc_savings fell into the
-            # invisible Miscellaneous bucket, under-counting the HDFC Current
-            # tile by ₹1,16,037 and HDFC Savings by ₹2,28,954 vs the
-            # Expense drilldown (which aliases them on the frontend).
-            "hdfc_savings": "savings_account", "hdfc_current": "current_account",
-        }
-        return mp.get(m, "miscellaneous")
+    # Jul 7 2026 — uses the shared classify_payment_mode (single source of
+    # truth, top of file) so tiles ALWAYS agree with the drilldown/dashboard.
+    mode_keys = PAYMENT_MODE_KEYS
+    _classify = classify_payment_mode
 
     income_by_mode = {k: 0 for k in mode_keys}
     income_by_mode["total"] = total_income

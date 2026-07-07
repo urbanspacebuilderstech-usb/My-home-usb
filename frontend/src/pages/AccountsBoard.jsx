@@ -244,7 +244,18 @@ const classifyMode = (mode) => {
     dt: 'direct_transfer', cash_dt: 'direct_transfer',
     suspense: 'suspense_account', suspense_account: 'suspense_account'
   };
-  return map[m] || 'miscellaneous';
+  if (map[m]) return map[m];
+  // Jul 7 2026 — Fuzzy fallback (mirrors backend classify_payment_mode).
+  // Any future mode-tag variant still lands in the right bucket instead
+  // of silently disappearing into Miscellaneous.
+  if (m.includes('savings')) return 'savings_account';
+  if (m.includes('current') || m.includes('bank') || m.includes('neft') || m.includes('rtgs') || m.includes('imps')) return 'current_account';
+  if (m.includes('cheque') || m.includes('check')) return 'cheque';
+  if (m.includes('petty')) return 'petty_cash';
+  if (m.includes('suspense')) return 'suspense_account';
+  if (m.includes('transfer')) return 'direct_transfer';
+  if (m.includes('cash')) return 'cash';
+  return 'miscellaneous';
 };
 
 // ============ DRILLDOWN VIEW ============
