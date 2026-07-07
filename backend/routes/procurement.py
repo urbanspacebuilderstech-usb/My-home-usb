@@ -3421,16 +3421,24 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
     ).sort("planning_approved_at", -1).to_list(500)
     # Annotate partially-collected rows (advance paid, balance pending) so the
     # frontend can group them under the "Partially Collected" sub-tab and
-    # gate the Release button until the balance is actually due.
+    # gate the Release button until the balance is actually due. Mid-flow
+    # rows with NO balance due (advance == full bill) are dropped — they
+    # were matched only by the new $or branch and need no accountant action.
     _STAGE_LABEL = {"in_transit": "Awaiting Delivery", "procurement_verifying": "Procurement Verifying"}
+    kept = []
     for r in rows:
         adv_paid = float(r.get("advance_paid_amount") or 0) + float(r.get("balance_paid_amount") or 0)
-        if adv_paid > 0 and r.get("status") in ("in_transit", "procurement_verifying", "pending_balance_payment"):
-            total_amt = float(r.get("total_amount") or r.get("estimated_price") or 0)
+        total_amt = float(r.get("total_amount") or r.get("estimated_price") or 0)
+        bal = max(0.0, total_amt - adv_paid)
+        if adv_paid > 0 and bal > 0.01 and r.get("status") in ("in_transit", "procurement_verifying", "pending_balance_payment"):
             r["partially_collected"] = True
             r["collected_amount"] = adv_paid
-            r["balance_due"] = max(0.0, total_amt - adv_paid)
+            r["balance_due"] = bal
             r["awaiting_stage"] = _STAGE_LABEL.get(r.get("status"))  # None → balance releasable now
+        if r.get("status") in ("in_transit", "procurement_verifying") and not r.get("cheque_bounced") and not r.get("partially_collected"):
+            continue
+        kept.append(r)
+    rows = kept
     # Enrich
     project_ids = list({r.get("project_id") for r in rows if r.get("project_id")})
     projects = {p["project_id"]: p for p in await db.projects.find(
