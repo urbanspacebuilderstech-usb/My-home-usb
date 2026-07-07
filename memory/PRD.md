@@ -783,11 +783,9 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
   - `AppHeader.jsx` + `Login.jsx` — call `window.__clearAuthCache()` on logout/re-login, which removes the sessionStorage key.
   - **Verified via Playwright**: spinner NOT visible immediately after `page.reload()`; cache persists through refresh. Ready to deploy.
 
-### Session — Jul 7, 2026 (Latest — Approvals Project Filter)
-- **Accountant Approvals → Project Filter**: Added a searchable Project dropdown (`ProjectSearchSelect`, testid `approvals-project-filter`) to the Approvals tab header (next to Date + Status filters). Filters BOTH Income Approvals and Expense Approvals (Materials / Labour Work Order / Petty Cash + Recorded Expenses + WO Stage Payments) and all 5 summary count tiles.
-  - `frontend/src/pages/AccountsBoard.jsx` — `appProjectFilter` state, `byProject()` helper applied to all filtered arrays, `approvalProjects` memo built from unified queue rows.
-  - `frontend/src/components/AccountantMaterialPayments.jsx` — accepts `projectFilter` prop; live procurement queue rows (`/procurement-simple/accountant/queue`) filtered by project too.
-  - Verified via Playwright screenshot on preview (dropdown renders with All Projects/General/project options). NOT yet deployed to VPS.
+### Session — Jul 7, 2026 (Latest — Approvals Project Filter + Carry Forward parity)
+- **Carry Forward ⇄ Expense parity fix (STRICT A/C-approval rule)**: `_compute_project_carry_forward_row` (`backend/routes/financial.py`) now mirrors `/accountant/cashbook-filtered` exactly: recorded_expenses only A/C-approved (+legacy no-status, skip pulled-back, SE-direct gated), material_requests only pre-release without mirror (est/final price), material_expenses deduped against `mexp_` mirrors + pulled-back excluded, labour accounts_approved only, petty cash items NOT counted (mirrored into recorded). Income filter also aligned (approved OR legacy no-status). Root cause of Mrs Lavanya CF ₹588,095.58 vs Expense ₹427,845.58 (over-count +₹160,250: pm_approved ₹3,362 + unpaid MRs ₹94,370 + pulled-back MX ₹58,370 + petty double-count ₹4,148). Verified on prod: all 54 projects CF == Cashbook Expense, live endpoint returns 427,845.58. DEPLOYED.
+- **Accountant Approvals → Project Filter**: searchable Project dropdown (testid `approvals-project-filter`) filters Income + Expense approval queues and summary tiles. `AccountsBoard.jsx` + `AccountantMaterialPayments.jsx` (`projectFilter` prop for live queue). DEPLOYED.
 
 ### Session — April 27, 2026 (Custom RE Share Links)
 - **Pivot from Prospect Login → Public Token URL** (`/quote/:token`): Sales now share Rough Estimates via a no-login link that expires in 30 days. New module `/app/backend/routes/quote_links.py` (HMAC-signed token = `quote_id.signature[:24]`).
