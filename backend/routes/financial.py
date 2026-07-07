@@ -349,11 +349,17 @@ async def _compute_project_carry_forward_row(project, cf_doc):
     Returns dict matching the frontend table columns."""
     pid = project["project_id"]
 
-    # Income (approved) — payment_collection + any approved income for project
+    # Income (approved) — payment_collection + any approved income for project.
+    # Jul 7 2026 — Match Cashbook (`/accountant/cashbook-filtered`) income
+    # filter exactly: approved OR legacy rows without a status field.
     inc_pipeline = [
         {"$match": {
             "project_id": pid,
-            "status": "approved",
+            "$or": [
+                {"status": "approved"},
+                {"status": {"$exists": False}},
+                {"status": None},
+            ],
         }},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
     ]
@@ -361,85 +367,93 @@ async def _compute_project_carry_forward_row(project, cf_doc):
     async for r in db.income.aggregate(inc_pipeline):
         inc_total = float(r.get("total") or 0)
 
-    # Direct expense buckets — match Cashbook's "approved" filter so the
-    # Carry Forward Total Expense reconciles with the Cashbook Expense card.
-    # Cashbook (`/accountant/cashbook-filtered`, sf=approved) treats these
-    # statuses as the canonical "live ledger expense":
-    #   material  → accounts_approved / issued / settled / completed
-    #   labour    → accounts_approved / settled / completed (paid_full/paid_partial mirror these)
-    #   vendor    → accounts_approved / settled / completed
-    # Previously this query filtered ["paid", "approved"] which under-counted
-    # by ~93% (₹67,070 in Cashbook vs ₹4,650 in Carry Forward). Feb 12 2026.
-    # Feb 20 2026 — Carry Forward direct expense must reconcile with Project
-    # Wise (cashbook-filtered) and Project Board (/projects/{id}/expenses).
-    # All three now read from the same authoritative sources:
-    #   • recorded_expenses (excl. rejected / cheque_bounced / under_correction)
-    #   • labour_expenses   (accounts_approved / paid / settled / completed)
-    #   • material_requests (approved / paid / accounts_approved)
-    # Legacy `material_expenses` / `direct_expenses` are kept as fallbacks for
-    # older data that hasn't migrated yet.
-    EXCLUDED_RE = ["rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"]
-    re_total = 0
-    async for r in db.recorded_expenses.aggregate([
-        {"$match": {"project_id": pid, "status": {"$nin": EXCLUDED_RE}}},
-        {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
-    ]):
-        re_total = float(r.get("total") or 0)
+    # ------------------------------------------------------------------
+    # Jul 7 2026 — STRICT CASHBOOK PARITY.
+    # User rule: "A/C approve then only it comes in Expense". The Carry
+    # Forward TOTAL EXPENSE must equal the Cashbook Expense view total
+    # (`/accountant/cashbook-filtered` → all_expenses) for the project.
+    # Previous logic over-counted by including:
+    #   • pm_approved SE-direct expenses (not yet accountant-approved)
+    #   • unpaid material_requests in post-release states (delivered /
+    #     in_transit — the cashbook row only appears once payment is
+    #     released and mirrored into recorded_expenses)
+    #   • material_expenses already mirrored into recorded_expenses or
+    #     pulled back to Approvals (double count)
+    #   • direct_expenses items (petty cash) — always mirrored into
+    #     recorded_expenses on submit (double count)
+    # This caused Mrs Lavanya: Expense tab ₹427,845.58 vs CF ₹588,095.58.
+    # ------------------------------------------------------------------
 
-    MATERIAL_APPROVED = ["accounts_approved", "issued", "settled", "completed", "paid"]
-    LABOUR_APPROVED = ["accounts_approved", "settled", "completed", "paid", "paid_full", "paid_partial"]
-    # Feb 20 2026 — Strict accountant-approval rule: "approved" alone is
-    # planning-approved, NOT accountant-approved, so it does NOT count as an
-    # actual project expense. Same goes for `procurement_verifying`,
-    # `pm_approved`, `pending_accounts_approval`. Only post-accountant-approval
-    # statuses (`accounts_approved` onward) are considered real expense.
-    MR_APPROVED = ["accounts_approved", "approved_for_po", "po_issued", "in_transit", "received", "delivered", "paid", "issued", "completed", "settled"]
+    # 1) recorded_expenses — accountant-approved (or legacy no-status),
+    #    skip pulled-back rows, SE-direct rows gated on approval.
+    re_docs = await db.recorded_expenses.find(
+        {"project_id": pid, "$or": [
+            {"status": {"$in": ["accounts_approved", "super_admin_approved", "approved"]}},
+            {"status": {"$exists": False}},
+            {"status": None},
+        ]},
+        {"_id": 0, "amount": 1, "status": 1, "source": 1, "category": 1,
+         "request_id": 1, "pulled_back_from_cashbook": 1},
+    ).to_list(5000)
+    re_total = 0.0
+    mirrored_mexp_ids = set()
+    for e in re_docs:
+        if e.get("pulled_back_from_cashbook"):
+            continue
+        src = e.get("source") or ""
+        if src in ("site_engineer_direct", "site_engineer", "se_direct"):
+            if (e.get("status") or "").lower() not in ("approved", "verified", "recorded_into_cashbook"):
+                continue
+        re_total += float(e.get("amount") or 0)
+        if e.get("category") == "material" and (e.get("request_id") or "").startswith("mexp_"):
+            mirrored_mexp_ids.add(e.get("request_id"))
 
-    mat_total = 0
-    async for r in db.material_expenses.aggregate([
-        {"$match": {"project_id": pid, "status": {"$in": MATERIAL_APPROVED}}},
-        {"$group": {"_id": None, "total": {"$sum": "$final_amount"}}},
-    ]):
-        mat_total = float(r.get("total") or 0)
-    if mat_total == 0:
-        async for r in db.material_expenses.aggregate([
-            {"$match": {"project_id": pid, "status": {"$in": MATERIAL_APPROVED}}},
-            {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
-        ]):
-            mat_total = float(r.get("total") or 0)
-    # Newer material_requests collection (Mrs Abinaya & others use this path).
-    async for r in db.material_requests.aggregate([
-        {"$match": {"project_id": pid, "status": {"$in": MR_APPROVED}}},
-        {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$total_amount", "$amount"]}}}},
-    ]):
-        mat_total += float(r.get("total") or 0)
+    # 2) material_requests — accountant-approved pre-release rows only.
+    #    Post-release states (in_transit/received/delivered/paid) and rows
+    #    with a `last_expense_id` mirror are counted via recorded_expenses
+    #    once payment is actually released. Same dedupe as cashbook.
+    mat_total = 0.0
+    mr_docs = await db.material_requests.find(
+        {"project_id": pid,
+         "status": {"$in": ["accounts_approved", "approved_for_po", "po_issued", "in_transit", "received", "delivered", "paid"]},
+         "pulled_back_from_cashbook": {"$ne": True}},
+        {"_id": 0, "status": 1, "last_expense_id": 1, "estimated_price": 1, "final_price": 1},
+    ).to_list(5000)
+    for m in mr_docs:
+        if m.get("last_expense_id"):
+            continue
+        if (m.get("status") or "") in ("in_transit", "received", "delivered", "paid"):
+            continue
+        mat_total += float(m.get("estimated_price") or m.get("final_price") or 0)
 
-    wo_total = 0
+    # 3) Legacy material_expenses — skip pulled-back rows and rows already
+    #    mirrored into recorded_expenses (request_id startswith "mexp_").
+    mx_docs = await db.material_expenses.find(
+        {"project_id": pid,
+         "status": {"$in": ["accounts_approved", "issued", "settled", "completed", "paid"]},
+         "pulled_back_from_cashbook": {"$ne": True}},
+        {"_id": 0, "material_expense_id": 1, "expense_id": 1, "final_amount": 1, "amount": 1},
+    ).to_list(5000)
+    for me in mx_docs:
+        if me.get("material_expense_id") in mirrored_mexp_ids or me.get("expense_id") in mirrored_mexp_ids:
+            continue
+        mat_total += float(me.get("final_amount") or me.get("amount") or 0)
+
+    # 4) labour_expenses — accountant-approved only (RAB releases mirror
+    #    into recorded_expenses with status="approved", so anything past
+    #    accounts_approved is already inside re_total).
+    wo_total = 0.0
     async for r in db.labour_expenses.aggregate([
-        {"$match": {"project_id": pid, "status": {"$in": LABOUR_APPROVED}}},
+        {"$match": {"project_id": pid, "status": "accounts_approved"}},
         {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}},
     ]):
         wo_total = float(r.get("total") or 0)
 
-    # Petty cash on a site — pulled from direct_expenses (PM site expenses).
-    # Feb 20 2026 — Strict accountant-approval rule: only count items inside
-    # docs that have been accountant-approved (or legacy docs without a
-    # status field). PM-approved / pending docs do NOT count as expense.
-    DIRECT_APPROVED = ["accounts_approved", "paid", "completed", "acknowledged", "payment_done"]
-    pc_total = 0
-    async for r in db.direct_expenses.aggregate([
-        {"$match": {
-            "project_id": pid,
-            "$or": [
-                {"status": {"$in": DIRECT_APPROVED}},
-                {"status": {"$exists": False}},
-                {"status": None},
-            ],
-        }},
-        {"$unwind": "$items"},
-        {"$group": {"_id": None, "total": {"$sum": "$items.amount"}}},
-    ]):
-        pc_total = float(r.get("total") or 0)
+    # 5) Petty cash (direct_expenses.items) — NOT counted. Every SE-direct
+    #    spend is mirrored into recorded_expenses on submit and only enters
+    #    the ledger after accountant approval (rule above). Counting the
+    #    items again double-counted every petty-cash spend.
+    pc_total = 0.0
 
     direct_total = re_total + mat_total + wo_total + pc_total
 
