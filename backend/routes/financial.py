@@ -5935,6 +5935,12 @@ async def get_cashbook_filtered(
             "savings_account": "savings_account", "current_account": "current_account",
             "miscellaneous": "miscellaneous", "direct_transfer": "direct_transfer",
             "dt": "direct_transfer", "suspense": "suspense_account", "suspense_account": "suspense_account",
+            # Jul 7 2026 — HDFC aliases (same as dashboard classify). Without
+            # these, rows tagged hdfc_current/hdfc_savings fell into the
+            # invisible Miscellaneous bucket, under-counting the HDFC Current
+            # tile by ₹1,16,037 and HDFC Savings by ₹2,28,954 vs the
+            # Expense drilldown (which aliases them on the frontend).
+            "hdfc_savings": "savings_account", "hdfc_current": "current_account",
         }
         return mp.get(m, "miscellaneous")
 
