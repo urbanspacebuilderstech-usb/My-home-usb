@@ -3409,9 +3409,28 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
         {"$or": [
             {"status": {"$in": ["pending_accounts_approval", "pending_balance_payment", "partially_paid"]}},
             {"cheque_bounced": True},
+            # Jul 7 2026 — Partially Collected visibility: advance released
+            # but balance still due while the request is mid-flow (in transit
+            # or procurement verifying). Previously these vanished from the
+            # accountant queue looking "completed" even though only part of
+            # the bill was collected (e.g. Dhanalakshmi SS handrail ₹30,000
+            # of ₹65,885 — USB-MR161).
+            {"advance_paid_amount": {"$gt": 0}, "status": {"$in": ["in_transit", "procurement_verifying"]}},
         ]},
         {"_id": 0},
     ).sort("planning_approved_at", -1).to_list(500)
+    # Annotate partially-collected rows (advance paid, balance pending) so the
+    # frontend can group them under the "Partially Collected" sub-tab and
+    # gate the Release button until the balance is actually due.
+    _STAGE_LABEL = {"in_transit": "Awaiting Delivery", "procurement_verifying": "Procurement Verifying"}
+    for r in rows:
+        adv_paid = float(r.get("advance_paid_amount") or 0) + float(r.get("balance_paid_amount") or 0)
+        if adv_paid > 0 and r.get("status") in ("in_transit", "procurement_verifying", "pending_balance_payment"):
+            total_amt = float(r.get("total_amount") or r.get("estimated_price") or 0)
+            r["partially_collected"] = True
+            r["collected_amount"] = adv_paid
+            r["balance_due"] = max(0.0, total_amt - adv_paid)
+            r["awaiting_stage"] = _STAGE_LABEL.get(r.get("status"))  # None → balance releasable now
     # Enrich
     project_ids = list({r.get("project_id") for r in rows if r.get("project_id")})
     projects = {p["project_id"]: p for p in await db.projects.find(

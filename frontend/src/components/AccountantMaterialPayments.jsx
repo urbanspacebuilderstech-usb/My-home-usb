@@ -87,7 +87,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
   // Jul 7 2026 — "Partially Collected" sub-tab: separates partially-paid
   // entries from fresh pending ones. Same payment modes & actions in both.
   const [subTab, setSubTab] = useState('pending');
-  const isPartial = (req) => req.status === 'partially_paid' || !!req.last_partial_paid_at;
+  const isPartial = (req) => req.status === 'partially_paid' || !!req.last_partial_paid_at || !!req.partially_collected;
   const isLegacyPartial = (exp) => {
     const amt = exp.final_amount || exp.estimated_cost || exp.estimated_price || 0;
     const paid = exp.total_paid || exp.paid_amount || 0;
@@ -152,6 +152,12 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     <span className="font-bold">Balance: {fmt(req.remaining_balance)}</span>
                   </div>
                 )}
+                {req.partially_collected && (
+                  <div className="mb-2 bg-yellow-50 border border-yellow-200 rounded px-2 py-1.5 text-[11px] text-yellow-800 flex items-center justify-between flex-wrap gap-1" data-testid={`acc-mat-partial-strip-${req.request_id}`}>
+                    <span><span className="font-semibold">Collected:</span> {fmt(req.collected_amount || 0)} of {fmt(total)}</span>
+                    <span className="font-bold">Balance Due: {fmt(req.balance_due || 0)}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {req.cheque_bounced && (
@@ -159,6 +165,12 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     )}
                     {(req.status === 'partially_paid' || req.last_partial_paid_at) && (
                       <Badge className="bg-yellow-500 text-white text-[10px]">Partially Paid</Badge>
+                    )}
+                    {req.partially_collected && (
+                      <Badge className="bg-yellow-500 text-white text-[10px]">Partially Collected</Badge>
+                    )}
+                    {req.awaiting_stage && (
+                      <Badge variant="outline" className="text-[10px] border-sky-300 text-sky-700 bg-sky-50">{req.awaiting_stage}</Badge>
                     )}
                     <Badge variant="outline" className={`text-[10px] capitalize bg-${phaseColor}-50 text-${phaseColor}-700 border-${phaseColor}-200`}>
                       {phase} payment
@@ -169,7 +181,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     )}
                     {req.order_id && <span className="text-[10px] text-gray-400 font-mono">#{req.order_id}</span>}
                   </div>
-                  <span className="text-base font-bold text-emerald-700">{fmt(req.remaining_balance > 0 ? req.remaining_balance : due)}</span>
+                  <span className="text-base font-bold text-emerald-700">{fmt(req.balance_due > 0 ? req.balance_due : (req.remaining_balance > 0 ? req.remaining_balance : due))}</span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                   <div>
@@ -189,19 +201,29 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     <p className="font-medium">{fmt(total)} / {fmt(paid)}</p>
                   </div>
                 </div>
-                <div className="flex justify-end gap-2 mt-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs gap-1 border-red-300 text-red-600 hover:bg-red-50"
-                    onClick={() => setRejectDialog({ open: true, exp: req, kind: 'request', reason: '', busy: false })}
-                    data-testid={`acc-mat-reject-${req.request_id}`}
-                  >
-                    <XCircle className="h-3 w-3" /> Reject
-                  </Button>
-                  <Button size="sm" className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => openPayDialog(req)} data-testid={`acc-mat-release-${req.request_id}`}>
-                    <Wallet className="h-3 w-3" /> {(req.status === 'partially_paid' || req.last_partial_paid_at) ? 'Pay Balance' : `Release ${phase === 'balance' ? 'Balance' : (phase === 'advance' ? 'Advance' : 'Payment')}`}
-                  </Button>
+                <div className="flex justify-end items-center gap-2 mt-2">
+                  {req.awaiting_stage ? (
+                    /* Mid-flow (advance paid, delivery/verification pending) —
+                       balance is NOT yet due, so no Reject/Release actions. */
+                    <span className="text-[11px] text-gray-500 italic" data-testid={`acc-mat-awaiting-${req.request_id}`}>
+                      Balance releasable after {req.status === 'in_transit' ? 'delivery' : 'procurement verification'}
+                    </span>
+                  ) : (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs gap-1 border-red-300 text-red-600 hover:bg-red-50"
+                        onClick={() => setRejectDialog({ open: true, exp: req, kind: 'request', reason: '', busy: false })}
+                        data-testid={`acc-mat-reject-${req.request_id}`}
+                      >
+                        <XCircle className="h-3 w-3" /> Reject
+                      </Button>
+                      <Button size="sm" className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => openPayDialog(req)} data-testid={`acc-mat-release-${req.request_id}`}>
+                        <Wallet className="h-3 w-3" /> {(req.status === 'partially_paid' || req.last_partial_paid_at) ? 'Pay Balance' : `Release ${phase === 'balance' ? 'Balance' : (phase === 'advance' ? 'Advance' : 'Payment')}`}
+                      </Button>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>
