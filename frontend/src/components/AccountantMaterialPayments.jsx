@@ -84,13 +84,54 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
   const liveExpenseIds = new Set(items.map(i => i.expense_id).filter(Boolean));
   const legacyToShow = (legacyExpenses || []).filter(e => e.expense_id && !liveExpenseIds.has(e.expense_id));
 
+  // Jul 7 2026 — "Partially Collected" sub-tab: separates partially-paid
+  // entries from fresh pending ones. Same payment modes & actions in both.
+  const [subTab, setSubTab] = useState('pending');
+  const isPartial = (req) => req.status === 'partially_paid' || !!req.last_partial_paid_at;
+  const isLegacyPartial = (exp) => {
+    const amt = exp.final_amount || exp.estimated_cost || exp.estimated_price || 0;
+    const paid = exp.total_paid || exp.paid_amount || 0;
+    return paid > 0 && paid < amt;
+  };
+  const partialItems = items.filter(isPartial);
+  const pendingItems = items.filter(r => !isPartial(r));
+  const partialLegacy = legacyToShow.filter(isLegacyPartial);
+  const pendingLegacy = legacyToShow.filter(e => !isLegacyPartial(e));
+  const showItems = subTab === 'partial' ? partialItems : pendingItems;
+  const showLegacy = subTab === 'partial' ? partialLegacy : pendingLegacy;
+  const pendingCount = pendingItems.length + pendingLegacy.length;
+  const partialCount = partialItems.length + partialLegacy.length;
+
   if (loading) return <p className="text-center text-xs text-gray-400 py-6">Loading material payments…</p>;
-  if (items.length === 0 && legacyToShow.length === 0) return <p className="text-center text-xs text-gray-400 py-6">No pending material payments</p>;
 
   return (
     <>
+      {/* Sub-tabs: Pending | Partially Collected */}
+      <div className="flex items-center gap-1.5 mb-2" data-testid="acc-material-subtabs">
+        <button
+          type="button"
+          onClick={() => setSubTab('pending')}
+          className={`px-3 py-1.5 text-[11px] font-semibold rounded-full border transition ${subTab === 'pending' ? 'bg-amber-600 text-white border-amber-600' : 'border-amber-300 text-amber-700 hover:bg-amber-50'}`}
+          data-testid="acc-material-subtab-pending"
+        >
+          Pending ({pendingCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setSubTab('partial')}
+          className={`px-3 py-1.5 text-[11px] font-semibold rounded-full border transition ${subTab === 'partial' ? 'bg-yellow-500 text-white border-yellow-500' : 'border-yellow-400 text-yellow-700 hover:bg-yellow-50'}`}
+          data-testid="acc-material-subtab-partial"
+        >
+          Partially Collected ({partialCount})
+        </button>
+      </div>
+      {showItems.length === 0 && showLegacy.length === 0 && (
+        <p className="text-center text-xs text-gray-400 py-6">
+          {subTab === 'partial' ? 'No partially collected material payments' : 'No pending material payments'}
+        </p>
+      )}
       <div className="space-y-2" data-testid="acc-material-payments">
-        {items.map(req => {
+        {showItems.map(req => {
           const phase = req.next_payment_phase || 'full';
           const total = req.total_amount || req.estimated_price || 0;
           const paid = req.paid_amount || 0;
@@ -168,7 +209,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
         })}
 
         {/* Legacy material_expenses (orphan / no live parent material_request) */}
-        {legacyToShow.map(exp => {
+        {showLegacy.map(exp => {
           const amt = exp.final_amount || exp.estimated_cost || exp.estimated_price || 0;
           return (
             <Card key={`legacy-${exp.expense_id}`} className="hover:shadow-md transition-shadow border-l-4" style={{ borderLeftColor: '#6b7280' }}>
