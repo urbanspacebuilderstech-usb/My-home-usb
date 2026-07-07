@@ -3954,7 +3954,13 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
             b["total_value"] += amt
         elif status in PENDING_REQ_STATUSES:
             b["total_value"] += amt
-            b["pending_amount"] += amt
+            # Jul 7 2026 — Subtract already-released payments from Pending.
+            # Payment releases stamp `advance_paid_amount` / `balance_paid_amount`
+            # on the request but the status can stay `in_transit` until delivery
+            # is confirmed, which double-showed fully-paid requests (e.g. Alaghu
+            # BuildMaart ₹15,537 Paid AND ₹15,537 Pending) in this summary.
+            already_paid = float(mr.get("advance_paid_amount") or 0) + float(mr.get("balance_paid_amount") or 0) + float(mr.get("paid_amount") or 0)
+            b["pending_amount"] += max(0.0, amt - already_paid)
         timelines[key].append({
             "date": mr.get("created_at"),
             "type": "request",
