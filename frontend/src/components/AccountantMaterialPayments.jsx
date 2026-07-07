@@ -44,7 +44,20 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
 
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
 
-  const openPayDialog = (req) => {
+  const openPayDialog = async (req) => {
+    // Jul 7 2026 — Partially Collected mid-flow rows (advance paid, request
+    // still in transit / procurement verification): create/reuse the balance
+    // bill on demand, then open the SAME PayApprovalDialog (all payment
+    // modes, suspense, partial legs work identically).
+    if (req.partially_collected && req.awaiting_stage) {
+      try {
+        const r = await axios.post(`${API}/procurement-simple/material-requests/${req.request_id}/prepare-balance-bill`);
+        setPayDialog({ open: true, requestId: r.data.expense_id });
+      } catch (e) {
+        toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Could not prepare balance bill');
+      }
+      return;
+    }
     if (!req.expense_id) {
       toast.error('Expense entry not yet mirrored for this request — try Refresh in a moment.');
       return;
@@ -198,32 +211,22 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                   </div>
                   <div>
                     <p className="text-[10px] uppercase text-gray-400 font-semibold">Total / Paid</p>
-                    <p className="font-medium">{fmt(total)} / {fmt(paid)}</p>
+                    <p className="font-medium">{fmt(total)} / {fmt(req.partially_collected ? (req.collected_amount || 0) : paid)}</p>
                   </div>
                 </div>
                 <div className="flex justify-end items-center gap-2 mt-2">
-                  {req.awaiting_stage ? (
-                    /* Mid-flow (advance paid, delivery/verification pending) —
-                       balance is NOT yet due, so no Reject/Release actions. */
-                    <span className="text-[11px] text-gray-500 italic" data-testid={`acc-mat-awaiting-${req.request_id}`}>
-                      Balance releasable after {req.status === 'in_transit' ? 'delivery' : 'procurement verification'}
-                    </span>
-                  ) : (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 text-xs gap-1 border-red-300 text-red-600 hover:bg-red-50"
-                        onClick={() => setRejectDialog({ open: true, exp: req, kind: 'request', reason: '', busy: false })}
-                        data-testid={`acc-mat-reject-${req.request_id}`}
-                      >
-                        <XCircle className="h-3 w-3" /> Reject
-                      </Button>
-                      <Button size="sm" className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => openPayDialog(req)} data-testid={`acc-mat-release-${req.request_id}`}>
-                        <Wallet className="h-3 w-3" /> {(req.status === 'partially_paid' || req.last_partial_paid_at) ? 'Pay Balance' : `Release ${phase === 'balance' ? 'Balance' : (phase === 'advance' ? 'Advance' : 'Payment')}`}
-                      </Button>
-                    </>
-                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs gap-1 border-red-300 text-red-600 hover:bg-red-50"
+                    onClick={() => setRejectDialog({ open: true, exp: req, kind: 'request', reason: '', busy: false })}
+                    data-testid={`acc-mat-reject-${req.request_id}`}
+                  >
+                    <XCircle className="h-3 w-3" /> Reject
+                  </Button>
+                  <Button size="sm" className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => openPayDialog(req)} data-testid={`acc-mat-release-${req.request_id}`}>
+                    <Wallet className="h-3 w-3" /> {req.partially_collected ? 'Release Payment' : ((req.status === 'partially_paid' || req.last_partial_paid_at) ? 'Pay Balance' : `Release ${phase === 'balance' ? 'Balance' : (phase === 'advance' ? 'Advance' : 'Payment')}`)}
+                  </Button>
                 </div>
               </CardContent>
             </Card>

@@ -2922,6 +2922,14 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
         unit_price_override = None
 
     next_status = req.get("pending_next_status") or "pending_accounts_approval"
+    # Jul 7 2026 — If the balance was already released early (from the
+    # Approvals → Materials → Partially Collected tab), skip the payment
+    # stop entirely: go straight to delivered so the paid bill is never
+    # re-opened (double-payment risk).
+    _paid_so_far = float(req.get("advance_paid_amount") or 0) + float(req.get("balance_paid_amount") or 0)
+    _req_total = float(req.get("total_amount") or req.get("estimated_price") or 0)
+    if next_status == "pending_balance_payment" and _req_total > 0 and _paid_so_far >= _req_total - 0.01:
+        next_status = "delivered"
     extras = req.get("pending_next_extra") or {}
     update = {
         "status": next_status,
@@ -2986,14 +2994,28 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
             amount = float(merged.get("total_amount") or merged.get("estimated_price") or 0)
             if phase == "balance":
                 amount = float(merged.get("balance_amount") or amount)
+            # Jul 7 2026 — Prefer the OPEN bill (fresh or partially paid) when
+            # multiple mirrors share this source_request_id (e.g. a paid
+            # advance mirror + an early-created balance bill). Falling back
+            # to the generic lookup only when no open bill exists prevents
+            # accidentally re-opening an already-paid advance bill.
             existing_exp = await db.material_expenses.find_one(
+                {"source_request_id": request_id, "status": {"$in": ["pending_accounts_approval", "partially_paid"]}},
+                {"_id": 0},
+            ) or await db.material_expenses.find_one(
                 {"$or": [
                     {"expense_id": req.get("expense_id")},
                     {"source_request_id": request_id},
                 ]},
                 {"_id": 0},
             )
-            if existing_exp:
+            if existing_exp and existing_exp.get("status") == "partially_paid":
+                # Jul 7 2026 — A live bill with partial payments already tracks
+                # the remaining balance (accountant paid part of it early from
+                # the Partially Collected tab). Leave it untouched — resetting
+                # status/final_amount here would corrupt the paid amounts.
+                exp_id = existing_exp["expense_id"]
+            elif existing_exp:
                 # Refresh in case price/qty changed during verification.
                 # Feb 12 2026 — also refresh `quantity` + `unit_price` so the
                 # Accountant approval UI shows the latest Procurement-corrected
@@ -3419,23 +3441,60 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
         ]},
         {"_id": 0},
     ).sort("planning_approved_at", -1).to_list(500)
-    # Annotate partially-collected rows (advance paid, balance pending) so the
-    # frontend can group them under the "Partially Collected" sub-tab and
-    # gate the Release button until the balance is actually due. Mid-flow
-    # rows with NO balance due (advance == full bill) are dropped — they
-    # were matched only by the new $or branch and need no accountant action.
+    # Annotate partially-collected rows (any part-payment, balance pending) so
+    # the frontend can group them under the "Partially Collected" sub-tab.
+    # Jul 7 2026 (v2) — also merge PARTIAL payments recorded on the mirror
+    # bill (material_expenses.status == "partially_paid"): when the
+    # accountant pays ₹500 of a ₹1,000 bill the parent request status does
+    # not change, so without this merge the row stayed in "Pending" with no
+    # partial info. Mid-flow rows with NO balance due are dropped.
     _STAGE_LABEL = {"in_transit": "Awaiting Delivery", "procurement_verifying": "Procurement Verifying"}
+    _req_ids_all = [r["request_id"] for r in rows if r.get("request_id")]
+    # Jul 7 2026 (v2b) — Also surface parents whose mirror bill is partially
+    # paid but whose own status isn't in the queue set (e.g. Swarnaa Agency
+    # USB-MR191: status pending_advance_payment, ₹50,000 of ₹1,05,600 paid
+    # through the Approvals dialog — previously invisible to the accountant).
+    _partial_mirror_reqs = {
+        m.get("source_request_id")
+        async for m in db.material_expenses.find(
+            {"status": "partially_paid", "source_request_id": {"$nin": [None, ""]}},
+            {"_id": 0, "source_request_id": 1},
+        )
+    }
+    _extra_ids = list(_partial_mirror_reqs - set(_req_ids_all))
+    if _extra_ids:
+        extra_rows = await db.material_requests.find(
+            {"request_id": {"$in": _extra_ids},
+             "status": {"$nin": ["rejected", "accounts_rejected", "cancelled", "deleted", "paid", "delivered", "received_completed"]}},
+            {"_id": 0},
+        ).to_list(200)
+        rows.extend(extra_rows)
+        _req_ids_all.extend(r["request_id"] for r in extra_rows if r.get("request_id"))
+    _mirrors_by_req: dict = {}
+    if _req_ids_all:
+        async for m in db.material_expenses.find(
+            {"source_request_id": {"$in": _req_ids_all}},
+            {"_id": 0, "expense_id": 1, "source_request_id": 1, "status": 1, "paid_amount": 1, "payment_phase": 1, "remaining_balance": 1},
+        ):
+            _mirrors_by_req.setdefault(m.get("source_request_id"), []).append(m)
     kept = []
     for r in rows:
         adv_paid = float(r.get("advance_paid_amount") or 0) + float(r.get("balance_paid_amount") or 0)
+        mirror_partial = 0.0
+        for m in _mirrors_by_req.get(r.get("request_id"), []):
+            if m.get("status") == "partially_paid":
+                mirror_partial += float(m.get("paid_amount") or 0)
         total_amt = float(r.get("total_amount") or r.get("estimated_price") or 0)
-        bal = max(0.0, total_amt - adv_paid)
-        if adv_paid > 0 and bal > 0.01 and r.get("status") in ("in_transit", "procurement_verifying", "pending_balance_payment"):
+        collected = adv_paid + mirror_partial
+        bal = max(0.0, total_amt - collected)
+        if collected > 0.01 and bal > 0.01 and r.get("status") in (
+            "pending_accounts_approval", "in_transit", "procurement_verifying", "pending_balance_payment", "partially_paid", "pending_advance_payment",
+        ):
             r["partially_collected"] = True
-            r["collected_amount"] = adv_paid
+            r["collected_amount"] = collected
             r["balance_due"] = bal
-            r["awaiting_stage"] = _STAGE_LABEL.get(r.get("status"))  # None → balance releasable now
-        if r.get("status") in ("in_transit", "procurement_verifying") and not r.get("cheque_bounced") and not r.get("partially_collected"):
+            r["awaiting_stage"] = _STAGE_LABEL.get(r.get("status"))  # info badge only — Release always available
+        if r.get("status") in ("in_transit", "procurement_verifying", "pending_advance_payment") and not r.get("cheque_bounced") and not r.get("partially_collected"):
             continue
         kept.append(r)
     rows = kept
@@ -3472,6 +3531,70 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
     for r in rows:
         r["project_name"] = (projects.get(r.get("project_id")) or {}).get("name", r.get("project_name") or "Unknown")
     return {"count": len(rows), "requests": rows}
+
+
+@router.post("/procurement-simple/material-requests/{request_id}/prepare-balance-bill")
+async def prepare_balance_bill(request_id: str, user: User = Depends(get_current_user)):
+    """Jul 7 2026 — Release Payment from the "Partially Collected" tab.
+
+    For part-paid requests still mid-flow (in_transit / procurement_verifying)
+    the balance mirror bill normally only gets created after procurement
+    verification. This endpoint creates (or returns the existing open)
+    balance bill on demand so the accountant can release the remaining
+    amount early through the standard PayApprovalDialog — same payment
+    modes, same suspense handling. Parent request status is NOT touched;
+    delivery / verification continues normally.
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant / Super Admin")
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    total = float(req.get("total_amount") or req.get("estimated_price") or 0)
+    paid = float(req.get("advance_paid_amount") or 0) + float(req.get("balance_paid_amount") or 0)
+    balance_due = max(0.0, total - paid)
+    if balance_due <= 0.01:
+        raise HTTPException(status_code=400, detail="No balance due on this request")
+    # Reuse an already-open bill (fresh or partially paid) if one exists —
+    # the PayApprovalDialog continues from its remaining balance.
+    open_bill = await db.material_expenses.find_one(
+        {"source_request_id": request_id, "status": {"$in": ["pending_accounts_approval", "partially_paid"]}},
+        {"_id": 0, "expense_id": 1},
+    )
+    if open_bill:
+        return {"expense_id": open_bill["expense_id"], "created": False}
+    now = datetime.now(timezone.utc).isoformat()
+    exp_id = f"mexp_{uuid.uuid4().hex[:12]}"
+    await db.material_expenses.insert_one({
+        "expense_id": exp_id,
+        "source_request_id": request_id,
+        "project_id": req.get("project_id"),
+        "project_name": req.get("project_name"),
+        "material_name": req.get("material_name"),
+        "quantity": req.get("received_quantity") or req.get("approved_quantity") or req.get("quantity"),
+        "unit": req.get("unit"),
+        "unit_price": req.get("unit_price") or req.get("unit_rate"),
+        "vendor_id": req.get("vendor_id"),
+        "vendor_name": req.get("vendor_name") or "Unknown",
+        "estimated_cost": balance_due,
+        "final_amount": balance_due,
+        "payment_mode": req.get("payment_mode"),
+        "payment_phase": "balance",
+        "status": "pending_accounts_approval",
+        "site_engineer_id": req.get("site_engineer_id"),
+        "site_engineer_name": req.get("site_engineer_name"),
+        "created_at": now,
+        "updated_at": now,
+        "description": f"{req.get('material_name', '')} — balance payment",
+        "request_type": "material",
+    })
+    # Back-link so the queue / pay dialog resolve to this open bill.
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {"expense_id": exp_id, "updated_at": now}},
+    )
+    await create_audit_log(user.user_id, "prepare_balance_bill", "material_request", request_id, {"balance_due": balance_due, "expense_id": exp_id})
+    return {"expense_id": exp_id, "created": True}
 
 
 @router.post("/procurement-simple/material-requests/{request_id}/release-payment")
@@ -3967,6 +4090,17 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
         return b, key
 
     # --- material_requests (current procurement flow) ---
+    # Jul 7 2026 — Partial payments recorded on the mirror bill
+    # (material_expenses.status == "partially_paid") don't stamp the parent
+    # request, so subtract them from Pending here too — otherwise vendors
+    # like Swarnaa Agency showed Pending ₹1,05,600 despite ₹50,000 paid.
+    _mirror_partials: Dict[str, float] = {}
+    async for _pm in db.material_expenses.find(
+        {"status": "partially_paid"}, {"_id": 0, "source_request_id": 1, "paid_amount": 1}
+    ):
+        _srq = _pm.get("source_request_id")
+        if _srq:
+            _mirror_partials[_srq] = _mirror_partials.get(_srq, 0.0) + float(_pm.get("paid_amount") or 0)
     for mr in material_requests:
         pid = mr.get("project_id")
         if pid and pid not in live_project_ids:
@@ -3987,6 +4121,7 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
             # is confirmed, which double-showed fully-paid requests (e.g. Alaghu
             # BuildMaart ₹15,537 Paid AND ₹15,537 Pending) in this summary.
             already_paid = float(mr.get("advance_paid_amount") or 0) + float(mr.get("balance_paid_amount") or 0) + float(mr.get("paid_amount") or 0)
+            already_paid += _mirror_partials.get(mr.get("request_id") or "", 0.0)
             b["pending_amount"] += max(0.0, amt - already_paid)
         timelines[key].append({
             "date": mr.get("created_at"),

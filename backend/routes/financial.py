@@ -7986,13 +7986,19 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
                     notify_se_msg = f"Advance approved — ready to collect: {parent.get('material_name')} → {parent.get('vendor_name', 'Vendor')}"
                 else:
                     parent_update.update({
-                        "status": "delivered",
-                        "delivered_at": now,
                         "balance_paid_at": now,
                         "balance_paid_by": user.user_id,
                         "balance_paid_by_name": user.name,
                         "balance_paid_amount": new_total_paid,
                     })
+                    # Jul 7 2026 — Balance released EARLY from the Partially
+                    # Collected tab (parent still awaiting delivery / procurement
+                    # verification) must NOT jump to "delivered" — the SE receive
+                    # + procurement verify steps continue normally and the
+                    # verify-approve guard skips the payment stop afterwards.
+                    if parent.get("status") not in ("in_transit", "procurement_verifying"):
+                        parent_update["status"] = "delivered"
+                        parent_update["delivered_at"] = now
                 await db.material_requests.update_one(
                     {"request_id": source_req_id},
                     {"$set": parent_update},
