@@ -2948,6 +2948,16 @@ async def procurement_simple_toggle_priority(request_id: str, data: dict = None,
         await create_audit_log(user.user_id, "toggle_priority", "material_request", request_id, {"is_high_priority": new_val})
     except Exception:
         pass
+    # Notify the SE who raised the request when priority is enabled so they
+    # know to act on the Collect step ASAP. Skip when clearing.
+    if new_val and req.get("site_engineer_id"):
+        try:
+            await create_notification(
+                req["site_engineer_id"],
+                f"⚡ HIGH PRIORITY: {req.get('material_name', 'Material')} · {req.get('project_name', '')} — flagged by {user.name}. Please collect ASAP.",
+            )
+        except Exception:
+            pass
     return {"message": "High priority " + ("enabled" if new_val else "cleared"), "is_high_priority": new_val}
 
 

@@ -37,7 +37,9 @@ import {
   CheckCheck,
   PackageCheck,
   ThumbsUp,
-  ChevronDown
+  ChevronDown,
+  Check,
+  Search
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
@@ -186,7 +188,14 @@ function RequestsTab({ dateRange, projectFilter }) {
         return awaitingSubTab === 'advance' ? isAdvanceLeg : !isAdvanceLeg;
       });
     }
-    return scope;
+    // High Priority items always float to the top of the current bucket.
+    return [...scope].sort((a, b) => {
+      const ap = a.is_high_priority ? 1 : 0;
+      const bp = b.is_high_priority ? 1 : 0;
+      if (ap !== bp) return bp - ap;
+      // stable-ish tiebreaker: newest first
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    });
   }, [procurementVisible, bucket, awaitingSubTab]);
 
   // Counts for the Awaiting Accountant sub-tabs.
@@ -1382,6 +1391,77 @@ const PAYMENT_MODE_DISPLAY = {
 // =====================================================================
 // Vendor Assign Dialog
 // =====================================================================
+// Reusable searchable vendor combobox — replaces the plain Radix Select
+// so Procurement can type-filter the list (the master has 100+ vendors).
+function VendorCombobox({ value, onChange, vendors, disabled, excludeId, placeholder = 'Select a material vendor…', testId }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return vendors
+      .filter(v => (excludeId ? v.vendor_id !== excludeId : true))
+      .filter(v => {
+        if (!q) return true;
+        const hay = `${v.name || v.vendor_name || ''} ${v.contact_person || ''} ${v.phone || ''}`.toLowerCase();
+        return hay.includes(q);
+      });
+  }, [vendors, search, excludeId]);
+  const selected = vendors.find(v => v.vendor_id === value);
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch(''); }}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          role="combobox"
+          aria-expanded={open}
+          className={`mt-1 flex h-10 w-full items-center justify-between rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-left transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-60 disabled:cursor-not-allowed ${!selected ? 'text-gray-500' : ''}`}
+          data-testid={testId}
+        >
+          <span className="truncate">
+            {selected ? `${selected.name || selected.vendor_name}${selected.contact_person ? ` · ${selected.contact_person}` : ''}` : placeholder}
+          </span>
+          <ChevronDown className="h-4 w-4 opacity-50 shrink-0 ml-2" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="p-0 w-[--radix-popover-trigger-width] max-w-[95vw]" align="start">
+        <div className="flex items-center border-b px-3 py-2 gap-2">
+          <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name / contact / phone…"
+            className="h-7 border-0 shadow-none focus-visible:ring-0 px-0 text-sm"
+            autoFocus
+            data-testid={testId ? `${testId}-search` : undefined}
+          />
+        </div>
+        <div className="max-h-64 overflow-y-auto py-1" data-testid={testId ? `${testId}-list` : undefined}>
+          {filtered.length === 0 ? (
+            <p className="text-center text-xs text-gray-400 py-4">No vendors match</p>
+          ) : filtered.map(v => (
+            <button
+              key={v.vendor_id}
+              type="button"
+              onClick={() => { onChange(v.vendor_id); setOpen(false); setSearch(''); }}
+              className={`w-full text-left px-3 py-2 text-xs hover:bg-amber-50 flex items-start gap-2 ${value === v.vendor_id ? 'bg-amber-100 font-semibold' : ''}`}
+              data-testid={testId ? `${testId}-option-${v.vendor_id}` : undefined}
+            >
+              <Check className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${value === v.vendor_id ? 'text-amber-700' : 'invisible'}`} />
+              <span className="flex-1">
+                <span className="block font-medium text-gray-800">{v.name || v.vendor_name}</span>
+                <span className="block text-[10px] text-gray-500">
+                  {[v.contact_person, v.phone].filter(Boolean).join(' · ') || '—'}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   const [vendors, setVendors] = useState([]);
   const [vendorId, setVendorId] = useState('');
@@ -1651,20 +1731,14 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
 
           <div>
             <Label className="text-xs">Material Vendor *</Label>
-            <Select value={vendorId} onValueChange={setVendorId} disabled={readOnly}>
-              <SelectTrigger className="mt-1" data-testid="proc-assign-vendor-select">
-                <SelectValue placeholder="Select a material vendor…" />
-              </SelectTrigger>
-              <SelectContent>
-                {vendors.length === 0 ? (
-                  <SelectItem value="__none" disabled>No material vendors found</SelectItem>
-                ) : vendors.map(v => (
-                  <SelectItem key={v.vendor_id} value={v.vendor_id}>
-                    {v.name || v.vendor_name} {v.contact_person ? `· ${v.contact_person}` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <VendorCombobox
+              value={vendorId}
+              onChange={setVendorId}
+              vendors={vendors}
+              disabled={readOnly}
+              placeholder="Select a material vendor…"
+              testId="proc-assign-vendor-select"
+            />
             {selectedVendor && (
               <p className="text-[10px] text-gray-500 mt-1">{selectedVendor.phone || ''} {selectedVendor.address ? `· ${selectedVendor.address}` : ''}</p>
             )}
@@ -1996,20 +2070,14 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
           <div className="space-y-3">
             <div>
               <Label className="text-xs">New Vendor *</Label>
-              <Select value={newVendorId} onValueChange={setNewVendorId}>
-                <SelectTrigger className="mt-1" data-testid="proc-change-vendor-select">
-                  <SelectValue placeholder="Select a different vendor…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {vendors.filter(v => v.vendor_id !== item.vendor_id).length === 0 ? (
-                    <SelectItem value="__none" disabled>No other material vendors available</SelectItem>
-                  ) : vendors.filter(v => v.vendor_id !== item.vendor_id).map(v => (
-                    <SelectItem key={v.vendor_id} value={v.vendor_id}>
-                      {v.name || v.vendor_name} {v.contact_person ? `· ${v.contact_person}` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <VendorCombobox
+                value={newVendorId}
+                onChange={setNewVendorId}
+                vendors={vendors}
+                excludeId={item.vendor_id}
+                placeholder="Select a different vendor…"
+                testId="proc-change-vendor-select"
+              />
             </div>
             <div>
               <Label className="text-xs">Reason for vendor change *</Label>

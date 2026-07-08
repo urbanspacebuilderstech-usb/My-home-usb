@@ -964,9 +964,17 @@ export default function SiteEngineerProject() {
     acc[b] = (acc[b] || 0) + 1;
     return acc;
   }, {});
-  const visibleLifecycleItems = materialBucket === 'all'
+  const visibleLifecycleItems = (materialBucket === 'all'
     ? lifecycleItems
-    : lifecycleItems.filter(r => bucketForMaterial(r) === materialBucket);
+    : lifecycleItems.filter(r => bucketForMaterial(r) === materialBucket))
+    .slice()
+    .sort((a, b) => {
+      // High Priority items float to the top so the SE sees urgent Collects first.
+      const ap = a.is_high_priority ? 1 : 0;
+      const bp = b.is_high_priority ? 1 : 0;
+      if (ap !== bp) return bp - ap;
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    });
   const collectableCount = lifecycleItems.filter(r => canReceive(r.status)).length;
 
 
@@ -1678,10 +1686,18 @@ export default function SiteEngineerProject() {
                       return (
                         <Card
                           key={req.request_id}
-                          className={`border-l-4 ${accentMap[bKey] || 'border-l-amber-500'} cursor-pointer hover:shadow-md transition-all`}
+                          className={`border-l-4 ${req.is_high_priority ? 'border-l-red-600 ring-2 ring-red-300' : (accentMap[bKey] || 'border-l-amber-500')} cursor-pointer hover:shadow-md transition-all relative`}
                           onClick={() => setSelectedOrder(req)}
                           data-testid={`se-mat-card-${req.request_id}`}
                         >
+                          {req.is_high_priority && (
+                            <div
+                              className="absolute -top-2 left-3 z-10 px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold uppercase tracking-wide shadow-md flex items-center gap-1"
+                              data-testid={`se-mat-priority-ribbon-${req.request_id}`}
+                            >
+                              ⚡ High Priority
+                            </div>
+                          )}
                           <CardContent className="p-3">
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex-1 min-w-0">
