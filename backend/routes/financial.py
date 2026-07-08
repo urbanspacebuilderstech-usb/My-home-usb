@@ -8590,6 +8590,22 @@ async def create_daily_closing(payload: Dict[str, Any], user: User = Depends(get
             raise HTTPException(status_code=400, detail=f"Invalid amount for mode {mode}")
         variance = round(actual - computed, 2)
         remark = (e.get("remark") or "").strip()
+        # Optional breakdown — Accountant may have entered several sub-sources
+        # (Cash Box A, Cash Box B, Site-1 cash, etc.). Preserve them so the
+        # history view can drill into each sub-source.
+        sub_entries_in = e.get("sub_entries") or []
+        sub_entries: list = []
+        for sub in sub_entries_in:
+            if not isinstance(sub, dict):
+                continue
+            try:
+                amt = float(sub.get("amount") or 0)
+            except (TypeError, ValueError):
+                amt = 0.0
+            sub_entries.append({
+                "label": (sub.get("label") or "").strip(),
+                "amount": round(amt, 2),
+            })
         doc = {
             "closing_id": f"dc_{date_str}_{mode}",
             "date": date_str,
@@ -8598,6 +8614,7 @@ async def create_daily_closing(payload: Dict[str, Any], user: User = Depends(get
             "actual_balance": round(actual, 2),
             "variance": variance,
             "remark": remark,
+            "sub_entries": sub_entries,
             "closed_by": user.user_id,
             "closed_by_name": user.name,
             "closed_at": now,
