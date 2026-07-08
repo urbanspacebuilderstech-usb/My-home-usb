@@ -1500,10 +1500,10 @@ function TimelineView({ item }) {
 // =====================================================================
 // Vendor Assign Dialog
 // =====================================================================
-// Reusable searchable vendor combobox — replaces the plain Radix Select
-// so Procurement can type-filter the list (the master has 100+ vendors).
-function VendorCombobox({ value, onChange, vendors, disabled, excludeId, placeholder = 'Select a material vendor…', testId }) {
-  const [open, setOpen] = useState(false);
+// Reusable searchable vendor combobox — inline search + list (matches the
+// "Search Approved Material" pattern used elsewhere). No Popover, so the list
+// renders directly inside the parent form.
+function VendorCombobox({ value, onChange, vendors, disabled, excludeId, placeholder = 'Search by name / contact / phone…', testId }) {
   const [search, setSearch] = useState('');
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -1517,57 +1517,48 @@ function VendorCombobox({ value, onChange, vendors, disabled, excludeId, placeho
   }, [vendors, search, excludeId]);
   const selected = vendors.find(v => v.vendor_id === value);
   return (
-    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch(''); }}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
+    <div className="mt-1 border border-gray-200 rounded-md overflow-hidden bg-white" data-testid={testId}>
+      <div className="flex items-center gap-2 px-3 py-2 border-b bg-gray-50/60">
+        <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={placeholder}
           disabled={disabled}
-          role="combobox"
-          aria-expanded={open}
-          className={`mt-1 flex h-10 w-full items-center justify-between rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-left transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-60 disabled:cursor-not-allowed ${!selected ? 'text-gray-500' : ''}`}
-          data-testid={testId}
-        >
-          <span className="truncate">
-            {selected ? `${selected.name || selected.vendor_name}${selected.contact_person ? ` · ${selected.contact_person}` : ''}` : placeholder}
-          </span>
-          <ChevronDown className="h-4 w-4 opacity-50 shrink-0 ml-2" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="p-0 w-[--radix-popover-trigger-width] max-w-[95vw]" align="start">
-        <div className="flex items-center border-b px-3 py-2 gap-2">
-          <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name / contact / phone…"
-            className="h-7 border-0 shadow-none focus-visible:ring-0 px-0 text-sm"
-            autoFocus
-            data-testid={testId ? `${testId}-search` : undefined}
-          />
-        </div>
-        <div className="max-h-64 overflow-y-auto py-1" data-testid={testId ? `${testId}-list` : undefined}>
-          {filtered.length === 0 ? (
-            <p className="text-center text-xs text-gray-400 py-4">No vendors match</p>
-          ) : filtered.map(v => (
-            <button
-              key={v.vendor_id}
-              type="button"
-              onClick={() => { onChange(v.vendor_id); setOpen(false); setSearch(''); }}
-              className={`w-full text-left px-3 py-2 text-xs hover:bg-amber-50 flex items-start gap-2 ${value === v.vendor_id ? 'bg-amber-100 font-semibold' : ''}`}
-              data-testid={testId ? `${testId}-option-${v.vendor_id}` : undefined}
-            >
-              <Check className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${value === v.vendor_id ? 'text-amber-700' : 'invisible'}`} />
-              <span className="flex-1">
-                <span className="block font-medium text-gray-800">{v.name || v.vendor_name}</span>
-                <span className="block text-[10px] text-gray-500">
-                  {[v.contact_person, v.phone].filter(Boolean).join(' · ') || '—'}
-                </span>
+          className="flex-1 bg-transparent outline-none text-sm placeholder:text-gray-400 disabled:cursor-not-allowed"
+          data-testid={testId ? `${testId}-search` : undefined}
+        />
+      </div>
+      <div className="max-h-56 overflow-y-auto divide-y divide-gray-100" data-testid={testId ? `${testId}-list` : undefined}>
+        {filtered.length === 0 ? (
+          <p className="text-center text-xs text-gray-400 py-4">No vendors match</p>
+        ) : filtered.map(v => (
+          <button
+            key={v.vendor_id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(v.vendor_id)}
+            className={`w-full text-left px-3 py-2 text-xs hover:bg-amber-50 flex items-center gap-2 ${value === v.vendor_id ? 'bg-amber-100' : ''} ${disabled ? 'cursor-not-allowed opacity-70' : ''}`}
+            data-testid={testId ? `${testId}-option-${v.vendor_id}` : undefined}
+          >
+            <Check className={`h-3.5 w-3.5 shrink-0 ${value === v.vendor_id ? 'text-amber-700' : 'invisible'}`} />
+            <span className="flex-1 min-w-0">
+              <span className="block font-medium text-gray-800 truncate">{v.name || v.vendor_name}</span>
+              <span className="block text-[10px] text-gray-500 truncate">
+                {[v.contact_person, v.phone].filter(Boolean).join(' · ') || '—'}
               </span>
-            </button>
-          ))}
+            </span>
+          </button>
+        ))}
+      </div>
+      {selected && (
+        <div className="px-3 py-1.5 border-t bg-amber-50/60 text-[11px] text-amber-800 flex items-center gap-1.5" data-testid={testId ? `${testId}-selected` : undefined}>
+          <Check className="h-3 w-3" />
+          <span>Selected: <strong>{selected.name || selected.vendor_name}</strong>{selected.phone ? ` · ${selected.phone}` : ''}</span>
         </div>
-      </PopoverContent>
-    </Popover>
+      )}
+    </div>
   );
 }
 
