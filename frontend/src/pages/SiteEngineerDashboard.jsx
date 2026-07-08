@@ -1906,6 +1906,7 @@ export default function SiteEngineerDashboard() {
                                   <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Project</th>
                                   <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Category</th>
                                   <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Expense</th>
+                                  <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Bill</th>
                                   <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">Amount</th>
                                   <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Stage</th>
                                 </tr>
@@ -1919,6 +1920,20 @@ export default function SiteEngineerDashboard() {
                                       <td className="px-3 py-2 text-xs text-gray-700">{row.project_name || '—'}</td>
                                       <td className="px-3 py-2 text-xs text-gray-700">{row.category || '—'}</td>
                                       <td className="px-3 py-2 text-xs text-gray-800 font-medium">{row.expense_name || '—'}</td>
+                                      <td className="px-3 py-2 text-xs">
+                                        {row.bill_file_id ? (
+                                          <a
+                                            href={`${API}/files/${row.bill_file_id}/download`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-blue-600 underline hover:text-blue-800"
+                                            title={row.bill_filename || 'View bill'}
+                                            data-testid={`req-status-exp-bill-${idx}`}
+                                          >View</a>
+                                        ) : (
+                                          <span className="text-gray-400">—</span>
+                                        )}
+                                      </td>
                                       <td className="px-3 py-2 text-xs text-right font-semibold text-orange-800">₹{Number(row.amount || 0).toLocaleString('en-IN')}</td>
                                       <td className="px-3 py-2">
                                         <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full border ${
@@ -2061,7 +2076,21 @@ export default function SiteEngineerDashboard() {
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <Badge variant="outline" className="text-[10px] px-1 py-0">{item.category}</Badge>
                                   <span className="text-gray-700">{item.expense_name}</span>
-                                  {item.bill_filename && <span className="text-blue-500 text-[10px]">[bill]</span>}
+                                  {item.bill_filename && (
+                                    item.bill_file_id ? (
+                                      <a
+                                        href={`${API}/files/${item.bill_file_id}/download`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                        title={item.bill_filename}
+                                        className="text-[10px] text-blue-600 underline hover:text-blue-800"
+                                        data-testid={`se-view-bill-${de.expense_id}-${i}`}
+                                      >[bill]</a>
+                                    ) : (
+                                      <span className="text-blue-500 text-[10px]">[bill]</span>
+                                    )
+                                  )}
                                   {item.stage_label && item.stage_label !== de.stage_label && (
                                     <span className="text-[9px] text-gray-500 italic">— {item.stage_label}</span>
                                   )}
@@ -2118,6 +2147,7 @@ export default function SiteEngineerDashboard() {
                                 <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Project</th>
                                 <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Category</th>
                                 <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Expense</th>
+                                <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Bill</th>
                                 <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">Amount</th>
                                 <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Status</th>
                               </tr>
@@ -2129,6 +2159,20 @@ export default function SiteEngineerDashboard() {
                                   <td className="px-3 py-2 text-xs text-gray-700">{row.project_name || '—'}</td>
                                   <td className="px-3 py-2 text-xs text-gray-700">{row.category || '—'}</td>
                                   <td className="px-3 py-2 text-xs text-gray-800 font-medium">{row.expense_name || '—'}</td>
+                                  <td className="px-3 py-2 text-xs">
+                                    {row.bill_file_id ? (
+                                      <a
+                                        href={`${API}/files/${row.bill_file_id}/download`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-blue-600 underline hover:text-blue-800"
+                                        title={row.bill_filename || 'View bill'}
+                                        data-testid={`exp-waiting-bill-${idx}`}
+                                      >View</a>
+                                    ) : (
+                                      <span className="text-gray-400">—</span>
+                                    )}
+                                  </td>
                                   <td className="px-3 py-2 text-xs text-right font-semibold text-cyan-800">₹{Number(row.amount || 0).toLocaleString('en-IN')}</td>
                                   <td className="px-3 py-2">
                                     <span className="inline-block text-[10px] px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-800 border border-cyan-200">Awaiting Accountant</span>
