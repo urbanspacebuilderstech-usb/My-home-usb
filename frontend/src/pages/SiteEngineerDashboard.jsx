@@ -324,6 +324,9 @@ export default function SiteEngineerDashboard() {
   // Filter for the Petty Cash list — set by clicking the Pending Req / Waiting Approval tiles.
   // 'all' shows everything; 'pending' = requested (awaiting PM); 'waiting' = pm_approved/accountant_processing.
   const [pcStatusFilter, setPcStatusFilter] = useState('all');
+  // Controlled sub-tab under the Petty Cash page so tile clicks can jump the
+  // user to the correct list (Payment Req Status / Exp Waiting A/C etc.)
+  const [pcSubTab, setPcSubTab] = useState('request_status');
   const [pettyCashDialog, setPettyCashDialog] = useState(false);
   const [editingPettyCashId, setEditingPettyCashId] = useState(null);
   const [pettyCashExpenseDialog, setPettyCashExpenseDialog] = useState(false);
@@ -1659,54 +1662,58 @@ export default function SiteEngineerDashboard() {
               </div>
             </div>
             
-            {/* Summary Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-              <Card className="bg-green-50 border-green-200"><CardContent className="p-3 text-center">
-                <p className="text-[10px] text-green-600 font-medium uppercase">Cash in Hand</p>
-                <p className="text-lg font-bold text-green-700" data-testid="pc-cash-in-hand">₹{pettyCashSummary.total_cash_in_hand?.toLocaleString('en-IN') || '0'}</p>
-              </CardContent></Card>
-              <Card className="bg-red-50 border-red-200"><CardContent className="p-3 text-center">
-                <p className="text-[10px] text-red-600 font-medium uppercase">Expenses</p>
-                <p className="text-lg font-bold text-red-700" data-testid="pc-expenses">₹{pettyCashSummary.total_expenses?.toLocaleString('en-IN') || '0'}</p>
-              </CardContent></Card>
-              <Card className="bg-emerald-50 border-emerald-200"><CardContent className="p-3 text-center">
-                <p className="text-[10px] text-emerald-600 font-medium uppercase">Balance</p>
-                <p className="text-lg font-bold text-emerald-700" data-testid="pc-balance">
-                  ₹{Math.max(0, (pettyCashSummary.total_cash_in_hand || 0) - (pettyCashSummary.total_expenses || 0) - (pettyCashSummary.expense_waiting_accountant_amount || 0)).toLocaleString('en-IN')}
-                </p>
-              </CardContent></Card>
-              <Card
-                className={`bg-amber-50 border-amber-200 cursor-pointer transition-shadow hover:shadow-md ${pcStatusFilter === 'pending' ? 'ring-2 ring-amber-500' : ''}`}
-                onClick={() => setPcStatusFilter(f => f === 'pending' ? 'all' : 'pending')}
-                data-testid="pc-pending-tile"
-              ><CardContent className="p-3 text-center">
-                <p className="text-[10px] text-amber-600 font-medium uppercase">Pending Req</p>
-                <p className="text-lg font-bold text-amber-700" data-testid="pc-pending">{pettyCashSummary.pending_requests || 0}</p>
-              </CardContent></Card>
-              <Card
-                className={`bg-blue-50 border-blue-200 cursor-pointer transition-shadow hover:shadow-md ${pcStatusFilter === 'waiting' ? 'ring-2 ring-blue-500' : ''}`}
-                onClick={() => setPcStatusFilter(f => f === 'waiting' ? 'all' : 'waiting')}
-                data-testid="pc-waiting-tile"
-              ><CardContent className="p-3 text-center">
-                <p className="text-[10px] text-blue-600 font-medium uppercase">Waiting Approval</p>
-                <p className="text-lg font-bold text-blue-700" data-testid="pc-waiting">{pettyCashSummary.waiting_approval || 0}</p>
-              </CardContent></Card>
-              <Card
-                className="bg-cyan-50 border-cyan-200"
-                data-testid="pc-exp-waiting-tile"
-              ><CardContent className="p-3 text-center">
-                <p className="text-[10px] text-cyan-700 font-medium uppercase">Exp Waiting A/C</p>
-                <p className="text-lg font-bold text-cyan-800" data-testid="pc-exp-waiting">₹{(pettyCashSummary.expense_waiting_accountant_amount || 0).toLocaleString('en-IN')}</p>
-                <p className="text-[10px] text-cyan-600 mt-0.5">{pettyCashSummary.expense_waiting_accountant || 0} entries</p>
-              </CardContent></Card>
-            </div>
+            {/* Segmented pill tabs — Cash in Hand | Expenses | Exp Waiting A/C | Pending Req | Waiting Approval */}
+            {(() => {
+              const balance = Math.max(0, (pettyCashSummary.total_cash_in_hand || 0) - (pettyCashSummary.total_expenses || 0) - (pettyCashSummary.expense_waiting_accountant_amount || 0));
+              const pills = [
+                { key: 'cash', label: 'Cash in Hand', value: `₹${balance.toLocaleString('en-IN')}`, tone: 'green', testId: 'pc-cash-in-hand', onClick: null },
+                { key: 'expenses', label: 'Expenses', value: `₹${(pettyCashSummary.total_expenses || 0).toLocaleString('en-IN')}`, tone: 'red', testId: 'pc-expenses', onClick: () => { setPcSubTab('expense_record'); setPcStatusFilter('all'); } },
+                { key: 'exp_waiting', label: 'Exp Waiting A/C', value: `₹${(pettyCashSummary.expense_waiting_accountant_amount || 0).toLocaleString('en-IN')}`, sub: `${pettyCashSummary.expense_waiting_accountant || 0} entries`, tone: 'cyan', testId: 'pc-exp-waiting-tile', onClick: () => { setPcSubTab('exp_waiting'); setPcStatusFilter('all'); fetchDirectExpenses(); } },
+                { key: 'pending', label: 'Pending Req', value: pettyCashSummary.pending_requests || 0, tone: 'amber', testId: 'pc-pending-tile', activeFilter: 'pending', onClick: () => { setPcSubTab('request_status'); setPcStatusFilter(f => f === 'pending' ? 'all' : 'pending'); } },
+                { key: 'waiting', label: 'Waiting Approval', value: pettyCashSummary.waiting_approval || 0, tone: 'blue', testId: 'pc-waiting-tile', activeFilter: 'waiting', onClick: () => { setPcSubTab('request_status'); setPcStatusFilter(f => f === 'waiting' ? 'all' : 'waiting'); } },
+              ];
+              const toneMap = {
+                green:  { base: 'bg-white text-green-700 border-green-200',    active: 'bg-green-600 text-white border-green-600',    hover: 'hover:border-green-400' },
+                red:    { base: 'bg-white text-red-700 border-red-200',        active: 'bg-red-600 text-white border-red-600',        hover: 'hover:border-red-400' },
+                cyan:   { base: 'bg-white text-cyan-700 border-cyan-200',      active: 'bg-cyan-600 text-white border-cyan-600',      hover: 'hover:border-cyan-400' },
+                amber:  { base: 'bg-white text-amber-700 border-amber-200',    active: 'bg-amber-600 text-white border-amber-600',    hover: 'hover:border-amber-400' },
+                blue:   { base: 'bg-white text-blue-700 border-blue-200',      active: 'bg-blue-600 text-white border-blue-600',      hover: 'hover:border-blue-400' },
+              };
+              return (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-4" data-testid="pc-segmented-tiles">
+                  {pills.map(p => {
+                    const tones = toneMap[p.tone];
+                    const isActive =
+                      (p.activeFilter && pcStatusFilter === p.activeFilter && pcSubTab === 'request_status') ||
+                      (p.key === 'exp_waiting' && pcSubTab === 'exp_waiting') ||
+                      (p.key === 'expenses' && pcSubTab === 'expense_record');
+                    const clickable = !!p.onClick;
+                    return (
+                      <button
+                        type="button"
+                        key={p.key}
+                        onClick={p.onClick || undefined}
+                        disabled={!clickable}
+                        className={`rounded-full border-2 px-3 py-2 text-center transition-all shadow-sm ${isActive ? tones.active + ' shadow-md scale-[1.02]' : tones.base + ' ' + tones.hover} ${clickable ? 'cursor-pointer' : 'cursor-default'}`}
+                        data-testid={p.testId}
+                      >
+                        <p className={`text-[10px] uppercase tracking-wide font-semibold ${isActive ? 'opacity-90' : 'opacity-80'}`}>{p.label}</p>
+                        <p className={`text-base sm:text-lg font-bold leading-tight ${isActive ? 'text-white' : ''}`}>{p.value}</p>
+                        {p.sub && <p className={`text-[10px] mt-0.5 ${isActive ? 'opacity-80' : 'opacity-70'}`}>{p.sub}</p>}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
 
-            {/* Sub-tabs: Income | Expenses | Request Status */}
-            <Tabs defaultValue="request_status" className="w-full">
+            {/* Sub-tabs: Payment Req Status | Income History | Expense Record | Exp Waiting A/C | Petrol Allowance */}
+            <Tabs value={pcSubTab} onValueChange={setPcSubTab} className="w-full">
               <TabsList className="flex w-full overflow-x-auto mb-3">
                 <TabsTrigger value="request_status" className="flex-shrink-0 text-xs px-3">Payment Req Status</TabsTrigger>
                 <TabsTrigger value="income_history" className="flex-shrink-0 text-xs px-3" onClick={() => fetchIncomeHistory()}>Income History</TabsTrigger>
                 <TabsTrigger value="expense_record" className="flex-shrink-0 text-xs px-3" onClick={() => fetchDirectExpenses()}>Expense Record</TabsTrigger>
+                <TabsTrigger value="exp_waiting" className="flex-shrink-0 text-xs px-3" data-testid="tab-exp-waiting" onClick={() => fetchDirectExpenses()}>Exp Waiting A/C</TabsTrigger>
                 <TabsTrigger value="petrol_allowance" className="flex-shrink-0 text-xs px-3" data-testid="tab-petrol" onClick={() => fetchPetrolHistory()}>Petrol Allowance</TabsTrigger>
               </TabsList>
 
@@ -1973,6 +1980,68 @@ export default function SiteEngineerDashboard() {
                     ))}
                   </div>
                 )}
+              </TabsContent>
+
+              {/* EXP WAITING A/C — direct-expense items whose worst stage is "Awaiting Accountant" */}
+              <TabsContent value="exp_waiting" data-testid="exp-waiting-tab">
+                {(() => {
+                  const flat = [];
+                  (directExpensesList || []).forEach(de => {
+                    (de.items || []).forEach(it => {
+                      if ((it.status || '').toLowerCase() === 'pm_approved' || it.stage_label === 'Awaiting Accountant') {
+                        flat.push({ ...it, expense_id: de.expense_id, project_name: de.project_name, created_at: de.created_at });
+                      }
+                    });
+                  });
+                  const total = flat.reduce((s, r) => s + Number(r.amount || 0), 0);
+                  return (
+                    <>
+                      <div className="mb-3 flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-cyan-50 border border-cyan-200">
+                        <span className="text-xs text-cyan-700">
+                          Items you have recorded that are currently with the <strong>Accountant</strong> for final approval.
+                        </span>
+                        <span className="text-sm font-semibold text-cyan-800" data-testid="exp-waiting-total">
+                          Total ₹{total.toLocaleString('en-IN')} · {flat.length} entries
+                        </span>
+                      </div>
+                      {flat.length === 0 ? (
+                        <div className="text-center py-8 text-gray-400">
+                          <Receipt className="h-10 w-10 mx-auto mb-2 opacity-40" />
+                          <p className="text-sm">No expenses waiting with the Accountant.</p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto border rounded-lg">
+                          <table className="w-full text-sm" data-testid="exp-waiting-table">
+                            <thead className="bg-gray-50 border-b">
+                              <tr>
+                                <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Date</th>
+                                <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Project</th>
+                                <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Category</th>
+                                <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Expense</th>
+                                <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">Amount</th>
+                                <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {flat.map((row, idx) => (
+                                <tr key={`${row.expense_id}-${row.item_id || idx}`} className="border-b hover:bg-cyan-50/40" data-testid={`exp-waiting-row-${idx}`}>
+                                  <td className="px-3 py-2 text-xs text-gray-700">{row.created_at ? new Date(row.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                                  <td className="px-3 py-2 text-xs text-gray-700">{row.project_name || '—'}</td>
+                                  <td className="px-3 py-2 text-xs text-gray-700">{row.category || '—'}</td>
+                                  <td className="px-3 py-2 text-xs text-gray-800 font-medium">{row.expense_name || '—'}</td>
+                                  <td className="px-3 py-2 text-xs text-right font-semibold text-cyan-800">₹{Number(row.amount || 0).toLocaleString('en-IN')}</td>
+                                  <td className="px-3 py-2">
+                                    <span className="inline-block text-[10px] px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-800 border border-cyan-200">Awaiting Accountant</span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </TabsContent>
 
               {/* PETROL ALLOWANCE */}
