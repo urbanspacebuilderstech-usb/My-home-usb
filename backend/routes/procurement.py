@@ -2839,6 +2839,118 @@ async def procurement_simple_reject(request_id: str, data: dict, user: User = De
     return {"message": "Request rejected"}
 
 
+@router.patch("/procurement-simple/material-requests/{request_id}/change-vendor")
+async def procurement_simple_change_vendor(request_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Procurement changes the vendor on a Transit-stage material request with a
+    mandatory reason. The change is appended to `vendor_change_history` so the
+    audit trail is visible across every downstream view (Planning, Accountant,
+    SE, etc.). The latest reason is also mirrored on `vendor_change_reason` for
+    quick display on cards.
+    """
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement / Super Admin can change vendor")
+
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    # Vendor swap is meaningful only until Procurement has verified delivery;
+    # once verified/paid the invoice is locked to the paying vendor.
+    allowed_statuses = {"procurement_priced", "in_transit", "received_partial"}
+    if req.get("status") not in allowed_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot change vendor at current status: {req.get('status')}",
+        )
+
+    new_vendor_id = (data.get("vendor_id") or "").strip()
+    new_vendor_name = (data.get("vendor_name") or "").strip()
+    reason = (data.get("reason") or "").strip()
+    if not (new_vendor_id and new_vendor_name):
+        raise HTTPException(status_code=400, detail="vendor_id and vendor_name are required")
+    if not reason:
+        raise HTTPException(status_code=400, detail="Reason for vendor change is required")
+    if new_vendor_id == req.get("vendor_id"):
+        raise HTTPException(status_code=400, detail="Select a different vendor")
+
+    now = datetime.now(timezone.utc).isoformat()
+    history_entry = {
+        "from_vendor_id": req.get("vendor_id") or "",
+        "from_vendor_name": req.get("vendor_name") or "",
+        "to_vendor_id": new_vendor_id,
+        "to_vendor_name": new_vendor_name,
+        "reason": reason,
+        "changed_by": user.user_id,
+        "changed_by_name": user.name,
+        "changed_at": now,
+    }
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {
+            "$set": {
+                "vendor_id": new_vendor_id,
+                "vendor_name": new_vendor_name,
+                "vendor_change_reason": reason,
+                "vendor_changed_at": now,
+                "vendor_changed_by": user.user_id,
+                "vendor_changed_by_name": user.name,
+            },
+            "$push": {"vendor_change_history": history_entry},
+        },
+    )
+    try:
+        await create_audit_log(user.user_id, "change_vendor", "material_request", request_id, history_entry)
+    except Exception:
+        pass
+    # Notify SE so they know who to collect from now
+    if req.get("site_engineer_id"):
+        try:
+            await create_notification(
+                req["site_engineer_id"],
+                f"Vendor changed for {req.get('material_name')}: {history_entry['from_vendor_name'] or '—'} → {new_vendor_name}. Reason: {reason}",
+            )
+        except Exception:
+            pass
+    return {"message": "Vendor updated", "vendor_change_history": history_entry}
+
+
+@router.patch("/procurement-simple/material-requests/{request_id}/toggle-priority")
+async def procurement_simple_toggle_priority(request_id: str, data: dict = None, user: User = Depends(get_current_user)):
+    """Toggle the High Priority flag on a material request. Available to
+    Procurement, PMs and Super Admin so any operator can flag an urgent
+    request; the flag is echoed as a red ribbon on the card everywhere the
+    request appears.
+    """
+    if user.role not in [UserRole.PROCUREMENT, UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN, UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER]:
+        raise HTTPException(status_code=403, detail="Not allowed to toggle priority")
+
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    # Explicit flag (if provided) wins; otherwise flip current value
+    explicit = data.get("is_high_priority") if isinstance(data, dict) else None
+    if explicit is None:
+        new_val = not bool(req.get("is_high_priority"))
+    else:
+        new_val = bool(explicit)
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {
+            "is_high_priority": new_val,
+            "priority_updated_at": now,
+            "priority_updated_by": user.user_id,
+            "priority_updated_by_name": user.name,
+        }},
+    )
+    try:
+        await create_audit_log(user.user_id, "toggle_priority", "material_request", request_id, {"is_high_priority": new_val})
+    except Exception:
+        pass
+    return {"message": "High priority " + ("enabled" if new_val else "cleared"), "is_high_priority": new_val}
+
+
 @router.get("/procurement-simple/dashboard")
 async def procurement_simple_dashboard(user: User = Depends(get_current_user)):
     """Counts for the Procurement dashboard tiles."""

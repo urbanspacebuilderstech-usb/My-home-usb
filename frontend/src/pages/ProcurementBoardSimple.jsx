@@ -1198,6 +1198,23 @@ function RequestCard({ req, onClick }) {
   const cardCfg = LIFECYCLE_BUCKETS.find(b => b.key === bucket);
   const isActionable = ['requested', 'pm_approved', 'procurement_revision'].includes(status);
   const isVerifying = status === 'procurement_verifying';
+  const isNewRequest = ['requested', 'pm_approved'].includes(status);
+  const [priorityBusy, setPriorityBusy] = useState(false);
+  const [isHighPriority, setIsHighPriority] = useState(!!req.is_high_priority);
+  useEffect(() => { setIsHighPriority(!!req.is_high_priority); }, [req.is_high_priority]);
+  const togglePriority = async (e) => {
+    e.stopPropagation();
+    if (priorityBusy) return;
+    setPriorityBusy(true);
+    const next = !isHighPriority;
+    try {
+      await axios.patch(`${API}/procurement-simple/material-requests/${req.request_id}/toggle-priority`, { is_high_priority: next });
+      setIsHighPriority(next);
+      toast.success(next ? 'Marked as High Priority' : 'Priority cleared');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to update priority');
+    } finally { setPriorityBusy(false); }
+  };
   // Compute "deliver in" label
   let deliveryLabel = '—';
   if (req.expected_delivery) {
@@ -1206,13 +1223,25 @@ function RequestCard({ req, onClick }) {
     deliveryLabel = `${req.timeline_value} days`;
   }
   const pmCfg = PAYMENT_MODE_DISPLAY[req.payment_mode];
+  const latestVendorChange = Array.isArray(req.vendor_change_history) && req.vendor_change_history.length
+    ? req.vendor_change_history[req.vendor_change_history.length - 1]
+    : null;
   return (
-    <Card
-      className="hover:shadow-md transition-shadow cursor-pointer border-l-4 hover:bg-amber-50/30"
-      style={{ borderLeftColor: cardCfg ? `var(--tw-${cardCfg.key})` : '#f59e0b' }}
-      onClick={onClick}
-      data-testid={`proc-card-${req.request_id}`}
-    >
+    <div className="relative">
+      {isHighPriority && (
+        <div
+          className="absolute -top-2 left-3 z-10 px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold uppercase tracking-wide shadow-md flex items-center gap-1"
+          data-testid={`proc-card-priority-ribbon-${req.request_id}`}
+        >
+          <AlertCircle className="h-3 w-3" /> High Priority
+        </div>
+      )}
+      <Card
+        className={`hover:shadow-md transition-shadow cursor-pointer border-l-4 hover:bg-amber-50/30 ${isHighPriority ? 'ring-2 ring-red-400 border-red-300' : ''}`}
+        style={{ borderLeftColor: isHighPriority ? '#dc2626' : (cardCfg ? `var(--tw-${cardCfg.key})` : '#f59e0b') }}
+        onClick={onClick}
+        data-testid={`proc-card-${req.request_id}`}
+      >
       <CardContent className="p-3 sm:p-4">
         {/* Top row: status + amount */}
         <div className="flex items-center justify-between mb-2 gap-2">
@@ -1229,9 +1258,27 @@ function RequestCard({ req, onClick }) {
               <span className="text-[10px] text-gray-400 font-mono">#{req.order_id}</span>
             )}
           </div>
-          {(req.estimated_price || req.total_amount) ? (
-            <span className="text-sm font-semibold text-emerald-700 shrink-0">{fmt(req.estimated_price || req.total_amount)}</span>
-          ) : null}
+          <div className="flex items-center gap-2 shrink-0">
+            {isNewRequest && (
+              <button
+                type="button"
+                onClick={togglePriority}
+                disabled={priorityBusy}
+                title={isHighPriority ? 'Clear High Priority' : 'Mark as High Priority'}
+                className={`px-2 py-1 rounded-full border text-[10px] font-semibold transition-all ${
+                  isHighPriority
+                    ? 'bg-red-600 text-white border-red-600 hover:bg-red-700'
+                    : 'bg-white text-red-700 border-red-300 hover:bg-red-50'
+                } ${priorityBusy ? 'opacity-60 cursor-wait' : ''}`}
+                data-testid={`proc-card-priority-btn-${req.request_id}`}
+              >
+                {isHighPriority ? '★ Priority ON' : '☆ High Priority'}
+              </button>
+            )}
+            {(req.estimated_price || req.total_amount) ? (
+              <span className="text-sm font-semibold text-emerald-700">{fmt(req.estimated_price || req.total_amount)}</span>
+            ) : null}
+          </div>
         </div>
 
         {/* Main grid */}
@@ -1309,8 +1356,18 @@ function RequestCard({ req, onClick }) {
             )}
           </div>
         )}
+        {latestVendorChange && (
+          <div className="mt-2 rounded border border-orange-300 bg-orange-50 px-2 py-1.5 text-[11px] text-orange-800 flex items-start gap-1.5" data-testid={`proc-card-vendor-change-${req.request_id}`}>
+            <RefreshCw className="h-3 w-3 mt-0.5 shrink-0" />
+            <span className="flex-1">
+              <strong>Vendor changed</strong> · <span className="line-through text-orange-600">{latestVendorChange.from_vendor_name || '—'}</span> → <strong>{latestVendorChange.to_vendor_name}</strong>
+              <span className="block italic text-orange-700">"{latestVendorChange.reason}"</span>
+            </span>
+          </div>
+        )}
       </CardContent>
     </Card>
+    </div>
   );
 }
 
@@ -1334,6 +1391,11 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   const [discount, setDiscount] = useState('0');
   const [remarks, setRemarks] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // Change-Vendor sub-flow (available on Transit-stage items)
+  const [changeVendorOpen, setChangeVendorOpen] = useState(false);
+  const [newVendorId, setNewVendorId] = useState('');
+  const [changeReason, setChangeReason] = useState('');
+  const [changeBusy, setChangeBusy] = useState(false);
   // Phase-1 new fields
   const [timelineType, setTimelineType] = useState('date'); // 'date' | 'days'
   const [timelineDate, setTimelineDate] = useState('');
@@ -1546,6 +1608,27 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
             </div>
           )}
         </div>
+
+        {/* Vendor change history — visible at every downstream stage */}
+        {Array.isArray(item.vendor_change_history) && item.vendor_change_history.length > 0 && (
+          <div className="bg-orange-50 border border-orange-300 rounded p-3 space-y-1.5" data-testid="proc-vendor-change-history">
+            <p className="text-orange-800 text-[10px] uppercase font-bold flex items-center gap-1">
+              <RefreshCw className="h-3 w-3" /> Vendor Change History ({item.vendor_change_history.length})
+            </p>
+            <div className="space-y-1.5">
+              {item.vendor_change_history.map((h, i) => (
+                <div key={i} className="text-xs text-orange-900 border-l-2 border-orange-400 pl-2">
+                  <p><span className="line-through text-orange-600">{h.from_vendor_name || '—'}</span> → <strong>{h.to_vendor_name}</strong></p>
+                  <p className="italic">"{h.reason}"</p>
+                  <p className="text-[10px] text-orange-700">
+                    {h.changed_by_name ? `by ${h.changed_by_name}` : ''}
+                    {h.changed_at ? ` · ${fmtDate(h.changed_at)}` : ''}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Planning revision feedback — surfaces when Planning sent it back */}
         {item.status === 'procurement_revision' && item.revision_remarks && (
@@ -1871,6 +1954,21 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
 
         <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>Close</Button>
+          {readOnly && ['procurement_priced', 'in_transit', 'received_partial'].includes((item.status || '').toLowerCase()) && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-orange-700 border-orange-300 hover:bg-orange-50"
+              onClick={() => {
+                setNewVendorId('');
+                setChangeReason('');
+                setChangeVendorOpen(true);
+              }}
+              data-testid="proc-assign-change-vendor"
+            >
+              <RefreshCw className="h-3.5 w-3.5 mr-1" /> Change Vendor
+            </Button>
+          )}
           {!readOnly && (
             <>
               <Button variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => onReject(item)} disabled={submitting} data-testid="proc-assign-reject">
@@ -1883,6 +1981,80 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
           )}
         </DialogFooter>
       </DialogContent>
+
+      {/* Change Vendor sub-dialog — Transit-stage items only */}
+      <Dialog open={changeVendorOpen} onOpenChange={(o) => !o && setChangeVendorOpen(false)}>
+        <DialogContent className="max-w-md" data-testid="proc-change-vendor-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-700">
+              <RefreshCw className="h-5 w-5" /> Change Vendor
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {item.material_name} · Currently: <strong>{item.vendor_name || '—'}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">New Vendor *</Label>
+              <Select value={newVendorId} onValueChange={setNewVendorId}>
+                <SelectTrigger className="mt-1" data-testid="proc-change-vendor-select">
+                  <SelectValue placeholder="Select a different vendor…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {vendors.filter(v => v.vendor_id !== item.vendor_id).length === 0 ? (
+                    <SelectItem value="__none" disabled>No other material vendors available</SelectItem>
+                  ) : vendors.filter(v => v.vendor_id !== item.vendor_id).map(v => (
+                    <SelectItem key={v.vendor_id} value={v.vendor_id}>
+                      {v.name || v.vendor_name} {v.contact_person ? `· ${v.contact_person}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Reason for vendor change *</Label>
+              <Textarea
+                rows={3}
+                value={changeReason}
+                onChange={(e) => setChangeReason(e.target.value)}
+                placeholder="e.g. Original vendor out of stock, better price / delivery timeline…"
+                className="mt-1 text-sm"
+                data-testid="proc-change-vendor-reason"
+              />
+              <p className="text-[10px] text-gray-500 mt-1">This reason is recorded in the request history and visible to Planning, Accountant & SE.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setChangeVendorOpen(false)} disabled={changeBusy}>Cancel</Button>
+            <Button
+              size="sm"
+              className="bg-orange-600 hover:bg-orange-700"
+              disabled={changeBusy}
+              onClick={async () => {
+                if (!newVendorId) { toast.error('Select the new vendor'); return; }
+                if (!changeReason.trim()) { toast.error('Reason is required'); return; }
+                const chosen = vendors.find(v => v.vendor_id === newVendorId);
+                setChangeBusy(true);
+                try {
+                  await axios.patch(`${API}/procurement-simple/material-requests/${item.request_id}/change-vendor`, {
+                    vendor_id: newVendorId,
+                    vendor_name: chosen?.name || chosen?.vendor_name || '',
+                    reason: changeReason.trim(),
+                  });
+                  toast.success('Vendor updated');
+                  setChangeVendorOpen(false);
+                  onDone();
+                } catch (err) {
+                  toast.error(err.response?.data?.detail || 'Failed to change vendor');
+                } finally { setChangeBusy(false); }
+              }}
+              data-testid="proc-change-vendor-submit"
+            >
+              {changeBusy ? 'Saving…' : 'Save Change'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
