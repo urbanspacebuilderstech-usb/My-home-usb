@@ -2747,13 +2747,15 @@ export default function SiteEngineerDashboard() {
                 // Remaining balance = issued − spent − exp_waiting_amount so
                 // the SE can only pick from what's actually free to allocate.
                 const balanceOf = (pc) => Math.max(0, (pc.amount_issued || 0) - (pc.amount_spent || 0) - (pc.exp_waiting_amount || 0));
+                // Statuses where the bucket is NOT yet cash-in-SE-hand or is
+                // dead. Everything else with bal > 0 is fair game.
+                const EXCLUDED = new Set([
+                  'requested', 'pm_approved', 'awaiting_accountant', 'accountant_processing',
+                  'pm_rejected', 'accountant_rejected', 'rejected', 'under_correction',
+                ]);
                 const available = (pettyCashList || []).filter(pc => {
                   const bal = balanceOf(pc);
-                  // Include every "cash in SE's hand" status — issued (freshly
-                  // released), partially_spent (some expenses already booked),
-                  // payment_done + acknowledged (payment done but not yet
-                  // spent). Excludes only fully settled / rejected buckets.
-                  return ['issued', 'partially_spent', 'payment_done', 'acknowledged'].includes(pc.status) && bal > 0;
+                  return (pc.amount_issued || 0) > 0 && bal > 0 && !EXCLUDED.has(pc.status);
                 });
                 if (available.length === 0) {
                   return (
