@@ -1660,7 +1660,7 @@ export default function SiteEngineerDashboard() {
                 <Button onClick={() => setPettyCashDialog(true)} className="gap-1.5 bg-green-600 hover:bg-green-700 h-8 text-xs" data-testid="req-petty-cash-btn">
                   <Plus className="h-3.5 w-3.5" /> Req Petty Cash
                 </Button>
-                <Button onClick={() => { setDirectExpenseDialog(true); setDirectExpItems([{category:'',expense_name:'',amount:'',bill_file_id:null,bill_filename:''}]); setDirectExpProject(''); }} variant="outline" className="gap-1.5 h-8 text-xs border-orange-300 text-orange-700 hover:bg-orange-50" data-testid="record-expense-btn">
+                <Button onClick={async () => { setDirectExpenseDialog(true); setDirectExpItems([{category:'',expense_name:'',amount:'',bill_file_id:null,bill_filename:''}]); setDirectExpProject(''); try { const r = await axios.get(`${API}/site-engineer/petty-cash`); setPettyCashList(r.data || []); } catch (e) { /* noop */ } }} variant="outline" className="gap-1.5 h-8 text-xs border-orange-300 text-orange-700 hover:bg-orange-50" data-testid="record-expense-btn">
                   <Receipt className="h-3.5 w-3.5" /> Record Expense
                 </Button>
               </div>
@@ -1958,7 +1958,6 @@ export default function SiteEngineerDashboard() {
                         <th className="px-3 py-2 text-right font-medium text-gray-600 text-xs">Exp Waiting</th>
                         <th className="px-3 py-2 text-right font-medium text-gray-600 text-xs">Spent</th>
                         <th className="px-3 py-2 text-right font-medium text-gray-600 text-xs">Balance</th>
-                        <th className="px-3 py-2 text-center font-medium text-gray-600 text-xs">Status</th>
                       </tr></thead>
                       <tbody>
                         {incomeHistory.map((r, idx) => {
@@ -1975,7 +1974,6 @@ export default function SiteEngineerDashboard() {
                               <td className="px-3 py-2 text-xs text-right font-semibold text-cyan-700" data-testid={`income-row-exp-waiting-${idx}`}>₹{expWaiting.toLocaleString('en-IN')}</td>
                               <td className="px-3 py-2 text-xs text-right text-red-600">₹{spent.toLocaleString('en-IN')}</td>
                               <td className="px-3 py-2 text-xs text-right font-semibold text-blue-700">₹{balance.toLocaleString('en-IN')}</td>
-                              <td className="px-3 py-2 text-center">{getPettyCashStatusBadge(r.status)}</td>
                             </tr>
                           );
                         })}
@@ -2755,7 +2753,7 @@ export default function SiteEngineerDashboard() {
                 ]);
                 const available = (pettyCashList || []).filter(pc => {
                   const bal = balanceOf(pc);
-                  return (pc.amount_issued || 0) > 0 && bal > 0 && !EXCLUDED.has(pc.status);
+                  return bal > 0 && !EXCLUDED.has(pc.status);
                 });
                 if (available.length === 0) {
                   return (
