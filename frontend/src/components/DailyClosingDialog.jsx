@@ -14,7 +14,7 @@
  *   computed        { cash, current_account, savings_account, cheque, direct_transfer }
  *   onSaved         fn() — parent reload trigger
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
@@ -50,10 +50,16 @@ export default function DailyClosingDialog({ open, onClose, date, computed, onSa
   const [existing, setExisting] = useState({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Track which date we've already loaded so unsaved edits survive
+  // close-and-reopen cycles. We only reset the form when the target date
+  // changes or when a save/reset is explicitly triggered.
+  const loadedForDate = useRef(null);
 
   // Load any already-saved rows so re-opening pre-populates.
   useEffect(() => {
     if (!open) return;
+    if (loadedForDate.current === date) return; // Preserve unsaved edits
+    loadedForDate.current = date;
     (async () => {
       setLoading(true);
       try {
@@ -157,6 +163,8 @@ export default function DailyClosingDialog({ open, onClose, date, computed, onSa
         })),
       });
       toast.success(`Closing saved for ${date}`);
+      // Force a fresh reload of saved rows the next time this dialog opens.
+      loadedForDate.current = null;
       onSaved && onSaved();
       onClose && onClose();
     } catch (e) {
