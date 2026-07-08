@@ -97,6 +97,7 @@ export default function VendorMasterManagement({ embedded = false }) {
     if (!form.name.trim()) return toast.error('Vendor name is required');
     const phoneDigits = (form.phone || '').replace(/\D/g, '');
     if (!phoneDigits || phoneDigits.length < 10) return toast.error('Phone number is required (min 10 digits)');
+    if (!(form.account_number || '').trim()) return toast.error('Account Number is required');
     try {
       if (editingVendor) {
         await axios.patch(`${API}/vendor-master/${editingVendor.vendor_id}`, form);
@@ -359,7 +360,7 @@ export default function VendorMasterManagement({ embedded = false }) {
                     <Input data-testid="vendor-bank" value={form.bank_name} onChange={e => setForm({ ...form, bank_name: e.target.value })} />
                   </div>
                   <div>
-                    <Label>Account Number</Label>
+                    <Label>Account Number <span className="text-red-500">*</span></Label>
                     <Input data-testid="vendor-accno" value={form.account_number} onChange={e => setForm({ ...form, account_number: e.target.value })} />
                   </div>
                   <div>

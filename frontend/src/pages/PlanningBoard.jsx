@@ -816,6 +816,9 @@ export default function PlanningBoard({ embedded = false }) {
   };
   const handleSaveContractor = async () => {
     if (!contractorForm.name.trim()) { toast.error('Name required'); return; }
+    const phoneDigits = (contractorForm.phone || '').replace(/\D/g, '');
+    if (!phoneDigits || phoneDigits.length < 10) { toast.error('Phone number is required (min 10 digits)'); setContractorTabIdx('basic'); return; }
+    if (!(contractorForm.account_number || '').trim()) { toast.error('Account Number is required'); setContractorTabIdx('bank'); return; }
     try {
       const payload = {
         ...contractorForm,
@@ -867,6 +870,9 @@ export default function PlanningBoard({ embedded = false }) {
   };
   const handleSaveVendor = async () => {
     if (!vendorForm.name.trim()) { toast.error('Name required'); return; }
+    const phoneDigits = (vendorForm.phone || '').replace(/\D/g, '');
+    if (!phoneDigits || phoneDigits.length < 10) { toast.error('Phone number is required (min 10 digits)'); setVendorTabIdx('basic'); return; }
+    if (!(vendorForm.account_number || '').trim()) { toast.error('Account Number is required'); setVendorTabIdx('bank'); return; }
     try {
       if (editingVendor) { await axios.patch(`${API}/vendor-master/${editingVendor.vendor_id}`, vendorForm); toast.success('Updated'); }
       else { await axios.post(`${API}/vendor-master`, vendorForm); toast.success('Created'); }
@@ -2662,7 +2668,7 @@ export default function PlanningBoard({ embedded = false }) {
             <TabsContent value="basic" className="space-y-4 mt-4">
               <div><Label>Name <span className="text-red-500">*</span></Label><Input value={contractorForm.name} onChange={(e) => setContractorForm({ ...contractorForm, name: e.target.value })} placeholder="Contractor name" className="mt-1" data-testid="contractor-name-input" /></div>
               <div className="grid grid-cols-2 gap-4">
-                <div><Label>Phone</Label><Input value={contractorForm.phone} onChange={(e) => setContractorForm({ ...contractorForm, phone: e.target.value })} className="mt-1" data-testid="contractor-phone-input" /></div>
+                <div><Label>Phone <span className="text-red-500">*</span></Label><Input value={contractorForm.phone} onChange={(e) => setContractorForm({ ...contractorForm, phone: e.target.value })} placeholder="e.g. 9876543210" className="mt-1" data-testid="contractor-phone-input" /></div>
                 <div><Label>Email</Label><Input value={contractorForm.email} onChange={(e) => setContractorForm({ ...contractorForm, email: e.target.value })} className="mt-1" data-testid="contractor-email-input" /></div>
               </div>
               <div><Label>Address</Label><Input value={contractorForm.address} onChange={(e) => setContractorForm({ ...contractorForm, address: e.target.value })} className="mt-1" data-testid="contractor-address-input" /></div>
@@ -2732,7 +2738,7 @@ export default function PlanningBoard({ embedded = false }) {
             <TabsContent value="bank" className="space-y-4 mt-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div><Label>Bank Name</Label><Input value={contractorForm.bank_name} onChange={(e) => setContractorForm({ ...contractorForm, bank_name: e.target.value })} className="mt-1" placeholder="e.g., HDFC Bank" data-testid="contractor-bank-input" /></div>
-                <div><Label>Account Number</Label><Input value={contractorForm.account_number} onChange={(e) => setContractorForm({ ...contractorForm, account_number: e.target.value })} className="mt-1" data-testid="contractor-account-input" /></div>
+                <div><Label>Account Number <span className="text-red-500">*</span></Label><Input value={contractorForm.account_number} onChange={(e) => setContractorForm({ ...contractorForm, account_number: e.target.value })} className="mt-1" data-testid="contractor-account-input" /></div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div><Label>IFSC Code</Label><Input value={contractorForm.ifsc_code} onChange={(e) => setContractorForm({ ...contractorForm, ifsc_code: e.target.value.toUpperCase() })} className="mt-1 uppercase" placeholder="e.g., HDFC0001234" data-testid="contractor-ifsc-input" /></div>
@@ -2855,7 +2861,7 @@ export default function PlanningBoard({ embedded = false }) {
                 <div><Label>Contact Person</Label><Input value={vendorForm.contact_person} onChange={(e) => setVendorForm({ ...vendorForm, contact_person: e.target.value })} className="mt-1" /></div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div><Label>Phone</Label><Input value={vendorForm.phone} onChange={(e) => setVendorForm({ ...vendorForm, phone: e.target.value })} className="mt-1" /></div>
+                <div><Label>Phone <span className="text-red-500">*</span></Label><Input value={vendorForm.phone} onChange={(e) => setVendorForm({ ...vendorForm, phone: e.target.value })} placeholder="e.g. 9876543210" className="mt-1" data-testid="vendor-phone-input" /></div>
                 <div><Label>Email</Label><Input value={vendorForm.email} onChange={(e) => setVendorForm({ ...vendorForm, email: e.target.value })} className="mt-1" /></div>
               </div>
               <div><Label>Address</Label><Input value={vendorForm.address} onChange={(e) => setVendorForm({ ...vendorForm, address: e.target.value })} className="mt-1" /></div>
@@ -2875,7 +2881,7 @@ export default function PlanningBoard({ embedded = false }) {
             <TabsContent value="bank" className="space-y-4 mt-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div><Label>Bank Name</Label><Input value={vendorForm.bank_name} onChange={(e) => setVendorForm({ ...vendorForm, bank_name: e.target.value })} className="mt-1" placeholder="e.g., HDFC Bank" data-testid="vendor-bank-input" /></div>
-                <div><Label>Account Number</Label><Input value={vendorForm.account_number} onChange={(e) => setVendorForm({ ...vendorForm, account_number: e.target.value })} className="mt-1" data-testid="vendor-account-input" /></div>
+                <div><Label>Account Number <span className="text-red-500">*</span></Label><Input value={vendorForm.account_number} onChange={(e) => setVendorForm({ ...vendorForm, account_number: e.target.value })} className="mt-1" data-testid="vendor-account-input" /></div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div><Label>IFSC Code</Label><Input value={vendorForm.ifsc_code} onChange={(e) => setVendorForm({ ...vendorForm, ifsc_code: e.target.value.toUpperCase() })} className="mt-1 uppercase" placeholder="e.g., HDFC0001234" data-testid="vendor-ifsc-input" /></div>

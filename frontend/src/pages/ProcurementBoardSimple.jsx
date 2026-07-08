@@ -2475,6 +2475,10 @@ function MaterialVendorsTab() {
         }
         toast.success('Material saved');
       } else {
+        // Vendor validation — phone (10+ digits) and account number are mandatory.
+        const phoneDigits = (form.phone || '').replace(/\D/g, '');
+        if (!phoneDigits || phoneDigits.length < 10) { toast.error('Phone number is required (min 10 digits)'); setSaving(false); return; }
+        if (!(form.account_number || '').trim()) { toast.error('Account Number is required'); setSaving(false); return; }
         const payload = { ...form, category: form.category || 'material' };
         if (editing?.vendor_id) {
           await axios.patch(`${API}/vendor-master/${editing.vendor_id}`, payload);
@@ -2676,7 +2680,7 @@ function MaterialVendorsTab() {
                   <div><Label>Contact Person</Label><Input value={form.contact_person || ''} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} className="mt-1" /></div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div><Label>Phone</Label><Input value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="mt-1" /></div>
+                  <div><Label>Phone <span className="text-red-500">*</span></Label><Input value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="e.g. 9876543210" className="mt-1" /></div>
                   <div><Label>Email</Label><Input value={form.email || ''} onChange={(e) => setForm({ ...form, email: e.target.value })} className="mt-1" /></div>
                 </div>
                 <div><Label>Address</Label><Input value={form.address || ''} onChange={(e) => setForm({ ...form, address: e.target.value })} className="mt-1" /></div>
@@ -2708,7 +2712,7 @@ function MaterialVendorsTab() {
               <TabsContent value="bank" className="space-y-4 mt-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div><Label>Bank Name</Label><Input value={form.bank_name || ''} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} className="mt-1" placeholder="e.g., HDFC Bank" data-testid="vendor-bank-input" /></div>
-                  <div><Label>Account Number</Label><Input value={form.account_number || ''} onChange={(e) => setForm({ ...form, account_number: e.target.value })} className="mt-1" data-testid="vendor-account-input" /></div>
+                  <div><Label>Account Number <span className="text-red-500">*</span></Label><Input value={form.account_number || ''} onChange={(e) => setForm({ ...form, account_number: e.target.value })} className="mt-1" data-testid="vendor-account-input" /></div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div><Label>IFSC Code</Label><Input value={form.ifsc_code || ''} onChange={(e) => setForm({ ...form, ifsc_code: e.target.value.toUpperCase() })} className="mt-1 uppercase" placeholder="e.g., HDFC0001234" data-testid="vendor-ifsc-input" /></div>
