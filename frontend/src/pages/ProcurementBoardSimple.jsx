@@ -1500,10 +1500,11 @@ function TimelineView({ item }) {
 // =====================================================================
 // Vendor Assign Dialog
 // =====================================================================
-// Reusable searchable vendor combobox — inline search + list (matches the
-// "Search Approved Material" pattern used elsewhere). No Popover, so the list
-// renders directly inside the parent form.
-function VendorCombobox({ value, onChange, vendors, disabled, excludeId, placeholder = 'Search by name / contact / phone…', testId }) {
+// Reusable searchable vendor combobox — inline collapsed trigger that
+// expands on click into a search + scrollable list, then collapses back
+// once a vendor is picked (matches the "Search Approved Material" pattern).
+function VendorCombobox({ value, onChange, vendors, disabled, excludeId, placeholder = 'Select a material vendor…', testId }) {
+  const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -1516,19 +1517,64 @@ function VendorCombobox({ value, onChange, vendors, disabled, excludeId, placeho
       });
   }, [vendors, search, excludeId]);
   const selected = vendors.find(v => v.vendor_id === value);
+
+  // Collapsed view — shows only the picked vendor (or placeholder) with a
+  // chevron. Clicking anywhere on the row re-opens the search list.
+  if (!open) {
+    return (
+      <div className="mt-1" data-testid={testId}>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => { setOpen(true); setSearch(''); }}
+          className={`flex h-10 w-full items-center justify-between rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-left transition-colors hover:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-60 disabled:cursor-not-allowed ${!selected ? 'text-gray-500' : 'text-gray-800'}`}
+          data-testid={testId ? `${testId}-trigger` : undefined}
+        >
+          <span className="truncate flex items-center gap-2">
+            {selected ? (
+              <>
+                <Check className="h-3.5 w-3.5 text-amber-700 shrink-0" />
+                <span>
+                  <strong>{selected.name || selected.vendor_name}</strong>
+                  {selected.phone && <span className="text-gray-500 ml-1">· {selected.phone}</span>}
+                </span>
+              </>
+            ) : (
+              <>
+                <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                <span>{placeholder}</span>
+              </>
+            )}
+          </span>
+          <ChevronDown className="h-4 w-4 opacity-50 shrink-0 ml-2" />
+        </button>
+      </div>
+    );
+  }
+
+  // Expanded view — search input + scrollable list.
   return (
-    <div className="mt-1 border border-gray-200 rounded-md overflow-hidden bg-white" data-testid={testId}>
+    <div className="mt-1 border border-amber-300 rounded-md overflow-hidden bg-white shadow-sm" data-testid={testId}>
       <div className="flex items-center gap-2 px-3 py-2 border-b bg-gray-50/60">
         <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder={placeholder}
+          placeholder="Search by name / contact / phone…"
           disabled={disabled}
+          autoFocus
           className="flex-1 bg-transparent outline-none text-sm placeholder:text-gray-400 disabled:cursor-not-allowed"
           data-testid={testId ? `${testId}-search` : undefined}
         />
+        <button
+          type="button"
+          onClick={() => { setOpen(false); setSearch(''); }}
+          className="text-[10px] text-gray-500 hover:text-gray-700 px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50"
+          data-testid={testId ? `${testId}-close` : undefined}
+        >
+          Close
+        </button>
       </div>
       <div className="max-h-56 overflow-y-auto divide-y divide-gray-100" data-testid={testId ? `${testId}-list` : undefined}>
         {filtered.length === 0 ? (
@@ -1538,8 +1584,8 @@ function VendorCombobox({ value, onChange, vendors, disabled, excludeId, placeho
             key={v.vendor_id}
             type="button"
             disabled={disabled}
-            onClick={() => onChange(v.vendor_id)}
-            className={`w-full text-left px-3 py-2 text-xs hover:bg-amber-50 flex items-center gap-2 ${value === v.vendor_id ? 'bg-amber-100' : ''} ${disabled ? 'cursor-not-allowed opacity-70' : ''}`}
+            onClick={() => { onChange(v.vendor_id); setOpen(false); setSearch(''); }}
+            className={`w-full text-left px-3 py-2 text-xs hover:bg-amber-50 flex items-center gap-2 ${value === v.vendor_id ? 'bg-amber-100' : ''}`}
             data-testid={testId ? `${testId}-option-${v.vendor_id}` : undefined}
           >
             <Check className={`h-3.5 w-3.5 shrink-0 ${value === v.vendor_id ? 'text-amber-700' : 'invisible'}`} />
@@ -1552,12 +1598,6 @@ function VendorCombobox({ value, onChange, vendors, disabled, excludeId, placeho
           </button>
         ))}
       </div>
-      {selected && (
-        <div className="px-3 py-1.5 border-t bg-amber-50/60 text-[11px] text-amber-800 flex items-center gap-1.5" data-testid={testId ? `${testId}-selected` : undefined}>
-          <Check className="h-3 w-3" />
-          <span>Selected: <strong>{selected.name || selected.vendor_name}</strong>{selected.phone ? ` · ${selected.phone}` : ''}</span>
-        </div>
-      )}
     </div>
   );
 }
