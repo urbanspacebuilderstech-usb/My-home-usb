@@ -327,6 +327,10 @@ export default function SiteEngineerDashboard() {
   // Controlled sub-tab under the Petty Cash page so tile clicks can jump the
   // user to the correct list (Payment Req Status / Exp Waiting A/C etc.)
   const [pcSubTab, setPcSubTab] = useState('request_status');
+  // Inside Payment Req Status: which stream to show — Req Petty Cash (petty_cash rows)
+  // or Record Expense (direct_expenses items). Both share the same pcStatusFilter
+  // (pending = Awaiting PM, waiting = Awaiting Accountant, all = everything).
+  const [reqStatusSubTab, setReqStatusSubTab] = useState('petty_cash');
   const [pettyCashDialog, setPettyCashDialog] = useState(false);
   const [editingPettyCashId, setEditingPettyCashId] = useState(null);
   const [pettyCashExpenseDialog, setPettyCashExpenseDialog] = useState(false);
@@ -1669,8 +1673,8 @@ export default function SiteEngineerDashboard() {
                 { key: 'cash', label: 'Cash in Hand', value: `₹${balance.toLocaleString('en-IN')}`, tone: 'green', testId: 'pc-cash-in-hand', onClick: () => { setPcSubTab('income_history'); setPcStatusFilter('all'); fetchIncomeHistory(); } },
                 { key: 'expenses', label: 'Expenses', value: `₹${(pettyCashSummary.total_expenses || 0).toLocaleString('en-IN')}`, tone: 'red', testId: 'pc-expenses', onClick: () => { setPcSubTab('expense_record'); setPcStatusFilter('all'); } },
                 { key: 'exp_waiting', label: 'Exp Waiting A/C', value: `₹${(pettyCashSummary.expense_waiting_accountant_amount || 0).toLocaleString('en-IN')}`, sub: `${pettyCashSummary.expense_waiting_accountant || 0} entries`, tone: 'cyan', testId: 'pc-exp-waiting-tile', onClick: () => { setPcSubTab('exp_waiting'); setPcStatusFilter('all'); fetchDirectExpenses(); } },
-                { key: 'pending', label: 'Pending Req', value: pettyCashSummary.pending_requests || 0, tone: 'amber', testId: 'pc-pending-tile', activeFilter: 'pending', onClick: () => { setPcSubTab('request_status'); setPcStatusFilter(f => f === 'pending' ? 'all' : 'pending'); } },
-                { key: 'waiting', label: 'Waiting Approval', value: pettyCashSummary.waiting_approval || 0, tone: 'blue', testId: 'pc-waiting-tile', activeFilter: 'waiting', onClick: () => { setPcSubTab('request_status'); setPcStatusFilter(f => f === 'waiting' ? 'all' : 'waiting'); } },
+                { key: 'pending', label: 'Pending Req', value: pettyCashSummary.pending_requests || 0, tone: 'amber', testId: 'pc-pending-tile', activeFilter: 'pending', onClick: () => { setPcSubTab('request_status'); setPcStatusFilter(f => f === 'pending' ? 'all' : 'pending'); fetchDirectExpenses(); } },
+                { key: 'waiting', label: 'Waiting Approval', value: pettyCashSummary.waiting_approval || 0, tone: 'blue', testId: 'pc-waiting-tile', activeFilter: 'waiting', onClick: () => { setPcSubTab('request_status'); setPcStatusFilter(f => f === 'waiting' ? 'all' : 'waiting'); fetchDirectExpenses(); } },
               ];
               const toneMap = {
                 green:  { base: 'bg-white text-green-700 border-green-200',    active: 'bg-green-600 text-white border-green-600',    hover: 'hover:border-green-400' },
@@ -1718,124 +1722,221 @@ export default function SiteEngineerDashboard() {
                 <TabsTrigger value="petrol_allowance" className="flex-shrink-0 text-xs px-3" data-testid="tab-petrol" onClick={() => fetchPetrolHistory()}>Petrol Allowance</TabsTrigger>
               </TabsList>
 
-              {/* REQUEST STATUS */}
+              {/* REQUEST STATUS — Req Petty Cash | Record Expense sub-tabs, both filtered by pcStatusFilter */}
               <TabsContent value="request_status">
                 {(() => {
+                  // Petty cash rows filtered by pending / waiting / all
                   const filteredPC = pettyCashList.filter(pc => {
                     if (pcStatusFilter === 'pending') return pc.status === 'requested';
                     if (pcStatusFilter === 'waiting') return ['pm_approved', 'accountant_processing'].includes(pc.status);
                     return true;
                   });
+                  // Direct-expense items flattened + filtered by the same PM/Accountant stage
+                  const flatExpenseItems = [];
+                  (directExpensesList || []).forEach(de => {
+                    (de.items || []).forEach(it => {
+                      const s = (it.status || '').toLowerCase();
+                      const stage = it.stage_label || (s === 'pm_approved' ? 'Awaiting Accountant' : 'Awaiting PM');
+                      flatExpenseItems.push({
+                        ...it, stage,
+                        expense_id: de.expense_id,
+                        direct_expense_id: de.expense_id,
+                        project_name: de.project_name,
+                        created_at: de.created_at,
+                      });
+                    });
+                  });
+                  const filteredExp = flatExpenseItems.filter(it => {
+                    if (pcStatusFilter === 'pending') return it.stage === 'Awaiting PM';
+                    if (pcStatusFilter === 'waiting') return it.stage === 'Awaiting Accountant';
+                    return true;
+                  });
+                  const filterLabel = pcStatusFilter === 'pending'
+                    ? 'Pending Req (Awaiting PM)'
+                    : pcStatusFilter === 'waiting'
+                    ? 'Waiting Approval (Accountant)'
+                    : null;
                   return (
                     <>
-                      {pcStatusFilter !== 'all' && (
+                      {filterLabel && (
                         <div className="mb-3 flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200">
                           <span className="text-xs text-slate-600">
-                            Filtered to <span className="font-semibold text-slate-800">
-                              {pcStatusFilter === 'pending' ? 'Pending Req (Awaiting PM)' : 'Waiting Approval (Accountant)'}
-                            </span> — {filteredPC.length} entr{filteredPC.length === 1 ? 'y' : 'ies'}
+                            Filtered to <span className="font-semibold text-slate-800">{filterLabel}</span>
+                            {' — '}
+                            <strong>{filteredPC.length}</strong> petty-cash · <strong>{filteredExp.length}</strong> expense{filteredExp.length === 1 ? '' : 's'}
                           </span>
-                          <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-600" onClick={() => setPcStatusFilter('all')}>Clear filter</Button>
+                          <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-600" onClick={() => setPcStatusFilter('all')} data-testid="clear-req-filter">Clear filter</Button>
                         </div>
                       )}
-                      {filteredPC.length === 0 ? (
-                        <div className="text-center py-8 text-gray-400">
-                          <Wallet className="h-10 w-10 mx-auto mb-2 opacity-40" />
-                          <p className="text-sm">{pcStatusFilter === 'all' ? 'No petty cash requests' : 'Nothing matches this filter'}</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          {filteredPC.map((pc) => (
-                      <Card key={pc.petty_cash_id} className="border-l-4 border-l-green-500" data-testid={`pc-card-${pc.petty_cash_id}`}>
-                        <CardContent className="p-3">
-                          <div className="flex justify-between items-start mb-2">
-                            <div>
-                              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                                <h4 className="font-semibold text-sm">{pc.purpose || 'Petty Cash'}</h4>
-                                <StatusPill
-                                  status={pc.status}
-                                  data-testid={`pc-status-${pc.petty_cash_id}`}
-                                  onClick={['accountant_rejected','under_correction'].includes(pc.status) ? () => setCorrectionPC(pc) : undefined}
-                                />
-                              </div>
-                              {pc.project_name && pc.project_name !== 'General' && (
-                                <p className="text-xs text-gray-500">Project: {pc.project_name}</p>
-                              )}
-                              <p className="text-[10px] text-gray-400 mt-0.5">{new Date(pc.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-base font-bold text-green-600">₹{(pc.amount_issued || pc.amount_requested).toLocaleString('en-IN')}</p>
-                              <div className="flex items-center justify-end gap-1 mt-1">
-                                {pc.status === 'pm_rejected' && (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
-                                    onClick={() => handleEditPettyCashRequest(pc)}
-                                    data-testid={`pc-edit-${pc.petty_cash_id}`}
-                                    title="Edit and resubmit"
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </Button>
-                                )}
-                                {!['issued','partially_spent','settled','payment_done','acknowledged','accountant_processing'].includes(pc.status) && (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 w-7 p-0 text-red-500 hover:bg-red-50"
-                                    onClick={() => handleDeletePettyCashRequest(pc)}
-                                    data-testid={`pc-delete-${pc.petty_cash_id}`}
-                                    title="Delete request"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
 
-                          {/* Red banner — accountant rejection or post-approval correction */}
-                          {['accountant_rejected','under_correction'].includes(pc.status) && (
-                            <div className="mb-2 p-2 rounded bg-red-50 border-2 border-red-300 cursor-pointer hover:bg-red-100 transition" onClick={() => setCorrectionPC(pc)} data-testid={`pc-correction-banner-${pc.petty_cash_id}`}>
-                              <p className="text-xs font-bold text-red-800">
-                                {pc.status === 'under_correction'
-                                  ? '🔄 Approved entry sent back — Correction required'
-                                  : '⚠ Rejected by Accountant — Re-enter Required'}
-                              </p>
-                              <p className="text-[11px] text-red-700 mt-0.5">
-                                <span className="font-semibold">Reason:</span> {pc.rejection_reason || pc.correction_reason || 'No reason given'}
-                              </p>
-                              <p className="text-[10px] text-red-600 mt-0.5 italic">
-                                Click to view details, edit, and resubmit for accountant approval.
-                              </p>
-                            </div>
-                          )}
-                          {/* Status timeline */}
-                          <div className="flex items-center gap-1 text-[10px] mt-2 flex-wrap">
-                            <span className={`px-1.5 py-0.5 rounded ${pc.status !== 'rejected' && pc.status !== 'pm_rejected' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>Requested</span>
-                            <span className="text-gray-300">→</span>
-                            <span className={`px-1.5 py-0.5 rounded ${['pm_approved','accountant_processing','payment_done','acknowledged','issued','partially_spent','settled'].includes(pc.status) ? 'bg-green-100 text-green-700' : pc.status === 'pm_rejected' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-400'}`}>PM {pc.status === 'pm_rejected' ? 'Rejected' : 'Approved'}</span>
-                            <span className="text-gray-300">→</span>
-                            <span className={`px-1.5 py-0.5 rounded ${['payment_done','acknowledged','issued','partially_spent','settled'].includes(pc.status) ? 'bg-green-100 text-green-700' : ['pm_approved'].includes(pc.status) ? 'bg-amber-100 text-amber-600' : 'bg-gray-100 text-gray-400'}`}>Accountant</span>
-                            <span className="text-gray-300">→</span>
-                            <span className={`px-1.5 py-0.5 rounded ${['acknowledged','settled'].includes(pc.status) ? 'bg-green-100 text-green-700' : pc.status === 'payment_done' ? 'bg-amber-100 text-amber-600' : 'bg-gray-100 text-gray-400'}`}>Acknowledged</span>
+                      {/* Inner sub-tab pills: Req Petty Cash | Record Expense */}
+                      <div className="flex items-center gap-1 mb-3 border-b" data-testid="req-status-subtabs">
+                        {[
+                          { key: 'petty_cash', label: 'Req Petty Cash', count: filteredPC.length, tone: 'text-green-700 border-green-600' },
+                          { key: 'expense',    label: 'Record Expense', count: filteredExp.length, tone: 'text-orange-700 border-orange-600' },
+                        ].map(t => {
+                          const active = reqStatusSubTab === t.key;
+                          return (
+                            <button
+                              key={t.key}
+                              type="button"
+                              onClick={() => setReqStatusSubTab(t.key)}
+                              className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
+                                active ? t.tone : 'border-transparent text-gray-500 hover:text-gray-700'
+                              }`}
+                              data-testid={`req-status-subtab-${t.key}`}
+                            >
+                              {t.label} <span className={`ml-1 inline-block px-1.5 py-0.5 rounded-full text-[10px] ${active ? 'bg-gray-100 text-gray-800' : 'bg-gray-100 text-gray-500'}`}>{t.count}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {reqStatusSubTab === 'petty_cash' ? (
+                        filteredPC.length === 0 ? (
+                          <div className="text-center py-8 text-gray-400">
+                            <Wallet className="h-10 w-10 mx-auto mb-2 opacity-40" />
+                            <p className="text-sm">{pcStatusFilter === 'all' ? 'No petty cash requests' : 'Nothing matches this filter'}</p>
                           </div>
-                          {/* Action: Acknowledge */}
-                          {pc.status === 'payment_done' && (
-                            <div className="mt-2 p-2 bg-blue-50 rounded-md border border-blue-200">
-                              <p className="text-xs text-blue-700 mb-1">Payment processed via {pc.payment_details?.payment_mode || 'N/A'} {pc.payment_details?.bank_name ? `(${pc.payment_details.bank_name})` : ''}</p>
-                              <Button size="sm" className="bg-blue-600 hover:bg-blue-700 h-7 text-xs" onClick={() => handleAcknowledgePettyCash(pc.petty_cash_id)} data-testid={`pc-acknowledge-${pc.petty_cash_id}`}>
-                                <CheckCircle className="h-3 w-3 mr-1" /> Acknowledge Receipt
-                              </Button>
+                        ) : (
+                          <div className="space-y-3">
+                            {filteredPC.map((pc) => (
+                        <Card key={pc.petty_cash_id} className="border-l-4 border-l-green-500" data-testid={`pc-card-${pc.petty_cash_id}`}>
+                          <CardContent className="p-3">
+                            <div className="flex justify-between items-start mb-2">
+                              <div>
+                                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                  <h4 className="font-semibold text-sm">{pc.purpose || 'Petty Cash'}</h4>
+                                  <StatusPill
+                                    status={pc.status}
+                                    data-testid={`pc-status-${pc.petty_cash_id}`}
+                                    onClick={['accountant_rejected','under_correction'].includes(pc.status) ? () => setCorrectionPC(pc) : undefined}
+                                  />
+                                </div>
+                                {pc.project_name && pc.project_name !== 'General' && (
+                                  <p className="text-xs text-gray-500">Project: {pc.project_name}</p>
+                                )}
+                                <p className="text-[10px] text-gray-400 mt-0.5">{new Date(pc.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-base font-bold text-green-600">₹{(pc.amount_issued || pc.amount_requested).toLocaleString('en-IN')}</p>
+                                <div className="flex items-center justify-end gap-1 mt-1">
+                                  {pc.status === 'pm_rejected' && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
+                                      onClick={() => handleEditPettyCashRequest(pc)}
+                                      data-testid={`pc-edit-${pc.petty_cash_id}`}
+                                      title="Edit and resubmit"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </Button>
+                                  )}
+                                  {!['issued','partially_spent','settled','payment_done','acknowledged','accountant_processing'].includes(pc.status) && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 w-7 p-0 text-red-500 hover:bg-red-50"
+                                      onClick={() => handleDeletePettyCashRequest(pc)}
+                                      data-testid={`pc-delete-${pc.petty_cash_id}`}
+                                      title="Delete request"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                          )}
-                          {pc.status === 'pm_rejected' && pc.pm_rejected_reason && (
-                            <p className="mt-1 text-xs text-red-500">Reason: {pc.pm_rejected_reason}</p>
-                          )}
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
+
+                            {/* Red banner — accountant rejection or post-approval correction */}
+                            {['accountant_rejected','under_correction'].includes(pc.status) && (
+                              <div className="mb-2 p-2 rounded bg-red-50 border-2 border-red-300 cursor-pointer hover:bg-red-100 transition" onClick={() => setCorrectionPC(pc)} data-testid={`pc-correction-banner-${pc.petty_cash_id}`}>
+                                <p className="text-xs font-bold text-red-800">
+                                  {pc.status === 'under_correction'
+                                    ? '🔄 Approved entry sent back — Correction required'
+                                    : '⚠ Rejected by Accountant — Re-enter Required'}
+                                </p>
+                                <p className="text-[11px] text-red-700 mt-0.5">
+                                  <span className="font-semibold">Reason:</span> {pc.rejection_reason || pc.correction_reason || 'No reason given'}
+                                </p>
+                                <p className="text-[10px] text-red-600 mt-0.5 italic">
+                                  Click to view details, edit, and resubmit for accountant approval.
+                                </p>
+                              </div>
+                            )}
+                            {/* Status timeline */}
+                            <div className="flex items-center gap-1 text-[10px] mt-2 flex-wrap">
+                              <span className={`px-1.5 py-0.5 rounded ${pc.status !== 'rejected' && pc.status !== 'pm_rejected' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>Requested</span>
+                              <span className="text-gray-300">→</span>
+                              <span className={`px-1.5 py-0.5 rounded ${['pm_approved','accountant_processing','payment_done','acknowledged','issued','partially_spent','settled'].includes(pc.status) ? 'bg-green-100 text-green-700' : pc.status === 'pm_rejected' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-400'}`}>PM {pc.status === 'pm_rejected' ? 'Rejected' : 'Approved'}</span>
+                              <span className="text-gray-300">→</span>
+                              <span className={`px-1.5 py-0.5 rounded ${['payment_done','acknowledged','issued','partially_spent','settled'].includes(pc.status) ? 'bg-green-100 text-green-700' : ['pm_approved'].includes(pc.status) ? 'bg-amber-100 text-amber-600' : 'bg-gray-100 text-gray-400'}`}>Accountant</span>
+                              <span className="text-gray-300">→</span>
+                              <span className={`px-1.5 py-0.5 rounded ${['acknowledged','settled'].includes(pc.status) ? 'bg-green-100 text-green-700' : pc.status === 'payment_done' ? 'bg-amber-100 text-amber-600' : 'bg-gray-100 text-gray-400'}`}>Acknowledged</span>
+                            </div>
+                            {/* Action: Acknowledge */}
+                            {pc.status === 'payment_done' && (
+                              <div className="mt-2 p-2 bg-blue-50 rounded-md border border-blue-200">
+                                <p className="text-xs text-blue-700 mb-1">Payment processed via {pc.payment_details?.payment_mode || 'N/A'} {pc.payment_details?.bank_name ? `(${pc.payment_details.bank_name})` : ''}</p>
+                                <Button size="sm" className="bg-blue-600 hover:bg-blue-700 h-7 text-xs" onClick={() => handleAcknowledgePettyCash(pc.petty_cash_id)} data-testid={`pc-acknowledge-${pc.petty_cash_id}`}>
+                                  <CheckCircle className="h-3 w-3 mr-1" /> Acknowledge Receipt
+                                </Button>
+                              </div>
+                            )}
+                            {pc.status === 'pm_rejected' && pc.pm_rejected_reason && (
+                              <p className="mt-1 text-xs text-red-500">Reason: {pc.pm_rejected_reason}</p>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                          )
+                      ) : (
+                        // RECORD EXPENSE sub-list — direct-expense items filtered by the same PM/Accountant stage
+                        filteredExp.length === 0 ? (
+                          <div className="text-center py-8 text-gray-400">
+                            <Receipt className="h-10 w-10 mx-auto mb-2 opacity-40" />
+                            <p className="text-sm">{pcStatusFilter === 'all' ? 'No recorded expenses' : 'Nothing matches this filter'}</p>
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto border rounded-lg" data-testid="req-status-expense-list">
+                            <table className="w-full text-sm">
+                              <thead className="bg-gray-50 border-b">
+                                <tr>
+                                  <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Date</th>
+                                  <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Project</th>
+                                  <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Category</th>
+                                  <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Expense</th>
+                                  <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">Amount</th>
+                                  <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Stage</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {filteredExp.map((row, idx) => {
+                                  const isPM = row.stage === 'Awaiting PM';
+                                  return (
+                                    <tr key={`${row.direct_expense_id}-${row.item_id || idx}`} className="border-b hover:bg-gray-50" data-testid={`req-status-exp-row-${idx}`}>
+                                      <td className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap">{row.created_at ? new Date(row.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                                      <td className="px-3 py-2 text-xs text-gray-700">{row.project_name || '—'}</td>
+                                      <td className="px-3 py-2 text-xs text-gray-700">{row.category || '—'}</td>
+                                      <td className="px-3 py-2 text-xs text-gray-800 font-medium">{row.expense_name || '—'}</td>
+                                      <td className="px-3 py-2 text-xs text-right font-semibold text-orange-800">₹{Number(row.amount || 0).toLocaleString('en-IN')}</td>
+                                      <td className="px-3 py-2">
+                                        <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full border ${
+                                          isPM ? 'bg-amber-100 text-amber-800 border-amber-200'
+                                               : row.stage === 'Awaiting Accountant' ? 'bg-cyan-100 text-cyan-800 border-cyan-200'
+                                               : row.stage === 'Approved' ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                               : 'bg-red-100 text-red-800 border-red-200'
+                                        }`}>{row.stage}</span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )
                       )}
                     </>
                   );
