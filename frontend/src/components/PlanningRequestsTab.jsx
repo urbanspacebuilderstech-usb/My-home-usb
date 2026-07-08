@@ -1180,8 +1180,14 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
   }, [items]);
 
   const visibleItems = useMemo(() => {
-    if (bucket === 'all') return items;
-    return items.filter(r => bucketForMaterial(r) === bucket);
+    const scope = bucket === 'all' ? items : items.filter(r => bucketForMaterial(r) === bucket);
+    // High Priority items float to the top of every bucket.
+    return [...scope].sort((a, b) => {
+      const ap = a.is_high_priority ? 1 : 0;
+      const bp = b.is_high_priority ? 1 : 0;
+      if (ap !== bp) return bp - ap;
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    });
   }, [items, bucket]);
 
   return (

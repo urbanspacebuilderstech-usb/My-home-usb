@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
@@ -110,7 +110,15 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
   const pendingItems = items.filter(r => !isPartial(r));
   const partialLegacy = legacyToShow.filter(isLegacyPartial);
   const pendingLegacy = legacyToShow.filter(e => !isLegacyPartial(e));
-  const showItems = subTab === 'partial' ? partialItems : pendingItems;
+  const rawShowItems = subTab === 'partial' ? partialItems : pendingItems;
+  const showItems = useMemo(() => {
+    return [...(rawShowItems || [])].sort((a, b) => {
+      const ap = a.is_high_priority ? 1 : 0;
+      const bp = b.is_high_priority ? 1 : 0;
+      if (ap !== bp) return bp - ap;
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    });
+  }, [rawShowItems]);
   const showLegacy = subTab === 'partial' ? partialLegacy : pendingLegacy;
   const pendingCount = pendingItems.length + pendingLegacy.length;
   const partialCount = partialItems.length + partialLegacy.length;
