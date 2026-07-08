@@ -2749,7 +2749,11 @@ export default function SiteEngineerDashboard() {
                 const balanceOf = (pc) => Math.max(0, (pc.amount_issued || 0) - (pc.amount_spent || 0) - (pc.exp_waiting_amount || 0));
                 const available = (pettyCashList || []).filter(pc => {
                   const bal = balanceOf(pc);
-                  return (pc.status === 'issued' || pc.status === 'partially_spent') && bal > 0;
+                  // Include every "cash in SE's hand" status — issued (freshly
+                  // released), partially_spent (some expenses already booked),
+                  // payment_done + acknowledged (payment done but not yet
+                  // spent). Excludes only fully settled / rejected buckets.
+                  return ['issued', 'partially_spent', 'payment_done', 'acknowledged'].includes(pc.status) && bal > 0;
                 });
                 if (available.length === 0) {
                   return (
