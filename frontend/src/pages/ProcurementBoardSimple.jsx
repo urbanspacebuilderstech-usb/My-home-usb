@@ -1388,6 +1388,115 @@ const PAYMENT_MODE_DISPLAY = {
   post_delivery: { label: 'Post-delivery', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', desc: 'Pay full amount on delivery' },
 };
 
+// Build a chronological timeline for a material request from all the
+// timestamped fields the backend writes across its lifecycle (created →
+// planning initial → PM → procurement → planning → accountant → transit →
+// receive → verify → deliver). Every event carries an actor, tone (color)
+// and optional detail line so the Timeline tab reads as an audit trail.
+function buildTimeline(r) {
+  if (!r) return [];
+  const events = [];
+  const push = (at, tone, title, actor, detail) => {
+    if (!at) return;
+    events.push({ at, tone, title, actor: actor || '', detail: detail || '' });
+  };
+  push(r.created_at, 'sky', 'Request created', r.site_engineer_name || r.requested_by_name, `Qty ${r.quantity} ${r.unit || ''} · ${r.material_name}${r.brand ? ` · ${r.brand}` : ''}`);
+  if (r.is_high_priority && r.priority_updated_at) {
+    push(r.priority_updated_at, 'red', 'Marked HIGH PRIORITY', r.priority_updated_by_name, '');
+  }
+  push(r.planning_initial_approved_at, 'emerald', 'Planning initial approved', r.planning_initial_approved_by_name, '');
+  push(r.planning_initial_rejected_at, 'red', 'Planning initial rejected', r.planning_initial_rejected_by_name, r.planning_initial_rejection_reason);
+  push(r.planning_initial_resubmitted_at, 'amber', 'SE resubmitted after planning rework', r.site_engineer_name, '');
+  push(r.pm_approved_at, 'emerald', 'PM approved', r.pm_approved_by_name, '');
+  push(r.pm_rejected_at, 'red', 'PM rejected', r.pm_rejected_by_name, r.pm_rejection_reason);
+  push(r.procurement_priced_at, 'amber', 'Procurement assigned vendor', r.procurement_priced_by_name, [
+    r.vendor_name && `Vendor: ${r.vendor_name}`,
+    (r.unit_price || r.unit_rate) && `Unit ₹${Number(r.unit_price || r.unit_rate).toLocaleString('en-IN')}`,
+    (r.total_amount || r.estimated_price) && `Total ${fmt(r.total_amount || r.estimated_price)}`,
+    r.payment_mode && `Mode: ${r.payment_mode}`,
+  ].filter(Boolean).join(' · '));
+  push(r.procurement_rejected_at, 'red', 'Procurement rejected', r.procurement_rejected_by_name, r.procurement_rejection_reason);
+  // Vendor changes — one event per swap
+  (r.vendor_change_history || []).forEach((h) => {
+    push(h.changed_at, 'orange', 'Vendor changed', h.changed_by_name, `${h.from_vendor_name || '—'} → ${h.to_vendor_name}${h.reason ? ` · "${h.reason}"` : ''}`);
+  });
+  push(r.revision_requested_at, 'orange', 'Planning sent back for revision', r.revision_requested_by_name, r.revision_remarks);
+  push(r.planning_approved_at, 'emerald', 'Planning approved', r.planning_approved_by_name, '');
+  push(r.planning_rejected_at, 'red', 'Planning rejected', r.planning_rejected_by_name, r.planning_rejection_reason);
+  push(r.planning_edited_at, 'blue', 'Planning edited price / qty', r.planning_edited_by_name, '');
+  push(r.accountant_approved_at || r.accounts_at, 'cyan', 'Accountant approved payment', r.accountant_approved_by_name || r.accounts_by, '');
+  push(r.payment_requested_at, 'cyan', 'Payment requested to Accountant', r.payment_requested_by, '');
+  push(r.paid_at, 'emerald', 'Payment released', r.paid_by, '');
+  push(r.last_payment_at, 'emerald', 'Follow-up payment released', r.last_payment_by, '');
+  push(r.po_generated_at, 'blue', 'Purchase Order generated', r.generated_by, r.po_id ? `PO: ${r.po_id}` : '');
+  push(r.dispatched_at, 'sky', 'Vendor dispatched material', '', '');
+  push(r.received_at, 'sky', 'SE received material', r.received_by_name, [
+    r.received_quantity && `Qty ${r.received_quantity} ${r.unit || ''}`,
+    r.lorry_image_id && '📷 Lorry img',
+    r.material_image_id && '📷 Material img',
+  ].filter(Boolean).join(' · '));
+  push(r.procurement_verified_at, 'fuchsia', 'Procurement verified delivery', r.procurement_verified_by_name, '');
+  push(r.delivered_at, 'emerald', 'Delivered / closed', '', '');
+  push(r.credit_settled_at, 'emerald', 'Credit ledger settled', '', '');
+  // Sort ascending; drop any un-parseable timestamps.
+  return events
+    .map(e => ({ ...e, ts: new Date(e.at).getTime() }))
+    .filter(e => !isNaN(e.ts))
+    .sort((a, b) => a.ts - b.ts);
+}
+
+const TIMELINE_TONE = {
+  sky:      { dot: 'bg-sky-500',     text: 'text-sky-800',     bg: 'bg-sky-50 border-sky-200' },
+  amber:    { dot: 'bg-amber-500',   text: 'text-amber-800',   bg: 'bg-amber-50 border-amber-200' },
+  emerald:  { dot: 'bg-emerald-500', text: 'text-emerald-800', bg: 'bg-emerald-50 border-emerald-200' },
+  red:      { dot: 'bg-red-500',     text: 'text-red-800',     bg: 'bg-red-50 border-red-200' },
+  orange:   { dot: 'bg-orange-500',  text: 'text-orange-800',  bg: 'bg-orange-50 border-orange-200' },
+  blue:     { dot: 'bg-blue-500',    text: 'text-blue-800',    bg: 'bg-blue-50 border-blue-200' },
+  cyan:     { dot: 'bg-cyan-500',    text: 'text-cyan-800',    bg: 'bg-cyan-50 border-cyan-200' },
+  fuchsia:  { dot: 'bg-fuchsia-500', text: 'text-fuchsia-800', bg: 'bg-fuchsia-50 border-fuchsia-200' },
+};
+
+function TimelineView({ item }) {
+  const events = useMemo(() => buildTimeline(item), [item]);
+  if (!events.length) {
+    return <p className="text-center text-xs text-gray-400 py-10">No lifecycle activity yet.</p>;
+  }
+  const fmtDT = (s) => {
+    try {
+      return new Date(s).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch { return s || '—'; }
+  };
+  return (
+    <div className="relative pl-4" data-testid="proc-timeline-view">
+      {/* Vertical rail */}
+      <div className="absolute left-1.5 top-2 bottom-2 w-px bg-gray-200" aria-hidden />
+      <ol className="space-y-3">
+        {events.map((e, idx) => {
+          const tone = TIMELINE_TONE[e.tone] || TIMELINE_TONE.sky;
+          return (
+            <li key={idx} className="relative" data-testid={`proc-timeline-event-${idx}`}>
+              <span className={`absolute -left-2.5 top-1.5 h-3 w-3 rounded-full ring-2 ring-white ${tone.dot}`} />
+              <div className={`ml-3 rounded border p-2 ${tone.bg}`}>
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <p className={`text-xs font-semibold ${tone.text}`}>{e.title}</p>
+                  <span className="text-[10px] text-gray-500 whitespace-nowrap">{fmtDT(e.at)}</span>
+                </div>
+                {(e.actor || e.detail) && (
+                  <p className="text-[11px] text-gray-700 mt-0.5">
+                    {e.actor && <span>by <strong>{e.actor}</strong></span>}
+                    {e.actor && e.detail && <span> · </span>}
+                    {e.detail && <span className="italic">{e.detail}</span>}
+                  </p>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 // =====================================================================
 // Vendor Assign Dialog
 // =====================================================================
@@ -1471,6 +1580,8 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   const [discount, setDiscount] = useState('0');
   const [remarks, setRemarks] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // Details / Timeline switcher inside the dialog
+  const [dialogTab, setDialogTab] = useState('details');
   // Change-Vendor sub-flow (available on Transit-stage items)
   const [changeVendorOpen, setChangeVendorOpen] = useState(false);
   const [newVendorId, setNewVendorId] = useState('');
@@ -1497,6 +1608,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
 
   useEffect(() => {
     if (!item) return;
+    setDialogTab('details');
     setVendorId(item.vendor_id || '');
     setUnitPrice(String(item.unit_rate || item.unit_price || ''));
     setApprovedQty(String(item.approved_quantity ?? item.quantity ?? ''));
@@ -1673,6 +1785,40 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
           </DialogDescription>
         </DialogHeader>
 
+        {/* Details / Timeline tabs */}
+        <div className="flex items-center gap-1.5 border-b -mx-6 px-6" data-testid="proc-dialog-tabs">
+          <button
+            type="button"
+            onClick={() => setDialogTab('details')}
+            className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+              dialogTab === 'details'
+                ? 'border-amber-600 text-amber-700'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+            data-testid="proc-dialog-tab-details"
+          >
+            <Package className="h-3 w-3 inline mr-1" /> Details
+          </button>
+          <button
+            type="button"
+            onClick={() => setDialogTab('timeline')}
+            className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+              dialogTab === 'timeline'
+                ? 'border-amber-600 text-amber-700'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+            data-testid="proc-dialog-tab-timeline"
+          >
+            <FileClock className="h-3 w-3 inline mr-1" /> Timeline
+          </button>
+        </div>
+
+        {dialogTab === 'timeline' ? (
+          <div className="py-2">
+            <TimelineView item={item} />
+          </div>
+        ) : (
+        <>
         {/* Request summary */}
         <div className="bg-amber-50 border border-amber-200 rounded p-3 grid grid-cols-2 gap-2 text-xs">
           <div><p className="text-amber-700 text-[10px] uppercase font-semibold">Project</p><p className="font-medium">{item.project_name}</p></div>
@@ -2025,10 +2171,12 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
             </div>
           )}
         </div>
+        </>
+        )}
 
         <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>Close</Button>
-          {readOnly && ['procurement_priced', 'in_transit', 'received_partial'].includes((item.status || '').toLowerCase()) && (
+          {dialogTab === 'details' && readOnly && ['procurement_priced', 'in_transit', 'received_partial'].includes((item.status || '').toLowerCase()) && (
             <Button
               variant="outline"
               size="sm"
@@ -2043,7 +2191,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
               <RefreshCw className="h-3.5 w-3.5 mr-1" /> Change Vendor
             </Button>
           )}
-          {!readOnly && (
+          {dialogTab === 'details' && !readOnly && (
             <>
               <Button variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => onReject(item)} disabled={submitting} data-testid="proc-assign-reject">
                 <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
