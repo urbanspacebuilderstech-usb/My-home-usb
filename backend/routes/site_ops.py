@@ -2988,11 +2988,24 @@ async def get_petty_cash_summary(user: User = Depends(get_current_user)):
     expense_waiting_accountant = exp_agg[0]["count"] if exp_agg else 0
     expense_waiting_accountant_amount = float(exp_agg[0]["total"]) if exp_agg else 0.0
 
+    # Jul 08 2026 — Also count expenses stuck at "Awaiting PM" (status='recorded'
+    # or empty). These roll into the Pending Req tile so it reflects both
+    # streams (petty-cash + recorded expenses) awaiting PM approval.
+    exp_pm_query = {"status": {"$in": ["recorded", ""]}}
+    if user.role not in [UserRole.SUPER_ADMIN]:
+        exp_pm_query["recorded_by"] = user.user_id
+    exp_pm_agg = await db.recorded_expenses.aggregate([
+        {"$match": exp_pm_query},
+        {"$group": {"_id": None, "count": {"$sum": 1}}},
+    ]).to_list(1)
+    expense_waiting_pm = exp_pm_agg[0]["count"] if exp_pm_agg else 0
+
     return {
         "total_cash_in_hand": total_cash_in_hand,
         "total_expenses": total_expenses,
         "pending_requests": pending_requests,
         "waiting_approval": waiting_approval,
+        "expense_waiting_pm": expense_waiting_pm,
         "expense_waiting_accountant": expense_waiting_accountant,
         "expense_waiting_accountant_amount": expense_waiting_accountant_amount,
     }
