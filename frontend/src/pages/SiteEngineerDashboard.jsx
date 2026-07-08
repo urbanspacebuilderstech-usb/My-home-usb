@@ -33,6 +33,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import ProjectFilterCombobox from '@/components/ProjectFilterCombobox';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { Label } from '@/components/ui/label';
@@ -151,15 +152,12 @@ function MiniCashbookSection({ projects }) {
 
       {/* Project Filter */}
       <div className="flex gap-2 items-center">
-        <Select value={selectedProject || 'all'} onValueChange={v => setSelectedProject(v === 'all' ? '' : v)}>
-          <SelectTrigger className="w-48 h-8 text-xs" data-testid="cashbook-project-select">
-            <SelectValue placeholder="All Projects" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Projects</SelectItem>
-            {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <ProjectFilterCombobox
+          value={selectedProject || 'all'}
+          onChange={v => setSelectedProject(v === 'all' ? '' : v)}
+          options={projects.map(p => ({ id: p.project_id, name: p.name }))}
+          testId="cashbook-project-select"
+        />
         <Button size="sm" className="bg-red-600 hover:bg-red-700 gap-1 h-8 ml-auto" onClick={() => setAddExpenseOpen(true)} data-testid="se-add-expense">
           <Plus className="h-3.5 w-3.5" /> Record Expense
         </Button>
@@ -1986,13 +1984,12 @@ export default function SiteEngineerDashboard() {
               {/* EXPENSE RECORD */}
               <TabsContent value="expense_record">
                 <div className="flex flex-wrap gap-2 mb-3">
-                  <Select value={expenseFilterProject} onValueChange={(v) => { setExpenseFilterProject(v); fetchDirectExpenses(v, expenseFilterFrom, expenseFilterTo); }}>
-                    <SelectTrigger className="w-[160px] h-8 text-xs"><SelectValue placeholder="All Projects" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Projects</SelectItem>
-                      {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <ProjectFilterCombobox
+                    value={expenseFilterProject}
+                    onChange={(v) => { setExpenseFilterProject(v); fetchDirectExpenses(v, expenseFilterFrom, expenseFilterTo); }}
+                    options={projects.map(p => ({ id: p.project_id, name: p.name }))}
+                    testId="exp-filter-project"
+                  />
                   <input type="date" className="h-8 text-xs border rounded px-2" value={expenseFilterFrom} onChange={e => { setExpenseFilterFrom(e.target.value); fetchDirectExpenses(expenseFilterProject, e.target.value, expenseFilterTo); }} placeholder="From" data-testid="exp-filter-from" />
                   <input type="date" className="h-8 text-xs border rounded px-2" value={expenseFilterTo} onChange={e => { setExpenseFilterTo(e.target.value); fetchDirectExpenses(expenseFilterProject, expenseFilterFrom, e.target.value); }} placeholder="To" data-testid="exp-filter-to" />
                 </div>
@@ -2205,17 +2202,12 @@ export default function SiteEngineerDashboard() {
                     <p className="text-xs text-gray-500 mt-1">Records created via Curing Video popup</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Select value={curingFilterProject} onValueChange={(v) => { setCuringFilterProject(v); fetchCuringHistory(v); }}>
-                      <SelectTrigger className="w-[180px] h-8 text-xs" data-testid="curing-filter-project">
-                        <SelectValue placeholder="All Projects" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Projects</SelectItem>
-                        {projects.map(p => (
-                          <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <ProjectFilterCombobox
+                      value={curingFilterProject}
+                      onChange={(v) => { setCuringFilterProject(v); fetchCuringHistory(v); }}
+                      options={projects.map(p => ({ id: p.project_id, name: p.name }))}
+                      testId="curing-filter-project"
+                    />
                     <Button size="sm" className="bg-purple-600 hover:bg-purple-700 h-8 text-xs" onClick={() => { setCuringDialog(true); setCuringProject(''); setCuringDone(false); }} data-testid="curing-add-record-btn">
                       <Plus className="h-3.5 w-3.5 mr-1" /> New Record
                     </Button>

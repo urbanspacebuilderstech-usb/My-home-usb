@@ -45,6 +45,7 @@ import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
 import MetaDateFilter from '../components/MetaDateFilter';
+import ProjectFilterCombobox from '../components/ProjectFilterCombobox';
 import { UnitSelect } from '../components/UnitSelect';
 
 const MATERIAL_CATEGORIES = ['cement','sand','steel','bricks','aggregate','tiles','electrical','plumbing','paint','wood','hardware','other'];
@@ -872,17 +873,12 @@ function DashboardTab() {
             All Projects and Material Vendors have their own filter UIs. */}
         {(subTab === 'material_req' || subTab === 'credit_management') && (
           <div className="flex items-center gap-2 flex-wrap">
-            <Select value={projectFilter} onValueChange={setProjectFilter}>
-              <SelectTrigger className="h-8 w-48 text-xs bg-white" data-testid="proc-project-filter">
-                <SelectValue placeholder="All Projects" />
-              </SelectTrigger>
-              <SelectContent className="max-h-72">
-                <SelectItem value="all">All Projects</SelectItem>
-                {projectOptions.map(p => (
-                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <ProjectFilterCombobox
+              value={projectFilter}
+              onChange={setProjectFilter}
+              options={projectOptions}
+              testId="proc-project-filter"
+            />
             <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset={null} />
           </div>
         )}

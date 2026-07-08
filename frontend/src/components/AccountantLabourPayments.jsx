@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import ProjectFilterCombobox from '@/components/ProjectFilterCombobox';
 import { Banknote, CheckCircle, Send, Wallet, ArrowDownToLine } from 'lucide-react';
 import { toast } from 'sonner';
 import LabourRABReleaseDialog from './LabourRABReleaseDialog';
@@ -114,17 +115,13 @@ export default function AccountantLabourPayments() {
           </button>
         </div>
         <div className="pb-1.5 min-w-[180px]">
-          <Select value={projectFilter} onValueChange={setProjectFilter}>
-            <SelectTrigger className="h-8 text-xs" data-testid="alp-project-filter">
-              <SelectValue placeholder="All Projects" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" data-testid="alp-project-all">All Projects ({items.length})</SelectItem>
-              {projectOptions.map(p => (
-                <SelectItem key={p.id} value={p.id} data-testid={`alp-project-${p.id}`}>{p.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <ProjectFilterCombobox
+            value={projectFilter}
+            onChange={setProjectFilter}
+            options={projectOptions}
+            allLabel={`All Projects (${items.length})`}
+            testId="alp-project-filter"
+          />
         </div>
       </div>
 

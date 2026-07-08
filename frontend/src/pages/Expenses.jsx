@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import ProjectFilterCombobox from '@/components/ProjectFilterCombobox';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
@@ -268,17 +269,12 @@ export default function Expenses() {
 
         {/* Filter */}
         <div className="mb-6">
-          <Select value={selectedProject} onValueChange={setSelectedProject}>
-            <SelectTrigger data-testid="filter-project-select" className="w-64">
-              <SelectValue placeholder="Filter by project" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Projects</SelectItem>
-              {projects.map(p => (
-                <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <ProjectFilterCombobox
+            value={selectedProject}
+            onChange={setSelectedProject}
+            options={projects.map(p => ({ id: p.project_id, name: p.name }))}
+            testId="filter-project-select"
+          />
         </div>
 
         {/* Expenses Table */}

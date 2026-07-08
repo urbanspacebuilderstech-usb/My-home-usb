@@ -12,8 +12,8 @@
 //     </>
 //   );
 import { useMemo, useState } from 'react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import ProjectFilterCombobox from './ProjectFilterCombobox';
 import { Button } from './ui/button';
 import { Calendar, X } from 'lucide-react';
 import { DayPicker } from 'react-day-picker';
@@ -54,17 +54,13 @@ export function PMProjectDateFilter({ filter, itemsCount, testIdPrefix = 'pm-fil
   const { projectFilter, setProjectFilter, dateFrom, setDateFrom, dateTo, setDateTo, projectOptions, filteredItems } = filter;
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid={`${testIdPrefix}-filters`}>
-      <Select value={projectFilter || 'all'} onValueChange={(v) => setProjectFilter(v === 'all' ? '' : v)}>
-        <SelectTrigger className="h-9 w-[200px] text-xs bg-white" data-testid={`${testIdPrefix}-project-filter`}>
-          <SelectValue placeholder="All Projects" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All Projects</SelectItem>
-          {projectOptions.map(p => (
-            <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <ProjectFilterCombobox
+        value={projectFilter || 'all'}
+        onChange={(v) => setProjectFilter(v === 'all' ? '' : v)}
+        options={projectOptions}
+        testId={`${testIdPrefix}-project-filter`}
+        className="[&_button]:h-9 [&_button]:w-[200px]"
+      />
 
       <Popover>
         <PopoverTrigger asChild>

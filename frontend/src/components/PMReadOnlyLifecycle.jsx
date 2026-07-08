@@ -6,6 +6,7 @@ import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import ProjectFilterCombobox from './ProjectFilterCombobox';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Eye, Package, HardHat, Truck, PackageCheck, FileClock, Wallet, ListChecks, Send, ClipboardList, Calendar, X, CheckCircle2, XCircle, Clock } from 'lucide-react';
@@ -101,17 +102,12 @@ export function PMMaterialReadOnlyList({ items }) {
           in the current items set. Date pill mirrors the Sales / Sr. SE
           Meta-style popover for cross-app consistency. */}
       <div className="flex flex-wrap items-center gap-2" data-testid="pm-mat-filters">
-        <Select value={projectFilter || 'all'} onValueChange={(v) => setProjectFilter(v === 'all' ? '' : v)}>
-          <SelectTrigger className="h-9 w-[200px] text-xs bg-white" data-testid="pm-mat-project-filter">
-            <SelectValue placeholder="All Projects" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Projects</SelectItem>
-            {projectOptions.map(p => (
-              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <ProjectFilterCombobox
+          value={projectFilter || 'all'}
+          onChange={(v) => setProjectFilter(v === 'all' ? '' : v)}
+          options={projectOptions}
+          testId="pm-mat-project-filter"
+        />
 
         <Popover>
           <PopoverTrigger asChild>

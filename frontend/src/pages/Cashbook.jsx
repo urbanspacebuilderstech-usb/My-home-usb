@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import ProjectFilterCombobox from '@/components/ProjectFilterCombobox';
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
@@ -248,13 +249,12 @@ export default function Cashbook() {
               <TabsTrigger value="income">Income ({incomes.length})</TabsTrigger>
               <TabsTrigger value="expenses">Expenses ({expenses.length})</TabsTrigger>
             </TabsList>
-            <Select value={filterProject} onValueChange={setFilterProject}>
-              <SelectTrigger className="w-48" data-testid="project-filter"><SelectValue placeholder="All Projects" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Projects</SelectItem>
-                {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <ProjectFilterCombobox
+              value={filterProject}
+              onChange={setFilterProject}
+              options={projects.map(p => ({ id: p.project_id, name: p.name }))}
+              testId="project-filter"
+            />
           </div>
 
           <TabsContent value="income">
