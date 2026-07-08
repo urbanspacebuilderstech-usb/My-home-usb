@@ -1707,15 +1707,29 @@ async def initiate_material_receipt(
     Captures GPS, lorry/material images, qty, remarks, then advances the
     underlying material_request through the same payment-mode-aware logic
     that previously lived in /verify-otp."""
-    if user.role != UserRole.SITE_ENGINEER:
+    if user.role not in (UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER):
         raise HTTPException(status_code=403, detail="Only Site Engineers can receive materials")
 
     request = await db.material_requests.find_one({"request_id": data.request_id}, {"_id": 0})
     if not request:
         raise HTTPException(status_code=404, detail="Material request not found")
 
-    if request["site_engineer_id"] != user.user_id:
-        raise HTTPException(status_code=403, detail="You can only receive materials for your own requests")
+    # Ownership check:
+    #  • SITE_ENGINEER can only receive their own requests.
+    #  • SR_SITE_ENGINEER can receive for any request under a project where they are
+    #    listed as the sr_site_engineer (or the requesting SE).
+    if user.role == UserRole.SITE_ENGINEER:
+        if request["site_engineer_id"] != user.user_id:
+            raise HTTPException(status_code=403, detail="You can only receive materials for your own requests")
+    else:  # SR_SITE_ENGINEER
+        if request["site_engineer_id"] != user.user_id:
+            proj = await db.projects.find_one(
+                {"project_id": request.get("project_id")},
+                {"_id": 0, "team": 1},
+            )
+            team = (proj or {}).get("team") or {}
+            if team.get("sr_site_engineer") != user.user_id:
+                raise HTTPException(status_code=403, detail="You can only receive materials for projects you supervise")
 
     if request["status"] not in ["accountant_approved", "ready_for_delivery", "received_partial", "in_transit", "order_placed"]:
         raise HTTPException(status_code=400, detail="Material is not ready for receiving")
