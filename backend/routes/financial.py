@@ -8526,3 +8526,191 @@ async def backfill_payment_modes(
         detail[t] = n_updated
         total_updated += n_updated
     return {"message": f"Backfill complete — {total_updated} row(s) updated.", "detail": detail}
+
+
+
+# ============================================================================
+# DAILY CLOSING BALANCE (per-day, per-mode reconciliation ledger)
+# ============================================================================
+# Different from the singleton `closing_balances` doc (which holds a one-off
+# carry-forward lock). This is an *append-only* daily reconciliation log:
+# every day the Accountant records the actual cash/bank/cheque balance vs
+# what the ledger computed, and the delta becomes an auditable variance row.
+#
+# Collection: `daily_closings`  (compound unique index on date + mode)
+# Modes: cash | current_account | savings_account | cheque | direct_transfer
+# ----------------------------------------------------------------------------
+
+DAILY_CLOSING_MODES = ["cash", "current_account", "savings_account", "cheque", "direct_transfer"]
+
+
+async def _ensure_daily_closing_indexes():
+    try:
+        await db.daily_closings.create_index([("date", 1), ("mode", 1)], unique=True, name="uniq_date_mode")
+    except Exception:
+        # Already exists; harmless.
+        pass
+
+
+@router.post("/accountant/daily-closing")
+async def create_daily_closing(payload: Dict[str, Any], user: User = Depends(get_current_user)):
+    """Upsert today's closing balance rows (one per payment mode).
+
+    Body:
+        {
+            "date": "YYYY-MM-DD",                       # optional; defaults to today (IST)
+            "entries": [
+                { "mode": "cash", "computed_balance": 5180344, "actual_balance": 5178000, "remark": "..." },
+                ...
+            ]
+        }
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant / Super Admin can close the day")
+    await _ensure_daily_closing_indexes()
+
+    # Default to today's IST date if the caller omits it.
+    date_str = (payload.get("date") or "").strip()
+    if not date_str:
+        date_str = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
+    entries = payload.get("entries") or []
+    if not isinstance(entries, list) or not entries:
+        raise HTTPException(status_code=400, detail="entries[] is required")
+
+    now = datetime.now(timezone.utc).isoformat()
+    saved = []
+    for e in entries:
+        mode = (e.get("mode") or "").strip().lower()
+        if mode not in DAILY_CLOSING_MODES:
+            continue  # ignore unknown buckets silently
+        try:
+            computed = float(e.get("computed_balance") or 0)
+            actual = float(e.get("actual_balance") or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Invalid amount for mode {mode}")
+        variance = round(actual - computed, 2)
+        remark = (e.get("remark") or "").strip()
+        doc = {
+            "closing_id": f"dc_{date_str}_{mode}",
+            "date": date_str,
+            "mode": mode,
+            "computed_balance": round(computed, 2),
+            "actual_balance": round(actual, 2),
+            "variance": variance,
+            "remark": remark,
+            "closed_by": user.user_id,
+            "closed_by_name": user.name,
+            "closed_at": now,
+            "auto_closed": False,
+            "reopened": False,
+            "reopen_reason": "",
+        }
+        await db.daily_closings.update_one(
+            {"date": date_str, "mode": mode},
+            {"$set": doc},
+            upsert=True,
+        )
+        saved.append(doc)
+
+    try:
+        await create_audit_log(
+            user.user_id, "daily_closing_save", "daily_closings", date_str,
+            {"modes": [d["mode"] for d in saved], "total_variance": round(sum(d["variance"] for d in saved), 2)},
+        )
+    except Exception:
+        pass
+    return {"message": "Daily closing saved", "date": date_str, "saved": saved}
+
+
+@router.get("/accountant/daily-closing")
+async def get_daily_closing(date: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Return closing rows for the requested date (defaults to today) plus the
+    previous business day's actual balances so the UI can render an opening
+    strip on each tile.
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    await _ensure_daily_closing_indexes()
+    if not date:
+        date = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
+    today_rows = await db.daily_closings.find({"date": date}, {"_id": 0}).to_list(20)
+    # Yesterday's actual close (used as tomorrow's opening).
+    prev = await db.daily_closings.find(
+        {"date": {"$lt": date}}, {"_id": 0}
+    ).sort("date", -1).to_list(50)
+    yday_by_mode: Dict[str, Dict[str, Any]] = {}
+    seen_dates: set = set()
+    for r in prev:
+        m = r["mode"]
+        if m in yday_by_mode:
+            continue
+        yday_by_mode[m] = r
+        seen_dates.add(r["date"])
+        if len(yday_by_mode) >= len(DAILY_CLOSING_MODES):
+            break
+    return {
+        "date": date,
+        "today": {r["mode"]: r for r in today_rows},
+        "previous": yday_by_mode,
+        "is_closed": len(today_rows) >= 1,
+    }
+
+
+@router.get("/accountant/daily-closing/history")
+async def get_daily_closing_history(
+    month: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Return grouped-by-date closing history. Supports either `month=YYYY-MM`
+    or an explicit `start_date` + `end_date` range.
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    await _ensure_daily_closing_indexes()
+    q: Dict[str, Any] = {}
+    if month:
+        q["date"] = {"$regex": f"^{month}"}
+    elif start_date or end_date:
+        q["date"] = {}
+        if start_date: q["date"]["$gte"] = start_date
+        if end_date:   q["date"]["$lte"] = end_date
+    rows = await db.daily_closings.find(q, {"_id": 0}).sort("date", -1).to_list(2000)
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        d = r["date"]
+        if d not in grouped:
+            grouped[d] = {"date": d, "modes": {}, "total_variance": 0.0, "total_actual": 0.0, "total_computed": 0.0, "closed_by_name": r.get("closed_by_name"), "closed_at": r.get("closed_at")}
+        grouped[d]["modes"][r["mode"]] = r
+        grouped[d]["total_variance"] += float(r.get("variance", 0) or 0)
+        grouped[d]["total_actual"] += float(r.get("actual_balance", 0) or 0)
+        grouped[d]["total_computed"] += float(r.get("computed_balance", 0) or 0)
+    days = sorted(grouped.values(), key=lambda x: x["date"], reverse=True)
+    for d in days:
+        d["total_variance"] = round(d["total_variance"], 2)
+        d["total_actual"] = round(d["total_actual"], 2)
+        d["total_computed"] = round(d["total_computed"], 2)
+    return {"days": days}
+
+
+@router.patch("/accountant/daily-closing/{closing_id}/reopen")
+async def reopen_daily_closing(closing_id: str, payload: Dict[str, Any], user: User = Depends(get_current_user)):
+    """Super Admin can re-open a closed row for correction. Requires a reason."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can re-open a closed row")
+    reason = (payload.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason is required")
+    row = await db.daily_closings.find_one({"closing_id": closing_id}, {"_id": 0})
+    if not row:
+        raise HTTPException(status_code=404, detail="Closing row not found")
+    await db.daily_closings.update_one(
+        {"closing_id": closing_id},
+        {"$set": {"reopened": True, "reopen_reason": reason, "reopened_at": datetime.now(timezone.utc).isoformat(), "reopened_by": user.user_id, "reopened_by_name": user.name}},
+    )
+    try:
+        await create_audit_log(user.user_id, "daily_closing_reopen", "daily_closings", closing_id, {"reason": reason})
+    except Exception:
+        pass
+    return {"message": "Row re-opened for correction", "closing_id": closing_id}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
@@ -72,6 +72,7 @@ import AccountantLabourPayments from '../components/AccountantLabourPayments';
 import AccountantMaterialPayments from '../components/AccountantMaterialPayments';
 import AccountantCreditSettlements from '../components/AccountantCreditSettlements';
 import IssueCashDialog from '../components/IssueCashDialog';
+import DailyClosingDialog from '../components/DailyClosingDialog';
 // Feb 20 2026 — `LabourAdvanceQueue` card removed from the Accountant
 // approvals Labour tab; import dropped.
 
@@ -1816,6 +1817,18 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
   })();
   const [cashbookData, setCashbookData] = useState(null);
   const [loading, setLoading] = useState(false);
+  // Daily closing state — today's saved rows + previous day's actuals (used
+  // to render the variance strip on every mode tile) + dialog open flag.
+  const [dailyClosing, setDailyClosing] = useState({ today: {}, previous: {}, is_closed: false });
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  const todayIsoDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const fetchDailyClosing = useCallback(async () => {
+    try {
+      const r = await axios.get(`${API}/accountant/daily-closing`, { params: { date: todayIsoDate } });
+      setDailyClosing({ today: r.data?.today || {}, previous: r.data?.previous || {}, is_closed: !!r.data?.is_closed });
+    } catch { /* silent; button still works */ }
+  }, [todayIsoDate]);
+  useEffect(() => { fetchDailyClosing(); }, [fetchDailyClosing]);
   const [subTab, setSubTab] = useState(initialSub);
   // Keep subTab in sync with URL (?sub=) — so the "Expense" header link auto-opens Direct Expense
   useEffect(() => {
@@ -2276,6 +2289,25 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
         const totalInc = cbBuckets.reduce((s, b) => s + incFor(b), 0);
         const totalExp = cbBuckets.reduce((s, b) => s + expFor(b), 0);
         return (
+          <>
+          {/* Close Books header — Accountant clicks this to record actual bank/cash
+              vs computed balance for today. Variance rolls into the audit trail. */}
+          <div className="flex items-center justify-between mb-2 gap-2">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider">Cashbook · Payment Modes</p>
+            <div className="flex items-center gap-2">
+              {dailyClosing.is_closed && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200" data-testid="dc-closed-badge">✓ Books closed for today</span>
+              )}
+              <Button
+                size="sm"
+                className={`h-7 text-xs gap-1 ${dailyClosing.is_closed ? 'bg-slate-600 hover:bg-slate-700' : 'bg-amber-600 hover:bg-amber-700'} text-white`}
+                onClick={() => setCloseDialogOpen(true)}
+                data-testid="close-books-btn"
+              >
+                {dailyClosing.is_closed ? 'Update Today\u2019s Close' : 'Close Today\u2019s Books'}
+              </Button>
+            </div>
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5" data-testid="cashbook-bucket-cards">
             {cbBuckets.map(b => {
               const i = incFor(b);
@@ -2310,6 +2342,28 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                     <span className="text-gray-700">Balance</span>
                     <span className={`font-bold ${bal >= 0 ? 'text-gray-900' : 'text-rose-700'}`}><MaskedValue value={bal} className={bal >= 0 ? 'text-gray-900' : 'text-rose-700'} /></span>
                   </div>
+                  {/* Daily-closing variance strip — shows the accountant-entered
+                      actual balance vs computed book. Green=match, blue=surplus,
+                      red=shortfall. Rendered only if today has been closed. */}
+                  {(() => {
+                    const dcToday = dailyClosing.today?.[b.key];
+                    if (!dcToday) return null;
+                    const v = Number(dcToday.variance || 0);
+                    const style = v === 0
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      : v > 0
+                      ? 'bg-blue-50 text-blue-800 border-blue-200'
+                      : 'bg-red-50 text-red-800 border-red-200';
+                    const label = v === 0 ? 'Matched' : (v > 0 ? `Surplus ₹${Math.abs(v).toLocaleString('en-IN')}` : `Shortfall ₹${Math.abs(v).toLocaleString('en-IN')}`);
+                    return (
+                      <div className={`mt-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold ${style}`} data-testid={`cb-bucket-variance-${b.key}`}>
+                        <span className="flex items-center justify-between">
+                          <span>Δ {label}</span>
+                          <span className="text-[9px] font-normal opacity-70">Actual ₹{Number(dcToday.actual_balance || 0).toLocaleString('en-IN')}</span>
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}
@@ -2341,6 +2395,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
               </div>
             </div>
           </div>
+          </>
         );
       })()}
 
@@ -2900,6 +2955,31 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Daily Closing dialog — computes the current book balance per mode
+          from the same inc/exp/lockBuckets used by the tile grid and passes
+          it in as the pre-filled book value. */}
+      {closeDialogOpen && (() => {
+        const lockBuckets = cashbookData?.closing_balance_buckets || {};
+        const lockKeyFor = { cash: 'cash', current_account: 'current_account', savings_account: 'savings', cheque: 'cheque', direct_transfer: 'direct_transfer' };
+        const cfExp = (k) => Number((lockBuckets[k] || {}).expense || 0);
+        const balOf = (k) => (inc[k] || 0) - ((exp[k] || 0) + cfExp(lockKeyFor[k] || k));
+        const computed = {
+          cash: balOf('cash'),
+          current_account: balOf('current_account'),
+          savings_account: balOf('savings_account'),
+          cheque: balOf('cheque'),
+          direct_transfer: balOf('direct_transfer'),
+        };
+        return (
+          <DailyClosingDialog
+            open={closeDialogOpen}
+            date={todayIsoDate}
+            computed={computed}
+            onClose={() => setCloseDialogOpen(false)}
+            onSaved={() => { fetchDailyClosing(); onRefresh && onRefresh(); }}
+          />
+        );
+      })()}
     </div>
   );
 }
