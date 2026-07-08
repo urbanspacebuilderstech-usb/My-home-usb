@@ -151,7 +151,16 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
           const due = phase === 'balance' ? Math.max(0, total - paid) : (phase === 'advance' ? (req.advance_amount || 0) : total);
           const phaseColor = phase === 'advance' ? 'orange' : phase === 'balance' ? 'cyan' : 'blue';
           return (
-            <Card key={req.request_id} className={`hover:shadow-md transition-shadow border-l-4 ${req.cheque_bounced ? 'ring-1 ring-red-200' : ''} ${req.status === 'partially_paid' || req.last_partial_paid_at ? 'ring-1 ring-yellow-200' : ''}`} style={{ borderLeftColor: req.cheque_bounced ? '#dc2626' : (req.last_partial_paid_at || req.status === 'partially_paid') ? '#eab308' : (phaseColor === 'orange' ? '#ea580c' : phaseColor === 'cyan' ? '#0891b2' : '#2563eb') }}>
+            <div key={req.request_id} className="relative">
+              {req.is_high_priority && (
+                <div
+                  className="absolute -top-2 left-3 z-10 px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold uppercase tracking-wide shadow-md flex items-center gap-1"
+                  data-testid={`acc-mat-priority-ribbon-${req.request_id}`}
+                >
+                  ⚡ High Priority
+                </div>
+              )}
+              <Card className={`hover:shadow-md transition-shadow border-l-4 ${req.is_high_priority ? 'ring-2 ring-red-300' : ''} ${req.cheque_bounced ? 'ring-1 ring-red-200' : ''} ${req.status === 'partially_paid' || req.last_partial_paid_at ? 'ring-1 ring-yellow-200' : ''}`} style={{ borderLeftColor: req.is_high_priority ? '#dc2626' : (req.cheque_bounced ? '#dc2626' : (req.last_partial_paid_at || req.status === 'partially_paid') ? '#eab308' : (phaseColor === 'orange' ? '#ea580c' : phaseColor === 'cyan' ? '#0891b2' : '#2563eb')) }}>
               <CardContent className="p-3 sm:p-4">
                 {req.cheque_bounced && (
                   <div className="mb-2 bg-red-50 border border-red-200 rounded px-2 py-1.5 text-[11px] text-red-700 flex items-start gap-1.5">
@@ -230,6 +239,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                 </div>
               </CardContent>
             </Card>
+            </div>
           );
         })}
 

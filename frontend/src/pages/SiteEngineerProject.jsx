@@ -1757,6 +1757,31 @@ export default function SiteEngineerProject() {
                                 </div>
                               </div>
                               <div className="flex items-center gap-1 flex-shrink-0">
+                                {/* High Priority toggle — visible in every bucket so SE can flag
+                                    an urgent request at any lifecycle stage. Propagates to
+                                    Procurement / Planning / Accountant views via is_high_priority. */}
+                                <button
+                                  type="button"
+                                  title={req.is_high_priority ? 'Clear High Priority' : 'Mark High Priority'}
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    try {
+                                      await axios.patch(`${API}/procurement-simple/material-requests/${req.request_id}/toggle-priority`, { is_high_priority: !req.is_high_priority });
+                                      toast.success(!req.is_high_priority ? 'Marked High Priority' : 'Priority cleared');
+                                      fetchData(false);
+                                    } catch (err) {
+                                      toast.error(err.response?.data?.detail || 'Failed to update priority');
+                                    }
+                                  }}
+                                  className={`h-7 px-2 flex items-center gap-1 rounded border text-[10px] font-semibold transition-colors ${
+                                    req.is_high_priority
+                                      ? 'bg-red-600 text-white border-red-600 hover:bg-red-700'
+                                      : 'bg-white text-red-700 border-red-300 hover:bg-red-50'
+                                  }`}
+                                  data-testid={`se-mat-priority-btn-${req.request_id}`}
+                                >
+                                  {req.is_high_priority ? '★ ON' : '☆ Priority'}
+                                </button>
                                 {/* Delete: SE can delete their own material request ONLY while
                                     Planning hasn't approved it yet. Once any approval flag is
                                     set (planning_initial / PM / procurement / final) the delete
@@ -1847,12 +1872,10 @@ export default function SiteEngineerProject() {
                                 <th className="text-left px-3 py-2 font-medium text-gray-600">Material</th>
                                 <th className="text-center px-2 py-2 font-medium text-gray-600">Unit</th>
                                 <th className="text-center px-2 py-2 font-medium text-blue-700">Current Stock</th>
-                                <th className="text-right px-2 py-2 font-medium text-blue-700">Stock Amount</th>
                                 <th className="text-center px-2 py-2 font-medium text-green-700">Last In At</th>
                                 <th className="text-center px-2 py-2 font-medium text-red-700">Last Out At</th>
                                 <th className="text-center px-2 py-2 font-medium text-green-700">Total Received</th>
                                 <th className="text-center px-2 py-2 font-medium text-red-700">Total Used</th>
-                                <th className="text-right px-2 py-2 font-medium text-red-700">Out Amount</th>
                                 <th className="text-center px-2 py-2 font-medium text-amber-700">Min</th>
                                 <th className="text-center px-2 py-2 font-medium text-gray-600">Status</th>
                                 <th className="text-center px-2 py-2 font-medium text-gray-600">Action</th>
@@ -1874,16 +1897,10 @@ export default function SiteEngineerProject() {
                                   <td className="px-3 py-2 font-medium">{m.material_name}</td>
                                   <td className="px-2 py-2 text-center text-gray-500">{m.unit}</td>
                                   <td className={`px-2 py-2 text-center font-bold ${m.is_low_stock ? 'text-red-700' : 'text-blue-700'}`}>{m.current_stock}</td>
-                                  <td className="px-2 py-2 text-right font-semibold text-blue-700 whitespace-nowrap" data-testid={`inv-stock-amount-${m.material_name}`}>
-                                    ₹{Number(m.current_stock_amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                                  </td>
                                   <td className="px-2 py-2 text-center text-gray-600 whitespace-nowrap">{fmtAt(m.last_in_at)}</td>
                                   <td className="px-2 py-2 text-center text-gray-600 whitespace-nowrap">{fmtAt(m.last_out_at)}</td>
                                   <td className="px-2 py-2 text-center text-green-700">{m.total_received}</td>
                                   <td className="px-2 py-2 text-center text-red-600">{m.total_used}</td>
-                                  <td className="px-2 py-2 text-right font-semibold text-red-600 whitespace-nowrap" data-testid={`inv-out-amount-${m.material_name}`}>
-                                    ₹{Number(m.stock_out_amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                                  </td>
                                   <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
                                     <Input
                                       type="number" min="0"

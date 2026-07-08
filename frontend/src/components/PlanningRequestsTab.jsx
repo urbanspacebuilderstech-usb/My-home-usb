@@ -1246,12 +1246,21 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
   }
   const pmCfg = PAYMENT_MODE_DISPLAY[req.payment_mode];
   return (
-    <Card
-      className="hover:shadow-md transition-shadow cursor-pointer border-l-4"
-      style={{ borderLeftColor: '#d97706' }}
-      onClick={onClick}
-      data-testid={`planning-mat-card-${id}`}
-    >
+    <div className="relative">
+      {req.is_high_priority && (
+        <div
+          className="absolute -top-2 left-3 z-10 px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold uppercase tracking-wide shadow-md flex items-center gap-1"
+          data-testid={`planning-mat-priority-ribbon-${id}`}
+        >
+          ⚡ High Priority
+        </div>
+      )}
+      <Card
+        className={`hover:shadow-md transition-shadow cursor-pointer border-l-4 ${req.is_high_priority ? 'ring-2 ring-red-300' : ''}`}
+        style={{ borderLeftColor: req.is_high_priority ? '#dc2626' : '#d97706' }}
+        onClick={onClick}
+        data-testid={`planning-mat-card-${id}`}
+      >
       <CardContent className="p-3 sm:p-4">
         <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -1351,6 +1360,7 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
         )}
       </CardContent>
     </Card>
+    </div>
   );
 }
 
