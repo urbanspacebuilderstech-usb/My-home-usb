@@ -3314,11 +3314,26 @@ async def get_direct_expenses(project_id: Optional[str] = None, date_from: Optio
 
 @router.get("/site-engineer/petty-cash/income-history")
 async def get_income_history(user: User = Depends(get_current_user)):
-    """Get petty cash income history (acknowledged/issued amounts)"""
+    """Get petty cash income history (acknowledged/issued amounts) enriched
+    with the pending "Exp Waiting A/C" total per bucket — i.e. sum of every
+    `recorded_expenses` row still at status `pm_approved` (Accountant hasn't
+    finalised) that was funded from this petty cash bucket. This drives the
+    new "Exp Waiting" column in the SE Income History table.
+    """
     if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Access denied")
     query = {"requested_by": user.user_id, "status": {"$in": ["payment_done", "acknowledged", "issued", "partially_spent", "settled"]}}
     records = await db.petty_cash.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+
+    if records:
+        pc_ids = [r["petty_cash_id"] for r in records]
+        agg = await db.recorded_expenses.aggregate([
+            {"$match": {"linked_petty_cash_id": {"$in": pc_ids}, "status": "pm_approved"}},
+            {"$group": {"_id": "$linked_petty_cash_id", "total": {"$sum": "$amount"}}},
+        ]).to_list(2000)
+        by_pc = {row["_id"]: float(row["total"] or 0) for row in agg}
+        for r in records:
+            r["exp_waiting_amount"] = by_pc.get(r["petty_cash_id"], 0.0)
     return records
 
 

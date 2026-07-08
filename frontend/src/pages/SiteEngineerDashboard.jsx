@@ -1666,7 +1666,7 @@ export default function SiteEngineerDashboard() {
             {(() => {
               const balance = Math.max(0, (pettyCashSummary.total_cash_in_hand || 0) - (pettyCashSummary.total_expenses || 0) - (pettyCashSummary.expense_waiting_accountant_amount || 0));
               const pills = [
-                { key: 'cash', label: 'Cash in Hand', value: `₹${balance.toLocaleString('en-IN')}`, tone: 'green', testId: 'pc-cash-in-hand', onClick: null },
+                { key: 'cash', label: 'Cash in Hand', value: `₹${balance.toLocaleString('en-IN')}`, tone: 'green', testId: 'pc-cash-in-hand', onClick: () => { setPcSubTab('income_history'); setPcStatusFilter('all'); fetchIncomeHistory(); } },
                 { key: 'expenses', label: 'Expenses', value: `₹${(pettyCashSummary.total_expenses || 0).toLocaleString('en-IN')}`, tone: 'red', testId: 'pc-expenses', onClick: () => { setPcSubTab('expense_record'); setPcStatusFilter('all'); } },
                 { key: 'exp_waiting', label: 'Exp Waiting A/C', value: `₹${(pettyCashSummary.expense_waiting_accountant_amount || 0).toLocaleString('en-IN')}`, sub: `${pettyCashSummary.expense_waiting_accountant || 0} entries`, tone: 'cyan', testId: 'pc-exp-waiting-tile', onClick: () => { setPcSubTab('exp_waiting'); setPcStatusFilter('all'); fetchDirectExpenses(); } },
                 { key: 'pending', label: 'Pending Req', value: pettyCashSummary.pending_requests || 0, tone: 'amber', testId: 'pc-pending-tile', activeFilter: 'pending', onClick: () => { setPcSubTab('request_status'); setPcStatusFilter(f => f === 'pending' ? 'all' : 'pending'); } },
@@ -1686,7 +1686,8 @@ export default function SiteEngineerDashboard() {
                     const isActive =
                       (p.activeFilter && pcStatusFilter === p.activeFilter && pcSubTab === 'request_status') ||
                       (p.key === 'exp_waiting' && pcSubTab === 'exp_waiting') ||
-                      (p.key === 'expenses' && pcSubTab === 'expense_record');
+                      (p.key === 'expenses' && pcSubTab === 'expense_record') ||
+                      (p.key === 'cash' && pcSubTab === 'income_history');
                     const clickable = !!p.onClick;
                     return (
                       <button
@@ -1853,6 +1854,7 @@ export default function SiteEngineerDashboard() {
                         <th className="px-3 py-2 text-left font-medium text-gray-600 text-xs whitespace-nowrap">Date</th>
                         <th className="px-3 py-2 text-left font-medium text-gray-600 text-xs">Purpose</th>
                         <th className="px-3 py-2 text-right font-medium text-gray-600 text-xs">Req Amount</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-600 text-xs">Exp Waiting</th>
                         <th className="px-3 py-2 text-right font-medium text-gray-600 text-xs">Spent</th>
                         <th className="px-3 py-2 text-right font-medium text-gray-600 text-xs">Balance</th>
                         <th className="px-3 py-2 text-center font-medium text-gray-600 text-xs">Status</th>
@@ -1861,13 +1863,15 @@ export default function SiteEngineerDashboard() {
                         {incomeHistory.map((r, idx) => {
                           const req = Number(r.amount_issued || 0);
                           const spent = Number(r.amount_spent || 0);
-                          const balance = req - spent;
+                          const expWaiting = Number(r.exp_waiting_amount || 0);
+                          const balance = Math.max(0, req - spent - expWaiting);
                           return (
                             <tr key={r.petty_cash_id} className="border-b hover:bg-gray-50" data-testid={`income-row-${idx}`}>
                               <td className="px-3 py-2 text-xs text-center text-gray-500">{idx + 1}</td>
                               <td className="px-3 py-2 text-xs whitespace-nowrap">{new Date(r.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</td>
                               <td className="px-3 py-2 text-xs text-gray-700">{r.purpose}</td>
                               <td className="px-3 py-2 text-xs text-right font-semibold text-green-700">₹{req.toLocaleString('en-IN')}</td>
+                              <td className="px-3 py-2 text-xs text-right font-semibold text-cyan-700" data-testid={`income-row-exp-waiting-${idx}`}>₹{expWaiting.toLocaleString('en-IN')}</td>
                               <td className="px-3 py-2 text-xs text-right text-red-600">₹{spent.toLocaleString('en-IN')}</td>
                               <td className="px-3 py-2 text-xs text-right font-semibold text-blue-700">₹{balance.toLocaleString('en-IN')}</td>
                               <td className="px-3 py-2 text-center">{getPettyCashStatusBadge(r.status)}</td>
