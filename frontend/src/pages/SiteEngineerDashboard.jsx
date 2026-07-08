@@ -2736,7 +2736,7 @@ export default function SiteEngineerDashboard() {
             {/* Feb 28 2026 — Multi-select picker for issued petty cash.
                 SE can check 1+ buckets and split the expense across them. */}
             <div>
-              <Label className="text-xs font-medium">Pick from Approved Petty Cash *</Label>
+              <Label className="text-xs font-medium">Pick from Approved Petty Cash — <span className="text-gray-500 font-normal">shows remaining balance</span> *</Label>
               {(() => {
                 const MODE_LABEL = {
                   cash: 'Cash', hdfc_current: 'HDFC CURRENT', hdfc_savings: 'HDFC SAVINGS',
@@ -2744,18 +2744,17 @@ export default function SiteEngineerDashboard() {
                   current_account: 'HDFC CURRENT', savings_account: 'HDFC SAVINGS',
                 };
                 const fmtMode = (m) => MODE_LABEL[m] || (m ? m.replace(/_/g, ' ').toUpperCase() : '—');
+                // Remaining balance = issued − spent − exp_waiting_amount so
+                // the SE can only pick from what's actually free to allocate.
+                const balanceOf = (pc) => Math.max(0, (pc.amount_issued || 0) - (pc.amount_spent || 0) - (pc.exp_waiting_amount || 0));
                 const available = (pettyCashList || []).filter(pc => {
-                  const balance = (pc.amount_issued || 0) - (pc.amount_spent || 0);
-                  // Include both freshly issued buckets AND partially_spent
-                  // ones — after the SE records any expense, the bucket flips
-                  // to partially_spent but still has remaining balance the SE
-                  // can pick from for the next expense.
-                  return (pc.status === 'issued' || pc.status === 'partially_spent') && balance > 0;
+                  const bal = balanceOf(pc);
+                  return (pc.status === 'issued' || pc.status === 'partially_spent') && bal > 0;
                 });
                 if (available.length === 0) {
                   return (
                     <div className="mt-1 p-3 bg-amber-50 border border-amber-200 rounded text-[11px] text-amber-700">
-                      No issued petty cash available. Ask the Accountant to issue petty cash to you first.
+                      No issued petty cash available with a remaining balance. Ask the Accountant to issue petty cash to you first, or wait for pending expenses to be approved.
                     </div>
                   );
                 }
@@ -2764,21 +2763,20 @@ export default function SiteEngineerDashboard() {
                   if (exists) {
                     setLinkedPettyCashSplits(linkedPettyCashSplits.filter(s => s.petty_cash_id !== pc.petty_cash_id));
                   } else {
-                    const balance = (pc.amount_issued || 0) - (pc.amount_spent || 0);
-                    // Feb 28 2026 — User asked to remove the manual "₹
-                    // from this" input. The split amount is now computed
-                    // FIFO on submit from the expense total. We just
-                    // remember the picked bucket + its balance/mode here.
-                    setLinkedPettyCashSplits([...linkedPettyCashSplits, { petty_cash_id: pc.petty_cash_id, max: balance, mode: pc.payment_mode || pc.mode || 'cash', purpose: pc.purpose || 'Petty Cash' }]);
+                    const bal = balanceOf(pc);
+                    setLinkedPettyCashSplits([...linkedPettyCashSplits, { petty_cash_id: pc.petty_cash_id, max: bal, mode: pc.payment_mode || pc.mode || 'cash', purpose: pc.purpose || 'Petty Cash' }]);
                     if (pc.project_id && !directExpProject) setDirectExpProject(pc.project_id);
                   }
                 };
                 return (
                   <div className="mt-1 max-h-[180px] overflow-y-auto border rounded divide-y">
                     {available.map(pc => {
-                      const balance = (pc.amount_issued || 0) - (pc.amount_spent || 0);
+                      const bal = balanceOf(pc);
                       const split = linkedPettyCashSplits.find(s => s.petty_cash_id === pc.petty_cash_id);
                       const checked = !!split;
+                      const issued = pc.amount_issued || 0;
+                      const spent = pc.amount_spent || 0;
+                      const waiting = pc.exp_waiting_amount || 0;
                       return (
                         <label key={pc.petty_cash_id} className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer text-xs ${checked ? 'bg-orange-50' : 'hover:bg-gray-50'}`} data-testid={`dexp-pc-row-${pc.petty_cash_id}`}>
                           <input
@@ -2788,8 +2786,19 @@ export default function SiteEngineerDashboard() {
                             className="h-3.5 w-3.5"
                             data-testid={`dexp-pc-check-${pc.petty_cash_id}`}
                           />
-                          <span className="flex-1 truncate">
-                            {pc.purpose || 'Petty Cash'} · <span className="font-medium">{fmtMode(pc.payment_mode || pc.mode)}</span> · ₹{balance.toLocaleString('en-IN')}
+                          <span className="flex-1 min-w-0">
+                            <span className="block truncate">
+                              {pc.purpose || 'Petty Cash'} · <span className="font-medium">{fmtMode(pc.payment_mode || pc.mode)}</span>
+                            </span>
+                            <span className="block text-[10px] text-gray-500">
+                              Issued ₹{issued.toLocaleString('en-IN')}
+                              {spent > 0 && <> · Spent ₹{spent.toLocaleString('en-IN')}</>}
+                              {waiting > 0 && <> · Waiting A/C ₹{waiting.toLocaleString('en-IN')}</>}
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-right">
+                            <span className="block text-[9px] text-gray-500 uppercase">Balance</span>
+                            <span className="block font-bold text-emerald-700">₹{bal.toLocaleString('en-IN')}</span>
                           </span>
                         </label>
                       );

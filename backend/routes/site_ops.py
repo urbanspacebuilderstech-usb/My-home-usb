@@ -2312,6 +2312,22 @@ async def get_my_petty_cash(project_id: Optional[str] = None, user: User = Depen
         query["project_id"] = project_id
     
     petty_cash_list = await db.petty_cash.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+
+    # Enrich each row with `exp_waiting_amount` — the total of SE-recorded
+    # expenses currently sitting at PM-approved status (Accountant hasn't
+    # finalised) that were funded from this bucket. This lets the Record
+    # Expense picker show the *true* remaining balance = issued − spent −
+    # exp_waiting, so the SE can't over-allocate a bucket that already has
+    # pending expenses queued at the Accountant desk.
+    if petty_cash_list:
+        pc_ids = [pc["petty_cash_id"] for pc in petty_cash_list]
+        agg = await db.recorded_expenses.aggregate([
+            {"$match": {"linked_petty_cash_id": {"$in": pc_ids}, "status": "pm_approved"}},
+            {"$group": {"_id": "$linked_petty_cash_id", "total": {"$sum": "$amount"}}},
+        ]).to_list(2000)
+        by_pc = {row["_id"]: float(row["total"] or 0) for row in agg}
+        for pc in petty_cash_list:
+            pc["exp_waiting_amount"] = by_pc.get(pc["petty_cash_id"], 0.0)
     return petty_cash_list
 
 
