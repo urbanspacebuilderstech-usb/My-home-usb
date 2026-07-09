@@ -295,11 +295,32 @@ function RecordExpenseView({ items, loading, onRefresh }) {
                     <div><p className="text-[10px] uppercase font-semibold text-gray-400">Recorded by</p><p className="font-medium truncate">{e.recorded_by_name || '—'}</p></div>
                     <div><p className="text-[10px] uppercase font-semibold text-gray-400">Date</p><p className="font-medium">{fmtDate(e.created_at)}</p></div>
                   </div>
-                  {e.bill_file_id && (
-                    <div className="mt-1">
-                      <a href={`${API}/files/${e.bill_file_id}/download`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 underline">View bill</a>
-                    </div>
-                  )}
+                  {(() => {
+                    // Prefer the multi-item bills array; fall back to the
+                    // single `bill_file_id` field on legacy rows.
+                    const bills = Array.isArray(e.item_bills) && e.item_bills.length
+                      ? e.item_bills.filter(b => b.bill_file_id)
+                      : (e.bill_file_id ? [{ label: e.bill_filename || 'Bill', bill_file_id: e.bill_file_id, bill_filename: e.bill_filename }] : []);
+                    if (!bills.length) return null;
+                    return (
+                      <div className="mt-1.5 flex items-center gap-2 flex-wrap" data-testid={`pm-pc-record-bills-${e.expense_id}`}>
+                        <span className="text-[10px] uppercase text-gray-400 font-semibold">Bills:</span>
+                        {bills.map((b, i) => (
+                          <a
+                            key={i}
+                            href={`${API}/files/${b.bill_file_id}/download`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] text-blue-600 underline hover:text-blue-800 inline-flex items-center gap-0.5"
+                            title={b.bill_filename || b.label}
+                            data-testid={`pm-pc-record-bill-${e.expense_id}-${i}`}
+                          >
+                            📎 {b.label || `Bill ${i + 1}`}
+                          </a>
+                        ))}
+                      </div>
+                    );
+                  })()}
                   {showActions && (
                     <div className="mt-2 flex justify-end gap-2">
                       <Button size="sm" variant="outline" className="h-7 text-xs gap-1 border-red-300 text-red-700 hover:bg-red-50" onClick={() => setActDialog({ open: true, item: e, action: 'reject', reason: '' })} data-testid={`pm-pc-record-reject-${e.expense_id}`}>

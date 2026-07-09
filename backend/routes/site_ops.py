@@ -3132,6 +3132,21 @@ async def record_direct_expense(request: Request, user: User = Depends(get_curre
     # multiple petty_cash buckets we create one mirror per bucket so the
     # Cashbook → Expense → Petty Cash list shows each leg with its own
     # payment_mode (HDFC SAVINGS, HDFC CURRENT, …).
+    #
+    # Per-item bills uploaded by the SE are collected into `item_bills[]` on
+    # every mirror row so the PM / Accountant views can render one View-Bill
+    # link per uploaded document.
+    item_bills = [
+        {
+            "label": (i.get("expense_name") or i.get("category") or "Bill"),
+            "bill_file_id": i.get("bill_file_id"),
+            "bill_filename": i.get("bill_filename"),
+        }
+        for i in record["items"]
+        if i.get("bill_file_id")
+    ]
+    first_bill_file_id = item_bills[0]["bill_file_id"] if item_bills else None
+    first_bill_filename = item_bills[0]["bill_filename"] if item_bills else None
     if resolved_splits:
         for s in resolved_splits:
             await db.recorded_expenses.insert_one({
@@ -3150,6 +3165,9 @@ async def record_direct_expense(request: Request, user: User = Depends(get_curre
                 "status": "recorded",
                 "source": "site_engineer_direct",
                 "direct_expense_id": expense_id,
+                "bill_file_id": first_bill_file_id,
+                "bill_filename": first_bill_filename,
+                "item_bills": item_bills,
                 "created_at": now,
             })
             # Jul 03 2026 — amount_spent is NO LONGER incremented here. It now
@@ -3561,7 +3579,45 @@ async def get_recorded_expenses(
         query["category"] = category
     
     expenses = await db.recorded_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    await _backfill_item_bills(expenses)
     return expenses
+
+
+async def _backfill_item_bills(rows):
+    """Legacy `recorded_expenses` rows created before the multi-bill patch
+    don't carry `item_bills` or `bill_file_id`. Enrich them on read by
+    looking up the parent `direct_expenses` document (via `direct_expense_id`)
+    and pulling any per-item bill file references. Runs once per read call —
+    fast enough for the 500-row cap on both endpoints.
+    """
+    to_lookup = [r["direct_expense_id"] for r in rows
+                 if r.get("direct_expense_id")
+                 and not (r.get("item_bills") or r.get("bill_file_id"))]
+    if not to_lookup:
+        return
+    parents = await db.direct_expenses.find(
+        {"expense_id": {"$in": list(set(to_lookup))}},
+        {"_id": 0, "expense_id": 1, "items": 1},
+    ).to_list(1000)
+    by_id = {p["expense_id"]: p for p in parents}
+    for r in rows:
+        if r.get("item_bills") or r.get("bill_file_id"):
+            continue
+        parent = by_id.get(r.get("direct_expense_id"))
+        if not parent:
+            continue
+        item_bills = []
+        for it in (parent.get("items") or []):
+            if it.get("bill_file_id"):
+                item_bills.append({
+                    "label": it.get("expense_name") or it.get("category") or "Bill",
+                    "bill_file_id": it["bill_file_id"],
+                    "bill_filename": it.get("bill_filename"),
+                })
+        if item_bills:
+            r["item_bills"] = item_bills
+            r["bill_file_id"] = item_bills[0]["bill_file_id"]
+            r["bill_filename"] = item_bills[0].get("bill_filename")
 
 
 @router.get("/pm/recorded-expenses")
@@ -3608,7 +3664,9 @@ async def get_pm_recorded_expenses(user: User = Depends(get_current_user)):
             query["recorded_by"] = {"$in": list(team_se_ids)}
         # else: no team mapping yet — show everything so the PM can still work
 
-    return await db.recorded_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    rows = await db.recorded_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    await _backfill_item_bills(rows)
+    return rows
 
 
 # ---------- Record Expense: PM → Accountant approval ladder ----------
