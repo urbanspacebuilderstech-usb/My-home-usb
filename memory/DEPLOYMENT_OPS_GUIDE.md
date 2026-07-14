@@ -55,22 +55,22 @@ REACT_APP_BACKEND_URL=https://myhomeusb.com
 
 ---
 
-## 3. Deploy Macro
+## 3. Deploy Pipeline (GitHub Actions — since Jul 2026)
 
-From the agent's shell (after the user clicks **Save to GitHub** in the chat):
+**Primary method**: push to `main` (user clicks **Save to GitHub**) → `.github/workflows/deploy-production.yml` auto-runs:
+1. Builds frontend **on the GitHub runner** (7GB RAM — VPS was OOM-killing `yarn build` with signal 9).
+2. Bakes `REACT_APP_BACKEND_URL=https://myhomeusb.com` into the build.
+3. SSHes to VPS (secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_PORT`, `VPS_APP_PATH`): `git reset --hard origin/main` + `pip install`.
+4. SCPs `frontend/build/` to `/var/www/myhomeusb/app/frontend/build`.
+5. Restores prod `frontend/.env`, ensures 2G swapfile, `pm2 restart all`.
 
+**NEVER run `yarn build` on the VPS** — it gets OOM-killed (signal 9).
+
+### Fallback: agent SSH (root password: `USP.K55.@vin` as of Jul 2026)
 ```bash
-sshpass -p 'MyHome@VPS2026' ssh -o StrictHostKeyChecking=no root@187.127.152.103 \
-  "cd /var/www/myhomeusb/app && \
-   git pull && \
-   cd frontend && yarn build && \
-   pm2 restart backend"
+sshpass -p 'USP.K55.@vin' ssh -o StrictHostKeyChecking=no root@187.127.152.103 "<command>"
 ```
-
-What this does:
-1. **git pull** — fetches the new commit from GitHub.
-2. **yarn build** — produces `frontend/build/` static bundle (Nginx serves from here).
-3. **pm2 restart backend** — bounces FastAPI to pick up any backend code changes.
+Note: password auth was failing from agent container on 14-Jul-2026 even with the new password — GH Actions SSH key is the reliable path.
 
 After deploy:
 - Verify the new commit hash matches expectations: `git log -n 1 --oneline`.

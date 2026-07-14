@@ -6,11 +6,31 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
-    name: SSH → git pull → yarn build → pm2 restart
+  build:
+    name: Build frontend on GitHub runner
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy over SSH
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+
+      - name: Build with production env
+        working-directory: frontend
+        run: |
+          echo "REACT_APP_BACKEND_URL=https://myhomeusb.com" > .env
+          yarn build
+
+      - name: Update backend code on VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -21,17 +41,12 @@ jobs:
           script: |
             set -e
             cd ${{ secrets.VPS_APP_PATH }}
-            echo "==> Pulling latest main"
+            echo "==> Pulling latest main (backend code)"
             git fetch --all
             git reset --hard origin/main
 
-            echo "==> Installing + building frontend"
-            cd frontend
-            yarn install --frozen-lockfile
-            yarn build
-
-            echo "==> Installing backend deps (if requirements changed)"
-            cd ../backend
+            echo "==> Installing backend deps"
+            cd backend
             if [ -f requirements.txt ]; then
               if [ -d venv ]; then
                 source venv/bin/activate
@@ -39,9 +54,45 @@ jobs:
               pip install -r requirements.txt || true
             fi
 
-            echo "==> Restarting PM2 processes"
+            echo "==> Preparing fresh build directory"
+            rm -rf ${{ secrets.VPS_APP_PATH }}/frontend/build
+
+      - name: Copy built frontend to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "frontend/build/"
+          target: "${{ secrets.VPS_APP_PATH }}"
+          overwrite: true
+
+      - name: Restart services
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -e
+            cd ${{ secrets.VPS_APP_PATH }}
+
+            echo "==> Restoring production frontend .env on VPS"
+            echo "REACT_APP_BACKEND_URL=https://myhomeusb.com" > frontend/.env
+
+            echo "==> Ensuring swap exists (OOM protection)"
+            if [ ! -f /swapfile ]; then
+              fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab || true
+            fi
+
+            echo "==> Restarting PM2 backend"
             pm2 restart all --update-env
             pm2 save
 
-            echo "==> Deploy complete"
+            echo "==> Verifying deployment"
+            ls frontend/build/index.html
             pm2 status
+            echo "===DEPLOY COMPLETE==="
