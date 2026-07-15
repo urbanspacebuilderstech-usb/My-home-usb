@@ -3607,6 +3607,8 @@ function ApprovalsTab() {
   const [correctionIncomeReason, setCorrectionIncomeReason] = useState('');
   // Read-only correction view (for rejected/under-correction rows)
   const [viewCorrectionIncome, setViewCorrectionIncome] = useState(null);
+  // Bill thumbnail preview popup (Record Expense → Bills row)
+  const [billPreview, setBillPreview] = useState({ open: false, bills: [], index: 0 });
 
   const fetchApprovals = useCallback(async (showLoader = true) => {
     try {
@@ -4247,17 +4249,30 @@ function ApprovalsTab() {
                             <div className="mt-1.5 flex items-center gap-2 flex-wrap" data-testid={`acc-record-bills-${re.expense_id}`}>
                               <span className="text-[10px] uppercase text-gray-400 font-semibold">Bills:</span>
                               {bills.map((b, i) => (
-                                <a
+                                <button
                                   key={i}
-                                  href={`${API}/files/${b.bill_file_id}/download`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-[10px] text-blue-600 underline hover:text-blue-800 inline-flex items-center gap-0.5"
+                                  type="button"
+                                  onClick={() => setBillPreview({ open: true, bills, index: i })}
+                                  className="relative h-9 w-9 shrink-0 rounded-md border border-gray-200 bg-gray-50 overflow-hidden hover:ring-2 hover:ring-emerald-400 transition"
                                   title={b.bill_filename || b.label}
                                   data-testid={`acc-record-bill-${re.expense_id}-${i}`}
                                 >
-                                  📎 {b.label || `Bill ${i + 1}`}
-                                </a>
+                                  <img
+                                    src={`${API}/files/${b.bill_file_id}/download`}
+                                    alt={b.label || `Bill ${i + 1}`}
+                                    className="h-full w-full object-cover"
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = 'none';
+                                      e.currentTarget.nextSibling.style.display = 'flex';
+                                    }}
+                                  />
+                                  <span className="hidden absolute inset-0 items-center justify-center text-gray-400">
+                                    <FileText className="h-4 w-4" />
+                                  </span>
+                                  <span className="absolute bottom-0 right-0 bg-emerald-600 text-white text-[8px] leading-none font-bold rounded-tl px-1 py-0.5">
+                                    {i + 1}
+                                  </span>
+                                </button>
                               ))}
                             </div>
                           );
@@ -4671,6 +4686,31 @@ function ApprovalsTab() {
           <RefreshCw className="h-3.5 w-3.5" /> Refresh Approvals
         </Button>
       </div>
+
+      {/* Bill image preview popup — opens in-page over the current screen
+          instead of a new tab; close button sits top-left per Accounts request. */}
+      {billPreview.open && billPreview.bills[billPreview.index] && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setBillPreview({ open: false, bills: [], index: 0 })}
+        >
+          <button
+            type="button"
+            onClick={() => setBillPreview({ open: false, bills: [], index: 0 })}
+            className="fixed top-4 left-4 z-[101] h-9 w-9 rounded-full bg-white/90 hover:bg-white flex items-center justify-center shadow-lg"
+            title="Close"
+            data-testid="bill-preview-close"
+          >
+            <X className="h-5 w-5 text-gray-800" />
+          </button>
+          <img
+            src={`${API}/files/${billPreview.bills[billPreview.index].bill_file_id}/download`}
+            alt={billPreview.bills[billPreview.index].label || 'Bill'}
+            className="max-h-[90vh] max-w-[90vw] rounded shadow-2xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -643,7 +643,7 @@ export default function HRPortal() {
                 {[
                   { label: 'Active Employees', value: activeCount, icon: Users, color: 'border-l-amber-500' },
                   { label: 'Total Users', value: allUsers.length, icon: Shield, color: 'border-l-blue-500' },
-                  { label: 'Present Today', value: dashboardData?.today_present || 0, icon: CheckCircle2, color: 'border-l-green-500' },
+                  { label: 'Present Today', value: dashboardData?.today_present || 0, icon: CheckCircle2, color: 'border-l-[#FFF44F]' },
                   { label: 'Late Today', value: dashboardData?.today_late || 0, icon: Timer, color: 'border-l-orange-500' },
                   { label: 'Pending Leaves', value: dashboardData?.pending_leaves || 0, icon: AlertCircle, color: 'border-l-purple-500' },
                 ].map((c, i) => (

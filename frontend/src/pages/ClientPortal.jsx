@@ -1415,7 +1415,11 @@ export default function ClientPortal() {
                   accountant_rejected:{ label: 'Rejected',         cls: 'bg-red-100 text-red-700 border-red-200' },
                 };
                 const APPROVED = new Set(['approved', 'received', 'verified']);
-                const approvedSum = entries.reduce((s, e) => s + (APPROVED.has(e.status) ? (e.amount || 0) : 0), 0);
+                const REJECTED = new Set(['rejected', 'accountant_rejected']);
+                // Rejected payment attempts are an internal accounting matter — the client
+                // portal should only ever show amounts that are pending or successfully in.
+                const visibleEntries = entries.filter((e) => !REJECTED.has(e.status));
+                const approvedSum = visibleEntries.reduce((s, e) => s + (APPROVED.has(e.status) ? (e.amount || 0) : 0), 0);
                 const bouncedCheques = projectData?.bounced_cheques || [];
                 const bouncedTotal = bouncedCheques.reduce((s, c) => s + (c.amount || 0), 0);
                 return (
@@ -1437,7 +1441,7 @@ export default function ClientPortal() {
                         >
                           <Receipt className="h-4 w-4" />
                           Amount
-                          <Badge className="ml-1 bg-white/20 text-current border-0 text-[10px]">{entries.length}</Badge>
+                          <Badge className="ml-1 bg-white/20 text-current border-0 text-[10px]">{visibleEntries.length}</Badge>
                         </TabsTrigger>
                         <TabsTrigger
                           value="cheque_bounced"
@@ -1468,7 +1472,7 @@ export default function ClientPortal() {
                         </div>
                         <div className="text-right">
                           <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Entries</p>
-                          <p className="text-2xl font-bold text-gray-900 mt-0.5">{entries.length}</p>
+                          <p className="text-2xl font-bold text-gray-900 mt-0.5">{visibleEntries.length}</p>
                         </div>
                       </div>
                       <div className="overflow-x-auto" data-testid="cp-income-table-all">
@@ -1485,7 +1489,7 @@ export default function ClientPortal() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100">
-                            {entries.map((inc, idx) => {
+                            {visibleEntries.map((inc, idx) => {
                               const st = STATUS_STYLES[inc.status] || { label: (inc.status || 'Unknown').replace(/_/g, ' '), cls: 'bg-gray-100 text-gray-700 border-gray-200' };
                               const d = inc.payment_date ? new Date(inc.payment_date) : null;
                               const isBounce = inc.status === 'cheque_bounced';

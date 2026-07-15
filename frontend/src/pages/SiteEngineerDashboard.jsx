@@ -623,10 +623,13 @@ export default function SiteEngineerDashboard() {
     formData.append('category', 'expense_bill');
     try {
       const res = await axios.post(`${API}/files/upload`, formData);
-      const newItems = [...directExpItems];
-      newItems[idx].bill_file_id = res.data.file_id;
-      newItems[idx].bill_filename = res.data.filename;
-      setDirectExpItems(newItems);
+      // Use the functional updater so a bill upload still in flight for
+      // another item (both fired from the same render) can't clobber this
+      // one with a stale snapshot of directExpItems — see bug where the
+      // second upload to resolve silently wiped out the first item's bill.
+      setDirectExpItems(prev => prev.map((it, i) => (
+        i === idx ? { ...it, bill_file_id: res.data.file_id, bill_filename: res.data.filename } : it
+      )));
       toast.success('Bill uploaded');
     } catch { toast.error('Upload failed'); }
   };

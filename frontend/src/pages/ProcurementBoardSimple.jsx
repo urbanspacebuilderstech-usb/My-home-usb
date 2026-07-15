@@ -82,45 +82,68 @@ export default function ProcurementBoardSimple() {
 // REQUESTS — Material approvals queue
 // =====================================================================
 // Material lifecycle filter cards — Procurement view.
-// Order: SE → Procurement → Planning → Revision → Accountant → Transit → Delivered.
-// Credit-mode delivered items roll into Delivered — vendor settlement lives in the Credit Management sub-tab.
+// Order: SE → Procurement (New Request) → Transit → Purchase Verification →
+// Payment Pending → Completed. No dedicated tab for Planning's pricing
+// approval (procurement_priced) — Procurement isn't the actor at that
+// point, so it's visible only under "All". procurement_revision (Planning
+// kicked it back to Procurement to fix) folds into New Request since it
+// reuses the same Assign Vendor action dialog. "Received Material" is no
+// longer its own tab — once SE clicks Collect Material (status becomes
+// `collected`) the request folds straight into Purchase Verification.
 const LIFECYCLE_BUCKETS = [
-  { key: 'all',                 label: 'All',                 Icon: ListChecks,    cls: 'bg-violet-50 border-violet-200 text-violet-700',  active: 'bg-violet-600 text-white border-violet-600' },
-  { key: 'new_request',         label: 'New Request (SE)',    Icon: ClipboardList, cls: 'bg-amber-50 border-amber-200 text-amber-700',     active: 'bg-amber-600 text-white border-amber-600' },
-  { key: 'revision',            label: 'Revision (Planning)', Icon: FileClock,     cls: 'bg-orange-50 border-orange-200 text-orange-700',  active: 'bg-orange-600 text-white border-orange-600' },
-  { key: 'transit',             label: 'Transit',             Icon: Truck,         cls: 'bg-sky-50 border-sky-200 text-sky-700',           active: 'bg-sky-600 text-white border-sky-600' },
-  { key: 'verifying',           label: 'Verify Delivery',     Icon: ClipboardList, cls: 'bg-fuchsia-50 border-fuchsia-200 text-fuchsia-700', active: 'bg-fuchsia-600 text-white border-fuchsia-600' },
-  { key: 'awaiting_accountant', label: 'Awaiting Accountant', Icon: Wallet,        cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white border-cyan-600' },
-  { key: 'delivered',           label: 'Delivered',           Icon: PackageCheck,  cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
+  { key: 'all',                 label: 'All',                    Icon: ListChecks,    cls: 'bg-violet-50 border-violet-200 text-violet-700',    active: 'bg-violet-600 text-white border-violet-600' },
+  { key: 'new_request',         label: 'New Request (SE)',       Icon: ClipboardList, cls: 'bg-amber-50 border-amber-200 text-amber-700',       active: 'bg-amber-600 text-white border-amber-600' },
+  { key: 'transit',             label: 'Transit',                Icon: Truck,         cls: 'bg-sky-50 border-sky-200 text-sky-700',             active: 'bg-sky-600 text-white border-sky-600' },
+  { key: 'verifying',           label: 'Purchase Verification',  Icon: ClipboardList, cls: 'bg-fuchsia-50 border-fuchsia-200 text-fuchsia-700', active: 'bg-fuchsia-600 text-white border-fuchsia-600' },
+  { key: 'awaiting_accountant', label: 'Payment Pending',        Icon: Wallet,        cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',          active: 'bg-cyan-600 text-white border-cyan-600' },
+  { key: 'delivered',           label: 'Completed',              Icon: PackageCheck,  cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
 ];
 
 function bucketForMaterial(req) {
   const status = (req.status || '').toLowerCase();
-  if (status === 'planning_initial_pending') return null; // hidden from Procurement view
-  if (status === 'requested' || status === 'pm_approved') return 'new_request';
-  if (status === 'procurement_priced') return 'transit';
-  if (status === 'procurement_revision') return 'revision';
+  if (status === 'planning_initial_pending') return null; // hidden — Planning hasn't reviewed yet
+  // Planning-approved requests land straight in Procurement's New Request
+  // queue (assign vendor & price). Revision sends land back here too, since
+  // they reuse the same Assign Vendor dialog.
+  if (['requested', 'pm_approved', 'procurement_revision'].includes(status)) return 'new_request';
+  // SE marked collected — folds straight into Purchase Verification (no
+  // separate "Received Material" tab).
+  if (status === 'collected') return 'verifying';
   if (status === 'procurement_verifying') return 'verifying';
-  if (status === 'procurement_verify_rejected') return 'revision';
   if (['pending_accounts_approval', 'pending_advance_payment', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
   if (status === 'in_transit') return 'transit';
   if (['delivered', 'completed', 'closed'].includes(status)) return 'delivered';
-  if (['rejected', 'procurement_rejected', 'planning_initial_rejected'].includes(status)) return 'all';
+  // procurement_priced (awaiting Planning's pricing approval), rejected /
+  // revision-rejected statuses — nothing for Procurement to action, visible
+  // only under "All".
   return 'all';
+}
+
+// Payment phase for an Awaiting Accountant item — "Full Advance" means the
+// advance amount covers the whole material amount (no balance left to pay),
+// "Advance" means a genuine partial advance with a balance still due,
+// "Post-Delivery" means the request isn't advance-mode at all.
+function awaitingPaymentPhase(req) {
+  const isAdvanceMode = (req.payment_mode || '').toLowerCase() === 'advance';
+  if (!isAdvanceMode) return 'post_delivery';
+  const total = Number(req.estimated_price || req.total_amount || 0);
+  const advanceAmt = Number(req.advance_amount || 0);
+  const balanceAmt = Number(req.balance_amount ?? (total - advanceAmt));
+  return balanceAmt <= 0 ? 'full_advance' : 'advance';
 }
 
 function RequestsTab({ dateRange, projectFilter }) {
   const [bucket, setBucket] = useState('new_request');
-  // Sub-filter for "Awaiting Accountant" bucket — split Full Amount vs Advance
-  // so Procurement can see what's stuck with the Accountant for advance approval
-  // vs full pre-paid bills, separately.
-  const [awaitingSubTab, setAwaitingSubTab] = useState('all');  // 'all' | 'full' | 'advance'
+  // Sub-filter for "Awaiting Accountant" bucket — see awaitingPaymentPhase().
+  const [awaitingSubTab, setAwaitingSubTab] = useState('all');  // 'all' | 'post_delivery' | 'advance' | 'full_advance'
   const [allItems, setAllItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(null);
   const [rejectDialog, setRejectDialog] = useState({ open: false, req: null, reason: '' });
   const [verifyDialog, setVerifyDialog] = useState({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '', received_qty_override: '', unit_price_override: '' });
   const [submitting, setSubmitting] = useState(false);
+  // Free-text search across Vendor / Contractor names (mirrors Planning Requests filter bar).
+  const [nameSearch, setNameSearch] = useState('');
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -142,10 +165,11 @@ function RequestsTab({ dateRange, projectFilter }) {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Apply project + date filter on created_at before bucketing
+  // Apply project + date + name filter on created_at before bucketing
   const filteredItems = useMemo(() => {
     const fromTs = dateRange?.from ? new Date(dateRange.from + 'T00:00:00').getTime() : null;
     const toTs = dateRange?.to ? new Date(dateRange.to + 'T23:59:59').getTime() : null;
+    const term = nameSearch.trim().toLowerCase();
     return allItems.filter(r => {
       if (projectFilter && projectFilter !== 'all' && r.project_id !== projectFilter) return false;
       if (fromTs || toTs) {
@@ -153,9 +177,13 @@ function RequestsTab({ dateRange, projectFilter }) {
         if (fromTs && t < fromTs) return false;
         if (toTs && t > toTs) return false;
       }
+      if (term) {
+        const hay = `${r.vendor_name || ''} ${r.contractor_name || ''}`.toLowerCase();
+        if (!hay.includes(term)) return false;
+      }
       return true;
     });
-  }, [allItems, dateRange, projectFilter]);
+  }, [allItems, dateRange, projectFilter, nameSearch]);
 
   // Filter out items hidden from Procurement (e.g. planning_initial_pending)
   const procurementVisible = useMemo(
@@ -177,17 +205,10 @@ function RequestsTab({ dateRange, projectFilter }) {
     let scope;
     if (bucket === 'all') scope = procurementVisible;
     else scope = procurementVisible.filter(r => bucketForMaterial(r) === bucket);
-    // Sub-filter the Awaiting Accountant bucket by payment phase. The status
-    // `pending_advance_payment` is unambiguously the advance phase. A request
-    // marked `pending_balance_payment` is the balance leg of an advance flow.
-    // Everything else (pending_accounts_approval on a pre_paid request, or
-    // payment_mode==='pre_paid') is a Full Amount bill.
+    // Sub-filter the Awaiting Accountant bucket by payment phase — see
+    // awaitingPaymentPhase() above.
     if (bucket === 'awaiting_accountant' && awaitingSubTab !== 'all') {
-      scope = scope.filter(r => {
-        const s = (r.status || '').toLowerCase();
-        const isAdvanceLeg = s === 'pending_advance_payment' || s === 'pending_balance_payment';
-        return awaitingSubTab === 'advance' ? isAdvanceLeg : !isAdvanceLeg;
-      });
+      scope = scope.filter(r => awaitingPaymentPhase(r) === awaitingSubTab);
     }
     // High Priority items always float to the top of the current bucket.
     return [...scope].sort((a, b) => {
@@ -203,13 +224,15 @@ function RequestsTab({ dateRange, projectFilter }) {
   const awaitingCounts = useMemo(() => {
     const scope = procurementVisible.filter(r => bucketForMaterial(r) === 'awaiting_accountant');
     let adv = 0;
-    let full = 0;
+    let fullAdv = 0;
+    let postDelivery = 0;
     scope.forEach(r => {
-      const s = (r.status || '').toLowerCase();
-      if (s === 'pending_advance_payment' || s === 'pending_balance_payment') adv += 1;
-      else full += 1;
+      const phase = awaitingPaymentPhase(r);
+      if (phase === 'advance') adv += 1;
+      else if (phase === 'full_advance') fullAdv += 1;
+      else postDelivery += 1;
     });
-    return { all: scope.length, full, advance: adv };
+    return { all: scope.length, post_delivery: postDelivery, advance: adv, full_advance: fullAdv };
   }, [procurementVisible]);
 
   const submitReject = async () => {
@@ -335,11 +358,23 @@ function RequestsTab({ dateRange, projectFilter }) {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-lg sm:text-xl font-bold text-gray-900">Material Requests</h1>
-          <p className="text-[11px] text-gray-500">SE → Procurement → Planning → Accountant → Transit → Delivery</p>
+          <p className="text-[11px] text-gray-500">SE → Procurement → Transit → Purchase Verification → Payment Pending → Completed</p>
         </div>
-        <Button size="sm" variant="outline" className="h-8 gap-1" onClick={fetchAll} data-testid="proc-refresh">
-          <RefreshCw className="h-3 w-3" /> Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="relative w-full sm:w-56">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+            <Input
+              value={nameSearch}
+              onChange={(e) => setNameSearch(e.target.value)}
+              placeholder="Search vendor / contractor…"
+              className="pl-8 h-8 text-xs"
+              data-testid="proc-req-name-search"
+            />
+          </div>
+          <Button size="sm" variant="outline" className="h-8 gap-1" onClick={fetchAll} data-testid="proc-refresh">
+            <RefreshCw className="h-3 w-3" /> Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Lifecycle filter cards */}
@@ -365,13 +400,14 @@ function RequestsTab({ dateRange, projectFilter }) {
         })}
       </div>
 
-      {/* Awaiting Accountant sub-tab — Full Amount vs Advance */}
+      {/* Awaiting Accountant sub-tab — Post-Delivery / Advance / Full Advance */}
       {bucket === 'awaiting_accountant' && (
         <div className="flex items-center gap-1.5 flex-wrap" data-testid="proc-awaiting-subtabs">
           {[
             { key: 'all', label: 'All', count: awaitingCounts.all },
-            { key: 'full', label: 'Full Amount', count: awaitingCounts.full },
+            { key: 'post_delivery', label: 'Post-Delivery', count: awaitingCounts.post_delivery },
             { key: 'advance', label: 'Advance', count: awaitingCounts.advance },
+            { key: 'full_advance', label: 'Full Advance', count: awaitingCounts.full_advance },
           ].map(t => {
             const active = awaitingSubTab === t.key;
             return (
@@ -1196,11 +1232,60 @@ function CreditManagementTab({ dateRange, projectFilter }) {
   );
 }
 
+// Amount display for a card's top-right corner. For advance-payment-mode
+// requests, breaks the flat total into Advance / Balance so Procurement can
+// see at a glance whether the advance leg is still pending or already
+// collected — using `advance_paid_amount` (stamped once Accountant actually
+// releases the advance) rather than the current status, since the request
+// keeps moving through Transit / Collect Material / Purchase Verification
+// with the advance already paid long before the Balance leg's own status
+// (pending_balance_payment) appears.
+function AmountSummary({ req }) {
+  const total = Number(req.estimated_price || req.total_amount || 0);
+  const status = (req.status || '').toLowerCase();
+  const isAdvanceMode = (req.payment_mode || '').toLowerCase() === 'advance';
+  const isFinal = ['delivered', 'completed', 'closed'].includes(status);
+  const advancePaid = Number(req.advance_paid_amount || 0) > 0;
+
+  if (isAdvanceMode && !isFinal) {
+    const advanceAmt = Number(req.advance_amount || 0);
+    const balanceAmt = Number(req.balance_amount ?? (total - advanceAmt));
+    if (advancePaid) {
+      // Advance already collected — Balance is the amount actually pending now.
+      return (
+        <div className="text-right">
+          <span className="inline-block text-[9px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200 font-medium">
+            ✓ Advance {fmt(advanceAmt)} Collected
+          </span>
+          <p className="text-sm font-semibold text-emerald-700 mt-0.5">Balance {fmt(balanceAmt)}</p>
+        </div>
+      );
+    }
+    return (
+      <div className="text-right leading-tight">
+        <p className="text-[10px] font-semibold text-amber-700">Advance Pending {fmt(advanceAmt)}</p>
+        <p className="text-[10px] text-gray-500">Balance on Delivery {fmt(balanceAmt)}</p>
+        <p className="text-sm font-semibold text-emerald-700">Total {fmt(total)}</p>
+      </div>
+    );
+  }
+
+  return total ? <span className="text-sm font-semibold text-emerald-700">{fmt(total)}</span> : null;
+}
+
 // Single material request card (clickable)
 function RequestCard({ req, onClick }) {
   const status = (req.status || '').toLowerCase();
   const bucket = bucketForMaterial(req);
   const cardCfg = LIFECYCLE_BUCKETS.find(b => b.key === bucket);
+  // Jul 10 2026 — Once the SE has physically collected the material,
+  // every downstream stage (Purchase Verification, Payment Pending,
+  // Completed) still comes from the same SE hand-off, so surface a
+  // constant "SE Received" tag ahead of the stage badge as a reminder.
+  // Exception: `pending_advance_payment` (Advance mode) fires BEFORE the
+  // material ever moves to the SE — Accountant must release the advance
+  // first — so it must not claim SE Received yet.
+  const seReceived = status !== 'pending_advance_payment' && ['verifying', 'awaiting_accountant', 'delivered'].includes(bucket);
   const isActionable = ['requested', 'pm_approved', 'procurement_revision'].includes(status);
   const isVerifying = status === 'procurement_verifying';
   const isNewRequest = ['requested', 'pm_approved'].includes(status);
@@ -1231,26 +1316,33 @@ function RequestCard({ req, onClick }) {
   const latestVendorChange = Array.isArray(req.vendor_change_history) && req.vendor_change_history.length
     ? req.vendor_change_history[req.vendor_change_history.length - 1]
     : null;
+  const totalAmt = Number(req.total_amount || req.estimated_price || req.estimated_cost || req.final_price || 0);
+  // `paid_amount` is only set on simple (non-split) full payments — an
+  // advance/balance-split request tracks money actually collected on the
+  // parent doc as `advance_paid_amount` / `balance_paid_amount` instead, so
+  // a collected advance was showing as ₹0 Paid without this.
+  const paidAmt = Number(req.paid_amount || 0) + Number(req.advance_paid_amount || 0) + Number(req.balance_paid_amount || 0);
   return (
-    <div className="relative">
-      {isHighPriority && (
-        <div
-          className="absolute -top-2 left-3 z-10 px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold uppercase tracking-wide shadow-md flex items-center gap-1"
-          data-testid={`proc-card-priority-ribbon-${req.request_id}`}
-        >
-          <AlertCircle className="h-3 w-3" /> High Priority
-        </div>
-      )}
-      <Card
-        className={`hover:shadow-md transition-shadow cursor-pointer border-l-4 hover:bg-amber-50/30 ${isHighPriority ? 'ring-2 ring-red-400 border-red-300' : ''}`}
-        style={{ borderLeftColor: isHighPriority ? '#dc2626' : (cardCfg ? `var(--tw-${cardCfg.key})` : '#f59e0b') }}
-        onClick={onClick}
-        data-testid={`proc-card-${req.request_id}`}
-      >
-      <CardContent className="p-3 sm:p-4">
-        {/* Top row: status + amount */}
-        <div className="flex items-center justify-between mb-2 gap-2">
+    <Card
+      className={`hover:shadow-md transition-shadow cursor-pointer border-l-[3px] hover:bg-amber-50/30 ${isHighPriority ? 'border-red-400' : ''}`}
+      style={{ borderLeftColor: isHighPriority ? '#dc2626' : (cardCfg ? `var(--tw-${cardCfg.key})` : '#f59e0b') }}
+      onClick={onClick}
+      data-testid={`proc-card-${req.request_id}`}
+    >
+      <CardContent className="p-3 sm:p-4 flex flex-col gap-2.5">
+        {/* Header: chips left, priority toggle + amount right */}
+        <div className="flex items-start justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 flex-wrap">
+            {isHighPriority && (
+              <Badge className="text-[10px] gap-1 bg-red-50 text-red-700 border-red-200" data-testid={`proc-card-priority-tag-${req.request_id}`}>
+                <AlertCircle className="h-3 w-3" /> High Priority
+              </Badge>
+            )}
+            {seReceived && (
+              <Badge variant="outline" className="text-[10px] bg-lime-50 text-lime-700 border-lime-200" data-testid={`proc-card-se-received-${req.request_id}`}>
+                SE Received
+              </Badge>
+            )}
             <Badge variant="outline" className={`text-[10px] ${cardCfg?.cls || ''}`}>
               {cardCfg?.label || status}
             </Badge>
@@ -1259,8 +1351,8 @@ function RequestCard({ req, onClick }) {
                 {pmCfg.label}
               </Badge>
             )}
-            {req.order_id && (
-              <span className="text-[10px] text-gray-400 font-mono">#{req.order_id}</span>
+            {(req.request_number || req.order_id) && (
+              <Badge variant="outline" className="text-[10px] font-mono tabular-nums border-violet-300 text-violet-700 bg-violet-50">{req.request_number || req.order_id}</Badge>
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -1280,48 +1372,53 @@ function RequestCard({ req, onClick }) {
                 {isHighPriority ? '★ Priority ON' : '☆ High Priority'}
               </button>
             )}
-            {(req.estimated_price || req.total_amount) ? (
-              <span className="text-sm font-semibold text-emerald-700">{fmt(req.estimated_price || req.total_amount)}</span>
-            ) : null}
+            <AmountSummary req={req} />
           </div>
         </div>
 
-        {/* Main grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
-          <div>
-            <p className="text-[10px] uppercase font-semibold text-gray-400">Date</p>
-            <p className="font-medium">{fmtDate(req.created_at)}</p>
+        {/* Title + meta */}
+        <div>
+          <p className="text-sm font-semibold truncate">
+            {req.material_name}
+            {req.brand && <span className="font-normal text-gray-500"> · Brand: {req.brand}</span>}
+          </p>
+          <p className="text-xs text-gray-500 truncate">
+            <span className="font-medium text-gray-700">{req.project_name}</span>
+            {' · '}SE {req.site_engineer_name || '—'}
+            {' · '}requested {fmtDate(req.created_at)}
+          </p>
+        </div>
+
+        <hr className="border-gray-100" />
+
+        {/* Data strip: stats left, vendor + action right, single baseline */}
+        <div className="flex items-end justify-between gap-3 flex-wrap">
+          <div className="flex items-start gap-5 flex-wrap">
+            <div>
+              <p className="text-[10px] uppercase font-semibold text-gray-400">Category</p>
+              <p className="text-xs font-medium capitalize">{req.material_category || req.category || '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase font-semibold text-gray-400">Qty</p>
+              <p className="text-xs font-medium tabular-nums">{req.quantity} {req.unit || ''}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase font-semibold text-gray-400 flex items-center gap-1"><CalendarClock className="h-2.5 w-2.5" /> Delivery</p>
+              <p className="text-xs font-medium tabular-nums">{deliveryLabel}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase font-semibold text-gray-400">Total / Paid</p>
+              <p className="text-xs font-medium tabular-nums">{fmt(totalAmt)} / {fmt(paidAmt)}</p>
+            </div>
           </div>
-          <div className="sm:col-span-2">
-            <p className="text-[10px] uppercase font-semibold text-gray-400">Material</p>
-            <p className="font-medium truncate">{req.material_name}</p>
-            {req.brand && <p className="text-[10px] text-gray-500">Brand: {req.brand}</p>}
-          </div>
-          <div>
-            <p className="text-[10px] uppercase font-semibold text-gray-400">Category</p>
-            <p className="font-medium capitalize">{req.material_category || req.category || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase font-semibold text-gray-400">Qty</p>
-            <p className="font-medium">{req.quantity} {req.unit || ''}</p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase font-semibold text-gray-400 flex items-center gap-1"><CalendarClock className="h-2.5 w-2.5" /> Delivery</p>
-            <p className="font-medium">{deliveryLabel}</p>
-          </div>
-          <div className="col-span-2 sm:col-span-3">
-            <p className="text-[10px] uppercase font-semibold text-gray-400">Project</p>
-            <p className="font-medium truncate">{req.project_name}</p>
-          </div>
-          <div className="sm:col-span-2">
-            <p className="text-[10px] uppercase font-semibold text-gray-400">SE</p>
-            <p className="font-medium truncate">{req.site_engineer_name || '—'}</p>
-          </div>
-          <div>
+          <div className="flex items-center gap-2 shrink-0">
+            {req.vendor_name && (
+              <span className="text-[11px] text-gray-600 whitespace-nowrap"><span className="text-gray-400 mr-1">Vendor:</span><strong>{req.vendor_name}</strong></span>
+            )}
             {isActionable ? (
               <Button
                 size="sm"
-                className={`h-8 w-full text-xs gap-1 mt-3 sm:mt-0 ${status === 'procurement_revision' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-amber-600 hover:bg-amber-700'}`}
+                className={`h-8 text-xs gap-1 ${status === 'procurement_revision' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-amber-600 hover:bg-amber-700'}`}
                 onClick={(e) => { e.stopPropagation(); onClick(); }}
                 data-testid={`proc-card-approve-${req.request_id}`}
               >
@@ -1330,7 +1427,7 @@ function RequestCard({ req, onClick }) {
             ) : isVerifying ? (
               <Button
                 size="sm"
-                className="h-8 w-full text-xs gap-1 mt-3 sm:mt-0 bg-fuchsia-600 hover:bg-fuchsia-700"
+                className="h-8 text-xs gap-1 bg-fuchsia-600 hover:bg-fuchsia-700"
                 onClick={(e) => { e.stopPropagation(); onClick(); }}
                 data-testid={`proc-card-verify-${req.request_id}`}
               >
@@ -1340,7 +1437,7 @@ function RequestCard({ req, onClick }) {
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 w-full text-xs gap-1 mt-3 sm:mt-0"
+                className="h-8 text-xs gap-1"
                 onClick={(e) => { e.stopPropagation(); onClick(); }}
                 data-testid={`proc-card-view-${req.request_id}`}
               >
@@ -1350,19 +1447,11 @@ function RequestCard({ req, onClick }) {
           </div>
         </div>
 
-        {/* Vendor + remarks tail */}
-        {(req.vendor_name || req.procurement_remarks) && (
-          <div className="mt-2 pt-2 border-t flex items-start justify-between gap-2 text-[11px]">
-            {req.vendor_name && (
-              <span className="text-gray-700"><span className="text-gray-400 mr-1">Vendor:</span><strong>{req.vendor_name}</strong></span>
-            )}
-            {req.procurement_remarks && (
-              <span className="italic text-gray-500 truncate">"{req.procurement_remarks}"</span>
-            )}
-          </div>
+        {req.procurement_remarks && (
+          <p className="text-[11px] italic text-gray-500 truncate">"{req.procurement_remarks}"</p>
         )}
         {latestVendorChange && (
-          <div className="mt-2 rounded border border-orange-300 bg-orange-50 px-2 py-1.5 text-[11px] text-orange-800 flex items-start gap-1.5" data-testid={`proc-card-vendor-change-${req.request_id}`}>
+          <div className="rounded border border-orange-300 bg-orange-50 px-2 py-1.5 text-[11px] text-orange-800 flex items-start gap-1.5" data-testid={`proc-card-vendor-change-${req.request_id}`}>
             <RefreshCw className="h-3 w-3 mt-0.5 shrink-0" />
             <span className="flex-1">
               <strong>Vendor changed</strong> · <span className="line-through text-orange-600">{latestVendorChange.from_vendor_name || '—'}</span> → <strong>{latestVendorChange.to_vendor_name}</strong>
@@ -1372,17 +1461,19 @@ function RequestCard({ req, onClick }) {
         )}
       </CardContent>
     </Card>
-    </div>
   );
 }
 
-// Payment mode lookup table — reused in card + dialog
+// Payment mode lookup table — reused in card + dialog. Kept intact (incl.
+// legacy pre_paid/credit) so older requests still render their badge; the
+// selection UI in the Approve dialog only offers SELECTABLE_PAYMENT_MODES.
 const PAYMENT_MODE_DISPLAY = {
   pre_paid:      { label: 'Pre-paid',     cls: 'bg-blue-50 text-blue-700 border-blue-200',     desc: 'Accountant pays full amount upfront before delivery' },
   credit:        { label: 'Credit',       cls: 'bg-purple-50 text-purple-700 border-purple-200', desc: 'Post-paid after N days of delivery' },
   advance:       { label: 'Advance',      cls: 'bg-orange-50 text-orange-700 border-orange-200', desc: 'Pay advance now, balance after delivery' },
   post_delivery: { label: 'Post-delivery', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', desc: 'Pay full amount on delivery' },
 };
+const SELECTABLE_PAYMENT_MODES = ['advance', 'post_delivery'];
 
 // Build a chronological timeline for a material request from all the
 // timestamped fields the backend writes across its lifecycle (created →
@@ -1424,6 +1515,14 @@ function buildTimeline(r) {
   push(r.payment_requested_at, 'cyan', 'Payment requested to Accountant', r.payment_requested_by, '');
   push(r.paid_at, 'emerald', 'Payment released', r.paid_by, '');
   push(r.last_payment_at, 'emerald', 'Follow-up payment released', r.last_payment_by, '');
+  // Advance-mode's own two payment legs, released via the Pay & Settle
+  // dialog (/approvals/pay) — this stamps advance_paid_at / balance_paid_at
+  // rather than accountant_approved_at, so without these the Timeline was
+  // showing a gap between "Procurement assigned vendor" and delivery even
+  // though the advance/balance had genuinely been paid.
+  push(r.advance_paid_at, 'cyan', 'Accountant released advance payment', r.advance_paid_by_name, r.advance_paid_amount ? fmt(r.advance_paid_amount) : '');
+  push(r.collected_at, 'lime', 'SE marked collected', r.collected_by_name, '');
+  push(r.balance_paid_at, 'emerald', 'Accountant released balance payment', r.balance_paid_by_name, r.balance_paid_amount ? fmt(r.balance_paid_amount) : '');
   push(r.po_generated_at, 'blue', 'Purchase Order generated', r.generated_by, r.po_id ? `PO: ${r.po_id}` : '');
   push(r.dispatched_at, 'sky', 'Vendor dispatched material', '', '');
   push(r.received_at, 'sky', 'SE received material', r.received_by_name, [
@@ -1450,6 +1549,7 @@ const TIMELINE_TONE = {
   blue:     { dot: 'bg-blue-500',    text: 'text-blue-800',    bg: 'bg-blue-50 border-blue-200' },
   cyan:     { dot: 'bg-cyan-500',    text: 'text-cyan-800',    bg: 'bg-cyan-50 border-cyan-200' },
   fuchsia:  { dot: 'bg-fuchsia-500', text: 'text-fuchsia-800', bg: 'bg-fuchsia-50 border-fuchsia-200' },
+  lime:     { dot: 'bg-lime-500',    text: 'text-lime-800',    bg: 'bg-lime-50 border-lime-200' },
 };
 
 function TimelineView({ item }) {
@@ -1618,7 +1718,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   const [timelineType, setTimelineType] = useState('date'); // 'date' | 'days'
   const [timelineDate, setTimelineDate] = useState('');
   const [timelineDays, setTimelineDays] = useState('');
-  const [paymentMode, setPaymentMode] = useState('pre_paid');
+  const [paymentMode, setPaymentMode] = useState('advance');
   const [creditDays, setCreditDays] = useState('30');
   const [advanceMode, setAdvanceMode] = useState('percent'); // 'percent' | 'amount'
   const [advancePercent, setAdvancePercent] = useState('30');
@@ -1650,7 +1750,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
       setTimelineDate(item.expected_delivery ? String(item.expected_delivery).slice(0, 10) : (item.timeline_value || ''));
       setTimelineDays('');
     }
-    setPaymentMode(item.payment_mode || 'pre_paid');
+    setPaymentMode(item.payment_mode || 'advance');
     setCreditDays(String(item.credit_days || 30));
     setAdvancePercent(String(item.advance_percent || 30));
     setAdvanceAmount(String(item.advance_amount || ''));
@@ -1853,7 +1953,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
           <div><p className="text-amber-700 text-[10px] uppercase font-semibold">Material</p><p className="font-medium">{item.material_name}</p></div>
           <div><p className="text-amber-700 text-[10px] uppercase font-semibold">Brand</p><p className="font-medium">{item.brand || '—'}</p></div>
           <div><p className="text-amber-700 text-[10px] uppercase font-semibold">Quantity</p><p className="font-medium">{item.quantity} {item.unit}</p></div>
-          <div><p className="text-amber-700 text-[10px] uppercase font-semibold">Order</p><p className="font-mono text-[10px]">{item.order_id || item.request_id}</p></div>
+          <div><p className="text-amber-700 text-[10px] uppercase font-semibold">Request No.</p><p className="font-mono text-[10px]">{item.request_number || item.order_id || item.request_id}</p></div>
           {item.remarks && (
             <div className="col-span-2">
               <p className="text-amber-700 text-[10px] uppercase font-semibold">SE Remarks</p>
@@ -2107,8 +2207,10 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
           {/* Section — Payment Mode */}
           <div className="border-b pb-1.5 mt-3 flex items-center gap-1.5"><Banknote className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Payment Mode</h4></div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {Object.entries(PAYMENT_MODE_DISPLAY).map(([key, cfg]) => (
+          <div className="grid grid-cols-2 gap-2">
+            {SELECTABLE_PAYMENT_MODES.map((key) => {
+              const cfg = PAYMENT_MODE_DISPLAY[key];
+              return (
               <button
                 key={key}
                 type="button"
@@ -2121,7 +2223,8 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
               >
                 <span className="font-semibold leading-tight text-center">{cfg.label}</span>
               </button>
-            ))}
+              );
+            })}
           </div>
           {/* Mode description */}
           <p className="text-[11px] text-gray-500 italic px-1">{PAYMENT_MODE_DISPLAY[paymentMode]?.desc}</p>

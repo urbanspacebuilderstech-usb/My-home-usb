@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Wallet, XCircle, AlertTriangle } from 'lucide-react';
+import { Wallet, XCircle, AlertTriangle, FileImage, X } from 'lucide-react';
 import { toast } from 'sonner';
 import PayApprovalDialog from './PayApprovalDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
@@ -31,6 +31,16 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
   const [loading, setLoading] = useState(true);
   const [payDialog, setPayDialog] = useState({ open: false, requestId: '' });
   const [rejectDialog, setRejectDialog] = useState({ open: false, exp: null, kind: '', reason: '', busy: false });
+  // Jul 10 2026 — SE-uploaded collection photos (lorry / material), shown as
+  // thumbnails with the same in-page preview popup used for Record Expense
+  // bills, so Accounts can verify what was actually collected before paying.
+  const [photoPreview, setPhotoPreview] = useState({ open: false, photos: [], index: 0 });
+  const collectionPhotos = (req) => {
+    const photos = [];
+    if (req.lorry_image_id) photos.push({ label: 'Lorry Photo', file_id: req.lorry_image_id });
+    if (req.material_image_id) photos.push({ label: 'Material Photo', file_id: req.material_image_id });
+    return photos;
+  };
 
   const fetchQueue = useCallback(async () => {
     setLoading(true);
@@ -190,6 +200,13 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                 )}
                 <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
                   <div className="flex items-center gap-1.5 flex-wrap">
+                    {/* Jul 10 2026 — Every request reaching Accounts has already
+                        been through SE collection + Purchase Verification, so
+                        this tag is unconditional here (mirrors Procurement /
+                        Planning material cards). */}
+                    <Badge variant="outline" className="text-[10px] bg-lime-50 text-lime-700 border-lime-200" data-testid={`acc-mat-se-received-${req.request_id}`}>
+                      SE Received
+                    </Badge>
                     {req.cheque_bounced && (
                       <Badge className="bg-red-600 text-white text-[10px]">Cheque Bounced</Badge>
                     )}
@@ -206,10 +223,9 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                       {phase} payment
                     </Badge>
                     <Badge variant="outline" className="text-[10px] capitalize">{(req.payment_mode || '').replace(/_/g, ' ')}</Badge>
-                    {req.request_number && (
-                      <Badge variant="outline" className="text-[10px] font-mono border-violet-300 text-violet-700 bg-violet-50">{req.request_number}</Badge>
+                    {(req.request_number || req.order_id) && (
+                      <Badge variant="outline" className="text-[10px] font-mono border-violet-300 text-violet-700 bg-violet-50">{req.request_number || req.order_id}</Badge>
                     )}
-                    {req.order_id && <span className="text-[10px] text-gray-400 font-mono">#{req.order_id}</span>}
                   </div>
                   <span className="text-base font-bold text-emerald-700">{fmt(req.balance_due > 0 ? req.balance_due : (req.remaining_balance > 0 ? req.remaining_balance : due))}</span>
                 </div>
@@ -231,6 +247,38 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     <p className="font-medium">{fmt(total)} / {fmt(req.partially_collected ? (req.collected_amount || 0) : paid)}</p>
                   </div>
                 </div>
+                {(() => {
+                  const photos = collectionPhotos(req);
+                  if (!photos.length) return null;
+                  return (
+                    <div className="mt-1.5 flex items-center gap-2 flex-wrap" data-testid={`acc-mat-photos-${req.request_id}`}>
+                      <span className="text-[10px] uppercase text-gray-400 font-semibold">Collected Photos:</span>
+                      {photos.map((p, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => setPhotoPreview({ open: true, photos, index: i })}
+                          className="relative h-9 w-9 shrink-0 rounded-md border border-gray-200 bg-gray-50 overflow-hidden hover:ring-2 hover:ring-emerald-400 transition"
+                          title={p.label}
+                          data-testid={`acc-mat-photo-${req.request_id}-${i}`}
+                        >
+                          <img
+                            src={`${API}/files/${p.file_id}/download`}
+                            alt={p.label}
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                              e.currentTarget.nextSibling.style.display = 'flex';
+                            }}
+                          />
+                          <span className="hidden absolute inset-0 items-center justify-center text-gray-400">
+                            <FileImage className="h-4 w-4" />
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
                 <div className="flex justify-end items-center gap-2 mt-2">
                   <Button
                     size="sm"
@@ -262,7 +310,9 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     <Badge variant="outline" className="text-[10px] bg-gray-50 text-gray-700 border-gray-300">Legacy</Badge>
                     <Badge variant="outline" className="text-[10px] capitalize">{(exp.payment_phase || 'full')} payment</Badge>
                     {exp.payment_mode && <Badge variant="outline" className="text-[10px] capitalize">{exp.payment_mode.replace(/_/g, ' ')}</Badge>}
-                    {exp.source_request_id && <span className="text-[10px] text-gray-400 font-mono">#{exp.source_request_id}</span>}
+                    {exp.request_number && (
+                      <Badge variant="outline" className="text-[10px] font-mono border-violet-300 text-violet-700 bg-violet-50">{exp.request_number}</Badge>
+                    )}
                   </div>
                   <span className="text-base font-bold text-emerald-700">{fmt(amt)}</span>
                 </div>
@@ -351,6 +401,31 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Collected-photo preview popup — same in-page pattern as the Record
+          Expense bill thumbnails (Accounts Cashbook view). */}
+      {photoPreview.open && photoPreview.photos[photoPreview.index] && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setPhotoPreview({ open: false, photos: [], index: 0 })}
+        >
+          <button
+            type="button"
+            onClick={() => setPhotoPreview({ open: false, photos: [], index: 0 })}
+            className="fixed top-4 left-4 z-[101] h-9 w-9 rounded-full bg-white/90 hover:bg-white flex items-center justify-center shadow-lg"
+            title="Close"
+            data-testid="acc-mat-photo-preview-close"
+          >
+            <X className="h-5 w-5 text-gray-800" />
+          </button>
+          <img
+            src={`${API}/files/${photoPreview.photos[photoPreview.index].file_id}/download`}
+            alt={photoPreview.photos[photoPreview.index].label}
+            className="max-h-[90vh] max-w-[90vw] rounded shadow-2xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </>
   );
 }

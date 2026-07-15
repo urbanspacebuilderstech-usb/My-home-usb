@@ -146,6 +146,29 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
   };
 
   const submit = async () => {
+    // Jul 10 2026 — `ctx.suspense.vendor_balance` was fetched once when the
+    // dialog opened. If another payment for the same vendor consumed
+    // suspense in the meantime, that number goes stale and the backend
+    // rejects apply_suspense with a cryptic "exceeds vendor credit" error
+    // that doesn't match what's on screen. Re-check right before
+    // submitting so the accountant sees an accurate, actionable message
+    // instead of a confusing 400.
+    if (applySusNum > 0.5) {
+      try {
+        const fresh = await axios.get(`${API}/approvals/${reqType}/${requestId}/pay-context`);
+        const freshCredit = Math.max(0, Number(fresh.data?.suspense?.vendor_balance || 0));
+        if (freshCredit < applySusNum - 0.5) {
+          setCtx(fresh.data);
+          setApplySuspense(freshCredit > 0.5 ? String(freshCredit) : '');
+          toast.error(`Vendor suspense changed since this dialog opened — only ${fmt(freshCredit)} is available now (was ${fmt(vendorCredit)}). Amount updated below; please review and try again.`);
+          return;
+        }
+      } catch {
+        // If the recheck itself fails, fall through — the actual pay call
+        // below will surface whatever error is authoritative.
+      }
+    }
+
     // Suspense fully covers → no legs needed
     if (payable <= 0) {
       try {
@@ -242,7 +265,24 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
                   <div><span className="text-gray-500 text-[11px]">Vendor</span><p className="font-medium">{ctx.request.vendor_name}</p></div>
                   <div><span className="text-gray-500 text-[11px]">Project</span><p className="font-medium">{ctx.request.project_name || '—'}</p></div>
                   <div><span className="text-gray-500 text-[11px]">Description</span><p className="font-medium truncate" title={ctx.request.description}>{ctx.request.description}</p></div>
-                  <div><span className="text-gray-500 text-[11px]">Bill Amount</span><p className="font-bold text-amber-700">{fmt(billAmount)}</p></div>
+                  <div>
+                    <span className="text-gray-500 text-[11px]">{ctx.request.payment_phase === 'balance' ? 'Bill Balance' : ctx.request.payment_phase === 'advance' ? 'Bill Advance' : 'Bill Amount'}</span>
+                    <p className="font-bold text-amber-700">{fmt(billAmount)}</p>
+                  </div>
+                  {/* Jul 10 2026 — advance/balance legs: show the full breakdown
+                      (this leg's amount alone is easy to misread as the whole bill). */}
+                  {ctx.request.payment_phase === 'advance' && (
+                    <>
+                      <div><span className="text-gray-500 text-[11px]">Balance on Delivery</span><p className="font-medium text-gray-700">{fmt(ctx.request.balance_amount)}</p></div>
+                      <div><span className="text-gray-500 text-[11px]">Total</span><p className="font-bold text-emerald-700">{fmt(ctx.request.total_amount)}</p></div>
+                    </>
+                  )}
+                  {ctx.request.payment_phase === 'balance' && (
+                    <>
+                      <div><span className="text-gray-500 text-[11px]">Advance Collected</span><p className="font-medium text-emerald-700">✓ {fmt(ctx.request.advance_amount)}</p></div>
+                      <div><span className="text-gray-500 text-[11px]">Total</span><p className="font-bold text-emerald-700">{fmt(ctx.request.total_amount)}</p></div>
+                    </>
+                  )}
                 </div>
                 {(ctx.request.vendor_account_number || ctx.request.vendor_bank_name || ctx.request.vendor_ifsc) && (
                   <div className="mt-2 pt-2 border-t border-amber-200 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs" data-testid="pay-vendor-bank-details">

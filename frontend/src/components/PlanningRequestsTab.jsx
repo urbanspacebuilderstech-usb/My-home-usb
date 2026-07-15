@@ -13,7 +13,7 @@ import { Textarea } from './ui/textarea';
 import { CashbookDateFilter, filterByDateRange } from './CashbookDateFilter';
 import ProjectSearchSelect from './ProjectSearchSelect';
 import RequestStatusFilter, { mapToReqStatus } from './RequestStatusFilter';
-import { Package, Users, Wallet, ThumbsUp, ThumbsDown, Loader2, CheckCircle2, AlertCircle, FileText, Calendar, User as UserIcon, Briefcase, CreditCard, ListChecks, Send, Truck, PackageCheck, FileClock, ClipboardCheck, Banknote, Trash2 } from 'lucide-react';
+import { Package, Users, Wallet, ThumbsUp, ThumbsDown, Loader2, CheckCircle2, AlertCircle, FileText, Calendar, User as UserIcon, Briefcase, CreditCard, ListChecks, Send, Truck, PackageCheck, ClipboardCheck, Banknote, Trash2, Search, Archive, ArchiveRestore } from 'lucide-react';
 import MetaDateFilter, { rangeForPreset } from './MetaDateFilter';
 import PlanningLabourStageRequests from './PlanningLabourStageRequests';
 import RABApprovalQueue from './RABApprovalQueue';
@@ -24,35 +24,62 @@ const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
 
 // Material lifecycle filter cards — Planning view.
-// Order: SE → Procurement → Planning → Revision → Accountant → Transit → Delivered.
-// Credit-mode delivered items roll into Delivered — vendor settlement lives in Procurement → Credit Management.
+// Order: SE → Purchase (Procurement assigns vendor, prices, Planning approves
+// pricing) → Transit → Purchase Verification (SE clicks Collect Material,
+// then logs full receipt; Procurement verifying) → Payment Pending →
+// Completed. "Received Material" is no longer its own tab — SE marking
+// collected folds straight into Purchase Verification.
+// Rejected / revision statuses fold into "All" only (no dedicated tab) so they
+// stay visible without cluttering the main pipeline.
 const MAT_LIFECYCLE_BUCKETS = [
-  { key: 'all',                label: 'All',                 Icon: ListChecks,     cls: 'bg-violet-50 border-violet-200 text-violet-700',  active: 'bg-violet-600 text-white border-violet-600' },
-  { key: 'initial_review',     label: 'Initial Review (SE)', Icon: ClipboardCheck, cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',  active: 'bg-yellow-600 text-white border-yellow-600' },
-  { key: 'awaiting_procurement', label: 'Awaiting Procurement', Icon: Send,       cls: 'bg-amber-50 border-amber-200 text-amber-700',     active: 'bg-amber-600 text-white border-amber-600' },
-  { key: 'revision',           label: 'Revision',            Icon: FileClock,      cls: 'bg-orange-50 border-orange-200 text-orange-700',  active: 'bg-orange-600 text-white border-orange-600' },
-  { key: 'awaiting_accountant',label: 'Awaiting Accountant', Icon: Wallet,         cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white border-cyan-600' },
-  { key: 'transit',            label: 'Transit',             Icon: Truck,          cls: 'bg-sky-50 border-sky-200 text-sky-700',           active: 'bg-sky-600 text-white border-sky-600' },
-  { key: 'delivered',          label: 'Delivered',           Icon: PackageCheck,   cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
+  { key: 'all',                   label: 'All',                   Icon: ListChecks,     cls: 'bg-violet-50 border-violet-200 text-violet-700',   active: 'bg-violet-600 text-white border-violet-600' },
+  { key: 'new_request',           label: 'New Request (SE)',      Icon: ClipboardCheck, cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',   active: 'bg-yellow-600 text-white border-yellow-600' },
+  { key: 'purchase',              label: 'Purchase',              Icon: Send,           cls: 'bg-amber-50 border-amber-200 text-amber-700',      active: 'bg-amber-600 text-white border-amber-600' },
+  { key: 'transit',               label: 'Transit',               Icon: Truck,          cls: 'bg-sky-50 border-sky-200 text-sky-700',            active: 'bg-sky-600 text-white border-sky-600' },
+  { key: 'purchase_verification', label: 'Purchase Verification', Icon: CheckCircle2,   cls: 'bg-indigo-50 border-indigo-200 text-indigo-700',   active: 'bg-indigo-600 text-white border-indigo-600' },
+  { key: 'payment_pending',       label: 'Payment Pending',       Icon: Wallet,         cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',         active: 'bg-cyan-600 text-white border-cyan-600' },
+  { key: 'completed',             label: 'Completed',             Icon: PackageCheck,   cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
+  { key: 'archive',               label: 'Archive',               Icon: Archive,        cls: 'bg-gray-100 border-gray-300 text-gray-700',        active: 'bg-gray-700 text-white border-gray-700' },
 ];
 
-// Smart bucketer — credit-mode delivered items now roll into "delivered"
+// Smart bucketer — credit-mode delivered items now roll into "completed"
 // (vendor settlement is tracked separately in Procurement → Credit Management).
+// `is_archived` is a purely organizational flag Planning can set per-request
+// (Archive icon on every card) — it takes priority over every status-based
+// bucket and pulls the request into its own Archive tab. It never touches
+// `status`, so every other role (SE, Procurement, Accountant...) keeps
+// seeing the request at its real current stage, completely unaffected.
 function bucketForMaterial(req) {
+  if (req.is_archived) return 'archive';
   const status = (req.status || '').toLowerCase();
-  if (status === 'planning_initial_pending') return 'initial_review';
-  if (status === 'planning_initial_rejected') return 'revision';
-  if (status === 'requested' || status === 'pm_approved') return 'awaiting_procurement';
-  // Legacy: items still at procurement_priced (in-flight pre-update) — show under awaiting_accountant.
-  if (status === 'procurement_priced') return 'awaiting_accountant';
-  if (status === 'procurement_revision') return 'revision';
-  if (status === 'procurement_verifying') return 'transit'; // SE collected — Procurement verifying
-  if (status === 'procurement_verify_rejected') return 'revision';
-  if (['pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
+  if (status === 'planning_initial_pending') return 'new_request';
+  // "Purchase" covers the whole Procurement leg: awaiting vendor assignment
+  // (requested/pm_approved) AND priced-awaiting-Planning's-approval
+  // (procurement_priced) — no separate "Planning" tab anymore.
+  if (['requested', 'pm_approved', 'procurement_priced'].includes(status)) return 'purchase';
+  // SE marked collected — folds straight into Purchase Verification (no
+  // separate "Received Material" tab).
+  if (status === 'collected') return 'purchase_verification';
+  if (status === 'procurement_verifying') return 'purchase_verification'; // SE logged receipt — Procurement verifying
   if (status === 'in_transit') return 'transit';
-  if (['delivered', 'completed', 'closed'].includes(status)) return 'delivered';
-  if (['rejected', 'procurement_rejected'].includes(status)) return 'all'; // hidden in lifecycle, accessible via "All"
+  if (['pending_accounts_approval', 'pending_advance_payment', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'payment_pending';
+  if (['delivered', 'completed', 'closed'].includes(status)) return 'completed';
+  // Rejected / revision / anything else — visible only under "All".
   return 'all';
+}
+
+// Payment phase for a Payment Pending item — mirrors the Procurement board's
+// awaitingPaymentPhase(). "Full Advance" means the advance amount covers the
+// whole material amount (no balance left to pay), "Advance" means a genuine
+// partial advance with a balance still due, "Post-Delivery" means the
+// request isn't advance-mode at all.
+function awaitingPaymentPhase(req) {
+  const isAdvanceMode = (req.payment_mode || '').toLowerCase() === 'advance';
+  if (!isAdvanceMode) return 'post_delivery';
+  const total = Number(req.estimated_price || req.total_amount || 0);
+  const advanceAmt = Number(req.advance_amount || 0);
+  const balanceAmt = Number(req.balance_amount ?? (total - advanceAmt));
+  return balanceAmt <= 0 ? 'full_advance' : 'advance';
 }
 
 const PAYMENT_MODE_DISPLAY = {
@@ -103,8 +130,8 @@ export default function PlanningRequestsTab({ projects = [], onCountChange, view
   // 'all' | 'new' | 'in_progress' | 'awaiting' | 'approved' | 'rejected'
   const [statusFilter, setStatusFilter] = useState('all');
   // Materials use a procurement-style lifecycle bucket filter.
-  // Default = 'initial_review' (the brand-new SE requests Planning needs to action first).
-  const [materialBucket, setMaterialBucket] = useState('initial_review');
+  // Default = 'new_request' (the brand-new SE requests Planning needs to action first).
+  const [materialBucket, setMaterialBucket] = useState('new_request');
   const [materials, setMaterials] = useState([]);
   const [labourStages, setLabourStages] = useState([]);  // Stage-open requests (mode="stages")
   const [labourPayments, setLabourPayments] = useState([]);  // SE stage payment requests (mode="payments")
@@ -126,6 +153,8 @@ export default function PlanningRequestsTab({ projects = [], onCountChange, view
     preset: 'this_month',
   });
   const [projectFilter, setProjectFilter] = useState('');
+  // Free-text search across Contractor (labour) / Vendor (material) names.
+  const [nameSearch, setNameSearch] = useState('');
 
   // Action dialogs
   const [approveDialog, setApproveDialog] = useState({ open: false, req: null, type: '' });
@@ -162,19 +191,28 @@ export default function PlanningRequestsTab({ projects = [], onCountChange, view
 
   useEffect(() => { loadAll(); }, []);
 
-  // Apply date + project filters per type
+  // Contractor/Vendor name search matches whichever of these fields the item has.
+  const matchesNameSearch = (r) => {
+    const term = nameSearch.trim().toLowerCase();
+    if (!term) return true;
+    const hay = `${r.vendor_name || ''} ${r.contractor_name || ''}`.toLowerCase();
+    return hay.includes(term);
+  };
+
+  // Apply date + project + name filters per type
   const applyFilters = (items) => {
     let res = filterByDateRange(items, dateFrom, dateTo, (r) => r.created_at);
     if (projectFilter) res = res.filter(r => r.project_id === projectFilter);
+    res = res.filter(matchesNameSearch);
     return res;
   };
 
   // Labour stage/payment items use `requested_at` (not `created_at`); apply
-  // project filter only — the inner PlanningLabourStageRequests component
+  // project + name filters only — the inner PlanningLabourStageRequests component
   // handles its own list rendering and has independent filtering.
-  const applyLabourFilters = (items) => projectFilter
-    ? items.filter(r => r.project_id === projectFilter)
-    : items;
+  const applyLabourFilters = (items) => items
+    .filter(r => !projectFilter || r.project_id === projectFilter)
+    .filter(matchesNameSearch);
 
   const fMaterials = useMemo(() => {
     // Show all material lifecycle stages so the Planning lifecycle cards
@@ -182,10 +220,10 @@ export default function PlanningRequestsTab({ projects = [], onCountChange, view
     // Revision / Rejected / All) can filter accurately. The default selected
     // bucket is "Planning Approval" (status: procurement_priced).
     return applyFilters(materials || []);
-  }, [materials, dateFrom, dateTo, projectFilter]);
-  const fLabourStages = useMemo(() => applyLabourFilters(labourStages), [labourStages, projectFilter]);
-  const fLabourPayments = useMemo(() => applyLabourFilters(labourPayments), [labourPayments, projectFilter]);
-  const fPetty = useMemo(() => applyFilters(petty), [petty, dateFrom, dateTo, projectFilter]);
+  }, [materials, dateFrom, dateTo, projectFilter, nameSearch]);
+  const fLabourStages = useMemo(() => applyLabourFilters(labourStages), [labourStages, projectFilter, nameSearch]);
+  const fLabourPayments = useMemo(() => applyLabourFilters(labourPayments), [labourPayments, projectFilter, nameSearch]);
+  const fPetty = useMemo(() => applyFilters(petty), [petty, dateFrom, dateTo, projectFilter, nameSearch]);
 
   // For Petty Cash, show only items already approved by Project Manager (i.e. forwarded to Planning).
   const fPettyPMApproved = useMemo(
@@ -364,6 +402,16 @@ export default function PlanningRequestsTab({ projects = [], onCountChange, view
             testId="planning-req-project"
             accent="indigo"
           />
+          <div className="relative flex-1 min-w-[200px] max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+            <Input
+              value={nameSearch}
+              onChange={(e) => setNameSearch(e.target.value)}
+              placeholder="Search contractor / vendor…"
+              className="pl-8 h-9 text-xs"
+              data-testid="planning-req-name-search"
+            />
+          </div>
         </CardContent>
       </Card>
 
@@ -404,6 +452,24 @@ export default function PlanningRequestsTab({ projects = [], onCountChange, view
               loadAll();
             } catch (e) {
               toast.error(e?.response?.data?.detail || 'Delete failed');
+            }
+          } : null}
+          onArchive={!isReadOnlyViewer ? async (req) => {
+            try {
+              await axios.patch(`${API}/procurement-simple/material-requests/${req.request_id}/archive`);
+              toast.success('Moved to Archive');
+              loadAll();
+            } catch (e) {
+              toast.error(e?.response?.data?.detail || 'Archive failed');
+            }
+          } : null}
+          onUnarchive={!isReadOnlyViewer ? async (req) => {
+            try {
+              await axios.patch(`${API}/procurement-simple/material-requests/${req.request_id}/unarchive`);
+              toast.success('Restored from Archive');
+              loadAll();
+            } catch (e) {
+              toast.error(e?.response?.data?.detail || 'Restore failed');
             }
           } : null}
         />
@@ -1168,9 +1234,14 @@ function RequestTimeline({ req, type }) {
 // =====================================================================
 // Material Lifecycle View — procurement-style cards, Planning's perspective
 // =====================================================================
-function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, processing, readOnly = false, onDelete = null }) {
+function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, processing, readOnly = false, onDelete = null, onArchive = null, onUnarchive = null }) {
+  // Sub-filter for the "Payment Pending" bucket — mirrors the Procurement board.
+  const [paymentSubTab, setPaymentSubTab] = useState('all');  // 'all' | 'post_delivery' | 'advance' | 'full_advance'
+
   const counts = useMemo(() => {
-    const c = { all: items.length };
+    // "All" excludes archived items, matching every other bucket — archived
+    // requests are only ever visible under the dedicated Archive tab.
+    const c = { all: items.filter(r => !r.is_archived).length };
     MAT_LIFECYCLE_BUCKETS.forEach(b => { if (b.key !== 'all') c[b.key] = 0; });
     items.forEach(r => {
       const b = bucketForMaterial(r);
@@ -1179,8 +1250,26 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
     return c;
   }, [items]);
 
+  // Counts for the Payment Pending sub-tabs.
+  const paymentCounts = useMemo(() => {
+    const scope = items.filter(r => bucketForMaterial(r) === 'payment_pending');
+    let adv = 0;
+    let fullAdv = 0;
+    let postDelivery = 0;
+    scope.forEach(r => {
+      const phase = awaitingPaymentPhase(r);
+      if (phase === 'advance') adv += 1;
+      else if (phase === 'full_advance') fullAdv += 1;
+      else postDelivery += 1;
+    });
+    return { all: scope.length, post_delivery: postDelivery, advance: adv, full_advance: fullAdv };
+  }, [items]);
+
   const visibleItems = useMemo(() => {
-    const scope = bucket === 'all' ? items : items.filter(r => bucketForMaterial(r) === bucket);
+    let scope = bucket === 'all' ? items.filter(r => !r.is_archived) : items.filter(r => bucketForMaterial(r) === bucket);
+    if (bucket === 'payment_pending' && paymentSubTab !== 'all') {
+      scope = scope.filter(r => awaitingPaymentPhase(r) === paymentSubTab);
+    }
     // High Priority items float to the top of every bucket.
     return [...scope].sort((a, b) => {
       const ap = a.is_high_priority ? 1 : 0;
@@ -1188,12 +1277,12 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
       if (ap !== bp) return bp - ap;
       return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     });
-  }, [items, bucket]);
+  }, [items, bucket, paymentSubTab]);
 
   return (
     <div className="space-y-3">
       {/* Lifecycle filter cards — "Planning Approval" first */}
-      <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5" data-testid="planning-mat-lifecycle-cards">
+      <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5" data-testid="planning-mat-lifecycle-cards">
         {MAT_LIFECYCLE_BUCKETS.map(b => {
           const Icon = b.Icon;
           const active = bucket === b.key;
@@ -1215,6 +1304,34 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
         })}
       </div>
 
+      {/* Payment Pending sub-tab — Post-Delivery / Advance / Full Advance */}
+      {bucket === 'payment_pending' && (
+        <div className="flex items-center gap-1.5 flex-wrap" data-testid="planning-payment-subtabs">
+          {[
+            { key: 'all', label: 'All', count: paymentCounts.all },
+            { key: 'post_delivery', label: 'Post-Delivery', count: paymentCounts.post_delivery },
+            { key: 'advance', label: 'Advance', count: paymentCounts.advance },
+            { key: 'full_advance', label: 'Full Advance', count: paymentCounts.full_advance },
+          ].map(t => {
+            const active = paymentSubTab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setPaymentSubTab(t.key)}
+                className={`px-3 py-1.5 rounded-full text-[11px] font-medium border transition ${
+                  active
+                    ? 'bg-cyan-600 text-white border-cyan-600 shadow-sm'
+                    : 'bg-white text-cyan-700 border-cyan-200 hover:bg-cyan-50'
+                }`}
+                data-testid={`planning-payment-subtab-${t.key}`}
+              >
+                {t.label} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${active ? 'bg-white/20' : 'bg-cyan-100 text-cyan-700'}`}>{t.count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Card list */}
       {loading ? (
         <p className="text-center text-xs text-gray-400 py-10"><Loader2 className="h-5 w-5 animate-spin inline mr-1" /> Loading…</p>
@@ -1225,7 +1342,7 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
       ) : (
         <div className="space-y-2" data-testid="planning-mat-card-list">
           {visibleItems.map(req => (
-            <PlanningMaterialCard key={req.request_id} req={req} onClick={() => onApprove(req)} processing={processing} readOnly={readOnly} onDelete={onDelete} />
+            <PlanningMaterialCard key={req.request_id} req={req} onClick={() => onApprove(req)} processing={processing} readOnly={readOnly} onDelete={onDelete} onArchive={onArchive} onUnarchive={onUnarchive} />
           ))}
         </div>
       )}
@@ -1233,10 +1350,54 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
   );
 }
 
-function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDelete = null }) {
+// Same Advance/Balance breakdown as the Procurement board — uses
+// `advance_paid_amount` (stamped once Accountant actually releases the
+// advance) rather than status, since the request keeps moving through
+// Transit / Collect Material / Purchase Verification with the advance
+// already paid long before pending_balance_payment appears.
+function MaterialAmountSummary({ req }) {
+  const total = Number(req.estimated_price || req.total_amount || 0);
+  const status = (req.status || '').toLowerCase();
+  const isAdvanceMode = (req.payment_mode || '').toLowerCase() === 'advance';
+  const isFinal = ['delivered', 'completed', 'closed'].includes(status);
+  const advancePaid = Number(req.advance_paid_amount || 0) > 0;
+
+  if (isAdvanceMode && !isFinal) {
+    const advanceAmt = Number(req.advance_amount || 0);
+    const balanceAmt = Number(req.balance_amount ?? (total - advanceAmt));
+    if (advancePaid) {
+      return (
+        <div className="text-right shrink-0">
+          <span className="inline-block text-[9px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200 font-medium">
+            ✓ Advance {fmt(advanceAmt)} Collected
+          </span>
+          <p className="text-sm font-semibold text-emerald-700 mt-0.5">Balance {fmt(balanceAmt)}</p>
+        </div>
+      );
+    }
+    return (
+      <div className="text-right leading-tight shrink-0">
+        <p className="text-[10px] font-semibold text-amber-700">Advance Pending {fmt(advanceAmt)}</p>
+        <p className="text-[10px] text-gray-500">Balance on Delivery {fmt(balanceAmt)}</p>
+        <p className="text-sm font-semibold text-emerald-700">Total {fmt(total)}</p>
+      </div>
+    );
+  }
+
+  return total ? <span className="text-sm font-semibold text-emerald-700 shrink-0">{fmt(total)}</span> : null;
+}
+
+function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDelete = null, onArchive = null, onUnarchive = null }) {
   const status = (req.status || '').toLowerCase();
   const bucket = bucketForMaterial(req);
   const cardCfg = MAT_LIFECYCLE_BUCKETS.find(b => b.key === bucket);
+  // Jul 10 2026 — Once the SE has physically collected the material, every
+  // downstream stage still comes from the same SE hand-off, so surface a
+  // constant "SE Received" tag ahead of the stage badge as a reminder.
+  // Exception: `pending_advance_payment` (Advance mode) fires BEFORE the
+  // material ever moves to the SE — Accountant must release the advance
+  // first — so it must not claim SE Received yet.
+  const seReceived = status !== 'pending_advance_payment' && ['purchase_verification', 'payment_pending', 'completed'].includes(bucket);
   // GM (or any explicit read-only viewer) only ever sees a View button —
   // even for actionable statuses. The card click still opens the dialog
   // (read-only) so they can audit details.
@@ -1251,6 +1412,12 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
     deliveryLabel = `${req.timeline_value} days`;
   }
   const pmCfg = PAYMENT_MODE_DISPLAY[req.payment_mode];
+  const totalAmt = Number(req.total_amount || req.estimated_price || req.estimated_cost || req.final_price || 0);
+  // `paid_amount` is only set on simple (non-split) full payments — an
+  // advance/balance-split request tracks money actually collected on the
+  // parent doc as `advance_paid_amount` / `balance_paid_amount` instead, so
+  // a collected advance was showing as ₹0 Paid without this.
+  const paidAmt = Number(req.paid_amount || 0) + Number(req.advance_paid_amount || 0) + Number(req.balance_paid_amount || 0);
   return (
     <div className="relative">
       {req.is_high_priority && (
@@ -1270,17 +1437,22 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
       <CardContent className="p-3 sm:p-4">
         <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 flex-wrap">
+            {seReceived && (
+              <Badge variant="outline" className="text-[10px] bg-lime-50 text-lime-700 border-lime-200" data-testid={`planning-mat-se-received-${id}`}>
+                SE Received
+              </Badge>
+            )}
             <Badge variant="outline" className={`text-[10px] ${cardCfg?.cls || ''}`}>
               {cardCfg?.label || status}
             </Badge>
             {pmCfg && (
               <Badge variant="outline" className={`text-[10px] ${pmCfg.cls}`}>{pmCfg.label}</Badge>
             )}
-            {req.order_id && <span className="text-[10px] text-gray-400 font-mono">#{req.order_id}</span>}
+            {(req.request_number || req.order_id) && (
+              <Badge variant="outline" className="text-[10px] font-mono border-violet-300 text-violet-700 bg-violet-50">{req.request_number || req.order_id}</Badge>
+            )}
           </div>
-          {(req.estimated_price || req.total_amount) ? (
-            <span className="text-sm font-semibold text-emerald-700 shrink-0">{fmt(req.estimated_price || req.total_amount)}</span>
-          ) : null}
+          <MaterialAmountSummary req={req} />
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
@@ -1300,6 +1472,10 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
           <div>
             <p className="text-[10px] uppercase font-semibold text-gray-400 flex items-center gap-1"><Calendar className="h-2.5 w-2.5" /> Delivery</p>
             <p className="font-medium">{deliveryLabel}</p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase font-semibold text-gray-400">Total / Paid</p>
+            <p className="font-medium">{fmt(totalAmt)} / {fmt(paidAmt)}</p>
           </div>
           <div>
             <p className="text-[10px] uppercase font-semibold text-gray-400">Project</p>
@@ -1333,6 +1509,33 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
                 data-testid={`planning-mat-card-view-${id}`}
               >
                 <FileText className="h-3 w-3" /> View
+              </Button>
+            )}
+            {/* Archive is a purely organizational flag — it never touches
+                `status`, so archiving/restoring here has zero effect on the
+                SE's (or any other role's) own view of the request. */}
+            {!req.is_archived && onArchive && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 w-8 p-0 mt-3 sm:mt-0 border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                onClick={(e) => { e.stopPropagation(); onArchive(req); }}
+                data-testid={`planning-mat-card-archive-${id}`}
+                title="Archive"
+              >
+                <Archive className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            {req.is_archived && onUnarchive && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 w-8 p-0 mt-3 sm:mt-0 border-emerald-200 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
+                onClick={(e) => { e.stopPropagation(); onUnarchive(req); }}
+                data-testid={`planning-mat-card-unarchive-${id}`}
+                title="Restore from Archive"
+              >
+                <ArchiveRestore className="h-3.5 w-3.5" />
               </Button>
             )}
             {/* Super Admin: Trash button purges the material request via the

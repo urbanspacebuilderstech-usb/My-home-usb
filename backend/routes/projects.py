@@ -9772,6 +9772,11 @@ async def wo_rab_chain(project_id: str, work_order_id: str, user: User = Depends
 
     rabs = []
     cumulative_released = 0.0
+    # Per-stage running total of what's actually been released so far —
+    # mirrors `cumulative_released` but tracked per stage_id so each row in
+    # a multi-stage RAB's breakdown can show its own Stage Total / Released /
+    # Balance instead of just the combined bill-level figures.
+    stage_cumulative_released = {}
     next_number = 0  # incremented for every non-rejected RAB GROUP
     for grp in groups:
         members = grp["members"]
@@ -9782,6 +9787,9 @@ async def wo_rab_chain(project_id: str, work_order_id: str, user: User = Depends
         released = sum(float(m.get("approved_amount") or 0) for m in members)
         if status == "approved":
             cumulative_released += released
+            for m in members:
+                sid = m.get("stage_id")
+                stage_cumulative_released[sid] = stage_cumulative_released.get(sid, 0.0) + float(m.get("approved_amount") or 0)
         closing_balance = contract_total - cumulative_released
         if status in REJECTED_STATES:
             display_rab = "—"
@@ -9806,8 +9814,10 @@ async def wo_rab_chain(project_id: str, work_order_id: str, user: User = Depends
                 "stage_id": m.get("stage_id"),
                 "stage_name": m.get("stage_name"),
                 "request_id": m.get("request_id"),
+                "stage_amount": float(m.get("stage_amount") or 0),
                 "requested_amount": float(m.get("amount") or 0),
                 "approved_amount": float(m.get("approved_amount") or 0),
+                "stage_balance": max(0.0, float(m.get("stage_amount") or 0) - stage_cumulative_released.get(m.get("stage_id"), 0.0)),
                 "status": m.get("status"),
             }
             for m in members
@@ -10579,9 +10589,29 @@ async def edit_stage_payment_request(
         target_pr["requested_amount"] = round(new_amount, 2)
     if new_notes is not None:
         target_pr["notes"] = (new_notes or "").strip()
-    target_pr["edited_at"] = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    target_pr["edited_at"] = now_iso
     target_pr["edited_by"] = user.user_id
     target_pr["edited_by_name"] = user.name
+
+    # Bug fix (Jul 13 2026): this generic edit endpoint only ever touched
+    # amount/notes/stage — a RAB returned to the SE (`se_rework`, or one of
+    # the legacy per-role rejected statuses) kept that status forever after
+    # being "edited" here, so it silently never reached the PM's queue even
+    # though the SE's "Resubmit to PM" button reported success. The dedicated
+    # /se-resubmit endpoint already does this correctly for the non-edit-
+    # pencil flow; mirror the same status reset here so BOTH paths actually
+    # resubmit.
+    was_returned = target_pr.get("status") in {"se_rework", "pm_rejected", "qc_rejected", "planning_rejected", "accountant_rejected"}
+    if was_returned:
+        target_pr["status"] = "requested"
+        target_pr["resubmitted_by"] = user.user_id
+        target_pr["resubmitted_by_name"] = user.name
+        target_pr["resubmitted_at"] = now_iso
+        target_pr["rejected_by_role"] = None
+        target_pr["rejected_by_name"] = None
+        target_pr["rejection_reason"] = None
+        target_pr["rejected_at"] = None
 
     # ── Stage move: if SE picks a different open stage, lift the
     # payment_request out of the old stage and append to the new one.
@@ -10611,11 +10641,23 @@ async def edit_stage_payment_request(
         {"work_order_id": work_order_id, "project_id": project_id},
         {"$set": {"stages": wo.get("stages"), "updated_at": datetime.now(timezone.utc).isoformat()}},
     )
-    return {"message": "RAB request updated", "request": {
+    if was_returned:
+        await create_audit_log(user.user_id, "se_resubmit", "labour_payment_request", request_id, {"rab": target_pr.get("rab_number")})
+        try:
+            await _notify_users_by_role(
+                [UserRole.PROJECT_MANAGER.value, UserRole.SUPER_ADMIN.value],
+                f"{target_pr.get('rab_number', 'RAB')} — Resubmitted",
+                f"SE resubmitted {target_pr.get('rab_number', 'RAB')} ₹{target_pr.get('amount', 0):,.0f} — awaiting PM review",
+                "/pm-dashboard",
+            )
+        except Exception:
+            pass
+    return {"message": ("RAB request resubmitted — awaiting PM review" if was_returned else "RAB request updated"), "request": {
         "request_id": request_id,
         "amount": target_pr.get("amount"),
         "notes": target_pr.get("notes"),
         "stage_id": target_pr.get("stage_id"),
+        "status": target_pr.get("status"),
     }}
 
 

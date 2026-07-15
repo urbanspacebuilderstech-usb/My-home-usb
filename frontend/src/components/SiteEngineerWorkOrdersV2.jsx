@@ -372,6 +372,7 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
             workOrder={wo}
             onOpenRabView={(requestId) => setRabView({ open: true, requestId })}
             onEditRab={openEditRab}
+            hideStageTiles
             stageIdFilter={(sid) => {
               const s = (wo.stages || []).find(x => x.stage_id === sid);
               return !!(s && s.is_addition);
@@ -452,6 +453,7 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
             workOrder={wo}
             onOpenRabView={(requestId) => setRabView({ open: true, requestId })}
             onEditRab={openEditRab}
+            hideStageTiles
             stageIdFilter={(sid) => {
               const s = (wo.stages || []).find(x => x.stage_id === sid);
               // Stages without a wo.stages entry (legacy/unknown) default to
@@ -1194,6 +1196,22 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
   const allRequests = stage.payment_requests || [];
   const reworkPR = allRequests.find(p => p.status === 'se_rework');
 
+  // Summary tiles (Total / Balance / Released) reflect whichever stages are
+  // currently CHECKED in "Select Stages to Bill" — not just the single stage
+  // the SE clicked Open on — since a multi-stage bill's real totals span all
+  // of them. Falls back to just the current stage when nothing is checked
+  // yet (e.g. before the multi-stage panel has rendered/initialised).
+  const checkedStageIds = Object.keys(allocations);
+  const selectedStages = checkedStageIds.length > 0
+    ? checkedStageIds.map(sid => (wo?.stages || []).find(s => s.stage_id === sid)).filter(Boolean)
+    : [stage];
+  const selTotal = selectedStages.reduce((s, st) => s + (st.amount || 0), 0);
+  const selReleased = selectedStages.reduce(
+    (s, st) => s + (st.payment_requests || []).filter(p => p.status === 'approved').reduce((a, p) => a + (p.approved_amount || 0), 0),
+    0,
+  );
+  const selBalance = selectedStages.reduce((s, st) => s + stageBalanceOf(st), 0);
+
   const submit = async () => {
     const totalAmt = parseFloat(amount || 0);
     if (!totalAmt || totalAmt <= 0) { toast.error('Enter a valid amount'); return; }
@@ -1260,12 +1278,19 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
         };
         if (editingRequest) {
           // Edit mode — PATCH the existing payment_request. Backend handles
-          // stage moves via `target_stage_id`.
+          // stage moves via `target_stage_id`, and — when the RAB was
+          // Returned to SE — also resets status back to `requested` so it
+          // actually reaches the PM's queue (previously this PATCH left the
+          // status untouched, so editing a returned RAB silently never
+          // resubmitted it).
+          const wasReturned = ['se_rework', 'pm_rejected', 'qc_rejected', 'planning_rejected', 'accountant_rejected'].includes(editingRequest.status);
           await axios.patch(
             `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${editingRequest.stage_id}/payment-requests/${editingRequest.request_id}`,
             { amount: v, notes, target_stage_id: sid !== editingRequest.stage_id ? sid : undefined },
           );
-          toast.success(`${editingRequest.rab_number || 'RAB'} updated`);
+          toast.success(wasReturned
+            ? `${editingRequest.rab_number || 'RAB'} resubmitted — awaiting PM review`
+            : `${editingRequest.rab_number || 'RAB'} updated`);
         } else if (reworkPR && sid === stage.stage_id) {
           await axios.post(
             `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${sid}/payment-requests/${reworkPR.request_id}/se-resubmit`,
@@ -1315,7 +1340,10 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
               { params: { cascade: false } },
             );
           }
-          // 3. PATCH surviving sibling amounts
+          // 3. PATCH surviving sibling amounts — also resubmits each sibling
+          // to PM when the bill was Returned to SE (see the single-stage
+          // branch above for why the backend needed a status-reset fix).
+          const wasReturnedMulti = ['se_rework', 'pm_rejected', 'qc_rejected', 'planning_rejected', 'accountant_rejected'].includes(editingRequest.status);
           for (const [sid, v] of entries) {
             const sib = byStage.get(sid);
             await axios.patch(
@@ -1324,7 +1352,9 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
             );
           }
           const removedNote = removed.length > 0 ? ` · ${removed.length} stage${removed.length > 1 ? 's' : ''} removed` : '';
-          toast.success(`${editingRequest.rab_number || 'RAB'} updated (${entries.length} stage${entries.length > 1 ? 's' : ''}${removedNote})`);
+          toast.success(wasReturnedMulti
+            ? `${editingRequest.rab_number || 'RAB'} resubmitted — awaiting PM review (${entries.length} stage${entries.length > 1 ? 's' : ''}${removedNote})`
+            : `${editingRequest.rab_number || 'RAB'} updated (${entries.length} stage${entries.length > 1 ? 's' : ''}${removedNote})`);
         } else {
           // Multi-stage RAB CREATE — single endpoint that bundles every
           // allocation under ONE rab_number + rab_group_id.
@@ -1362,15 +1392,15 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
               <div className="bg-gray-50 border rounded px-2 py-1.5">
                 <p className="text-[9px] text-gray-500 uppercase">Total</p>
-                <p className="text-xs font-bold text-gray-900">{fmt(stage.amount || 0)}</p>
+                <p className="text-xs font-bold text-gray-900">{fmt(selTotal)}</p>
               </div>
               <div className="bg-blue-50 border border-blue-200 rounded px-2 py-1.5">
                 <p className="text-[9px] text-blue-600 uppercase">Balance</p>
-                <p className="text-xs font-bold text-blue-800">{fmt(balance)}</p>
+                <p className="text-xs font-bold text-blue-800">{fmt(selBalance)}</p>
               </div>
               <div className="bg-green-50 border border-green-200 rounded px-2 py-1.5">
                 <p className="text-[9px] text-green-600 uppercase">Released</p>
-                <p className="text-xs font-bold text-green-800">{fmt(released)}</p>
+                <p className="text-xs font-bold text-green-800">{fmt(selReleased)}</p>
               </div>
               <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
                 <p className="text-[9px] text-amber-600 uppercase">Extra</p>

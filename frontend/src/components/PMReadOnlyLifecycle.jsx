@@ -228,7 +228,7 @@ export function PMMaterialReadOnlyList({ items }) {
                   <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {cfg && <Badge variant="outline" className={`text-[10px] ${cfg.cls}`}>{cfg.label}</Badge>}
-                      <span className="text-[10px] text-gray-400 font-mono">#{r.order_id || r.request_id}</span>
+                      <Badge variant="outline" className="text-[10px] font-mono border-violet-300 text-violet-700 bg-violet-50">{r.request_number || r.order_id || r.request_id}</Badge>
                       <Eye className="h-3 w-3 text-amber-500" />
                     </div>
                     {r.total_amount && <span className="text-sm font-semibold text-gray-800">{fmt(r.total_amount)}</span>}

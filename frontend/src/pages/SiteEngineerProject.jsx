@@ -6,7 +6,7 @@ import {
   Clock, CheckCircle, XCircle, Truck, Camera, AlertTriangle, Send,
   Calendar, ClipboardList, Warehouse, Save, Trash2, History,
   ChevronRight, Banknote, ArrowRight, Eye, Circle,
-  ListChecks, FileClock, Wallet, PackageCheck, CheckCircle2, Video, FileText, IndianRupee
+  ListChecks, CheckCircle2, Video, FileText, IndianRupee
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -48,6 +48,8 @@ const STATUS_CONFIG = {
   po_generated: { label: 'PO Generated', color: 'bg-cyan-100 text-cyan-800', icon: CheckCircle },
   ready_for_delivery: { label: 'Ready', color: 'bg-cyan-100 text-cyan-800', icon: Truck },
   in_transit: { label: 'In Transit', color: 'bg-blue-100 text-blue-800', icon: Truck },
+  collected: { label: 'Collected', color: 'bg-sky-100 text-sky-800', icon: Package },
+  procurement_verifying: { label: 'Verifying', color: 'bg-fuchsia-100 text-fuchsia-800', icon: Package },
   delivered: { label: 'Delivered', color: 'bg-teal-100 text-teal-800', icon: Truck },
   received_partial: { label: 'Partial', color: 'bg-orange-100 text-orange-800', icon: Package },
   received_completed: { label: 'Complete', color: 'bg-green-100 text-green-800', icon: CheckCircle },
@@ -66,33 +68,72 @@ const StatusBadge = ({ status }) => {
   );
 };
 
+// Compact per-card lifecycle stepper — mirrors the canonical Planning /
+// Procurement pipeline (New Request → Purchase → Transit → Collect Material →
+// Purchase Verification → Payment Pending → Completed) so an SE can see at a
+// glance how far a single request has progressed, without opening it.
+const MATERIAL_STAGE_FLOW = ['Requested', 'Purchase', 'Transit', 'Collected', 'Verified', 'Payment', 'Completed'];
+
+function materialStageIndex(status) {
+  const s = (status || '').toLowerCase();
+  if (['delivered', 'completed', 'closed'].includes(s)) return 6;
+  if (['pending_accounts_approval', 'pending_advance_payment', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(s)) return 5;
+  if (s === 'procurement_verifying') return 4;
+  if (['collected', 'procurement_verify_rejected'].includes(s)) return 3;
+  if (s === 'in_transit') return 2;
+  if (['requested', 'pm_approved', 'procurement_priced', 'procurement_revision'].includes(s)) return 1;
+  return 0; // planning_initial_pending / rejected / anything unrecognized — just Requested
+}
+
+const MaterialStageFlow = ({ status }) => {
+  const current = materialStageIndex(status);
+  return (
+    <div className="flex items-center flex-wrap gap-x-1 gap-y-0.5 mt-1.5" data-testid="se-mat-stage-flow">
+      {MATERIAL_STAGE_FLOW.map((label, idx) => (
+        <span key={label} className="flex items-center gap-1">
+          {idx > 0 && <span className="text-gray-300 text-[10px]">-</span>}
+          {idx <= current ? (
+            <span className="px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200 text-[9px] font-medium">
+              {label}
+            </span>
+          ) : (
+            <span className="text-[9px] text-gray-400">{label}</span>
+          )}
+        </span>
+      ))}
+    </div>
+  );
+};
+
 // Material lifecycle filter cards — Site Engineer view.
-// Order matches the actual workflow: SE → Procurement → Planning → Accountant → Transit → Delivered.
-// Credit-mode delivered items roll into "Delivered" — vendor settlement lives in Procurement → Credit Management.
+// Order matches the SE's actual to-do list: New Request → Purchase (Procurement's
+// leg, nothing for the SE to do) → Transit → Collect Material (SE's last active
+// step). Everything past collection (Purchase Verification / Payment Pending /
+// Completed) is Procurement's & Accounts' job, so those — along with any
+// rejected/revision status — roll into "Collect Material" or "Awaiting
+// Planning"/"Awaiting Procurement" (whichever stage they bounced back to)
+// rather than getting their own tab; still reachable via "All".
 const LIFECYCLE_BUCKETS = [
   { key: 'all',                 label: 'All',                  Icon: ListChecks,    cls: 'bg-violet-50 border-violet-200 text-violet-700',    active: 'bg-violet-600 text-white border-violet-600' },
   { key: 'planning_initial',    label: 'Awaiting Planning',    Icon: ClipboardList, cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',    active: 'bg-yellow-600 text-white border-yellow-600' },
   { key: 'awaiting_procurement',label: 'Awaiting Procurement', Icon: ClipboardList, cls: 'bg-amber-50 border-amber-200 text-amber-700',       active: 'bg-amber-600 text-white border-amber-600' },
-  { key: 'awaiting_accountant', label: 'Awaiting Accountant',  Icon: Wallet,        cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',          active: 'bg-cyan-600 text-white border-cyan-600' },
-  { key: 'revision',            label: 'Revision',             Icon: FileClock,     cls: 'bg-orange-50 border-orange-200 text-orange-700',    active: 'bg-orange-600 text-white border-orange-600' },
   { key: 'transit',             label: 'Transit',              Icon: Truck,         cls: 'bg-sky-50 border-sky-200 text-sky-700',             active: 'bg-sky-600 text-white border-sky-600' },
-  { key: 'delivered',           label: 'Delivered',            Icon: PackageCheck,  cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
+  { key: 'collected',           label: 'Received Material',    Icon: Package,       cls: 'bg-lime-50 border-lime-200 text-lime-700',          active: 'bg-lime-600 text-white border-lime-600' },
 ];
 
 function bucketForMaterial(req) {
   const status = (req.status || '').toLowerCase();
-  if (status === 'planning_initial_pending') return 'planning_initial';
-  if (status === 'planning_initial_rejected') return 'revision';
-  if (status === 'requested' || status === 'pm_approved') return 'awaiting_procurement';
-  // Legacy in-flight items at the (removed) Planning-Pricing step land in awaiting_procurement
-  // bucket so Procurement can still see them; new flow skips this state entirely.
-  if (status === 'procurement_priced') return 'awaiting_procurement';
-  if (status === 'procurement_revision') return 'revision';
-  if (status === 'procurement_verifying') return 'transit'; // SE has collected — pending Procurement verify
-  if (status === 'procurement_verify_rejected') return 'revision';
-  if (['pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved', 'accountant_approved'].includes(status)) return 'awaiting_accountant';
+  if (['planning_initial_pending', 'planning_initial_rejected'].includes(status)) return 'planning_initial';
+  if (['requested', 'pm_approved', 'procurement_priced', 'procurement_revision'].includes(status)) return 'awaiting_procurement';
   if (['in_transit', 'ready_for_delivery'].includes(status)) return 'transit';
-  if (['delivered', 'completed', 'closed', 'received_partial', 'received_completed'].includes(status)) return 'delivered';
+  // Everything from "SE marked collected" onward — Purchase Verification,
+  // Payment Pending, and Completed/Delivered — sits in the SE's last
+  // actionable bucket since there's nothing left for the SE to do.
+  if ([
+    'collected', 'procurement_verify_rejected', 'procurement_verifying',
+    'pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved', 'accountant_approved',
+    'delivered', 'completed', 'closed', 'received_partial', 'received_completed',
+  ].includes(status)) return 'collected';
   return 'all';
 }
 
@@ -906,6 +947,13 @@ export default function SiteEngineerProject() {
       };
       if (steelReceivedPayload) payload.steel_received = steelReceivedPayload;
       if (mismatchReason.trim()) payload.qty_mismatch_reason = mismatchReason.trim();
+      // Single-button flow: the backend's receipt endpoint still requires the
+      // `collected` checkpoint status, so silently satisfy it here as part of
+      // the same submit — the item stays in Transit right up until this
+      // Confirm Receipt call actually goes through.
+      if (receiveDialog.request.status === 'in_transit') {
+        await axios.post(`${API}/site-engineer/material-requests/${receiveDialog.request.request_id}/mark-collected`);
+      }
       await axios.post(`${API}/site-engineer/material-receipts/initiate`, payload);
 
       toast.success('Material receipt recorded');
@@ -923,9 +971,14 @@ export default function SiteEngineerProject() {
   };
 
   const formatCurrency = (amount) => `₹${amount?.toLocaleString() || 0}`;
-  // `in_transit` covers both legacy and new-procurement-flow transitions.
-  // `delivered` is final for pre_paid/credit. New-flow advance/post_delivery may stop here too.
-  const canReceive = (status) => ['in_transit', 'accountant_approved', 'ready_for_delivery', 'received_partial'].includes(status);
+  // Single-button flow: in_transit -> [Material Collecting] (opens the full
+  // receipt dialog directly) -> Confirm Receipt -> procurement_verifying.
+  // The item only leaves Transit once Confirm Receipt is actually submitted —
+  // clicking the button alone doesn't move it, since handleInitiateReceive
+  // silently marks it collected first (see below) as part of the same submit.
+  // `accountant_approved` / `ready_for_delivery` / `received_partial` are legacy statuses that
+  // bypass the collected checkpoint and go straight to the full receipt dialog.
+  const canReceive = (status) => ['in_transit', 'collected', 'accountant_approved', 'ready_for_delivery', 'received_partial'].includes(status);
 
   if (loading) {
     return (
@@ -975,8 +1028,6 @@ export default function SiteEngineerProject() {
       if (ap !== bp) return bp - ap;
       return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     });
-  const collectableCount = lifecycleItems.filter(r => canReceive(r.status)).length;
-
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1206,22 +1257,6 @@ export default function SiteEngineerProject() {
                 </div>
                 <div className="flex items-center gap-2 flex-wrap justify-end">
                   <MetaDateFilter value={matReqDateRange} onChange={setMatReqDateRange} defaultPreset={null} />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1 text-xs sm:text-sm whitespace-nowrap border-green-300 text-green-700 hover:bg-green-50"
-                    onClick={() => setMaterialBucket('transit')}
-                    data-testid="collect-material-btn"
-                  >
-                    <Package className="h-3 w-3 sm:h-4 sm:w-4" />
-                    <span className="hidden sm:inline">Collect Material</span>
-                    <span className="sm:hidden">Collect</span>
-                    {collectableCount > 0 && (
-                      <span className="ml-1 inline-flex items-center justify-center rounded-full bg-green-600 text-white text-[10px] font-bold h-4 min-w-[16px] px-1">
-                        {collectableCount}
-                      </span>
-                    )}
-                  </Button>
                 <Dialog open={materialRequestDialog} onOpenChange={(open) => {
                   setMaterialRequestDialog(open);
                   if (!open) {
@@ -1638,7 +1673,7 @@ export default function SiteEngineerProject() {
               </CardHeader>
               <CardContent className="p-3 sm:p-6 pt-0">
                 {/* Unified lifecycle filter cards (mirrors Procurement / Planning) */}
-                <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5 mb-3" data-testid="se-mat-lifecycle-cards">
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 mb-3" data-testid="se-mat-lifecycle-cards">
                   {LIFECYCLE_BUCKETS.map(b => {
                     const Icon = b.Icon;
                     const active = materialBucket === b.key;
@@ -1671,7 +1706,6 @@ export default function SiteEngineerProject() {
                   <div className="space-y-2 sm:space-y-3" data-testid="se-mat-list">
                     {visibleLifecycleItems.map(req => {
                       const bKey = bucketForMaterial(req);
-                      const cfg = LIFECYCLE_BUCKETS.find(b => b.key === bKey);
                       const isReceivable = canReceive(req.status);
                       const accentMap = {
                         planning_initial: 'border-l-yellow-500',
@@ -1704,14 +1738,9 @@ export default function SiteEngineerProject() {
                                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                                   <h4 className="text-sm font-semibold truncate">{req.material_name}</h4>
                                   <StatusBadge status={req.status} />
-                                  {cfg && (
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${cfg.cls}`}>
-                                      {cfg.label}
-                                    </span>
-                                  )}
                                 </div>
                                 <div className="text-xs text-gray-600 space-y-0.5">
-                                  <p><strong>ID:</strong> {req.order_id || req.request_id}</p>
+                                  <p><strong>ID:</strong> {req.request_number || req.order_id || req.request_id}</p>
                                   <p><strong>Qty:</strong> {req.quantity} {req.unit}</p>
                                   {req.brand && (
                                     <p className="text-blue-600"><strong>Brand:</strong> {req.brand}</p>
@@ -1755,6 +1784,7 @@ export default function SiteEngineerProject() {
                                     <p className="text-purple-700"><strong>Payment:</strong> {req.payment_mode}</p>
                                   )}
                                 </div>
+                                <MaterialStageFlow status={req.status} />
                               </div>
                               <div className="flex items-center gap-1 flex-shrink-0">
                                 {/* High Priority toggle — visible in every bucket so SE can flag
@@ -1791,7 +1821,7 @@ export default function SiteEngineerProject() {
                                     type="button"
                                     onClick={async (e) => {
                                       e.stopPropagation();
-                                      if (!window.confirm(`Delete material request ${req.order_id || req.request_id}? This cannot be undone.`)) return;
+                                      if (!window.confirm(`Delete material request ${req.request_number || req.order_id || req.request_id}? This cannot be undone.`)) return;
                                       try {
                                         await axios.delete(`${API}/site-engineer/material-requests/${req.request_id}`);
                                         toast.success('Material request deleted');
@@ -1814,7 +1844,7 @@ export default function SiteEngineerProject() {
                                     className="gap-1 bg-green-600 hover:bg-green-700 text-xs whitespace-nowrap"
                                     data-testid={`receive-btn-${req.request_id}`}
                                   >
-                                    <Package className="h-3 w-3" />Collect
+                                    <Package className="h-3 w-3" />Material Collecting
                                   </Button>
                                 )}
                                 <Eye className="h-4 w-4 text-gray-400" />

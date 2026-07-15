@@ -1865,6 +1865,23 @@ async def get_unified_approvals(
         item["project_name"] = project_map.get(item.get("project_id"), "Unknown")
     for item in materials + labour + vendor:
         item["project_name"] = project_map.get(item.get("project_id"), "Unknown")
+
+    # material_expenses mirror rows don't carry the human-friendly USB-MR
+    # sequential number themselves — only the live material_requests parent
+    # does — so attach it here via source_request_id, otherwise the
+    # Accountant queue falls back to showing the raw internal request id.
+    _mat_req_ids = {m.get("source_request_id") for m in materials if m.get("source_request_id")}
+    if _mat_req_ids:
+        _parent_reqs = await db.material_requests.find(
+            {"request_id": {"$in": list(_mat_req_ids)}},
+            {"_id": 0, "request_id": 1, "request_number": 1},
+        ).to_list(len(_mat_req_ids))
+        _req_number_map = {r["request_id"]: r.get("request_number") for r in _parent_reqs if r.get("request_number")}
+        for item in materials:
+            if not item.get("request_number") and item.get("source_request_id"):
+                rn = _req_number_map.get(item["source_request_id"])
+                if rn:
+                    item["request_number"] = rn
     for item in petty_cash:
         # Petty cash often has no project link (General). Preserve existing
         # project_name (e.g., "General") if no real project_id is set.
@@ -1874,6 +1891,14 @@ async def get_unified_approvals(
     for item in recorded_expenses_q:
         if item.get("project_id"):
             item["project_name"] = project_map.get(item["project_id"], item.get("project_name") or "Unknown")
+
+    # Jul 10 2026 — Legacy `recorded_expenses` rows (created before the
+    # multi-bill patch) don't carry `item_bills`/`bill_file_id`, so their
+    # uploaded bills were rendering blank on this Accountant queue even
+    # though `/accountant/recorded-expenses` and `/pm/recorded-expenses`
+    # already self-heal via this same helper.
+    from routes.site_ops import _backfill_item_bills
+    await _backfill_item_bills(recorded_expenses_q)
 
     return {
         "status_filter": sf,
@@ -7441,6 +7466,51 @@ def _request_collection_and_keys(req_type: str):
     raise HTTPException(status_code=400, detail=f"Invalid request type: {req_type}")
 
 
+async def _live_vendor_suspense_balance(suspense_type: str, vendor_name: str, req: Dict[str, Any]) -> float:
+    """Sum of a vendor/contractor/SE's currently-spendable suspense credit.
+
+    Jul 10 2026 — This used to be duplicated inline in both the GET
+    pay-context preview (which the Pay & Settle dialog displays) and the
+    POST /pay validation (which enforces the cap). They drifted: GET picked
+    up the "exclude entries linked to a rejected/deleted recorded_expense"
+    filter on Jul 09, POST never did. Sharing one function means the two
+    can never disagree on what "available" means again — the dialog can
+    still go stale between page-load and submit-click if another payment
+    consumes the same vendor's suspense in between, but that's a UI
+    refresh-timing issue (see PayApprovalDialog reload-before-submit),
+    not a query mismatch.
+    """
+    suspense_query = {"type": suspense_type}
+    if suspense_type == "material":
+        suspense_query["vendor_name"] = vendor_name
+    elif suspense_type == "labour":
+        suspense_query["contractor_name"] = vendor_name
+    else:  # petty_cash — keyed by Site Engineer (requested_by) so SE-level credit rolls forward
+        se_id = req.get("requested_by") or req.get("site_engineer_id")
+        if se_id:
+            suspense_query["site_engineer_id"] = se_id
+        else:
+            suspense_query["vendor_name"] = vendor_name
+    suspense_entries = await db.suspense_entries.find(suspense_query, {"_id": 0}).to_list(1000)
+    if suspense_type == "material":
+        _excl_status = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+        _linked_ids = [e.get("linked_expense_id") or e.get("expense_id") for e in suspense_entries if e.get("linked_expense_id") or e.get("expense_id")]
+        _live_ids = set()
+        if _linked_ids:
+            _linked_docs = await db.recorded_expenses.find(
+                {"expense_id": {"$in": _linked_ids}}, {"_id": 0, "expense_id": 1, "status": 1, "is_deleted": 1}
+            ).to_list(len(_linked_ids))
+            _live_ids = {
+                d["expense_id"] for d in _linked_docs
+                if (d.get("status") or "").lower() not in _excl_status and not d.get("is_deleted")
+            }
+        suspense_entries = [
+            e for e in suspense_entries
+            if not (e.get("linked_expense_id") or e.get("expense_id")) or (e.get("linked_expense_id") or e.get("expense_id")) in _live_ids
+        ]
+    return sum(float(e.get("amount", 0) or 0) for e in suspense_entries)
+
+
 @router.get("/approvals/{req_type}/{request_id}/pay-context")
 async def get_pay_context(req_type: str, request_id: str, user: User = Depends(get_current_user)):
     """Returns request details + current suspense balance + active opened cheques (for the dialog)."""
@@ -7477,20 +7547,9 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
             vendor_bank_name = vm.get("bank_name") or None
             vendor_ifsc = vm.get("ifsc_code") or None
 
-    # Vendor suspense balance — sum existing entries
-    suspense_query = {"type": suspense_type}
-    if suspense_type == "material":
-        suspense_query["vendor_name"] = vendor_name
-    elif suspense_type == "labour":
-        suspense_query["contractor_name"] = vendor_name
-    else:  # petty_cash — keyed by Site Engineer (requested_by) so SE-level credit rolls forward
-        se_id = req.get("requested_by") or req.get("site_engineer_id")
-        if se_id:
-            suspense_query["site_engineer_id"] = se_id
-        else:
-            suspense_query["vendor_name"] = vendor_name
-    suspense_entries = await db.suspense_entries.find(suspense_query, {"_id": 0}).to_list(1000)
-    existing_suspense = sum(float(e.get("amount", 0) or 0) for e in suspense_entries)
+    # Vendor suspense balance — shared with the POST /pay validation below so
+    # the dialog's displayed figure and the enforced cap can never disagree.
+    existing_suspense = await _live_vendor_suspense_balance(suspense_type, vendor_name, req)
 
     # All active CRE-opened incoming cheques that haven't been consumed yet.
     # Status sub-state (issued / received / post_dated / deposited) doesn't matter
@@ -7545,6 +7604,25 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
         credit_used = 0.0
         payable = max(0.0, bill_amount - already_paid)
 
+    # Jul 10 2026 — For material advance/balance legs, `bill_amount` above is
+    # only THIS leg's amount (e.g. the ₹10 advance). Look up the parent
+    # material_request so Pay & Settle can show the full Advance / Balance /
+    # Total breakdown instead of just the flat leg amount.
+    payment_phase = None
+    total_amount = None
+    advance_amount = None
+    balance_amount = None
+    if req_type == "material" and req.get("payment_phase") in ("advance", "balance") and req.get("source_request_id"):
+        parent = await db.material_requests.find_one(
+            {"request_id": req["source_request_id"]},
+            {"_id": 0, "total_amount": 1, "advance_amount": 1, "balance_amount": 1},
+        )
+        if parent:
+            payment_phase = req.get("payment_phase")
+            total_amount = float(parent.get("total_amount") or 0)
+            advance_amount = float(parent.get("advance_amount") or 0)
+            balance_amount = float(parent.get("balance_amount") or max(0.0, total_amount - advance_amount))
+
     return {
         "request": {
             "id": request_id,
@@ -7560,6 +7638,10 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
             "is_continuation": is_continuation,
             "description": req.get("material_name") or req.get("labour_type") or req.get("description") or "",
             "current_status": req.get("status"),
+            "payment_phase": payment_phase,
+            "total_amount": total_amount,
+            "advance_amount": advance_amount,
+            "balance_amount": balance_amount,
         },
         "suspense": {
             "vendor_balance": existing_suspense if not is_continuation else 0.0,
@@ -7608,19 +7690,15 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     credit_used = 0.0
     apply_req = max(0.0, float(data.apply_suspense or 0))
     if apply_req > 0.5:
-        sus_query = {"type": suspense_type}
-        if suspense_type == "material":
-            sus_query["vendor_name"] = vendor_name
-        elif suspense_type == "labour":
-            sus_query["contractor_name"] = vendor_name
-        else:
-            se_id = req.get("requested_by") or req.get("site_engineer_id")
-            if se_id:
-                sus_query["site_engineer_id"] = se_id
-            else:
-                sus_query["vendor_name"] = vendor_name
-        sus_entries = await db.suspense_entries.find(sus_query, {"_id": 0}).to_list(1000)
-        existing_suspense = sum(float(e.get("amount", 0) or 0) for e in sus_entries)
+        # Jul 10 2026 — Shares `_live_vendor_suspense_balance` with the GET
+        # pay-context preview so this cap can never disagree with what the
+        # Pay & Settle dialog displayed (they'd previously drifted: GET
+        # excluded suspense entries linked to a rejected/deleted expense,
+        # this check didn't, so this endpoint could — in principle — accept
+        # MORE than the dialog showed. The reverse case, where the dialog
+        # shows more than this endpoint allows, means suspense was consumed
+        # by another action after the dialog loaded — refresh and retry).
+        existing_suspense = await _live_vendor_suspense_balance(suspense_type, vendor_name, req)
         # Cap the applied suspense to the smaller of: what's available,
         # what's payable on this bill (after prior partial payments).
         remaining_payable_pre = max(0.0, bill_amount - already_paid)

@@ -570,12 +570,9 @@ async def get_site_engineer_project_detail(
     for field in financial_fields:
         project.pop(field, None)
     
-    # SE users only see their own threads; PMs/Super Admins get the full project view.
-    se_filter = (
-        {"site_engineer_id": user.user_id}
-        if user.role in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]
-        else {}
-    )
+    # Material/labour/receipt data is project-wide: every SE/SR-SE assigned to a
+    # project must see the same requests regardless of which of them created it.
+    se_filter = {}
     petty_filter = (
         {"requested_by": user.user_id}
         if user.role in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]
@@ -1698,6 +1695,48 @@ def generate_otp(length=6):
     return ''.join(random.choices(string.digits, k=length))
 
 
+@router.post("/site-engineer/material-requests/{request_id}/mark-collected")
+async def mark_material_collected(request_id: str, user: User = Depends(get_current_user)):
+    """Site Engineer confirms physical pickup of an in-transit material —
+    a lightweight checkpoint BEFORE the full receipt (qty/photos/GPS) is
+    logged. Splits the old single-step 'receive' flow into two real stages:
+      in_transit -> [SE marks collected] -> collected (Collect Material tab)
+      collected  -> [SE logs full receipt] -> procurement_verifying (Purchase Verification tab, unchanged)
+    """
+    if user.role not in (UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER):
+        raise HTTPException(status_code=403, detail="Only Site Engineers can mark materials collected")
+
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Material request not found")
+
+    if user.role == UserRole.SITE_ENGINEER:
+        if request["site_engineer_id"] != user.user_id:
+            raise HTTPException(status_code=403, detail="You can only collect materials for your own requests")
+    else:  # SR_SITE_ENGINEER
+        if request["site_engineer_id"] != user.user_id:
+            proj = await db.projects.find_one(
+                {"project_id": request.get("project_id")},
+                {"_id": 0, "team": 1},
+            )
+            team = (proj or {}).get("team") or {}
+            if team.get("sr_site_engineer") != user.user_id:
+                raise HTTPException(status_code=403, detail="You can only collect materials for projects you supervise")
+
+    if request.get("status") not in ["in_transit", "ready_for_delivery"]:
+        raise HTTPException(status_code=400, detail=f"Cannot mark collected in status: {request.get('status')}")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.material_requests.update_one({"request_id": request_id}, {"$set": {
+        "status": "collected",
+        "collected_at": now,
+        "collected_by": user.user_id,
+        "collected_by_name": user.name,
+    }})
+    await create_audit_log(user.user_id, "mark_collected", "material_request", request_id, {"status": "collected"})
+    return {"message": "Marked as collected — log the full receipt next", "status": "collected"}
+
+
 @router.post("/site-engineer/material-receipts/initiate")
 async def initiate_material_receipt(
     data: MaterialReceiptCreate,
@@ -1731,7 +1770,10 @@ async def initiate_material_receipt(
             if team.get("sr_site_engineer") != user.user_id:
                 raise HTTPException(status_code=403, detail="You can only receive materials for projects you supervise")
 
-    if request["status"] not in ["accountant_approved", "ready_for_delivery", "received_partial", "in_transit", "order_placed"]:
+    # `in_transit` is deliberately excluded — the modern flow requires SE to
+    # mark-collected first (see /mark-collected above), which flips status to
+    # `collected`. Legacy statuses below bypass that checkpoint unchanged.
+    if request["status"] not in ["accountant_approved", "ready_for_delivery", "received_partial", "order_placed", "collected"]:
         raise HTTPException(status_code=400, detail="Material is not ready for receiving")
 
     now_iso = datetime.now(timezone.utc).isoformat()

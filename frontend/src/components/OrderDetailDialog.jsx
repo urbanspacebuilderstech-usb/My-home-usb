@@ -109,6 +109,32 @@ function buildTimeline(req) {
     icon: CheckCircle,
     color: 'text-emerald-600',
   });
+  // Advance-mode's own two payment legs, released via the Pay & Settle
+  // dialog — these stamp advance_paid_at / collected_at / balance_paid_at
+  // rather than accountant_approved_at / last_payment_at, so without these
+  // the timeline showed a gap after Vendor Assigned even when the advance
+  // had genuinely been paid and the SE had collected the material.
+  if (req.advance_paid_at) events.push({
+    label: `Accountant Released Advance Payment${req.advance_paid_amount ? ` (${formatCurrency(req.advance_paid_amount)})` : ''}`,
+    by: req.advance_paid_by_name || 'Accountant',
+    date: req.advance_paid_at,
+    icon: CheckCircle,
+    color: 'text-cyan-600',
+  });
+  if (req.collected_at) events.push({
+    label: 'SE Marked Collected',
+    by: req.collected_by_name || 'Site Engineer',
+    date: req.collected_at,
+    icon: Package,
+    color: 'text-lime-600',
+  });
+  if (req.balance_paid_at) events.push({
+    label: `Accountant Released Balance Payment${req.balance_paid_amount ? ` (${formatCurrency(req.balance_paid_amount)})` : ''}`,
+    by: req.balance_paid_by_name || 'Accountant',
+    date: req.balance_paid_at,
+    icon: CheckCircle,
+    color: 'text-emerald-600',
+  });
   if (req.accountant_approved_at && req.accountant_approved_at !== req.last_payment_at) events.push({
     label: 'Accountant Approved',
     by: req.accountant_approved_by || 'Accountant',
@@ -216,7 +242,7 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
                 </DialogTitle>
                 <DialogDescription className="sr-only">Order details and approval timeline</DialogDescription>
                 <div className="flex items-center gap-2 mt-1 flex-wrap">
-                  <span className="text-xs text-gray-500 font-mono">{order.order_id}</span>
+                  <span className="text-xs text-gray-500 font-mono">{order.request_number || order.order_id}</span>
                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${statusConfig.color}`}>
                     <StatusIcon className="h-3 w-3" />
                     {statusConfig.label}

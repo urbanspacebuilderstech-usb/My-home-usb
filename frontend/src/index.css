@@ -234,6 +234,20 @@ input[inputmode="numeric"]::-webkit-inner-spin-button {
 .dark .text-neutral-400,
 .dark .text-zinc-400 { color: hsl(0 0% 58%); }
 
+/* Coloured badge/pill text (e.g. "Surplus"/"Shortfall" chips that pair
+ * `bg-{color}-50 text-{color}-800`). Once the -50 background above goes
+ * dark, the matching -800 text is dark-on-dark and unreadable — lift it
+ * to a lighter tint of the same hue instead. */
+.dark .text-amber-800   { color: hsl(35 70% 65%); }
+.dark .text-orange-800  { color: hsl(24 70% 65%); }
+.dark .text-red-800     { color: hsl(0 70% 70%); }
+.dark .text-rose-800    { color: hsl(350 70% 72%); }
+.dark .text-green-800   { color: hsl(140 45% 60%); }
+.dark .text-emerald-800 { color: hsl(160 45% 60%); }
+.dark .text-blue-800    { color: hsl(217 70% 72%); }
+.dark .text-violet-800  { color: hsl(265 60% 75%); }
+.dark .text-purple-800  { color: hsl(275 60% 75%); }
+
 /* --- Light borders → subtle dark dividers ------------------------- */
 .dark .border-gray-100,
 .dark .border-slate-100,
@@ -247,6 +261,17 @@ input[inputmode="numeric"]::-webkit-inner-spin-button {
 .dark .border-neutral-300 { border-color: hsl(222 14% 24%); }
 .dark .divide-gray-200 > * + * { border-color: hsl(222 14% 20%); }
 .dark .divide-gray-100 > * + * { border-color: hsl(222 14% 16%); }
+
+/* Coloured badge/pill borders paired with the -800 text above. */
+.dark .border-amber-200   { border-color: hsl(35 35% 24%); }
+.dark .border-orange-200  { border-color: hsl(24 35% 24%); }
+.dark .border-red-200     { border-color: hsl(0 35% 24%); }
+.dark .border-rose-200    { border-color: hsl(350 35% 24%); }
+.dark .border-green-200   { border-color: hsl(140 25% 22%); }
+.dark .border-emerald-200 { border-color: hsl(160 25% 22%); }
+.dark .border-blue-200    { border-color: hsl(217 30% 24%); }
+.dark .border-violet-200  { border-color: hsl(265 30% 25%); }
+.dark .border-purple-200  { border-color: hsl(275 30% 25%); }
 
 /* --- Hover states of light backgrounds --------------------------- */
 .dark .hover\:bg-gray-50:hover,
@@ -292,6 +317,31 @@ input[inputmode="numeric"]::-webkit-inner-spin-button {
 .dark .from-white { --tw-gradient-from: hsl(222 14% 11%) var(--tw-gradient-from-position); }
 .dark .to-white   { --tw-gradient-to:   hsl(222 14% 11%) var(--tw-gradient-to-position); }
 .dark .via-white  { --tw-gradient-via:  hsl(222 14% 11%) var(--tw-gradient-via-position); }
+
+/* Tinted `from-{color}-50` gradient stops (KPI summary cards) — same
+ * hues as the `.dark .bg-{color}-50` overrides above so a card that
+ * fades "from-green-50 to-white" reads as a dark card, not a pastel
+ * gradient bleeding into the dark page background. */
+.dark .from-amber-50   { --tw-gradient-from: hsl(35 35% 15%)  var(--tw-gradient-from-position); }
+.dark .from-orange-50  { --tw-gradient-from: hsl(24 35% 14%)  var(--tw-gradient-from-position); }
+.dark .from-red-50     { --tw-gradient-from: hsl(0 35% 15%)   var(--tw-gradient-from-position); }
+.dark .from-rose-50    { --tw-gradient-from: hsl(350 35% 15%) var(--tw-gradient-from-position); }
+.dark .from-green-50   { --tw-gradient-from: hsl(140 25% 13%) var(--tw-gradient-from-position); }
+.dark .from-emerald-50 { --tw-gradient-from: hsl(160 25% 13%) var(--tw-gradient-from-position); }
+.dark .from-blue-50    { --tw-gradient-from: hsl(217 30% 14%) var(--tw-gradient-from-position); }
+.dark .from-violet-50  { --tw-gradient-from: hsl(265 30% 15%) var(--tw-gradient-from-position); }
+.dark .from-purple-50  { --tw-gradient-from: hsl(275 30% 15%) var(--tw-gradient-from-position); }
+.dark .to-red-50       { --tw-gradient-to:   hsl(0 35% 15%)   var(--tw-gradient-to-position); }
+
+/* Opacity-suffixed pastel backgrounds (`bg-{color}-50/40`) used on the
+ * Cashbook payment-mode bucket cards. These generate a distinct class
+ * name from `bg-{color}-50`, so they need their own override or they
+ * fall through as a literal light colour glassed over the dark page. */
+.dark .bg-amber-50\/40   { background-color: hsl(35 35% 15% / 0.6); }
+.dark .bg-blue-50\/40    { background-color: hsl(217 30% 14% / 0.6); }
+.dark .bg-emerald-50\/40 { background-color: hsl(160 25% 13% / 0.6); }
+.dark .bg-violet-50\/40  { background-color: hsl(265 30% 15% / 0.6); }
+.dark .bg-rose-50\/40    { background-color: hsl(350 35% 15% / 0.6); }
 
 /* Body fallback if a page never opts into dark vars. */
 .dark body { background-color: hsl(222 14% 8%); color: hsl(0 0% 96%); }

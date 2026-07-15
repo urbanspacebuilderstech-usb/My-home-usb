@@ -25,7 +25,7 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
  * Uses the same /work-orders/{id}/rab-chain endpoint so numbering matches the
  * SE Payment Summary popup, and skip-rejected sequencing is consistent.
  */
-export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdFilter, onEditRab, userRole }) {
+export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdFilter, onEditRab, userRole, hideStageTiles = false }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
@@ -363,9 +363,10 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
     )
   );
 
-  // Per-stage card — header row with name + three stat tiles (Total /
-  // Released / Balance), inner table of RABs that pass the active sub-tab
-  // filter, and a fallback empty hint when this stage has no matching RABs.
+  // Per-stage card — header row with name + (unless hideStageTiles) three
+  // stat tiles (Total / Released / Balance), inner table of RABs that pass
+  // the active sub-tab filter, and a fallback empty hint when this stage
+  // has no matching RABs.
   const StageCard = ({ group, scopedRabs }) => {
     const decorated = decorateTotals(group);
     return (
@@ -375,11 +376,13 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
             <p className="text-[10px] uppercase tracking-wider text-violet-700 font-semibold">Stage</p>
             <p className="text-sm font-bold text-gray-900 truncate">{decorated.stage_name}</p>
           </div>
-          <div className="grid grid-cols-3 gap-1.5 sm:w-[420px] shrink-0">
-            <Tile label="Total" value={inr(decorated.stage_amount)} color="text-blue-700" />
-            <Tile label="Released" value={inr(decorated.released)} color="text-emerald-700" />
-            <Tile label="Balance" value={inr(decorated.balance)} color={decorated.balance < 0 ? 'text-red-700' : 'text-orange-700'} />
-          </div>
+          {!hideStageTiles && (
+            <div className="grid grid-cols-3 gap-1.5 sm:w-[420px] shrink-0">
+              <Tile label="Total" value={inr(decorated.stage_amount)} color="text-blue-700" />
+              <Tile label="Released" value={inr(decorated.released)} color="text-emerald-700" />
+              <Tile label="Balance" value={inr(decorated.balance)} color={decorated.balance < 0 ? 'text-red-700' : 'text-orange-700'} />
+            </div>
+          )}
         </div>
         {scopedRabs.length === 0 ? (
           <p className="px-3 py-4 text-center text-[11px] text-gray-400">No RABs in this view for this stage.</p>

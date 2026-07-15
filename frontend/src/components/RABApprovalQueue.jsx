@@ -217,11 +217,13 @@ export default function RABApprovalQueue({ role, title }) {
                   <UserIcon className="h-3 w-3" /> By {item.requested_by_name}
                 </p>
               </div>
-              <div className="text-[11px] text-gray-600 grid grid-cols-3 gap-1 bg-white/60 p-1.5 rounded border">
-                <span>Stage Total: <span className="font-medium">{fmt(item.stage_amount)}</span></span>
-                <span>Released: <span className="font-medium text-emerald-700">{fmt(item.stage_released)}</span></span>
-                <span>Balance: <span className="font-medium text-blue-700">{fmt(item.stage_balance)}</span></span>
-              </div>
+              {role !== 'quality_check' && (
+                <div className="text-[11px] text-gray-600 grid grid-cols-3 gap-1 bg-white/60 p-1.5 rounded border">
+                  <span>Stage Total: <span className="font-medium">{fmt(item.stage_amount)}</span></span>
+                  <span>Released: <span className="font-medium text-emerald-700">{fmt(item.stage_released)}</span></span>
+                  <span>Balance: <span className="font-medium text-blue-700">{fmt(item.stage_balance)}</span></span>
+                </div>
+              )}
               {item.is_multi_stage && item.stage_breakdown.length > 1 && (
                 <div className="mt-1 p-1.5 rounded border border-fuchsia-100 bg-fuchsia-50/40">
                   <p className="text-[10px] uppercase font-semibold text-fuchsia-700 mb-1">Stages covered by this bill</p>

@@ -2454,10 +2454,11 @@ async def procurement_simple_queue(
         "pending": ["requested", "pm_approved", "procurement_revision"],
         "planning_initial": ["planning_initial_pending"],
         "verifying": ["procurement_verifying"],
+        "collected": ["collected"],
         "forwarded": ["procurement_priced"],
         "rejected": ["procurement_rejected", "planning_initial_rejected", "procurement_verify_rejected"],
         "revision": ["procurement_revision"],
-        "all": ["requested", "pm_approved", "procurement_priced", "procurement_rejected", "procurement_revision", "planning_initial_pending", "planning_initial_rejected", "procurement_verifying", "procurement_verify_rejected", "in_transit", "pending_accounts_approval", "pending_advance_payment", "pending_balance_payment", "delivered"],
+        "all": ["requested", "pm_approved", "procurement_priced", "procurement_rejected", "procurement_revision", "planning_initial_pending", "planning_initial_rejected", "collected", "procurement_verifying", "procurement_verify_rejected", "in_transit", "pending_accounts_approval", "pending_advance_payment", "pending_balance_payment", "delivered"],
     }
     target = status_map.get(queue, status_map["pending"])
 
@@ -2961,6 +2962,64 @@ async def procurement_simple_toggle_priority(request_id: str, data: dict = None,
     return {"message": "High priority " + ("enabled" if new_val else "cleared"), "is_high_priority": new_val}
 
 
+@router.patch("/procurement-simple/material-requests/{request_id}/archive")
+async def procurement_simple_archive_material(request_id: str, user: User = Depends(get_current_user)):
+    """Archive a material request out of Planning's normal lifecycle tabs into
+    a dedicated Archive tab. Purely an organizational flag (`is_archived`) —
+    it does NOT touch `status`, so the Site Engineer's own view (and every
+    other role's view) keeps showing the request at its real current stage,
+    completely unaffected by archiving.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
+        raise HTTPException(status_code=403, detail="Only Planning or Super Admin can archive material requests")
+
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {
+            "is_archived": True,
+            "archived_at": now,
+            "archived_by": user.user_id,
+            "archived_by_name": user.name,
+        }},
+    )
+    try:
+        await create_audit_log(user.user_id, "archive", "material_request", request_id, {})
+    except Exception:
+        pass
+    return {"message": "Request archived", "is_archived": True}
+
+
+@router.patch("/procurement-simple/material-requests/{request_id}/unarchive")
+async def procurement_simple_unarchive_material(request_id: str, user: User = Depends(get_current_user)):
+    """Restore an archived material request — since archiving never touched
+    `status`, the request simply reappears in whichever lifecycle tab its
+    real current stage maps to (e.g. Transit)."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
+        raise HTTPException(status_code=403, detail="Only Planning or Super Admin can unarchive material requests")
+
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {
+            "$set": {"is_archived": False},
+            "$unset": {"archived_at": "", "archived_by": "", "archived_by_name": ""},
+        },
+    )
+    try:
+        await create_audit_log(user.user_id, "unarchive", "material_request", request_id, {})
+    except Exception:
+        pass
+    return {"message": "Request restored", "is_archived": False}
+
+
 @router.get("/procurement-simple/dashboard")
 async def procurement_simple_dashboard(user: User = Depends(get_current_user)):
     """Counts for the Procurement dashboard tiles."""
@@ -3049,6 +3108,24 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
     # stop entirely: go straight to delivered so the paid bill is never
     # re-opened (double-payment risk).
     _paid_so_far = float(req.get("advance_paid_amount") or 0) + float(req.get("balance_paid_amount") or 0)
+    # Jul 10 2026 — `advance_paid_amount`/`balance_paid_amount` are only
+    # stamped onto this parent doc when the accountant's payment landed
+    # within 50 paise of the mirror bill's exact amount (pay_approval's
+    # `is_full_payment` check). If it was off by more than that — rounding,
+    # a bank fee, a manually-adjusted figure — the mirror bill sits at
+    # "partially_paid" and this parent never learns the money was paid,
+    # so a 100%-advance order that's genuinely fully paid could still be
+    # routed through Payment Pending again. Self-heal by also checking the
+    # linked material_expenses mirror bill(s)' own `paid_amount` directly —
+    # `max()`, never summed with the field above, since a fully-cascaded
+    # advance sets both to the same figure and summing would double-count.
+    if _paid_so_far <= 0.01:
+        _mirror_paid = await db.material_expenses.aggregate([
+            {"$match": {"source_request_id": request_id}},
+            {"$group": {"_id": None, "total": {"$sum": "$paid_amount"}}},
+        ]).to_list(1)
+        if _mirror_paid:
+            _paid_so_far = max(_paid_so_far, float(_mirror_paid[0].get("total") or 0))
     _req_total = float(req.get("total_amount") or req.get("estimated_price") or 0)
     if next_status == "pending_balance_payment" and _req_total > 0 and _paid_so_far >= _req_total - 0.01:
         next_status = "delivered"
@@ -4310,7 +4387,15 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
             "notes": rx.get("description") or "Vendor payment",
         })
 
-    # --- vendor_credit_ledger (suspense) ---
+    # --- vendor_credit_ledger (materials received on credit terms, payment
+    # due later — this is money WE OWE the vendor, i.e. a pending payable,
+    # not usable Pay & Settle credit. It used to be added to
+    # `suspense_balance` and labelled "credit avl." in the UI, which was
+    # backwards — an unpaid credit-purchase bill isn't spendable credit, and
+    # it made this Suspense figure diverge from the Pay & Settle dialog's
+    # "Vendor Suspense" (which only reflects real suspense_entries). Route it
+    # into `pending_amount` instead so both views agree on Suspense and the
+    # unpaid liability still surfaces (under Pending) rather than vanishing. ---
     for vc in vendor_credits:
         pid = vc.get("project_id")
         if pid and pid not in live_project_ids:
@@ -4319,7 +4404,7 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
         outstanding = float(vc.get("balance") if vc.get("balance") is not None else (vc.get("amount") or 0))
         status = (vc.get("status") or "").lower()
         if status in OPEN_CREDIT_STATUSES and outstanding > 0:
-            b["suspense_balance"] += outstanding
+            b["pending_amount"] += outstanding
         proj_name = project_map.get(vc.get("project_id"), "")
         if proj_name and proj_name not in b["projects"]:
             b["projects"].append(proj_name)
@@ -4449,6 +4534,7 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
         "pm_approved": "Procurement",
         "procurement_priced": "Planning",
         "procurement_revision": "Procurement",
+        "collected": "Site Engineer",
         "pending_advance_payment": "Accountant",
         "pending_accounts_approval": "Accountant",
         "pending_balance_payment": "Accountant",

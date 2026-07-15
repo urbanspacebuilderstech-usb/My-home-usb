@@ -16,9 +16,9 @@ from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
-# Import the existing app and router from server.py for backwards compatibility
+# Import the existing app from server.py for backwards compatibility
 # This allows us to gradually migrate without breaking existing functionality
-from server import app, api_router
+from server import app
 
 # Future imports (uncomment as routes are migrated):
 # from routes import auth_router, crm_router, cre_router, projects_router

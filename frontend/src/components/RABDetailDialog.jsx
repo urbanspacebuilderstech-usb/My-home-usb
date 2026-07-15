@@ -92,6 +92,24 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
     } catch { return String(iso).slice(0, 10); }
   };
 
+  // When a single RAB is highlighted (every current caller does this — QC /
+  // PM / Planning / SE "View" always passes a requestId), the footer bar
+  // switches from the work-order-wide Contract/Released/Balance/RABs to the
+  // totals of the stages actually covered by THIS bill, summed from its own
+  // stage_breakdown. Falls back to the work-order footer when browsing the
+  // full unfiltered RAB ladder (no single RAB to summarize).
+  const highlightedRab = (data && highlightRequestId)
+    ? data.rabs.find(r => r.request_id === highlightRequestId)
+    : null;
+  const stageTotals = highlightedRab?.stage_breakdown?.length
+    ? highlightedRab.stage_breakdown.reduce((acc, sb) => ({
+        stageTotal: acc.stageTotal + (Number(sb.stage_amount) || 0),
+        requested: acc.requested + (Number(sb.requested_amount) || 0),
+        released: acc.released + (Number(sb.approved_amount) || 0),
+        balance: acc.balance + (Number(sb.stage_balance) || 0),
+      }), { stageTotal: 0, requested: 0, released: 0, balance: 0 })
+    : null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[92vh] flex flex-col p-0" data-testid="rab-detail-dialog">
@@ -131,8 +149,12 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
               </div>
             </div>
 
-            {/* Per-RAB cards — only one when highlightRequestId is set */}
-            <div className={`mt-2 space-y-2 min-h-0 ${highlightRequestId ? '' : 'overflow-y-auto pr-1'}`} data-testid="rab-detail-list">
+            {/* Per-RAB cards — only one when highlightRequestId is set.
+                Always its own scroll region (flex-1 + overflow-y-auto)
+                so a tall card (e.g. a multi-stage breakdown) scrolls
+                internally instead of pushing the footer summary bar out
+                of view / overlapping it. */}
+            <div className="mt-2 space-y-2 min-h-0 flex-1 overflow-y-auto pr-1" data-testid="rab-detail-list">
               {data.rabs.length === 0 ? (
                 <div className="text-center py-10 text-gray-500">
                   <FileText className="h-10 w-10 mx-auto text-gray-300 mb-2" />
@@ -223,12 +245,25 @@ export function RABDetailDialog({ open, onOpenChange, projectId, workOrderId, hi
               })}
             </div>
 
-            {/* Footer summary — pinned at bottom of content area */}
+            {/* Footer summary — pinned at bottom of content area. Shows this
+                bill's own stage totals when a single RAB is highlighted;
+                otherwise the work-order-wide ladder summary. */}
             <div className="mt-2 rounded-lg bg-violet-600 text-white p-2.5 grid grid-cols-4 gap-2 shrink-0">
-              <FooterTile label="Contract" value={inr(data.contract_total)} />
-              <FooterTile label="Released" value={inr(data.total_released)} />
-              <FooterTile label="Balance" value={inr(data.balance_after_all)} />
-              <FooterTile label="RABs" value={`${data.rab_count}`} />
+              {stageTotals ? (
+                <>
+                  <FooterTile label="Stage Total" value={inr(stageTotals.stageTotal)} />
+                  <FooterTile label="Requested Total" value={inr(stageTotals.requested)} />
+                  <FooterTile label="Released Total" value={inr(stageTotals.released)} />
+                  <FooterTile label="Balance Total" value={inr(stageTotals.balance)} />
+                </>
+              ) : (
+                <>
+                  <FooterTile label="Contract" value={inr(data.contract_total)} />
+                  <FooterTile label="Released" value={inr(data.total_released)} />
+                  <FooterTile label="Balance" value={inr(data.balance_after_all)} />
+                  <FooterTile label="RABs" value={`${data.rab_count}`} />
+                </>
+              )}
             </div>
           </div>
         )}
@@ -339,15 +374,41 @@ function RABCardTabs({ rab, inr, fmtDate, releasedSiblings = [], onView, onDownl
           <p className="text-xl sm:text-2xl font-extrabold text-orange-700 mt-0.5">{inr(rab.closing_balance_after)}</p>
           <p className="text-[10px] text-orange-600/80 mt-0.5">Cumulative released: {inr(rab.cumulative_released_after)}</p>
         </div>
-        <div className="grid grid-cols-3 gap-2">
-          <MiniStat label="Stage Amount" value={inr(rab.stage_amount)} />
-          <MiniStat label="Requested" value={inr(rab.requested_amount)} />
-          <MiniStat
-            label="Released"
-            value={isApproved ? inr(rab.approved_amount) : '—'}
-            valueClass={isApproved ? 'text-emerald-700' : 'text-gray-400'}
-          />
-        </div>
+        {/* Multi-stage bill — one card's Stage Amount is meaningless (it's
+            only the primary member's), so break it down per stage instead:
+            each stage gets its own Stage Total / Requested / Released / Balance. */}
+        {rab.is_multi_stage && (rab.stage_breakdown?.length > 1) ? (
+          <div className="space-y-2">
+            {rab.stage_breakdown.map((sb, idx) => {
+              const sbApproved = sb.status === 'approved';
+              return (
+                <div key={sb.request_id || sb.stage_id || idx} className="rounded-lg border border-gray-200 bg-gray-50/60 p-2">
+                  <p className="text-[11px] font-semibold text-gray-800 mb-1.5">{idx + 1}. {sb.stage_name}</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <MiniStat label="Stage Total" value={inr(sb.stage_amount)} />
+                    <MiniStat label="Requested" value={inr(sb.requested_amount)} />
+                    <MiniStat
+                      label="Released"
+                      value={sbApproved ? inr(sb.approved_amount) : '—'}
+                      valueClass={sbApproved ? 'text-emerald-700' : 'text-gray-400'}
+                    />
+                    <MiniStat label="Balance" value={inr(sb.stage_balance)} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-2">
+            <MiniStat label="Stage Amount" value={inr(rab.stage_amount)} />
+            <MiniStat label="Requested" value={inr(rab.requested_amount)} />
+            <MiniStat
+              label="Released"
+              value={isApproved ? inr(rab.approved_amount) : '—'}
+              valueClass={isApproved ? 'text-emerald-700' : 'text-gray-400'}
+            />
+          </div>
+        )}
         {rab.notes && (
           <p className="mt-2 text-[11px] text-gray-600 italic line-clamp-2 border-l-2 border-violet-200 pl-2">&quot;{rab.notes}&quot;</p>
         )}
@@ -661,15 +722,38 @@ function RABFocusedDialog({ open, rab, inr, fmtDate, onClose, onDownload }) {
                   <p className="text-xl sm:text-2xl font-extrabold text-orange-700 mt-0.5">{inr(rab.closing_balance_after)}</p>
                   <p className="text-[10px] text-orange-600/80 mt-0.5">Cumulative released: {inr(rab.cumulative_released_after)}</p>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <MiniStat label="Stage Amount" value={inr(rab.stage_amount)} />
-                  <MiniStat label="Requested" value={inr(rab.requested_amount)} />
-                  <MiniStat
-                    label="Released"
-                    value={isApproved ? inr(rab.approved_amount) : '—'}
-                    valueClass={isApproved ? 'text-emerald-700' : 'text-gray-400'}
-                  />
-                </div>
+                {rab.is_multi_stage && (rab.stage_breakdown?.length > 1) ? (
+                  <div className="space-y-2">
+                    {rab.stage_breakdown.map((sb, idx) => {
+                      const sbApproved = sb.status === 'approved';
+                      return (
+                        <div key={sb.request_id || sb.stage_id || idx} className="rounded-lg border border-gray-200 bg-gray-50/60 p-2">
+                          <p className="text-[11px] font-semibold text-gray-800 mb-1.5">{idx + 1}. {sb.stage_name}</p>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <MiniStat label="Stage Total" value={inr(sb.stage_amount)} />
+                            <MiniStat label="Requested" value={inr(sb.requested_amount)} />
+                            <MiniStat
+                              label="Released"
+                              value={sbApproved ? inr(sb.approved_amount) : '—'}
+                              valueClass={sbApproved ? 'text-emerald-700' : 'text-gray-400'}
+                            />
+                            <MiniStat label="Balance" value={inr(sb.stage_balance)} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2">
+                    <MiniStat label="Stage Amount" value={inr(rab.stage_amount)} />
+                    <MiniStat label="Requested" value={inr(rab.requested_amount)} />
+                    <MiniStat
+                      label="Released"
+                      value={isApproved ? inr(rab.approved_amount) : '—'}
+                      valueClass={isApproved ? 'text-emerald-700' : 'text-gray-400'}
+                    />
+                  </div>
+                )}
                 {rab.notes && (
                   <p className="mt-2 text-[11px] text-gray-600 italic line-clamp-2 border-l-2 border-violet-200 pl-2">&quot;{rab.notes}&quot;</p>
                 )}
