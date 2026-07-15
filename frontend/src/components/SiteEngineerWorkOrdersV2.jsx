@@ -179,7 +179,7 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
         <Button
           size="sm"
           onClick={() => setGlobalDlrOpen(true)}
-          className="bg-amber-600 hover:bg-amber-700 text-white gap-1"
+          className="bg-green-600 hover:bg-green-700 text-white gap-1"
           data-testid="se-wov2-global-dlr-btn"
         >
           <ClipboardList className="h-3.5 w-3.5" /> Global DLR Report
