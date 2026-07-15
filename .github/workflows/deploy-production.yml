@@ -26,6 +26,8 @@ jobs:
 
       - name: Build with production env
         working-directory: frontend
+        env:
+          CI: false
         run: |
           echo "REACT_APP_BACKEND_URL=https://myhomeusb.com" > .env
           yarn build
