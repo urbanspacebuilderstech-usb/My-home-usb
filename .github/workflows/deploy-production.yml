@@ -93,7 +93,8 @@ jobs:
             fi
 
             echo "==> Restarting PM2 backend"
-            pm2 restart all --update-env
+            pm2 stop all
+            pm2 start all --update-env
             pm2 save
 
             echo "==> Verifying deployment"
