@@ -76,7 +76,7 @@ export default function ProjectCuringTab({ projectId, projectName, user }) {
             <Button size="sm" variant="outline" className="h-8 gap-1" onClick={fetchHistory} data-testid="curing-refresh">
               <RefreshCw className="h-3 w-3" /> Refresh
             </Button>
-            <Button size="sm" className="h-8 gap-1 bg-purple-600 hover:bg-purple-700" onClick={() => setDialogOpen(true)} data-testid="curing-record-btn">
+            <Button size="sm" className="h-8 gap-1 bg-green-600 hover:bg-green-700" onClick={() => setDialogOpen(true)} data-testid="curing-record-btn">
               <Video className="h-3 w-3" /> Record Curing
             </Button>
           </div>
