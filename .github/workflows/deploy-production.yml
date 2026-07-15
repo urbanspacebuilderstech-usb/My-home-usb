@@ -13,25 +13,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Diagnose VPS state
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          script: |
-            echo "=== PM2 apps (name / cwd / status) ==="
-            pm2 jlist | grep -oE '"(name|pm_cwd|status)":"[^"]*"' || echo "pm2 jlist produced no output"
-            echo "=== Memory / Swap ==="
-            free -h
-            swapon --show || echo "no swap configured"
-            echo "=== Disk ==="
-            df -h /
-            echo "=== Home directory listing ==="
-            ls -la /root 2>/dev/null
-            ls -la /home 2>/dev/null
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
