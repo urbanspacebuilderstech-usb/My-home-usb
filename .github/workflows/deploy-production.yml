@@ -92,9 +92,24 @@ jobs:
               fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab || true
             fi
 
-            echo "==> Restarting PM2 backend"
-            pm2 stop all
-            pm2 start all --update-env
+            echo "==> Restarting PM2 backend (retrying on transient resource-throttle kills)"
+            set +e
+            RESTART_OK=0
+            for attempt in 1 2 3; do
+              echo "--- Attempt $attempt ---"
+              pm2 stop all && pm2 start all --update-env
+              if [ $? -eq 0 ]; then
+                RESTART_OK=1
+                break
+              fi
+              echo "Attempt $attempt failed, waiting 15s before retry..."
+              sleep 15
+            done
+            set -e
+            if [ "$RESTART_OK" -ne 1 ]; then
+              echo "PM2 restart failed after 3 attempts"
+              exit 1
+            fi
             pm2 save
 
             echo "==> Verifying deployment"
