@@ -1,3 +1,4 @@
+# VPS_APP_PATH secret corrected to /var/www/myhomeusb/app
 name: Deploy to Hostinger VPS (Production)
 
 on:
