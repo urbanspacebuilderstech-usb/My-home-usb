@@ -1240,6 +1240,8 @@ export default function ProjectDetail() {
     stage_type: 'fixed', value: '', amount: '',
   });
   const [addWoItemSaving, setAddWoItemSaving] = useState(false);
+  const [editWoStageDialog, setEditWoStageDialog] = useState({ open: false, wo: null, stage: null, name: '', amount: '' });
+  const [editWoStageSaving, setEditWoStageSaving] = useState(false);
 
   const [labourAttendance, setLabourAttendance] = useState([]);
   const [showAttendanceForm, setShowAttendanceForm] = useState(false);
@@ -2001,6 +2003,39 @@ export default function ProjectDetail() {
       toast.success('Stage deleted');
       fetchWorkOrders();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to delete'); }
+  };
+
+  // Single click on the Locked/Open badge — toggles straight through,
+  // no need to expand the row first and hunt for the Lock/Unlock button.
+  const handleToggleWoStageLock = (woId, stageId, isOpen) => {
+    if (isOpen) handleLockStage(woId, stageId);
+    else handleOpenStage(woId, stageId);
+  };
+
+  const openEditWoStage = (wo, stage) => setEditWoStageDialog({
+    open: true, wo, stage, name: stage.name || '', amount: stage.amount ?? '',
+  });
+
+  const saveEditWoStage = async () => {
+    const { wo, stage, name, amount } = editWoStageDialog;
+    if (!name.trim()) { toast.error('Stage name is required'); return; }
+    setEditWoStageSaving(true);
+    try {
+      const payload = { name: name.trim() };
+      // Amount is locked out by the backend once RABs exist on this stage —
+      // don't even send a (possibly stale) value in that case.
+      if (!(stage.payment_requests && stage.payment_requests.length > 0)) {
+        payload.amount = Number(amount) || 0;
+      }
+      await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}`, payload);
+      toast.success('Stage updated');
+      setEditWoStageDialog({ open: false, wo: null, stage: null, name: '', amount: '' });
+      fetchWorkOrders();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to update stage');
+    } finally {
+      setEditWoStageSaving(false);
+    }
   };
 
   const openAddScopeItem = (wo) => setAddWoItemDialog({
@@ -9598,99 +9633,130 @@ export default function ProjectDetail() {
                                   </div>
                                   {filteredStages.length === 0 ? (
                                     <p className="text-gray-400 text-center py-6 text-sm" data-testid="wo-stages-empty">No stages in this bucket.</p>
-                                  ) : filteredStages.map(({ st, i }) => {
-                                    // Compute released + in-approval totals once so the stage
-                                    // header + summary chips stay in sync without duplicating logic.
-                                    const released = (st.payment_requests || []).filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
-                                    const inApproval = (st.payment_requests || []).filter(p => ['requested', 'pm_approved', 'qc_approved', 'planning_approved'].includes(p.status)).reduce((s, p) => s + (p.requested_amount || 0), 0);
-                                    const balance = Math.max(0, (Number(st.amount) || 0) - released);
-                                    const stWithFlag = { ...st, _fullyPaid: (Number(st.amount) || 0) > 0 && released >= (Number(st.amount) || 0) };
-                                    const cfg = getStageStatusConfig(st.status, st.is_open, stWithFlag);
-                                    const showApprove = canApproveStage(st);
-                                    const isExpanded = expandedWoStages[st.stage_id];
-                                    const isStageOpen = st.is_open === true;
-                                    const isCompleted = stWithFlag._fullyPaid;
-                                    return (
-                                      <div key={st.stage_id || i} className={`border rounded-lg overflow-hidden`} data-testid={`wo-stage-${st.stage_id}`}>
-                                        <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition"
-                                          onClick={() => setExpandedWoStages(prev => ({ ...prev, [st.stage_id]: !prev[st.stage_id] }))}
-                                          data-testid={`wo-stage-toggle-${st.stage_id}`}>
-                                          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-                                            <span className="font-medium text-sm">{i+1}. {st.name}</span>
-                                            <Badge variant="outline" className={`text-[10px] ${cfg.className}`}>{cfg.label}</Badge>
-                                            <Badge variant="outline" className="text-[10px]">{st.type === 'percentage' ? `${st.value}%` : 'Fixed'}</Badge>
-                                          </div>
-                                          <div className="flex items-center gap-2 shrink-0">
-                                            <span className="text-sm font-medium text-gray-600">{formatCurrency(st.amount)}</span>
-                                            {['planning', 'planning_person', 'super_admin'].includes(user?.role) && !(st.payment_requests && st.payment_requests.length > 0) && !st.linked_section_id && (
-                                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50" data-testid={`wo-stage-del-${st.stage_id}`}
-                                                onClick={(e) => { e.stopPropagation(); handleDeleteWoStage(wo.work_order_id, st.stage_id); }}>
-                                                <Trash2 className="h-3.5 w-3.5" />
-                                              </Button>
-                                            )}
-                                            <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                                          </div>
-                                        </div>
-                                        {isExpanded && (
-                                          <div className="border-t bg-gray-50/50 p-3 space-y-3">
-                                            <div className="text-xs text-gray-500">Amount: <strong>{formatCurrency(st.amount)}</strong></div>
-                                            {/* Summary chips — shown on every stage regardless of lock state */}
-                                            <div className="flex flex-wrap gap-1.5">
-                                              <span className="text-[11px] bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full">Contract <strong>{formatCurrency(st.amount)}</strong></span>
-                                              {released > 0 && <span className="text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">Advance Approved <strong>{formatCurrency(released)}</strong></span>}
-                                              <span className="text-[11px] bg-sky-50 text-sky-700 border border-sky-200 px-2 py-0.5 rounded-full">Balance <strong>{formatCurrency(balance)}</strong></span>
-                                              {inApproval > 0 && <span className="text-[11px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">In Approval <strong>{formatCurrency(inApproval)}</strong></span>}
-                                            </div>
-                                            {isStageOpen && st.opened_by_name && (
-                                              <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded">Opened by {st.opened_by_name}</span>
-                                            )}
-                                            <div className="flex gap-1 flex-wrap pt-1">
-                                              {/* Planning / Planning Person / Super-Admin: Open/Lock toggle on every stage (except already-completed) */}
-                                              {['planning', 'planning_person', 'super_admin'].includes(user?.role) && !isCompleted && (
-                                                isStageOpen ? (
-                                                  <Button size="sm" variant="outline" className="h-7 text-xs border-gray-400 text-gray-700 hover:bg-gray-100" data-testid={`wo-stage-lock-${st.stage_id}`}
-                                                    onClick={(e) => { e.stopPropagation(); handleLockStage(wo.work_order_id, st.stage_id); }}>
-                                                    <Lock className="h-3 w-3 mr-1" /> Lock Stage
-                                                  </Button>
-                                                ) : (
-                                                  <Button size="sm" className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700" data-testid={`wo-stage-open-${st.stage_id}`}
-                                                    onClick={(e) => { e.stopPropagation(); handleOpenStage(wo.work_order_id, st.stage_id); }}>
-                                                    <Unlock className="h-3 w-3 mr-1" /> Open Stage
-                                                  </Button>
-                                                )
-                                              )}
-                                              {showApprove && (
-                                                <>
-                                                  {user?.role === 'accountant' ? (
-                                                    <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700" data-testid={`wo-stage-approve-${st.stage_id}`}
-                                                      onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve', { approved_amount: st.amount }); }}>
-                                                      Process Payment
-                                                    </Button>
-                                                  ) : (
-                                                    <Button size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" data-testid={`wo-stage-approve-${st.stage_id}`}
-                                                      onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve'); }}>
-                                                      Approve
-                                                    </Button>
-                                                  )}
-                                                  <Button size="sm" variant="destructive" className="h-7 text-xs" data-testid={`wo-stage-reject-${st.stage_id}`}
-                                                    onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'reject', { notes: 'Rejected' }); }}>
-                                                    Reject
-                                                  </Button>
-                                                </>
-                                              )}
-                                              {/* SE: Request Payment (RAB) on any open, unfinished stage */}
-                                              {st.is_open && st.stage_status !== 'finished' && ['site_engineer', 'sr_site_engineer'].includes(user?.role) && (
-                                                <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700" data-testid={`wo-stage-request-${st.stage_id}`}
-                                                  onClick={(e) => { e.stopPropagation(); handleWoStageRequestPayment(wo.work_order_id, st.stage_id); }}>
-                                                  <Send className="h-3 w-3 mr-1" /> Req Payment (RAB)
-                                                </Button>
-                                              )}
-                                            </div>
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
+                                  ) : (
+                                    <div className="overflow-x-auto rounded-lg border" data-testid="wo-stages-table">
+                                      <table className="w-full text-sm">
+                                        <thead className="bg-gray-50 border-b">
+                                          <tr>
+                                            <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
+                                            <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Stage</th>
+                                            <th className="px-2 py-2 text-center text-[10px] font-semibold text-gray-500 uppercase">Locked</th>
+                                            <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Amount</th>
+                                            <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Contract</th>
+                                            <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Balance</th>
+                                            <th className="px-2 py-2 text-center text-[10px] font-semibold text-gray-500 uppercase">Edit</th>
+                                            <th className="px-2 py-2 text-center text-[10px] font-semibold text-gray-500 uppercase">Delete</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y">
+                                          {filteredStages.map(({ st, i }) => {
+                                            const released = (st.payment_requests || []).filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
+                                            const inApproval = (st.payment_requests || []).filter(p => ['requested', 'pm_approved', 'qc_approved', 'planning_approved'].includes(p.status)).reduce((s, p) => s + (p.requested_amount || 0), 0);
+                                            const balance = Math.max(0, (Number(st.amount) || 0) - released);
+                                            const stWithFlag = { ...st, _fullyPaid: (Number(st.amount) || 0) > 0 && released >= (Number(st.amount) || 0) };
+                                            const cfg = getStageStatusConfig(st.status, st.is_open, stWithFlag);
+                                            const showApprove = canApproveStage(st);
+                                            const isStageOpen = st.is_open === true;
+                                            const isCompleted = stWithFlag._fullyPaid;
+                                            const canManage = ['planning', 'planning_person', 'super_admin'].includes(user?.role);
+                                            const canDelete = canManage && !(st.payment_requests && st.payment_requests.length > 0) && !st.linked_section_id;
+                                            const canEdit = canManage && !st.linked_section_id;
+                                            const canToggleLock = canManage && !isCompleted;
+                                            const canRequestPayment = st.is_open && st.stage_status !== 'finished' && ['site_engineer', 'sr_site_engineer'].includes(user?.role);
+                                            const hasRowActions = showApprove || canRequestPayment;
+                                            const isExpanded = expandedWoStages[st.stage_id];
+                                            return (
+                                              <React.Fragment key={st.stage_id || i}>
+                                                <tr
+                                                  className={hasRowActions ? 'hover:bg-gray-50/60 cursor-pointer' : 'hover:bg-gray-50/60'}
+                                                  data-testid={`wo-stage-${st.stage_id}`}
+                                                  onClick={hasRowActions ? () => setExpandedWoStages(prev => ({ ...prev, [st.stage_id]: !prev[st.stage_id] })) : undefined}
+                                                >
+                                                  <td className="px-2 py-2 text-gray-500 align-top">{i + 1}</td>
+                                                  <td className="px-2 py-2 align-top">
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                      <span className="font-medium">{st.name}</span>
+                                                      <Badge variant="outline" className="text-[10px]">{st.type === 'percentage' ? `${st.value}%` : 'Fixed'}</Badge>
+                                                      {hasRowActions && <ChevronDown className={`h-3.5 w-3.5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />}
+                                                    </div>
+                                                    {isStageOpen && st.opened_by_name && (
+                                                      <span className="text-[10px] text-emerald-700">Opened by {st.opened_by_name}</span>
+                                                    )}
+                                                  </td>
+                                                  <td className="px-2 py-2 text-center align-top">
+                                                    <Badge
+                                                      variant="outline"
+                                                      title={canToggleLock ? (isStageOpen ? 'Click to lock this stage' : 'Click to unlock this stage') : undefined}
+                                                      onClick={canToggleLock ? (e) => { e.stopPropagation(); handleToggleWoStageLock(wo.work_order_id, st.stage_id, isStageOpen); } : undefined}
+                                                      className={`text-[10px] ${cfg.className} ${canToggleLock ? 'cursor-pointer hover:brightness-95' : ''}`}
+                                                      data-testid={`wo-stage-lock-toggle-${st.stage_id}`}
+                                                    >
+                                                      {cfg.label}
+                                                    </Badge>
+                                                  </td>
+                                                  <td className="px-2 py-2 text-right font-medium align-top">{formatCurrency(st.amount)}</td>
+                                                  <td className="px-2 py-2 text-right text-gray-600 align-top">{formatCurrency(st.amount)}</td>
+                                                  <td className="px-2 py-2 text-right align-top">
+                                                    <span className="text-gray-600">{formatCurrency(balance)}</span>
+                                                    {inApproval > 0 && <div className="text-[10px] text-amber-600">In Approval {formatCurrency(inApproval)}</div>}
+                                                  </td>
+                                                  <td className="px-2 py-2 text-center align-top">
+                                                    {canEdit && (
+                                                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-gray-500 hover:text-violet-700 hover:bg-violet-50" data-testid={`wo-stage-edit-${st.stage_id}`}
+                                                        onClick={(e) => { e.stopPropagation(); openEditWoStage(wo, st); }}>
+                                                        <Edit className="h-3.5 w-3.5" />
+                                                      </Button>
+                                                    )}
+                                                  </td>
+                                                  <td className="px-2 py-2 text-center align-top">
+                                                    {canDelete && (
+                                                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50" data-testid={`wo-stage-del-${st.stage_id}`}
+                                                        onClick={(e) => { e.stopPropagation(); handleDeleteWoStage(wo.work_order_id, st.stage_id); }}>
+                                                        <Trash2 className="h-3.5 w-3.5" />
+                                                      </Button>
+                                                    )}
+                                                  </td>
+                                                </tr>
+                                                {hasRowActions && isExpanded && (
+                                                  <tr className="bg-gray-50/50" data-testid={`wo-stage-actions-${st.stage_id}`}>
+                                                    <td colSpan={8} className="px-3 py-2">
+                                                      <div className="flex gap-1 flex-wrap">
+                                                        {showApprove && (
+                                                          <>
+                                                            {user?.role === 'accountant' ? (
+                                                              <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700" data-testid={`wo-stage-approve-${st.stage_id}`}
+                                                                onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve', { approved_amount: st.amount }); }}>
+                                                                Process Payment
+                                                              </Button>
+                                                            ) : (
+                                                              <Button size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" data-testid={`wo-stage-approve-${st.stage_id}`}
+                                                                onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve'); }}>
+                                                                Approve
+                                                              </Button>
+                                                            )}
+                                                            <Button size="sm" variant="destructive" className="h-7 text-xs" data-testid={`wo-stage-reject-${st.stage_id}`}
+                                                              onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'reject', { notes: 'Rejected' }); }}>
+                                                              Reject
+                                                            </Button>
+                                                          </>
+                                                        )}
+                                                        {canRequestPayment && (
+                                                          <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700" data-testid={`wo-stage-request-${st.stage_id}`}
+                                                            onClick={(e) => { e.stopPropagation(); handleWoStageRequestPayment(wo.work_order_id, st.stage_id); }}>
+                                                            <Send className="h-3 w-3 mr-1" /> Req Payment (RAB)
+                                                          </Button>
+                                                        )}
+                                                      </div>
+                                                    </td>
+                                                  </tr>
+                                                )}
+                                              </React.Fragment>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
                                   {/* Total summary — always reflects ALL stages (not filtered) */}
                                   <div className="flex justify-between items-center px-3 pt-2 border-t">
                                     <span className="text-xs font-bold text-gray-500">Stage Total</span>
@@ -12747,6 +12813,50 @@ export default function ProjectDetail() {
             <Button variant="outline" onClick={() => setAddWoItemDialog(prev => ({ ...prev, open: false }))} data-testid="add-wo-item-cancel">Cancel</Button>
             <Button onClick={submitAddWoItem} disabled={addWoItemSaving} className="bg-violet-600 hover:bg-violet-700" data-testid="add-wo-item-save">
               {addWoItemSaving ? 'Saving…' : (addWoItemDialog.mode === 'scope' ? 'Add Item' : 'Add Stage')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit an existing WO Stage's name/amount */}
+      <Dialog open={editWoStageDialog.open} onOpenChange={(o) => !o && setEditWoStageDialog({ open: false, wo: null, stage: null, name: '', amount: '' })}>
+        <DialogContent className="max-w-md" data-testid="edit-wo-stage-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="h-5 w-5 text-violet-600" /> Edit Stage
+            </DialogTitle>
+            {editWoStageDialog.stage?.payment_requests?.length > 0 && (
+              <DialogDescription className="text-xs text-amber-700">
+                This stage already has RAB requests — only the name can be changed, amount is locked.
+              </DialogDescription>
+            )}
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-[11px]">Stage Name <span className="text-red-500">*</span></Label>
+              <Input
+                value={editWoStageDialog.name}
+                onChange={(e) => setEditWoStageDialog(prev => ({ ...prev, name: e.target.value }))}
+                className="h-9 text-sm"
+                data-testid="edit-wo-stage-name"
+              />
+            </div>
+            <div>
+              <Label className="text-[11px]">Amount</Label>
+              <Input
+                type="number"
+                value={editWoStageDialog.amount}
+                onChange={(e) => setEditWoStageDialog(prev => ({ ...prev, amount: e.target.value }))}
+                disabled={editWoStageDialog.stage?.payment_requests?.length > 0}
+                className="h-9 text-sm"
+                data-testid="edit-wo-stage-amount"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditWoStageDialog({ open: false, wo: null, stage: null, name: '', amount: '' })} data-testid="edit-wo-stage-cancel">Cancel</Button>
+            <Button onClick={saveEditWoStage} disabled={editWoStageSaving} className="bg-violet-600 hover:bg-violet-700" data-testid="edit-wo-stage-save">
+              {editWoStageSaving ? 'Saving…' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -9135,6 +9135,52 @@ async def add_wo_stage(
     return {"message": "Stage added", "stage": new_stage}
 
 
+# ── Edit a Stage's name/amount on an existing Work Order ──────────────
+@router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}")
+async def edit_wo_stage(
+    project_id: str,
+    work_order_id: str,
+    stage_id: str,
+    data: dict,
+    user: User = Depends(get_current_user),
+):
+    """Planning edits a stage's name and/or amount. The amount can't be
+    changed once the stage has any RAB (payment_requests) against it, since
+    that would silently invalidate already-released/balance figures — only
+    the name is editable at that point."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can edit stages")
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    stages = wo.get("stages") or []
+    target = next((s for s in stages if s.get("stage_id") == stage_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    if target.get("linked_section_id"):
+        raise HTTPException(status_code=400, detail="This stage is auto-generated from an Additional section — edit the section instead")
+
+    if "name" in data:
+        name = (data.get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Stage name is required")
+        target["name"] = name
+        target["stage_name"] = name
+
+    if "amount" in data:
+        if target.get("payment_requests"):
+            raise HTTPException(status_code=400, detail="Cannot change the amount of a stage that already has RAB requests")
+        target["amount"] = float(data.get("amount") or 0)
+        target["scheduled_amount"] = target["amount"]
+
+    target["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"stages": stages, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"message": "Stage updated", "stage": target}
+
+
 # ── Delete a Stage from an existing Work Order ─────────────────────────
 @router.delete("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}")
 async def delete_wo_stage(
