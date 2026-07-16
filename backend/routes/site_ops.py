@@ -749,6 +749,52 @@ async def get_pm_inventory_summary(
     return {"date": target_date, "rows": rows}
 
 
+async def _planning_project_name_map(user: User) -> Dict[str, str]:
+    """Projects visible to this Planning user, matching the same scoping
+    already used by GET /projects: Planning Person only sees projects
+    assigned to them (`assigned_planning_person_id`); Planning Head and
+    Super Admin see every non-deleted project."""
+    query: Dict[str, Any] = {"is_deleted": {"$ne": True}}
+    if user.role == UserRole.PLANNING_PERSON:
+        query["assigned_planning_person_id"] = user.user_id
+    projects = await db.projects.find(query, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000)
+    return {p["project_id"]: p.get("name", "") for p in projects}
+
+
+@router.get("/planning/dlr-dpr-summary")
+async def get_planning_dlr_dpr_summary(
+    date: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """One row per DLR recorded across every project visible to this Planning
+    user, for one day (defaults to today). Planning Person is scoped to their
+    own assigned projects; Planning Head / Super Admin see everything."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can access this")
+
+    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    project_name_map = await _planning_project_name_map(user)
+    rows = await _dlr_dpr_rows_for_projects(project_name_map, target_date)
+    return {"date": target_date, "rows": rows}
+
+
+@router.get("/planning/inventory-summary")
+async def get_planning_inventory_summary(
+    date: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Project-wise material stock rollup across every project visible to
+    this Planning user: current stock balance plus the selected day's
+    stock-in and stock-out, one row per (project, material)."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can access this")
+
+    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    project_name_map = await _planning_project_name_map(user)
+    rows = await _inventory_rows_for_projects(project_name_map, target_date)
+    return {"date": target_date, "rows": rows}
+
+
 @router.get("/site-engineer/project/{project_id}")
 async def get_site_engineer_project_detail(
     project_id: str,
