@@ -10997,108 +10997,137 @@ export default function ProjectDetail() {
                                       </div>
                                       {filteredStages.length === 0 ? (
                                         <p className="text-gray-400 text-center py-6 text-sm" data-testid="labour-wo-stages-empty">No stages in this bucket.</p>
-                                      ) : filteredStages.map(({ st, i }) => {
-                                        const released = (st.payment_requests || []).filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
-                                        const inApproval = (st.payment_requests || []).filter(p => ['requested', 'pm_approved', 'qc_approved', 'planning_approved'].includes(p.status)).reduce((s, p) => s + (p.requested_amount || 0), 0);
-                                        const balance = Math.max(0, (Number(st.amount) || 0) - released);
-                                        const stWithFlag = { ...st, _fullyPaid: (Number(st.amount) || 0) > 0 && released >= (Number(st.amount) || 0) };
-                                        const cfg = getStageStatusConfig(st.status, st.is_open, stWithFlag);
-                                        const showApprove = canApproveStage(st);
-                                        const isExp = expandedWoStages[`l_${st.stage_id}`];
-                                        const isStageOpen = st.is_open === true;
-                                        const isCompleted = stWithFlag._fullyPaid;
-                                        return (
-                                          <div key={st.stage_id || i} className="border rounded-lg overflow-hidden" data-testid={`labour-wo-stage-${st.stage_id}`}>
-                                            <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition"
-                                              onClick={() => setExpandedWoStages(prev => ({ ...prev, [`l_${st.stage_id}`]: !prev[`l_${st.stage_id}`] }))}>
-                                              <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-                                                <span className="font-medium text-sm">{i+1}. {st.name}</span>
-                                                <Badge variant="outline" className={`text-[10px] ${cfg.className}`}>{cfg.label}</Badge>
-                                                <Badge variant="outline" className="text-[10px]">{st.type === 'percentage' ? `${st.value}%` : 'Fixed'}</Badge>
-                                              </div>
-                                              <div className="flex items-center gap-2 shrink-0">
-                                                <span className="text-sm font-medium text-gray-600">{formatCurrency(st.amount)}</span>
-                                                {['planning', 'planning_person', 'super_admin'].includes(user?.role) && !(st.payment_requests && st.payment_requests.length > 0) && !st.linked_section_id && (
-                                                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50" data-testid={`labour-wo-stage-del-${st.stage_id}`}
-                                                    onClick={(e) => { e.stopPropagation(); handleDeleteWoStage(wo.work_order_id, st.stage_id); }}>
-                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                  </Button>
-                                                )}
-                                                <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${isExp ? 'rotate-180' : ''}`} />
-                                              </div>
-                                            </div>
-                                            {isExp && (
-                                              <div className="border-t bg-gray-50/50 p-3 space-y-3">
-                                                <div className="text-xs text-gray-500">Amount: <strong>{formatCurrency(st.amount)}</strong></div>
-                                                {/* Summary chips — always shown for every stage */}
-                                                <div className="flex flex-wrap gap-1.5 text-[11px]" data-testid={`labour-advance-summary-${st.stage_id}`}>
-                                                  <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">Contract <strong>{formatCurrency(st.amount)}</strong></span>
-                                                  {released > 0 && <span className="px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">Advance Approved <strong>{formatCurrency(released)}</strong></span>}
-                                                  <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">Balance <strong>{formatCurrency(balance)}</strong></span>
-                                                  {inApproval > 0 && (
-                                                    <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">In Approval <strong>{formatCurrency(inApproval)}</strong></span>
-                                                  )}
-                                                  {st.auto_closed_by_advance && (
-                                                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">Auto-Closed</span>
-                                                  )}
-                                                </div>
-                                                {/* Planning / Super-Admin: Open/Lock toggle on every stage (except already-completed) */}
-                                                {['planning', 'planning_person', 'super_admin'].includes(user?.role) && !isCompleted && (
-                                                  <div className="flex gap-1 flex-wrap pt-1">
-                                                    {isStageOpen ? (
-                                                      <Button size="sm" variant="outline" className="h-7 text-xs border-gray-400 text-gray-700 hover:bg-gray-100" data-testid={`labour-wo-stage-lock-${st.stage_id}`}
-                                                        onClick={(e) => { e.stopPropagation(); handleLockStage(wo.work_order_id, st.stage_id); }}>
-                                                        <Lock className="h-3 w-3 mr-1" /> Lock Stage
-                                                      </Button>
-                                                    ) : (
-                                                      <Button size="sm" className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700" data-testid={`labour-wo-stage-open-${st.stage_id}`}
-                                                        onClick={(e) => { e.stopPropagation(); handleOpenStage(wo.work_order_id, st.stage_id); }}>
-                                                        <Unlock className="h-3 w-3 mr-1" /> Open Stage
-                                                      </Button>
+                                      ) : (
+                                        <div className="overflow-x-auto rounded-lg border" data-testid="labour-wo-stages-table">
+                                          <table className="w-full text-sm">
+                                            <thead className="bg-gray-50 border-b">
+                                              <tr>
+                                                <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
+                                                <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Stage</th>
+                                                <th className="px-2 py-2 text-center text-[10px] font-semibold text-gray-500 uppercase">Locked</th>
+                                                <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Amount</th>
+                                                <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Contract</th>
+                                                <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Balance</th>
+                                                <th className="px-2 py-2 text-center text-[10px] font-semibold text-gray-500 uppercase">Edit</th>
+                                                <th className="px-2 py-2 text-center text-[10px] font-semibold text-gray-500 uppercase">Delete</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody className="divide-y">
+                                              {filteredStages.map(({ st, i }) => {
+                                                const released = (st.payment_requests || []).filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
+                                                const inApproval = (st.payment_requests || []).filter(p => ['requested', 'pm_approved', 'qc_approved', 'planning_approved'].includes(p.status)).reduce((s, p) => s + (p.requested_amount || 0), 0);
+                                                const balance = Math.max(0, (Number(st.amount) || 0) - released);
+                                                const stWithFlag = { ...st, _fullyPaid: (Number(st.amount) || 0) > 0 && released >= (Number(st.amount) || 0) };
+                                                const cfg = getStageStatusConfig(st.status, st.is_open, stWithFlag);
+                                                const showApprove = canApproveStage(st);
+                                                const isStageOpen = st.is_open === true;
+                                                const isCompleted = stWithFlag._fullyPaid;
+                                                const canManage = ['planning', 'planning_person', 'super_admin'].includes(user?.role);
+                                                const canDelete = canManage && !(st.payment_requests && st.payment_requests.length > 0) && !st.linked_section_id;
+                                                const canEdit = canManage && !st.linked_section_id;
+                                                const canToggleLock = canManage && !isCompleted;
+                                                const canRequestPayment = st.is_open && st.stage_status !== 'finished' && ['site_engineer', 'sr_site_engineer'].includes(user?.role);
+                                                const hasRowActions = showApprove || canRequestPayment;
+                                                const isExp = expandedWoStages[`l_${st.stage_id}`];
+                                                return (
+                                                  <React.Fragment key={st.stage_id || i}>
+                                                    <tr
+                                                      className={hasRowActions ? 'hover:bg-gray-50/60 cursor-pointer' : 'hover:bg-gray-50/60'}
+                                                      data-testid={`labour-wo-stage-${st.stage_id}`}
+                                                      onClick={hasRowActions ? () => setExpandedWoStages(prev => ({ ...prev, [`l_${st.stage_id}`]: !prev[`l_${st.stage_id}`] })) : undefined}
+                                                    >
+                                                      <td className="px-2 py-2 text-gray-500 align-top">{i + 1}</td>
+                                                      <td className="px-2 py-2 align-top">
+                                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                                          <span className="font-medium">{st.name}</span>
+                                                          <Badge variant="outline" className="text-[10px]">{st.type === 'percentage' ? `${st.value}%` : 'Fixed'}</Badge>
+                                                          {st.auto_closed_by_advance && <Badge variant="outline" className="text-[10px] bg-emerald-100 text-emerald-800 border-emerald-300">Auto-Closed</Badge>}
+                                                          {hasRowActions && <ChevronDown className={`h-3.5 w-3.5 text-gray-400 transition-transform ${isExp ? 'rotate-180' : ''}`} />}
+                                                        </div>
+                                                        {st.status !== 'pending' && (
+                                                          <div className="flex flex-wrap gap-1 mt-1">
+                                                            {st.requested_at && <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">SE Requested</span>}
+                                                            {st.pm_approved_at && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">PM OK</span>}
+                                                            {st.planning_approved_at && <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">Planning OK</span>}
+                                                            {st.accountant_approved_at && <span className="text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded">Paid</span>}
+                                                            {st.rejection_reason && <span className="text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded">{st.rejection_reason}</span>}
+                                                          </div>
+                                                        )}
+                                                      </td>
+                                                      <td className="px-2 py-2 text-center align-top">
+                                                        <Badge
+                                                          variant="outline"
+                                                          title={canToggleLock ? (isStageOpen ? 'Click to lock this stage' : 'Click to unlock this stage') : undefined}
+                                                          onClick={canToggleLock ? (e) => { e.stopPropagation(); handleToggleWoStageLock(wo.work_order_id, st.stage_id, isStageOpen); } : undefined}
+                                                          className={`text-[10px] ${cfg.className} ${canToggleLock ? 'cursor-pointer hover:brightness-95' : ''}`}
+                                                          data-testid={`labour-wo-stage-lock-toggle-${st.stage_id}`}
+                                                        >
+                                                          {cfg.label}
+                                                        </Badge>
+                                                      </td>
+                                                      <td className="px-2 py-2 text-right font-medium align-top">{formatCurrency(st.amount)}</td>
+                                                      <td className="px-2 py-2 text-right text-gray-600 align-top">{formatCurrency(st.amount)}</td>
+                                                      <td className="px-2 py-2 text-right align-top">
+                                                        <span className="text-gray-600">{formatCurrency(balance)}</span>
+                                                        {inApproval > 0 && <div className="text-[10px] text-amber-600">In Approval {formatCurrency(inApproval)}</div>}
+                                                      </td>
+                                                      <td className="px-2 py-2 text-center align-top">
+                                                        {canEdit && (
+                                                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-gray-500 hover:text-violet-700 hover:bg-violet-50" data-testid={`labour-wo-stage-edit-${st.stage_id}`}
+                                                            onClick={(e) => { e.stopPropagation(); openEditWoStage(wo, st); }}>
+                                                            <Edit className="h-3.5 w-3.5" />
+                                                          </Button>
+                                                        )}
+                                                      </td>
+                                                      <td className="px-2 py-2 text-center align-top">
+                                                        {canDelete && (
+                                                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50" data-testid={`labour-wo-stage-del-${st.stage_id}`}
+                                                            onClick={(e) => { e.stopPropagation(); handleDeleteWoStage(wo.work_order_id, st.stage_id); }}>
+                                                            <Trash2 className="h-3.5 w-3.5" />
+                                                          </Button>
+                                                        )}
+                                                      </td>
+                                                    </tr>
+                                                    {hasRowActions && isExp && (
+                                                      <tr className="bg-gray-50/50" data-testid={`labour-wo-stage-actions-${st.stage_id}`}>
+                                                        <td colSpan={8} className="px-3 py-2">
+                                                          <div className="flex gap-1 flex-wrap">
+                                                            {showApprove && (
+                                                              <>
+                                                                {user?.role === 'accountant' ? (
+                                                                  <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700" data-testid={`labour-wo-stage-approve-${st.stage_id}`}
+                                                                    onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve', { approved_amount: st.amount }); }}>
+                                                                    Process Payment
+                                                                  </Button>
+                                                                ) : (
+                                                                  <Button size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" data-testid={`labour-wo-stage-approve-${st.stage_id}`}
+                                                                    onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve'); }}>
+                                                                    Approve
+                                                                  </Button>
+                                                                )}
+                                                                <Button size="sm" variant="destructive" className="h-7 text-xs" data-testid={`labour-wo-stage-reject-${st.stage_id}`}
+                                                                  onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'reject', { notes: 'Rejected' }); }}>
+                                                                  Reject
+                                                                </Button>
+                                                              </>
+                                                            )}
+                                                            {canRequestPayment && (
+                                                              <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700" data-testid={`labour-wo-stage-request-${st.stage_id}`}
+                                                                onClick={(e) => { e.stopPropagation(); handleWoStageRequest(wo.work_order_id, st.stage_id); }}>
+                                                                <Send className="h-3 w-3 mr-1" /> Req Payment (RAB)
+                                                              </Button>
+                                                            )}
+                                                          </div>
+                                                        </td>
+                                                      </tr>
                                                     )}
-                                                  </div>
-                                                )}
-                                                {st.status !== 'pending' && (
-                                                  <div className="flex flex-wrap gap-1">
-                                                    {st.requested_at && <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">SE Requested</span>}
-                                                    {st.pm_approved_at && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">PM OK</span>}
-                                                    {st.planning_approved_at && <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">Planning OK</span>}
-                                                    {st.accountant_approved_at && <span className="text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded">Paid</span>}
-                                                    {st.rejection_reason && <span className="text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded">{st.rejection_reason}</span>}
-                                                  </div>
-                                                )}
-                                                <div className="flex gap-1 flex-wrap pt-1">
-                                                  {showApprove && (
-                                                    <>
-                                                      {user?.role === 'accountant' ? (
-                                                        <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700" data-testid={`labour-wo-stage-approve-${st.stage_id}`}
-                                                          onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve', { approved_amount: st.amount }); }}>
-                                                          Process Payment
-                                                        </Button>
-                                                      ) : (
-                                                        <Button size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" data-testid={`labour-wo-stage-approve-${st.stage_id}`}
-                                                          onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve'); }}>
-                                                          Approve
-                                                        </Button>
-                                                      )}
-                                                      <Button size="sm" variant="destructive" className="h-7 text-xs" data-testid={`labour-wo-stage-reject-${st.stage_id}`}
-                                                        onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'reject', { notes: 'Rejected' }); }}>
-                                                        Reject
-                                                      </Button>
-                                                    </>
-                                                  )}
-                                                  {st.is_open && st.stage_status !== 'finished' && ['site_engineer', 'sr_site_engineer'].includes(user?.role) && (
-                                                    <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700" data-testid={`labour-wo-stage-request-${st.stage_id}`}
-                                                      onClick={(e) => { e.stopPropagation(); handleWoStageRequest(wo.work_order_id, st.stage_id); }}>
-                                                      <Send className="h-3 w-3 mr-1" /> Req Payment (RAB)
-                                                    </Button>
-                                                  )}
-                                                </div>
-                                              </div>
-                                            )}
-                                          </div>
-                                        );
-                                      })}
+                                                  </React.Fragment>
+                                                );
+                                              })}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      )}
                                       <div className="flex justify-between items-center px-3 pt-2 border-t">
                                         <span className="text-xs font-bold text-gray-500">Stage Total</span>
                                         <span className="text-sm font-bold">{formatCurrency(wo.stages.reduce((sum, s) => sum + (s.amount || 0), 0))}</span>
