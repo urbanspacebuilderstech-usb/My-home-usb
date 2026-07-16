@@ -23,7 +23,8 @@ import {
   Send,
   Video,
   MessageCircle,
-  ArrowLeft
+  ArrowLeft,
+  FileText
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -310,7 +311,12 @@ export default function SiteEngineerDashboard() {
   const [selectedContractor, setSelectedContractor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('projects');
-  
+
+  // DLR & DPR tab — one line per assigned project for a given day
+  const [dlrDprDate, setDlrDprDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dlrDprRows, setDlrDprRows] = useState([]);
+  const [dlrDprLoading, setDlrDprLoading] = useState(false);
+
   const [paymentDialog, setPaymentDialog] = useState(false);
   const [selectedStage, setSelectedStage] = useState(null);
   const [paymentRemarks, setPaymentRemarks] = useState('');
@@ -440,6 +446,23 @@ export default function SiteEngineerDashboard() {
     }
   };
   useAutoRefresh(fetchData, 15000);
+
+  // ============ DLR & DPR SUMMARY (all assigned projects, one date) ============
+  const fetchDlrDprSummary = async (dateOverride) => {
+    setDlrDprLoading(true);
+    try {
+      const res = await axios.get(`${API}/site-engineer/dlr-dpr-summary`, { params: { date: dateOverride || dlrDprDate } });
+      setDlrDprRows(res.data?.projects || []);
+    } catch {
+      setDlrDprRows([]);
+      toast.error('Failed to load DLR & DPR summary');
+    } finally {
+      setDlrDprLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (activeTab === 'dlrdpr') fetchDlrDprSummary();
+  }, [activeTab, dlrDprDate]);
 
   // ============ CURING VIDEO FUNCTIONS ============
   const fetchCuringHistory = async (projFilter) => {
@@ -1114,13 +1137,20 @@ export default function SiteEngineerDashboard() {
         {/* Top-level dashboard tabs — only My Projects, Petty Cash, Attendance.
             Site visits / Work orders / Cashbook / Curing video moved inside the project view. */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">
-          <TabsList className={`grid ${user?.role === 'sr_site_engineer' || user?.role === 'super_admin' ? 'grid-cols-4' : 'grid-cols-3'} w-full h-auto bg-gray-100 p-1 rounded-lg`} data-testid="se-dashboard-tabs">
+          <TabsList className={`grid ${user?.role === 'sr_site_engineer' || user?.role === 'super_admin' ? 'grid-cols-5' : 'grid-cols-4'} w-full h-auto bg-gray-100 p-1 rounded-lg`} data-testid="se-dashboard-tabs">
             <TabsTrigger
               value="projects"
               className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow"
               data-testid="tab-projects"
             >
               <Building2 className="h-5 w-5" /> My Projects
+            </TabsTrigger>
+            <TabsTrigger
+              value="dlrdpr"
+              className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-orange-700 data-[state=active]:shadow"
+              data-testid="tab-dlrdpr"
+            >
+              <FileText className="h-5 w-5" /> DLR & DPR
             </TabsTrigger>
             {(user?.role === 'sr_site_engineer' || user?.role === 'super_admin') && (
               <TabsTrigger
@@ -1158,6 +1188,74 @@ export default function SiteEngineerDashboard() {
               <SrSERequestsTab />
             </TabsContent>
           )}
+
+          {/* DLR & DPR Tab — one line per assigned project for the selected day */}
+          <TabsContent value="dlrdpr" className="mt-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-orange-600" /> DLR & DPR — All Projects
+                    </CardTitle>
+                    <p className="text-xs text-gray-500 mt-0.5">One line per project — works count, amount, and stage for the selected day.</p>
+                  </div>
+                  <input
+                    type="date"
+                    value={dlrDprDate}
+                    onChange={(e) => setDlrDprDate(e.target.value)}
+                    className="h-9 px-2 border rounded-md text-sm"
+                    data-testid="dlrdpr-date-picker"
+                  />
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                {dlrDprLoading ? (
+                  <p className="text-center text-gray-400 py-10 text-sm">Loading…</p>
+                ) : dlrDprRows.length === 0 ? (
+                  <p className="text-center text-gray-400 py-10 text-sm" data-testid="dlrdpr-empty">No DLR recorded for this date across your projects.</p>
+                ) : (
+                  <div className="overflow-x-auto" data-testid="dlrdpr-table">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 border-y">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
+                          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Works Count</th>
+                          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Amount</th>
+                          <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Stage</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {dlrDprRows.map(row => (
+                          <tr
+                            key={row.project_id}
+                            className="hover:bg-orange-50/50 cursor-pointer"
+                            data-testid={`dlrdpr-row-${row.project_id}`}
+                            onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
+                          >
+                            <td className="px-3 py-2 font-medium text-gray-900">{row.project_name}</td>
+                            <td className="px-3 py-2 text-right">{row.works_count}</td>
+                            <td className="px-3 py-2 text-right font-medium">{formatCurrency(row.amount)}</td>
+                            <td className="px-3 py-2 text-gray-600">
+                              {row.stage_names?.length > 0 ? row.stage_names.join(', ') : <span className="text-gray-300">—</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-gray-50 border-t font-semibold">
+                        <tr>
+                          <td className="px-3 py-2">Total</td>
+                          <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0)}</td>
+                          <td className="px-3 py-2 text-right">{formatCurrency(dlrDprRows.reduce((s, r) => s + (r.amount || 0), 0))}</td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* Site Visits Tab */}
           <TabsContent value="sitevisits" className="mt-4">

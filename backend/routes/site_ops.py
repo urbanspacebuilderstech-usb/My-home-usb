@@ -532,8 +532,53 @@ async def get_site_engineer_projects(user: User = Depends(get_current_user)):
             project["active_petty_cash"] = petty_cash
             project["assignment_id"] = a["assignment_id"]
             projects.append(project)
-    
+
     return projects
+
+
+@router.get("/site-engineer/dlr-dpr-summary")
+async def get_site_engineer_dlr_dpr_summary(
+    date: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Single-line-per-project DLR & DPR rollup across every project this
+    SE/Sr-SE/Associate PM is assigned to, for one day (defaults to today).
+    Lets a Sr SE managing several projects see today's works count / amount /
+    active stage per project without opening each one separately."""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers, Sr. Site Engineers, or Associate PMs can access this")
+
+    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    assignments = await db.site_engineer_assignments.find({
+        "user_id": user.user_id,
+        "is_active": True,
+    }, {"_id": 0}).to_list(50)
+
+    rows = []
+    for a in assignments:
+        project = await db.projects.find_one(
+            {"project_id": a["project_id"], "is_deleted": {"$ne": True}}, {"_id": 0, "name": 1, "project_id": 1}
+        )
+        if not project:
+            continue
+        entries = await db.daily_labour_reports.find(
+            {"project_id": a["project_id"], "date": target_date}, {"_id": 0}
+        ).to_list(200)
+        works_count = sum(e.get("total_workers", 0) for e in entries)
+        amount = sum(e.get("total_cost", 0) for e in entries)
+        stage_names = sorted({e.get("stage_name") for e in entries if e.get("stage_name")})
+        rows.append({
+            "project_id": project["project_id"],
+            "project_name": project.get("name", ""),
+            "entries_count": len(entries),
+            "works_count": works_count,
+            "amount": round(amount, 2),
+            "stage_names": stage_names,
+        })
+
+    rows.sort(key=lambda r: r["project_name"].lower())
+    return {"date": target_date, "projects": rows}
 
 
 @router.get("/site-engineer/project/{project_id}")
