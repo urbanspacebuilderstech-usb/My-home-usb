@@ -452,7 +452,7 @@ export default function SiteEngineerDashboard() {
     setDlrDprLoading(true);
     try {
       const res = await axios.get(`${API}/site-engineer/dlr-dpr-summary`, { params: { date: dateOverride || dlrDprDate } });
-      setDlrDprRows(res.data?.projects || []);
+      setDlrDprRows(res.data?.rows || []);
     } catch {
       setDlrDprRows([]);
       toast.error('Failed to load DLR & DPR summary');
@@ -1219,35 +1219,45 @@ export default function SiteEngineerDashboard() {
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50 border-y">
                         <tr>
+                          <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
                           <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
-                          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Works Count</th>
-                          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Amount</th>
                           <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Stage</th>
+                          <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Contractor</th>
+                          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Works Count</th>
+                          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Skilled</th>
+                          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Semi-Skilled</th>
+                          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Unskilled</th>
+                          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Amount</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {dlrDprRows.map(row => (
+                        {dlrDprRows.map((row, idx) => (
                           <tr
-                            key={row.project_id}
+                            key={row.dlr_id || `${row.project_id}-${idx}`}
                             className="hover:bg-orange-50/50 cursor-pointer"
-                            data-testid={`dlrdpr-row-${row.project_id}`}
+                            data-testid={`dlrdpr-row-${row.dlr_id || idx}`}
                             onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
                           >
+                            <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
                             <td className="px-3 py-2 font-medium text-gray-900">{row.project_name}</td>
+                            <td className="px-3 py-2 text-gray-600">{row.stage_name || <span className="text-gray-300">—</span>}</td>
+                            <td className="px-3 py-2 text-gray-600">{row.contractor_name || <span className="text-gray-300">—</span>}</td>
                             <td className="px-3 py-2 text-right">{row.works_count}</td>
+                            <td className="px-3 py-2 text-right">{row.skilled}</td>
+                            <td className="px-3 py-2 text-right">{row.semi_skilled}</td>
+                            <td className="px-3 py-2 text-right">{row.unskilled}</td>
                             <td className="px-3 py-2 text-right font-medium">{formatCurrency(row.amount)}</td>
-                            <td className="px-3 py-2 text-gray-600">
-                              {row.stage_names?.length > 0 ? row.stage_names.join(', ') : <span className="text-gray-300">—</span>}
-                            </td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot className="bg-gray-50 border-t font-semibold">
                         <tr>
-                          <td className="px-3 py-2">Total</td>
+                          <td className="px-3 py-2" colSpan={4}>Total</td>
                           <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0)}</td>
+                          <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0)}</td>
+                          <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0)}</td>
+                          <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0)}</td>
                           <td className="px-3 py-2 text-right">{formatCurrency(dlrDprRows.reduce((s, r) => s + (r.amount || 0), 0))}</td>
-                          <td></td>
                         </tr>
                       </tfoot>
                     </table>

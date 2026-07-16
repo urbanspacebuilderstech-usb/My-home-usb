@@ -536,15 +536,30 @@ async def get_site_engineer_projects(user: User = Depends(get_current_user)):
     return projects
 
 
+def _dlr_skill_bucket(t):
+    """Map an arbitrary labour `type` string into skilled/semi_skilled/
+    unskilled. Entries normally already store one of these three exactly,
+    this is just a safety net for older/free-text data."""
+    if not t:
+        return "skilled"
+    s = str(t).strip().lower()
+    if s in ("unskilled",) or s in ("helper", "labour", "coolie", "labourer", "mazdoor"):
+        return "unskilled"
+    if "semi" in s or s in ("painter helper",):
+        return "semi_skilled"
+    return "skilled"
+
+
 @router.get("/site-engineer/dlr-dpr-summary")
 async def get_site_engineer_dlr_dpr_summary(
     date: Optional[str] = None,
     user: User = Depends(get_current_user),
 ):
-    """Single-line-per-project DLR & DPR rollup across every project this
-    SE/Sr-SE/Associate PM is assigned to, for one day (defaults to today).
-    Lets a Sr SE managing several projects see today's works count / amount /
-    active stage per project without opening each one separately."""
+    """One row per DLR recorded across every project this SE/Sr-SE/Associate
+    PM is assigned to, for one day (defaults to today) — project, stage,
+    contractor, skill-wise headcount, and amount. Lets a Sr SE managing
+    several projects see today's labour activity across all of them without
+    opening each project individually."""
     if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
         raise HTTPException(status_code=403, detail="Only Site Engineers, Sr. Site Engineers, or Associate PMs can access this")
 
@@ -554,31 +569,42 @@ async def get_site_engineer_dlr_dpr_summary(
         "user_id": user.user_id,
         "is_active": True,
     }, {"_id": 0}).to_list(50)
+    project_ids = [a["project_id"] for a in assignments]
 
     rows = []
-    for a in assignments:
-        project = await db.projects.find_one(
-            {"project_id": a["project_id"], "is_deleted": {"$ne": True}}, {"_id": 0, "name": 1, "project_id": 1}
-        )
-        if not project:
-            continue
-        entries = await db.daily_labour_reports.find(
-            {"project_id": a["project_id"], "date": target_date}, {"_id": 0}
-        ).to_list(200)
-        works_count = sum(e.get("total_workers", 0) for e in entries)
-        amount = sum(e.get("total_cost", 0) for e in entries)
-        stage_names = sorted({e.get("stage_name") for e in entries if e.get("stage_name")})
-        rows.append({
-            "project_id": project["project_id"],
-            "project_name": project.get("name", ""),
-            "entries_count": len(entries),
-            "works_count": works_count,
-            "amount": round(amount, 2),
-            "stage_names": stage_names,
-        })
+    if project_ids:
+        projects = await db.projects.find(
+            {"project_id": {"$in": project_ids}, "is_deleted": {"$ne": True}},
+            {"_id": 0, "project_id": 1, "name": 1},
+        ).to_list(len(project_ids))
+        project_name_map = {p["project_id"]: p.get("name", "") for p in projects}
 
-    rows.sort(key=lambda r: r["project_name"].lower())
-    return {"date": target_date, "projects": rows}
+        dlrs = await db.daily_labour_reports.find(
+            {"project_id": {"$in": list(project_name_map.keys())}, "date": target_date}, {"_id": 0}
+        ).to_list(500)
+
+        for d in dlrs:
+            pid = d.get("project_id")
+            if pid not in project_name_map:
+                continue
+            skill_counts = {"skilled": 0, "semi_skilled": 0, "unskilled": 0}
+            for e in (d.get("entries") or []):
+                skill_counts[_dlr_skill_bucket(e.get("type"))] += int(e.get("count") or 0)
+            rows.append({
+                "dlr_id": d.get("dlr_id") or d.get("report_id"),
+                "project_id": pid,
+                "project_name": project_name_map.get(pid, ""),
+                "stage_name": d.get("stage_name") or "",
+                "contractor_name": d.get("contractor_name") or "",
+                "works_count": d.get("total_workers", 0),
+                "skilled": skill_counts["skilled"],
+                "semi_skilled": skill_counts["semi_skilled"],
+                "unskilled": skill_counts["unskilled"],
+                "amount": round(d.get("total_cost", 0) or 0, 2),
+            })
+        rows.sort(key=lambda r: (r["project_name"].lower(), r["stage_name"].lower()))
+
+    return {"date": target_date, "rows": rows}
 
 
 @router.get("/site-engineer/project/{project_id}")
