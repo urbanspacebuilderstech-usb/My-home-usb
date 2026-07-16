@@ -10,14 +10,17 @@ echo "========================================="
 APP_DIR="/var/www/myhomeusb/app"
 
 # Backend .env
-cat > $APP_DIR/backend/.env << 'ENVFILE'
+# SECURITY: do not hardcode real secrets in this tracked script. Fill in the
+# placeholders below by hand on the server (or export them as shell vars
+# before running this script), then this heredoc will substitute them in.
+cat > $APP_DIR/backend/.env << ENVFILE
 MONGO_URL=mongodb://localhost:27017
 DB_NAME=construction_crm
 CORS_ORIGINS=https://myhomeusb.com,https://www.myhomeusb.com
-RESEND_API_KEY=re_fD9YsUuS_NUYABqcaqYovF6ywtcXN2p5v
+RESEND_API_KEY=${RESEND_API_KEY:?Set RESEND_API_KEY in your shell before running this script}
 SENDER_EMAIL=noreply@myhomeusb.com
-GOOGLE_SHEETS_CLIENT_ID=748540168783-0vsq4om3nli1gaitb9lpjgmrrd080emh.apps.googleusercontent.com
-GOOGLE_SHEETS_CLIENT_SECRET=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
+GOOGLE_SHEETS_CLIENT_ID=${GOOGLE_SHEETS_CLIENT_ID:?Set GOOGLE_SHEETS_CLIENT_ID in your shell before running this script}
+GOOGLE_SHEETS_CLIENT_SECRET=${GOOGLE_SHEETS_CLIENT_SECRET:?Set GOOGLE_SHEETS_CLIENT_SECRET in your shell before running this script}
 GOOGLE_SHEETS_REDIRECT_URI=https://www.myhomeusb.com/api/oauth/sheets/callback
 FRONTEND_URL=https://www.myhomeusb.com
 DEMO_MODE=false
