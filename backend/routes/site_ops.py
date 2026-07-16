@@ -583,10 +583,12 @@ async def get_site_engineer_dlr_dpr_summary(
             {"project_id": {"$in": list(project_name_map.keys())}, "date": target_date}, {"_id": 0}
         ).to_list(500)
 
+        projects_with_dlr = set()
         for d in dlrs:
             pid = d.get("project_id")
             if pid not in project_name_map:
                 continue
+            projects_with_dlr.add(pid)
             skill_counts = {"skilled": 0, "semi_skilled": 0, "unskilled": 0}
             for e in (d.get("entries") or []):
                 skill_counts[_dlr_skill_bucket(e.get("type"))] += int(e.get("count") or 0)
@@ -602,6 +604,26 @@ async def get_site_engineer_dlr_dpr_summary(
                 "unskilled": skill_counts["unskilled"],
                 "amount": round(d.get("total_cost", 0) or 0, 2),
             })
+
+        # Projects with no DLR at all for this date still get a zero row —
+        # so a Sr SE managing several projects can see at a glance which
+        # ones haven't logged anything yet, not just the ones that have.
+        for pid, pname in project_name_map.items():
+            if pid in projects_with_dlr:
+                continue
+            rows.append({
+                "dlr_id": None,
+                "project_id": pid,
+                "project_name": pname,
+                "stage_name": "",
+                "contractor_name": "",
+                "works_count": 0,
+                "skilled": 0,
+                "semi_skilled": 0,
+                "unskilled": 0,
+                "amount": 0,
+            })
+
         rows.sort(key=lambda r: (r["project_name"].lower(), r["stage_name"].lower()))
 
     return {"date": target_date, "rows": rows}
