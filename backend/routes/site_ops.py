@@ -607,6 +607,71 @@ async def get_site_engineer_dlr_dpr_summary(
     return {"date": target_date, "rows": rows}
 
 
+@router.get("/site-engineer/inventory-summary")
+async def get_site_engineer_inventory_summary(
+    date: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Project-wise material stock rollup across every project this SE/Sr-SE/
+    Associate PM is assigned to: current stock balance plus the selected
+    day's stock-in and stock-out, one row per (project, material). Backs the
+    SE dashboard's DLR & DPR > Inventory sub-tab."""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers, Sr. Site Engineers, or Associate PMs can access this")
+
+    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    assignments = await db.site_engineer_assignments.find({
+        "user_id": user.user_id,
+        "is_active": True,
+    }, {"_id": 0}).to_list(50)
+    project_ids = [a["project_id"] for a in assignments]
+
+    rows = []
+    if project_ids:
+        projects = await db.projects.find(
+            {"project_id": {"$in": project_ids}, "is_deleted": {"$ne": True}},
+            {"_id": 0, "project_id": 1, "name": 1},
+        ).to_list(len(project_ids))
+
+        for p in projects:
+            pid = p["project_id"]
+            pname = p.get("name", "")
+
+            # Current (latest) balance per material for this project.
+            pipeline = [
+                {"$match": {"project_id": pid}},
+                {"$sort": {"date": -1, "created_at": -1}},
+                {"$group": {"_id": "$material_name", "latest": {"$first": "$$ROOT"}}},
+                {"$replaceRoot": {"newRoot": "$latest"}},
+                {"$project": {"_id": 0}},
+            ]
+            latest_entries = await db.material_inventory.aggregate(pipeline).to_list(200)
+
+            # Selected day's in/out per material, to overlay on the latest balance.
+            today_entries = await db.material_inventory.find(
+                {"project_id": pid, "date": target_date}, {"_id": 0}
+            ).to_list(200)
+            today_map = {e.get("material_name"): e for e in today_entries}
+
+            for e in latest_entries:
+                mat = e.get("material_name")
+                today_e = today_map.get(mat)
+                rows.append({
+                    "project_id": pid,
+                    "project_name": pname,
+                    "material_name": mat,
+                    "unit": e.get("unit", ""),
+                    "current_stock": e.get("closing_stock", 0),
+                    "today_in": today_e.get("received", 0) if today_e else 0,
+                    "today_out": today_e.get("used", 0) if today_e else 0,
+                })
+
+        rows.sort(key=lambda r: (r["project_name"].lower(), (r["material_name"] or "").lower()))
+
+    return {"date": target_date, "rows": rows}
+
+
 @router.get("/site-engineer/project/{project_id}")
 async def get_site_engineer_project_detail(
     project_id: str,

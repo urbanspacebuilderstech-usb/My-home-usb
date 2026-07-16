@@ -313,9 +313,14 @@ export default function SiteEngineerDashboard() {
   const [activeTab, setActiveTab] = useState('projects');
 
   // DLR & DPR tab — one line per assigned project for a given day
+  const [dlrDprSubTab, setDlrDprSubTab] = useState('dlr');
   const [dlrDprDate, setDlrDprDate] = useState(new Date().toISOString().split('T')[0]);
   const [dlrDprRows, setDlrDprRows] = useState([]);
   const [dlrDprLoading, setDlrDprLoading] = useState(false);
+  // DLR & DPR > Inventory sub-tab — project-wise stock + today's in/out
+  const [invSummaryDate, setInvSummaryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [invSummaryRows, setInvSummaryRows] = useState([]);
+  const [invSummaryLoading, setInvSummaryLoading] = useState(false);
 
   const [paymentDialog, setPaymentDialog] = useState(false);
   const [selectedStage, setSelectedStage] = useState(null);
@@ -461,8 +466,24 @@ export default function SiteEngineerDashboard() {
     }
   };
   useEffect(() => {
-    if (activeTab === 'dlrdpr') fetchDlrDprSummary();
-  }, [activeTab, dlrDprDate]);
+    if (activeTab === 'dlrdpr' && dlrDprSubTab === 'dlr') fetchDlrDprSummary();
+  }, [activeTab, dlrDprSubTab, dlrDprDate]);
+
+  const fetchInventorySummary = async (dateOverride) => {
+    setInvSummaryLoading(true);
+    try {
+      const res = await axios.get(`${API}/site-engineer/inventory-summary`, { params: { date: dateOverride || invSummaryDate } });
+      setInvSummaryRows(res.data?.rows || []);
+    } catch {
+      setInvSummaryRows([]);
+      toast.error('Failed to load Inventory summary');
+    } finally {
+      setInvSummaryLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (activeTab === 'dlrdpr' && dlrDprSubTab === 'inventory') fetchInventorySummary();
+  }, [activeTab, dlrDprSubTab, invSummaryDate]);
 
   // ============ CURING VIDEO FUNCTIONS ============
   const fetchCuringHistory = async (projFilter) => {
@@ -1191,80 +1212,162 @@ export default function SiteEngineerDashboard() {
 
           {/* DLR & DPR Tab — one line per assigned project for the selected day */}
           <TabsContent value="dlrdpr" className="mt-4">
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <FileText className="h-5 w-5 text-orange-600" /> DLR & DPR — All Projects
-                    </CardTitle>
-                    <p className="text-xs text-gray-500 mt-0.5">One line per project — works count, amount, and stage for the selected day.</p>
+            <div className="flex items-center gap-2 mb-3" data-testid="dlrdpr-subtabs">
+              <button
+                type="button"
+                onClick={() => setDlrDprSubTab('dlr')}
+                className={`px-3 py-1.5 text-xs sm:text-sm font-semibold rounded-md border-2 transition ${dlrDprSubTab === 'dlr' ? 'border-orange-600 bg-orange-100 text-orange-900' : 'border-gray-300 bg-gray-50 text-gray-700 hover:brightness-95'}`}
+                data-testid="dlrdpr-subtab-dlr"
+              >
+                DLR & DPR
+              </button>
+              <button
+                type="button"
+                onClick={() => setDlrDprSubTab('inventory')}
+                className={`px-3 py-1.5 text-xs sm:text-sm font-semibold rounded-md border-2 transition ${dlrDprSubTab === 'inventory' ? 'border-orange-600 bg-orange-100 text-orange-900' : 'border-gray-300 bg-gray-50 text-gray-700 hover:brightness-95'}`}
+                data-testid="dlrdpr-subtab-inventory"
+              >
+                Inventory
+              </button>
+            </div>
+
+            {dlrDprSubTab === 'dlr' ? (
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <FileText className="h-5 w-5 text-orange-600" /> DLR & DPR — All Projects
+                      </CardTitle>
+                      <p className="text-xs text-gray-500 mt-0.5">One line per project — works count, amount, and stage for the selected day.</p>
+                    </div>
+                    <input
+                      type="date"
+                      value={dlrDprDate}
+                      onChange={(e) => setDlrDprDate(e.target.value)}
+                      className="h-9 px-2 border rounded-md text-sm"
+                      data-testid="dlrdpr-date-picker"
+                    />
                   </div>
-                  <input
-                    type="date"
-                    value={dlrDprDate}
-                    onChange={(e) => setDlrDprDate(e.target.value)}
-                    className="h-9 px-2 border rounded-md text-sm"
-                    data-testid="dlrdpr-date-picker"
-                  />
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                {dlrDprLoading ? (
-                  <p className="text-center text-gray-400 py-10 text-sm">Loading…</p>
-                ) : dlrDprRows.length === 0 ? (
-                  <p className="text-center text-gray-400 py-10 text-sm" data-testid="dlrdpr-empty">No DLR recorded for this date across your projects.</p>
-                ) : (
-                  <div className="overflow-x-auto" data-testid="dlrdpr-table">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50 border-y">
-                        <tr>
-                          <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
-                          <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
-                          <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Stage</th>
-                          <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Contractor</th>
-                          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Works Count</th>
-                          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Skilled</th>
-                          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Semi-Skilled</th>
-                          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Unskilled</th>
-                          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {dlrDprRows.map((row, idx) => (
-                          <tr
-                            key={row.dlr_id || `${row.project_id}-${idx}`}
-                            className="hover:bg-orange-50/50 cursor-pointer"
-                            data-testid={`dlrdpr-row-${row.dlr_id || idx}`}
-                            onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
-                          >
-                            <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
-                            <td className="px-3 py-2 font-medium text-gray-900">{row.project_name}</td>
-                            <td className="px-3 py-2 text-gray-600">{row.stage_name || <span className="text-gray-300">—</span>}</td>
-                            <td className="px-3 py-2 text-gray-600">{row.contractor_name || <span className="text-gray-300">—</span>}</td>
-                            <td className="px-3 py-2 text-right">{row.works_count}</td>
-                            <td className="px-3 py-2 text-right">{row.skilled}</td>
-                            <td className="px-3 py-2 text-right">{row.semi_skilled}</td>
-                            <td className="px-3 py-2 text-right">{row.unskilled}</td>
-                            <td className="px-3 py-2 text-right font-medium">{formatCurrency(row.amount)}</td>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {dlrDprLoading ? (
+                    <p className="text-center text-gray-400 py-10 text-sm">Loading…</p>
+                  ) : dlrDprRows.length === 0 ? (
+                    <p className="text-center text-gray-400 py-10 text-sm" data-testid="dlrdpr-empty">No DLR recorded for this date across your projects.</p>
+                  ) : (
+                    <div className="overflow-x-auto" data-testid="dlrdpr-table">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 border-y">
+                          <tr>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Stage</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Contractor</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Works Count</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Skilled</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Semi-Skilled</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Unskilled</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Amount</th>
                           </tr>
-                        ))}
-                      </tbody>
-                      <tfoot className="bg-gray-50 border-t font-semibold">
-                        <tr>
-                          <td className="px-3 py-2" colSpan={4}>Total</td>
-                          <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0)}</td>
-                          <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0)}</td>
-                          <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0)}</td>
-                          <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0)}</td>
-                          <td className="px-3 py-2 text-right">{formatCurrency(dlrDprRows.reduce((s, r) => s + (r.amount || 0), 0))}</td>
-                        </tr>
-                      </tfoot>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y">
+                          {dlrDprRows.map((row, idx) => (
+                            <tr
+                              key={row.dlr_id || `${row.project_id}-${idx}`}
+                              className="hover:bg-orange-50/50 cursor-pointer"
+                              data-testid={`dlrdpr-row-${row.dlr_id || idx}`}
+                              onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
+                            >
+                              <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
+                              <td className="px-3 py-2 font-medium text-gray-900">{row.project_name}</td>
+                              <td className="px-3 py-2 text-gray-600">{row.stage_name || <span className="text-gray-300">—</span>}</td>
+                              <td className="px-3 py-2 text-gray-600">{row.contractor_name || <span className="text-gray-300">—</span>}</td>
+                              <td className="px-3 py-2 text-right">{row.works_count}</td>
+                              <td className="px-3 py-2 text-right">{row.skilled}</td>
+                              <td className="px-3 py-2 text-right">{row.semi_skilled}</td>
+                              <td className="px-3 py-2 text-right">{row.unskilled}</td>
+                              <td className="px-3 py-2 text-right font-medium">{formatCurrency(row.amount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="bg-gray-50 border-t font-semibold">
+                          <tr>
+                            <td className="px-3 py-2" colSpan={4}>Total</td>
+                            <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0)}</td>
+                            <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0)}</td>
+                            <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0)}</td>
+                            <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0)}</td>
+                            <td className="px-3 py-2 text-right">{formatCurrency(dlrDprRows.reduce((s, r) => s + (r.amount || 0), 0))}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Package className="h-5 w-5 text-orange-600" /> Inventory — All Projects
+                      </CardTitle>
+                      <p className="text-xs text-gray-500 mt-0.5">Project-wise current stock, plus today's stock-in and stock-out.</p>
+                    </div>
+                    <input
+                      type="date"
+                      value={invSummaryDate}
+                      onChange={(e) => setInvSummaryDate(e.target.value)}
+                      className="h-9 px-2 border rounded-md text-sm"
+                      data-testid="inv-summary-date-picker"
+                    />
                   </div>
-                )}
-              </CardContent>
-            </Card>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {invSummaryLoading ? (
+                    <p className="text-center text-gray-400 py-10 text-sm">Loading…</p>
+                  ) : invSummaryRows.length === 0 ? (
+                    <p className="text-center text-gray-400 py-10 text-sm" data-testid="inv-summary-empty">No inventory recorded yet across your projects.</p>
+                  ) : (
+                    <div className="overflow-x-auto" data-testid="inv-summary-table">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 border-y">
+                          <tr>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Material</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Unit</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Current Stock</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Today In</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Today Out</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {invSummaryRows.map((row, idx) => (
+                            <tr
+                              key={`${row.project_id}-${row.material_name}-${idx}`}
+                              className="hover:bg-orange-50/50 cursor-pointer"
+                              data-testid={`inv-summary-row-${idx}`}
+                              onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
+                            >
+                              <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
+                              <td className="px-3 py-2 font-medium text-gray-900">{row.project_name}</td>
+                              <td className="px-3 py-2 text-gray-700">{row.material_name}</td>
+                              <td className="px-3 py-2 text-gray-500">{row.unit || '—'}</td>
+                              <td className="px-3 py-2 text-right font-medium">{row.current_stock}</td>
+                              <td className="px-3 py-2 text-right text-emerald-700">{row.today_in > 0 ? `+${row.today_in}` : row.today_in}</td>
+                              <td className="px-3 py-2 text-right text-red-700">{row.today_out > 0 ? `-${row.today_out}` : row.today_out}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           {/* Site Visits Tab */}
