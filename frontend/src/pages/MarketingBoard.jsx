@@ -204,6 +204,10 @@ export default function MarketingBoard() {
   const [showSheetsDialog, setShowSheetsDialog] = useState(false);
   const [sheetsTab, setSheetsTab] = useState('website');
   const [sheetsConfig, setSheetsConfig] = useState(null);
+  const [showCredentialsDialog, setShowCredentialsDialog] = useState(false);
+  const [credentialsStatus, setCredentialsStatus] = useState(null); // {client_id, redirect_uri, has_secret, source}
+  const [credentialsForm, setCredentialsForm] = useState({ client_id: '', client_secret: '', redirect_uri: '' });
+  const [savingCredentials, setSavingCredentials] = useState(false);
   const [sheetSources, setSheetSources] = useState([]);
   const [sheetPreview, setSheetPreview] = useState(null);
   const [sheetUrl, setSheetUrl] = useState('');
@@ -362,10 +366,46 @@ export default function MarketingBoard() {
       }
     } catch (error) {
       if (error.response?.data?.detail?.includes('credentials not configured')) {
-        toast.error('Google Sheets credentials not configured. Please contact admin to set up GOOGLE_SHEETS_CLIENT_ID and GOOGLE_SHEETS_CLIENT_SECRET in the backend.');
+        toast.error('Google Sheets credentials not configured. Click Settings to add them.');
+        openCredentialsDialog();
       } else {
         toast.error('Failed to start Google Sheets connection');
       }
+    }
+  };
+
+  const openCredentialsDialog = async () => {
+    setShowCredentialsDialog(true);
+    try {
+      const res = await axios.get(`${API}/api/sheets/credentials`, { withCredentials: true });
+      setCredentialsStatus(res.data);
+      setCredentialsForm({ client_id: res.data.client_id || '', client_secret: '', redirect_uri: res.data.redirect_uri || '' });
+    } catch (error) {
+      toast.error('Failed to load current credentials status');
+    }
+  };
+
+  const saveCredentials = async () => {
+    if (!credentialsForm.client_id.trim()) {
+      toast.error('Client ID is required');
+      return;
+    }
+    setSavingCredentials(true);
+    try {
+      const res = await axios.post(`${API}/api/sheets/credentials`, {
+        client_id: credentialsForm.client_id.trim(),
+        client_secret: credentialsForm.client_secret.trim() || undefined,
+        redirect_uri: credentialsForm.redirect_uri.trim() || undefined,
+      }, { withCredentials: true });
+      toast.success('Google Sheets credentials saved');
+      setCredentialsStatus(res.data);
+      setCredentialsForm(prev => ({ ...prev, client_secret: '' }));
+      setShowCredentialsDialog(false);
+      fetchSheetsConfig();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to save credentials');
+    } finally {
+      setSavingCredentials(false);
     }
   };
 
@@ -1632,6 +1672,9 @@ export default function MarketingBoard() {
                     {sheetsConfig?.is_connected ? (
                       <div className="flex items-center gap-2">
                         <Badge className="bg-emerald-100 text-emerald-700 gap-1"><Check className="h-3 w-3" /> Connected</Badge>
+                        <Button variant="outline" size="sm" onClick={openCredentialsDialog} className="gap-1.5" data-testid="sheets-settings-btn">
+                          <Settings className="h-3.5 w-3.5" /> Settings
+                        </Button>
                         <Button variant="outline" size="sm" onClick={disconnectGoogleSheets} className="text-red-600 border-red-300 hover:bg-red-50 gap-1">
                           <Unlink className="h-3.5 w-3.5" /> Disconnect
                         </Button>
@@ -1639,14 +1682,22 @@ export default function MarketingBoard() {
                     ) : (sheetsConfig?.needs_reconnect || connectedSheets.length > 0) ? (
                       <div className="flex items-center gap-2">
                         <Badge className="bg-rose-100 text-rose-700 gap-1"><AlertCircle className="h-3 w-3" /> Reconnect Required</Badge>
+                        <Button variant="outline" size="sm" onClick={openCredentialsDialog} className="gap-1.5" data-testid="sheets-settings-btn">
+                          <Settings className="h-3.5 w-3.5" /> Settings
+                        </Button>
                         <Button onClick={connectGoogleSheets} className="bg-rose-600 hover:bg-rose-700 gap-1.5" data-testid="reconnect-google-sheets-btn">
                           <Link className="h-4 w-4" /> Reconnect Google
                         </Button>
                       </div>
                     ) : (
-                      <Button onClick={connectGoogleSheets} className="bg-emerald-600 hover:bg-emerald-700 gap-1.5" data-testid="connect-google-sheets-btn">
-                        <Link className="h-4 w-4" /> Connect Google Sheets
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={openCredentialsDialog} className="gap-1.5" data-testid="sheets-settings-btn">
+                          <Settings className="h-3.5 w-3.5" /> Settings
+                        </Button>
+                        <Button onClick={connectGoogleSheets} className="bg-emerald-600 hover:bg-emerald-700 gap-1.5" data-testid="connect-google-sheets-btn">
+                          <Link className="h-4 w-4" /> Connect Google Sheets
+                        </Button>
+                      </div>
                     )}
                   </div>
                   {!sheetsConfig?.is_connected && (sheetsConfig?.needs_reconnect || connectedSheets.length > 0) && (
@@ -2658,12 +2709,17 @@ export default function MarketingBoard() {
               </div>
               {!sheetsConfig?.has_credentials && (
                 <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <div className="flex items-start gap-2">
-                    <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
-                    <div className="text-sm">
-                      <p className="font-medium text-yellow-800">Setup Required</p>
-                      <p className="text-yellow-700">Google Sheets credentials need to be configured in the backend. Add GOOGLE_SHEETS_CLIENT_ID and GOOGLE_SHEETS_CLIENT_SECRET to backend/.env</p>
+                  <div className="flex items-start gap-2 justify-between">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                      <div className="text-sm">
+                        <p className="font-medium text-yellow-800">Setup Required</p>
+                        <p className="text-yellow-700">Google Sheets credentials need to be configured before connecting.</p>
+                      </div>
                     </div>
+                    <Button size="sm" variant="outline" onClick={openCredentialsDialog} className="gap-1.5 shrink-0">
+                      <Settings className="h-3.5 w-3.5" /> Configure
+                    </Button>
                   </div>
                 </div>
               )}
@@ -3435,6 +3491,60 @@ export default function MarketingBoard() {
                 </Button>
               </>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Google Sheets OAuth Credentials Settings */}
+      <Dialog open={showCredentialsDialog} onOpenChange={setShowCredentialsDialog}>
+        <DialogContent className="max-w-md" data-testid="sheets-credentials-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Settings className="h-5 w-5" /> Google Sheets Credentials</DialogTitle>
+            <DialogDescription>
+              These come from a Google Cloud OAuth Client (Web application). Saved here, they're stored in the database and used immediately — no server restart needed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {credentialsStatus && (
+              <div className="text-xs px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-600 inline-flex items-center gap-1.5">
+                Currently active from: <strong className="capitalize">{credentialsStatus.source === 'none' ? 'not configured' : credentialsStatus.source}</strong>
+              </div>
+            )}
+            <div>
+              <Label className="text-xs">Client ID</Label>
+              <Input
+                value={credentialsForm.client_id}
+                onChange={(e) => setCredentialsForm(prev => ({ ...prev, client_id: e.target.value }))}
+                placeholder="xxxxxxxxxx.apps.googleusercontent.com"
+                data-testid="sheets-cred-client-id"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Client Secret {credentialsStatus?.has_secret && <span className="text-gray-400 font-normal">(leave blank to keep the saved one)</span>}</Label>
+              <Input
+                type="password"
+                value={credentialsForm.client_secret}
+                onChange={(e) => setCredentialsForm(prev => ({ ...prev, client_secret: e.target.value }))}
+                placeholder={credentialsStatus?.has_secret ? '••••••••••••' : 'GOCSPX-...'}
+                data-testid="sheets-cred-client-secret"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Redirect URI</Label>
+              <Input
+                value={credentialsForm.redirect_uri}
+                onChange={(e) => setCredentialsForm(prev => ({ ...prev, redirect_uri: e.target.value }))}
+                placeholder="https://www.myhomeusb.com/api/oauth/sheets/callback"
+                data-testid="sheets-cred-redirect-uri"
+              />
+              <p className="text-[11px] text-gray-400 mt-1">Must exactly match an Authorized redirect URI on the Google Cloud OAuth Client.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCredentialsDialog(false)}>Cancel</Button>
+            <Button onClick={saveCredentials} disabled={savingCredentials} className="bg-emerald-600 hover:bg-emerald-700" data-testid="sheets-cred-save-btn">
+              {savingCredentials ? 'Saving…' : 'Save Credentials'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -4465,6 +4465,39 @@ GOOGLE_SHEETS_SCOPES = [
 # token + sources without needing to re-authenticate.
 SHARED_SHEETS_KEY = "_company_shared_"
 
+# Key for the single DB-saved credentials document (Super Admin settings UI).
+# Lets Client ID/Secret/Redirect URI be rotated from the app without SSHing
+# into the server and restarting the backend for every change.
+GOOGLE_SHEETS_CREDENTIALS_KEY = "_shared_credentials_"
+
+
+async def get_google_sheets_credentials() -> dict:
+    """Resolve the active Google Sheets OAuth credentials.
+
+    Checks the database (Super-Admin-saved settings) first, falling back to
+    the GOOGLE_SHEETS_* environment variables only if nothing is saved.
+    """
+    saved = await db.google_sheets_credentials.find_one({"key": GOOGLE_SHEETS_CREDENTIALS_KEY}, {"_id": 0})
+    if saved and saved.get("client_id") and saved.get("client_secret"):
+        return {
+            "client_id": saved["client_id"],
+            "client_secret": saved["client_secret"],
+            "redirect_uri": saved.get("redirect_uri") or GOOGLE_SHEETS_REDIRECT_URI,
+            "source": "database",
+        }
+    return {
+        "client_id": GOOGLE_SHEETS_CLIENT_ID,
+        "client_secret": GOOGLE_SHEETS_CLIENT_SECRET,
+        "redirect_uri": GOOGLE_SHEETS_REDIRECT_URI,
+        "source": "environment" if (GOOGLE_SHEETS_CLIENT_ID and GOOGLE_SHEETS_CLIENT_SECRET) else "none",
+    }
+
+
+class GoogleSheetsCredentialsUpdate(BaseModel):
+    client_id: str
+    client_secret: Optional[str] = None  # omit/blank to keep the currently saved secret
+    redirect_uri: Optional[str] = None
+
 
 class GoogleSheetSource(BaseModel):
     source_id: str = Field(default_factory=lambda: f"gs_{uuid.uuid4().hex[:12]}")
@@ -4550,6 +4583,76 @@ def auto_map_column(col_name: str) -> Optional[str]:
     return None
 
 
+@router.get("/sheets/credentials")
+async def get_google_sheets_credentials_status(user: User = Depends(get_current_user)):
+    """Super-Admin view of the currently active Google OAuth credentials.
+
+    Never returns the raw client_secret — only whether one is set and
+    whether the active credentials came from the database or env vars.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    creds = await get_google_sheets_credentials()
+    return {
+        "client_id": creds["client_id"],
+        "redirect_uri": creds["redirect_uri"],
+        "has_secret": bool(creds["client_secret"]),
+        "source": creds["source"],
+    }
+
+
+@router.post("/sheets/credentials")
+async def save_google_sheets_credentials(payload: GoogleSheetsCredentialsUpdate, user: User = Depends(get_current_user)):
+    """Save Google OAuth credentials to the database so a Super Admin can
+    set/rotate them from the app UI instead of editing backend/.env and
+    restarting the server for every change."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+
+    client_id = payload.client_id.strip()
+    if not client_id:
+        raise HTTPException(status_code=400, detail="Client ID is required")
+
+    existing = await db.google_sheets_credentials.find_one(
+        {"key": GOOGLE_SHEETS_CREDENTIALS_KEY, "client_secret": {"$exists": True, "$ne": ""}}
+    )
+    new_secret = (payload.client_secret or "").strip()
+    if not new_secret and not existing:
+        raise HTTPException(status_code=400, detail="Client Secret is required the first time you save credentials")
+
+    update = {
+        "client_id": client_id,
+        "redirect_uri": (payload.redirect_uri or "").strip() or GOOGLE_SHEETS_REDIRECT_URI,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": user.user_id,
+        "updated_by_name": user.name,
+    }
+    if new_secret:
+        update["client_secret"] = new_secret
+
+    await db.google_sheets_credentials.update_one(
+        {"key": GOOGLE_SHEETS_CREDENTIALS_KEY},
+        {"$set": update},
+        upsert=True,
+    )
+    try:
+        await create_audit_log(
+            user.user_id, "google_sheets_credentials_saved", "google_sheets_credentials", GOOGLE_SHEETS_CREDENTIALS_KEY,
+            {"client_id": client_id, "secret_rotated": bool(new_secret)},
+        )
+    except Exception:
+        pass
+
+    creds = await get_google_sheets_credentials()
+    return {
+        "message": "Google Sheets credentials saved",
+        "client_id": creds["client_id"],
+        "redirect_uri": creds["redirect_uri"],
+        "has_secret": bool(creds["client_secret"]),
+        "source": creds["source"],
+    }
+
+
 @router.get("/sheets/config")
 async def get_sheets_config(user: User = Depends(get_current_user)):
     """Get the company-wide Google Sheets configuration.
@@ -4616,7 +4719,8 @@ async def get_sheets_config(user: User = Depends(get_current_user)):
             tokens = any_token
     
     config["is_connected"] = bool(tokens and tokens.get("access_token"))
-    config["has_credentials"] = bool(GOOGLE_SHEETS_CLIENT_ID and GOOGLE_SHEETS_CLIENT_SECRET)
+    active_creds = await get_google_sheets_credentials()
+    config["has_credentials"] = bool(active_creds["client_id"] and active_creds["client_secret"])
 
     # Self-heal: if valid tokens exist but the config still carries a stale
     # `needs_reconnect: true` from a previous expiry, clear it. Otherwise the
@@ -4646,10 +4750,11 @@ async def sheets_oauth_login(request: Request, force: bool = False, user: User =
     """
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin access required")
-    
-    if not GOOGLE_SHEETS_CLIENT_ID or not GOOGLE_SHEETS_CLIENT_SECRET:
-        raise HTTPException(status_code=400, detail="Google Sheets credentials not configured. Please add GOOGLE_SHEETS_CLIENT_ID and GOOGLE_SHEETS_CLIENT_SECRET to backend/.env")
-    
+
+    active_creds = await get_google_sheets_credentials()
+    if not active_creds["client_id"] or not active_creds["client_secret"]:
+        raise HTTPException(status_code=400, detail="Google Sheets credentials not configured. Add them under Marketing Board > Google Sheets > Settings, or set GOOGLE_SHEETS_CLIENT_ID / GOOGLE_SHEETS_CLIENT_SECRET in backend/.env")
+
     # Short-circuit: if a shared connection already exists, just return that.
     if not force:
         existing = await db.google_sheets_tokens.find_one(
@@ -4669,16 +4774,16 @@ async def sheets_oauth_login(request: Request, force: bool = False, user: User =
         scheme = request.headers.get("x-forwarded-proto") or "https"
         redirect_uri = f"{scheme}://{host}/api/oauth/sheets/callback" if host else GOOGLE_SHEETS_REDIRECT_URI
     logger.info(f"Sheets OAuth login: using redirect_uri={redirect_uri}")
-    
+
     flow = Flow.from_client_config({
         "web": {
-            "client_id": GOOGLE_SHEETS_CLIENT_ID,
-            "client_secret": GOOGLE_SHEETS_CLIENT_SECRET,
+            "client_id": active_creds["client_id"],
+            "client_secret": active_creds["client_secret"],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token"
         }
     }, scopes=GOOGLE_SHEETS_SCOPES, redirect_uri=redirect_uri)
-    
+
     # Force a fresh consent so we always get a new refresh_token. Do NOT pass
     # include_granted_scopes='true' — when Google previously revoked the grant,
     # there is no prior scope set to merge with and Google redirects to the
@@ -4718,20 +4823,21 @@ async def sheets_oauth_callback(code: str, state: str, request: Request, respons
     redirect_uri = state_doc.get("redirect_uri", GOOGLE_SHEETS_REDIRECT_URI)
     code_verifier = state_doc.get("code_verifier")
     await db.oauth_states.delete_one({"state": state})
-    
-    if not GOOGLE_SHEETS_CLIENT_ID or not GOOGLE_SHEETS_CLIENT_SECRET:
+
+    active_creds = await get_google_sheets_credentials()
+    if not active_creds["client_id"] or not active_creds["client_secret"]:
         raise HTTPException(status_code=400, detail="Google Sheets credentials not configured")
-    
+
     # Set environment variable to relax scope checking
     import os as _os
     _os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
-    
+
     logger.info(f"Sheets OAuth callback: using redirect_uri={redirect_uri}, has_code_verifier={bool(code_verifier)}")
-    
+
     flow = Flow.from_client_config({
         "web": {
-            "client_id": GOOGLE_SHEETS_CLIENT_ID,
-            "client_secret": GOOGLE_SHEETS_CLIENT_SECRET,
+            "client_id": active_creds["client_id"],
+            "client_secret": active_creds["client_secret"],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token"
         }
@@ -4756,8 +4862,8 @@ async def sheets_oauth_callback(code: str, state: str, request: Request, respons
         "refresh_token": creds.refresh_token,
         "expires_at": creds.expiry.isoformat() if creds.expiry else None,
         "token_uri": "https://oauth2.googleapis.com/token",
-        "client_id": GOOGLE_SHEETS_CLIENT_ID,
-        "client_secret": GOOGLE_SHEETS_CLIENT_SECRET,
+        "client_id": active_creds["client_id"],
+        "client_secret": active_creds["client_secret"],
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
     

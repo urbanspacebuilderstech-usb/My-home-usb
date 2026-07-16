@@ -411,12 +411,18 @@ async def startup_init():
                         from google.oauth2.credentials import Credentials
                         from googleapiclient.discovery import build
                         
+                        # Use the client_id/secret saved on the token itself (set at
+                        # OAuth-issue time from the DB-saved credentials, falling back
+                        # to env vars only for old tokens issued before that existed)
+                        # rather than reading os.environ directly, so a Super Admin
+                        # rotating credentials via the app doesn't strand existing
+                        # tokens on the old client.
                         creds = Credentials(
                             token=token_doc.get("access_token"),
                             refresh_token=token_doc.get("refresh_token"),
                             token_uri="https://oauth2.googleapis.com/token",
-                            client_id=os.environ.get("GOOGLE_SHEETS_CLIENT_ID"),
-                            client_secret=os.environ.get("GOOGLE_SHEETS_CLIENT_SECRET")
+                            client_id=token_doc.get("client_id") or os.environ.get("GOOGLE_SHEETS_CLIENT_ID"),
+                            client_secret=token_doc.get("client_secret") or os.environ.get("GOOGLE_SHEETS_CLIENT_SECRET")
                         )
                         
                         service = build('sheets', 'v4', credentials=creds)
