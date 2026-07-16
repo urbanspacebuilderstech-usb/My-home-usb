@@ -6053,8 +6053,20 @@ async def get_cashbook_filtered(
 
     # Recompute the global Total Income / Total Expense headline cards
     # to include CF roll-ups so they match the table sums below.
-    cf_inc_grand = sum(pw["cf_income"] for pw in project_wise_map.values())
-    cf_exp_grand = sum(pw["cf_expense"] for pw in project_wise_map.values())
+    # `project_wise_map` is always seeded from EVERY real project (it backs
+    # the always-full Project Wise tab), so summing it unconditionally here
+    # silently ignored the `project_id` filter — the Cashbook Expense KPI
+    # showed the company-wide CF total even when a single project was
+    # selected (Income looked right only because that project's CF income
+    # happened to be small; CF expense was not). When a project filter is
+    # active, roll up CF only for that project instead of every project.
+    if project_id:
+        _pw = project_wise_map.get(project_id, {})
+        cf_inc_grand = _pw.get("cf_income", 0)
+        cf_exp_grand = _pw.get("cf_expense", 0)
+    else:
+        cf_inc_grand = sum(pw["cf_income"] for pw in project_wise_map.values())
+        cf_exp_grand = sum(pw["cf_expense"] for pw in project_wise_map.values())
     total_income_with_cf = total_income + cf_inc_grand
     total_expense_with_cf = total_expense + cf_exp_grand
 
