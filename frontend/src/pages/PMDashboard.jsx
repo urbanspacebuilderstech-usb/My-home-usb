@@ -63,6 +63,16 @@ export default function PMDashboard() {
   const [pcRejectTarget, setPcRejectTarget] = useState(null);
   const [pcRejectReason, setPcRejectReason] = useState('');
 
+  // DLR & DPR
+  const [dlrDprSubTab, setDlrDprSubTab] = useState('dlr');
+  const [dlrDprDate, setDlrDprDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dlrDprRows, setDlrDprRows] = useState([]);
+  const [dlrDprLoading, setDlrDprLoading] = useState(false);
+  const [invSummaryDate, setInvSummaryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [invSummaryRows, setInvSummaryRows] = useState([]);
+  const [invSummaryLoading, setInvSummaryLoading] = useState(false);
+  const [invProjectSearch, setInvProjectSearch] = useState('');
+
   useEffect(() => { fetchData(); }, []);
 
   const fetchData = async (showLoader = true) => {
@@ -139,6 +149,39 @@ export default function PMDashboard() {
     } finally { setLoading(false); }
   };
   useAutoRefresh(fetchData, 15000);
+
+  // === DLR & DPR ===
+  const fetchDlrDprSummary = async (dateOverride) => {
+    setDlrDprLoading(true);
+    try {
+      const res = await axios.get(`${API}/pm/dlr-dpr-summary`, { params: { date: dateOverride || dlrDprDate } });
+      setDlrDprRows(res.data?.rows || []);
+    } catch {
+      setDlrDprRows([]);
+      toast.error('Failed to load DLR & DPR summary');
+    } finally {
+      setDlrDprLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (activeTab === 'dlrdpr' && dlrDprSubTab === 'dlr') fetchDlrDprSummary();
+  }, [activeTab, dlrDprSubTab, dlrDprDate]);
+
+  const fetchInventorySummary = async (dateOverride) => {
+    setInvSummaryLoading(true);
+    try {
+      const res = await axios.get(`${API}/pm/inventory-summary`, { params: { date: dateOverride || invSummaryDate } });
+      setInvSummaryRows(res.data?.rows || []);
+    } catch {
+      setInvSummaryRows([]);
+      toast.error('Failed to load Inventory summary');
+    } finally {
+      setInvSummaryLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (activeTab === 'dlrdpr' && dlrDprSubTab === 'inventory') fetchInventorySummary();
+  }, [activeTab, dlrDprSubTab, invSummaryDate]);
 
   // === PROJECT HANDLERS ===
   const openStageDialog = (p) => { setSelectedProject(p); setNewStage(p.current_stage || 'yet_to_start'); setStageDialog(true); };
@@ -273,6 +316,8 @@ export default function PMDashboard() {
   const requestCount = materialRequests.length + labourRequests.length;
   const pendingPcCount = pettyCashRequests.filter(r => r.status === 'requested').length;
   const CountBadge = ({ count }) => count > 0 ? <span className="ml-1.5 bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] inline-flex items-center justify-center">{count}</span> : null;
+  const formatCurrency = (amount) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount || 0);
+  const filteredInvSummaryRows = invSummaryRows.filter(r => !invProjectSearch || r.project_name.toLowerCase().includes(invProjectSearch.toLowerCase()));
 
   if (loading && !user) return <div className="min-h-screen bg-gray-50"><div className="max-w-7xl mx-auto px-4 py-8"><div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-48" /></div></div></div>;
 
@@ -284,6 +329,7 @@ export default function PMDashboard() {
           <TabsList className="bg-white border shadow-sm mb-3 flex-wrap">
             <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">All Projects</TabsTrigger>
             <TabsTrigger value="requests" className="text-xs sm:text-sm" data-testid="tab-requests">Requests<CountBadge count={requestCount} /></TabsTrigger>
+            <TabsTrigger value="dlrdpr" className="text-xs sm:text-sm" data-testid="tab-dlrdpr">DLR & DPR</TabsTrigger>
           </TabsList>
 
           {/* ==================== ALL PROJECTS ==================== */}
@@ -537,6 +583,176 @@ export default function PMDashboard() {
                 </TabsContent>
               </Tabs>
             </div>
+          </TabsContent>
+
+          {/* ==================== DLR & DPR ==================== */}
+          <TabsContent value="dlrdpr">
+            <div className="flex items-center gap-2 mb-3" data-testid="dlrdpr-subtabs">
+              <button
+                type="button"
+                onClick={() => setDlrDprSubTab('dlr')}
+                className={`px-3 py-1.5 text-xs sm:text-sm font-semibold rounded-md border-2 transition ${dlrDprSubTab === 'dlr' ? 'border-orange-600 bg-orange-100 text-orange-900' : 'border-gray-300 bg-gray-50 text-gray-700 hover:brightness-95'}`}
+                data-testid="dlrdpr-subtab-dlr"
+              >
+                DLR & DPR
+              </button>
+              <button
+                type="button"
+                onClick={() => setDlrDprSubTab('inventory')}
+                className={`px-3 py-1.5 text-xs sm:text-sm font-semibold rounded-md border-2 transition ${dlrDprSubTab === 'inventory' ? 'border-orange-600 bg-orange-100 text-orange-900' : 'border-gray-300 bg-gray-50 text-gray-700 hover:brightness-95'}`}
+                data-testid="dlrdpr-subtab-inventory"
+              >
+                Inventory
+              </button>
+            </div>
+
+            {dlrDprSubTab === 'dlr' ? (
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-base flex items-center gap-2">DLR & DPR — All Projects</CardTitle>
+                      <p className="text-xs text-gray-500 mt-0.5">One line per project you manage — works count, amount, and stage for the selected day.</p>
+                    </div>
+                    <input
+                      type="date"
+                      value={dlrDprDate}
+                      onChange={(e) => setDlrDprDate(e.target.value)}
+                      className="h-9 px-2 border rounded-md text-sm"
+                      data-testid="dlrdpr-date-picker"
+                    />
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {dlrDprLoading ? (
+                    <p className="text-center text-gray-400 py-10 text-sm">Loading…</p>
+                  ) : dlrDprRows.length === 0 ? (
+                    <p className="text-center text-gray-400 py-10 text-sm" data-testid="dlrdpr-empty">No projects found for this date.</p>
+                  ) : (
+                    <div className="overflow-x-auto" data-testid="dlrdpr-table">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 border-y">
+                          <tr>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Stage</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Contractor</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Works Count</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Skilled</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Semi-Skilled</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Unskilled</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {dlrDprRows.map((row, idx) => (
+                            <tr
+                              key={row.dlr_id || `${row.project_id}-${idx}`}
+                              className="hover:bg-orange-50/50 cursor-pointer"
+                              data-testid={`dlrdpr-row-${row.dlr_id || idx}`}
+                              onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
+                            >
+                              <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
+                              <td className="px-3 py-2 font-medium text-gray-900">{row.project_name}</td>
+                              <td className="px-3 py-2 text-gray-600">{row.stage_name || <span className="text-gray-300">—</span>}</td>
+                              <td className="px-3 py-2 text-gray-600">{row.contractor_name || <span className="text-gray-300">—</span>}</td>
+                              <td className="px-3 py-2 text-right">{row.works_count}</td>
+                              <td className="px-3 py-2 text-right">{row.skilled}</td>
+                              <td className="px-3 py-2 text-right">{row.semi_skilled}</td>
+                              <td className="px-3 py-2 text-right">{row.unskilled}</td>
+                              <td className="px-3 py-2 text-right font-medium">{formatCurrency(row.amount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="bg-gray-50 border-t font-semibold">
+                          <tr>
+                            <td className="px-3 py-2" colSpan={4}>Total</td>
+                            <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0)}</td>
+                            <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0)}</td>
+                            <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0)}</td>
+                            <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0)}</td>
+                            <td className="px-3 py-2 text-right">{formatCurrency(dlrDprRows.reduce((s, r) => s + (r.amount || 0), 0))}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-base flex items-center gap-2"><Package className="h-5 w-5 text-orange-600" /> Inventory — All Projects</CardTitle>
+                      <p className="text-xs text-gray-500 mt-0.5">Project-wise current stock, plus today's stock-in and stock-out.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                        <Input
+                          placeholder="Search project..."
+                          value={invProjectSearch}
+                          onChange={(e) => setInvProjectSearch(e.target.value)}
+                          className="pl-8 h-9 w-48 text-sm"
+                          data-testid="inv-summary-project-search"
+                        />
+                      </div>
+                      <input
+                        type="date"
+                        value={invSummaryDate}
+                        onChange={(e) => setInvSummaryDate(e.target.value)}
+                        className="h-9 px-2 border rounded-md text-sm"
+                        data-testid="inv-summary-date-picker"
+                      />
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {invSummaryLoading ? (
+                    <p className="text-center text-gray-400 py-10 text-sm">Loading…</p>
+                  ) : filteredInvSummaryRows.length === 0 ? (
+                    <p className="text-center text-gray-400 py-10 text-sm" data-testid="inv-summary-empty">
+                      {invProjectSearch ? 'No matching projects.' : 'No inventory recorded yet across your projects.'}
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto" data-testid="inv-summary-table">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 border-y">
+                          <tr>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Material</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Unit</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Current Stock</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Today In</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Today Out</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {filteredInvSummaryRows.map((row, idx) => (
+                            <tr
+                              key={`${row.project_id}-${row.material_name}-${idx}`}
+                              className="hover:bg-orange-50/50 cursor-pointer"
+                              data-testid={`inv-summary-row-${idx}`}
+                              onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
+                            >
+                              <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
+                              <td className="px-3 py-2 font-medium text-gray-900">{row.project_name}</td>
+                              <td className="px-3 py-2 text-gray-700">{row.material_name}</td>
+                              <td className="px-3 py-2 text-gray-500">{row.unit || '—'}</td>
+                              <td className="px-3 py-2 text-right font-medium">{row.current_stock}</td>
+                              <td className="px-3 py-2 text-right text-emerald-700">{row.today_in > 0 ? `+${row.today_in}` : row.today_in}</td>
+                              <td className="px-3 py-2 text-right text-red-700">{row.today_out > 0 ? `-${row.today_out}` : row.today_out}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
 

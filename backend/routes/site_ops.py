@@ -550,82 +550,132 @@ def _dlr_skill_bucket(t):
     return "skilled"
 
 
+async def _dlr_dpr_rows_for_projects(project_name_map: Dict[str, str], target_date: str) -> list:
+    """One row per DLR recorded on `target_date` across the given
+    {project_id: project_name} map — project, stage, contractor, skill-wise
+    headcount, and amount. Projects with no DLR that day still get a single
+    zero row, so callers can see at a glance which projects haven't logged
+    anything yet, not just the ones that have. Shared by the SE and PM
+    dashboards' DLR & DPR tabs (each resolves its own project set)."""
+    rows = []
+    if not project_name_map:
+        return rows
+
+    dlrs = await db.daily_labour_reports.find(
+        {"project_id": {"$in": list(project_name_map.keys())}, "date": target_date}, {"_id": 0}
+    ).to_list(500)
+
+    projects_with_dlr = set()
+    for d in dlrs:
+        pid = d.get("project_id")
+        if pid not in project_name_map:
+            continue
+        projects_with_dlr.add(pid)
+        skill_counts = {"skilled": 0, "semi_skilled": 0, "unskilled": 0}
+        for e in (d.get("entries") or []):
+            skill_counts[_dlr_skill_bucket(e.get("type"))] += int(e.get("count") or 0)
+        rows.append({
+            "dlr_id": d.get("dlr_id") or d.get("report_id"),
+            "project_id": pid,
+            "project_name": project_name_map.get(pid, ""),
+            "stage_name": d.get("stage_name") or "",
+            "contractor_name": d.get("contractor_name") or "",
+            "works_count": d.get("total_workers", 0),
+            "skilled": skill_counts["skilled"],
+            "semi_skilled": skill_counts["semi_skilled"],
+            "unskilled": skill_counts["unskilled"],
+            "amount": round(d.get("total_cost", 0) or 0, 2),
+        })
+
+    for pid, pname in project_name_map.items():
+        if pid in projects_with_dlr:
+            continue
+        rows.append({
+            "dlr_id": None,
+            "project_id": pid,
+            "project_name": pname,
+            "stage_name": "",
+            "contractor_name": "",
+            "works_count": 0,
+            "skilled": 0,
+            "semi_skilled": 0,
+            "unskilled": 0,
+            "amount": 0,
+        })
+
+    rows.sort(key=lambda r: (r["project_name"].lower(), r["stage_name"].lower()))
+    return rows
+
+
+async def _inventory_rows_for_projects(project_name_map: Dict[str, str], target_date: str) -> list:
+    """Project-wise material stock rollup for the given {project_id:
+    project_name} map: current stock balance plus `target_date`'s stock-in
+    and stock-out, one row per (project, material). Shared by the SE and PM
+    dashboards' DLR & DPR > Inventory sub-tab."""
+    rows = []
+    for pid, pname in project_name_map.items():
+        # Current (latest) balance per material for this project.
+        pipeline = [
+            {"$match": {"project_id": pid}},
+            {"$sort": {"date": -1, "created_at": -1}},
+            {"$group": {"_id": "$material_name", "latest": {"$first": "$$ROOT"}}},
+            {"$replaceRoot": {"newRoot": "$latest"}},
+            {"$project": {"_id": 0}},
+        ]
+        latest_entries = await db.material_inventory.aggregate(pipeline).to_list(200)
+
+        # Selected day's in/out per material, to overlay on the latest balance.
+        today_entries = await db.material_inventory.find(
+            {"project_id": pid, "date": target_date}, {"_id": 0}
+        ).to_list(200)
+        today_map = {e.get("material_name"): e for e in today_entries}
+
+        for e in latest_entries:
+            mat = e.get("material_name")
+            today_e = today_map.get(mat)
+            rows.append({
+                "project_id": pid,
+                "project_name": pname,
+                "material_name": mat,
+                "unit": e.get("unit", ""),
+                "current_stock": e.get("closing_stock", 0),
+                "today_in": today_e.get("received", 0) if today_e else 0,
+                "today_out": today_e.get("used", 0) if today_e else 0,
+            })
+
+    rows.sort(key=lambda r: (r["project_name"].lower(), (r["material_name"] or "").lower()))
+    return rows
+
+
+async def _assigned_project_name_map(project_ids: list) -> Dict[str, str]:
+    if not project_ids:
+        return {}
+    projects = await db.projects.find(
+        {"project_id": {"$in": project_ids}, "is_deleted": {"$ne": True}},
+        {"_id": 0, "project_id": 1, "name": 1},
+    ).to_list(len(project_ids))
+    return {p["project_id"]: p.get("name", "") for p in projects}
+
+
 @router.get("/site-engineer/dlr-dpr-summary")
 async def get_site_engineer_dlr_dpr_summary(
     date: Optional[str] = None,
     user: User = Depends(get_current_user),
 ):
     """One row per DLR recorded across every project this SE/Sr-SE/Associate
-    PM is assigned to, for one day (defaults to today) — project, stage,
-    contractor, skill-wise headcount, and amount. Lets a Sr SE managing
+    PM is assigned to, for one day (defaults to today). Lets a Sr SE managing
     several projects see today's labour activity across all of them without
     opening each project individually."""
     if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
         raise HTTPException(status_code=403, detail="Only Site Engineers, Sr. Site Engineers, or Associate PMs can access this")
 
     target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
     assignments = await db.site_engineer_assignments.find({
         "user_id": user.user_id,
         "is_active": True,
     }, {"_id": 0}).to_list(50)
-    project_ids = [a["project_id"] for a in assignments]
-
-    rows = []
-    if project_ids:
-        projects = await db.projects.find(
-            {"project_id": {"$in": project_ids}, "is_deleted": {"$ne": True}},
-            {"_id": 0, "project_id": 1, "name": 1},
-        ).to_list(len(project_ids))
-        project_name_map = {p["project_id"]: p.get("name", "") for p in projects}
-
-        dlrs = await db.daily_labour_reports.find(
-            {"project_id": {"$in": list(project_name_map.keys())}, "date": target_date}, {"_id": 0}
-        ).to_list(500)
-
-        projects_with_dlr = set()
-        for d in dlrs:
-            pid = d.get("project_id")
-            if pid not in project_name_map:
-                continue
-            projects_with_dlr.add(pid)
-            skill_counts = {"skilled": 0, "semi_skilled": 0, "unskilled": 0}
-            for e in (d.get("entries") or []):
-                skill_counts[_dlr_skill_bucket(e.get("type"))] += int(e.get("count") or 0)
-            rows.append({
-                "dlr_id": d.get("dlr_id") or d.get("report_id"),
-                "project_id": pid,
-                "project_name": project_name_map.get(pid, ""),
-                "stage_name": d.get("stage_name") or "",
-                "contractor_name": d.get("contractor_name") or "",
-                "works_count": d.get("total_workers", 0),
-                "skilled": skill_counts["skilled"],
-                "semi_skilled": skill_counts["semi_skilled"],
-                "unskilled": skill_counts["unskilled"],
-                "amount": round(d.get("total_cost", 0) or 0, 2),
-            })
-
-        # Projects with no DLR at all for this date still get a zero row —
-        # so a Sr SE managing several projects can see at a glance which
-        # ones haven't logged anything yet, not just the ones that have.
-        for pid, pname in project_name_map.items():
-            if pid in projects_with_dlr:
-                continue
-            rows.append({
-                "dlr_id": None,
-                "project_id": pid,
-                "project_name": pname,
-                "stage_name": "",
-                "contractor_name": "",
-                "works_count": 0,
-                "skilled": 0,
-                "semi_skilled": 0,
-                "unskilled": 0,
-                "amount": 0,
-            })
-
-        rows.sort(key=lambda r: (r["project_name"].lower(), r["stage_name"].lower()))
-
+    project_name_map = await _assigned_project_name_map([a["project_id"] for a in assignments])
+    rows = await _dlr_dpr_rows_for_projects(project_name_map, target_date)
     return {"date": target_date, "rows": rows}
 
 
@@ -642,55 +692,60 @@ async def get_site_engineer_inventory_summary(
         raise HTTPException(status_code=403, detail="Only Site Engineers, Sr. Site Engineers, or Associate PMs can access this")
 
     target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
     assignments = await db.site_engineer_assignments.find({
         "user_id": user.user_id,
         "is_active": True,
     }, {"_id": 0}).to_list(50)
-    project_ids = [a["project_id"] for a in assignments]
+    project_name_map = await _assigned_project_name_map([a["project_id"] for a in assignments])
+    rows = await _inventory_rows_for_projects(project_name_map, target_date)
+    return {"date": target_date, "rows": rows}
 
-    rows = []
-    if project_ids:
-        projects = await db.projects.find(
-            {"project_id": {"$in": project_ids}, "is_deleted": {"$ne": True}},
-            {"_id": 0, "project_id": 1, "name": 1},
-        ).to_list(len(project_ids))
 
-        for p in projects:
-            pid = p["project_id"]
-            pname = p.get("name", "")
+async def _pm_project_name_map(user: User) -> Dict[str, str]:
+    """Projects this PM manages (team.project_manager or legacy assigned_pm),
+    matching the same scoping already used by GET /pm/projects. Super Admin
+    gets every non-deleted project."""
+    query: Dict[str, Any] = {"is_deleted": {"$ne": True}}
+    if user.role == UserRole.PROJECT_MANAGER:
+        query["$or"] = [
+            {"team.project_manager": user.user_id},
+            {"assigned_pm": user.user_id},
+        ]
+    projects = await db.projects.find(query, {"_id": 0, "project_id": 1, "name": 1}).to_list(500)
+    return {p["project_id"]: p.get("name", "") for p in projects}
 
-            # Current (latest) balance per material for this project.
-            pipeline = [
-                {"$match": {"project_id": pid}},
-                {"$sort": {"date": -1, "created_at": -1}},
-                {"$group": {"_id": "$material_name", "latest": {"$first": "$$ROOT"}}},
-                {"$replaceRoot": {"newRoot": "$latest"}},
-                {"$project": {"_id": 0}},
-            ]
-            latest_entries = await db.material_inventory.aggregate(pipeline).to_list(200)
 
-            # Selected day's in/out per material, to overlay on the latest balance.
-            today_entries = await db.material_inventory.find(
-                {"project_id": pid, "date": target_date}, {"_id": 0}
-            ).to_list(200)
-            today_map = {e.get("material_name"): e for e in today_entries}
+@router.get("/pm/dlr-dpr-summary")
+async def get_pm_dlr_dpr_summary(
+    date: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """One row per DLR recorded across every project this PM manages, for one
+    day (defaults to today). Same shape as the SE dashboard's version, scoped
+    to this PM's own projects instead of SE assignments."""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can access this")
 
-            for e in latest_entries:
-                mat = e.get("material_name")
-                today_e = today_map.get(mat)
-                rows.append({
-                    "project_id": pid,
-                    "project_name": pname,
-                    "material_name": mat,
-                    "unit": e.get("unit", ""),
-                    "current_stock": e.get("closing_stock", 0),
-                    "today_in": today_e.get("received", 0) if today_e else 0,
-                    "today_out": today_e.get("used", 0) if today_e else 0,
-                })
+    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    project_name_map = await _pm_project_name_map(user)
+    rows = await _dlr_dpr_rows_for_projects(project_name_map, target_date)
+    return {"date": target_date, "rows": rows}
 
-        rows.sort(key=lambda r: (r["project_name"].lower(), (r["material_name"] or "").lower()))
 
+@router.get("/pm/inventory-summary")
+async def get_pm_inventory_summary(
+    date: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Project-wise material stock rollup across every project this PM
+    manages: current stock balance plus the selected day's stock-in and
+    stock-out, one row per (project, material)."""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can access this")
+
+    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    project_name_map = await _pm_project_name_map(user)
+    rows = await _inventory_rows_for_projects(project_name_map, target_date)
     return {"date": target_date, "rows": rows}
 
 
