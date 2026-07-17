@@ -2124,18 +2124,19 @@ export default function PlanningBoard({ embedded = false }) {
                     {!dlrDprLoading && dlrDprRows.length > 0 && (() => {
                       const dlrEntryCount = dlrDprRows.filter(r => r.dlr_id).length;
                       const pills = [
-                        { label: 'Total Works Count', value: dlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0), cls: 'border-indigo-200 bg-indigo-50 text-indigo-800' },
-                        { label: 'Skilled', value: dlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0), cls: 'border-blue-200 bg-blue-50 text-blue-800' },
-                        { label: 'Semi-Skilled', value: dlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0), cls: 'border-amber-200 bg-amber-50 text-amber-800' },
-                        { label: 'Unskilled', value: dlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0), cls: 'border-gray-200 bg-gray-50 text-gray-800' },
-                        { label: 'Total Amount', value: formatCurrency(dlrDprRows.reduce((s, r) => s + (r.amount || 0), 0)), cls: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
-                        { label: 'DLR Entry Count', value: dlrEntryCount, cls: 'border-violet-200 bg-violet-50 text-violet-800' },
+                        { label: 'Total Works Count', value: dlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0), cls: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
+                        { label: 'Skilled', value: dlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0), cls: 'bg-blue-50 border-blue-200 text-blue-700' },
+                        { label: 'Semi-Skilled', value: dlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0), cls: 'bg-amber-50 border-amber-200 text-amber-700' },
+                        { label: 'Unskilled', value: dlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0), cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+                        { label: 'Total Amount', value: formatCurrency(dlrDprRows.reduce((s, r) => s + (r.amount || 0), 0)), cls: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+                        { label: 'DLR Entry Count', value: dlrEntryCount, cls: 'bg-violet-50 border-violet-200 text-violet-700' },
                       ];
                       return (
-                        <div className="flex flex-wrap gap-2 px-4 pb-3" data-testid="dlrdpr-summary-pills">
+                        <div className="flex gap-1.5 sm:gap-3 px-4 pb-4 overflow-x-auto" data-testid="dlrdpr-summary-pills">
                           {pills.map(p => (
-                            <div key={p.label} className={`px-3 py-1.5 rounded-full border text-xs sm:text-sm font-medium whitespace-nowrap ${p.cls}`}>
-                              {p.label}: <strong>{p.value}</strong>
+                            <div key={p.label} className={`flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${p.cls}`}>
+                              <span className="text-[9px] sm:text-xs font-medium text-center leading-tight">{p.label}</span>
+                              <span className="text-base sm:text-2xl font-bold mt-0.5">{p.value}</span>
                             </div>
                           ))}
                         </div>
@@ -2171,21 +2172,23 @@ export default function PlanningBoard({ embedded = false }) {
                                   data-testid={`dlrdpr-row-${row.dlr_id || idx}`}
                                   onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
                                 >
-                                  <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
-                                  <td className="px-3 py-2 text-gray-600">{row.date || <span className="text-gray-300">—</span>}</td>
-                                  <td className="px-3 py-2 font-medium text-gray-900">
+                                  <td className="px-3 py-2 text-gray-500 align-top">{idx + 1}</td>
+                                  <td className="px-3 py-2 text-gray-600 whitespace-nowrap align-top">
+                                    {row.date ? new Date(row.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : <span className="text-gray-300">—</span>}
+                                  </td>
+                                  <td className="px-3 py-2 font-medium text-gray-900 align-top">
                                     <span className="inline-flex items-center gap-1.5">
                                       {row.dlr_id && <span className="h-2 w-2 rounded-full bg-green-500 shrink-0" title="Has a DLR entry" data-testid={`dlrdpr-has-entry-dot-${row.dlr_id}`} />}
                                       {row.project_name}
                                     </span>
                                   </td>
-                                  <td className="px-3 py-2 text-gray-600">{row.stage_name || <span className="text-gray-300">—</span>}</td>
-                                  <td className="px-3 py-2 text-gray-600">{row.contractor_name || <span className="text-gray-300">—</span>}</td>
-                                  <td className="px-3 py-2 text-right">{row.works_count}</td>
-                                  <td className="px-3 py-2 text-right">{row.skilled}</td>
-                                  <td className="px-3 py-2 text-right">{row.semi_skilled}</td>
-                                  <td className="px-3 py-2 text-right">{row.unskilled}</td>
-                                  <td className="px-3 py-2 text-right font-medium">{formatCurrency(row.amount)}</td>
+                                  <td className="px-3 py-2 text-gray-600 align-top">{row.stage_name || <span className="text-gray-300">—</span>}</td>
+                                  <td className="px-3 py-2 text-gray-600 align-top">{row.contractor_name || <span className="text-gray-300">—</span>}</td>
+                                  <td className="px-3 py-2 text-right align-top">{row.works_count}</td>
+                                  <td className="px-3 py-2 text-right align-top">{row.skilled}</td>
+                                  <td className="px-3 py-2 text-right align-top">{row.semi_skilled}</td>
+                                  <td className="px-3 py-2 text-right align-top">{row.unskilled}</td>
+                                  <td className="px-3 py-2 text-right font-medium align-top">{formatCurrency(row.amount)}</td>
                                 </tr>
                               ))}
                             </tbody>
