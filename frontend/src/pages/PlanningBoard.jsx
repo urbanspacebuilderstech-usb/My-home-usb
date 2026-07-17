@@ -2103,6 +2103,26 @@ export default function PlanningBoard({ embedded = false }) {
                         />
                       </div>
                     </CardHeader>
+                    {!dlrDprLoading && dlrDprRows.length > 0 && (() => {
+                      const dlrEntryCount = dlrDprRows.filter(r => r.dlr_id).length;
+                      const pills = [
+                        { label: 'Total Works Count', value: dlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0), cls: 'border-indigo-200 bg-indigo-50 text-indigo-800' },
+                        { label: 'Skilled', value: dlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0), cls: 'border-blue-200 bg-blue-50 text-blue-800' },
+                        { label: 'Semi-Skilled', value: dlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0), cls: 'border-amber-200 bg-amber-50 text-amber-800' },
+                        { label: 'Unskilled', value: dlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0), cls: 'border-gray-200 bg-gray-50 text-gray-800' },
+                        { label: 'Total Amount', value: formatCurrency(dlrDprRows.reduce((s, r) => s + (r.amount || 0), 0)), cls: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
+                        { label: 'DLR Entry Count', value: dlrEntryCount, cls: 'border-violet-200 bg-violet-50 text-violet-800' },
+                      ];
+                      return (
+                        <div className="flex flex-wrap gap-2 px-4 pb-3" data-testid="dlrdpr-summary-pills">
+                          {pills.map(p => (
+                            <div key={p.label} className={`px-3 py-1.5 rounded-full border text-xs sm:text-sm font-medium whitespace-nowrap ${p.cls}`}>
+                              {p.label}: <strong>{p.value}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                     <CardContent className="p-0">
                       {dlrDprLoading ? (
                         <p className="text-center text-gray-400 py-10 text-sm">Loading…</p>
