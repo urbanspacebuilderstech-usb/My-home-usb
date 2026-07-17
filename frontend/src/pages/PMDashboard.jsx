@@ -65,10 +65,13 @@ export default function PMDashboard() {
 
   // DLR & DPR
   const [dlrDprSubTab, setDlrDprSubTab] = useState('dlr');
-  const [dlrDprDate, setDlrDprDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dlrDprStartDate, setDlrDprStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dlrDprEndDate, setDlrDprEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [dlrDprRows, setDlrDprRows] = useState([]);
   const [dlrDprLoading, setDlrDprLoading] = useState(false);
-  const [invSummaryDate, setInvSummaryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dlrDprProjectSearch, setDlrDprProjectSearch] = useState('');
+  const [invSummaryStartDate, setInvSummaryStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [invSummaryEndDate, setInvSummaryEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [invSummaryRows, setInvSummaryRows] = useState([]);
   const [invSummaryLoading, setInvSummaryLoading] = useState(false);
   const [invProjectSearch, setInvProjectSearch] = useState('');
@@ -151,10 +154,10 @@ export default function PMDashboard() {
   useAutoRefresh(fetchData, 15000);
 
   // === DLR & DPR ===
-  const fetchDlrDprSummary = async (dateOverride) => {
+  const fetchDlrDprSummary = async () => {
     setDlrDprLoading(true);
     try {
-      const res = await axios.get(`${API}/pm/dlr-dpr-summary`, { params: { date: dateOverride || dlrDprDate } });
+      const res = await axios.get(`${API}/pm/dlr-dpr-summary`, { params: { start_date: dlrDprStartDate, end_date: dlrDprEndDate } });
       setDlrDprRows(res.data?.rows || []);
     } catch {
       setDlrDprRows([]);
@@ -165,12 +168,12 @@ export default function PMDashboard() {
   };
   useEffect(() => {
     if (activeTab === 'dlrdpr' && dlrDprSubTab === 'dlr') fetchDlrDprSummary();
-  }, [activeTab, dlrDprSubTab, dlrDprDate]);
+  }, [activeTab, dlrDprSubTab, dlrDprStartDate, dlrDprEndDate]);
 
-  const fetchInventorySummary = async (dateOverride) => {
+  const fetchInventorySummary = async () => {
     setInvSummaryLoading(true);
     try {
-      const res = await axios.get(`${API}/pm/inventory-summary`, { params: { date: dateOverride || invSummaryDate } });
+      const res = await axios.get(`${API}/pm/inventory-summary`, { params: { start_date: invSummaryStartDate, end_date: invSummaryEndDate } });
       setInvSummaryRows(res.data?.rows || []);
     } catch {
       setInvSummaryRows([]);
@@ -181,7 +184,7 @@ export default function PMDashboard() {
   };
   useEffect(() => {
     if (activeTab === 'dlrdpr' && dlrDprSubTab === 'inventory') fetchInventorySummary();
-  }, [activeTab, dlrDprSubTab, invSummaryDate]);
+  }, [activeTab, dlrDprSubTab, invSummaryStartDate, invSummaryEndDate]);
 
   // === PROJECT HANDLERS ===
   const openStageDialog = (p) => { setSelectedProject(p); setNewStage(p.current_stage || 'yet_to_start'); setStageDialog(true); };
@@ -318,6 +321,9 @@ export default function PMDashboard() {
   const CountBadge = ({ count }) => count > 0 ? <span className="ml-1.5 bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] inline-flex items-center justify-center">{count}</span> : null;
   const formatCurrency = (amount) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount || 0);
   const filteredInvSummaryRows = invSummaryRows.filter(r => !invProjectSearch || r.project_name.toLowerCase().includes(invProjectSearch.toLowerCase()));
+  const filteredDlrDprRows = dlrDprProjectSearch
+    ? dlrDprRows.filter(r => (r.project_name || '').toLowerCase().includes(dlrDprProjectSearch.toLowerCase()))
+    : dlrDprRows;
 
   if (loading && !user) return <div className="min-h-screen bg-gray-50"><div className="max-w-7xl mx-auto px-4 py-8"><div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-48" /></div></div></div>;
 
@@ -612,28 +618,79 @@ export default function PMDashboard() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <CardTitle className="text-base flex items-center gap-2">DLR & DPR — All Projects</CardTitle>
-                      <p className="text-xs text-gray-500 mt-0.5">One line per project you manage — works count, amount, and stage for the selected day.</p>
+                      <p className="text-xs text-gray-500 mt-0.5">One line per DLR — works count, amount, and stage for the selected date range.</p>
                     </div>
-                    <input
-                      type="date"
-                      value={dlrDprDate}
-                      onChange={(e) => setDlrDprDate(e.target.value)}
-                      className="h-9 px-2 border rounded-md text-sm"
-                      data-testid="dlrdpr-date-picker"
-                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                        <Input
+                          placeholder="Search project..."
+                          value={dlrDprProjectSearch}
+                          onChange={(e) => setDlrDprProjectSearch(e.target.value)}
+                          className="pl-8 h-9 w-44 text-sm"
+                          data-testid="dlrdpr-project-search"
+                        />
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Label className="text-xs text-gray-500">Start Date</Label>
+                        <input
+                          type="date"
+                          value={dlrDprStartDate}
+                          max={dlrDprEndDate}
+                          onChange={(e) => setDlrDprStartDate(e.target.value)}
+                          className="h-9 px-2 border rounded-md text-sm"
+                          data-testid="dlrdpr-start-date-picker"
+                        />
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Label className="text-xs text-gray-500">End Date</Label>
+                        <input
+                          type="date"
+                          value={dlrDprEndDate}
+                          min={dlrDprStartDate}
+                          onChange={(e) => setDlrDprEndDate(e.target.value)}
+                          className="h-9 px-2 border rounded-md text-sm"
+                          data-testid="dlrdpr-end-date-picker"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </CardHeader>
+                {!dlrDprLoading && filteredDlrDprRows.length > 0 && (() => {
+                  const dlrEntryCount = filteredDlrDprRows.filter(r => r.dlr_id).length;
+                  const pills = [
+                    { label: 'Total Works Count', value: filteredDlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0), cls: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
+                    { label: 'Skilled', value: filteredDlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0), cls: 'bg-blue-50 border-blue-200 text-blue-700' },
+                    { label: 'Semi-Skilled', value: filteredDlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0), cls: 'bg-amber-50 border-amber-200 text-amber-700' },
+                    { label: 'Unskilled', value: filteredDlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0), cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+                    { label: 'Total Amount', value: formatCurrency(filteredDlrDprRows.reduce((s, r) => s + (r.amount || 0), 0)), cls: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+                    { label: 'DLR Entry Count', value: dlrEntryCount, cls: 'bg-violet-50 border-violet-200 text-violet-700' },
+                  ];
+                  return (
+                    <div className="flex gap-1.5 sm:gap-3 px-4 pb-4 overflow-x-auto" data-testid="dlrdpr-summary-pills">
+                      {pills.map(p => (
+                        <div key={p.label} className={`flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${p.cls}`}>
+                          <span className="text-[9px] sm:text-xs font-medium text-center leading-tight">{p.label}</span>
+                          <span className="text-base sm:text-2xl font-bold mt-0.5">{p.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
                 <CardContent className="p-0">
                   {dlrDprLoading ? (
                     <p className="text-center text-gray-400 py-10 text-sm">Loading…</p>
-                  ) : dlrDprRows.length === 0 ? (
-                    <p className="text-center text-gray-400 py-10 text-sm" data-testid="dlrdpr-empty">No projects found for this date.</p>
+                  ) : filteredDlrDprRows.length === 0 ? (
+                    <p className="text-center text-gray-400 py-10 text-sm" data-testid="dlrdpr-empty">
+                      {dlrDprProjectSearch ? 'No matching projects.' : 'No projects found for this date range.'}
+                    </p>
                   ) : (
                     <div className="overflow-x-auto" data-testid="dlrdpr-table">
                       <table className="w-full text-sm">
                         <thead className="bg-gray-50 border-y">
                           <tr>
                             <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
+                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Date</th>
                             <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
                             <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Stage</th>
                             <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Contractor</th>
@@ -645,33 +702,41 @@ export default function PMDashboard() {
                           </tr>
                         </thead>
                         <tbody className="divide-y">
-                          {dlrDprRows.map((row, idx) => (
+                          {filteredDlrDprRows.map((row, idx) => (
                             <tr
                               key={row.dlr_id || `${row.project_id}-${idx}`}
                               className="hover:bg-orange-50/50 cursor-pointer"
                               data-testid={`dlrdpr-row-${row.dlr_id || idx}`}
                               onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
                             >
-                              <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
-                              <td className="px-3 py-2 font-medium text-gray-900">{row.project_name}</td>
-                              <td className="px-3 py-2 text-gray-600">{row.stage_name || <span className="text-gray-300">—</span>}</td>
-                              <td className="px-3 py-2 text-gray-600">{row.contractor_name || <span className="text-gray-300">—</span>}</td>
-                              <td className="px-3 py-2 text-right">{row.works_count}</td>
-                              <td className="px-3 py-2 text-right">{row.skilled}</td>
-                              <td className="px-3 py-2 text-right">{row.semi_skilled}</td>
-                              <td className="px-3 py-2 text-right">{row.unskilled}</td>
-                              <td className="px-3 py-2 text-right font-medium">{formatCurrency(row.amount)}</td>
+                              <td className="px-3 py-2 text-gray-500 align-top">{idx + 1}</td>
+                              <td className="px-3 py-2 text-gray-600 whitespace-nowrap align-top">
+                                {row.date ? new Date(row.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : <span className="text-gray-300">—</span>}
+                              </td>
+                              <td className="px-3 py-2 font-medium text-gray-900 align-top">
+                                <span className="inline-flex items-center gap-1.5">
+                                  {row.dlr_id && <span className="h-2 w-2 rounded-full bg-green-500 shrink-0" title="Has a DLR entry" data-testid={`dlrdpr-has-entry-dot-${row.dlr_id}`} />}
+                                  {row.project_name}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-gray-600 align-top">{row.stage_name || <span className="text-gray-300">—</span>}</td>
+                              <td className="px-3 py-2 text-gray-600 align-top">{row.contractor_name || <span className="text-gray-300">—</span>}</td>
+                              <td className="px-3 py-2 text-right align-top">{row.works_count}</td>
+                              <td className="px-3 py-2 text-right align-top">{row.skilled}</td>
+                              <td className="px-3 py-2 text-right align-top">{row.semi_skilled}</td>
+                              <td className="px-3 py-2 text-right align-top">{row.unskilled}</td>
+                              <td className="px-3 py-2 text-right font-medium align-top">{formatCurrency(row.amount)}</td>
                             </tr>
                           ))}
                         </tbody>
                         <tfoot className="bg-gray-50 border-t font-semibold">
                           <tr>
-                            <td className="px-3 py-2" colSpan={4}>Total</td>
-                            <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0)}</td>
-                            <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0)}</td>
-                            <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0)}</td>
-                            <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0)}</td>
-                            <td className="px-3 py-2 text-right">{formatCurrency(dlrDprRows.reduce((s, r) => s + (r.amount || 0), 0))}</td>
+                            <td className="px-3 py-2" colSpan={5}>Total</td>
+                            <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0)}</td>
+                            <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0)}</td>
+                            <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0)}</td>
+                            <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0)}</td>
+                            <td className="px-3 py-2 text-right">{formatCurrency(filteredDlrDprRows.reduce((s, r) => s + (r.amount || 0), 0))}</td>
                           </tr>
                         </tfoot>
                       </table>
@@ -685,9 +750,9 @@ export default function PMDashboard() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <CardTitle className="text-base flex items-center gap-2"><Package className="h-5 w-5 text-orange-600" /> Inventory — All Projects</CardTitle>
-                      <p className="text-xs text-gray-500 mt-0.5">Project-wise current stock, plus today's stock-in and stock-out.</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Project-wise current stock, unit rate, plus stock-in and stock-out for the selected date range.</p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <div className="relative">
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
                         <Input
@@ -698,13 +763,28 @@ export default function PMDashboard() {
                           data-testid="inv-summary-project-search"
                         />
                       </div>
-                      <input
-                        type="date"
-                        value={invSummaryDate}
-                        onChange={(e) => setInvSummaryDate(e.target.value)}
-                        className="h-9 px-2 border rounded-md text-sm"
-                        data-testid="inv-summary-date-picker"
-                      />
+                      <div className="flex items-center gap-1.5">
+                        <Label className="text-xs text-gray-500">Start Date</Label>
+                        <input
+                          type="date"
+                          value={invSummaryStartDate}
+                          max={invSummaryEndDate}
+                          onChange={(e) => setInvSummaryStartDate(e.target.value)}
+                          className="h-9 px-2 border rounded-md text-sm"
+                          data-testid="inv-summary-start-date-picker"
+                        />
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Label className="text-xs text-gray-500">End Date</Label>
+                        <input
+                          type="date"
+                          value={invSummaryEndDate}
+                          min={invSummaryStartDate}
+                          onChange={(e) => setInvSummaryEndDate(e.target.value)}
+                          className="h-9 px-2 border rounded-md text-sm"
+                          data-testid="inv-summary-end-date-picker"
+                        />
+                      </div>
                     </div>
                   </div>
                 </CardHeader>
@@ -724,6 +804,7 @@ export default function PMDashboard() {
                             <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
                             <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Material</th>
                             <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Unit</th>
+                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Unit (Rate)</th>
                             <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Current Stock</th>
                             <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Today In</th>
                             <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Today Out</th>
@@ -741,6 +822,7 @@ export default function PMDashboard() {
                               <td className="px-3 py-2 font-medium text-gray-900">{row.project_name}</td>
                               <td className="px-3 py-2 text-gray-700">{row.material_name}</td>
                               <td className="px-3 py-2 text-gray-500">{row.unit || '—'}</td>
+                              <td className="px-3 py-2 text-right text-gray-600">{row.unit_rate > 0 ? formatCurrency(row.unit_rate) : '—'}</td>
                               <td className="px-3 py-2 text-right font-medium">{row.current_stock}</td>
                               <td className="px-3 py-2 text-right text-emerald-700">{row.today_in > 0 ? `+${row.today_in}` : row.today_in}</td>
                               <td className="px-3 py-2 text-right text-red-700">{row.today_out > 0 ? `-${row.today_out}` : row.today_out}</td>
