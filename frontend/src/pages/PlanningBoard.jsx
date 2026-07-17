@@ -2173,7 +2173,12 @@ export default function PlanningBoard({ embedded = false }) {
                                 >
                                   <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
                                   <td className="px-3 py-2 text-gray-600">{row.date || <span className="text-gray-300">—</span>}</td>
-                                  <td className="px-3 py-2 font-medium text-gray-900">{row.project_name}</td>
+                                  <td className="px-3 py-2 font-medium text-gray-900">
+                                    <span className="inline-flex items-center gap-1.5">
+                                      {row.dlr_id && <span className="h-2 w-2 rounded-full bg-green-500 shrink-0" title="Has a DLR entry" data-testid={`dlrdpr-has-entry-dot-${row.dlr_id}`} />}
+                                      {row.project_name}
+                                    </span>
+                                  </td>
                                   <td className="px-3 py-2 text-gray-600">{row.stage_name || <span className="text-gray-300">—</span>}</td>
                                   <td className="px-3 py-2 text-gray-600">{row.contractor_name || <span className="text-gray-300">—</span>}</td>
                                   <td className="px-3 py-2 text-right">{row.works_count}</td>

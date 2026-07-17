@@ -770,11 +770,19 @@ async def get_pm_inventory_summary(
 
 
 async def _planning_project_name_map(user: User) -> Dict[str, str]:
-    """Projects visible to this Planning user, matching the same scoping
-    already used by GET /projects: Planning Person only sees projects
-    assigned to them (`assigned_planning_person_id`); Planning Head and
-    Super Admin see every non-deleted project."""
-    query: Dict[str, Any] = {"is_deleted": {"$ne": True}}
+    """Real projects visible to this Planning user. "Real" matches the same
+    definition used by Cashbook (planning_status in new/active/delivered,
+    minus a handful of known demo/test project names) — without it this
+    list also picked up in-planning-only and demo rows that aren't "real"
+    projects, inflating/skewing the count shown elsewhere in the app.
+    Planning Person only sees projects assigned to them
+    (`assigned_planning_person_id`); Planning Head and Super Admin see
+    every real project."""
+    query: Dict[str, Any] = {
+        "is_deleted": {"$ne": True},
+        "planning_status": {"$in": ["new", "active", "delivered"]},
+        "name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "RE - Mr. Joseph Vijay", "RE - Mr. Joseph Vijay ", "RE-Mr. Joseph Vijay", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]},
+    }
     if user.role == UserRole.PLANNING_PERSON:
         query["assigned_planning_person_id"] = user.user_id
     projects = await db.projects.find(query, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000)
