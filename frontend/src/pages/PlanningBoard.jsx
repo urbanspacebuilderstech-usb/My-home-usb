@@ -268,6 +268,7 @@ export default function PlanningBoard({ embedded = false }) {
   const [dlrDprEndDate, setDlrDprEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [dlrDprRows, setDlrDprRows] = useState([]);
   const [dlrDprLoading, setDlrDprLoading] = useState(false);
+  const [dlrDprProjectSearch, setDlrDprProjectSearch] = useState('');
   const [invSummaryDate, setInvSummaryDate] = useState(new Date().toISOString().split('T')[0]);
   const [invSummaryRows, setInvSummaryRows] = useState([]);
   const [invSummaryLoading, setInvSummaryLoading] = useState(false);
@@ -1258,6 +1259,10 @@ export default function PlanningBoard({ embedded = false }) {
   };
   stageCountMap.other = Math.max(0, allProjectsList.length - stageCountMap.pre_construction - stageCountMap.under_construction - stageCountMap.completed);
 
+  const filteredDlrDprRows = dlrDprProjectSearch
+    ? dlrDprRows.filter(r => (r.project_name || '').toLowerCase().includes(dlrDprProjectSearch.toLowerCase()))
+    : dlrDprRows;
+
   if (loading && !user) return embedded
     ? <div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-48 mb-4" /><div className="h-4 bg-gray-200 rounded w-full" /></div>
     : <div className="min-h-screen bg-gray-50"><div className="max-w-7xl mx-auto px-4 py-8"><div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-48 mb-4" /><div className="h-4 bg-gray-200 rounded w-full" /></div></div></div>;
@@ -2095,7 +2100,17 @@ export default function PlanningBoard({ embedded = false }) {
                           <CardTitle className="text-base">DLR & DPR — {user?.role === 'planning_person' ? 'My Projects' : 'All Projects'}</CardTitle>
                           <p className="text-xs text-gray-500 mt-0.5">One line per DLR — works count, amount, and stage for the selected date range.</p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="relative">
+                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                            <Input
+                              placeholder="Search project..."
+                              value={dlrDprProjectSearch}
+                              onChange={(e) => setDlrDprProjectSearch(e.target.value)}
+                              className="pl-8 h-9 w-44 text-sm"
+                              data-testid="dlrdpr-project-search"
+                            />
+                          </div>
                           <div className="flex items-center gap-1.5">
                             <Label className="text-xs text-gray-500">Start Date</Label>
                             <input
@@ -2121,14 +2136,14 @@ export default function PlanningBoard({ embedded = false }) {
                         </div>
                       </div>
                     </CardHeader>
-                    {!dlrDprLoading && dlrDprRows.length > 0 && (() => {
-                      const dlrEntryCount = dlrDprRows.filter(r => r.dlr_id).length;
+                    {!dlrDprLoading && filteredDlrDprRows.length > 0 && (() => {
+                      const dlrEntryCount = filteredDlrDprRows.filter(r => r.dlr_id).length;
                       const pills = [
-                        { label: 'Total Works Count', value: dlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0), cls: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
-                        { label: 'Skilled', value: dlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0), cls: 'bg-blue-50 border-blue-200 text-blue-700' },
-                        { label: 'Semi-Skilled', value: dlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0), cls: 'bg-amber-50 border-amber-200 text-amber-700' },
-                        { label: 'Unskilled', value: dlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0), cls: 'bg-gray-50 border-gray-200 text-gray-700' },
-                        { label: 'Total Amount', value: formatCurrency(dlrDprRows.reduce((s, r) => s + (r.amount || 0), 0)), cls: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+                        { label: 'Total Works Count', value: filteredDlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0), cls: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
+                        { label: 'Skilled', value: filteredDlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0), cls: 'bg-blue-50 border-blue-200 text-blue-700' },
+                        { label: 'Semi-Skilled', value: filteredDlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0), cls: 'bg-amber-50 border-amber-200 text-amber-700' },
+                        { label: 'Unskilled', value: filteredDlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0), cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+                        { label: 'Total Amount', value: formatCurrency(filteredDlrDprRows.reduce((s, r) => s + (r.amount || 0), 0)), cls: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
                         { label: 'DLR Entry Count', value: dlrEntryCount, cls: 'bg-violet-50 border-violet-200 text-violet-700' },
                       ];
                       return (
@@ -2145,8 +2160,10 @@ export default function PlanningBoard({ embedded = false }) {
                     <CardContent className="p-0">
                       {dlrDprLoading ? (
                         <p className="text-center text-gray-400 py-10 text-sm">Loading…</p>
-                      ) : dlrDprRows.length === 0 ? (
-                        <p className="text-center text-gray-400 py-10 text-sm" data-testid="dlrdpr-empty">No projects found for this date range.</p>
+                      ) : filteredDlrDprRows.length === 0 ? (
+                        <p className="text-center text-gray-400 py-10 text-sm" data-testid="dlrdpr-empty">
+                          {dlrDprProjectSearch ? 'No matching projects.' : 'No projects found for this date range.'}
+                        </p>
                       ) : (
                         <div className="overflow-x-auto" data-testid="dlrdpr-table">
                           <table className="w-full text-sm">
@@ -2165,7 +2182,7 @@ export default function PlanningBoard({ embedded = false }) {
                               </tr>
                             </thead>
                             <tbody className="divide-y">
-                              {dlrDprRows.map((row, idx) => (
+                              {filteredDlrDprRows.map((row, idx) => (
                                 <tr
                                   key={row.dlr_id || `${row.project_id}-${idx}`}
                                   className="hover:bg-indigo-50/50 cursor-pointer"
@@ -2195,11 +2212,11 @@ export default function PlanningBoard({ embedded = false }) {
                             <tfoot className="bg-gray-50 border-t font-semibold">
                               <tr>
                                 <td className="px-3 py-2" colSpan={5}>Total</td>
-                                <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0)}</td>
-                                <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0)}</td>
-                                <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0)}</td>
-                                <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0)}</td>
-                                <td className="px-3 py-2 text-right">{formatCurrency(dlrDprRows.reduce((s, r) => s + (r.amount || 0), 0))}</td>
+                                <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0)}</td>
+                                <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0)}</td>
+                                <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0)}</td>
+                                <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0)}</td>
+                                <td className="px-3 py-2 text-right">{formatCurrency(filteredDlrDprRows.reduce((s, r) => s + (r.amount || 0), 0))}</td>
                               </tr>
                             </tfoot>
                           </table>
