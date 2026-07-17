@@ -264,17 +264,18 @@ export default function PlanningBoard({ embedded = false }) {
 
   // DLR & DPR
   const [dlrDprSubTab, setDlrDprSubTab] = useState('dlr');
-  const [dlrDprDate, setDlrDprDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dlrDprStartDate, setDlrDprStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dlrDprEndDate, setDlrDprEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [dlrDprRows, setDlrDprRows] = useState([]);
   const [dlrDprLoading, setDlrDprLoading] = useState(false);
   const [invSummaryDate, setInvSummaryDate] = useState(new Date().toISOString().split('T')[0]);
   const [invSummaryRows, setInvSummaryRows] = useState([]);
   const [invSummaryLoading, setInvSummaryLoading] = useState(false);
   const [invProjectSearch, setInvProjectSearch] = useState('');
-  const fetchDlrDprSummary = async (dateOverride) => {
+  const fetchDlrDprSummary = async () => {
     setDlrDprLoading(true);
     try {
-      const res = await axios.get(`${API}/planning/dlr-dpr-summary`, { params: { date: dateOverride || dlrDprDate } });
+      const res = await axios.get(`${API}/planning/dlr-dpr-summary`, { params: { start_date: dlrDprStartDate, end_date: dlrDprEndDate } });
       setDlrDprRows(res.data?.rows || []);
     } catch {
       setDlrDprRows([]);
@@ -572,7 +573,7 @@ export default function PlanningBoard({ embedded = false }) {
 
   useEffect(() => { if (dashSubTab === 'all_projects') fetchSubTabProjects(projectSubTab, projectDateFilter); }, [projectSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (dashSubTab === 'all_projects') fetchSubTabProjects(projectSubTab, projectDateFilter, planningPersonFilter); }, [planningPersonFilter]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (dashSubTab === 'dlr_dpr' && dlrDprSubTab === 'dlr') fetchDlrDprSummary(); }, [dashSubTab, dlrDprSubTab, dlrDprDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (dashSubTab === 'dlr_dpr' && dlrDprSubTab === 'dlr') fetchDlrDprSummary(); }, [dashSubTab, dlrDprSubTab, dlrDprStartDate, dlrDprEndDate]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (dashSubTab === 'dlr_dpr' && dlrDprSubTab === 'inventory') fetchInventorySummary(); }, [dashSubTab, dlrDprSubTab, invSummaryDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleProjectSubTabChange = (tab) => {
@@ -2092,15 +2093,32 @@ export default function PlanningBoard({ embedded = false }) {
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
                           <CardTitle className="text-base">DLR & DPR — {user?.role === 'planning_person' ? 'My Projects' : 'All Projects'}</CardTitle>
-                          <p className="text-xs text-gray-500 mt-0.5">One line per project — works count, amount, and stage for the selected day.</p>
+                          <p className="text-xs text-gray-500 mt-0.5">One line per DLR — works count, amount, and stage for the selected date range.</p>
                         </div>
-                        <input
-                          type="date"
-                          value={dlrDprDate}
-                          onChange={(e) => setDlrDprDate(e.target.value)}
-                          className="h-9 px-2 border rounded-md text-sm"
-                          data-testid="dlrdpr-date-picker"
-                        />
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-xs text-gray-500">Start Date</Label>
+                            <input
+                              type="date"
+                              value={dlrDprStartDate}
+                              max={dlrDprEndDate}
+                              onChange={(e) => setDlrDprStartDate(e.target.value)}
+                              className="h-9 px-2 border rounded-md text-sm"
+                              data-testid="dlrdpr-start-date-picker"
+                            />
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-xs text-gray-500">End Date</Label>
+                            <input
+                              type="date"
+                              value={dlrDprEndDate}
+                              min={dlrDprStartDate}
+                              onChange={(e) => setDlrDprEndDate(e.target.value)}
+                              className="h-9 px-2 border rounded-md text-sm"
+                              data-testid="dlrdpr-end-date-picker"
+                            />
+                          </div>
+                        </div>
                       </div>
                     </CardHeader>
                     {!dlrDprLoading && dlrDprRows.length > 0 && (() => {
@@ -2127,13 +2145,14 @@ export default function PlanningBoard({ embedded = false }) {
                       {dlrDprLoading ? (
                         <p className="text-center text-gray-400 py-10 text-sm">Loading…</p>
                       ) : dlrDprRows.length === 0 ? (
-                        <p className="text-center text-gray-400 py-10 text-sm" data-testid="dlrdpr-empty">No projects found for this date.</p>
+                        <p className="text-center text-gray-400 py-10 text-sm" data-testid="dlrdpr-empty">No projects found for this date range.</p>
                       ) : (
                         <div className="overflow-x-auto" data-testid="dlrdpr-table">
                           <table className="w-full text-sm">
                             <thead className="bg-gray-50 border-y">
                               <tr>
                                 <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
+                                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Date</th>
                                 <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
                                 <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Stage</th>
                                 <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Contractor</th>
@@ -2153,6 +2172,7 @@ export default function PlanningBoard({ embedded = false }) {
                                   onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
                                 >
                                   <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
+                                  <td className="px-3 py-2 text-gray-600">{row.date || <span className="text-gray-300">—</span>}</td>
                                   <td className="px-3 py-2 font-medium text-gray-900">{row.project_name}</td>
                                   <td className="px-3 py-2 text-gray-600">{row.stage_name || <span className="text-gray-300">—</span>}</td>
                                   <td className="px-3 py-2 text-gray-600">{row.contractor_name || <span className="text-gray-300">—</span>}</td>
@@ -2166,7 +2186,7 @@ export default function PlanningBoard({ embedded = false }) {
                             </tbody>
                             <tfoot className="bg-gray-50 border-t font-semibold">
                               <tr>
-                                <td className="px-3 py-2" colSpan={4}>Total</td>
+                                <td className="px-3 py-2" colSpan={5}>Total</td>
                                 <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0)}</td>
                                 <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0)}</td>
                                 <td className="px-3 py-2 text-right">{dlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0)}</td>

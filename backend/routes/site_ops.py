@@ -550,20 +550,33 @@ def _dlr_skill_bucket(t):
     return "skilled"
 
 
-async def _dlr_dpr_rows_for_projects(project_name_map: Dict[str, str], target_date: str) -> list:
-    """One row per DLR recorded on `target_date` across the given
+def _resolve_date_range(date: Optional[str], start_date: Optional[str], end_date: Optional[str]) -> tuple:
+    """Resolve a (date_from, date_to) pair for the DLR & DPR summaries.
+    `start_date`/`end_date` win if given (Planning's date-range picker);
+    otherwise falls back to the single `date` param (SE/PM's single-day
+    picker), defaulting to today when nothing is passed at all."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if start_date or end_date:
+        return (start_date or end_date, end_date or start_date)
+    d = date or today
+    return (d, d)
+
+
+async def _dlr_dpr_rows_for_projects(project_name_map: Dict[str, str], date_from: str, date_to: str) -> list:
+    """One row per DLR recorded between `date_from` and `date_to` (inclusive;
+    pass the same value for both to scope to a single day) across the given
     {project_id: project_name} map — project, stage, contractor, skill-wise
-    headcount, and amount. Projects with no DLR that day still get a single
+    headcount, and amount. Projects with no DLR in range still get a single
     zero row, so callers can see at a glance which projects haven't logged
-    anything yet, not just the ones that have. Shared by the SE and PM
-    dashboards' DLR & DPR tabs (each resolves its own project set)."""
+    anything yet, not just the ones that have. Shared by the SE, PM and
+    Planning dashboards' DLR & DPR tabs (each resolves its own project set)."""
     rows = []
     if not project_name_map:
         return rows
 
     dlrs = await db.daily_labour_reports.find(
-        {"project_id": {"$in": list(project_name_map.keys())}, "date": target_date}, {"_id": 0}
-    ).to_list(500)
+        {"project_id": {"$in": list(project_name_map.keys())}, "date": {"$gte": date_from, "$lte": date_to}}, {"_id": 0}
+    ).to_list(2000)
 
     projects_with_dlr = set()
     for d in dlrs:
@@ -578,6 +591,7 @@ async def _dlr_dpr_rows_for_projects(project_name_map: Dict[str, str], target_da
             "dlr_id": d.get("dlr_id") or d.get("report_id"),
             "project_id": pid,
             "project_name": project_name_map.get(pid, ""),
+            "date": d.get("date") or "",
             "stage_name": d.get("stage_name") or "",
             "contractor_name": d.get("contractor_name") or "",
             "works_count": d.get("total_workers", 0),
@@ -594,6 +608,7 @@ async def _dlr_dpr_rows_for_projects(project_name_map: Dict[str, str], target_da
             "dlr_id": None,
             "project_id": pid,
             "project_name": pname,
+            "date": "",
             "stage_name": "",
             "contractor_name": "",
             "works_count": 0,
@@ -603,7 +618,7 @@ async def _dlr_dpr_rows_for_projects(project_name_map: Dict[str, str], target_da
             "amount": 0,
         })
 
-    rows.sort(key=lambda r: (r["project_name"].lower(), r["stage_name"].lower()))
+    rows.sort(key=lambda r: (r["project_name"].lower(), r["date"], r["stage_name"].lower()))
     return rows
 
 
@@ -660,23 +675,26 @@ async def _assigned_project_name_map(project_ids: list) -> Dict[str, str]:
 @router.get("/site-engineer/dlr-dpr-summary")
 async def get_site_engineer_dlr_dpr_summary(
     date: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     user: User = Depends(get_current_user),
 ):
     """One row per DLR recorded across every project this SE/Sr-SE/Associate
-    PM is assigned to, for one day (defaults to today). Lets a Sr SE managing
-    several projects see today's labour activity across all of them without
-    opening each project individually."""
+    PM is assigned to, for a date range (start_date/end_date; defaults to
+    today if nothing is passed). Lets a Sr SE managing several projects see
+    labour activity across all of them without opening each project
+    individually."""
     if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
         raise HTTPException(status_code=403, detail="Only Site Engineers, Sr. Site Engineers, or Associate PMs can access this")
 
-    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_from, date_to = _resolve_date_range(date, start_date, end_date)
     assignments = await db.site_engineer_assignments.find({
         "user_id": user.user_id,
         "is_active": True,
     }, {"_id": 0}).to_list(50)
     project_name_map = await _assigned_project_name_map([a["project_id"] for a in assignments])
-    rows = await _dlr_dpr_rows_for_projects(project_name_map, target_date)
-    return {"date": target_date, "rows": rows}
+    rows = await _dlr_dpr_rows_for_projects(project_name_map, date_from, date_to)
+    return {"date_from": date_from, "date_to": date_to, "rows": rows}
 
 
 @router.get("/site-engineer/inventory-summary")
@@ -718,18 +736,20 @@ async def _pm_project_name_map(user: User) -> Dict[str, str]:
 @router.get("/pm/dlr-dpr-summary")
 async def get_pm_dlr_dpr_summary(
     date: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     user: User = Depends(get_current_user),
 ):
-    """One row per DLR recorded across every project this PM manages, for one
-    day (defaults to today). Same shape as the SE dashboard's version, scoped
-    to this PM's own projects instead of SE assignments."""
+    """One row per DLR recorded across every project this PM manages, for a
+    date range (defaults to today). Same shape as the SE dashboard's
+    version, scoped to this PM's own projects instead of SE assignments."""
     if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Project Manager can access this")
 
-    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_from, date_to = _resolve_date_range(date, start_date, end_date)
     project_name_map = await _pm_project_name_map(user)
-    rows = await _dlr_dpr_rows_for_projects(project_name_map, target_date)
-    return {"date": target_date, "rows": rows}
+    rows = await _dlr_dpr_rows_for_projects(project_name_map, date_from, date_to)
+    return {"date_from": date_from, "date_to": date_to, "rows": rows}
 
 
 @router.get("/pm/inventory-summary")
@@ -764,18 +784,21 @@ async def _planning_project_name_map(user: User) -> Dict[str, str]:
 @router.get("/planning/dlr-dpr-summary")
 async def get_planning_dlr_dpr_summary(
     date: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     user: User = Depends(get_current_user),
 ):
     """One row per DLR recorded across every project visible to this Planning
-    user, for one day (defaults to today). Planning Person is scoped to their
-    own assigned projects; Planning Head / Super Admin see everything."""
+    user, for a date range (start_date/end_date; defaults to today).
+    Planning Person is scoped to their own assigned projects; Planning Head
+    / Super Admin see everything."""
     if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
 
-    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_from, date_to = _resolve_date_range(date, start_date, end_date)
     project_name_map = await _planning_project_name_map(user)
-    rows = await _dlr_dpr_rows_for_projects(project_name_map, target_date)
-    return {"date": target_date, "rows": rows}
+    rows = await _dlr_dpr_rows_for_projects(project_name_map, date_from, date_to)
+    return {"date_from": date_from, "date_to": date_to, "rows": rows}
 
 
 @router.get("/planning/inventory-summary")
