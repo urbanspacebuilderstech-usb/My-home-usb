@@ -622,11 +622,41 @@ async def _dlr_dpr_rows_for_projects(project_name_map: Dict[str, str], date_from
     return rows
 
 
-async def _inventory_rows_for_projects(project_name_map: Dict[str, str], target_date: str) -> list:
+async def _material_unit_rate_map(pid: str) -> Dict[str, float]:
+    """Average unit rate per material for a project, derived from approved
+    material_requests / material_expenses (final_price/estimated_price ÷
+    quantity) — same computation GET /material-inventory/dashboard already
+    uses for its "Current Stock Amount" figure."""
+    price_pipeline = [
+        {"$match": {"project_id": pid}},
+        {"$group": {
+            "_id": "$material_name",
+            "total_value": {"$sum": {"$ifNull": ["$final_price", {"$ifNull": ["$estimated_price", 0]}]}},
+            "total_qty": {"$sum": {"$ifNull": ["$quantity", 0]}},
+        }},
+    ]
+    price_map: Dict[str, float] = {}
+    for src_coll in ("material_requests", "material_expenses"):
+        rows = await getattr(db, src_coll).aggregate(price_pipeline).to_list(500)
+        for row in rows:
+            name = row.get("_id")
+            qty = float(row.get("total_qty") or 0)
+            val = float(row.get("total_value") or 0)
+            if not name or qty <= 0:
+                continue
+            unit = val / qty if qty > 0 else 0
+            if src_coll == "material_requests" or name not in price_map:
+                price_map[name] = unit
+    return price_map
+
+
+async def _inventory_rows_for_projects(project_name_map: Dict[str, str], date_from: str, date_to: str) -> list:
     """Project-wise material stock rollup for the given {project_id:
-    project_name} map: current stock balance plus `target_date`'s stock-in
-    and stock-out, one row per (project, material). Shared by the SE and PM
-    dashboards' DLR & DPR > Inventory sub-tab."""
+    project_name} map: current stock balance, unit rate, plus stock-in and
+    stock-out summed over [date_from, date_to] (inclusive; pass the same
+    value for both to scope to a single day), one row per (project,
+    material). Shared by the SE, PM and Planning dashboards' DLR & DPR >
+    Inventory sub-tab."""
     rows = []
     for pid, pname in project_name_map.items():
         # Current (latest) balance per material for this project.
@@ -638,24 +668,35 @@ async def _inventory_rows_for_projects(project_name_map: Dict[str, str], target_
             {"$project": {"_id": 0}},
         ]
         latest_entries = await db.material_inventory.aggregate(pipeline).to_list(200)
+        if not latest_entries:
+            continue
 
-        # Selected day's in/out per material, to overlay on the latest balance.
-        today_entries = await db.material_inventory.find(
-            {"project_id": pid, "date": target_date}, {"_id": 0}
-        ).to_list(200)
-        today_map = {e.get("material_name"): e for e in today_entries}
+        # In/out per material summed across the selected date range, to
+        # overlay on the latest balance.
+        range_entries = await db.material_inventory.find(
+            {"project_id": pid, "date": {"$gte": date_from, "$lte": date_to}}, {"_id": 0}
+        ).to_list(2000)
+        range_totals: Dict[str, Dict[str, float]] = {}
+        for e in range_entries:
+            mat = e.get("material_name")
+            t = range_totals.setdefault(mat, {"in": 0.0, "out": 0.0})
+            t["in"] += float(e.get("received") or 0)
+            t["out"] += float(e.get("used") or 0)
+
+        rate_map = await _material_unit_rate_map(pid)
 
         for e in latest_entries:
             mat = e.get("material_name")
-            today_e = today_map.get(mat)
+            t = range_totals.get(mat, {"in": 0, "out": 0})
             rows.append({
                 "project_id": pid,
                 "project_name": pname,
                 "material_name": mat,
                 "unit": e.get("unit", ""),
+                "unit_rate": round(float(rate_map.get(mat, 0) or 0), 2),
                 "current_stock": e.get("closing_stock", 0),
-                "today_in": today_e.get("received", 0) if today_e else 0,
-                "today_out": today_e.get("used", 0) if today_e else 0,
+                "today_in": t["in"],
+                "today_out": t["out"],
             })
 
     rows.sort(key=lambda r: (r["project_name"].lower(), (r["material_name"] or "").lower()))
@@ -700,23 +741,25 @@ async def get_site_engineer_dlr_dpr_summary(
 @router.get("/site-engineer/inventory-summary")
 async def get_site_engineer_inventory_summary(
     date: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     user: User = Depends(get_current_user),
 ):
     """Project-wise material stock rollup across every project this SE/Sr-SE/
-    Associate PM is assigned to: current stock balance plus the selected
-    day's stock-in and stock-out, one row per (project, material). Backs the
-    SE dashboard's DLR & DPR > Inventory sub-tab."""
+    Associate PM is assigned to: current stock balance plus stock-in and
+    stock-out over the selected date range, one row per (project, material).
+    Backs the SE dashboard's DLR & DPR > Inventory sub-tab."""
     if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
         raise HTTPException(status_code=403, detail="Only Site Engineers, Sr. Site Engineers, or Associate PMs can access this")
 
-    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_from, date_to = _resolve_date_range(date, start_date, end_date)
     assignments = await db.site_engineer_assignments.find({
         "user_id": user.user_id,
         "is_active": True,
     }, {"_id": 0}).to_list(50)
     project_name_map = await _assigned_project_name_map([a["project_id"] for a in assignments])
-    rows = await _inventory_rows_for_projects(project_name_map, target_date)
-    return {"date": target_date, "rows": rows}
+    rows = await _inventory_rows_for_projects(project_name_map, date_from, date_to)
+    return {"date_from": date_from, "date_to": date_to, "rows": rows}
 
 
 async def _pm_project_name_map(user: User) -> Dict[str, str]:
@@ -755,18 +798,20 @@ async def get_pm_dlr_dpr_summary(
 @router.get("/pm/inventory-summary")
 async def get_pm_inventory_summary(
     date: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     user: User = Depends(get_current_user),
 ):
     """Project-wise material stock rollup across every project this PM
-    manages: current stock balance plus the selected day's stock-in and
-    stock-out, one row per (project, material)."""
+    manages: current stock balance plus stock-in and stock-out over the
+    selected date range, one row per (project, material)."""
     if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Project Manager can access this")
 
-    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_from, date_to = _resolve_date_range(date, start_date, end_date)
     project_name_map = await _pm_project_name_map(user)
-    rows = await _inventory_rows_for_projects(project_name_map, target_date)
-    return {"date": target_date, "rows": rows}
+    rows = await _inventory_rows_for_projects(project_name_map, date_from, date_to)
+    return {"date_from": date_from, "date_to": date_to, "rows": rows}
 
 
 async def _planning_project_name_map(user: User) -> Dict[str, str]:
@@ -812,18 +857,21 @@ async def get_planning_dlr_dpr_summary(
 @router.get("/planning/inventory-summary")
 async def get_planning_inventory_summary(
     date: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     user: User = Depends(get_current_user),
 ):
     """Project-wise material stock rollup across every project visible to
-    this Planning user: current stock balance plus the selected day's
-    stock-in and stock-out, one row per (project, material)."""
+    this Planning user: current stock balance, unit rate, plus stock-in and
+    stock-out over the selected date range, one row per (project,
+    material)."""
     if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
 
-    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_from, date_to = _resolve_date_range(date, start_date, end_date)
     project_name_map = await _planning_project_name_map(user)
-    rows = await _inventory_rows_for_projects(project_name_map, target_date)
-    return {"date": target_date, "rows": rows}
+    rows = await _inventory_rows_for_projects(project_name_map, date_from, date_to)
+    return {"date_from": date_from, "date_to": date_to, "rows": rows}
 
 
 @router.get("/site-engineer/project/{project_id}")

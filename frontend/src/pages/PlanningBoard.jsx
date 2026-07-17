@@ -269,7 +269,8 @@ export default function PlanningBoard({ embedded = false }) {
   const [dlrDprRows, setDlrDprRows] = useState([]);
   const [dlrDprLoading, setDlrDprLoading] = useState(false);
   const [dlrDprProjectSearch, setDlrDprProjectSearch] = useState('');
-  const [invSummaryDate, setInvSummaryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [invSummaryStartDate, setInvSummaryStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [invSummaryEndDate, setInvSummaryEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [invSummaryRows, setInvSummaryRows] = useState([]);
   const [invSummaryLoading, setInvSummaryLoading] = useState(false);
   const [invProjectSearch, setInvProjectSearch] = useState('');
@@ -285,10 +286,10 @@ export default function PlanningBoard({ embedded = false }) {
       setDlrDprLoading(false);
     }
   };
-  const fetchInventorySummary = async (dateOverride) => {
+  const fetchInventorySummary = async () => {
     setInvSummaryLoading(true);
     try {
-      const res = await axios.get(`${API}/planning/inventory-summary`, { params: { date: dateOverride || invSummaryDate } });
+      const res = await axios.get(`${API}/planning/inventory-summary`, { params: { start_date: invSummaryStartDate, end_date: invSummaryEndDate } });
       setInvSummaryRows(res.data?.rows || []);
     } catch {
       setInvSummaryRows([]);
@@ -575,7 +576,7 @@ export default function PlanningBoard({ embedded = false }) {
   useEffect(() => { if (dashSubTab === 'all_projects') fetchSubTabProjects(projectSubTab, projectDateFilter); }, [projectSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (dashSubTab === 'all_projects') fetchSubTabProjects(projectSubTab, projectDateFilter, planningPersonFilter); }, [planningPersonFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (dashSubTab === 'dlr_dpr' && dlrDprSubTab === 'dlr') fetchDlrDprSummary(); }, [dashSubTab, dlrDprSubTab, dlrDprStartDate, dlrDprEndDate]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (dashSubTab === 'dlr_dpr' && dlrDprSubTab === 'inventory') fetchInventorySummary(); }, [dashSubTab, dlrDprSubTab, invSummaryDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (dashSubTab === 'dlr_dpr' && dlrDprSubTab === 'inventory') fetchInventorySummary(); }, [dashSubTab, dlrDprSubTab, invSummaryStartDate, invSummaryEndDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleProjectSubTabChange = (tab) => {
     setProjectSubTab(tab);
@@ -2230,7 +2231,7 @@ export default function PlanningBoard({ embedded = false }) {
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
                           <CardTitle className="text-base flex items-center gap-2"><Package className="h-5 w-5 text-indigo-600" /> Inventory — {user?.role === 'planning_person' ? 'My Projects' : 'All Projects'}</CardTitle>
-                          <p className="text-xs text-gray-500 mt-0.5">Project-wise current stock, plus today's stock-in and stock-out.</p>
+                          <p className="text-xs text-gray-500 mt-0.5">Project-wise current stock, unit rate, plus stock-in and stock-out for the selected date range.</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <div className="relative">
@@ -2243,13 +2244,28 @@ export default function PlanningBoard({ embedded = false }) {
                               data-testid="inv-summary-project-search"
                             />
                           </div>
-                          <input
-                            type="date"
-                            value={invSummaryDate}
-                            onChange={(e) => setInvSummaryDate(e.target.value)}
-                            className="h-9 px-2 border rounded-md text-sm"
-                            data-testid="inv-summary-date-picker"
-                          />
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-xs text-gray-500">Start Date</Label>
+                            <input
+                              type="date"
+                              value={invSummaryStartDate}
+                              max={invSummaryEndDate}
+                              onChange={(e) => setInvSummaryStartDate(e.target.value)}
+                              className="h-9 px-2 border rounded-md text-sm"
+                              data-testid="inv-summary-start-date-picker"
+                            />
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-xs text-gray-500">End Date</Label>
+                            <input
+                              type="date"
+                              value={invSummaryEndDate}
+                              min={invSummaryStartDate}
+                              onChange={(e) => setInvSummaryEndDate(e.target.value)}
+                              className="h-9 px-2 border rounded-md text-sm"
+                              data-testid="inv-summary-end-date-picker"
+                            />
+                          </div>
                         </div>
                       </div>
                     </CardHeader>
@@ -2271,6 +2287,7 @@ export default function PlanningBoard({ embedded = false }) {
                                   <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
                                   <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Material</th>
                                   <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Unit</th>
+                                  <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Unit (Rate)</th>
                                   <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Current Stock</th>
                                   <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Today In</th>
                                   <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Today Out</th>
@@ -2288,6 +2305,7 @@ export default function PlanningBoard({ embedded = false }) {
                                     <td className="px-3 py-2 font-medium text-gray-900">{row.project_name}</td>
                                     <td className="px-3 py-2 text-gray-700">{row.material_name}</td>
                                     <td className="px-3 py-2 text-gray-500">{row.unit || '—'}</td>
+                                    <td className="px-3 py-2 text-right text-gray-600">{row.unit_rate > 0 ? formatCurrency(row.unit_rate) : '—'}</td>
                                     <td className="px-3 py-2 text-right font-medium">{row.current_stock}</td>
                                     <td className="px-3 py-2 text-right text-emerald-700">{row.today_in > 0 ? `+${row.today_in}` : row.today_in}</td>
                                     <td className="px-3 py-2 text-right text-red-700">{row.today_out > 0 ? `-${row.today_out}` : row.today_out}</td>
