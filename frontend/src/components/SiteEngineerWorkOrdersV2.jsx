@@ -2545,8 +2545,9 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, workOrders,
 
   const submit = async () => {
     if (!effectiveWO?.work_order_id) { toast.error('Select a contractor'); return; }
+    // Zero workers is allowed — e.g. logging a DPR-only entry for a day with
+    // no labour on site. Only rows with a count actually get sent.
     const valid = rows.filter(r => Number(r.count) > 0);
-    if (!valid.length) { toast.error('Enter worker count for at least one type'); return; }
     if (!date) { toast.error('Select a date'); return; }
     if (!stageId) { toast.error('Select Current Project Stage'); return; }
     if (!workSummary.trim()) { toast.error('Work Summary is required'); return; }

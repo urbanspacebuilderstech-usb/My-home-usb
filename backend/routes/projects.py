@@ -12973,8 +12973,9 @@ async def create_dlr(project_id: str, wo_id: str, data: DLRCreate, user: User = 
         total_day_units += day_units
         total_cost += cost
 
-    if not entries:
-        raise HTTPException(status_code=400, detail="At least one entry with count > 0 is required")
+    # Zero workers is allowed — e.g. a day with no labour on site but the SE
+    # still wants to log the DPR stage/work-summary. Stage + Work Summary
+    # below stay mandatory either way.
 
     # Mandatory: Stage + Work Summary (DPR fields unified into DLR)
     stage_id = (data.stage_id or "").strip()

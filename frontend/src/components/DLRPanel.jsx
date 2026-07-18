@@ -139,8 +139,9 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
   const totalWorkers = form.rows.reduce((s, r) => s + (Number(r.count) || 0), 0);
 
   const handleSubmit = async () => {
+    // Zero workers is allowed — e.g. logging a DPR-only entry for a day with
+    // no labour on site. Only rows with a count actually get sent.
     const validEntries = form.rows.filter(r => Number(r.count) > 0);
-    if (!validEntries.length) { toast.error('Enter worker count for at least one type'); return; }
     if (!form.date) { toast.error('Select a date'); return; }
     if (!form.stage_id) { toast.error('Select Current Project Stage'); return; }
     if (!form.work_summary?.trim()) { toast.error('Work Summary is required'); return; }
