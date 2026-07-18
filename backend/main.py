@@ -12,6 +12,15 @@ Migration Plan:
 4. Once all routes are migrated, deprecate server.py
 """
 
+import asyncio
+import sys
+
+if sys.platform == "win32":
+    # Motor/PyMongo's async driver is incompatible with Windows' default
+    # ProactorEventLoop, causing "Task got Future attached to a different
+    # loop" errors. Switch to the selector loop before anything else runs.
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -51,4 +60,14 @@ from server import app
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    # Don't use uvicorn.run() here: it calls asyncio.run(), which creates a
+    # brand-new event loop distinct from the one implicitly created above
+    # when `from server import app` constructed the module-level Motor
+    # client. That mismatch is what causes "Task got Future attached to a
+    # different loop" errors. Reusing get_event_loop()'s loop keeps the
+    # Motor client's background monitor tasks on the same loop that serves
+    # requests.
+    config = uvicorn.Config(app, host="0.0.0.0", port=8001)
+    server = uvicorn.Server(config)
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(server.serve())
