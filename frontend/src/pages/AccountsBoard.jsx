@@ -261,6 +261,21 @@ const classifyMode = (mode) => {
 };
 
 // ============ DRILLDOWN VIEW ============
+// Income captures its bank/UTR reference in verification.transaction_id
+// (entered by the accountant during /approvals/income/{id}/review) or, for
+// older rows, the reference_number typed at income creation. Expense legs
+// (material/labour/vendor pay-approval) store transaction_id either at the
+// top level (single-leg payment) or per-leg under payment_legs[] (split
+// cash/cheque/bank payments) — join whichever legs have one.
+function getTransactionId(e, type) {
+  if (type === 'income') {
+    return e.verification?.transaction_id || e.reference_number || '';
+  }
+  if (e.transaction_id) return e.transaction_id;
+  const legIds = (e.payment_legs || []).map(l => l.transaction_id).filter(Boolean);
+  return legIds.join(', ');
+}
+
 function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = false, hideHeader = false }) {
   return (
     <div className="space-y-3" data-testid="drilldown-view">
@@ -297,6 +312,7 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
                   <th className="text-left px-3 py-2 font-medium text-gray-500">Date</th>
                   <th className="text-left px-3 py-2 font-medium text-gray-500">Description</th>
                   <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">Transaction Id</th>
                   <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
                   {type === 'expense' && <th className="text-left px-3 py-2 font-medium text-gray-500">Vendor</th>}
                   <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
@@ -305,7 +321,7 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
               </thead>
               <tbody className="divide-y">
                 {entries.length === 0 ? (
-                  <tr><td colSpan={(type === 'expense' ? 7 : 6) + (canDelete ? 1 : 0)} className="px-4 py-8 text-center text-gray-400">No entries found</td></tr>
+                  <tr><td colSpan={(type === 'expense' ? 8 : 7) + (canDelete ? 1 : 0)} className="px-4 py-8 text-center text-gray-400">No entries found</td></tr>
                 ) : entries.map((e, i) => (
                   <tr key={i} className="hover:bg-gray-50">
                     <td className="px-3 py-2 text-gray-400">{i + 1}</td>
@@ -319,6 +335,7 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
                       )}
                     </td>
                     <td className="px-3 py-2">{e.project_name || '-'}</td>
+                    <td className="px-3 py-2 text-gray-600">{getTransactionId(e, type) || '-'}</td>
                     <td className="px-3 py-2">
                       <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(e.payment_mode || e.payment_method)]}`}>
                         {MODE_LABELS[classifyMode(e.payment_mode || e.payment_method)] || 'Cash'}
