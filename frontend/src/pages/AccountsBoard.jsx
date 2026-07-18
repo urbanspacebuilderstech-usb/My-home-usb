@@ -15,6 +15,7 @@ import { DayPicker } from 'react-day-picker';
 import { CashbookDateFilter, filterByDateRange } from '../components/CashbookDateFilter';
 import ChequeListView from '../components/ChequeListView';
 import MetaDateFilter from '../components/MetaDateFilter';
+import MaterialSearchSelect from '../components/MaterialSearchSelect';
 import PayApprovalDialog from '../components/PayApprovalDialog';
 import DTSelectToPayDialog from '../components/DTSelectToPayDialog';
 import { StatusPill, pillState } from '../components/StatusPill';
@@ -309,7 +310,14 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
                   <tr key={i} className="hover:bg-gray-50">
                     <td className="px-3 py-2 text-gray-400">{i + 1}</td>
                     <td className="px-3 py-2">{new Date(e.payment_date || e.created_at).toLocaleDateString('en-IN')}</td>
-                    <td className="px-3 py-2 font-medium">{e.stage || e.description || e.category || '-'}</td>
+                    <td className="px-3 py-2 font-medium">
+                      {e.stage || e.description || e.material_name || e.category || '-'}
+                      {e.expense_type === 'material' && e.material_name && (e.quantity || e.unit) && (
+                        <span className="block text-[10px] text-gray-400 font-normal">
+                          {e.quantity ? Number(e.quantity).toLocaleString('en-IN') : ''}{e.unit ? ` ${e.unit}` : ''}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2">{e.project_name || '-'}</td>
                     <td className="px-3 py-2">
                       <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(e.payment_mode || e.payment_method)]}`}>
@@ -350,6 +358,7 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
 function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDelete, onDeleteIncome, onDeleteExpense }) {
   const [projectFilter, setProjectFilter] = useState('');
   const [dateRange, setDateRange] = useState(null); // { from, to }
+  const [materialFilter, setMaterialFilter] = useState('');
 
   // Build unique project list from all entries in this bucket
   const projects = React.useMemo(() => {
@@ -377,7 +386,31 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
     return true;
   };
   const filteredIncome = incomeEntries.filter(matchesFilters);
-  const filteredExpense = expenseEntries.filter(matchesFilters);
+  const projectDateFilteredExpense = expenseEntries.filter(matchesFilters);
+
+  // Materials available under the current project/date filters — grouped so
+  // each dropdown row shows qty/unit + entry count + total spend, letting the
+  // accountant tell same-named materials apart before filtering the table.
+  const materials = React.useMemo(() => {
+    const map = new Map();
+    projectDateFilteredExpense.forEach(e => {
+      if (e.expense_type !== 'material') return;
+      const name = (e.material_name || '').trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (!map.has(key)) map.set(key, { name, qty: 0, unit: e.unit || '', count: 0, amount: 0 });
+      const m = map.get(key);
+      m.qty += Number(e.quantity || 0);
+      m.count += 1;
+      m.amount += Number(e.amount || 0);
+      if (!m.unit && e.unit) m.unit = e.unit;
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [projectDateFilteredExpense]);
+
+  const filteredExpense = materialFilter
+    ? projectDateFilteredExpense.filter(e => (e.material_name || '').trim().toLowerCase() === materialFilter.toLowerCase())
+    : projectDateFilteredExpense;
 
   // ---- CSV export (opens in Excel) ----
   const downloadCsv = (rows, type) => {
@@ -425,6 +458,19 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
           testId="mode-drilldown-project"
         />
         <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset={null} />
+        <MaterialSearchSelect
+          materials={materials}
+          value={materialFilter}
+          onChange={setMaterialFilter}
+          placeholder="Search Material"
+          width="w-60"
+          testId="mode-drilldown-material"
+        />
+        {materialFilter && (
+          <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => setMaterialFilter('')} data-testid="mode-drilldown-material-clear">
+            <X className="h-3 w-3 mr-1" /> Clear
+          </Button>
+        )}
         <Badge variant="outline" className="text-xs">{label}</Badge>
       </div>
       <Tabs defaultValue="income">
