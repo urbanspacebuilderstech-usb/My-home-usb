@@ -395,7 +395,11 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
     const map = new Map();
     projectDateFilteredExpense.forEach(e => {
       if (e.expense_type !== 'material') return;
-      const name = (e.material_name || '').trim();
+      // Materials booked via the procurement/material-request flow carry
+      // `material_name`; manually recorded material expenses (Accounts >
+      // Record Expense) only ever set `description` — fall back to that so
+      // e.g. "Cement" entries aren't invisible to the search.
+      const name = (e.material_name || e.description || '').trim();
       if (!name) return;
       const key = name.toLowerCase();
       if (!map.has(key)) map.set(key, { name, qty: 0, unit: e.unit || '', count: 0, amount: 0 });
@@ -409,7 +413,7 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
   }, [projectDateFilteredExpense]);
 
   const filteredExpense = materialFilter
-    ? projectDateFilteredExpense.filter(e => (e.material_name || '').trim().toLowerCase() === materialFilter.toLowerCase())
+    ? projectDateFilteredExpense.filter(e => (e.material_name || e.description || '').trim().toLowerCase() === materialFilter.toLowerCase())
     : projectDateFilteredExpense;
 
   // ---- CSV export (opens in Excel) ----
