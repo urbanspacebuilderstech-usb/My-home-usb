@@ -412,6 +412,10 @@ export default function SiteEngineerDashboard() {
   const [matReqDialog, setMatReqDialog] = useState(false);
   const [matReqProject, setMatReqProject] = useState(null);
   const [matReqMaterials, setMatReqMaterials] = useState([]);
+  // Current stock per material name (lowercased) for the project this request
+  // is being raised in — {name: {stock, unit}} — so the SE (and later
+  // Planning/Procurement) can see "already have X in stock" before ordering more.
+  const [matReqStockMap, setMatReqStockMap] = useState({});
   const [matReqSelected, setMatReqSelected] = useState('');
   const [matReqQty, setMatReqQty] = useState('');
   const [matReqRemarks, setMatReqRemarks] = useState('');
@@ -779,6 +783,7 @@ export default function SiteEngineerDashboard() {
     setMatReqQty('');
     setMatReqRemarks('');
     setMatReqLines([blankMatLine()]);
+    setMatReqStockMap({});
     setMatReqDialog(true);
     setMatReqFetching(true);
     try {
@@ -786,6 +791,18 @@ export default function SiteEngineerDashboard() {
       setMatReqMaterials(res.data || []);
     } catch { setMatReqMaterials([]); toast.error('Could not load materials for this project'); }
     setMatReqFetching(false);
+    // Best-effort — don't block the request form if the stock lookup fails.
+    try {
+      const stockRes = await axios.get(`${API}/material-inventory/latest`, { params: { project_id: project.project_id } });
+      const map = {};
+      (stockRes.data || []).forEach(e => {
+        const name = (e.material_name || '').trim().toLowerCase();
+        if (!name) return;
+        const stock = e.closing_stock ?? e.current_stock ?? 0;
+        map[name] = { stock, unit: e.unit || '' };
+      });
+      setMatReqStockMap(map);
+    } catch { setMatReqStockMap({}); }
   };
 
   const handleMatReqSubmit = async () => {
@@ -3355,6 +3372,14 @@ export default function SiteEngineerDashboard() {
                               ))}
                             </SelectContent>
                           </Select>
+                          {mat && (() => {
+                            const stockInfo = matReqStockMap[(mat.name || '').trim().toLowerCase()];
+                            return stockInfo && stockInfo.stock > 0 ? (
+                              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1.5" data-testid={`matreq-line-stock-${idx}`}>
+                                Already in stock: <strong>{stockInfo.stock} {stockInfo.unit || mat.unit}</strong>
+                              </p>
+                            ) : null;
+                          })()}
                         </div>
 
                         {/* Steel-specific helper: diameter + rod count → kg */}

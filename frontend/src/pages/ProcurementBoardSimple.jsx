@@ -165,6 +165,31 @@ function RequestsTab({ dateRange, projectFilter }) {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  // Current stock per project, so each card can show "already have X in
+  // stock" next to the requested material — one fetch per unique project_id
+  // in the list rather than per-card.
+  const [stockByProject, setStockByProject] = useState({});
+  useEffect(() => {
+    const projectIds = [...new Set(allItems.map(r => r.project_id).filter(Boolean))];
+    const missing = projectIds.filter(pid => !stockByProject[pid]);
+    if (missing.length === 0) return;
+    (async () => {
+      const entries = await Promise.all(missing.map(async (pid) => {
+        try {
+          const res = await axios.get(`${API}/material-inventory/latest`, { params: { project_id: pid } });
+          const map = {};
+          (res.data || []).forEach(e => {
+            const name = (e.material_name || '').trim().toLowerCase();
+            if (!name) return;
+            map[name] = { stock: e.closing_stock ?? e.current_stock ?? 0, unit: e.unit || '' };
+          });
+          return [pid, map];
+        } catch { return [pid, {}]; }
+      }));
+      setStockByProject(prev => ({ ...prev, ...Object.fromEntries(entries) }));
+    })();
+  }, [allItems]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Apply project + date + name filter on created_at before bucketing
   const filteredItems = useMemo(() => {
     const fromTs = dateRange?.from ? new Date(dateRange.from + 'T00:00:00').getTime() : null;
@@ -436,7 +461,7 @@ function RequestsTab({ dateRange, projectFilter }) {
       ) : (
         <div className="space-y-2" data-testid="proc-card-list">
           {visibleItems.map(r => (
-            <RequestCard key={r.request_id} req={r} onClick={() => openCard(r)} />
+            <RequestCard key={r.request_id} req={r} onClick={() => openCard(r)} stockInfo={stockByProject[r.project_id]?.[(r.material_name || '').trim().toLowerCase()]} />
           ))}
         </div>
       )}
@@ -1274,7 +1299,7 @@ function AmountSummary({ req }) {
 }
 
 // Single material request card (clickable)
-function RequestCard({ req, onClick }) {
+function RequestCard({ req, onClick, stockInfo = null }) {
   const status = (req.status || '').toLowerCase();
   const bucket = bucketForMaterial(req);
   const cardCfg = LIFECYCLE_BUCKETS.find(b => b.key === bucket);
@@ -1387,6 +1412,11 @@ function RequestCard({ req, onClick }) {
             {' · '}SE {req.site_engineer_name || '—'}
             {' · '}requested {fmtDate(req.created_at)}
           </p>
+          {stockInfo && stockInfo.stock > 0 && (
+            <p className="text-[11px] text-amber-700 font-medium" data-testid={`proc-mat-stock-${req.request_id}`}>
+              Already in stock: {stockInfo.stock} {stockInfo.unit || req.unit || ''}
+            </p>
+          )}
         </div>
 
         <hr className="border-gray-100" />
@@ -1732,6 +1762,22 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   // average (₹/kg) so legacy queries continue to work, while the per-row
   // breakdown is preserved under `steel_pricing`.
   const [steelPrices, setSteelPrices] = useState([]);
+  // Current stock of this material at this project, so Procurement can see
+  // "already have X in stock" before pricing/assigning a vendor for a
+  // fresh order.
+  const [itemStockInfo, setItemStockInfo] = useState(null);
+
+  useEffect(() => {
+    if (!item) { setItemStockInfo(null); return; }
+    (async () => {
+      try {
+        const res = await axios.get(`${API}/material-inventory/latest`, { params: { project_id: item.project_id } });
+        const name = (item.material_name || '').trim().toLowerCase();
+        const match = (res.data || []).find(e => (e.material_name || '').trim().toLowerCase() === name);
+        setItemStockInfo(match ? { stock: match.closing_stock ?? match.current_stock ?? 0, unit: match.unit || '' } : null);
+      } catch { setItemStockInfo(null); }
+    })();
+  }, [item]);
 
   useEffect(() => {
     if (!item) return;
@@ -1954,6 +2000,13 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
           <div><p className="text-amber-700 text-[10px] uppercase font-semibold">Brand</p><p className="font-medium">{item.brand || '—'}</p></div>
           <div><p className="text-amber-700 text-[10px] uppercase font-semibold">Quantity</p><p className="font-medium">{item.quantity} {item.unit}</p></div>
           <div><p className="text-amber-700 text-[10px] uppercase font-semibold">Request No.</p><p className="font-mono text-[10px]">{item.request_number || item.order_id || item.request_id}</p></div>
+          {itemStockInfo && itemStockInfo.stock > 0 && (
+            <div className="col-span-2 bg-white border border-amber-300 rounded px-2 py-1.5" data-testid="proc-dialog-stock-warning">
+              <p className="text-amber-800 font-semibold">
+                Already in stock: {itemStockInfo.stock} {itemStockInfo.unit || item.unit} — enter a reason below before ordering more.
+              </p>
+            </div>
+          )}
           {item.remarks && (
             <div className="col-span-2">
               <p className="text-amber-700 text-[10px] uppercase font-semibold">SE Remarks</p>
@@ -2282,9 +2335,17 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
             </div>
           )}
 
-          {/* Section — Remarks */}
-          <div className="border-b pb-1.5 mt-3 flex items-center gap-1.5"><FileClock className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Notes for Planning</h4></div>
-          <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} disabled={readOnly} className="text-sm" placeholder="Any notes for Planning…" data-testid="proc-assign-remarks" />
+          {/* Section — Remarks / Reason */}
+          <div className="border-b pb-1.5 mt-3 flex items-center gap-1.5"><FileClock className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">{itemStockInfo && itemStockInfo.stock > 0 ? 'Reason for Planning' : 'Notes for Planning'}</h4></div>
+          <Textarea
+            rows={2}
+            value={remarks}
+            onChange={(e) => setRemarks(e.target.value)}
+            disabled={readOnly}
+            className="text-sm"
+            placeholder={itemStockInfo && itemStockInfo.stock > 0 ? 'Enter reason for ordering despite existing stock…' : 'Any notes for Planning…'}
+            data-testid="proc-assign-remarks"
+          />
 
           {/* If forwarded already, show what Planning sees */}
           {readOnly && item.status === 'procurement_priced' && (

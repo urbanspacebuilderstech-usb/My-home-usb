@@ -1238,6 +1238,32 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
   // Sub-filter for the "Payment Pending" bucket — mirrors the Procurement board.
   const [paymentSubTab, setPaymentSubTab] = useState('all');  // 'all' | 'post_delivery' | 'advance' | 'full_advance'
 
+  // Current stock per project, so each card can show "already have X in
+  // stock" next to the requested material — helps Planning avoid approving
+  // a fresh order when the site already has enough on hand. Fetched once per
+  // unique project_id present in the list (not per-card) to avoid N+1 calls.
+  const [stockByProject, setStockByProject] = useState({});
+  useEffect(() => {
+    const projectIds = [...new Set(items.map(r => r.project_id).filter(Boolean))];
+    const missing = projectIds.filter(pid => !stockByProject[pid]);
+    if (missing.length === 0) return;
+    (async () => {
+      const entries = await Promise.all(missing.map(async (pid) => {
+        try {
+          const res = await axios.get(`${API}/material-inventory/latest`, { params: { project_id: pid } });
+          const map = {};
+          (res.data || []).forEach(e => {
+            const name = (e.material_name || '').trim().toLowerCase();
+            if (!name) return;
+            map[name] = { stock: e.closing_stock ?? e.current_stock ?? 0, unit: e.unit || '' };
+          });
+          return [pid, map];
+        } catch { return [pid, {}]; }
+      }));
+      setStockByProject(prev => ({ ...prev, ...Object.fromEntries(entries) }));
+    })();
+  }, [items]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const counts = useMemo(() => {
     // "All" excludes archived items, matching every other bucket — archived
     // requests are only ever visible under the dedicated Archive tab.
@@ -1342,7 +1368,7 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
       ) : (
         <div className="space-y-2" data-testid="planning-mat-card-list">
           {visibleItems.map(req => (
-            <PlanningMaterialCard key={req.request_id} req={req} onClick={() => onApprove(req)} processing={processing} readOnly={readOnly} onDelete={onDelete} onArchive={onArchive} onUnarchive={onUnarchive} />
+            <PlanningMaterialCard key={req.request_id} req={req} onClick={() => onApprove(req)} processing={processing} readOnly={readOnly} onDelete={onDelete} onArchive={onArchive} onUnarchive={onUnarchive} stockInfo={stockByProject[req.project_id]?.[(req.material_name || '').trim().toLowerCase()]} />
           ))}
         </div>
       )}
@@ -1387,7 +1413,7 @@ function MaterialAmountSummary({ req }) {
   return total ? <span className="text-sm font-semibold text-emerald-700 shrink-0">{fmt(total)}</span> : null;
 }
 
-function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDelete = null, onArchive = null, onUnarchive = null }) {
+function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDelete = null, onArchive = null, onUnarchive = null, stockInfo = null }) {
   const status = (req.status || '').toLowerCase();
   const bucket = bucketForMaterial(req);
   const cardCfg = MAT_LIFECYCLE_BUCKETS.find(b => b.key === bucket);
@@ -1464,6 +1490,11 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
             <p className="text-[10px] uppercase font-semibold text-gray-400">Material</p>
             <p className="font-medium truncate">{req.material_name}</p>
             {req.brand && <p className="text-[10px] text-gray-500">Brand: {req.brand}</p>}
+            {stockInfo && stockInfo.stock > 0 && (
+              <p className="text-[10px] text-amber-700 font-medium" data-testid={`planning-mat-stock-${req.request_id}`}>
+                Already in stock: {stockInfo.stock} {stockInfo.unit || req.unit || ''}
+              </p>
+            )}
           </div>
           <div>
             <p className="text-[10px] uppercase font-semibold text-gray-400">Qty</p>
