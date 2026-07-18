@@ -6043,11 +6043,17 @@ async def get_cashbook_filtered(
             cf_exp = float(cf.get("expense_carry_forward") or 0) + float(cf.get("expense_adjustment") or 0)
         project_wise_map[pid]["cf_income"] = cf_inc
         project_wise_map[pid]["cf_expense"] = cf_exp
+    # Carry-forward is a lump-sum opening balance, not tied to any date, so it
+    # only belongs in the all-time view — folding it into a date-filtered
+    # view (e.g. one month) would inflate each row's income/expense by the
+    # full historical CF on top of that month's real entries.
+    _date_filtered = bool(start_date or end_date)
     for pw in project_wise_map.values():
         # `income` / `expense` columns now include CF so Project Wise totals
-        # reconcile with Carry Forward grand totals.
-        pw["income"] = pw["income"] + pw["cf_income"]
-        pw["expense"] = pw["expense"] + pw["cf_expense"]
+        # reconcile with Carry Forward grand totals (all-time view only).
+        if not _date_filtered:
+            pw["income"] = pw["income"] + pw["cf_income"]
+            pw["expense"] = pw["expense"] + pw["cf_expense"]
         pw["balance"] = pw["income"] - pw["expense"]
     project_wise_sorted = sorted(project_wise_map.values(), key=lambda x: (-x["income"], x["project_name"]))
 
@@ -6060,7 +6066,17 @@ async def get_cashbook_filtered(
     # selected (Income looked right only because that project's CF income
     # happened to be small; CF expense was not). When a project filter is
     # active, roll up CF only for that project instead of every project.
-    if project_id:
+    # Carry-forward is a lump-sum opening balance, not attributable to any
+    # particular date — it must NOT be added when a date range narrower than
+    # "all time" is active, or the headline balloons by the full historical
+    # CF on top of (e.g.) a single month's live figures while the drilldown
+    # list only shows that month's real entries. Jul 18 2026 — Sai Karthick
+    # reported Jun-filtered Expense showing ₹8.72Cr on the card vs ₹10.2L
+    # inside the drilldown; the gap was exactly the always-added CF total.
+    if start_date or end_date:
+        cf_inc_grand = 0.0
+        cf_exp_grand = 0.0
+    elif project_id:
         _pw = project_wise_map.get(project_id, {})
         cf_inc_grand = _pw.get("cf_income", 0)
         cf_exp_grand = _pw.get("cf_expense", 0)
