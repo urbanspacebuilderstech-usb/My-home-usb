@@ -9988,6 +9988,23 @@ async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, user:
         except Exception:
             return str(iso)[:10]
 
+    def _pdf_safe(s):
+        """Helvetica (fpdf2's core font) only supports Latin-1. Names/notes
+        typed on-site often carry smart quotes, em-dashes, emoji, or non-Latin
+        script — any of which raises FPDFUnicodeEncodingException and 500s
+        the whole download. Normalize common smart punctuation to ASCII, then
+        drop anything else outside Latin-1 instead of crashing.
+        """
+        if not s:
+            return s
+        s = str(s)
+        for bad, good in {
+            "‘": "'", "’": "'", "“": '"', "”": '"',
+            "–": "-", "—": "-", "…": "...", " ": " ",
+        }.items():
+            s = s.replace(bad, good)
+        return s.encode("latin-1", errors="ignore").decode("latin-1")
+
     pdf = FPDF(format="A4", unit="mm")
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -10002,10 +10019,10 @@ async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, user:
     pdf.ln(2)
 
     pdf.set_font("Helvetica", "", 9)
-    pdf.cell(0, 5, f"Project: {(project or {}).get('name', '-')}", ln=1)
-    pdf.cell(0, 5, f"Work Order: {wo.get('work_order_number') or work_order_id}", ln=1)
-    pdf.cell(0, 5, f"Vendor: {wo.get('contractor_name', '-')}", ln=1)
-    pdf.cell(0, 5, f"Scope: {(wo.get('scope_of_work') or wo.get('description') or '-')[:120]}", ln=1)
+    pdf.cell(0, 5, f"Project: {_pdf_safe((project or {}).get('name', '-'))}", ln=1)
+    pdf.cell(0, 5, f"Work Order: {_pdf_safe(wo.get('work_order_number') or work_order_id)}", ln=1)
+    pdf.cell(0, 5, f"Vendor: {_pdf_safe(wo.get('contractor_name', '-'))}", ln=1)
+    pdf.cell(0, 5, f"Scope: {_pdf_safe((wo.get('scope_of_work') or wo.get('description') or '-'))[:120]}", ln=1)
     pdf.ln(2)
 
     # Contract summary tile
@@ -10022,7 +10039,7 @@ async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, user:
 
     # RAB block
     pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(0, 7, f"{rab_no} - {target.get('stage_name', '-')}", ln=1)
+    pdf.cell(0, 7, f"{rab_no} - {_pdf_safe(target.get('stage_name', '-'))}", ln=1)
     pdf.set_font("Helvetica", "", 9)
     pdf.cell(50, 6, "Stage Amount", border=1)
     pdf.cell(50, 6, _fmt_inr(target.get('stage_amount')), border=1, ln=1)
@@ -10034,7 +10051,7 @@ async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, user:
     pdf.cell(50, 6, _fmt_inr(closing), border=1, ln=1)
     if target.get("notes"):
         pdf.set_font("Helvetica", "I", 8)
-        pdf.multi_cell(0, 5, f"Notes: {target.get('notes')}")
+        pdf.multi_cell(0, 5, f"Notes: {_pdf_safe(target.get('notes'))}")
     pdf.ln(3)
 
     # Billing window + DLR rollup section. Mirrors the on-screen RAB popup
@@ -10092,7 +10109,7 @@ async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, user:
             pdf.set_font("Helvetica", "B", 9)
             pdf.cell(0, 6, "Excess / Variance Reason:", ln=1)
             pdf.set_font("Helvetica", "I", 9)
-            pdf.multi_cell(0, 5, excess_reason)
+            pdf.multi_cell(0, 5, _pdf_safe(excess_reason))
         pdf.ln(3)
 
     # Approval trail
@@ -10113,6 +10130,7 @@ async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, user:
         ("Accountant",    target.get("released_by_name") or target.get("accountant_approved_by_name"), target.get("released_at") or target.get("accountant_approved_at")),
     ]
     for role_name, person, at in trail:
+        person = _pdf_safe(person)
         pdf.cell(35, 7, role_name, border=1)
         pdf.cell(60, 7, person or "-", border=1)
         pdf.cell(50, 7, _fmt_dt(at), border=1)
@@ -10127,13 +10145,17 @@ async def wo_rab_pdf(project_id: str, work_order_id: str, request_id: str, user:
     pdf.ln(6)
     pdf.set_font("Helvetica", "I", 7)
     pdf.set_text_color(120, 120, 120)
-    pdf.cell(0, 4, f"Generated on {datetime.now(timezone.utc).strftime('%d %b %Y %H:%M UTC')} by {user.name}", ln=1, align="R")
+    pdf.cell(0, 4, f"Generated on {datetime.now(timezone.utc).strftime('%d %b %Y %H:%M UTC')} by {_pdf_safe(user.name)}", ln=1, align="R")
 
     # Stream out
     buf = BytesIO()
     pdf.output(buf)
     buf.seek(0)
-    filename = f"{rab_no}_{wo.get('contractor_name','vendor').replace(' ','_')}.pdf"
+    # Content-Disposition header values must be Latin-1 encodable — sanitize
+    # the vendor name here too (separately from the PDF body) so a non-Latin
+    # contractor name doesn't crash the response instead of the PDF itself.
+    safe_vendor = (_pdf_safe(wo.get('contractor_name')) or 'vendor').replace(' ', '_')
+    filename = f"{rab_no}_{safe_vendor}.pdf"
     return StreamingResponse(
         buf,
         media_type="application/pdf",
