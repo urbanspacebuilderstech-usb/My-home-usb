@@ -40,8 +40,8 @@ router = APIRouter()
 # Remove once confirmed fixed.
 @router.get("/admin/repair-usb-mr435")
 async def repair_usb_mr435(user: User = Depends(get_current_user)):
-    if user.role != UserRole.SUPER_ADMIN:
-        raise HTTPException(status_code=403, detail="Only Super Admin can run this")
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Super Admin / Accountant can run this")
 
     REQUEST_NUMBER = "USB-MR435"
     EXPECTED_VENDOR_SUBSTRING = "perfectware"
