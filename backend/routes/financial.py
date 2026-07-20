@@ -26,6 +26,59 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# ==================== ONE-OFF DATA REPAIRS (browser-triggerable, Super Admin only) ====================
+# Jul 20 2026 — USB-MR435 (perfectware Building Products, Tiles bill) lost
+# track of a ₹50,000 payment already made against it: the recorded_expenses
+# payment leg still shows it Approved, but the parent material_expenses doc
+# sits at status=pending_accounts_approval for the full ₹1,75,888 — most
+# likely because "send back to approvals" on a related entry unconditionally
+# wiped paid_amount with no check for an earlier separate partial payment.
+# No UI path exists to correct this, and the operator has no SSH access to
+# run a script server-side, so this is exposed as a GET a logged-in Super
+# Admin can hit directly from the browser. Safe to re-run — refuses unless
+# vendor_name/final_amount match exactly, and no-ops if already repaired.
+# Remove once confirmed fixed.
+@router.get("/admin/repair-usb-mr435")
+async def repair_usb_mr435(user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can run this")
+
+    REQUEST_NUMBER = "USB-MR435"
+    EXPECTED_VENDOR_SUBSTRING = "perfectware"
+    EXPECTED_TOTAL = 175888.0
+    ALREADY_PAID = 50000.0
+
+    doc = await db.material_expenses.find_one({"request_number": REQUEST_NUMBER}, {"_id": 0})
+    if not doc:
+        return {"result": "not_found", "detail": f"No material_expenses doc with request_number={REQUEST_NUMBER}"}
+
+    vendor = doc.get("vendor_name") or ""
+    total = float(doc.get("final_amount") or doc.get("amount") or 0)
+    if EXPECTED_VENDOR_SUBSTRING.lower() not in vendor.lower():
+        return {"result": "refused", "detail": f"vendor {vendor!r} doesn't contain {EXPECTED_VENDOR_SUBSTRING!r}"}
+    if abs(total - EXPECTED_TOTAL) > 0.5:
+        return {"result": "refused", "detail": f"final_amount {total} != expected {EXPECTED_TOTAL}"}
+
+    if doc.get("status") == "partially_paid" and abs(float(doc.get("paid_amount") or 0) - ALREADY_PAID) < 0.5:
+        return {"result": "noop", "detail": "Already repaired (status=partially_paid, paid_amount matches)"}
+
+    now = datetime.now(timezone.utc).isoformat()
+    remaining = round(EXPECTED_TOTAL - ALREADY_PAID, 2)
+    id_field = "expense_id" if doc.get("expense_id") else "material_expense_id"
+    update = {
+        "status": "partially_paid",
+        "paid_amount": ALREADY_PAID,
+        "remaining_balance": remaining,
+        "last_partial_paid_at": now,
+        "last_partial_paid_by": user.user_id,
+        "last_partial_paid_by_name": f"{user.name} (manual repair — USB-MR435)",
+        "updated_at": now,
+    }
+    result = await db.material_expenses.update_one({id_field: doc.get(id_field)}, {"$set": update})
+    await create_audit_log(user.user_id, "manual_repair", "material_expense", doc.get(id_field), update)
+    return {"result": "applied", "modified": result.modified_count, "update": update}
+
+
 # ==================== INTERNAL HELPERS ====================
 
 async def _sync_addition_cost_received(stage_id: str):
