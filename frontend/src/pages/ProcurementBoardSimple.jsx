@@ -1429,8 +1429,22 @@ function RequestCard({ req, onClick, stockInfo = null }) {
               <p className="text-xs font-medium capitalize">{req.material_category || req.category || '—'}</p>
             </div>
             <div>
-              <p className="text-[10px] uppercase font-semibold text-gray-400">Qty</p>
-              <p className="text-xs font-medium tabular-nums">{req.quantity} {req.unit || ''}</p>
+              {/* Once Procurement corrects Received Qty during Verify Delivery
+                  (e.g. 50 -> 48), req.received_quantity diverges from the
+                  original req.quantity. The Total/Paid figure already
+                  reflects the correction — show the corrected qty here too
+                  instead of the stale ordered qty. */}
+              {req.received_quantity != null && req.received_quantity !== req.quantity ? (
+                <>
+                  <p className="text-[10px] uppercase font-semibold text-gray-400">Received Qty</p>
+                  <p className="text-xs font-medium tabular-nums">{req.received_quantity} {req.unit || ''}</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-[10px] uppercase font-semibold text-gray-400">Qty</p>
+                  <p className="text-xs font-medium tabular-nums">{req.quantity} {req.unit || ''}</p>
+                </>
+              )}
             </div>
             <div>
               <p className="text-[10px] uppercase font-semibold text-gray-400 flex items-center gap-1"><CalendarClock className="h-2.5 w-2.5" /> Delivery</p>
