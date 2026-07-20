@@ -7,6 +7,8 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Building2, Users, RefreshCw, Send } from 'lucide-react';
 import { toast } from 'sonner';
+import ProjectSearchSelect from './ProjectSearchSelect';
+import MetaDateFilter from './MetaDateFilter';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -30,12 +32,16 @@ const PENDING_WITH_CLS = {
 // a Work Order can have stages pending with different people (one with PM,
 // another already with QC), so a single shared badge would misattribute
 // items. `expanded` is lifted to the row so both cells toggle together.
+// Collapsed state shows only the FIRST item, its text clamped to 2 lines —
+// long Additional Work descriptions run to full sentences, so "show 2
+// items" could still mean 6+ wrapped lines; clamping the one item keeps
+// every row a predictable height regardless of description length.
 function StageLines({ items, expanded }) {
-  const visible = expanded ? items : items.slice(0, 2);
+  const visible = expanded ? items : items.slice(0, 1);
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       {visible.map((it, i) => (
-        <div key={i} className="text-xs break-words">
+        <div key={i} className={`text-xs ${expanded ? 'break-words' : 'line-clamp-2'}`}>
           {it.kind === 'additional_work' && (
             <Badge variant="outline" className="text-[9px] mr-1 bg-orange-50 text-orange-700 border-orange-200">Additional</Badge>
           )}
@@ -48,9 +54,9 @@ function StageLines({ items, expanded }) {
 }
 
 function WaitingForLines({ items, expanded, onToggle, hiddenCount }) {
-  const visible = expanded ? items : items.slice(0, 2);
+  const visible = expanded ? items : items.slice(0, 1);
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       {visible.map((it, i) => (
         <div key={i} className="flex flex-col items-start gap-0.5 text-xs">
           <Badge variant="outline" className={`text-[9px] whitespace-normal text-left ${PENDING_WITH_CLS[it.pending_with] || ''}`}>
@@ -61,7 +67,7 @@ function WaitingForLines({ items, expanded, onToggle, hiddenCount }) {
       ))}
       {hiddenCount > 0 && (
         <button type="button" className="text-[11px] text-blue-600 hover:underline" onClick={onToggle}>
-          {expanded ? 'Show less' : `+${hiddenCount} more`}
+          {expanded ? 'Show less' : `+${hiddenCount}`}
         </button>
       )}
     </div>
@@ -77,6 +83,8 @@ function WorkOrderApprovalStatus({ onCountChange }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedRows, setExpandedRows] = useState(() => new Set());
+  const [projectFilter, setProjectFilter] = useState('');
+  const [dateRange, setDateRange] = useState(null); // { from, to }
   const toggleRow = (id) => setExpandedRows(prev => {
     const next = new Set(prev);
     next.has(id) ? next.delete(id) : next.add(id);
@@ -99,6 +107,29 @@ function WorkOrderApprovalStatus({ onCountChange }) {
 
   useEffect(() => { fetchRows(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Unique project list for the filter dropdown, built from whatever's
+  // actually in the current result set (mirrors ModeDrilldownView's pattern
+  // elsewhere in the app rather than a separate /projects fetch).
+  const projects = [];
+  const seenProjects = new Set();
+  rows.forEach(r => {
+    if (r.project_id && !seenProjects.has(r.project_id)) {
+      seenProjects.add(r.project_id);
+      projects.push({ project_id: r.project_id, name: r.project_name || r.project_id });
+    }
+  });
+
+  const filteredRows = rows.filter(r => {
+    if (projectFilter && r.project_id !== projectFilter) return false;
+    if (dateRange?.from || dateRange?.to) {
+      const t = r.oldest_pending_since ? new Date(r.oldest_pending_since).getTime() : null;
+      if (!t) return false;
+      if (dateRange.from && t < new Date(dateRange.from + 'T00:00:00').getTime()) return false;
+      if (dateRange.to && t > new Date(dateRange.to + 'T23:59:59').getTime()) return false;
+    }
+    return true;
+  });
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -106,19 +137,30 @@ function WorkOrderApprovalStatus({ onCountChange }) {
           <CardTitle className="text-base flex items-center gap-2">
             <Building2 className="h-4 w-4 text-blue-600" />
             Work Order Approvals
-            {rows.length > 0 && (
-              <Badge className="bg-blue-100 text-blue-700 border-blue-200">{rows.length} pending</Badge>
+            {filteredRows.length > 0 && (
+              <Badge className="bg-blue-100 text-blue-700 border-blue-200">{filteredRows.length} pending</Badge>
             )}
           </CardTitle>
-          <Button size="sm" variant="outline" onClick={fetchRows} disabled={loading} data-testid="wo-approvals-refresh">
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <ProjectSearchSelect
+              projects={projects}
+              value={projectFilter}
+              onChange={setProjectFilter}
+              placeholder="All Projects"
+              testId="wo-approvals-project-filter"
+              width="w-48"
+            />
+            <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset={null} />
+            <Button size="sm" variant="outline" onClick={fetchRows} disabled={loading} data-testid="wo-approvals-refresh">
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
         {loading ? (
           <p className="text-sm text-gray-500 text-center py-8">Loading…</p>
-        ) : rows.length === 0 ? (
+        ) : filteredRows.length === 0 ? (
           <p className="text-sm text-gray-500 text-center py-8" data-testid="wo-approvals-empty">No Work Orders currently awaiting approval.</p>
         ) : (
           <div className="w-full">
@@ -126,17 +168,16 @@ function WorkOrderApprovalStatus({ onCountChange }) {
               <thead className="bg-gray-50 text-xs uppercase text-gray-600">
                 <tr>
                   <th className="text-left px-2 py-2 align-top w-10">S.No</th>
-                  <th className="text-left px-3 py-2 align-top w-24">Work Order</th>
-                  <th className="text-left px-3 py-2 align-top w-28">Project</th>
+                  <th className="text-left px-3 py-2 align-top w-32">Project</th>
                   <th className="text-left px-3 py-2 align-top w-28">Contractor</th>
                   <th className="text-left px-3 py-2 align-top">Pending Stage(s)</th>
                   <th className="text-left px-3 py-2 align-top w-40">Waiting For</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, idx) => {
+                {filteredRows.map((r, idx) => {
                   const expanded = expandedRows.has(r.work_order_id);
-                  const hiddenCount = r.pending_items.length - 2;
+                  const hiddenCount = r.pending_items.length - 1;
                   return (
                     <tr key={r.work_order_id} className="border-b hover:bg-blue-50/30" data-testid={`wo-approval-row-${r.work_order_id}`}>
                       <td className="px-2 py-2 align-top text-gray-400">{idx + 1}</td>
@@ -144,11 +185,11 @@ function WorkOrderApprovalStatus({ onCountChange }) {
                         <button
                           className="text-blue-700 hover:underline font-medium text-left"
                           onClick={() => navigate(`/projects/${r.project_id}`)}
+                          title={r.work_order_number}
                         >
-                          {r.work_order_number}
+                          {r.project_name || '—'}
                         </button>
                       </td>
-                      <td className="px-3 py-2 align-top text-gray-700 break-words">{r.project_name || '—'}</td>
                       <td className="px-3 py-2 align-top text-gray-700 break-words">{r.contractor_name || '—'}</td>
                       <td className="px-3 py-2 align-top text-gray-700">
                         <StageLines items={r.pending_items} expanded={expanded} />
