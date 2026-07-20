@@ -26,67 +26,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# ==================== ONE-OFF DATA REPAIRS (browser-triggerable, Super Admin only) ====================
-# Jul 20 2026 — USB-MR435 (perfectware Building Products, Tiles bill) lost
-# track of a ₹50,000 payment already made against it: the recorded_expenses
-# payment leg still shows it Approved, but the parent material_expenses doc
-# sits at status=pending_accounts_approval for the full ₹1,75,888 — most
-# likely because "send back to approvals" on a related entry unconditionally
-# wiped paid_amount with no check for an earlier separate partial payment.
-# No UI path exists to correct this, and the operator has no SSH access to
-# run a script server-side, so this is exposed as a GET a logged-in Super
-# Admin can hit directly from the browser. Safe to re-run — refuses unless
-# vendor_name/final_amount match exactly, and no-ops if already repaired.
-# Remove once confirmed fixed.
-@router.get("/admin/repair-usb-mr435")
-async def repair_usb_mr435(user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
-        raise HTTPException(status_code=403, detail="Only Super Admin / Accountant can run this")
-
-    EXPECTED_VENDOR_SUBSTRING = "perfectware"
-    EXPECTED_TOTAL = 175888.0
-    ALREADY_PAID = 50000.0
-
-    # request_number formatting on legacy docs turned out unreliable (the
-    # "USB-MR435" shown in the UI didn't exact-match what's actually stored),
-    # so look up by vendor + amount instead — the two facts we're certain of.
-    candidates = await db.material_expenses.find(
-        {"vendor_name": {"$regex": EXPECTED_VENDOR_SUBSTRING, "$options": "i"}},
-        {"_id": 0},
-    ).to_list(50)
-    doc = next(
-        (d for d in candidates if abs(float(d.get("final_amount") or d.get("amount") or 0) - EXPECTED_TOTAL) < 0.5),
-        None,
-    )
-    if not doc:
-        found_summary = [
-            {"vendor_name": d.get("vendor_name"), "amount": d.get("final_amount") or d.get("amount"), "status": d.get("status")}
-            for d in candidates
-        ]
-        return {"result": "not_found", "detail": f"No material_expenses doc from a '{EXPECTED_VENDOR_SUBSTRING}' vendor with amount {EXPECTED_TOTAL}", "vendor_matches_found": found_summary}
-
-    vendor = doc.get("vendor_name") or ""
-    total = float(doc.get("final_amount") or doc.get("amount") or 0)
-
-    if doc.get("status") == "partially_paid" and abs(float(doc.get("paid_amount") or 0) - ALREADY_PAID) < 0.5:
-        return {"result": "noop", "detail": "Already repaired (status=partially_paid, paid_amount matches)"}
-
-    now = datetime.now(timezone.utc).isoformat()
-    remaining = round(EXPECTED_TOTAL - ALREADY_PAID, 2)
-    id_field = "expense_id" if doc.get("expense_id") else "material_expense_id"
-    update = {
-        "status": "partially_paid",
-        "paid_amount": ALREADY_PAID,
-        "remaining_balance": remaining,
-        "last_partial_paid_at": now,
-        "last_partial_paid_by": user.user_id,
-        "last_partial_paid_by_name": f"{user.name} (manual repair — USB-MR435)",
-        "updated_at": now,
-    }
-    result = await db.material_expenses.update_one({id_field: doc.get(id_field)}, {"$set": update})
-    await create_audit_log(user.user_id, "manual_repair", "material_expense", doc.get(id_field), update)
-    return {"result": "applied", "modified": result.modified_count, "update": update}
-
 
 # ==================== INTERNAL HELPERS ====================
 
