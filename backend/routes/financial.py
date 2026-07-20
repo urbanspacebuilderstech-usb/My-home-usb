@@ -43,21 +43,30 @@ async def repair_usb_mr435(user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Only Super Admin / Accountant can run this")
 
-    REQUEST_NUMBER = "USB-MR435"
     EXPECTED_VENDOR_SUBSTRING = "perfectware"
     EXPECTED_TOTAL = 175888.0
     ALREADY_PAID = 50000.0
 
-    doc = await db.material_expenses.find_one({"request_number": REQUEST_NUMBER}, {"_id": 0})
+    # request_number formatting on legacy docs turned out unreliable (the
+    # "USB-MR435" shown in the UI didn't exact-match what's actually stored),
+    # so look up by vendor + amount instead — the two facts we're certain of.
+    candidates = await db.material_expenses.find(
+        {"vendor_name": {"$regex": EXPECTED_VENDOR_SUBSTRING, "$options": "i"}},
+        {"_id": 0},
+    ).to_list(50)
+    doc = next(
+        (d for d in candidates if abs(float(d.get("final_amount") or d.get("amount") or 0) - EXPECTED_TOTAL) < 0.5),
+        None,
+    )
     if not doc:
-        return {"result": "not_found", "detail": f"No material_expenses doc with request_number={REQUEST_NUMBER}"}
+        found_summary = [
+            {"vendor_name": d.get("vendor_name"), "amount": d.get("final_amount") or d.get("amount"), "status": d.get("status")}
+            for d in candidates
+        ]
+        return {"result": "not_found", "detail": f"No material_expenses doc from a '{EXPECTED_VENDOR_SUBSTRING}' vendor with amount {EXPECTED_TOTAL}", "vendor_matches_found": found_summary}
 
     vendor = doc.get("vendor_name") or ""
     total = float(doc.get("final_amount") or doc.get("amount") or 0)
-    if EXPECTED_VENDOR_SUBSTRING.lower() not in vendor.lower():
-        return {"result": "refused", "detail": f"vendor {vendor!r} doesn't contain {EXPECTED_VENDOR_SUBSTRING!r}"}
-    if abs(total - EXPECTED_TOTAL) > 0.5:
-        return {"result": "refused", "detail": f"final_amount {total} != expected {EXPECTED_TOTAL}"}
 
     if doc.get("status") == "partially_paid" and abs(float(doc.get("paid_amount") or 0) - ALREADY_PAID) < 0.5:
         return {"result": "noop", "detail": "Already repaired (status=partially_paid, paid_amount matches)"}
