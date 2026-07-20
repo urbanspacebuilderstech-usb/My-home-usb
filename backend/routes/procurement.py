@@ -4357,7 +4357,13 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
             b["total_value"] += amt
         elif status in ("pending_accounts_approval", "accounts_pending", "issued"):
             b["total_value"] += amt
-            b["pending_amount"] += amt
+            # Same fix as the material_requests loop above (Jul 7 2026) —
+            # a legacy bill can carry a partial payment (paid_amount set by
+            # PayApprovalDialog) while its status stays pending_accounts_approval
+            # until the balance clears. Without subtracting it, Pending showed
+            # the full original amount even after part of it was paid.
+            already_paid = float(me.get("paid_amount") or 0)
+            b["pending_amount"] += max(0.0, amt - already_paid)
         timelines[key].append({
             "date": me.get("created_at"),
             "type": "request",
