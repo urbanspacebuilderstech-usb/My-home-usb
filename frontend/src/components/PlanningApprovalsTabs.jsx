@@ -24,41 +24,43 @@ const PENDING_WITH_CLS = {
   Accountant: 'bg-amber-100 text-amber-700 border-amber-200',
 };
 
-// Each pending item gets its own "who's holding it" badge — a Work Order
-// can have several stages pending with DIFFERENT people (one with PM,
-// another already with QC), so a single row-level badge would misattribute
-// items to the wrong person. Shows at most 2 lines; if there are more, a
-// "+N more" toggle expands the rest in place.
-function PendingItemsCell({ items }) {
-  const [expanded, setExpanded] = useState(false);
+// Pending Stage(s) and Waiting For render as two separate <td> cells, but
+// both map over the SAME (possibly truncated) item list in the SAME order
+// so each stage's line lines up with its own "who's holding it" badge —
+// a Work Order can have stages pending with different people (one with PM,
+// another already with QC), so a single shared badge would misattribute
+// items. `expanded` is lifted to the row so both cells toggle together.
+function StageLines({ items, expanded }) {
   const visible = expanded ? items : items.slice(0, 2);
-  const hiddenCount = items.length - 2;
-
   return (
     <div className="space-y-1">
       {visible.map((it, i) => (
-        <div key={i} className="flex items-start justify-between gap-3 text-xs">
-          <span className="truncate" title={it.stage_name}>
-            {it.kind === 'additional_work' && (
-              <Badge variant="outline" className="text-[9px] mr-1 bg-orange-50 text-orange-700 border-orange-200">Additional</Badge>
-            )}
-            {it.stage_name} · {fmtCurrency(it.amount)}
-            {it.rab_number ? ` · ${it.rab_number}` : ''}
-          </span>
-          <span className="shrink-0 flex items-center gap-1 whitespace-nowrap">
-            <Badge variant="outline" className={`text-[9px] ${PENDING_WITH_CLS[it.pending_with] || ''}`}>
-              {it.pending_with_name ? `${it.pending_with} · ${it.pending_with_name}` : it.pending_with}
-            </Badge>
-            <span className="text-[10px] text-gray-400">{fmtTime(it.requested_at)}</span>
-          </span>
+        <div key={i} className="text-xs break-words">
+          {it.kind === 'additional_work' && (
+            <Badge variant="outline" className="text-[9px] mr-1 bg-orange-50 text-orange-700 border-orange-200">Additional</Badge>
+          )}
+          {it.stage_name} · {fmtCurrency(it.amount)}
+          {it.rab_number ? ` · ${it.rab_number}` : ''}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WaitingForLines({ items, expanded, onToggle, hiddenCount }) {
+  const visible = expanded ? items : items.slice(0, 2);
+  return (
+    <div className="space-y-1">
+      {visible.map((it, i) => (
+        <div key={i} className="flex flex-col items-start gap-0.5 text-xs">
+          <Badge variant="outline" className={`text-[9px] whitespace-normal text-left ${PENDING_WITH_CLS[it.pending_with] || ''}`}>
+            {it.pending_with_name ? `${it.pending_with} · ${it.pending_with_name}` : it.pending_with}
+          </Badge>
+          <span className="text-[10px] text-gray-400">{fmtTime(it.requested_at)}</span>
         </div>
       ))}
       {hiddenCount > 0 && (
-        <button
-          type="button"
-          className="text-[11px] text-blue-600 hover:underline"
-          onClick={() => setExpanded(v => !v)}
-        >
+        <button type="button" className="text-[11px] text-blue-600 hover:underline" onClick={onToggle}>
           {expanded ? 'Show less' : `+${hiddenCount} more`}
         </button>
       )}
@@ -74,6 +76,12 @@ function WorkOrderApprovalStatus({ onCountChange }) {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [expandedRows, setExpandedRows] = useState(() => new Set());
+  const toggleRow = (id) => setExpandedRows(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
 
   const fetchRows = async () => {
     try {
@@ -113,34 +121,49 @@ function WorkOrderApprovalStatus({ onCountChange }) {
         ) : rows.length === 0 ? (
           <p className="text-sm text-gray-500 text-center py-8" data-testid="wo-approvals-empty">No Work Orders currently awaiting approval.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="w-full">
+            <table className="w-full text-sm table-fixed">
               <thead className="bg-gray-50 text-xs uppercase text-gray-600">
                 <tr>
-                  <th className="text-left px-3 py-2 align-top w-28">Work Order</th>
-                  <th className="text-left px-3 py-2 align-top w-32">Project</th>
-                  <th className="text-left px-3 py-2 align-top w-32">Contractor</th>
-                  <th className="text-left px-3 py-2 align-top">Pending Stage(s) &amp; With</th>
+                  <th className="text-left px-2 py-2 align-top w-10">S.No</th>
+                  <th className="text-left px-3 py-2 align-top w-24">Work Order</th>
+                  <th className="text-left px-3 py-2 align-top w-28">Project</th>
+                  <th className="text-left px-3 py-2 align-top w-28">Contractor</th>
+                  <th className="text-left px-3 py-2 align-top">Pending Stage(s)</th>
+                  <th className="text-left px-3 py-2 align-top w-40">Waiting For</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map(r => (
-                  <tr key={r.work_order_id} className="border-b hover:bg-blue-50/30" data-testid={`wo-approval-row-${r.work_order_id}`}>
-                    <td className="px-3 py-2 align-top">
-                      <button
-                        className="text-blue-700 hover:underline font-medium"
-                        onClick={() => navigate(`/projects/${r.project_id}`)}
-                      >
-                        {r.work_order_number}
-                      </button>
-                    </td>
-                    <td className="px-3 py-2 align-top text-gray-700">{r.project_name || '—'}</td>
-                    <td className="px-3 py-2 align-top text-gray-700">{r.contractor_name || '—'}</td>
-                    <td className="px-3 py-2 align-top text-gray-700">
-                      <PendingItemsCell items={r.pending_items} />
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((r, idx) => {
+                  const expanded = expandedRows.has(r.work_order_id);
+                  const hiddenCount = r.pending_items.length - 2;
+                  return (
+                    <tr key={r.work_order_id} className="border-b hover:bg-blue-50/30" data-testid={`wo-approval-row-${r.work_order_id}`}>
+                      <td className="px-2 py-2 align-top text-gray-400">{idx + 1}</td>
+                      <td className="px-3 py-2 align-top break-words">
+                        <button
+                          className="text-blue-700 hover:underline font-medium text-left"
+                          onClick={() => navigate(`/projects/${r.project_id}`)}
+                        >
+                          {r.work_order_number}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2 align-top text-gray-700 break-words">{r.project_name || '—'}</td>
+                      <td className="px-3 py-2 align-top text-gray-700 break-words">{r.contractor_name || '—'}</td>
+                      <td className="px-3 py-2 align-top text-gray-700">
+                        <StageLines items={r.pending_items} expanded={expanded} />
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        <WaitingForLines
+                          items={r.pending_items}
+                          expanded={expanded}
+                          hiddenCount={hiddenCount}
+                          onToggle={() => toggleRow(r.work_order_id)}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
