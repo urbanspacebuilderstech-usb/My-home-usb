@@ -3260,7 +3260,12 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
                     "site_engineer_name": req.get("site_engineer_name"),
                     "created_at": now,
                     "updated_at": now,
-                    "description": f"{req.get('material_name', '')} ({req.get('quantity', '')} {req.get('unit', '')})",
+                    # Use Procurement's verified/corrected qty (same value as
+                    # the `quantity` field above), not the original ordered
+                    # qty — otherwise the Accountant's approval card shows a
+                    # stale "(50 bags)" label even though the amount/qty
+                    # fields themselves already reflect the correction.
+                    "description": f"{req.get('material_name', '')} ({merged.get('received_quantity') or merged.get('approved_quantity') or merged.get('quantity')} {req.get('unit', '')})",
                     "request_type": "material",
                 })
                 # Back-link so future verifications update the same expense
