@@ -7,7 +7,6 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Building2, Users, RefreshCw, Send } from 'lucide-react';
 import { toast } from 'sonner';
-import PlanningHeadApprovalsTab from './PlanningHeadApprovalsTab';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -25,11 +24,43 @@ const PENDING_WITH_CLS = {
   Accountant: 'bg-amber-100 text-amber-700 border-amber-200',
 };
 
+// Shows at most 2 lines; if there are more, a "+N more" toggle expands the
+// rest in place (click again to collapse) instead of every row stretching
+// the whole table to fit its longest pending list.
+function PendingItemsCell({ items }) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? items : items.slice(0, 2);
+  const hiddenCount = items.length - 2;
+
+  return (
+    <div>
+      {visible.map((it, i) => (
+        <span key={i} className="block text-xs">
+          {it.kind === 'additional_work' && (
+            <Badge variant="outline" className="text-[9px] mr-1 bg-orange-50 text-orange-700 border-orange-200">Additional</Badge>
+          )}
+          {it.stage_name} · {fmtCurrency(it.amount)}
+          {it.rab_number ? ` · ${it.rab_number}` : ''}
+        </span>
+      ))}
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          className="text-[11px] text-blue-600 hover:underline mt-0.5"
+          onClick={() => setExpanded(v => !v)}
+        >
+          {expanded ? 'Show less' : `+${hiddenCount} more`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // Read-only cross-project view of every Work Order with a payment request
 // (RAB) still in-flight through SE -> PM -> QC -> Planning -> Accountant,
 // and which role it's currently sitting with. No approve/reject here —
 // that still happens from each role's own queue; this is purely visibility.
-function WorkOrderApprovalStatus() {
+function WorkOrderApprovalStatus({ onCountChange }) {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -38,7 +69,9 @@ function WorkOrderApprovalStatus() {
     try {
       setLoading(true);
       const res = await axios.get(`${API}/planning-head/workorder-approvals`);
-      setRows(res.data || []);
+      const list = res.data || [];
+      setRows(list);
+      onCountChange && onCountChange(list.length);
     } catch {
       toast.error('Failed to load Work Order approval status');
     } finally {
@@ -46,7 +79,7 @@ function WorkOrderApprovalStatus() {
     }
   };
 
-  useEffect(() => { fetchRows(); }, []);
+  useEffect(() => { fetchRows(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Card>
@@ -96,12 +129,7 @@ function WorkOrderApprovalStatus() {
                     <td className="px-3 py-2 text-gray-700">{r.project_name || '—'}</td>
                     <td className="px-3 py-2 text-gray-700">{r.contractor_name || '—'}</td>
                     <td className="px-3 py-2 text-gray-700">
-                      {r.pending_items.map((it, i) => (
-                        <span key={i} className="block text-xs">
-                          {it.stage_name} · {fmtCurrency(it.amount)}
-                          {it.rab_number ? ` · ${it.rab_number}` : ''}
-                        </span>
-                      ))}
+                      <PendingItemsCell items={r.pending_items} />
                     </td>
                     <td className="px-3 py-2">
                       <Badge variant="outline" className={`text-[10px] ${PENDING_WITH_CLS[r.oldest_pending_with] || ''}`}>
@@ -202,16 +230,10 @@ function ClientPendingApprovals() {
   );
 }
 
-// Planning Dashboard > Approvals — split into Internal (Planning Head's own
-// Final Estimate review queue + cross-project Work Order approval status)
-// and Client (Final Estimates currently waiting on the client) tabs.
+// Planning Dashboard > Approvals — split into Internal (cross-project Work
+// Order approval status) and Client (Final Estimates currently waiting on
+// the client) tabs. Pure status views, no approve/reject actions here.
 export default function PlanningApprovalsTabs({ onCountChange }) {
-  const [internalCount, setInternalCount] = useState(0);
-
-  useEffect(() => {
-    onCountChange && onCountChange(internalCount);
-  }, [internalCount]); // eslint-disable-line react-hooks/exhaustive-deps
-
   return (
     <Tabs defaultValue="internal">
       <TabsList className="mb-3">
@@ -223,8 +245,7 @@ export default function PlanningApprovalsTabs({ onCountChange }) {
         </TabsTrigger>
       </TabsList>
       <TabsContent value="internal" className="space-y-4">
-        <PlanningHeadApprovalsTab onCountChange={setInternalCount} />
-        <WorkOrderApprovalStatus />
+        <WorkOrderApprovalStatus onCountChange={onCountChange} />
       </TabsContent>
       <TabsContent value="client">
         <ClientPendingApprovals />

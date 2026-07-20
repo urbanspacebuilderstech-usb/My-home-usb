@@ -9789,6 +9789,7 @@ async def list_workorder_internal_approvals(user: User = Depends(get_current_use
                 if not pending_role:
                     continue  # approved / rejected / se_rework — not sitting with anyone right now
                 pending_items.append({
+                    "kind": "payment_request",
                     "stage_name": stage_name,
                     "amount": pr.get("amount"),
                     "status": status,
@@ -9797,9 +9798,28 @@ async def list_workorder_internal_approvals(user: User = Depends(get_current_use
                     "requested_by_name": pr.get("requested_by_name"),
                     "rab_number": pr.get("rab_number"),
                 })
+        # Additional Work items still locked (Planning hasn't unlocked them
+        # for a RAB to be raised against yet) — not part of the payment-
+        # request chain, but still something sitting with Planning, so
+        # surface them here too for the "where is everything" view.
+        for item in (wo.get("additional_work") or []):
+            if item.get("is_locked") is False:
+                continue  # already unlocked — no longer "pending" anything
+            pending_items.append({
+                "kind": "additional_work",
+                "stage_name": item.get("description") or "Additional Work",
+                "amount": round(float(item.get("quantity") or 0) * float(item.get("unit_rate") or 0), 2),
+                "status": "locked",
+                "pending_with": "Planning",
+                "requested_at": None,
+                "requested_by_name": None,
+                "rab_number": None,
+            })
         if not pending_items:
             continue
-        pending_items.sort(key=lambda x: str(x.get("requested_at") or ""))
+        # Dated (payment-request) items first in chronological order;
+        # undated Additional Work items (no requested_at) sort last.
+        pending_items.sort(key=lambda x: x.get("requested_at") or "9999")
         rows.append({
             "work_order_id": wo.get("work_order_id"),
             "work_order_number": wo.get("work_order_number") or wo.get("work_order_id"),
