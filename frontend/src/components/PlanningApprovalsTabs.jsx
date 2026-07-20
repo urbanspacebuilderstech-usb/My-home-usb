@@ -24,29 +24,39 @@ const PENDING_WITH_CLS = {
   Accountant: 'bg-amber-100 text-amber-700 border-amber-200',
 };
 
-// Shows at most 2 lines; if there are more, a "+N more" toggle expands the
-// rest in place (click again to collapse) instead of every row stretching
-// the whole table to fit its longest pending list.
+// Each pending item gets its own "who's holding it" badge — a Work Order
+// can have several stages pending with DIFFERENT people (one with PM,
+// another already with QC), so a single row-level badge would misattribute
+// items to the wrong person. Shows at most 2 lines; if there are more, a
+// "+N more" toggle expands the rest in place.
 function PendingItemsCell({ items }) {
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? items : items.slice(0, 2);
   const hiddenCount = items.length - 2;
 
   return (
-    <div>
+    <div className="space-y-1">
       {visible.map((it, i) => (
-        <span key={i} className="block text-xs">
-          {it.kind === 'additional_work' && (
-            <Badge variant="outline" className="text-[9px] mr-1 bg-orange-50 text-orange-700 border-orange-200">Additional</Badge>
-          )}
-          {it.stage_name} · {fmtCurrency(it.amount)}
-          {it.rab_number ? ` · ${it.rab_number}` : ''}
-        </span>
+        <div key={i} className="flex items-start justify-between gap-3 text-xs">
+          <span className="truncate" title={it.stage_name}>
+            {it.kind === 'additional_work' && (
+              <Badge variant="outline" className="text-[9px] mr-1 bg-orange-50 text-orange-700 border-orange-200">Additional</Badge>
+            )}
+            {it.stage_name} · {fmtCurrency(it.amount)}
+            {it.rab_number ? ` · ${it.rab_number}` : ''}
+          </span>
+          <span className="shrink-0 flex items-center gap-1 whitespace-nowrap">
+            <Badge variant="outline" className={`text-[9px] ${PENDING_WITH_CLS[it.pending_with] || ''}`}>
+              {it.pending_with_name ? `${it.pending_with} · ${it.pending_with_name}` : it.pending_with}
+            </Badge>
+            <span className="text-[10px] text-gray-400">{fmtTime(it.requested_at)}</span>
+          </span>
+        </div>
       ))}
       {hiddenCount > 0 && (
         <button
           type="button"
-          className="text-[11px] text-blue-600 hover:underline mt-0.5"
+          className="text-[11px] text-blue-600 hover:underline"
           onClick={() => setExpanded(v => !v)}
         >
           {expanded ? 'Show less' : `+${hiddenCount} more`}
@@ -107,18 +117,16 @@ function WorkOrderApprovalStatus({ onCountChange }) {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-xs uppercase text-gray-600">
                 <tr>
-                  <th className="text-left px-3 py-2">Work Order</th>
-                  <th className="text-left px-3 py-2">Project</th>
-                  <th className="text-left px-3 py-2">Contractor</th>
-                  <th className="text-left px-3 py-2">Pending Stage(s)</th>
-                  <th className="text-left px-3 py-2">Pending With</th>
-                  <th className="text-left px-3 py-2">Since</th>
+                  <th className="text-left px-3 py-2 align-top w-28">Work Order</th>
+                  <th className="text-left px-3 py-2 align-top w-32">Project</th>
+                  <th className="text-left px-3 py-2 align-top w-32">Contractor</th>
+                  <th className="text-left px-3 py-2 align-top">Pending Stage(s) &amp; With</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map(r => (
                   <tr key={r.work_order_id} className="border-b hover:bg-blue-50/30" data-testid={`wo-approval-row-${r.work_order_id}`}>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 align-top">
                       <button
                         className="text-blue-700 hover:underline font-medium"
                         onClick={() => navigate(`/projects/${r.project_id}`)}
@@ -126,17 +134,11 @@ function WorkOrderApprovalStatus({ onCountChange }) {
                         {r.work_order_number}
                       </button>
                     </td>
-                    <td className="px-3 py-2 text-gray-700">{r.project_name || '—'}</td>
-                    <td className="px-3 py-2 text-gray-700">{r.contractor_name || '—'}</td>
-                    <td className="px-3 py-2 text-gray-700">
+                    <td className="px-3 py-2 align-top text-gray-700">{r.project_name || '—'}</td>
+                    <td className="px-3 py-2 align-top text-gray-700">{r.contractor_name || '—'}</td>
+                    <td className="px-3 py-2 align-top text-gray-700">
                       <PendingItemsCell items={r.pending_items} />
                     </td>
-                    <td className="px-3 py-2">
-                      <Badge variant="outline" className={`text-[10px] ${PENDING_WITH_CLS[r.oldest_pending_with] || ''}`}>
-                        {r.oldest_pending_with}
-                      </Badge>
-                    </td>
-                    <td className="px-3 py-2 text-[11px] text-gray-500">{fmtTime(r.oldest_pending_since)}</td>
                   </tr>
                 ))}
               </tbody>

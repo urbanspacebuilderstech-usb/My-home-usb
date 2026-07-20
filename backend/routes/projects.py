@@ -9774,12 +9774,37 @@ async def list_workorder_internal_approvals(user: User = Depends(get_current_use
     project_ids = {w.get("project_id") for w in wos if w.get("project_id")}
     projects = await db.projects.find(
         {"project_id": {"$in": list(project_ids)}},
-        {"_id": 0, "project_id": 1, "name": 1},
+        {"_id": 0, "project_id": 1, "name": 1, "team": 1},
     ).to_list(len(project_ids) or 1)
     project_map = {p["project_id"]: p.get("name") for p in projects}
+    team_map = {p["project_id"]: (p.get("team") or {}) for p in projects}
+
+    # PM/QC are assigned per-project (team.project_manager / team.qc) — resolve
+    # the actual person so "Pending With" can show a name, not just a role.
+    # Planning/Accountant have no per-project assignment in this system, so
+    # those stay as plain role labels.
+    pm_qc_user_ids = {
+        t.get("project_manager") for t in team_map.values() if t.get("project_manager")
+    } | {
+        t.get("qc") for t in team_map.values() if t.get("qc")
+    }
+    user_name_map = {}
+    if pm_qc_user_ids:
+        user_docs = await db.users.find(
+            {"user_id": {"$in": list(pm_qc_user_ids)}}, {"_id": 0, "user_id": 1, "name": 1}
+        ).to_list(len(pm_qc_user_ids))
+        user_name_map = {u["user_id"]: u.get("name") for u in user_docs}
+
+    def _pending_with_name(role, team):
+        if role == "PM":
+            return user_name_map.get(team.get("project_manager"))
+        if role == "QC":
+            return user_name_map.get(team.get("qc"))
+        return None
 
     rows = []
     for wo in wos:
+        team = team_map.get(wo.get("project_id"), {})
         pending_items = []
         for stg in (wo.get("stages") or []):
             stage_name = stg.get("stage_name") or stg.get("name") or "Stage"
@@ -9794,6 +9819,7 @@ async def list_workorder_internal_approvals(user: User = Depends(get_current_use
                     "amount": pr.get("amount"),
                     "status": status,
                     "pending_with": pending_role,
+                    "pending_with_name": _pending_with_name(pending_role, team),
                     "requested_at": pr.get("requested_at"),
                     "requested_by_name": pr.get("requested_by_name"),
                     "rab_number": pr.get("rab_number"),
@@ -9811,6 +9837,7 @@ async def list_workorder_internal_approvals(user: User = Depends(get_current_use
                 "amount": round(float(item.get("quantity") or 0) * float(item.get("unit_rate") or 0), 2),
                 "status": "locked",
                 "pending_with": "Planning",
+                "pending_with_name": None,
                 "requested_at": None,
                 "requested_by_name": None,
                 "rab_number": None,
@@ -9830,6 +9857,7 @@ async def list_workorder_internal_approvals(user: User = Depends(get_current_use
             "pending_count": len(pending_items),
             "pending_items": pending_items,
             "oldest_pending_with": pending_items[0]["pending_with"],
+            "oldest_pending_with_name": pending_items[0]["pending_with_name"],
             "oldest_pending_since": pending_items[0]["requested_at"],
         })
     rows.sort(key=lambda r: str(r.get("oldest_pending_since") or ""))
