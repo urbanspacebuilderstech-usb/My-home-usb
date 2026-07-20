@@ -9774,37 +9774,53 @@ async def list_workorder_internal_approvals(user: User = Depends(get_current_use
     project_ids = {w.get("project_id") for w in wos if w.get("project_id")}
     projects = await db.projects.find(
         {"project_id": {"$in": list(project_ids)}},
-        {"_id": 0, "project_id": 1, "name": 1, "team": 1},
+        {"_id": 0, "project_id": 1, "name": 1, "team": 1, "assigned_planning_person_id": 1},
     ).to_list(len(project_ids) or 1)
     project_map = {p["project_id"]: p.get("name") for p in projects}
     team_map = {p["project_id"]: (p.get("team") or {}) for p in projects}
+    planning_person_map = {p["project_id"]: p.get("assigned_planning_person_id") for p in projects}
 
-    # PM/QC are assigned per-project (team.project_manager / team.qc) — resolve
-    # the actual person so "Pending With" can show a name, not just a role.
-    # Planning/Accountant have no per-project assignment in this system, so
-    # those stay as plain role labels.
-    pm_qc_user_ids = {
+    # PM/QC/Planning Person are assigned per-project (team.project_manager /
+    # team.qc / assigned_planning_person_id) — resolve the actual person so
+    # "Pending With" can show a name, not just a role. The "Planning" stage
+    # can ALSO be actioned by any Planning Head (role=planning, no per-
+    # project assignment exists for that role) — when this project has a
+    # specifically assigned Planning Person, name that person and label it
+    # "Planning Person" instead of the ambiguous shared "Planning" label so
+    # it's clear who's actually on the hook. Accountant has no per-project
+    # assignment either, so it stays a plain role label.
+    resolvable_user_ids = {
         t.get("project_manager") for t in team_map.values() if t.get("project_manager")
     } | {
         t.get("qc") for t in team_map.values() if t.get("qc")
+    } | {
+        pid for pid in planning_person_map.values() if pid
     }
     user_name_map = {}
-    if pm_qc_user_ids:
+    if resolvable_user_ids:
         user_docs = await db.users.find(
-            {"user_id": {"$in": list(pm_qc_user_ids)}}, {"_id": 0, "user_id": 1, "name": 1}
-        ).to_list(len(pm_qc_user_ids))
+            {"user_id": {"$in": list(resolvable_user_ids)}}, {"_id": 0, "user_id": 1, "name": 1}
+        ).to_list(len(resolvable_user_ids))
         user_name_map = {u["user_id"]: u.get("name") for u in user_docs}
 
-    def _pending_with_name(role, team):
+    def _pending_with(role, team, planning_person_id):
+        """Returns (label, name) — label overrides the raw role name when we
+        can be more specific (e.g. "Planning Person" instead of "Planning")."""
         if role == "PM":
-            return user_name_map.get(team.get("project_manager"))
+            return "PM", user_name_map.get(team.get("project_manager"))
         if role == "QC":
-            return user_name_map.get(team.get("qc"))
-        return None
+            return "QC", user_name_map.get(team.get("qc"))
+        if role == "Planning":
+            pp_name = user_name_map.get(planning_person_id)
+            if pp_name:
+                return "Planning Person", pp_name
+            return "Planning Head", None
+        return role, None
 
     rows = []
     for wo in wos:
         team = team_map.get(wo.get("project_id"), {})
+        planning_person_id = planning_person_map.get(wo.get("project_id"))
         pending_items = []
         for stg in (wo.get("stages") or []):
             stage_name = stg.get("stage_name") or stg.get("name") or "Stage"
@@ -9813,13 +9829,14 @@ async def list_workorder_internal_approvals(user: User = Depends(get_current_use
                 pending_role = PENDING_WITH.get(status)
                 if not pending_role:
                     continue  # approved / rejected / se_rework — not sitting with anyone right now
+                label, name = _pending_with(pending_role, team, planning_person_id)
                 pending_items.append({
                     "kind": "payment_request",
                     "stage_name": stage_name,
                     "amount": pr.get("amount"),
                     "status": status,
-                    "pending_with": pending_role,
-                    "pending_with_name": _pending_with_name(pending_role, team),
+                    "pending_with": label,
+                    "pending_with_name": name,
                     "requested_at": pr.get("requested_at"),
                     "requested_by_name": pr.get("requested_by_name"),
                     "rab_number": pr.get("rab_number"),
@@ -9831,13 +9848,14 @@ async def list_workorder_internal_approvals(user: User = Depends(get_current_use
         for item in (wo.get("additional_work") or []):
             if item.get("is_locked") is False:
                 continue  # already unlocked — no longer "pending" anything
+            label, name = _pending_with("Planning", team, planning_person_id)
             pending_items.append({
                 "kind": "additional_work",
                 "stage_name": item.get("description") or "Additional Work",
                 "amount": round(float(item.get("quantity") or 0) * float(item.get("unit_rate") or 0), 2),
                 "status": "locked",
-                "pending_with": "Planning",
-                "pending_with_name": None,
+                "pending_with": label,
+                "pending_with_name": name,
                 "requested_at": None,
                 "requested_by_name": None,
                 "rab_number": None,

@@ -22,7 +22,11 @@ const fmtTime = (iso) => {
 const PENDING_WITH_CLS = {
   PM: 'bg-blue-100 text-blue-700 border-blue-200',
   QC: 'bg-violet-100 text-violet-700 border-violet-200',
-  Planning: 'bg-cyan-100 text-cyan-700 border-cyan-200',
+  // Backend distinguishes the two once it knows which one applies: a named
+  // "Planning Person" (this project has one assigned) vs. the ambiguous
+  // shared "Planning Head" queue (role-wide, no per-project assignment).
+  'Planning Person': 'bg-cyan-100 text-cyan-700 border-cyan-200',
+  'Planning Head': 'bg-cyan-50 text-cyan-600 border-cyan-200',
   Accountant: 'bg-amber-100 text-amber-700 border-amber-200',
 };
 
