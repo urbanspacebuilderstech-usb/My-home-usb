@@ -49,7 +49,7 @@ import {
 import { SortableList, SortableTableRow, DragHandle, arrayMove } from '../components/SortableList';
 import { AppHeader } from '../components/AppHeader';
 import PlanningRequestsTab from '../components/PlanningRequestsTab';
-import PlanningHeadApprovalsTab from '../components/PlanningHeadApprovalsTab';
+import PlanningApprovalsTabs from '../components/PlanningApprovalsTabs';
 import { useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Circle } from 'react-leaflet';
 import L from 'leaflet';
@@ -1781,9 +1781,9 @@ export default function PlanningBoard({ embedded = false }) {
               <PlanningRequestsTab projects={projects} onCountChange={setPlanningRequestsCount} viewerRole={user?.role} />
             )}
 
-            {/* ---- Dashboard > Approvals (Planning Head FE queue) ---- */}
+            {/* ---- Dashboard > Approvals (Internal | Client) ---- */}
             {dashSubTab === 'approvals' && ['planning', 'super_admin'].includes(user?.role) && (
-              <PlanningHeadApprovalsTab onCountChange={setFeApprovalsCount} />
+              <PlanningApprovalsTabs onCountChange={setFeApprovalsCount} />
             )}
 
             {/* ---- Dashboard > Contractor Summary ---- */}

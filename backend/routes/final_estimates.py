@@ -267,6 +267,29 @@ async def list_planning_head_final_estimates(user: User = Depends(get_current_us
     return projects
 
 
+@router.get("/planning-head/final-estimates-client-pending")
+async def list_final_estimates_pending_client(user: User = Depends(get_current_user)):
+    """Read-only status view (Planning Dashboard > Approvals > Client tab):
+    projects whose Final Estimate has cleared internal review and is now
+    sitting with the CLIENT to approve/reject. No action here — the client
+    acts from their own portal (or Planning acting on their behalf via the
+    existing client-approve/reject endpoints elsewhere); this is purely
+    visibility into what's currently waiting on the client.
+    """
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can access this")
+
+    projects = await db.projects.find(
+        {
+            "fe.status": "pending_client_review",
+            "$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}],
+        },
+        {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "client_phone": 1,
+         "location": 1, "total_value": 1, "fe": 1, "created_at": 1},
+    ).sort("fe.sent_to_client_at", -1).to_list(200)
+    return projects
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Planning → "Submit to GM"  (push FE into GM's queue for pre-CRE approval)
 # Kept for super_admin / legacy callers. Planning role uses Planning Head approve now.

@@ -9751,6 +9751,71 @@ async def create_multi_stage_rab(
     }
 
 
+@router.get("/planning-head/workorder-approvals")
+async def list_workorder_internal_approvals(user: User = Depends(get_current_user)):
+    """Read-only status view (Planning Dashboard > Approvals > Internal tab):
+    every Work Order that has at least one payment request (RAB) still
+    in-flight through the SE -> PM -> QC -> Planning -> Accountant chain,
+    and which role it's currently sitting with. No actions here — approving
+    a stage still happens from its own PM/QC/Planning/Accountant queue; this
+    is purely a cross-project "where is everything stuck" view.
+    """
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can access this")
+
+    PENDING_WITH = {
+        "requested": "PM",
+        "pm_approved": "QC",
+        "qc_approved": "Planning",
+        "planning_approved": "Accountant",
+    }
+
+    wos = await db.project_work_orders.find({}, {"_id": 0}).to_list(5000)
+    project_ids = {w.get("project_id") for w in wos if w.get("project_id")}
+    projects = await db.projects.find(
+        {"project_id": {"$in": list(project_ids)}},
+        {"_id": 0, "project_id": 1, "name": 1},
+    ).to_list(len(project_ids) or 1)
+    project_map = {p["project_id"]: p.get("name") for p in projects}
+
+    rows = []
+    for wo in wos:
+        pending_items = []
+        for stg in (wo.get("stages") or []):
+            stage_name = stg.get("stage_name") or stg.get("name") or "Stage"
+            for pr in (stg.get("payment_requests") or []):
+                status = pr.get("status") or "requested"
+                pending_role = PENDING_WITH.get(status)
+                if not pending_role:
+                    continue  # approved / rejected / se_rework — not sitting with anyone right now
+                pending_items.append({
+                    "stage_name": stage_name,
+                    "amount": pr.get("amount"),
+                    "status": status,
+                    "pending_with": pending_role,
+                    "requested_at": pr.get("requested_at"),
+                    "requested_by_name": pr.get("requested_by_name"),
+                    "rab_number": pr.get("rab_number"),
+                })
+        if not pending_items:
+            continue
+        pending_items.sort(key=lambda x: str(x.get("requested_at") or ""))
+        rows.append({
+            "work_order_id": wo.get("work_order_id"),
+            "work_order_number": wo.get("work_order_number") or wo.get("work_order_id"),
+            "project_id": wo.get("project_id"),
+            "project_name": project_map.get(wo.get("project_id"), ""),
+            "contractor_name": wo.get("contractor_name") or "",
+            "contract_total": float(wo.get("total_amount") or wo.get("amount") or 0),
+            "pending_count": len(pending_items),
+            "pending_items": pending_items,
+            "oldest_pending_with": pending_items[0]["pending_with"],
+            "oldest_pending_since": pending_items[0]["requested_at"],
+        })
+    rows.sort(key=lambda r: str(r.get("oldest_pending_since") or ""))
+    return rows
+
+
 @router.get("/projects/{project_id}/work-orders/{work_order_id}/rab-chain")
 async def wo_rab_chain(project_id: str, work_order_id: str, user: User = Depends(get_current_user)):
     """Return the full RAB ladder for a work order so the View popup can show:
