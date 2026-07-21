@@ -3144,15 +3144,24 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
         "pending_next_extra": None,
     }
 
-    # Apply received-qty AND/OR unit-price correction (with audit) and
-    # re-derive total/balance. Effective values fall back to the existing
-    # request fields when a particular override isn't supplied.
+    # Re-derive total/balance from the EFFECTIVE received qty × unit price —
+    # not just when Procurement's input differs from what's already stored.
+    # `total_amount` is set from the ORDERED quantity when the request/PO is
+    # created, and the Site Engineer's receipt-confirm step (site_ops.py)
+    # stores `received_quantity` without ever touching `total_amount`. The
+    # Verify Delivery dialog pre-fills "Received Qty" with that SE-reported
+    # value, so if Procurement just confirms it as-is (no edit needed because
+    # it's already correct), the old "only recompute on change" gate never
+    # fired — leaving the Accountant's approval amount stuck at the original
+    # ordered-quantity estimate even though a short/partial delivery was
+    # already recorded. Always recomputing here self-heals that mismatch.
     qty_changed = received_qty_override is not None and received_qty_override != (req.get("received_quantity") or 0)
     price_changed = unit_price_override is not None and unit_price_override != float(req.get("unit_price") or req.get("unit_rate") or 0)
-    if qty_changed or price_changed:
-        eff_qty = received_qty_override if received_qty_override is not None else float(req.get("received_quantity") or req.get("approved_quantity") or req.get("quantity") or 0)
-        eff_unit = unit_price_override if unit_price_override is not None else float(req.get("unit_price") or req.get("unit_rate") or 0)
-        new_total = round(eff_qty * eff_unit, 2)
+    eff_qty = received_qty_override if received_qty_override is not None else float(req.get("received_quantity") or req.get("approved_quantity") or req.get("quantity") or 0)
+    eff_unit = unit_price_override if unit_price_override is not None else float(req.get("unit_price") or req.get("unit_rate") or 0)
+    new_total = round(eff_qty * eff_unit, 2)
+    current_total = float(req.get("total_amount") or req.get("estimated_price") or 0)
+    if abs(new_total - current_total) > 0.01:
         advance_paid = float(req.get("advance_paid_amount") or 0)
         new_balance = max(0.0, new_total - advance_paid)
         update.update({
