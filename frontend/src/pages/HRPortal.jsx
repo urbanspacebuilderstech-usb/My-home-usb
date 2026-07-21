@@ -30,6 +30,7 @@ const DEPARTMENTS = ['Sales', 'HR', 'Operations', 'Planning', 'Quality', 'Archit
 const DESIGNATIONS = [
   'Presales Executive', 'Sales Executive', 'Senior Sales Executive', 'Sales Head',
   'Business Development Manager', 'CRM Executive', 'CRE (Customer Relationship Executive)',
+  'Drawlead IT Marketing',
   'General Manager', 'Project Manager', 'Assistant Project Manager',
   'Zone Incharge', 'Senior Site Engineer', 'Site Engineer', 'Junior Site Engineer', 'Site Supervisor',
   'Designing Manager', 'Architect Incharge', 'Senior Architect', 'Junior Architect', 'Draftsman',
