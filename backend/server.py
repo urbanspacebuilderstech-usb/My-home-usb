@@ -35,6 +35,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         for header, value in SECURITY_HEADERS.items():
             response.headers[header] = value
+        # File downloads are previewed in an in-app <iframe>; DENY blocks that
+        # even for same-origin, so relax to SAMEORIGIN for this route only.
+        if request.url.path.startswith("/api/files/") and request.url.path.endswith("/download"):
+            response.headers["X-Frame-Options"] = "SAMEORIGIN"
         return response
 
 
