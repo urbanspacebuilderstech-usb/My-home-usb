@@ -49,7 +49,8 @@ import {
   ExternalLink,
   Paperclip,
   Loader2,
-  Calendar as CalendarIcon
+  Calendar as CalendarIcon,
+  Image as ImageIcon
 } from 'lucide-react';
 import { DayPicker } from 'react-day-picker';
 import { Button } from '@/components/ui/button';
@@ -1142,6 +1143,7 @@ export default function ProjectDetail() {
   const [reInnerTab, setReInnerTab] = useState('scope'); // 'scope' | 'payments' — inside Rough Estimate tab
   const [reRevisions, setReRevisions] = useState([]);
   const [projectFiles, setProjectFiles] = useState([]);
+  const [docsSubTab, setDocsSubTab] = useState('documents'); // 'documents' | 'process_images' — Documents tab sub-nav
   const [designData, setDesignData] = useState({ site_plans: [], design_files: [] });
   const [teamData, setTeamData] = useState({ architect: null, project_manager: null, sr_site_engineer: null, site_engineer: null, cre: null, qc: null, procurement: null });
   const [materialsData, setMaterialsData] = useState({ summary: {}, materials: [] });
@@ -11831,27 +11833,74 @@ export default function ProjectDetail() {
                   </div>
                 )}
 
-                {/* Project Documents - compact with upload button */}
+                {/* Project Documents / Project Process Image - compact with upload button */}
                 <div className={designData.site_plans.length > 0 || designData.design_files.length > 0 ? 'pt-4 border-t' : ''}>
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-base font-bold flex items-center gap-2">
-                      <Folder className="h-5 w-5 text-amber-600" />
-                      Project Documents
-                      <Badge variant="outline" className="ml-1">{projectFiles.length}</Badge>
-                    </h3>
-                    <FileUpload
-                      projectId={projectId}
-                      category="project-documents"
-                      onUploadComplete={fetchProjectFiles}
-                      compact
-                    />
-                  </div>
+                  {(() => {
+                    const processImages = projectFiles.filter(f => f.category === 'project-process-images');
+                    const documentFiles = projectFiles.filter(f => f.category !== 'project-process-images');
+                    return (
+                      <>
+                        <div className="flex gap-1 border-b mb-3">
+                          <button
+                            onClick={() => setDocsSubTab('documents')}
+                            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+                              docsSubTab === 'documents' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+                            }`}
+                            data-testid="docs-subtab-documents"
+                          >
+                            <Folder className="h-4 w-4" />
+                            Project Documents
+                            <Badge variant="outline" className="ml-0.5">{documentFiles.length}</Badge>
+                          </button>
+                          <button
+                            onClick={() => setDocsSubTab('process_images')}
+                            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+                              docsSubTab === 'process_images' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+                            }`}
+                            data-testid="docs-subtab-process-images"
+                          >
+                            <ImageIcon className="h-4 w-4" />
+                            Project Process Image
+                            <Badge variant="outline" className="ml-0.5">{processImages.length}</Badge>
+                          </button>
+                        </div>
 
-                  <FileList
-                    files={projectFiles}
-                    onDelete={fetchProjectFiles}
-                    canDelete={user && ['super_admin', 'planning', 'project_manager'].includes(user.role)}
-                  />
+                        {docsSubTab === 'documents' ? (
+                          <>
+                            <div className="flex items-center justify-end mb-3">
+                              <FileUpload
+                                projectId={projectId}
+                                category="project-documents"
+                                onUploadComplete={fetchProjectFiles}
+                                compact
+                              />
+                            </div>
+                            <FileList
+                              files={documentFiles}
+                              onDelete={fetchProjectFiles}
+                              canDelete={user && ['super_admin', 'planning', 'project_manager'].includes(user.role)}
+                            />
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex items-center justify-end mb-3">
+                              <FileUpload
+                                projectId={projectId}
+                                category="project-process-images"
+                                onUploadComplete={fetchProjectFiles}
+                                compact
+                              />
+                            </div>
+                            <FileList
+                              files={processImages}
+                              onDelete={fetchProjectFiles}
+                              canDelete={user && ['super_admin', 'planning', 'project_manager'].includes(user.role)}
+                            />
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </TabsContent>
