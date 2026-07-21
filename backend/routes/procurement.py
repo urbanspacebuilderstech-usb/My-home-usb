@@ -3312,7 +3312,7 @@ async def recalculate_material_request_amount(request_id: str, user: User = Depe
     total-recompute fix — re-derives total/balance from the currently stored
     received qty × unit price, same formula as verify-approve now applies
     automatically. Safe to call any time; no-ops if nothing is off."""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.PROCUREMENT]:
         raise HTTPException(status_code=403, detail="Permission denied")
     req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
     if not req:

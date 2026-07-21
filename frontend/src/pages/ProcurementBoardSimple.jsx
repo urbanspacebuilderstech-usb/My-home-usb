@@ -1751,6 +1751,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   const [discount, setDiscount] = useState('0');
   const [remarks, setRemarks] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
   // Details / Timeline switcher inside the dialog
   const [dialogTab, setDialogTab] = useState('details');
   // Change-Vendor sub-flow (available on Transit-stage items)
@@ -1958,6 +1959,24 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to assign vendor');
     } finally { setSubmitting(false); }
+  };
+
+  // Self-service correction for requests whose amount is still based on the
+  // ordered qty even though a smaller quantity was actually received (see
+  // /procurement-simple/material-requests/{id}/recalculate-amount).
+  const recalculateAmount = async () => {
+    setRecalculating(true);
+    try {
+      const r = await axios.post(`${API}/procurement-simple/material-requests/${item.request_id}/recalculate-amount`);
+      if (r.data?.changed) {
+        toast.success(`Amount corrected to ${fmt(r.data.total_amount)}`);
+        onDone();
+      } else {
+        toast.success('Amount already matches received qty × unit price');
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Recalculate failed');
+    } finally { setRecalculating(false); }
   };
 
   return (
@@ -2381,6 +2400,19 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
 
         <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>Close</Button>
+          {dialogTab === 'details' && readOnly && ['pending_accounts_approval', 'pending_balance_payment', 'partially_paid'].includes((item.status || '').toLowerCase()) && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-gray-600 border-gray-300 hover:bg-gray-50"
+              onClick={recalculateAmount}
+              disabled={recalculating}
+              title="Recompute amount from received qty × unit price"
+              data-testid="proc-assign-recalculate"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1 ${recalculating ? 'animate-spin' : ''}`} /> Recalculate Amount
+            </Button>
+          )}
           {dialogTab === 'details' && readOnly && ['procurement_priced', 'in_transit', 'received_partial'].includes((item.status || '').toLowerCase()) && (
             <Button
               variant="outline"
