@@ -37,8 +37,12 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
   const [photoPreview, setPhotoPreview] = useState({ open: false, photos: [], index: 0 });
   const collectionPhotos = (req) => {
     const photos = [];
-    if (req.lorry_image_id) photos.push({ label: 'Lorry Photo', file_id: req.lorry_image_id });
-    if (req.material_image_id) photos.push({ label: 'Material Photo', file_id: req.material_image_id });
+    if (req.vehicle_front_image_id) photos.push({ label: 'Vehicle Front View', file_id: req.vehicle_front_image_id });
+    if (req.vehicle_side_image_id) photos.push({ label: 'Vehicle Side View', file_id: req.vehicle_side_image_id });
+    if (req.material_image_id) photos.push({ label: 'Material', file_id: req.material_image_id });
+    if (req.dp_copy_image_id) photos.push({ label: 'DP Copy', file_id: req.dp_copy_image_id });
+    // Legacy receipts (before the 4-photo split) only ever had this one.
+    if (!photos.length && req.lorry_image_id) photos.push({ label: 'Lorry Photo', file_id: req.lorry_image_id });
     return photos;
   };
 

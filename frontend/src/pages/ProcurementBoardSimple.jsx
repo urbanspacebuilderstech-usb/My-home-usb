@@ -770,22 +770,28 @@ function RequestsTab({ dateRange, projectFilter }) {
               })()}
 
               {/* Photos preview */}
-              {(verifyDialog.req.lorry_image_id || verifyDialog.req.material_image_id) && (
-                <div className="grid grid-cols-2 gap-2">
-                  {verifyDialog.req.lorry_image_id && (
-                    <a href={`${API}/files/${verifyDialog.req.lorry_image_id}/download`} target="_blank" rel="noopener noreferrer" className="block border rounded overflow-hidden hover:border-fuchsia-400">
-                      <img src={`${API}/files/${verifyDialog.req.lorry_image_id}/download`} alt="Lorry" className="w-full h-28 object-cover" />
-                      <p className="text-[10px] uppercase font-semibold text-fuchsia-700 bg-fuchsia-50 py-0.5 px-2">Lorry</p>
-                    </a>
-                  )}
-                  {verifyDialog.req.material_image_id && (
-                    <a href={`${API}/files/${verifyDialog.req.material_image_id}/download`} target="_blank" rel="noopener noreferrer" className="block border rounded overflow-hidden hover:border-fuchsia-400">
-                      <img src={`${API}/files/${verifyDialog.req.material_image_id}/download`} alt="Material" className="w-full h-28 object-cover" />
-                      <p className="text-[10px] uppercase font-semibold text-fuchsia-700 bg-fuchsia-50 py-0.5 px-2">Material</p>
-                    </a>
-                  )}
-                </div>
-              )}
+              {(() => {
+                const photos = [
+                  { id: verifyDialog.req.vehicle_front_image_id, label: 'Vehicle Front' },
+                  { id: verifyDialog.req.vehicle_side_image_id, label: 'Vehicle Side' },
+                  { id: verifyDialog.req.material_image_id, label: 'Material' },
+                  { id: verifyDialog.req.dp_copy_image_id, label: 'DP Copy' },
+                  // Legacy receipts (before the 4-photo split) only ever had this one.
+                  ...(!verifyDialog.req.vehicle_front_image_id && !verifyDialog.req.vehicle_side_image_id && verifyDialog.req.lorry_image_id
+                    ? [{ id: verifyDialog.req.lorry_image_id, label: 'Lorry' }] : []),
+                ].filter(p => p.id);
+                if (!photos.length) return null;
+                return (
+                  <div className="grid grid-cols-2 gap-2">
+                    {photos.map((p) => (
+                      <a key={p.label} href={`${API}/files/${p.id}/download`} target="_blank" rel="noopener noreferrer" className="block border rounded overflow-hidden hover:border-fuchsia-400">
+                        <img src={`${API}/files/${p.id}/download`} alt={p.label} className="w-full h-28 object-cover" />
+                        <p className="text-[10px] uppercase font-semibold text-fuchsia-700 bg-fuchsia-50 py-0.5 px-2">{p.label}</p>
+                      </a>
+                    ))}
+                  </div>
+                );
+              })()}
 
               {!verifyDialog.reject_mode ? (
                 <>
@@ -1571,8 +1577,10 @@ function buildTimeline(r) {
   push(r.dispatched_at, 'sky', 'Vendor dispatched material', '', '');
   push(r.received_at, 'sky', 'SE received material', r.received_by_name, [
     r.received_quantity && `Qty ${r.received_quantity} ${r.unit || ''}`,
-    r.lorry_image_id && '📷 Lorry img',
+    (r.vehicle_front_image_id || r.vehicle_side_image_id) && '📷 Vehicle img',
     r.material_image_id && '📷 Material img',
+    r.dp_copy_image_id && '📷 DP Copy',
+    !r.vehicle_front_image_id && !r.vehicle_side_image_id && r.lorry_image_id && '📷 Lorry img',
   ].filter(Boolean).join(' · '));
   push(r.procurement_verified_at, 'fuchsia', 'Procurement verified delivery', r.procurement_verified_by_name, '');
   push(r.delivered_at, 'emerald', 'Delivered / closed', '', '');

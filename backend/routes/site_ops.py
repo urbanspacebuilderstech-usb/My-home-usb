@@ -2015,8 +2015,11 @@ class MaterialReceiptCreate(BaseModel):
     gps_longitude: float
     receive_date: Optional[str] = None
     receive_time: Optional[str] = None
-    lorry_image_id: Optional[str] = None
+    lorry_image_id: Optional[str] = None  # legacy — superseded by vehicle_front/side below
     material_image_id: Optional[str] = None
+    vehicle_front_image_id: Optional[str] = None
+    vehicle_side_image_id: Optional[str] = None
+    dp_copy_image_id: Optional[str] = None
     photo_url: Optional[str] = None
     remarks: Optional[str] = None
     # Feb 12 2026 — per-diameter received qty for steel orders. Each entry:
@@ -2139,6 +2142,9 @@ async def initiate_material_receipt(
     rcpt_dict["receive_time"] = data.receive_time or datetime.now(timezone.utc).strftime("%H:%M")
     rcpt_dict["lorry_image_id"] = data.lorry_image_id
     rcpt_dict["material_image_id"] = data.material_image_id
+    rcpt_dict["vehicle_front_image_id"] = data.vehicle_front_image_id
+    rcpt_dict["vehicle_side_image_id"] = data.vehicle_side_image_id
+    rcpt_dict["dp_copy_image_id"] = data.dp_copy_image_id
     rcpt_dict["material_name"] = request.get("material_name", "")
     rcpt_dict["unit"] = request.get("unit", "")
     rcpt_dict["brand"] = request.get("brand", "")
@@ -2172,6 +2178,9 @@ async def initiate_material_receipt(
             "received_quantity": total_received,
             "lorry_image_id": data.lorry_image_id,
             "material_image_id": data.material_image_id,
+            "vehicle_front_image_id": data.vehicle_front_image_id,
+            "vehicle_side_image_id": data.vehicle_side_image_id,
+            "dp_copy_image_id": data.dp_copy_image_id,
         }
         # NEW: every payment mode now flows through Procurement verification
         # before reaching its final next-state. We compute the "post-verify"
@@ -2246,6 +2255,9 @@ async def initiate_material_receipt(
                 "status": new_status,
                 "lorry_image_id": data.lorry_image_id,
                 "material_image_id": data.material_image_id,
+                "vehicle_front_image_id": data.vehicle_front_image_id,
+                "vehicle_side_image_id": data.vehicle_side_image_id,
+                "dp_copy_image_id": data.dp_copy_image_id,
                 "received_at": now_iso,
             }},
         )
@@ -2529,6 +2541,9 @@ async def get_received_stock(
             "gps_longitude": r.get("gps_longitude"),
             "lorry_image_id": r.get("lorry_image_id"),
             "material_image_id": r.get("material_image_id"),
+            "vehicle_front_image_id": r.get("vehicle_front_image_id"),
+            "vehicle_side_image_id": r.get("vehicle_side_image_id"),
+            "dp_copy_image_id": r.get("dp_copy_image_id"),
             "created_at": r.get("created_at"),
             "source": "receipt"
         })

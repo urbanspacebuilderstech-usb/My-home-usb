@@ -226,8 +226,10 @@ export default function SiteEngineerProject() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [gpsLocation, setGpsLocation] = useState(null);
   const [gettingLocation, setGettingLocation] = useState(false);
-  const [lorryImageId, setLorryImageId] = useState(null);
+  const [vehicleFrontImageId, setVehicleFrontImageId] = useState(null);
+  const [vehicleSideImageId, setVehicleSideImageId] = useState(null);
   const [materialImageId, setMaterialImageId] = useState(null);
+  const [dpCopyImageId, setDpCopyImageId] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(null);
   // Daily Progress state
   const [dailyProgressDialog, setDailyProgressDialog] = useState(false);
@@ -865,8 +867,10 @@ export default function SiteEngineerProject() {
     }
     setMismatchReason('');
     setGpsLocation(null);
-    setLorryImageId(null);
+    setVehicleFrontImageId(null);
+    setVehicleSideImageId(null);
     setMaterialImageId(null);
+    setDpCopyImageId(null);
   };
 
   const handleImageUpload = async (file, type) => {
@@ -881,9 +885,15 @@ export default function SiteEngineerProject() {
     try {
       // Do NOT set Content-Type — axios will generate the multipart boundary automatically.
       const res = await axios.post(`${API}/files/upload`, formData);
-      if (type === 'lorry') setLorryImageId(res.data.file_id);
-      else setMaterialImageId(res.data.file_id);
-      toast.success(`${type === 'lorry' ? 'Lorry' : 'Material'} image uploaded`);
+      const setters = {
+        vehicle_front: setVehicleFrontImageId,
+        vehicle_side: setVehicleSideImageId,
+        material: setMaterialImageId,
+        dp_copy: setDpCopyImageId,
+      };
+      setters[type]?.(res.data.file_id);
+      const labels = { vehicle_front: 'Vehicle Front View', vehicle_side: 'Vehicle Side View', material: 'Material', dp_copy: 'DP Copy' };
+      toast.success(`${labels[type] || 'Image'} uploaded`);
     } catch (err) {
       const msg = err?.response?.data?.detail || err?.message || 'Image upload failed';
       toast.error(typeof msg === 'string' ? msg : 'Image upload failed');
@@ -941,8 +951,10 @@ export default function SiteEngineerProject() {
         gps_longitude: gpsLocation.longitude,
         receive_date: receiveForm.receive_date,
         receive_time: receiveForm.receive_time,
-        lorry_image_id: lorryImageId,
+        vehicle_front_image_id: vehicleFrontImageId,
+        vehicle_side_image_id: vehicleSideImageId,
         material_image_id: materialImageId,
+        dp_copy_image_id: dpCopyImageId,
         remarks: receiveForm.remarks || null,
       };
       if (steelReceivedPayload) payload.steel_received = steelReceivedPayload;
@@ -959,8 +971,10 @@ export default function SiteEngineerProject() {
       toast.success('Material receipt recorded');
       setReceiveDialog({ open: false, request: null });
       // Reset form
-      setLorryImageId(null);
+      setVehicleFrontImageId(null);
+      setVehicleSideImageId(null);
       setMaterialImageId(null);
+      setDpCopyImageId(null);
       setGpsLocation(null);
       setReceiveForm({ received_qty: '', remarks: '', receive_date: new Date().toISOString().split('T')[0], receive_time: new Date().toTimeString().slice(0,5) });
       setReceivedSteelItems([]);
@@ -2244,40 +2258,30 @@ export default function SiteEngineerProject() {
 
               {/* Image Uploads */}
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="text-xs sm:text-sm">Lorry Image</Label>
-                  <div className="mt-1">
-                    {lorryImageId ? (
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-2 text-center">
-                        <CheckCircle className="h-4 w-4 text-green-600 mx-auto" />
-                        <p className="text-xs text-green-700 mt-1">Uploaded</p>
-                      </div>
-                    ) : (
-                      <label className="flex flex-col items-center gap-1 p-3 border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-50 transition-colors" data-testid="lorry-image-upload">
-                        <Camera className="h-5 w-5 text-gray-400" />
-                        <span className="text-xs text-gray-500">{uploadingImage === 'lorry' ? 'Uploading...' : 'Upload'}</span>
-                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleImageUpload(e.target.files[0], 'lorry')} disabled={uploadingImage === 'lorry'} />
-                      </label>
-                    )}
+                {[
+                  { type: 'vehicle_front', label: 'Vehicle Front View', id: vehicleFrontImageId, testId: 'vehicle-front-image-upload' },
+                  { type: 'vehicle_side', label: 'Vehicle Side View', id: vehicleSideImageId, testId: 'vehicle-side-image-upload' },
+                  { type: 'material', label: 'Material', id: materialImageId, testId: 'material-image-upload' },
+                  { type: 'dp_copy', label: 'DP Copy', id: dpCopyImageId, testId: 'dp-copy-image-upload' },
+                ].map(({ type, label, id, testId }) => (
+                  <div key={type}>
+                    <Label className="text-xs sm:text-sm">{label}</Label>
+                    <div className="mt-1">
+                      {id ? (
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-2 text-center">
+                          <CheckCircle className="h-4 w-4 text-green-600 mx-auto" />
+                          <p className="text-xs text-green-700 mt-1">Uploaded</p>
+                        </div>
+                      ) : (
+                        <label className="flex flex-col items-center gap-1 p-3 border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-50 transition-colors" data-testid={testId}>
+                          <Camera className="h-5 w-5 text-gray-400" />
+                          <span className="text-xs text-gray-500">{uploadingImage === type ? 'Uploading...' : 'Upload'}</span>
+                          <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleImageUpload(e.target.files[0], type)} disabled={uploadingImage === type} />
+                        </label>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <Label className="text-xs sm:text-sm">Material Image</Label>
-                  <div className="mt-1">
-                    {materialImageId ? (
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-2 text-center">
-                        <CheckCircle className="h-4 w-4 text-green-600 mx-auto" />
-                        <p className="text-xs text-green-700 mt-1">Uploaded</p>
-                      </div>
-                    ) : (
-                      <label className="flex flex-col items-center gap-1 p-3 border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-50 transition-colors" data-testid="material-image-upload">
-                        <Camera className="h-5 w-5 text-gray-400" />
-                        <span className="text-xs text-gray-500">{uploadingImage === 'material' ? 'Uploading...' : 'Upload'}</span>
-                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleImageUpload(e.target.files[0], 'material')} disabled={uploadingImage === 'material'} />
-                      </label>
-                    )}
-                  </div>
-                </div>
+                ))}
               </div>
               
               <div>

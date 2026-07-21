@@ -543,54 +543,46 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
           </Tabs>
 
           {/* Delivery photos & GPS — visible to Procurement / Planning / Accountant after SE marks received */}
-          {(order.lorry_image_id || order.material_image_id || order.received_at) && !editing && (
+          {(order.lorry_image_id || order.vehicle_front_image_id || order.vehicle_side_image_id || order.material_image_id || order.dp_copy_image_id || order.received_at) && !editing && (
             <div className="bg-emerald-50/50 rounded-lg p-3 border border-emerald-100" data-testid="order-delivery-photos">
               <h3 className="text-xs sm:text-sm font-semibold text-emerald-800 mb-2 flex items-center gap-2">
                 <Package className="h-4 w-4 text-emerald-600" /> Delivery Photos & Receipt
               </h3>
               <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                {order.lorry_image_id ? (
-                  <a
-                    href={`${API}/files/${order.lorry_image_id}/download`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block rounded-md overflow-hidden border border-emerald-200 bg-white hover:border-emerald-400 transition-colors"
-                    data-testid="lorry-image-link"
-                  >
-                    <img
-                      src={`${API}/files/${order.lorry_image_id}/download`}
-                      alt="Lorry"
-                      className="w-full h-32 sm:h-40 object-cover"
-                      onError={(e) => { e.target.style.display = 'none'; }}
-                    />
-                    <p className="text-[10px] uppercase tracking-wide font-semibold text-emerald-700 bg-emerald-100/60 py-1 px-2">Lorry / Truck</p>
-                  </a>
-                ) : (
-                  <div className="rounded-md border border-dashed border-gray-300 bg-white h-32 sm:h-40 flex items-center justify-center">
-                    <p className="text-[11px] text-gray-400">No lorry image</p>
-                  </div>
-                )}
-                {order.material_image_id ? (
-                  <a
-                    href={`${API}/files/${order.material_image_id}/download`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block rounded-md overflow-hidden border border-emerald-200 bg-white hover:border-emerald-400 transition-colors"
-                    data-testid="material-image-link"
-                  >
-                    <img
-                      src={`${API}/files/${order.material_image_id}/download`}
-                      alt="Material"
-                      className="w-full h-32 sm:h-40 object-cover"
-                      onError={(e) => { e.target.style.display = 'none'; }}
-                    />
-                    <p className="text-[10px] uppercase tracking-wide font-semibold text-emerald-700 bg-emerald-100/60 py-1 px-2">Material / Product</p>
-                  </a>
-                ) : (
-                  <div className="rounded-md border border-dashed border-gray-300 bg-white h-32 sm:h-40 flex items-center justify-center">
-                    <p className="text-[11px] text-gray-400">No material image</p>
-                  </div>
-                )}
+                {[
+                  // Legacy receipts (before the 4-photo split) only had `lorry_image_id`.
+                  ...(!order.vehicle_front_image_id && !order.vehicle_side_image_id && order.lorry_image_id
+                    ? [{ key: 'lorry', id: order.lorry_image_id, label: 'Lorry / Truck', empty: 'No lorry image' }]
+                    : [
+                        { key: 'vehicle_front', id: order.vehicle_front_image_id, label: 'Vehicle Front View', empty: 'No vehicle front image' },
+                        { key: 'vehicle_side', id: order.vehicle_side_image_id, label: 'Vehicle Side View', empty: 'No vehicle side image' },
+                      ]),
+                  { key: 'material', id: order.material_image_id, label: 'Material', empty: 'No material image' },
+                  { key: 'dp_copy', id: order.dp_copy_image_id, label: 'DP Copy', empty: 'No DP copy' },
+                ].map((p) => (
+                  p.id ? (
+                    <a
+                      key={p.key}
+                      href={`${API}/files/${p.id}/download`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block rounded-md overflow-hidden border border-emerald-200 bg-white hover:border-emerald-400 transition-colors"
+                      data-testid={`${p.key}-image-link`}
+                    >
+                      <img
+                        src={`${API}/files/${p.id}/download`}
+                        alt={p.label}
+                        className="w-full h-32 sm:h-40 object-cover"
+                        onError={(e) => { e.target.style.display = 'none'; }}
+                      />
+                      <p className="text-[10px] uppercase tracking-wide font-semibold text-emerald-700 bg-emerald-100/60 py-1 px-2">{p.label}</p>
+                    </a>
+                  ) : (
+                    <div key={p.key} className="rounded-md border border-dashed border-gray-300 bg-white h-32 sm:h-40 flex items-center justify-center">
+                      <p className="text-[11px] text-gray-400">{p.empty}</p>
+                    </div>
+                  )
+                ))}
               </div>
               {(order.received_quantity || order.received_at || order.received_by_name) && (
                 <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
