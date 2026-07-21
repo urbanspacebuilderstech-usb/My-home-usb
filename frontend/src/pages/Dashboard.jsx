@@ -83,6 +83,7 @@ export default function Dashboard() {
           planning: '/planning-board', planning_person: '/planning-board', procurement: '/procurement-board-v2',
           cre: '/cre-board', project_manager: '/pm-dashboard', associate_pm: '/pm-dashboard',
           client: '/client-portal', vendor: '/vendor-portal', marketing_head: '/marketing-board',
+          drawlead_marketing: '/marketing-projects',
           super_architect: '/workflow-master',
           hr: '/hr-portal'
         };

@@ -28,6 +28,7 @@ function getRoleRedirect(role) {
     client: '/client-portal',
     vendor: '/vendor-portal',
     marketing_head: '/marketing-board',
+    drawlead_marketing: '/marketing-projects',
     architect: '/architect-dashboard',
     super_architect: '/workflow-master',
     hr: '/hr-portal',

@@ -1495,7 +1495,7 @@ async def get_planning_projects_filtered(
     user: User = Depends(get_current_user)
 ):
     """Get projects filtered by planning lifecycle status and date"""
-    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.DRAWLEAD_MARKETING]:
         raise HTTPException(status_code=403, detail="Only Planning / GM can access this")
 
     query = {}

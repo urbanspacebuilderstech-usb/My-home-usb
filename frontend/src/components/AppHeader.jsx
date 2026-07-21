@@ -79,6 +79,9 @@ const ROLE_NAV = {
   quality_check: [
     { label: 'QC Dashboard', path: '/qc-dashboard' },
   ],
+  drawlead_marketing: [
+    { label: 'All Projects', path: '/marketing-projects' },
+  ],
   prospect: [],  // mobile app uses its own footer nav; AppHeader is hidden
 };
 
@@ -153,6 +156,7 @@ function getModuleKey(pathname, role) {
 const ROLE_LABEL_MAP = {
   planning: 'Planning Head',
   planning_person: 'Planning Person',
+  drawlead_marketing: 'Drawlead Marketing',
 };
 const roleLabel = (r) => (r ? (ROLE_LABEL_MAP[r] || r.replace(/_/g, ' ')) : '…');
 

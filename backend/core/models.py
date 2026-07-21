@@ -25,6 +25,7 @@ class UserRole(str, Enum):
     PRE_SALES = "pre_sales"  # CRM Pre-Sales
     SALES = "sales"  # CRM Sales
     MARKETING_HEAD = "marketing_head"  # Marketing Head
+    DRAWLEAD_MARKETING = "drawlead_marketing"  # Drawlead IT Marketing — read-only All Projects view
     ARCHITECT = "architect"  # Architect / Design Team
     SUPER_ARCHITECT = "super_architect"  # Senior Architect with elevated workspace access
     HR = "hr"  # Human Resources

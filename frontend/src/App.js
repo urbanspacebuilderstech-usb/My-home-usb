@@ -74,6 +74,7 @@ import CustomFieldsBuilder from '@/pages/CustomFieldsBuilder';
 import CSVImportPage from '@/pages/CSVImportPage';
 import GMDashboard from '@/pages/GMDashboard';
 import MarketingBoard from '@/pages/MarketingBoard';
+import MarketingProjectsBoard from '@/pages/MarketingProjectsBoard';
 import PMDashboard from '@/pages/PMDashboard';
 import QCDashboard from '@/pages/QCDashboard';
 import ArchitectDashboard from '@/pages/ArchitectDashboard';
@@ -212,6 +213,7 @@ function AppRouter() {
       <Route path="/architect-dashboard" element={<ProtectedRoute><ArchitectDashboard /></ProtectedRoute>} />
       <Route path="/workflow-master" element={<ProtectedRoute><WorkflowMasterPage /></ProtectedRoute>} />
       <Route path="/marketing-board" element={<ProtectedRoute><MarketingBoard /></ProtectedRoute>} />
+      <Route path="/marketing-projects" element={<ProtectedRoute><MarketingProjectsBoard /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
       <Route path="/" element={<Navigate to="/login" replace />} />
     </Routes>
@@ -236,6 +238,7 @@ function getRoleRedirect(role) {
     client: '/client-portal',
     vendor: '/vendor-portal',
     marketing_head: '/marketing-board',
+    drawlead_marketing: '/marketing-projects',
     architect: '/architect-dashboard',
     super_architect: '/workflow-master',
     hr: '/hr-portal',
@@ -343,7 +346,7 @@ function ProtectedRoute({ children }) {
         planning_person: 'Planning Person',
         procurement: 'Procurement', site_engineer: 'Site Engineer', sr_site_engineer: 'Sr. Site Engineer',
         pre_sales: 'Pre Sales', sales: 'Sales', architect: 'Architect',
-        marketing_head: 'Marketing Head', client: 'Client', vendor: 'Vendor',
+        marketing_head: 'Marketing Head', drawlead_marketing: 'Drawlead Marketing', client: 'Client', vendor: 'Vendor',
       };
       document.title = `${roleLabels[user.role] || user.role} | My Home USB`;
     }
