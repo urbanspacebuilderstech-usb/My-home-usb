@@ -508,6 +508,13 @@ function RequestsTab({ dateRange, projectFilter }) {
 
           {verifyDialog.req && (
             <div className="space-y-3 text-sm">
+              {/* Sent back by Accounts — re-verification, not a fresh delivery */}
+              {verifyDialog.req.accounts_rejected_reason && verifyDialog.req.accounts_rejected_at && (
+                <div className="bg-red-50 border border-red-200 rounded p-2.5 text-xs" data-testid="proc-verify-accounts-bounced">
+                  <p className="font-semibold text-red-800">↩ Sent back by Accounts for re-verification</p>
+                  <p className="text-red-700 italic mt-0.5">"{verifyDialog.req.accounts_rejected_reason}"</p>
+                </div>
+              )}
               {/* Quick summary — Received Qty AND Unit Price are editable so
                   Procurement can correct either before forwarding to Accountant.
                   Total auto-updates from received_qty × unit_price. */}

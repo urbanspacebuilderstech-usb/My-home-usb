@@ -3853,20 +3853,54 @@ async def accountant_approve_material_request(request_id: str, action: str = "ap
 
 @router.patch("/accountant/material-requests/{request_id}/reject")
 async def accountant_reject_material_request(request_id: str, reason: str = "", user: User = Depends(get_current_user)):
-    """Accountant rejects material request"""
+    """Accountant rejects material request.
+
+    Requests that already passed through Procurement's Purchase Verification
+    (pending_accounts_approval / pending_balance_payment) are sent back one
+    step to `procurement_verifying` — same "Purchase Verification" bucket —
+    instead of a terminal `accounts_rejected` dead end, so Procurement can
+    re-check the invoice/qty/price and re-forward it. Requests rejected
+    before verification ever happened (e.g. pending_advance_payment) have
+    nowhere earlier to bounce back to and keep the old terminal behavior."""
     if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Accountant can reject")
-    
+
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0, "status": 1, "material_name": 1})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if request.get("status") in ("pending_accounts_approval", "pending_balance_payment"):
+        await db.material_requests.update_one(
+            {"request_id": request_id},
+            {"$set": {
+                "status": "procurement_verifying",
+                "accounts_rejected_by": user.user_id,
+                "accounts_rejected_reason": reason,
+                "accounts_rejected_at": now_iso,
+            }}
+        )
+        proc_users = await db.users.find(
+            {"role": {"$in": ["procurement", "super_admin"]}, "is_active": {"$ne": False}},
+            {"_id": 0, "user_id": 1},
+        ).to_list(50)
+        for p in proc_users:
+            await create_notification(
+                p["user_id"],
+                f"Accounts sent back for re-verification: {request.get('material_name', 'Unknown')} — {reason or 'no reason given'}",
+            )
+        return {"message": "Sent back to Purchase Verification", "status": "procurement_verifying"}
+
     await db.material_requests.update_one(
         {"request_id": request_id},
         {"$set": {
             "status": "accounts_rejected",
             "accounts_rejected_by": user.user_id,
             "accounts_rejected_reason": reason,
-            "accounts_rejected_at": datetime.now(timezone.utc).isoformat()
+            "accounts_rejected_at": now_iso,
         }}
     )
-    return {"message": "Rejected by accounts"}
+    return {"message": "Rejected by accounts", "status": "accounts_rejected"}
 
 @router.get("/accountant/labour-requests")
 async def get_accountant_labour_requests(user: User = Depends(get_current_user)):
