@@ -68,6 +68,7 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { generateREPDF } from '../utils/pdfGenerator';
 import { FileUpload, FileList } from '../components/FileUpload';
+import { ProjectProcessImages } from '../components/ProjectProcessImages';
 import { AppHeader } from '../components/AppHeader';
 import GanttChart from '../components/GanttChart';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -11836,8 +11837,10 @@ export default function ProjectDetail() {
                 {/* Project Documents / Project Process Image - compact with upload button */}
                 <div className={designData.site_plans.length > 0 || designData.design_files.length > 0 ? 'pt-4 border-t' : ''}>
                   {(() => {
-                    const processImages = projectFiles.filter(f => f.category === 'project-process-images');
-                    const documentFiles = projectFiles.filter(f => f.category !== 'project-process-images');
+                    const isProcessImageFile = (f) => f.category === 'project-process-images' || (f.category || '').startsWith('process_image_');
+                    const processImages = projectFiles.filter(isProcessImageFile);
+                    const documentFiles = projectFiles.filter(f => !isProcessImageFile(f));
+                    const canManageDocs = user && ['super_admin', 'planning', 'project_manager'].includes(user.role);
                     return (
                       <>
                         <div className="flex gap-1 border-b mb-3">
@@ -11878,25 +11881,16 @@ export default function ProjectDetail() {
                             <FileList
                               files={documentFiles}
                               onDelete={fetchProjectFiles}
-                              canDelete={user && ['super_admin', 'planning', 'project_manager'].includes(user.role)}
+                              canDelete={canManageDocs}
                             />
                           </>
                         ) : (
-                          <>
-                            <div className="flex items-center justify-end mb-3">
-                              <FileUpload
-                                projectId={projectId}
-                                category="project-process-images"
-                                onUploadComplete={fetchProjectFiles}
-                                compact
-                              />
-                            </div>
-                            <FileList
-                              files={processImages}
-                              onDelete={fetchProjectFiles}
-                              canDelete={user && ['super_admin', 'planning', 'project_manager'].includes(user.role)}
-                            />
-                          </>
+                          <ProjectProcessImages
+                            projectId={projectId}
+                            files={processImages}
+                            canManage={canManageDocs}
+                            onRefresh={fetchProjectFiles}
+                          />
                         )}
                       </>
                     );

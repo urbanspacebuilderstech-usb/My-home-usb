@@ -10,7 +10,7 @@ import logging
 
 from core.database import db, fs
 from core.deps import get_current_user
-from core.models import User
+from core.models import User, UserRole
 from core.storage import put_object, get_object, init_storage, APP_NAME, MIME_TYPES
 
 logger = logging.getLogger(__name__)
@@ -191,3 +191,65 @@ async def delete_file(file_id: str, user: User = Depends(get_current_user)):
     )
 
     return {"message": "File deleted"}
+
+
+# ---------------------------------------------------------------------------
+# Project Process Image categories — a fixed, admin-orderable list of photo
+# sections (Bhoomi Pooja, Roof Pooja, ...) shown on every project's Documents
+# > Project Process Image tab. Order is global (one list for all projects),
+# stored the same way as other single-document settings (see app_settings
+# usage in routes/home_packages.py).
+# ---------------------------------------------------------------------------
+
+DEFAULT_PROCESS_IMAGE_CATEGORIES = [
+    {"key": "bhoomi_pooja", "label": "Bhoomi Pooja"},
+    {"key": "thalavasal_pooja", "label": "Thalavasal Pooja"},
+    {"key": "roof_pooja", "label": "Roof Pooja"},
+    {"key": "key_handover", "label": "Key Handover"},
+    {"key": "booking", "label": "Booking"},
+    {"key": "house_warming", "label": "House Warming"},
+    {"key": "elevation", "label": "Elevation"},
+    {"key": "interior", "label": "Interior"},
+    {"key": "site_photos", "label": "Site Photos"},
+    {"key": "others", "label": "Others"},
+]
+
+PROCESS_IMAGE_CATEGORY_EDIT_ROLES = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROJECT_MANAGER]
+
+
+@router.get("/process-image-categories")
+async def get_process_image_categories(user: User = Depends(get_current_user)):
+    """Ordered list of Project Process Image sections. Falls back to the
+    default order until a Super Admin/Planning/PM reorders them at least once."""
+    doc = await db.app_settings.find_one({"key": "process_image_categories"}, {"_id": 0})
+    categories = doc.get("categories") if doc else None
+    return {"categories": categories or DEFAULT_PROCESS_IMAGE_CATEGORIES}
+
+
+@router.put("/process-image-categories")
+async def set_process_image_categories(payload: dict, user: User = Depends(get_current_user)):
+    """Persist a new display order for the Project Process Image sections.
+    Global (applies to every project) — restricted to roles that manage
+    project structure, same set that can delete project documents."""
+    if user.role not in PROCESS_IMAGE_CATEGORY_EDIT_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    categories = payload.get("categories")
+    if not isinstance(categories, list) or not categories:
+        raise HTTPException(status_code=400, detail="categories must be a non-empty list")
+    for c in categories:
+        if not isinstance(c, dict) or not c.get("key") or not c.get("label"):
+            raise HTTPException(status_code=400, detail="Each category needs a key and label")
+
+    await db.app_settings.update_one(
+        {"key": "process_image_categories"},
+        {"$set": {
+            "key": "process_image_categories",
+            "categories": categories,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": user.user_id,
+            "updated_by_name": user.name,
+        }},
+        upsert=True,
+    )
+    return {"categories": categories}
