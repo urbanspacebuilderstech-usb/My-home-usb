@@ -1,9 +1,10 @@
 import { useState, useRef } from 'react';
 import axios from 'axios';
-import { Upload, X, FileText, Image, File, Trash2, Download, Loader2 } from 'lucide-react';
+import { Upload, X, FileText, Image, File, Trash2, Download, Eye, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -117,6 +118,7 @@ export function FileUpload({ projectId, category = 'general', onUploadComplete, 
 
 export function FileList({ files, onDelete, canDelete = true }) {
   const [deleting, setDeleting] = useState(null);
+  const [previewFile, setPreviewFile] = useState(null);
 
   const handleDelete = async (fileId) => {
     setDeleting(fileId);
@@ -132,6 +134,17 @@ export function FileList({ files, onDelete, canDelete = true }) {
 
   const handleDownload = (file) => {
     window.open(`${API}/files/${file.file_id}/download`, '_blank');
+  };
+
+  const isPreviewable = (file) =>
+    file.content_type?.startsWith('image/') || file.content_type === 'application/pdf';
+
+  const handleView = (file) => {
+    if (isPreviewable(file)) {
+      setPreviewFile(file);
+    } else {
+      handleDownload(file);
+    }
   };
 
   if (!files?.length) {
@@ -171,8 +184,18 @@ export function FileList({ files, onDelete, canDelete = true }) {
               <Button
                 variant="ghost"
                 size="sm"
+                onClick={(e) => { e.stopPropagation(); handleView(file); }}
+                data-testid={`view-file-${file.file_id}`}
+                title="View"
+              >
+                <Eye className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={(e) => { e.stopPropagation(); handleDownload(file); }}
                 data-testid={`download-file-${file.file_id}`}
+                title="Download"
               >
                 <Download className="h-4 w-4" />
               </Button>
@@ -192,6 +215,31 @@ export function FileList({ files, onDelete, canDelete = true }) {
           </div>
         );
       })}
+
+      <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="truncate pr-6">
+              {previewFile?.original_filename || previewFile?.filename}
+            </DialogTitle>
+          </DialogHeader>
+          {previewFile && (
+            previewFile.content_type?.startsWith('image/') ? (
+              <img
+                src={`${API}/files/${previewFile.file_id}/download`}
+                alt={previewFile.original_filename || previewFile.filename}
+                className="max-h-[75vh] w-full object-contain rounded-md"
+              />
+            ) : (
+              <iframe
+                src={`${API}/files/${previewFile.file_id}/download`}
+                title={previewFile.original_filename || previewFile.filename}
+                className="w-full h-[75vh] rounded-md border"
+              />
+            )
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
