@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Wallet, XCircle, AlertTriangle, FileImage, X } from 'lucide-react';
+import { Wallet, XCircle, AlertTriangle, FileImage, X, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import PayApprovalDialog from './PayApprovalDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
@@ -73,6 +73,25 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
       return;
     }
     setPayDialog({ open: true, requestId: req.expense_id });
+  };
+
+  const [recalculating, setRecalculating] = useState('');
+  const recalculateAmount = async (req) => {
+    setRecalculating(req.request_id);
+    try {
+      const r = await axios.post(`${API}/procurement-simple/material-requests/${req.request_id}/recalculate-amount`);
+      if (r.data?.changed) {
+        toast.success(`Amount corrected to ${fmt(r.data.total_amount)}`);
+        fetchQueue();
+        if (onRefresh) onRefresh();
+      } else {
+        toast.success('Amount already matches received qty × unit price');
+      }
+    } catch (e) {
+      toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Recalculate failed');
+    } finally {
+      setRecalculating('');
+    }
   };
 
   const submitReject = async () => {
@@ -280,6 +299,17 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                   );
                 })()}
                 <div className="flex justify-end items-center gap-2 mt-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs gap-1 border-gray-300 text-gray-500 hover:bg-gray-50"
+                    onClick={() => recalculateAmount(req)}
+                    disabled={recalculating === req.request_id}
+                    title="Recompute amount from received qty × unit price"
+                    data-testid={`acc-mat-recalc-${req.request_id}`}
+                  >
+                    <RefreshCw className={`h-3 w-3 ${recalculating === req.request_id ? 'animate-spin' : ''}`} /> Recalculate
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"

@@ -3306,6 +3306,50 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
     return {"message": "Delivery verified", "status": next_status}
 
 
+@router.post("/procurement-simple/material-requests/{request_id}/recalculate-amount")
+async def recalculate_material_request_amount(request_id: str, user: User = Depends(get_current_user)):
+    """Self-service correction for requests verified BEFORE the verify-approve
+    total-recompute fix — re-derives total/balance from the currently stored
+    received qty × unit price, same formula as verify-approve now applies
+    automatically. Safe to call any time; no-ops if nothing is off."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    eff_qty = float(req.get("received_quantity") or req.get("approved_quantity") or req.get("quantity") or 0)
+    eff_unit = float(req.get("unit_price") or req.get("unit_rate") or 0)
+    new_total = round(eff_qty * eff_unit, 2)
+    current_total = float(req.get("total_amount") or req.get("estimated_price") or 0)
+    if abs(new_total - current_total) <= 0.01:
+        return {"changed": False, "total_amount": current_total}
+
+    advance_paid = float(req.get("advance_paid_amount") or 0)
+    new_balance = max(0.0, new_total - advance_paid)
+    update = {
+        "total_amount": new_total,
+        "estimated_price": new_total,
+        "estimated_cost": new_total,
+        "balance_amount": new_balance,
+    }
+    await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
+
+    # Keep the mirrored Accountant bill in sync too, unless it's already paid.
+    exp = await db.material_expenses.find_one(
+        {"source_request_id": request_id, "status": {"$in": ["pending_accounts_approval"]}},
+        {"_id": 0, "expense_id": 1},
+    )
+    if exp:
+        await db.material_expenses.update_one(
+            {"expense_id": exp["expense_id"]},
+            {"$set": {"final_amount": new_total, "estimated_cost": new_total, "quantity": eff_qty, "unit_price": eff_unit}},
+        )
+
+    await create_audit_log(user.user_id, "recalculate_amount", "material_request", request_id, update)
+    return {"changed": True, "total_amount": new_total, "balance_amount": new_balance}
+
+
 @router.post("/procurement-simple/material-requests/{request_id}/verify-reject")
 async def procurement_verify_reject(request_id: str, data: dict, user: User = Depends(get_current_user)):
     """Procurement rejects a delivery (qty/invoice/price mismatch). Returns the
