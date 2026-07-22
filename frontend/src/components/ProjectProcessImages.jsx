@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { ChevronDown, ChevronUp, ArrowUp, ArrowDown, ImageIcon, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, ArrowUp, ArrowDown, ImageIcon, Loader2, Download, Link as LinkIcon, X } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { toast } from 'sonner';
@@ -23,6 +23,98 @@ const DEFAULT_CATEGORIES = [
 ];
 
 const categoryValue = (key) => `process_image_${key}`;
+
+function CategoryLinks({ projectId, category, canManage }) {
+  const [links, setLinks] = useState([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [url, setUrl] = useState('');
+  const [label, setLabel] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const fetchLinks = () => {
+    axios.get(`${API}/process-image-links`, { params: { project_id: projectId, category }, withCredentials: true })
+      .then(res => setLinks(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setLinks([]));
+  };
+
+  useEffect(() => { fetchLinks(); }, [projectId, category]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const addLink = async () => {
+    if (!url.trim()) { toast.error('Enter a URL'); return; }
+    setSaving(true);
+    try {
+      await axios.post(`${API}/process-image-links`, { project_id: projectId, category, url: url.trim(), label: label.trim() }, { withCredentials: true });
+      setUrl('');
+      setLabel('');
+      setShowAdd(false);
+      fetchLinks();
+      toast.success('Link added');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to add link');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeLink = async (linkId) => {
+    try {
+      await axios.delete(`${API}/process-image-links/${linkId}`, { withCredentials: true });
+      setLinks(ls => ls.filter(l => l.link_id !== linkId));
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to remove link');
+    }
+  };
+
+  return (
+    <div className="pt-2 mt-2 border-t border-dashed" data-testid="process-image-links">
+      {links.length > 0 && (
+        <div className="space-y-1 mb-2">
+          {links.map(l => (
+            <div key={l.link_id} className="flex items-center justify-between gap-2 text-xs bg-blue-50 border border-blue-100 rounded px-2 py-1.5">
+              <a href={l.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-blue-700 hover:underline truncate min-w-0">
+                <LinkIcon className="h-3 w-3 shrink-0" />
+                <span className="truncate">{l.label || l.url}</span>
+              </a>
+              {canManage && (
+                <button type="button" onClick={() => removeLink(l.link_id)} className="text-gray-400 hover:text-red-600 shrink-0" title="Remove link" data-testid={`process-image-remove-link-${l.link_id}`}>
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {showAdd ? (
+        <div className="flex flex-col sm:flex-row gap-1.5">
+          <input
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://drive.google.com/..."
+            className="flex-1 h-8 px-2 text-xs border rounded-md"
+            data-testid="process-image-link-url-input"
+          />
+          <input
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Label (optional)"
+            className="h-8 px-2 text-xs border rounded-md sm:w-32"
+            data-testid="process-image-link-label-input"
+          />
+          <div className="flex gap-1.5">
+            <Button size="sm" className="h-8 text-xs" onClick={addLink} disabled={saving} data-testid="process-image-link-save">Save</Button>
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => { setShowAdd(false); setUrl(''); setLabel(''); }}>Cancel</Button>
+          </div>
+        </div>
+      ) : (
+        <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setShowAdd(true)} data-testid="process-image-add-link-btn">
+          <LinkIcon className="h-3 w-3" /> Add Link
+        </Button>
+      )}
+    </div>
+  );
+}
 
 export function ProjectProcessImages({ projectId, files, canManage, onRefresh }) {
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
@@ -119,7 +211,18 @@ export function ProjectProcessImages({ projectId, files, canManage, onRefresh })
 
             {isOpen && (
               <div className="p-3 border-t">
-                <div className="flex items-center justify-end mb-3">
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                  {catFiles.length > 0 ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs gap-1"
+                      onClick={() => window.open(`${API}/files/download-zip?project_id=${projectId}&category=${categoryValue(cat.key)}`, '_blank')}
+                      data-testid={`process-image-download-${cat.key}`}
+                    >
+                      <Download className="h-3.5 w-3.5" /> Download
+                    </Button>
+                  ) : <span />}
                   <FileUpload
                     projectId={projectId}
                     category={categoryValue(cat.key)}
@@ -132,6 +235,7 @@ export function ProjectProcessImages({ projectId, files, canManage, onRefresh })
                   onDelete={onRefresh}
                   canDelete={canManage}
                 />
+                <CategoryLinks projectId={projectId} category={categoryValue(cat.key)} canManage={canManage} />
               </div>
             )}
           </div>

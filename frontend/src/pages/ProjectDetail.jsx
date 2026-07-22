@@ -4161,6 +4161,59 @@ export default function ProjectDetail() {
   }
 
   const { project, scope_items = [], additional_costs = [], deductions = [], summary, pre_construction = [] } = projectData || {};
+
+  // Drawlead Marketing gets a stripped-down view: header info + Project
+  // Process Image folders only — no financial cards, no other tabs. Kept as
+  // a self-contained early return so it can't be affected by (or affect)
+  // the full project view below.
+  if (user?.role === 'drawlead_marketing') {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <AppHeader user={user} />
+        <div className="max-w-[1800px] mx-auto px-4 py-4 sm:px-6 sm:py-8">
+          <div className="mb-4 sm:mb-8">
+            <div className="flex items-start gap-2 sm:gap-3 mb-2 sm:mb-4">
+              <Button variant="ghost" size="icon" onClick={() => navigate('/marketing-projects')} data-testid="drawlead-back-btn">
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <div className="min-w-0">
+                <h2 className="text-xl sm:text-3xl font-bold text-gray-900 truncate" data-testid="project-detail-title">{project.name}</h2>
+                <div className="flex items-center gap-2 sm:gap-4 mt-1 flex-wrap text-xs sm:text-sm">
+                  {project.project_code && <span className="text-indigo-600 font-semibold" data-testid="project-code">{project.project_code}</span>}
+                  <span className="text-gray-600"><strong>Client:</strong> {project.client_name}</span>
+                  <span className="text-gray-600"><strong>Location:</strong> {project.location || '-'}</span>
+                  {project.plot_area != null && (
+                    <span className="text-gray-600" data-testid="project-plot-area"><strong>Plot Area:</strong> {project.plot_area} SQ.FT</span>
+                  )}
+                  {project.buildup_area != null && (
+                    <span className="text-gray-600" data-testid="project-buildup-area"><strong>Build Up Area:</strong> {project.buildup_area} SQ.FT</span>
+                  )}
+                  <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>{project.status}</Badge>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <Card>
+            <CardContent className="p-3 sm:p-6">
+              <h3 className="text-base font-bold flex items-center gap-2 mb-3">
+                <ImageIcon className="h-5 w-5 text-purple-600" />
+                Project Process Image
+              </h3>
+              <ProjectProcessImages
+                projectId={projectId}
+                files={projectFiles.filter(f => f.category === 'project-process-images' || (f.category || '').startsWith('process_image_'))}
+                canManage={false}
+                onRefresh={fetchProjectFiles}
+              />
+            </CardContent>
+          </Card>
+        </div>
+        <MobileBottomNav user={user} />
+      </div>
+    );
+  }
+
   // Filter Additional-derived payment_stages out of Payment Schedule listing.
   // These come from Req Payment on additions and should only appear inside the
   // Additional tab — not pollute the milestone Payment Schedule view.

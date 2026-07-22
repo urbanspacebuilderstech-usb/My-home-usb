@@ -7,6 +7,9 @@ from typing import Optional
 from datetime import datetime, timezone
 import uuid
 import logging
+import io
+import os
+import zipfile
 
 from core.database import db, fs
 from core.deps import get_current_user
@@ -157,6 +160,65 @@ async def download_file(file_id: str, request: Request):
     )
 
 
+async def _load_file_bytes(record: dict) -> bytes:
+    sp = record.get("storage_path", "")
+    if sp.startswith("gridfs://"):
+        from bson import ObjectId
+        gf = await fs.open_download_stream(ObjectId(sp.replace("gridfs://", "", 1)))
+        return await gf.read()
+    data, _ = get_object(sp)
+    return data
+
+
+@router.get("/files/download-zip")
+async def download_files_zip(project_id: str, category: str, request: Request):
+    """Bulk-download every file in a project/category as a single zip.
+    Same cookie-based auth as the single-file download route above (so a
+    plain <a>/window.open link works without an XHR Authorization header)."""
+    session_token = request.cookies.get("session_token")
+    auth_param = request.query_params.get("auth")
+    token = session_token or auth_param
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    session_doc = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
+    if not session_doc:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    records = await db.files.find(
+        {"project_id": project_id, "category": category, "is_deleted": False}, {"_id": 0}
+    ).to_list(500)
+    if not records:
+        raise HTTPException(status_code=404, detail="No files found for this category")
+
+    buf = io.BytesIO()
+    used_names = set()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for rec in records:
+            try:
+                data = await _load_file_bytes(rec)
+            except Exception as e:
+                logger.error(f"Zip download skip {rec.get('file_id')}: {e}")
+                continue
+            name = rec.get("original_filename") or rec.get("file_id") or "file"
+            base, ext = os.path.splitext(name)
+            candidate, i = name, 1
+            while candidate in used_names:
+                candidate = f"{base}_{i}{ext}"
+                i += 1
+            used_names.add(candidate)
+            zf.writestr(candidate, data)
+
+    if not used_names:
+        raise HTTPException(status_code=500, detail="Could not read any files for this category")
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{category}.zip"'},
+    )
+
+
 @router.get("/files")
 async def list_files(
     category: Optional[str] = None,
@@ -253,3 +315,52 @@ async def set_process_image_categories(payload: dict, user: User = Depends(get_c
         upsert=True,
     )
     return {"categories": categories}
+
+
+# ---------------------------------------------------------------------------
+# Project Process Image links — an external URL (e.g. a Google Drive folder)
+# attached to one project's category, shown alongside uploaded photos for
+# teams that keep the actual gallery elsewhere. Per project+category, unlike
+# the category list above which is global.
+# ---------------------------------------------------------------------------
+
+@router.get("/process-image-links")
+async def list_process_image_links(project_id: str, category: str, user: User = Depends(get_current_user)):
+    links = await db.process_image_links.find(
+        {"project_id": project_id, "category": category}, {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    return links
+
+
+@router.post("/process-image-links")
+async def add_process_image_link(payload: dict, user: User = Depends(get_current_user)):
+    project_id = (payload.get("project_id") or "").strip()
+    category = (payload.get("category") or "").strip()
+    url = (payload.get("url") or "").strip()
+    label = (payload.get("label") or "").strip()
+    if not project_id or not category or not url:
+        raise HTTPException(status_code=400, detail="project_id, category and url are required")
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(status_code=400, detail="Link must start with http:// or https://")
+
+    doc = {
+        "link_id": str(uuid.uuid4()),
+        "project_id": project_id,
+        "category": category,
+        "url": url,
+        "label": label or url,
+        "added_by": user.user_id,
+        "added_by_name": user.name,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.process_image_links.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@router.delete("/process-image-links/{link_id}")
+async def delete_process_image_link(link_id: str, user: User = Depends(get_current_user)):
+    result = await db.process_image_links.delete_one({"link_id": link_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Link not found")
+    return {"message": "Link deleted"}
