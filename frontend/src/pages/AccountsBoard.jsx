@@ -64,7 +64,8 @@ import {
   PieChart,
   Truck,
   Check,
-  Trash2
+  Trash2,
+  CalendarDays
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -74,6 +75,7 @@ import AccountantMaterialPayments from '../components/AccountantMaterialPayments
 import AccountantCreditSettlements from '../components/AccountantCreditSettlements';
 import IssueCashDialog from '../components/IssueCashDialog';
 import DailyClosingDialog from '../components/DailyClosingDialog';
+import DailyClosingHistoryDialog from '../components/DailyClosingHistoryDialog';
 // Feb 20 2026 — `LabourAdvanceQueue` card removed from the Accountant
 // approvals Labour tab; import dropped.
 
@@ -1888,6 +1890,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
   // to render the variance strip on every mode tile) + dialog open flag.
   const [dailyClosing, setDailyClosing] = useState({ today: {}, previous: {}, is_closed: false });
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  const [closeHistoryOpen, setCloseHistoryOpen] = useState(false);
   const todayIsoDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const fetchDailyClosing = useCallback(async () => {
     try {
@@ -2365,6 +2368,15 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
               {dailyClosing.is_closed && (
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200" data-testid="dc-closed-badge">✓ Books closed for today</span>
               )}
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1"
+                onClick={() => setCloseHistoryOpen(true)}
+                data-testid="close-books-history-btn"
+              >
+                <CalendarDays className="h-3.5 w-3.5" /> Close Books
+              </Button>
               <Button
                 size="sm"
                 className={`h-7 text-xs gap-1 ${dailyClosing.is_closed ? 'bg-slate-600 hover:bg-slate-700' : 'bg-amber-600 hover:bg-amber-700'} text-white`}
@@ -3047,6 +3059,13 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
           />
         );
       })()}
+      {/* Close Books history — every past day's closing, per payment mode. */}
+      <DailyClosingHistoryDialog
+        open={closeHistoryOpen}
+        onClose={() => setCloseHistoryOpen(false)}
+        canReopen={userRole === 'super_admin'}
+        onReopened={() => { fetchDailyClosing(); onRefresh && onRefresh(); }}
+      />
     </div>
   );
 }
