@@ -13,6 +13,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '../components/ui/popove
 import { Checkbox } from '../components/ui/checkbox';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
+import MaterialSearchSelect from '../components/MaterialSearchSelect';
 import {
   Eye,
   Send,
@@ -274,6 +275,7 @@ export default function PlanningBoard({ embedded = false }) {
   const [invSummaryRows, setInvSummaryRows] = useState([]);
   const [invSummaryLoading, setInvSummaryLoading] = useState(false);
   const [invProjectSearch, setInvProjectSearch] = useState('');
+  const [invMaterialSearch, setInvMaterialSearch] = useState('');
   const fetchDlrDprSummary = async () => {
     setDlrDprLoading(true);
     try {
@@ -2244,6 +2246,28 @@ export default function PlanningBoard({ embedded = false }) {
                               data-testid="inv-summary-project-search"
                             />
                           </div>
+                          {(() => {
+                            const matMap = {};
+                            invSummaryRows.forEach(r => {
+                              if (!r.material_name) return;
+                              const m = matMap[r.material_name] || (matMap[r.material_name] = { name: r.material_name, unit: r.unit, qty: 0, count: 0, amount: 0 });
+                              m.qty += Number(r.current_stock) || 0;
+                              m.count += 1;
+                              m.amount += (Number(r.current_stock) || 0) * (Number(r.unit_rate) || 0);
+                            });
+                            const materials = Object.values(matMap).sort((a, b) => a.name.localeCompare(b.name));
+                            return (
+                              <MaterialSearchSelect
+                                materials={materials}
+                                value={invMaterialSearch}
+                                onChange={setInvMaterialSearch}
+                                placeholder="Search Material"
+                                testId="inv-summary-material-search"
+                                width="w-56"
+                                accent="indigo"
+                              />
+                            );
+                          })()}
                           <div className="flex items-center gap-1.5">
                             <Label className="text-xs text-gray-500">Start Date</Label>
                             <input
@@ -2271,14 +2295,36 @@ export default function PlanningBoard({ embedded = false }) {
                     </CardHeader>
                     <CardContent className="p-0">
                       {(() => {
-                        const filteredInvRows = invSummaryRows.filter(r => !invProjectSearch || r.project_name.toLowerCase().includes(invProjectSearch.toLowerCase()));
+                        const filteredInvRows = invSummaryRows.filter(r =>
+                          (!invProjectSearch || r.project_name.toLowerCase().includes(invProjectSearch.toLowerCase())) &&
+                          (!invMaterialSearch || (r.material_name || '').toLowerCase() === invMaterialSearch.toLowerCase())
+                        );
+                        const totals = filteredInvRows.reduce((acc, r) => {
+                          const rate = Number(r.unit_rate) || 0;
+                          acc.stock += (Number(r.current_stock) || 0) * rate;
+                          acc.in += (Number(r.today_in) || 0) * rate;
+                          acc.out += (Number(r.today_out) || 0) * rate;
+                          return acc;
+                        }, { stock: 0, in: 0, out: 0 });
                         return invSummaryLoading ? (
                           <p className="text-center text-gray-400 py-10 text-sm">Loading…</p>
                         ) : filteredInvRows.length === 0 ? (
                           <p className="text-center text-gray-400 py-10 text-sm" data-testid="inv-summary-empty">
-                            {invProjectSearch ? 'No matching projects.' : 'No inventory recorded yet.'}
+                            {invProjectSearch || invMaterialSearch ? 'No matching results.' : 'No inventory recorded yet.'}
                           </p>
                         ) : (
+                          <>
+                          <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b bg-gray-50/50" data-testid="inv-summary-value-pills">
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700">
+                              Current Stock Value <span className="font-semibold text-gray-900">{formatCurrency(totals.stock)}</span>
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
+                              Today In Value <span className="font-semibold text-emerald-800">{formatCurrency(totals.in)}</span>
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700">
+                              Today Out Value <span className="font-semibold text-red-800">{formatCurrency(totals.out)}</span>
+                            </span>
+                          </div>
                           <div className="overflow-x-auto" data-testid="inv-summary-table">
                             <table className="w-full text-sm">
                               <thead className="bg-gray-50 border-y">
@@ -2314,6 +2360,7 @@ export default function PlanningBoard({ embedded = false }) {
                               </tbody>
                             </table>
                           </div>
+                          </>
                         );
                       })()}
                     </CardContent>
