@@ -65,6 +65,7 @@ export default function DailyClosingDialog({ open, onClose, date, computed, onSa
       try {
         const r = await axios.get(`${API}/accountant/daily-closing`, { params: { date } });
         const t = r.data?.today || {};
+        const prev = r.data?.previous || {};
         setExisting(t);
         const nextSubs = {};
         const nextRemarks = {};
@@ -81,9 +82,19 @@ export default function DailyClosingDialog({ open, onClose, date, computed, onSa
             }
             nextRemarks[m.key] = row.remark || '';
           } else {
-            // First close of the day — seed a single row prefilled with the
-            // computed book balance so the accountant only edits what's off.
-            nextSubs[m.key] = [{ label: '', amount: String(computed?.[m.key] ?? '') }];
+            // First close of the day — carry forward the most recent previous
+            // day's source breakdown (labels + amounts) as the starting
+            // template, so the Accountant only edits what actually changed
+            // instead of re-typing "Cash Box A", "Site-1 cash", etc. every
+            // day. Falls back to a single blank row seeded with the computed
+            // book balance only when there's no prior closing to copy from.
+            const prevRow = prev[m.key];
+            const prevSubs = prevRow && Array.isArray(prevRow.sub_entries) ? prevRow.sub_entries : [];
+            if (prevSubs.length > 0) {
+              nextSubs[m.key] = prevSubs.map(s => ({ label: s.label || '', amount: String(s.amount ?? '') }));
+            } else {
+              nextSubs[m.key] = [{ label: '', amount: String(computed?.[m.key] ?? '') }];
+            }
             nextRemarks[m.key] = '';
           }
         });

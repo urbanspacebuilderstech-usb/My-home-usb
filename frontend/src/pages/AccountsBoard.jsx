@@ -75,7 +75,6 @@ import AccountantMaterialPayments from '../components/AccountantMaterialPayments
 import AccountantCreditSettlements from '../components/AccountantCreditSettlements';
 import IssueCashDialog from '../components/IssueCashDialog';
 import DailyClosingDialog from '../components/DailyClosingDialog';
-import DailyClosingHistoryDialog from '../components/DailyClosingHistoryDialog';
 // Feb 20 2026 — `LabourAdvanceQueue` card removed from the Accountant
 // approvals Labour tab; import dropped.
 
@@ -1874,6 +1873,7 @@ function IndirectExpenseSection({ userRole }) {
 // ============ CASHBOOK TAB ============
 function CashbookTab({ overview, projects, userRole, onRefresh }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const expenseOnly = (() => {
     const params = new URLSearchParams(location.search);
     return params.get('sub') === 'expense';
@@ -1890,7 +1890,6 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
   // to render the variance strip on every mode tile) + dialog open flag.
   const [dailyClosing, setDailyClosing] = useState({ today: {}, previous: {}, is_closed: false });
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
-  const [closeHistoryOpen, setCloseHistoryOpen] = useState(false);
   const todayIsoDate = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const fetchDailyClosing = useCallback(async () => {
     try {
@@ -2372,7 +2371,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                 size="sm"
                 variant="outline"
                 className="h-7 text-xs gap-1"
-                onClick={() => setCloseHistoryOpen(true)}
+                onClick={() => navigate('/close-books-history')}
                 data-testid="close-books-history-btn"
               >
                 <CalendarDays className="h-3.5 w-3.5" /> Close Books
@@ -3059,13 +3058,6 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
           />
         );
       })()}
-      {/* Close Books history — every past day's closing, per payment mode. */}
-      <DailyClosingHistoryDialog
-        open={closeHistoryOpen}
-        onClose={() => setCloseHistoryOpen(false)}
-        canReopen={userRole === 'super_admin'}
-        onReopened={() => { fetchDailyClosing(); onRefresh && onRefresh(); }}
-      />
     </div>
   );
 }

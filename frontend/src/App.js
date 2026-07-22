@@ -46,6 +46,7 @@ import PackageManagement from '@/pages/PackageManagement';
 import CREBoard from '@/pages/CREBoard';
 import PlanningBoard from '@/pages/PlanningBoard';
 import AccountsBoard from '@/pages/AccountsBoard';
+import CloseBooksHistoryPage from '@/pages/CloseBooksHistoryPage';
 import ProjectFinance from '@/pages/ProjectFinance';
 import FinanceBoard from '@/pages/FinanceBoard';
 import LabourPaymentsPage from '@/pages/LabourPaymentsPage';
@@ -185,6 +186,7 @@ function AppRouter() {
       <Route path="/cro-board" element={<ProtectedRoute><CREBoard /></ProtectedRoute>} />
       <Route path="/planning-board" element={<ProtectedRoute><PlanningBoard /></ProtectedRoute>} />
       <Route path="/accounts-board" element={<ProtectedRoute><AccountsBoard /></ProtectedRoute>} />
+      <Route path="/close-books-history" element={<ProtectedRoute><CloseBooksHistoryPage /></ProtectedRoute>} />
       <Route path="/accountant-module" element={<ProtectedRoute><Cashbook /></ProtectedRoute>} />
       <Route path="/cashflow-engine" element={<ProtectedRoute><CashflowEngine /></ProtectedRoute>} />
       <Route path="/accountant-dashboard" element={<ProtectedRoute><ProjectFinance /></ProtectedRoute>} />
