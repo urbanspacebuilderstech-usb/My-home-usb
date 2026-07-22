@@ -2224,6 +2224,8 @@ export default function ProjectDetail() {
       // Normalise to YYYY-MM-DD for the <input type="date"> control.
       start_date: p.start_date ? String(p.start_date).slice(0, 10) : '',
       expected_completion: p.expected_completion ? String(p.expected_completion).slice(0, 10) : '',
+      plot_area: p.plot_area != null ? String(p.plot_area) : '',
+      buildup_area: p.buildup_area != null ? String(p.buildup_area) : '',
     });
     fetchPackages();
     setHeaderEditing(true);
@@ -2249,6 +2251,14 @@ export default function ProjectDetail() {
       }
       if (headerForm.expected_completion !== pEnd) {
         payload.expected_completion = headerForm.expected_completion || null;
+      }
+      const pPlotArea = p.plot_area != null ? String(p.plot_area) : '';
+      const pBuildupArea = p.buildup_area != null ? String(p.buildup_area) : '';
+      if (headerForm.plot_area !== pPlotArea && headerForm.plot_area !== '') {
+        payload.plot_area = parseFloat(headerForm.plot_area);
+      }
+      if (headerForm.buildup_area !== pBuildupArea && headerForm.buildup_area !== '') {
+        payload.buildup_area = parseFloat(headerForm.buildup_area);
       }
 
       // Stage goes via its dedicated endpoint so the audit log / stage_history
@@ -4431,6 +4441,27 @@ export default function ProjectDetail() {
                         data-testid="header-edit-expected-completion"
                       />
                     </div>
+                    {/* Plot Area / Build Up Area — surfaces on the header for every project. */}
+                    <div>
+                      <Label className="text-xs text-gray-500">Plot Area (SQ.FT)</Label>
+                      <Input
+                        type="number"
+                        value={headerForm.plot_area || ''}
+                        onChange={(e) => setHeaderForm(f => ({ ...f, plot_area: e.target.value }))}
+                        placeholder="e.g. 1150"
+                        data-testid="header-edit-plot-area"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500">Build Up Area (SQ.FT)</Label>
+                      <Input
+                        type="number"
+                        value={headerForm.buildup_area || ''}
+                        onChange={(e) => setHeaderForm(f => ({ ...f, buildup_area: e.target.value }))}
+                        placeholder="e.g. 1380"
+                        data-testid="header-edit-buildup-area"
+                      />
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Button size="sm" onClick={saveHeaderEdit} disabled={headerSaving} className="bg-indigo-600 hover:bg-indigo-700" data-testid="header-edit-save">
@@ -4492,6 +4523,12 @@ export default function ProjectDetail() {
                       <span className="text-gray-600 hidden sm:inline" data-testid="project-client-email"><strong>Email:</strong> {project.client_email}</span>
                     )}
                     <span className="text-gray-600 hidden sm:inline"><strong>Location:</strong> {project.location || '-'}</span>
+                    {project.plot_area != null && (
+                      <span className="text-gray-600" data-testid="project-plot-area"><strong>Plot Area:</strong> {project.plot_area} SQ.FT</span>
+                    )}
+                    {project.buildup_area != null && (
+                      <span className="text-gray-600" data-testid="project-buildup-area"><strong>Build Up Area:</strong> {project.buildup_area} SQ.FT</span>
+                    )}
                     {project.latitude && project.longitude && (
                       <span className="text-green-600 text-[10px] bg-green-50 px-1.5 py-0.5 rounded font-medium">GPS Set</span>
                     )}

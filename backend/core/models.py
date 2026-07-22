@@ -449,6 +449,8 @@ class Project(BaseModel):
     longitude: Optional[float] = None
     # New CRE fields
     sqft: float = 0  # Square footage
+    plot_area: Optional[float] = None  # shown on project header as "Plot Area: N SQ.FT"
+    buildup_area: Optional[float] = None  # shown on project header as "Build Up Area: N SQ.FT"
     building_type: str = "residential"  # residential, commercial, villa, apartment
     package_id: Optional[str] = None  # Selected package
     package_name: Optional[str] = None  # Package name for display

@@ -2366,6 +2366,9 @@ class ProjectUpdate(BaseModel):
     # Accept YYYY-MM-DD strings from the date picker; backend stores as-is.
     start_date: Optional[str] = None
     expected_completion: Optional[str] = None
+    # Shown on every project header as "Plot Area: N SQ.FT" / "Build Up Area: N SQ.FT".
+    plot_area: Optional[float] = None
+    buildup_area: Optional[float] = None
 
 
 @router.patch("/projects/{project_id}")
