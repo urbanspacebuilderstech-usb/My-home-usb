@@ -218,19 +218,31 @@ function WorkOrderApprovalStatus({ onCountChange }) {
   );
 }
 
-// Read-only view of Final Estimates currently sitting with the CLIENT for
-// approval/rejection (status=pending_client_review). The client acts from
-// their own portal — this is visibility only, no action buttons.
+const CLIENT_ITEM_KIND_CLS = {
+  final_estimate: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  addition: 'bg-orange-50 text-orange-700 border-orange-200',
+  deduction: 'bg-rose-50 text-rose-700 border-rose-200',
+};
+const CLIENT_ITEM_KIND_LABEL = {
+  final_estimate: 'Final Estimate',
+  addition: 'Additional',
+  deduction: 'Deduction',
+};
+
+// Read-only view of EVERYTHING currently sitting with the CLIENT for
+// approval/rejection — Final Estimates, Additional Work items, and
+// Deductions. The client acts from their own portal — this is visibility
+// only, no action buttons.
 function ClientPendingApprovals() {
   const navigate = useNavigate();
-  const [projects, setProjects] = useState([]);
+  const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const fetchRows = async () => {
     try {
       setLoading(true);
       const res = await axios.get(`${API}/planning-head/final-estimates-client-pending`);
-      setProjects(res.data || []);
+      setItems(res.data || []);
     } catch {
       toast.error('Failed to load client-pending approvals');
     } finally {
@@ -246,9 +258,9 @@ function ClientPendingApprovals() {
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <CardTitle className="text-base flex items-center gap-2">
             <Send className="h-4 w-4 text-emerald-600" />
-            Final Estimate — Waiting on Client
-            {projects.length > 0 && (
-              <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">{projects.length} pending</Badge>
+            Waiting on Client
+            {items.length > 0 && (
+              <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">{items.length} pending</Badge>
             )}
           </CardTitle>
           <Button size="sm" variant="outline" onClick={fetchRows} disabled={loading} data-testid="client-approvals-refresh">
@@ -259,7 +271,7 @@ function ClientPendingApprovals() {
       <CardContent>
         {loading ? (
           <p className="text-sm text-gray-500 text-center py-8">Loading…</p>
-        ) : projects.length === 0 ? (
+        ) : items.length === 0 ? (
           <p className="text-sm text-gray-500 text-center py-8" data-testid="client-approvals-empty">No projects currently waiting on client approval.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -268,27 +280,33 @@ function ClientPendingApprovals() {
                 <tr>
                   <th className="text-left px-3 py-2">Project</th>
                   <th className="text-left px-3 py-2">Client</th>
-                  <th className="text-right px-3 py-2">FE Value</th>
-                  <th className="text-left px-3 py-2">Rev</th>
+                  <th className="text-left px-3 py-2">Type</th>
+                  <th className="text-left px-3 py-2">Details</th>
+                  <th className="text-right px-3 py-2">Amount</th>
                   <th className="text-left px-3 py-2">Sent to Client</th>
                 </tr>
               </thead>
               <tbody>
-                {projects.map(p => (
-                  <tr key={p.project_id} className="border-b hover:bg-emerald-50/30" data-testid={`client-approval-row-${p.project_id}`}>
+                {items.map(it => (
+                  <tr key={`${it.kind}-${it.item_id}`} className="border-b hover:bg-emerald-50/30" data-testid={`client-approval-row-${it.item_id}`}>
                     <td className="px-3 py-2">
                       <button
                         className="text-blue-700 hover:underline font-medium"
-                        onClick={() => navigate(`/projects/${p.project_id}`)}
+                        onClick={() => navigate(`/projects/${it.project_id}`)}
                       >
-                        {p.name || p.project_id}
+                        {it.project_name || it.project_id}
                       </button>
-                      <p className="text-[11px] text-gray-500">{p.location || ''}</p>
+                      <p className="text-[11px] text-gray-500">{it.location || ''}</p>
                     </td>
-                    <td className="px-3 py-2 text-gray-700">{p.client_name || '—'}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-emerald-700">{fmtCurrency(p.total_value)}</td>
-                    <td className="px-3 py-2"><Badge variant="outline" className="text-[10px]">Rev {p.fe?.revision ?? 0}</Badge></td>
-                    <td className="px-3 py-2 text-[11px] text-gray-500">{fmtTime(p.fe?.sent_to_client_at)}</td>
+                    <td className="px-3 py-2 text-gray-700">{it.client_name || '—'}</td>
+                    <td className="px-3 py-2">
+                      <Badge variant="outline" className={`text-[10px] ${CLIENT_ITEM_KIND_CLS[it.kind] || ''}`}>
+                        {CLIENT_ITEM_KIND_LABEL[it.kind] || it.kind}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2 text-gray-700 max-w-xs truncate" title={it.label}>{it.label}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-emerald-700">{fmtCurrency(it.amount)}</td>
+                    <td className="px-3 py-2 text-[11px] text-gray-500">{fmtTime(it.sent_at)}</td>
                   </tr>
                 ))}
               </tbody>

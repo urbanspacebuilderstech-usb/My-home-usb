@@ -9757,21 +9757,17 @@ async def create_multi_stage_rab(
 @router.get("/planning-head/workorder-approvals")
 async def list_workorder_internal_approvals(user: User = Depends(get_current_user)):
     """Read-only status view (Planning Dashboard > Approvals > Internal tab):
-    every Work Order that has at least one payment request (RAB) still
-    in-flight through the SE -> PM -> QC -> Planning -> Accountant chain,
-    and which role it's currently sitting with. No actions here — approving
-    a stage still happens from its own PM/QC/Planning/Accountant queue; this
-    is purely a cross-project "where is everything stuck" view.
+    every Work Order with a locked Additional Work item still awaiting
+    Planning's unlock decision. RAB (stage payment request) bills are
+    intentionally excluded — every stage payment request carries a RAB
+    number the moment it's raised, and this view is scoped to what's
+    specifically pending with Planning, not the full SE -> PM -> QC ->
+    Planning -> Accountant payment chain. No actions here — Planning unlocks
+    from the Work Order's own page; this is purely a cross-project "what's
+    stuck" view.
     """
     if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
-
-    PENDING_WITH = {
-        "requested": "PM",
-        "pm_approved": "QC",
-        "qc_approved": "Planning",
-        "planning_approved": "Accountant",
-    }
 
     wos = await db.project_work_orders.find({}, {"_id": 0}).to_list(5000)
     project_ids = {w.get("project_id") for w in wos if w.get("project_id")}
@@ -9824,30 +9820,10 @@ async def list_workorder_internal_approvals(user: User = Depends(get_current_use
     for wo in wos:
         team = team_map.get(wo.get("project_id"), {})
         planning_person_id = planning_person_map.get(wo.get("project_id"))
+        # RAB (stage payment request) rows intentionally excluded here — see
+        # docstring above. Only locked Additional Work items (still awaiting
+        # Planning's unlock) are surfaced.
         pending_items = []
-        for stg in (wo.get("stages") or []):
-            stage_name = stg.get("stage_name") or stg.get("name") or "Stage"
-            for pr in (stg.get("payment_requests") or []):
-                status = pr.get("status") or "requested"
-                pending_role = PENDING_WITH.get(status)
-                if not pending_role:
-                    continue  # approved / rejected / se_rework — not sitting with anyone right now
-                label, name = _pending_with(pending_role, team, planning_person_id)
-                pending_items.append({
-                    "kind": "payment_request",
-                    "stage_name": stage_name,
-                    "amount": pr.get("amount"),
-                    "status": status,
-                    "pending_with": label,
-                    "pending_with_name": name,
-                    "requested_at": pr.get("requested_at"),
-                    "requested_by_name": pr.get("requested_by_name"),
-                    "rab_number": pr.get("rab_number"),
-                })
-        # Additional Work items still locked (Planning hasn't unlocked them
-        # for a RAB to be raised against yet) — not part of the payment-
-        # request chain, but still something sitting with Planning, so
-        # surface them here too for the "where is everything" view.
         for item in (wo.get("additional_work") or []):
             if item.get("is_locked") is False:
                 continue  # already unlocked — no longer "pending" anything
@@ -9865,9 +9841,6 @@ async def list_workorder_internal_approvals(user: User = Depends(get_current_use
             })
         if not pending_items:
             continue
-        # Dated (payment-request) items first in chronological order;
-        # undated Additional Work items (no requested_at) sort last.
-        pending_items.sort(key=lambda x: x.get("requested_at") or "9999")
         rows.append({
             "work_order_id": wo.get("work_order_id"),
             "work_order_number": wo.get("work_order_number") or wo.get("work_order_id"),

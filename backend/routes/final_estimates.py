@@ -270,24 +270,104 @@ async def list_planning_head_final_estimates(user: User = Depends(get_current_us
 @router.get("/planning-head/final-estimates-client-pending")
 async def list_final_estimates_pending_client(user: User = Depends(get_current_user)):
     """Read-only status view (Planning Dashboard > Approvals > Client tab):
-    projects whose Final Estimate has cleared internal review and is now
-    sitting with the CLIENT to approve/reject. No action here — the client
-    acts from their own portal (or Planning acting on their behalf via the
-    existing client-approve/reject endpoints elsewhere); this is purely
-    visibility into what's currently waiting on the client.
+    EVERYTHING currently sitting with the CLIENT to approve/reject — Final
+    Estimates, Additional Work items, and Deductions. No action here — the
+    client acts from their own portal (or Planning acting on their behalf
+    via the existing client-approve/reject endpoints elsewhere); this is
+    purely visibility into what's currently waiting on the client.
+
+    Previously this only looked at `fe.status`, so Additions/Deductions sent
+    to the client (client_approval_status == 'pending_client') never showed
+    up here even though they were genuinely waiting on the client — the tab
+    looked empty despite real pending items existing.
     """
     if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
 
-    projects = await db.projects.find(
+    archived_clause = {"$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}]}
+
+    # 1) Final Estimates pending client review
+    fe_projects = await db.projects.find(
         {
-            "fe.status": "pending_client_review",
-            "$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}],
+            "fe.status": {"$in": ["pending_client_review", "feedback_received"]},
+            **archived_clause,
         },
         {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "client_phone": 1,
          "location": 1, "total_value": 1, "fe": 1, "created_at": 1},
     ).sort("fe.sent_to_client_at", -1).to_list(200)
-    return projects
+
+    items = []
+    for p in fe_projects:
+        fe = p.get("fe") or {}
+        items.append({
+            "kind": "final_estimate",
+            "item_id": p["project_id"],
+            "project_id": p["project_id"],
+            "project_name": p.get("name"),
+            "client_name": p.get("client_name"),
+            "location": p.get("location"),
+            "label": f"Final Estimate · Rev {fe.get('revision', 0)}",
+            "amount": p.get("total_value"),
+            "sent_at": fe.get("sent_to_client_at"),
+        })
+
+    # 2) Additional Work items pending client approval
+    project_ids_needed = set()
+    additions = await db.additional_costs.find(
+        {"client_approval_status": "pending_client"},
+        {"_id": 0, "cost_id": 1, "project_id": 1, "description": 1, "estimated_amount": 1, "client_approval_sent_at": 1},
+    ).to_list(500)
+    project_ids_needed.update(a["project_id"] for a in additions if a.get("project_id"))
+
+    # 3) Deductions pending client approval
+    deductions = await db.deductions.find(
+        {"client_approval_status": "pending_client"},
+        {"_id": 0, "deduction_id": 1, "project_id": 1, "description": 1, "amount": 1, "client_approval_sent_at": 1},
+    ).to_list(500)
+    project_ids_needed.update(d["project_id"] for d in deductions if d.get("project_id"))
+
+    proj_map = {}
+    if project_ids_needed:
+        proj_docs = await db.projects.find(
+            {"project_id": {"$in": list(project_ids_needed)}, **archived_clause},
+            {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "location": 1},
+        ).to_list(len(project_ids_needed))
+        proj_map = {d["project_id"]: d for d in proj_docs}
+
+    for a in additions:
+        proj = proj_map.get(a.get("project_id"))
+        if not proj:
+            continue  # archived / missing project — skip rather than show a broken row
+        items.append({
+            "kind": "addition",
+            "item_id": a["cost_id"],
+            "project_id": a["project_id"],
+            "project_name": proj.get("name"),
+            "client_name": proj.get("client_name"),
+            "location": proj.get("location"),
+            "label": a.get("description") or "Additional Work",
+            "amount": a.get("estimated_amount"),
+            "sent_at": a.get("client_approval_sent_at"),
+        })
+
+    for d in deductions:
+        proj = proj_map.get(d.get("project_id"))
+        if not proj:
+            continue
+        items.append({
+            "kind": "deduction",
+            "item_id": d["deduction_id"],
+            "project_id": d["project_id"],
+            "project_name": proj.get("name"),
+            "client_name": proj.get("client_name"),
+            "location": proj.get("location"),
+            "label": d.get("description") or "Deduction",
+            "amount": d.get("amount"),
+            "sent_at": d.get("client_approval_sent_at"),
+        })
+
+    items.sort(key=lambda x: x.get("sent_at") or "", reverse=True)
+    return items
 
 
 # ──────────────────────────────────────────────────────────────────────────────
