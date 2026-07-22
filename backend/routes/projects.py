@@ -9771,8 +9771,17 @@ async def list_workorder_internal_approvals(user: User = Depends(get_current_use
 
     wos = await db.project_work_orders.find({}, {"_id": 0}).to_list(5000)
     project_ids = {w.get("project_id") for w in wos if w.get("project_id")}
+    # "Live" = same definition Planning's own All Projects list uses: handed
+    # over from CRE (sent_to_planning_at set), in a real pipeline status, not
+    # archived. Excludes demo/draft/onboarding-test projects that never went
+    # through the real CRE -> Planning handover but still have work orders.
     projects = await db.projects.find(
-        {"project_id": {"$in": list(project_ids)}},
+        {
+            "project_id": {"$in": list(project_ids)},
+            "sent_to_planning_at": {"$exists": True, "$ne": None},
+            "planning_status": {"$in": ["new", "active", "delivered"]},
+            "$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}],
+        },
         {"_id": 0, "project_id": 1, "name": 1, "team": 1, "assigned_planning_person_id": 1},
     ).to_list(len(project_ids) or 1)
     project_map = {p["project_id"]: p.get("name") for p in projects}
@@ -9818,6 +9827,8 @@ async def list_workorder_internal_approvals(user: User = Depends(get_current_use
 
     rows = []
     for wo in wos:
+        if wo.get("project_id") not in project_map:
+            continue  # not a live Planning project — skip (demo/draft/archived)
         team = team_map.get(wo.get("project_id"), {})
         planning_person_id = planning_person_map.get(wo.get("project_id"))
         # RAB (stage payment request) rows intentionally excluded here — see

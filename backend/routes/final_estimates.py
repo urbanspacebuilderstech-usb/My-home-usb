@@ -284,13 +284,22 @@ async def list_final_estimates_pending_client(user: User = Depends(get_current_u
     if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
 
-    archived_clause = {"$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}]}
+    # "Live" = same definition Planning's own All Projects list uses: handed
+    # over from CRE (sent_to_planning_at set), in a real pipeline status, not
+    # archived. Excludes demo/draft/onboarding-test projects (e.g. "Mani
+    # Demo Project - Onboarding") that can still carry stray pending
+    # Additions/Deductions/FE data from testing.
+    live_clause = {
+        "sent_to_planning_at": {"$exists": True, "$ne": None},
+        "planning_status": {"$in": ["new", "active", "delivered"]},
+        "$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}],
+    }
 
     # 1) Final Estimates pending client review
     fe_projects = await db.projects.find(
         {
             "fe.status": {"$in": ["pending_client_review", "feedback_received"]},
-            **archived_clause,
+            **live_clause,
         },
         {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "client_phone": 1,
          "location": 1, "total_value": 1, "fe": 1, "created_at": 1},
@@ -329,7 +338,7 @@ async def list_final_estimates_pending_client(user: User = Depends(get_current_u
     proj_map = {}
     if project_ids_needed:
         proj_docs = await db.projects.find(
-            {"project_id": {"$in": list(project_ids_needed)}, **archived_clause},
+            {"project_id": {"$in": list(project_ids_needed)}, **live_clause},
             {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "location": 1},
         ).to_list(len(project_ids_needed))
         proj_map = {d["project_id"]: d for d in proj_docs}
