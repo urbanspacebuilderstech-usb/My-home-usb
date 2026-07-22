@@ -9773,14 +9773,18 @@ async def list_workorder_internal_approvals(user: User = Depends(get_current_use
     project_ids = {w.get("project_id") for w in wos if w.get("project_id")}
     # "Live" = same definition Planning's own All Projects list uses: handed
     # over from CRE (sent_to_planning_at set), in a real pipeline status, not
-    # archived. Excludes demo/draft/onboarding-test projects that never went
-    # through the real CRE -> Planning handover but still have work orders.
+    # archived, not soft-deleted. Excludes demo/draft/onboarding-test and
+    # deleted projects that never went through the real CRE -> Planning
+    # handover but still have leftover work orders.
     projects = await db.projects.find(
         {
             "project_id": {"$in": list(project_ids)},
             "sent_to_planning_at": {"$exists": True, "$ne": None},
             "planning_status": {"$in": ["new", "active", "delivered"]},
-            "$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}],
+            "$and": [
+                {"$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}]},
+                {"$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]},
+            ],
         },
         {"_id": 0, "project_id": 1, "name": 1, "team": 1, "assigned_planning_person_id": 1},
     ).to_list(len(project_ids) or 1)

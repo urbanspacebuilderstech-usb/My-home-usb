@@ -286,13 +286,16 @@ async def list_final_estimates_pending_client(user: User = Depends(get_current_u
 
     # "Live" = same definition Planning's own All Projects list uses: handed
     # over from CRE (sent_to_planning_at set), in a real pipeline status, not
-    # archived. Excludes demo/draft/onboarding-test projects (e.g. "Mani
-    # Demo Project - Onboarding") that can still carry stray pending
-    # Additions/Deductions/FE data from testing.
+    # archived, not soft-deleted. Excludes demo/draft/onboarding-test and
+    # deleted projects (e.g. "Mani Demo Project - Onboarding") that can
+    # still carry stray pending Additions/Deductions/FE data from testing.
     live_clause = {
         "sent_to_planning_at": {"$exists": True, "$ne": None},
         "planning_status": {"$in": ["new", "active", "delivered"]},
-        "$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}],
+        "$and": [
+            {"$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}]},
+            {"$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]},
+        ],
     }
 
     # 1) Final Estimates pending client review
