@@ -172,7 +172,14 @@ export function FileList({ files, onDelete, canDelete = true }) {
                 <IconComponent className={`h-4 w-4 ${isImage ? 'text-purple-600' : 'text-amber-600'}`} />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium truncate">{file.original_filename || file.filename}</p>
+                {file.description ? (
+                  <>
+                    <p className="text-sm font-medium truncate">{file.description}</p>
+                    <p className="text-xs text-gray-400 truncate">{file.original_filename || file.filename}</p>
+                  </>
+                ) : (
+                  <p className="text-sm font-medium truncate">{file.original_filename || file.filename}</p>
+                )}
                 <div className="flex items-center gap-2 text-xs text-gray-400">
                   <span>{formatSize(file.size)}</span>
                   <span>by {file.uploaded_by_name}</span>

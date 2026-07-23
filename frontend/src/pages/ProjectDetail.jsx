@@ -69,6 +69,7 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { generateREPDF } from '../utils/pdfGenerator';
 import { FileUpload, FileList } from '../components/FileUpload';
 import { ProjectProcessImages } from '../components/ProjectProcessImages';
+import { FinalDrawingsSection } from '../components/FinalDrawingsSection';
 import { AppHeader } from '../components/AppHeader';
 import GanttChart from '../components/GanttChart';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -11928,12 +11929,25 @@ export default function ProjectDetail() {
                 <div className={designData.site_plans.length > 0 || designData.design_files.length > 0 ? 'pt-4 border-t' : ''}>
                   {(() => {
                     const isProcessImageFile = (f) => f.category === 'project-process-images' || (f.category || '').startsWith('process_image_');
+                    const isFinalDrawingFile = (f) => f.category === 'final_drawing';
                     const processImages = projectFiles.filter(isProcessImageFile);
-                    const documentFiles = projectFiles.filter(f => !isProcessImageFile(f));
+                    const finalDrawings = projectFiles.filter(isFinalDrawingFile);
+                    const documentFiles = projectFiles.filter(f => !isProcessImageFile(f) && !isFinalDrawingFile(f));
                     const canManageDocs = user && ['super_admin', 'planning', 'project_manager'].includes(user.role);
                     return (
                       <>
                         <div className="flex gap-1 border-b mb-3">
+                          <button
+                            onClick={() => setDocsSubTab('final_drawing')}
+                            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+                              docsSubTab === 'final_drawing' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+                            }`}
+                            data-testid="docs-subtab-final-drawing"
+                          >
+                            <Layers className="h-4 w-4" />
+                            Finalis Drawing
+                            <Badge variant="outline" className="ml-0.5">{finalDrawings.length}</Badge>
+                          </button>
                           <button
                             onClick={() => setDocsSubTab('documents')}
                             className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
@@ -11958,7 +11972,14 @@ export default function ProjectDetail() {
                           </button>
                         </div>
 
-                        {docsSubTab === 'documents' ? (
+                        {docsSubTab === 'final_drawing' ? (
+                          <FinalDrawingsSection
+                            projectId={projectId}
+                            files={finalDrawings}
+                            canManage={canManageDocs}
+                            onRefresh={fetchProjectFiles}
+                          />
+                        ) : docsSubTab === 'documents' ? (
                           <>
                             <div className="flex items-center justify-end mb-3">
                               <FileUpload
