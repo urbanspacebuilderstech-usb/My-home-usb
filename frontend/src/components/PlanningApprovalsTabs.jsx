@@ -161,6 +161,25 @@ function WorkOrderApprovalStatus({ onCountChange }) {
           </div>
         </div>
       </CardHeader>
+      {!loading && filteredRows.length > 0 && (() => {
+        const totalAmount = filteredRows.reduce((s, r) => s + r.pending_items.reduce((s2, it) => s2 + (Number(it.amount) || 0), 0), 0);
+        const projectCount = new Set(filteredRows.map(r => r.project_id).filter(Boolean)).size;
+        const pills = [
+          { label: 'Total Amount', value: fmtCurrency(totalAmount), cls: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+          { label: 'Project Count', value: projectCount, cls: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
+          { label: 'Pending', value: filteredRows.length, cls: 'bg-blue-50 border-blue-200 text-blue-700' },
+        ];
+        return (
+          <div className="flex gap-1.5 sm:gap-3 px-4 pb-4 overflow-x-auto" data-testid="wo-approvals-summary-pills">
+            {pills.map(p => (
+              <div key={p.label} className={`flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${p.cls}`}>
+                <span className="text-[9px] sm:text-xs font-medium text-center leading-tight">{p.label}</span>
+                <span className="text-base sm:text-2xl font-bold mt-0.5">{p.value}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
       <CardContent>
         {loading ? (
           <p className="text-sm text-gray-500 text-center py-8">Loading…</p>
@@ -292,6 +311,25 @@ function ClientPendingApprovals() {
           </div>
         </div>
       </CardHeader>
+      {!loading && filteredItems.length > 0 && (() => {
+        const totalAmount = filteredItems.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+        const projectCount = new Set(filteredItems.map(it => it.project_id).filter(Boolean)).size;
+        const pills = [
+          { label: 'Total Amount', value: fmtCurrency(totalAmount), cls: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+          { label: 'Project Count', value: projectCount, cls: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
+          { label: 'Pending', value: filteredItems.length, cls: 'bg-blue-50 border-blue-200 text-blue-700' },
+        ];
+        return (
+          <div className="flex gap-1.5 sm:gap-3 px-4 pb-4 overflow-x-auto" data-testid="client-approvals-summary-pills">
+            {pills.map(p => (
+              <div key={p.label} className={`flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${p.cls}`}>
+                <span className="text-[9px] sm:text-xs font-medium text-center leading-tight">{p.label}</span>
+                <span className="text-base sm:text-2xl font-bold mt-0.5">{p.value}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
       <CardContent>
         {loading ? (
           <p className="text-sm text-gray-500 text-center py-8">Loading…</p>
