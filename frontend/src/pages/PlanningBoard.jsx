@@ -2314,16 +2314,17 @@ export default function PlanningBoard({ embedded = false }) {
                           </p>
                         ) : (
                           <>
-                          <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b bg-gray-50/50" data-testid="inv-summary-value-pills">
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700">
-                              Current Stock Value <span className="font-semibold text-gray-900">{formatCurrency(totals.stock)}</span>
-                            </span>
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
-                              Today In Value <span className="font-semibold text-emerald-800">{formatCurrency(totals.in)}</span>
-                            </span>
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700">
-                              Today Out Value <span className="font-semibold text-red-800">{formatCurrency(totals.out)}</span>
-                            </span>
+                          <div className="flex gap-1.5 sm:gap-3 px-4 pb-4 pt-1 overflow-x-auto" data-testid="inv-summary-value-pills">
+                            {[
+                              { label: 'Current Stock Value', value: formatCurrency(totals.stock), cls: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
+                              { label: 'Today In Value', value: formatCurrency(totals.in), cls: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+                              { label: 'Today Out Value', value: formatCurrency(totals.out), cls: 'bg-red-50 border-red-200 text-red-700' },
+                            ].map(p => (
+                              <div key={p.label} className={`flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${p.cls}`}>
+                                <span className="text-[9px] sm:text-xs font-medium text-center leading-tight">{p.label}</span>
+                                <span className="text-base sm:text-2xl font-bold mt-0.5">{p.value}</span>
+                              </div>
+                            ))}
                           </div>
                           <div className="overflow-x-auto" data-testid="inv-summary-table">
                             <table className="w-full text-sm">
