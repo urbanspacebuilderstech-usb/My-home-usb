@@ -237,6 +237,7 @@ function ClientPendingApprovals() {
   const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [projectFilter, setProjectFilter] = useState('');
 
   const fetchRows = async () => {
     try {
@@ -252,6 +253,19 @@ function ClientPendingApprovals() {
 
   useEffect(() => { fetchRows(); }, []);
 
+  // Unique project list for the filter dropdown, built from whatever's
+  // actually in the current result set (mirrors the Internal tab's pattern).
+  const projects = [];
+  const seenProjects = new Set();
+  items.forEach(it => {
+    if (it.project_id && !seenProjects.has(it.project_id)) {
+      seenProjects.add(it.project_id);
+      projects.push({ project_id: it.project_id, name: it.project_name || it.project_id });
+    }
+  });
+
+  const filteredItems = projectFilter ? items.filter(it => it.project_id === projectFilter) : items;
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -259,25 +273,38 @@ function ClientPendingApprovals() {
           <CardTitle className="text-base flex items-center gap-2">
             <Send className="h-4 w-4 text-emerald-600" />
             Waiting on Client
-            {items.length > 0 && (
-              <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">{items.length} pending</Badge>
+            {filteredItems.length > 0 && (
+              <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">{filteredItems.length} pending</Badge>
             )}
           </CardTitle>
-          <Button size="sm" variant="outline" onClick={fetchRows} disabled={loading} data-testid="client-approvals-refresh">
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
+          <div className="flex items-center gap-2">
+            <ProjectSearchSelect
+              projects={projects}
+              value={projectFilter}
+              onChange={setProjectFilter}
+              placeholder="All Projects"
+              testId="client-approvals-project-filter"
+              width="w-48"
+            />
+            <Button size="sm" variant="outline" onClick={fetchRows} disabled={loading} data-testid="client-approvals-refresh">
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
         {loading ? (
           <p className="text-sm text-gray-500 text-center py-8">Loading…</p>
-        ) : items.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center py-8" data-testid="client-approvals-empty">No projects currently waiting on client approval.</p>
+        ) : filteredItems.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-8" data-testid="client-approvals-empty">
+            {projectFilter ? 'No pending client approvals for this project.' : 'No projects currently waiting on client approval.'}
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-xs uppercase text-gray-600">
                 <tr>
+                  <th className="text-left px-3 py-2 w-10">S.No</th>
                   <th className="text-left px-3 py-2">Project</th>
                   <th className="text-left px-3 py-2">Client</th>
                   <th className="text-left px-3 py-2">Type</th>
@@ -287,8 +314,9 @@ function ClientPendingApprovals() {
                 </tr>
               </thead>
               <tbody>
-                {items.map(it => (
+                {filteredItems.map((it, idx) => (
                   <tr key={`${it.kind}-${it.item_id}`} className="border-b hover:bg-emerald-50/30" data-testid={`client-approval-row-${it.item_id}`}>
+                    <td className="px-3 py-2 text-gray-400">{idx + 1}</td>
                     <td className="px-3 py-2">
                       <button
                         className="text-blue-700 hover:underline font-medium"
