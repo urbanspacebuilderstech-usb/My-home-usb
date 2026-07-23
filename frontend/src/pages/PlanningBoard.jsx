@@ -2354,7 +2354,7 @@ export default function PlanningBoard({ embedded = false }) {
                                     <td className="px-3 py-2 text-gray-500">{row.unit || '—'}</td>
                                     <td className="px-3 py-2 text-right text-gray-600">{row.unit_rate > 0 ? formatCurrency(row.unit_rate) : '—'}</td>
                                     <td className="px-3 py-2 text-right text-indigo-700 font-medium whitespace-nowrap">
-                                      {row.unit_rate > 0 ? `${row.current_stock} × ${formatCurrency(row.unit_rate)}` : '—'}
+                                      {row.unit_rate > 0 ? formatCurrency((Number(row.current_stock) || 0) * row.unit_rate) : '—'}
                                     </td>
                                     <td className="px-3 py-2 text-right font-medium">{row.current_stock}</td>
                                     <td className="px-3 py-2 text-right text-emerald-700">{row.today_in > 0 ? `+${row.today_in}` : row.today_in}</td>
