@@ -3209,7 +3209,14 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
     price_changed = unit_price_override is not None and unit_price_override != float(req.get("unit_price") or req.get("unit_rate") or 0)
     eff_qty = received_qty_override if received_qty_override is not None else float(req.get("received_quantity") or req.get("approved_quantity") or req.get("quantity") or 0)
     eff_unit = unit_price_override if unit_price_override is not None else float(req.get("unit_price") or req.get("unit_rate") or 0)
-    new_total = round(eff_qty * eff_unit, 2)
+    # Same total formula as assign-vendor: unit_price * qty + transport - discount.
+    # Transport/discount aren't re-editable at verify time, so just carry
+    # forward whatever Procurement set when the vendor was assigned — dropping
+    # them here was quietly zeroing out a real transport/discount amount the
+    # Accountant had already been shown.
+    eff_transport = float(req.get("transport_cost") or 0)
+    eff_discount = float(req.get("discount") or 0)
+    new_total = round(max(0.0, eff_qty * eff_unit + eff_transport - eff_discount), 2)
     current_total = float(req.get("total_amount") or req.get("estimated_price") or 0)
     if abs(new_total - current_total) > 0.01:
         advance_paid = float(req.get("advance_paid_amount") or 0)
@@ -3370,7 +3377,10 @@ async def recalculate_material_request_amount(request_id: str, user: User = Depe
 
     eff_qty = float(req.get("received_quantity") or req.get("approved_quantity") or req.get("quantity") or 0)
     eff_unit = float(req.get("unit_price") or req.get("unit_rate") or 0)
-    new_total = round(eff_qty * eff_unit, 2)
+    # Same total formula as assign-vendor: unit_price * qty + transport - discount.
+    eff_transport = float(req.get("transport_cost") or 0)
+    eff_discount = float(req.get("discount") or 0)
+    new_total = round(max(0.0, eff_qty * eff_unit + eff_transport - eff_discount), 2)
     current_total = float(req.get("total_amount") or req.get("estimated_price") or 0)
     if abs(new_total - current_total) <= 0.01:
         return {"changed": False, "total_amount": current_total}
