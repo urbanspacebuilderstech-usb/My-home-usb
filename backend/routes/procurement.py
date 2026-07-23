@@ -2873,6 +2873,34 @@ async def procurement_simple_change_vendor(request_id: str, data: dict, user: Us
     if new_vendor_id == req.get("vendor_id"):
         raise HTTPException(status_code=400, detail="Select a different vendor")
 
+    # Optional pricing edits alongside the vendor swap — same fields Procurement
+    # sets at initial assign-vendor time, so a vendor change can also correct
+    # unit price / approved qty / transport / discount without a separate step.
+    # Same total formula as assign-vendor: unit_price * qty + transport - discount.
+    old_unit_price = float(req.get("unit_price") or req.get("unit_rate") or 0)
+    old_qty = float(req.get("approved_quantity") or req.get("quantity") or 0)
+    old_transport = float(req.get("transport_cost") or 0)
+    old_discount = float(req.get("discount") or 0)
+
+    def _parse_optional_float(key, current):
+        raw = data.get(key)
+        if raw is None or raw == "":
+            return current
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"{key} must be a number")
+
+    new_unit_price = _parse_optional_float("unit_price", old_unit_price)
+    new_qty = _parse_optional_float("approved_quantity", old_qty)
+    new_transport = _parse_optional_float("transport_cost", old_transport)
+    new_discount = _parse_optional_float("discount", old_discount)
+    pricing_changed = (
+        abs(new_unit_price - old_unit_price) > 0.01 or abs(new_qty - old_qty) > 0.01 or
+        abs(new_transport - old_transport) > 0.01 or abs(new_discount - old_discount) > 0.01
+    )
+    new_total = max(0.0, new_unit_price * new_qty + new_transport - new_discount)
+
     now = datetime.now(timezone.utc).isoformat()
     history_entry = {
         "from_vendor_id": req.get("vendor_id") or "",
@@ -2884,17 +2912,39 @@ async def procurement_simple_change_vendor(request_id: str, data: dict, user: Us
         "changed_by_name": user.name,
         "changed_at": now,
     }
+    if pricing_changed:
+        history_entry.update({
+            "from_unit_price": old_unit_price, "to_unit_price": new_unit_price,
+            "from_approved_quantity": old_qty, "to_approved_quantity": new_qty,
+            "from_transport_cost": old_transport, "to_transport_cost": new_transport,
+            "from_discount": old_discount, "to_discount": new_discount,
+            "from_total": round(old_unit_price * old_qty + old_transport - old_discount, 2),
+            "to_total": round(new_total, 2),
+        })
+
+    set_fields = {
+        "vendor_id": new_vendor_id,
+        "vendor_name": new_vendor_name,
+        "vendor_change_reason": reason,
+        "vendor_changed_at": now,
+        "vendor_changed_by": user.user_id,
+        "vendor_changed_by_name": user.name,
+    }
+    if pricing_changed:
+        set_fields.update({
+            "unit_price": new_unit_price,
+            "unit_rate": new_unit_price,
+            "approved_quantity": new_qty,
+            "transport_cost": new_transport,
+            "discount": new_discount,
+            "total_amount": new_total,
+            "estimated_price": new_total,
+            "estimated_cost": new_total,
+        })
     await db.material_requests.update_one(
         {"request_id": request_id},
         {
-            "$set": {
-                "vendor_id": new_vendor_id,
-                "vendor_name": new_vendor_name,
-                "vendor_change_reason": reason,
-                "vendor_changed_at": now,
-                "vendor_changed_by": user.user_id,
-                "vendor_changed_by_name": user.name,
-            },
+            "$set": set_fields,
             "$push": {"vendor_change_history": history_entry},
         },
     )

@@ -1560,9 +1560,26 @@ function buildTimeline(r) {
     r.payment_mode && `Mode: ${r.payment_mode}`,
   ].filter(Boolean).join(' · '));
   push(r.procurement_rejected_at, 'red', 'Procurement rejected', r.procurement_rejected_by_name, r.procurement_rejection_reason);
-  // Vendor changes — one event per swap
+  // Vendor changes — one event per swap, including any pricing edited alongside it
   (r.vendor_change_history || []).forEach((h) => {
-    push(h.changed_at, 'orange', 'Vendor changed', h.changed_by_name, `${h.from_vendor_name || '—'} → ${h.to_vendor_name}${h.reason ? ` · "${h.reason}"` : ''}`);
+    const details = [`${h.from_vendor_name || '—'} → ${h.to_vendor_name}`];
+    if (h.to_unit_price !== undefined && Math.abs((h.to_unit_price || 0) - (h.from_unit_price || 0)) > 0.01) {
+      details.push(`Unit ₹${Number(h.from_unit_price).toLocaleString('en-IN')} → ₹${Number(h.to_unit_price).toLocaleString('en-IN')}`);
+    }
+    if (h.to_approved_quantity !== undefined && Math.abs((h.to_approved_quantity || 0) - (h.from_approved_quantity || 0)) > 0.01) {
+      details.push(`Qty ${h.from_approved_quantity} → ${h.to_approved_quantity}`);
+    }
+    if (h.to_transport_cost !== undefined && Math.abs((h.to_transport_cost || 0) - (h.from_transport_cost || 0)) > 0.01) {
+      details.push(`Transport ${fmt(h.from_transport_cost)} → ${fmt(h.to_transport_cost)}`);
+    }
+    if (h.to_discount !== undefined && Math.abs((h.to_discount || 0) - (h.from_discount || 0)) > 0.01) {
+      details.push(`Discount ${fmt(h.from_discount)} → ${fmt(h.to_discount)}`);
+    }
+    if (h.to_total !== undefined && Math.abs((h.to_total || 0) - (h.from_total || 0)) > 0.01) {
+      details.push(`Total ${fmt(h.from_total)} → ${fmt(h.to_total)}`);
+    }
+    if (h.reason) details.push(`"${h.reason}"`);
+    push(h.changed_at, 'orange', 'Vendor changed', h.changed_by_name, details.join(' · '));
   });
   push(r.revision_requested_at, 'orange', 'Planning sent back for revision', r.revision_requested_by_name, r.revision_remarks);
   push(r.planning_approved_at, 'emerald', 'Planning approved', r.planning_approved_by_name, '');
@@ -1774,6 +1791,10 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   const [newVendorId, setNewVendorId] = useState('');
   const [changeReason, setChangeReason] = useState('');
   const [changeBusy, setChangeBusy] = useState(false);
+  const [cvUnitPrice, setCvUnitPrice] = useState('');
+  const [cvApprovedQty, setCvApprovedQty] = useState('');
+  const [cvTransport, setCvTransport] = useState('0');
+  const [cvDiscount, setCvDiscount] = useState('0');
   // Phase-1 new fields
   const [timelineType, setTimelineType] = useState('date'); // 'date' | 'days'
   const [timelineDate, setTimelineDate] = useState('');
@@ -2070,16 +2091,35 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
               <RefreshCw className="h-3 w-3" /> Vendor Change History ({item.vendor_change_history.length})
             </p>
             <div className="space-y-1.5">
-              {item.vendor_change_history.map((h, i) => (
-                <div key={i} className="text-xs text-orange-900 border-l-2 border-orange-400 pl-2">
-                  <p><span className="line-through text-orange-600">{h.from_vendor_name || '—'}</span> → <strong>{h.to_vendor_name}</strong></p>
-                  <p className="italic">"{h.reason}"</p>
-                  <p className="text-[10px] text-orange-700">
-                    {h.changed_by_name ? `by ${h.changed_by_name}` : ''}
-                    {h.changed_at ? ` · ${fmtDate(h.changed_at)}` : ''}
-                  </p>
-                </div>
-              ))}
+              {item.vendor_change_history.map((h, i) => {
+                const pricingLines = [];
+                if (h.to_unit_price !== undefined && Math.abs((h.to_unit_price || 0) - (h.from_unit_price || 0)) > 0.01) {
+                  pricingLines.push(`Unit ₹${Number(h.from_unit_price).toLocaleString('en-IN')} → ₹${Number(h.to_unit_price).toLocaleString('en-IN')}`);
+                }
+                if (h.to_approved_quantity !== undefined && Math.abs((h.to_approved_quantity || 0) - (h.from_approved_quantity || 0)) > 0.01) {
+                  pricingLines.push(`Qty ${h.from_approved_quantity} → ${h.to_approved_quantity}`);
+                }
+                if (h.to_transport_cost !== undefined && Math.abs((h.to_transport_cost || 0) - (h.from_transport_cost || 0)) > 0.01) {
+                  pricingLines.push(`Transport ${fmt(h.from_transport_cost)} → ${fmt(h.to_transport_cost)}`);
+                }
+                if (h.to_discount !== undefined && Math.abs((h.to_discount || 0) - (h.from_discount || 0)) > 0.01) {
+                  pricingLines.push(`Discount ${fmt(h.from_discount)} → ${fmt(h.to_discount)}`);
+                }
+                if (h.to_total !== undefined && Math.abs((h.to_total || 0) - (h.from_total || 0)) > 0.01) {
+                  pricingLines.push(`Total ${fmt(h.from_total)} → ${fmt(h.to_total)}`);
+                }
+                return (
+                  <div key={i} className="text-xs text-orange-900 border-l-2 border-orange-400 pl-2">
+                    <p><span className="line-through text-orange-600">{h.from_vendor_name || '—'}</span> → <strong>{h.to_vendor_name}</strong></p>
+                    {pricingLines.length > 0 && <p className="text-orange-800">{pricingLines.join(' · ')}</p>}
+                    <p className="italic">"{h.reason}"</p>
+                    <p className="text-[10px] text-orange-700">
+                      {h.changed_by_name ? `by ${h.changed_by_name}` : ''}
+                      {h.changed_at ? ` · ${fmtDate(h.changed_at)}` : ''}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -2436,6 +2476,10 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
               onClick={() => {
                 setNewVendorId('');
                 setChangeReason('');
+                setCvUnitPrice(String(item.unit_rate || item.unit_price || ''));
+                setCvApprovedQty(String(item.approved_quantity ?? item.quantity ?? ''));
+                setCvTransport(String(item.transport_cost || 0));
+                setCvDiscount(String(item.discount || 0));
                 setChangeVendorOpen(true);
               }}
               data-testid="proc-assign-change-vendor"
@@ -2479,8 +2523,35 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
                 testId="proc-change-vendor-select"
               />
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">Unit Price (₹)</Label>
+                <Input type="number" min="0" value={cvUnitPrice} onChange={(e) => setCvUnitPrice(e.target.value)} className="mt-1" data-testid="proc-change-vendor-unit-price" />
+              </div>
+              <div>
+                <Label className="text-xs">Approved Qty</Label>
+                <Input type="number" min="0" value={cvApprovedQty} onChange={(e) => setCvApprovedQty(e.target.value)} className="mt-1" data-testid="proc-change-vendor-approved-qty" />
+              </div>
+              <div>
+                <Label className="text-xs">Transport (₹)</Label>
+                <Input type="number" min="0" value={cvTransport} onChange={(e) => setCvTransport(e.target.value)} className="mt-1" data-testid="proc-change-vendor-transport" />
+              </div>
+              <div>
+                <Label className="text-xs">Discount (₹)</Label>
+                <Input type="number" min="0" value={cvDiscount} onChange={(e) => setCvDiscount(e.target.value)} className="mt-1" data-testid="proc-change-vendor-discount" />
+              </div>
+            </div>
+            {(() => {
+              const total = Math.max(0, (parseFloat(cvUnitPrice) || 0) * (parseFloat(cvApprovedQty) || 0) + (parseFloat(cvTransport) || 0) - (parseFloat(cvDiscount) || 0));
+              return (
+                <div className="bg-emerald-50 border border-emerald-200 rounded px-3 py-2 flex items-center justify-between text-sm">
+                  <span className="text-emerald-700 font-medium">Estimated Total</span>
+                  <span className="font-bold text-emerald-800" data-testid="proc-change-vendor-total">{fmt(total)}</span>
+                </div>
+              );
+            })()}
             <div>
-              <Label className="text-xs">Reason for vendor change *</Label>
+              <Label className="text-xs">Reason for change *</Label>
               <Textarea
                 rows={3}
                 value={changeReason}
@@ -2489,7 +2560,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
                 className="mt-1 text-sm"
                 data-testid="proc-change-vendor-reason"
               />
-              <p className="text-[10px] text-gray-500 mt-1">This reason is recorded in the request history and visible to Planning, Accountant & SE.</p>
+              <p className="text-[10px] text-gray-500 mt-1">This reason and any pricing changes are recorded in the request history / Timeline, visible to Planning, Accountant & SE.</p>
             </div>
           </div>
           <DialogFooter>
@@ -2508,6 +2579,10 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
                     vendor_id: newVendorId,
                     vendor_name: chosen?.name || chosen?.vendor_name || '',
                     reason: changeReason.trim(),
+                    unit_price: cvUnitPrice,
+                    approved_quantity: cvApprovedQty,
+                    transport_cost: cvTransport,
+                    discount: cvDiscount,
                   });
                   toast.success('Vendor updated');
                   setChangeVendorOpen(false);
