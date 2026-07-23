@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Search, Check, ChevronDown } from 'lucide-react';
+import { Search, Check, ChevronDown, X } from 'lucide-react';
 
 const fmtAmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
 
@@ -11,6 +11,11 @@ const fmtAmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
  * Each option shows the material name plus a details line (qty/unit,
  * entry count, total amount) so the accountant can tell materials apart
  * before filtering the expense table down to it.
+ *
+ * Pass `multiple` to let several materials be checked at once (e.g. "8mm
+ * steel" + "16mm steel" + "Steel" together) — `value`/`onChange` then work
+ * with a string[] instead of a single string, and the popover stays open
+ * after each pick so multiple boxes can be checked in one go.
  */
 export default function MaterialSearchSelect({
   materials = [], // [{ name, qty, unit, count, amount }]
@@ -20,11 +25,18 @@ export default function MaterialSearchSelect({
   testId = 'material-search-select',
   width = 'w-64',
   accent = 'red',
+  multiple = false,
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const selected = materials.find(m => m.name.toLowerCase() === value.toLowerCase());
-  const selectedLabel = selected ? selected.name : placeholder;
+  const selectedNames = multiple ? (Array.isArray(value) ? value : []) : (value ? [value] : []);
+  const selectedNamesLower = selectedNames.map(n => n.toLowerCase());
+  const isSelected = (name) => selectedNamesLower.includes(name.toLowerCase());
+
+  const selectedLabel = multiple
+    ? (selectedNames.length === 0 ? placeholder : selectedNames.length === 1 ? selectedNames[0] : `${selectedNames.length} materials selected`)
+    : (materials.find(m => m.name.toLowerCase() === (value || '').toLowerCase())?.name || placeholder);
+
   const filtered = query.trim()
     ? materials.filter(m => m.name.toLowerCase().includes(query.trim().toLowerCase()))
     : materials;
@@ -32,6 +44,27 @@ export default function MaterialSearchSelect({
                     accent === 'amber' ? 'bg-amber-50 text-amber-700' :
                     accent === 'blue' ? 'bg-blue-50 text-blue-700' :
                     'bg-red-50 text-red-700';
+
+  const selectAll = () => {
+    if (multiple) { onChange([]); } else { onChange(''); }
+    setOpen(false);
+    setQuery('');
+  };
+
+  const toggleItem = (name) => {
+    if (!multiple) {
+      onChange(name);
+      setOpen(false);
+      setQuery('');
+      return;
+    }
+    const next = isSelected(name)
+      ? selectedNames.filter(n => n.toLowerCase() !== name.toLowerCase())
+      : [...selectedNames, name];
+    onChange(next);
+    // Keep the popover open in multi-select mode so several boxes can be
+    // checked in one sitting — only "All Materials" or clicking away closes it.
+  };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -63,15 +96,27 @@ export default function MaterialSearchSelect({
               data-testid={`${testId}-input`}
             />
           </div>
+          {multiple && selectedNames.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {selectedNames.map(name => (
+                <span key={name} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] ${accentBg}`}>
+                  {name}
+                  <button type="button" onClick={() => toggleItem(name)} className="hover:opacity-70" data-testid={`${testId}-remove-${name}`}>
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <div className="max-h-72 overflow-auto py-1">
           <button
             type="button"
-            onClick={() => { onChange(''); setOpen(false); setQuery(''); }}
-            className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-gray-50 ${!value ? `${accentBg} font-medium` : 'text-gray-700'}`}
+            onClick={selectAll}
+            className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-gray-50 ${selectedNames.length === 0 ? `${accentBg} font-medium` : 'text-gray-700'}`}
             data-testid={`${testId}-all`}
           >
-            <Check className={`h-3.5 w-3.5 ${!value ? 'opacity-100' : 'opacity-0'}`} />
+            <Check className={`h-3.5 w-3.5 ${selectedNames.length === 0 ? 'opacity-100' : 'opacity-0'}`} />
             All Materials
           </button>
           {filtered.length === 0 ? (
@@ -80,12 +125,12 @@ export default function MaterialSearchSelect({
             <button
               key={m.name}
               type="button"
-              onClick={() => { onChange(m.name); setOpen(false); setQuery(''); }}
-              className={`w-full text-left px-3 py-1.5 text-xs flex flex-col gap-0.5 hover:bg-gray-50 ${value.toLowerCase() === m.name.toLowerCase() ? `${accentBg} font-medium` : 'text-gray-700'}`}
+              onClick={() => toggleItem(m.name)}
+              className={`w-full text-left px-3 py-1.5 text-xs flex flex-col gap-0.5 hover:bg-gray-50 ${isSelected(m.name) ? `${accentBg} font-medium` : 'text-gray-700'}`}
               data-testid={`${testId}-item-${m.name}`}
             >
               <span className="flex items-center gap-2">
-                <Check className={`h-3.5 w-3.5 flex-shrink-0 ${value.toLowerCase() === m.name.toLowerCase() ? 'opacity-100' : 'opacity-0'}`} />
+                <Check className={`h-3.5 w-3.5 flex-shrink-0 ${isSelected(m.name) ? 'opacity-100' : 'opacity-0'}`} />
                 <span className="truncate">{m.name}</span>
               </span>
               <span className="pl-5.5 ml-5 text-[10px] text-gray-400 font-normal">

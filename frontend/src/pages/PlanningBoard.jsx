@@ -275,7 +275,7 @@ export default function PlanningBoard({ embedded = false }) {
   const [invSummaryRows, setInvSummaryRows] = useState([]);
   const [invSummaryLoading, setInvSummaryLoading] = useState(false);
   const [invProjectSearch, setInvProjectSearch] = useState('');
-  const [invMaterialSearch, setInvMaterialSearch] = useState('');
+  const [invMaterialSearch, setInvMaterialSearch] = useState([]); // array of selected material names (multi-select)
   const fetchDlrDprSummary = async () => {
     setDlrDprLoading(true);
     try {
@@ -2265,6 +2265,7 @@ export default function PlanningBoard({ embedded = false }) {
                                 testId="inv-summary-material-search"
                                 width="w-56"
                                 accent="indigo"
+                                multiple
                               />
                             );
                           })()}
@@ -2295,9 +2296,10 @@ export default function PlanningBoard({ embedded = false }) {
                     </CardHeader>
                     <CardContent className="p-0">
                       {(() => {
+                        const invMaterialSearchLower = invMaterialSearch.map(n => n.toLowerCase());
                         const filteredInvRows = invSummaryRows.filter(r =>
                           (!invProjectSearch || r.project_name.toLowerCase().includes(invProjectSearch.toLowerCase())) &&
-                          (!invMaterialSearch || (r.material_name || '').toLowerCase() === invMaterialSearch.toLowerCase())
+                          (invMaterialSearchLower.length === 0 || invMaterialSearchLower.includes((r.material_name || '').toLowerCase()))
                         );
                         const totals = filteredInvRows.reduce((acc, r) => {
                           const rate = Number(r.unit_rate) || 0;
@@ -2310,7 +2312,7 @@ export default function PlanningBoard({ embedded = false }) {
                           <p className="text-center text-gray-400 py-10 text-sm">Loading…</p>
                         ) : filteredInvRows.length === 0 ? (
                           <p className="text-center text-gray-400 py-10 text-sm" data-testid="inv-summary-empty">
-                            {invProjectSearch || invMaterialSearch ? 'No matching results.' : 'No inventory recorded yet.'}
+                            {invProjectSearch || invMaterialSearch.length > 0 ? 'No matching results.' : 'No inventory recorded yet.'}
                           </p>
                         ) : (
                           <>
