@@ -2357,9 +2357,9 @@ export default function PlanningBoard({ embedded = false }) {
                                     <td className="px-3 py-2 text-right text-indigo-700 font-medium whitespace-nowrap">
                                       {row.unit_rate > 0 ? formatCurrency((Number(row.current_stock) || 0) * row.unit_rate) : '—'}
                                     </td>
-                                    <td className="px-3 py-2 text-right font-medium">{row.current_stock}</td>
-                                    <td className="px-3 py-2 text-right text-emerald-700">{row.today_in > 0 ? `+${row.today_in}` : row.today_in}</td>
-                                    <td className="px-3 py-2 text-right text-red-700">{row.today_out > 0 ? `-${row.today_out}` : row.today_out}</td>
+                                    <td className="px-3 py-2 text-right font-medium">{Math.round(Number(row.current_stock) || 0).toLocaleString('en-IN')}</td>
+                                    <td className="px-3 py-2 text-right text-emerald-700">{(() => { const v = Math.round(Number(row.today_in) || 0); return v > 0 ? `+${v.toLocaleString('en-IN')}` : v; })()}</td>
+                                    <td className="px-3 py-2 text-right text-red-700">{(() => { const v = Math.round(Number(row.today_out) || 0); return v > 0 ? `-${v.toLocaleString('en-IN')}` : v; })()}</td>
                                   </tr>
                                 ))}
                               </tbody>
