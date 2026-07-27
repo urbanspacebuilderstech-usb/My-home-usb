@@ -90,6 +90,13 @@ function buildTimeline(req) {
     icon: XCircle,
     color: 'text-red-600',
   });
+  if (req.planning_initial_rejected_at) events.push({
+    label: `Planning Rejected (Initial Review)${req.planning_initial_rejection_reason ? `: "${req.planning_initial_rejection_reason}"` : ''} — edit & resubmit`,
+    by: req.planning_initial_rejected_by_name || 'Planning',
+    date: req.planning_initial_rejected_at,
+    icon: XCircle,
+    color: 'text-red-600',
+  });
   // Accountant — surface awaiting state if present (no timestamp from server but
   // status indicates we're waiting on them).
   if ((req.status === 'pending_accounts_approval' || req.status === 'pending_balance_payment') && !req.last_payment_at) {
@@ -205,8 +212,11 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate, onRe
   const StatusIcon = statusConfig.icon;
   const timeline = buildTimeline(order);
 
-  // Editable only in early stages
-  const canEdit = ['requested', 'planning_approved'].includes(order.status);
+  // Editable only in early stages. planning_initial_rejected included since
+  // the backend PATCH auto-resubmits (-> planning_initial_pending) as soon
+  // as the SE edits anything, notifying Planning again — this button was
+  // the missing piece to actually trigger that existing behavior.
+  const canEdit = ['requested', 'planning_approved', 'planning_initial_rejected'].includes(order.status);
 
   const handleSave = async () => {
     setSaving(true);

@@ -1598,6 +1598,11 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
             <span className="font-semibold">Revision sent:</span> "{req.revision_remarks}"
           </div>
         )}
+        {status === 'planning_initial_pending' && req.procurement_rejected_at && (
+          <div className="mt-2 pt-2 border-t border-red-200 text-[11px] text-red-700 truncate" data-testid="planning-procurement-reject-banner">
+            <span className="font-semibold">Procurement rejected{req.procurement_rejected_by_name ? ` (${req.procurement_rejected_by_name})` : ''}:</span> "{req.procurement_rejection_reason}"
+          </div>
+        )}
       </CardContent>
     </Card>
     </div>

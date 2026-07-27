@@ -2808,14 +2808,22 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
 
 @router.patch("/procurement-simple/material-requests/{request_id}/reject")
 async def procurement_simple_reject(request_id: str, data: dict, user: User = Depends(get_current_user)):
-    """Procurement rejects a SE material request with a reason (does NOT forward to Planning)."""
+    """Procurement rejects a SE material request with a reason — sends it to
+    Planning's initial-review queue (planning_initial_pending, same "New
+    Request (SE)" bucket a fresh SE submission lands in) instead of a
+    terminal dead-end, so Planning can decide whether to cancel it entirely
+    or clear it for another Procurement pass. Also covers procurement_revision
+    (SE escalated a Purchase-Verification reject back to New Request) —
+    previously this endpoint only accepted requested/pm_approved and 400'd
+    on that status. Mirrors the Accounts->Procurement and SE->Procurement
+    bounce-back pattern used elsewhere in this pipeline."""
     if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Procurement / Super Admin can reject")
 
     req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
-    if req.get("status") not in ["requested", "pm_approved"]:
+    if req.get("status") not in ["requested", "pm_approved", "procurement_revision"]:
         raise HTTPException(status_code=400, detail=f"Cannot reject — current status: {req.get('status')}")
     reason = (data.get("reason") or "").strip()
     if not reason:
@@ -2825,19 +2833,24 @@ async def procurement_simple_reject(request_id: str, data: dict, user: User = De
     await db.material_requests.update_one(
         {"request_id": request_id},
         {"$set": {
-            "status": "procurement_rejected",
+            "status": "planning_initial_pending",
             "procurement_rejection_reason": reason,
             "procurement_rejected_by": user.user_id,
             "procurement_rejected_by_name": user.name,
             "procurement_rejected_at": now,
         }},
     )
-    if req.get("site_engineer_id"):
-        try:
-            await create_notification(req["site_engineer_id"], f"Material request rejected by Procurement: {req.get('material_name')}")
-        except Exception:
-            pass
-    return {"message": "Request rejected"}
+    planning_users = await db.users.find(
+        {"role": {"$in": ["planning", "planning_person", "super_admin"]}, "is_active": {"$ne": False}},
+        {"_id": 0, "user_id": 1},
+    ).to_list(50)
+    for p in planning_users:
+        await create_notification(
+            p["user_id"],
+            f"Procurement rejected — sent for Planning review: {req.get('material_name', 'Unknown')} — {reason}",
+        )
+    await create_audit_log(user.user_id, "procurement_reject", "material_request", request_id, {"reason": reason})
+    return {"message": "Sent to Planning for review", "status": "planning_initial_pending"}
 
 
 @router.patch("/procurement-simple/material-requests/{request_id}/change-vendor")
