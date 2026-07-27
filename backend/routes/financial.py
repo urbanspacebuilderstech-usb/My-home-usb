@@ -7414,14 +7414,25 @@ async def reject_material_expense(expense_id: str, payload: LegacyRejectPayload 
     )
 
     # Mirror status on the parent material_request if it still exists — bounce
-    # back to Purchase Verification (instead of a terminal dead-end) when it
-    # already passed through it, so Procurement can re-review the rejection.
+    # back to Purchase Verification (instead of a terminal dead-end) whenever
+    # the parent is still "alive" (not already closed out), so Procurement
+    # can re-review the rejection. Jul 27 2026 — widened from a narrow
+    # pending_accounts_approval/pending_balance_payment allowlist to a
+    # terminal-status blocklist: the narrow allowlist missed live parents
+    # sitting in other in-flight statuses, silently falling through to a
+    # terminal reject that needed the manual "Reopen to Procurement" button.
+    # The goal is for this to always be automatic when there's a live parent
+    # to bounce back to.
+    _TERMINAL_PARENT_STATUSES = {
+        "paid", "completed", "delivered", "closed", "cancelled",
+        "rejected", "accountant_rejected", "accounts_rejected", "procurement_rejected",
+    }
     src = exp.get("source_request_id")
     parent_synced = False
     sent_to_verification = False
     if src:
         parent_req = await db.material_requests.find_one({"request_id": src}, {"_id": 0, "status": 1, "material_name": 1})
-        if parent_req and parent_req.get("status") in ("pending_accounts_approval", "pending_balance_payment"):
+        if parent_req and parent_req.get("status") not in _TERMINAL_PARENT_STATUSES:
             upd = await db.material_requests.update_one(
                 {"request_id": src},
                 {"$set": {
