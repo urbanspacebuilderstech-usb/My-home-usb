@@ -3452,6 +3452,13 @@ async def procurement_verify_reject(request_id: str, data: dict, user: User = De
             await create_notification(req["site_engineer_id"], f"Procurement rejected your delivery for {req.get('material_name')}: {reason}")
         except Exception:
             pass
+    # The SE's receipt already added this qty to the Daily Inventory
+    # Register — reverse it since the delivery is being rejected.
+    try:
+        from routes.site_ops import _reverse_material_receipt_inventory
+        await _reverse_material_receipt_inventory(request_id, reason)
+    except Exception:
+        pass
     await create_audit_log(user.user_id, "verify_reject", "material_request", request_id, {"reason": reason})
     return {"message": "Delivery verification rejected", "status": "procurement_verify_rejected"}
 

@@ -678,6 +678,78 @@ async def _material_unit_rate_map(pid: str) -> Dict[str, float]:
     return rate_map
 
 
+async def _reverse_material_receipt_inventory(request_id: str, reason: str = "") -> None:
+    """Undo the Daily Inventory Register stock-in that was auto-created when
+    this request's receipt(s) were logged (see the "Auto-create / update
+    Daily Inventory entry" block in initiate_material_receipt below).
+
+    Called whenever a request is rejected/sent back AFTER the SE already
+    logged a receipt (Procurement's verify-reject, Accounts rejecting a
+    post-verification bill, or SE escalating a rejected verification) — the
+    paperwork being invalidated means that stock-in shouldn't keep counting
+    against on-site inventory. Subtracts the received qty from that day's
+    inventory row, then cascades the same reduction through every later
+    day's opening/closing balance (since each day's opening is the prior
+    day's closing, so an early correction has to propagate forward).
+
+    Idempotent — receipts already reversed are flagged so a request bounced
+    back and forth multiple times doesn't double-subtract. Best-effort: a
+    missing day-row (data predates the auto-inventory feature, or was
+    manually edited away) is silently skipped rather than raising, since
+    this must never block the reject itself from completing.
+    """
+    request = await db.material_requests.find_one(
+        {"request_id": request_id}, {"_id": 0, "project_id": 1, "material_name": 1}
+    )
+    if not request:
+        return
+    project_id = request.get("project_id")
+    material_name = request.get("material_name")
+    if not project_id or not material_name:
+        return
+
+    receipts = await db.material_receipts.find(
+        {"request_id": request_id, "otp_verified": True, "inventory_reversed": {"$ne": True}},
+        {"_id": 0, "receipt_id": 1, "received_qty": 1, "receive_date": 1},
+    ).to_list(100)
+    if not receipts:
+        return
+
+    by_date: Dict[str, float] = {}
+    for r in receipts:
+        d = r.get("receive_date") or ""
+        qty = float(r.get("received_qty") or 0)
+        if not d or qty <= 0:
+            continue
+        by_date[d] = by_date.get(d, 0.0) + qty
+    if not by_date:
+        return
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for date, qty in sorted(by_date.items()):
+        day_row = await db.material_inventory.find_one(
+            {"project_id": project_id, "material_name": material_name, "date": date},
+            {"_id": 0, "inventory_id": 1},
+        )
+        if not day_row:
+            continue
+        await db.material_inventory.update_one(
+            {"inventory_id": day_row["inventory_id"]},
+            {"$inc": {"received": -qty, "closing_stock": -qty}, "$set": {"updated_at": now_iso}},
+        )
+        # Every later day's opening (= prior day's closing) carried this qty
+        # forward, so it has to shift down by the same amount too.
+        await db.material_inventory.update_many(
+            {"project_id": project_id, "material_name": material_name, "date": {"$gt": date}},
+            {"$inc": {"opening_stock": -qty, "closing_stock": -qty}},
+        )
+
+    await db.material_receipts.update_many(
+        {"request_id": request_id, "receipt_id": {"$in": [r["receipt_id"] for r in receipts]}},
+        {"$set": {"inventory_reversed": True, "inventory_reversed_reason": reason, "inventory_reversed_at": now_iso}},
+    )
+
+
 async def _inventory_rows_for_projects(project_name_map: Dict[str, str], date_from: str, date_to: str) -> list:
     """Project-wise material stock rollup for the given {project_id:
     project_name} map: current stock balance, unit rate, plus stock-in and
@@ -2200,6 +2272,12 @@ async def se_reject_verification_to_procurement(request_id: str, data: dict = No
             p["user_id"],
             f"Site Engineer rejected verification, sent back to New Request: {request.get('material_name', 'Unknown')} — {reason}",
         )
+    # The earlier receipt already added stock to the Daily Inventory
+    # Register — reverse it since the whole delivery is being restarted.
+    try:
+        await _reverse_material_receipt_inventory(request_id, reason)
+    except Exception:
+        pass
     await create_audit_log(user.user_id, "se_reject_verification", "material_request", request_id, {"reason": reason})
     return {"message": "Sent back to Procurement's New Request queue", "status": "procurement_revision"}
 
@@ -4025,6 +4103,14 @@ async def accountant_reject_material_request(request_id: str, reason: str = "", 
                 p["user_id"],
                 f"Accounts sent back for {verb}: {request.get('material_name', 'Unknown')} — {reason or 'no reason given'}",
             )
+        if target_status == "procurement_verifying":
+            # Post-verification only — the SE's receipt already added stock
+            # to the Daily Inventory Register; pending_advance_payment never
+            # reached a receipt, so there's nothing to reverse there.
+            try:
+                await _reverse_material_receipt_inventory(request_id, reason)
+            except Exception:
+                pass
         return {"message": f"Sent back to Procurement ({target_status})", "status": target_status}
 
     await db.material_requests.update_one(
