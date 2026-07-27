@@ -7371,11 +7371,17 @@ class LegacyRejectPayload(BaseModel):
 async def reject_material_expense(expense_id: str, payload: LegacyRejectPayload = None, user: User = Depends(get_current_user)):
     """Reject a legacy material expense (mirrors the procurement-simple reject path).
 
-    Used to clear orphan `material_expenses` rows whose parent `material_requests`
-    no longer exist (and any non-paid mexp row still in the approval queue).
-    Sets status to `accountant_rejected`, records the reason, and notifies the
-    requester. If a parent material_request still exists, it is also marked
-    rejected so the queue counter stays consistent.
+    If the parent `material_request` still exists and already passed through
+    Procurement's Purchase Verification (pending_accounts_approval /
+    pending_balance_payment), it is sent back one step to
+    `procurement_verifying` — same "Purchase Verification" bucket — and every
+    Procurement user is notified, so the invoice/qty/price can be re-checked
+    instead of the reject silently dead-ending at Accounts (matches
+    accountant_reject_material_request's behavior in site_ops.py, which the
+    "New Request" flow already used — this legacy/orphan path never had it).
+    Requests with no live parent, or one that never reached verification,
+    keep the old terminal `accountant_rejected` behavior with only the
+    requester notified.
     """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Only Accountant or Super Admin can reject")
@@ -7407,30 +7413,60 @@ async def reject_material_expense(expense_id: str, payload: LegacyRejectPayload 
         }}
     )
 
-    # Mirror status on the parent material_request if it still exists
+    # Mirror status on the parent material_request if it still exists — bounce
+    # back to Purchase Verification (instead of a terminal dead-end) when it
+    # already passed through it, so Procurement can re-review the rejection.
     src = exp.get("source_request_id")
     parent_synced = False
+    sent_to_verification = False
     if src:
-        upd = await db.material_requests.update_one(
-            {"request_id": src},
-            {"$set": {"status": "accountant_rejected", "rejection_reason": reason, "updated_at": now}}
-        )
-        parent_synced = upd.modified_count > 0
+        parent_req = await db.material_requests.find_one({"request_id": src}, {"_id": 0, "status": 1, "material_name": 1})
+        if parent_req and parent_req.get("status") in ("pending_accounts_approval", "pending_balance_payment"):
+            upd = await db.material_requests.update_one(
+                {"request_id": src},
+                {"$set": {
+                    "status": "procurement_verifying",
+                    "accounts_rejected_by": user.user_id,
+                    "accounts_rejected_reason": reason,
+                    "accounts_rejected_at": now,
+                    "updated_at": now,
+                }}
+            )
+            parent_synced = upd.modified_count > 0
+            sent_to_verification = True
+            proc_users = await db.users.find(
+                {"role": {"$in": ["procurement", "super_admin"]}, "is_active": {"$ne": False}},
+                {"_id": 0, "user_id": 1},
+            ).to_list(50)
+            for p in proc_users:
+                await create_notification(
+                    p["user_id"],
+                    f"Accounts rejected — sent back for re-verification: {parent_req.get('material_name', exp.get('material_name', 'Unknown'))} — {reason}",
+                )
+        elif parent_req:
+            upd = await db.material_requests.update_one(
+                {"request_id": src},
+                {"$set": {"status": "accountant_rejected", "rejection_reason": reason, "updated_at": now}}
+            )
+            parent_synced = upd.modified_count > 0
 
     # Notify the requester (best-effort)
     if exp.get("requested_by"):
         try:
-            await create_notification(
-                exp["requested_by"],
+            msg = (
+                f"Material expense for ₹{(exp.get('final_amount') or exp.get('estimated_cost') or 0):,.0f} was sent back to Procurement for re-verification. Reason: {reason}"
+                if sent_to_verification else
                 f"Material expense for ₹{(exp.get('final_amount') or exp.get('estimated_cost') or 0):,.0f} was rejected. Reason: {reason}"
             )
+            await create_notification(exp["requested_by"], msg)
         except Exception:
             pass
 
     return {
-        "message": "Material expense rejected",
+        "message": "Sent back to Purchase Verification" if sent_to_verification else "Material expense rejected",
         "expense_id": expense_id,
         "parent_synced": parent_synced,
+        "status": "procurement_verifying" if sent_to_verification else "accountant_rejected",
     }
 
 

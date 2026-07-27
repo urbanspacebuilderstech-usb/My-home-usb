@@ -111,7 +111,10 @@ function bucketForMaterial(req) {
   if (status === 'collected') return 'verifying';
   if (status === 'procurement_verifying') return 'verifying';
   if (['pending_accounts_approval', 'pending_advance_payment', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
-  if (status === 'in_transit') return 'transit';
+  // in_transit, and a verification reject bounced back for SE to re-collect
+  // (still "in transit" as far as Procurement's own tracking goes) both
+  // surface under Transit rather than getting buried in "All".
+  if (['in_transit', 'procurement_verify_rejected'].includes(status)) return 'transit';
   if (['delivered', 'completed', 'closed'].includes(status)) return 'delivered';
   // procurement_priced (awaiting Planning's pricing approval), rejected /
   // revision-rejected statuses — nothing for Procurement to action, visible
