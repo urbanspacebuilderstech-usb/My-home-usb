@@ -7414,29 +7414,35 @@ async def reject_material_expense(expense_id: str, payload: LegacyRejectPayload 
     )
 
     # Mirror status on the parent material_request if it still exists — bounce
-    # back to Purchase Verification (instead of a terminal dead-end) whenever
-    # the parent is still "alive" (not already closed out), so Procurement
-    # can re-review the rejection. Jul 27 2026 — widened from a narrow
-    # pending_accounts_approval/pending_balance_payment allowlist to a
-    # terminal-status blocklist: the narrow allowlist missed live parents
-    # sitting in other in-flight statuses, silently falling through to a
-    # terminal reject that needed the manual "Reopen to Procurement" button.
-    # The goal is for this to always be automatic when there's a live parent
-    # to bounce back to.
+    # back into the pipeline (instead of a terminal dead-end) whenever the
+    # parent is still "alive" (not already closed out), so Procurement can
+    # re-review the rejection. Jul 27 2026 — the bounce-back target depends
+    # on WHERE the request was rejected from:
+    #   - pending_advance_payment: rejected before the SE ever collected
+    #     anything — nothing has been verified yet, so this goes back to
+    #     Procurement's New Request bucket (procurement_revision) for a full
+    #     re-assignment, NOT Purchase Verification (which would wrongly
+    #     imply a delivery exists to re-check).
+    #   - pending_accounts_approval / pending_balance_payment (and any other
+    #     live status): the SE already delivered and Procurement already
+    #     verified it — this goes back to Purchase Verification
+    #     (procurement_verifying) for re-checking the invoice/qty/price.
     _TERMINAL_PARENT_STATUSES = {
         "paid", "completed", "delivered", "closed", "cancelled",
         "rejected", "accountant_rejected", "accounts_rejected", "procurement_rejected",
     }
     src = exp.get("source_request_id")
     parent_synced = False
-    sent_to_verification = False
+    sent_back_status = None  # 'procurement_revision' | 'procurement_verifying' | None
     if src:
         parent_req = await db.material_requests.find_one({"request_id": src}, {"_id": 0, "status": 1, "material_name": 1})
         if parent_req and parent_req.get("status") not in _TERMINAL_PARENT_STATUSES:
+            pre_verification = parent_req.get("status") == "pending_advance_payment"
+            sent_back_status = "procurement_revision" if pre_verification else "procurement_verifying"
             upd = await db.material_requests.update_one(
                 {"request_id": src},
                 {"$set": {
-                    "status": "procurement_verifying",
+                    "status": sent_back_status,
                     "accounts_rejected_by": user.user_id,
                     "accounts_rejected_reason": reason,
                     "accounts_rejected_at": now,
@@ -7444,15 +7450,15 @@ async def reject_material_expense(expense_id: str, payload: LegacyRejectPayload 
                 }}
             )
             parent_synced = upd.modified_count > 0
-            sent_to_verification = True
             proc_users = await db.users.find(
                 {"role": {"$in": ["procurement", "super_admin"]}, "is_active": {"$ne": False}},
                 {"_id": 0, "user_id": 1},
             ).to_list(50)
+            verb = "re-assignment (New Request)" if pre_verification else "re-verification"
             for p in proc_users:
                 await create_notification(
                     p["user_id"],
-                    f"Accounts rejected — sent back for re-verification: {parent_req.get('material_name', exp.get('material_name', 'Unknown'))} — {reason}",
+                    f"Accounts rejected — sent back for {verb}: {parent_req.get('material_name', exp.get('material_name', 'Unknown'))} — {reason}",
                 )
         elif parent_req:
             upd = await db.material_requests.update_one(
@@ -7465,8 +7471,8 @@ async def reject_material_expense(expense_id: str, payload: LegacyRejectPayload 
     if exp.get("requested_by"):
         try:
             msg = (
-                f"Material expense for ₹{(exp.get('final_amount') or exp.get('estimated_cost') or 0):,.0f} was sent back to Procurement for re-verification. Reason: {reason}"
-                if sent_to_verification else
+                f"Material expense for ₹{(exp.get('final_amount') or exp.get('estimated_cost') or 0):,.0f} was sent back to Procurement. Reason: {reason}"
+                if sent_back_status else
                 f"Material expense for ₹{(exp.get('final_amount') or exp.get('estimated_cost') or 0):,.0f} was rejected. Reason: {reason}"
             )
             await create_notification(exp["requested_by"], msg)
@@ -7474,10 +7480,10 @@ async def reject_material_expense(expense_id: str, payload: LegacyRejectPayload 
             pass
 
     return {
-        "message": "Sent back to Purchase Verification" if sent_to_verification else "Material expense rejected",
+        "message": f"Sent back to Procurement ({sent_back_status})" if sent_back_status else "Material expense rejected",
         "expense_id": expense_id,
         "parent_synced": parent_synced,
-        "status": "procurement_verifying" if sent_to_verification else "accountant_rejected",
+        "status": sent_back_status or "accountant_rejected",
     }
 
 

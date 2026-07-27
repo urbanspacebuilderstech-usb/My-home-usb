@@ -3981,15 +3981,20 @@ async def accountant_approve_material_request(request_id: str, action: str = "ap
 
 @router.patch("/accountant/material-requests/{request_id}/reject")
 async def accountant_reject_material_request(request_id: str, reason: str = "", user: User = Depends(get_current_user)):
-    """Accountant rejects material request.
-
-    Requests that already passed through Procurement's Purchase Verification
-    (pending_accounts_approval / pending_balance_payment) are sent back one
-    step to `procurement_verifying` — same "Purchase Verification" bucket —
-    instead of a terminal `accounts_rejected` dead end, so Procurement can
-    re-check the invoice/qty/price and re-forward it. Requests rejected
-    before verification ever happened (e.g. pending_advance_payment) have
-    nowhere earlier to bounce back to and keep the old terminal behavior."""
+    """Accountant rejects material request — bounces back into the pipeline
+    instead of a terminal accounts_rejected dead end, with the target
+    depending on where it was rejected from:
+      - pending_accounts_approval / pending_balance_payment: the SE already
+        delivered and Procurement already verified it — sent back one step
+        to `procurement_verifying` (Purchase Verification bucket) so
+        Procurement can re-check the invoice/qty/price.
+      - pending_advance_payment: rejected BEFORE the SE ever collected
+        anything, so there's nothing to "verify" yet — sent to
+        `procurement_revision` (New Request bucket) for a full
+        re-assignment instead (Jul 27 2026 — this used to stay terminal,
+        which was wrong: an advance-mode reject was landing in Purchase
+        Verification when routed through the legacy expense-reject path,
+        implying a delivery existed to re-check when none ever happened)."""
     if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Accountant can reject")
 
@@ -3998,11 +4003,13 @@ async def accountant_reject_material_request(request_id: str, reason: str = "", 
         raise HTTPException(status_code=404, detail="Request not found")
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    if request.get("status") in ("pending_accounts_approval", "pending_balance_payment"):
+    current_status = request.get("status")
+    if current_status in ("pending_accounts_approval", "pending_balance_payment", "pending_advance_payment"):
+        target_status = "procurement_revision" if current_status == "pending_advance_payment" else "procurement_verifying"
         await db.material_requests.update_one(
             {"request_id": request_id},
             {"$set": {
-                "status": "procurement_verifying",
+                "status": target_status,
                 "accounts_rejected_by": user.user_id,
                 "accounts_rejected_reason": reason,
                 "accounts_rejected_at": now_iso,
@@ -4012,12 +4019,13 @@ async def accountant_reject_material_request(request_id: str, reason: str = "", 
             {"role": {"$in": ["procurement", "super_admin"]}, "is_active": {"$ne": False}},
             {"_id": 0, "user_id": 1},
         ).to_list(50)
+        verb = "re-assignment (New Request)" if target_status == "procurement_revision" else "re-verification"
         for p in proc_users:
             await create_notification(
                 p["user_id"],
-                f"Accounts sent back for re-verification: {request.get('material_name', 'Unknown')} — {reason or 'no reason given'}",
+                f"Accounts sent back for {verb}: {request.get('material_name', 'Unknown')} — {reason or 'no reason given'}",
             )
-        return {"message": "Sent back to Purchase Verification", "status": "procurement_verifying"}
+        return {"message": f"Sent back to Procurement ({target_status})", "status": target_status}
 
     await db.material_requests.update_one(
         {"request_id": request_id},
