@@ -1407,6 +1407,16 @@ function RequestCard({ req, onClick, stockInfo = null }) {
                 Verification Rejected
               </Badge>
             )}
+            {status === 'procurement_revision' && req.se_rejected_verification_at && (
+              <Badge
+                variant="outline"
+                className="text-[10px] bg-red-50 text-red-700 border-red-300"
+                title={req.se_rejected_verification_reason || 'Site Engineer rejected verification — sent back for re-assignment'}
+                data-testid={`proc-card-se-verify-rejected-${req.request_id}`}
+              >
+                Verification Rejected (SE)
+              </Badge>
+            )}
             {pmCfg && (
               <Badge variant="outline" className={`text-[10px] ${pmCfg.cls}`} title={pmCfg.desc}>
                 {pmCfg.label}
@@ -2157,6 +2167,21 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
             <p className="text-[10px] text-orange-700">
               {item.revision_requested_by_name ? `by ${item.revision_requested_by_name}` : ''}
               {item.revision_requested_at ? ` · ${fmtDate(item.revision_requested_at)}` : ''}
+            </p>
+          </div>
+        )}
+
+        {/* Site Engineer rejected Procurement's own verification — sent back
+            for a full re-assignment instead of just re-collecting */}
+        {item.status === 'procurement_revision' && item.se_rejected_verification_at && (
+          <div className="bg-red-50 border-2 border-red-300 rounded p-3 space-y-1" data-testid="proc-se-reject-banner">
+            <p className="text-red-800 text-[10px] uppercase font-bold flex items-center gap-1">
+              <FileClock className="h-3 w-3" /> Site Engineer rejected verification — needs re-assignment
+            </p>
+            <p className="text-sm font-medium text-gray-800 italic">"{item.se_rejected_verification_reason}"</p>
+            <p className="text-[10px] text-red-700">
+              {item.se_rejected_verification_by_name ? `by ${item.se_rejected_verification_by_name}` : ''}
+              {item.se_rejected_verification_at ? ` · ${fmtDate(item.se_rejected_verification_at)}` : ''}
             </p>
           </div>
         )}

@@ -51,6 +51,7 @@ const STATUS_CONFIG = {
   collected: { label: 'Collected', color: 'bg-sky-100 text-sky-800', icon: Package },
   procurement_verifying: { label: 'Verifying', color: 'bg-fuchsia-100 text-fuchsia-800', icon: Package },
   procurement_verify_rejected: { label: 'Verification Rejected', color: 'bg-orange-100 text-orange-800', icon: XCircle },
+  procurement_revision: { label: 'Sent Back to Procurement', color: 'bg-orange-100 text-orange-800', icon: Truck },
   delivered: { label: 'Delivered', color: 'bg-teal-100 text-teal-800', icon: Truck },
   received_partial: { label: 'Partial', color: 'bg-orange-100 text-orange-800', icon: Package },
   received_completed: { label: 'Complete', color: 'bg-green-100 text-green-800', icon: CheckCircle },
@@ -2470,7 +2471,18 @@ export default function SiteEngineerProject() {
         open={!!selectedOrder}
         onClose={() => setSelectedOrder(null)}
         order={selectedOrder}
-        onUpdate={() => fetchProjectData()}
+        onUpdate={() => fetchData(false)}
+        onResubmit={(order) => { setSelectedOrder(null); openReceiveDialog(order); }}
+        onRejectToProcurement={async (order, reason) => {
+          try {
+            await axios.post(`${API}/site-engineer/material-requests/${order.request_id}/reject-to-procurement`, { reason });
+            toast.success('Sent back to Procurement for re-assignment');
+            setSelectedOrder(null);
+            fetchData(false);
+          } catch (e) {
+            toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to send back');
+          }
+        }}
       />
     </div>
   );

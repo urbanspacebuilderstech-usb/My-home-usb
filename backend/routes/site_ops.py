@@ -2146,6 +2146,64 @@ async def mark_material_collected(request_id: str, user: User = Depends(get_curr
     return {"message": "Marked as collected — log the full receipt next", "status": "collected"}
 
 
+@router.post("/site-engineer/material-requests/{request_id}/reject-to-procurement")
+async def se_reject_verification_to_procurement(request_id: str, data: dict = None, user: User = Depends(get_current_user)):
+    """SE gives up on a delivery Procurement already rejected during
+    verification (qty/invoice/price mismatch) — instead of correcting and
+    resubmitting the same collection, this sends it all the way back to
+    Procurement's New Request queue for a full re-assignment (new vendor/
+    pricing), reusing `procurement_revision` (same bucket/dialog Planning's
+    own revision-kickback already uses). Only usable on
+    procurement_verify_rejected requests — the SE's own Transit-stage
+    reject, distinct from Procurement's verify-reject that put it there."""
+    if user.role not in (UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER):
+        raise HTTPException(status_code=403, detail="Only Site Engineers can do this")
+
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Material request not found")
+
+    if user.role == UserRole.SITE_ENGINEER:
+        if request["site_engineer_id"] != user.user_id:
+            raise HTTPException(status_code=403, detail="You can only act on your own requests")
+    else:  # SR_SITE_ENGINEER
+        if request["site_engineer_id"] != user.user_id:
+            proj = await db.projects.find_one(
+                {"project_id": request.get("project_id")}, {"_id": 0, "team": 1},
+            )
+            team = (proj or {}).get("team") or {}
+            if team.get("sr_site_engineer") != user.user_id:
+                raise HTTPException(status_code=403, detail="You can only act on projects you supervise")
+
+    if request.get("status") != "procurement_verify_rejected":
+        raise HTTPException(status_code=400, detail=f"Cannot send back in status: {request.get('status')}")
+
+    reason = ((data or {}).get("reason") or "").strip() or "SE escalated after Procurement's verification reject"
+    now = datetime.now(timezone.utc).isoformat()
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {
+            "status": "procurement_revision",
+            "se_rejected_verification_at": now,
+            "se_rejected_verification_by": user.user_id,
+            "se_rejected_verification_by_name": user.name,
+            "se_rejected_verification_reason": reason,
+            "updated_at": now,
+        }}
+    )
+    proc_users = await db.users.find(
+        {"role": {"$in": ["procurement", "super_admin"]}, "is_active": {"$ne": False}},
+        {"_id": 0, "user_id": 1},
+    ).to_list(50)
+    for p in proc_users:
+        await create_notification(
+            p["user_id"],
+            f"Site Engineer rejected verification, sent back to New Request: {request.get('material_name', 'Unknown')} — {reason}",
+        )
+    await create_audit_log(user.user_id, "se_reject_verification", "material_request", request_id, {"reason": reason})
+    return {"message": "Sent back to Procurement's New Request queue", "status": "procurement_revision"}
+
+
 @router.post("/site-engineer/material-receipts/initiate")
 async def initiate_material_receipt(
     data: MaterialReceiptCreate,
@@ -2182,7 +2240,9 @@ async def initiate_material_receipt(
     # `in_transit` is deliberately excluded — the modern flow requires SE to
     # mark-collected first (see /mark-collected above), which flips status to
     # `collected`. Legacy statuses below bypass that checkpoint unchanged.
-    if request["status"] not in ["accountant_approved", "ready_for_delivery", "received_partial", "order_placed", "collected"]:
+    # `procurement_verify_rejected` lets the SE correct qty/photos and
+    # resubmit after Procurement rejected the original delivery verification.
+    if request["status"] not in ["accountant_approved", "ready_for_delivery", "received_partial", "order_placed", "collected", "procurement_verify_rejected"]:
         raise HTTPException(status_code=400, detail="Material is not ready for receiving")
 
     now_iso = datetime.now(timezone.utc).isoformat()

@@ -168,10 +168,18 @@ function buildTimeline(req) {
   });
 }
 
-export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
+export default function OrderDetailDialog({ open, onClose, order, onUpdate, onResubmit, onRejectToProcurement }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({});
+  // Jul 27 2026 — SE-only recovery actions for a delivery Procurement
+  // rejected during verification. Only rendered when the parent opts in by
+  // passing onResubmit/onRejectToProcurement (SE's own project page does;
+  // Planning/PM's read-only usages of this shared dialog don't), so those
+  // views are completely unaffected.
+  const [rejectMode, setRejectMode] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectingToProc, setRejectingToProc] = useState(false);
 
   useEffect(() => {
     if (order) {
@@ -186,6 +194,8 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
         expected_delivery: order.expected_delivery || '',
       });
       setEditing(false);
+      setRejectMode(false);
+      setRejectReason('');
     }
   }, [order]);
 
@@ -226,6 +236,19 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
       toast.error(err.response?.data?.detail || 'Failed to update order');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const canResubmitOrReject = order.status === 'procurement_verify_rejected' && (onResubmit || onRejectToProcurement);
+
+  const handleRejectToProcurement = async () => {
+    setRejectingToProc(true);
+    try {
+      await onRejectToProcurement(order, rejectReason.trim());
+      setRejectMode(false);
+      setRejectReason('');
+    } finally {
+      setRejectingToProc(false);
     }
   };
 
@@ -595,6 +618,41 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
                   {order.received_by_name && (
                     <div><p className="text-[10px] uppercase font-semibold text-gray-500">Received By</p><p className="font-medium">{order.received_by_name}</p></div>
                   )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SE recovery actions — only when Procurement rejected verification
+              and the parent page opted in (SE's own project page). */}
+          {canResubmitOrReject && !editing && (
+            <div className="bg-orange-50/60 rounded-lg p-3 border border-orange-200 space-y-2" data-testid="order-verify-rejected-actions">
+              <h3 className="text-xs sm:text-sm font-semibold text-orange-800 flex items-center gap-2">
+                <XCircle className="h-4 w-4 text-orange-600" /> Procurement rejected this delivery
+              </h3>
+              {!rejectMode ? (
+                <div className="flex flex-wrap gap-2">
+                  {onResubmit && (
+                    <Button size="sm" className="gap-1 bg-orange-600 hover:bg-orange-700 text-xs" onClick={() => onResubmit(order)} data-testid="order-resubmit-btn">
+                      <Pencil className="h-3 w-3" /> Edit Qty / Photos & Resubmit
+                    </Button>
+                  )}
+                  {onRejectToProcurement && (
+                    <Button size="sm" variant="outline" className="gap-1 text-xs border-red-300 text-red-600 hover:bg-red-50" onClick={() => setRejectMode(true)} data-testid="order-reject-to-proc-btn">
+                      <XCircle className="h-3 w-3" /> Reject — Send to New Request
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label className="text-xs text-gray-600">Reason (sent to Procurement)</Label>
+                  <Textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={2} className="text-sm" placeholder="e.g. Wrong vendor delivered, restart procurement" data-testid="order-reject-reason" />
+                  <div className="flex justify-end gap-2">
+                    <Button size="sm" variant="ghost" onClick={() => { setRejectMode(false); setRejectReason(''); }} disabled={rejectingToProc}>Cancel</Button>
+                    <Button size="sm" className="gap-1 bg-red-600 hover:bg-red-700 text-xs" onClick={handleRejectToProcurement} disabled={rejectingToProc} data-testid="order-reject-confirm-btn">
+                      <XCircle className="h-3 w-3" /> {rejectingToProc ? 'Sending...' : 'Confirm — Send to New Request'}
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
