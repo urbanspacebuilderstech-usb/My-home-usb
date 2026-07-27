@@ -50,6 +50,7 @@ const STATUS_CONFIG = {
   in_transit: { label: 'In Transit', color: 'bg-blue-100 text-blue-800', icon: Truck },
   collected: { label: 'Collected', color: 'bg-sky-100 text-sky-800', icon: Package },
   procurement_verifying: { label: 'Verifying', color: 'bg-fuchsia-100 text-fuchsia-800', icon: Package },
+  procurement_verify_rejected: { label: 'Verification Rejected', color: 'bg-orange-100 text-orange-800', icon: XCircle },
   delivered: { label: 'Delivered', color: 'bg-teal-100 text-teal-800', icon: Truck },
   received_partial: { label: 'Partial', color: 'bg-orange-100 text-orange-800', icon: Package },
   received_completed: { label: 'Complete', color: 'bg-green-100 text-green-800', icon: CheckCircle },
@@ -79,8 +80,11 @@ function materialStageIndex(status) {
   if (['delivered', 'completed', 'closed'].includes(s)) return 6;
   if (['pending_accounts_approval', 'pending_advance_payment', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(s)) return 5;
   if (s === 'procurement_verifying') return 4;
-  if (['collected', 'procurement_verify_rejected'].includes(s)) return 3;
-  if (s === 'in_transit') return 2;
+  if (s === 'collected') return 3;
+  // Procurement rejected the delivery verification (qty/invoice/price
+  // mismatch) — treated as back in Transit since the SE needs to
+  // re-deliver/re-collect rather than it being done sitting at Collected.
+  if (['in_transit', 'procurement_verify_rejected'].includes(s)) return 2;
   if (['requested', 'pm_approved', 'procurement_priced', 'procurement_revision'].includes(s)) return 1;
   return 0; // planning_initial_pending / rejected / anything unrecognized — just Requested
 }
@@ -112,7 +116,10 @@ const MaterialStageFlow = ({ status }) => {
 // Completed) is Procurement's & Accounts' job, so those — along with any
 // rejected/revision status — roll into "Collect Material" or "Awaiting
 // Planning"/"Awaiting Procurement" (whichever stage they bounced back to)
-// rather than getting their own tab; still reachable via "All".
+// rather than getting their own tab; still reachable via "All". Exception:
+// procurement_verify_rejected (Procurement rejected the delivery on
+// qty/invoice/price mismatch) rolls back into Transit instead, since the SE
+// has to act again (re-deliver/re-collect), not "nothing left to do".
 const LIFECYCLE_BUCKETS = [
   { key: 'all',                 label: 'All',                  Icon: ListChecks,    cls: 'bg-violet-50 border-violet-200 text-violet-700',    active: 'bg-violet-600 text-white border-violet-600' },
   { key: 'planning_initial',    label: 'Awaiting Planning',    Icon: ClipboardList, cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',    active: 'bg-yellow-600 text-white border-yellow-600' },
@@ -125,12 +132,16 @@ function bucketForMaterial(req) {
   const status = (req.status || '').toLowerCase();
   if (['planning_initial_pending', 'planning_initial_rejected'].includes(status)) return 'planning_initial';
   if (['requested', 'pm_approved', 'procurement_priced', 'procurement_revision'].includes(status)) return 'awaiting_procurement';
-  if (['in_transit', 'ready_for_delivery'].includes(status)) return 'transit';
+  // procurement_verify_rejected: Procurement rejected the delivery
+  // verification (qty/invoice/price mismatch) and bounced it back — the SE
+  // needs to re-deliver/re-collect, so it belongs back in Transit rather
+  // than the terminal "nothing left to do" Collected bucket.
+  if (['in_transit', 'ready_for_delivery', 'procurement_verify_rejected'].includes(status)) return 'transit';
   // Everything from "SE marked collected" onward — Purchase Verification,
   // Payment Pending, and Completed/Delivered — sits in the SE's last
   // actionable bucket since there's nothing left for the SE to do.
   if ([
-    'collected', 'procurement_verify_rejected', 'procurement_verifying',
+    'collected', 'procurement_verifying',
     'pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved', 'accountant_approved',
     'delivered', 'completed', 'closed', 'received_partial', 'received_completed',
   ].includes(status)) return 'collected';

@@ -1387,6 +1387,26 @@ function RequestCard({ req, onClick, stockInfo = null }) {
             <Badge variant="outline" className={`text-[10px] ${cardCfg?.cls || ''}`}>
               {cardCfg?.label || status}
             </Badge>
+            {status === 'procurement_verifying' && req.accounts_rejected_at && (
+              <Badge
+                variant="outline"
+                className="text-[10px] bg-red-50 text-red-700 border-red-300"
+                title={req.accounts_rejected_reason || 'Rejected by Accounts — sent back for re-verification'}
+                data-testid={`proc-card-accounts-rejected-${req.request_id}`}
+              >
+                Accounts Rejected
+              </Badge>
+            )}
+            {status === 'procurement_verify_rejected' && (
+              <Badge
+                variant="outline"
+                className="text-[10px] bg-orange-50 text-orange-700 border-orange-300"
+                title={req.procurement_verify_rejection_reason || 'Rejected in Purchase Verification'}
+                data-testid={`proc-card-verify-rejected-${req.request_id}`}
+              >
+                Verification Rejected
+              </Badge>
+            )}
             {pmCfg && (
               <Badge variant="outline" className={`text-[10px] ${pmCfg.cls}`} title={pmCfg.desc}>
                 {pmCfg.label}
