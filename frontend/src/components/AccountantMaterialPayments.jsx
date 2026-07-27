@@ -98,6 +98,21 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
     }
   };
 
+  const [reopening, setReopening] = useState('');
+  const reopenToProcurement = async (exp) => {
+    setReopening(exp.expense_id);
+    try {
+      await axios.post(`${API}/approvals/material/${exp.expense_id}/reopen-to-procurement`);
+      toast.success('Sent back to Procurement for re-verification');
+      fetchQueue();
+      if (onRefresh) onRefresh();
+    } catch (e) {
+      toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Reopen failed');
+    } finally {
+      setReopening('');
+    }
+  };
+
   const submitReject = async () => {
     const exp = rejectDialog.exp;
     if (!exp) return;
@@ -379,18 +394,35 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                   </div>
                 </div>
                 <div className="flex justify-end gap-2 mt-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs gap-1 border-red-300 text-red-600 hover:bg-red-50"
-                    onClick={() => setRejectDialog({ open: true, exp, kind: 'legacy', reason: '', busy: false })}
-                    data-testid={`acc-mat-reject-legacy-${exp.expense_id}`}
-                  >
-                    <XCircle className="h-3 w-3" /> Reject
-                  </Button>
-                  <Button size="sm" className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => setPayDialog({ open: true, requestId: exp.expense_id })} data-testid={`acc-mat-release-legacy-${exp.expense_id}`}>
-                    <Wallet className="h-3 w-3" /> Release Payment
-                  </Button>
+                  {['accountant_rejected', 'rejected'].includes(exp.status) ? (
+                    exp.source_request_id && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs gap-1 border-fuchsia-300 text-fuchsia-700 hover:bg-fuchsia-50"
+                        onClick={() => reopenToProcurement(exp)}
+                        disabled={reopening === exp.expense_id}
+                        data-testid={`acc-mat-reopen-legacy-${exp.expense_id}`}
+                      >
+                        <RefreshCw className="h-3 w-3" /> {reopening === exp.expense_id ? 'Reopening...' : 'Reopen to Procurement'}
+                      </Button>
+                    )
+                  ) : (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs gap-1 border-red-300 text-red-600 hover:bg-red-50"
+                        onClick={() => setRejectDialog({ open: true, exp, kind: 'legacy', reason: '', busy: false })}
+                        data-testid={`acc-mat-reject-legacy-${exp.expense_id}`}
+                      >
+                        <XCircle className="h-3 w-3" /> Reject
+                      </Button>
+                      <Button size="sm" className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => setPayDialog({ open: true, requestId: exp.expense_id })} data-testid={`acc-mat-release-legacy-${exp.expense_id}`}>
+                        <Wallet className="h-3 w-3" /> Release Payment
+                      </Button>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>

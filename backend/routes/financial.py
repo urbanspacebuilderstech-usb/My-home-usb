@@ -7470,6 +7470,69 @@ async def reject_material_expense(expense_id: str, payload: LegacyRejectPayload 
     }
 
 
+@router.post("/approvals/material/{expense_id}/reopen-to-procurement")
+async def reopen_material_expense_to_procurement(expense_id: str, user: User = Depends(get_current_user)):
+    """One-time manual recovery for a material_expenses row that was rejected
+    BEFORE the reject_material_expense fix above existed (it used to
+    dead-end at a terminal accountant_rejected with no Procurement
+    involvement). Reopens it exactly like a fresh reject would today: parent
+    material_request -> procurement_verifying, every Procurement user
+    notified. Only acts on rows still in a rejected state with a live
+    parent request — otherwise it's a no-op error, never silently
+    re-triggers anything on an already-progressing request."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant or Super Admin can reopen")
+
+    exp = await db.material_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not exp:
+        raise HTTPException(status_code=404, detail="Material expense not found")
+    if exp.get("status") not in ("accountant_rejected", "rejected"):
+        raise HTTPException(status_code=400, detail=f"Not in a rejected state: {exp.get('status')}")
+
+    src = exp.get("source_request_id")
+    if not src:
+        raise HTTPException(status_code=400, detail="No parent material_request linked — nothing to reopen")
+    parent_req = await db.material_requests.find_one({"request_id": src}, {"_id": 0, "material_name": 1})
+    if not parent_req:
+        raise HTTPException(status_code=404, detail="Parent material_request no longer exists — nothing to reopen")
+
+    now = datetime.now(timezone.utc).isoformat()
+    reason = exp.get("rejection_reason") or "Reopened for re-verification"
+    await db.material_requests.update_one(
+        {"request_id": src},
+        {"$set": {
+            "status": "procurement_verifying",
+            "accounts_rejected_by": user.user_id,
+            "accounts_rejected_reason": reason,
+            "accounts_rejected_at": now,
+            "updated_at": now,
+        }}
+    )
+    # material_expenses row is left as-is (still accountant_rejected) — the
+    # existing procurement_verify_approve mirror-refresh logic finds it by
+    # source_request_id and rewrites it to pending_accounts_approval once
+    # Procurement re-forwards, same as any other re-verification.
+    proc_users = await db.users.find(
+        {"role": {"$in": ["procurement", "super_admin"]}, "is_active": {"$ne": False}},
+        {"_id": 0, "user_id": 1},
+    ).to_list(50)
+    for p in proc_users:
+        await create_notification(
+            p["user_id"],
+            f"Accounts rejected — sent back for re-verification: {parent_req.get('material_name', exp.get('material_name', 'Unknown'))} — {reason}",
+        )
+    if exp.get("requested_by"):
+        try:
+            await create_notification(
+                exp["requested_by"],
+                f"Material expense for ₹{(exp.get('final_amount') or exp.get('estimated_cost') or 0):,.0f} was sent back to Procurement for re-verification.",
+            )
+        except Exception:
+            pass
+
+    return {"message": "Sent back to Purchase Verification", "request_id": src, "status": "procurement_verifying"}
+
+
 # ==================== UNIFIED PAY APPROVAL ENDPOINT ====================
 # Single endpoint handles payment for material/labour/petty_cash requests.
 # Logic:
