@@ -623,10 +623,40 @@ async def _dlr_dpr_rows_for_projects(project_name_map: Dict[str, str], date_from
 
 
 async def _material_unit_rate_map(pid: str) -> Dict[str, float]:
-    """Average unit rate per material for a project, derived from approved
-    material_requests / material_expenses (final_price/estimated_price ÷
-    quantity) — same computation GET /material-inventory/dashboard already
-    uses for its "Current Stock Amount" figure."""
+    """Unit rate per material for a project — mirrors whichever unit_price
+    Procurement most recently approved/assigned for that material (the same
+    figure shown on the Procurement board's "Unit Price" column), keyed by
+    each request's latest update time. This used to be a weighted average
+    (total value ÷ total qty) across every historical material_requests /
+    material_expenses row for that material name, but a single old
+    mis-priced or mis-quantified record could silently skew that average
+    far from the real current rate (e.g. Procurement showing ₹60/unit while
+    Inventory showed ₹6,180/unit for the same material). Falls back to the
+    material_expenses weighted average only for materials that were never
+    priced through a formal material_request."""
+    rate_map: Dict[str, float] = {}
+    latest_ts: Dict[str, str] = {}
+
+    priced_docs = await db.material_requests.find(
+        {
+            "project_id": pid,
+            "status": {"$nin": ["rejected", "cancelled", "deleted"]},
+            "$or": [{"unit_price": {"$gt": 0}}, {"unit_rate": {"$gt": 0}}],
+        },
+        {"_id": 0, "material_name": 1, "unit_price": 1, "unit_rate": 1, "updated_at": 1, "created_at": 1},
+    ).to_list(2000)
+    for d in priced_docs:
+        name = d.get("material_name")
+        if not name:
+            continue
+        unit = float(d.get("unit_price") or d.get("unit_rate") or 0)
+        if unit <= 0:
+            continue
+        ts = str(d.get("updated_at") or d.get("created_at") or "")
+        if name not in latest_ts or ts >= latest_ts[name]:
+            latest_ts[name] = ts
+            rate_map[name] = unit
+
     price_pipeline = [
         {"$match": {"project_id": pid}},
         {"$group": {
@@ -635,19 +665,17 @@ async def _material_unit_rate_map(pid: str) -> Dict[str, float]:
             "total_qty": {"$sum": {"$ifNull": ["$quantity", 0]}},
         }},
     ]
-    price_map: Dict[str, float] = {}
-    for src_coll in ("material_requests", "material_expenses"):
-        rows = await getattr(db, src_coll).aggregate(price_pipeline).to_list(500)
-        for row in rows:
-            name = row.get("_id")
-            qty = float(row.get("total_qty") or 0)
-            val = float(row.get("total_value") or 0)
-            if not name or qty <= 0:
-                continue
-            unit = val / qty if qty > 0 else 0
-            if src_coll == "material_requests" or name not in price_map:
-                price_map[name] = unit
-    return price_map
+    rows = await db.material_expenses.aggregate(price_pipeline).to_list(500)
+    for row in rows:
+        name = row.get("_id")
+        if not name or name in rate_map:
+            continue
+        qty = float(row.get("total_qty") or 0)
+        val = float(row.get("total_value") or 0)
+        if qty <= 0:
+            continue
+        rate_map[name] = val / qty
+    return rate_map
 
 
 async def _inventory_rows_for_projects(project_name_map: Dict[str, str], date_from: str, date_to: str) -> list:
