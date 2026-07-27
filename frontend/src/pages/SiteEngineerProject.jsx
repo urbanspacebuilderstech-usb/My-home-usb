@@ -287,6 +287,12 @@ export default function SiteEngineerProject() {
   // Quick "Out Stock" / consume dialog
   const [consumeDialog, setConsumeDialog] = useState({ open: false, material: null, qty: '', notes: '' });
   const [savingConsume, setSavingConsume] = useState(false);
+  // Super-Admin-only manual stock correction — for fixing test/demo data or
+  // reconciling a discrepancy the automatic receive/consume/reversal flows
+  // can't cleanly resolve on their own (e.g. a rejected receipt that can't
+  // fully back out stock already consumed elsewhere).
+  const [adjustDialog, setAdjustDialog] = useState({ open: false, material: null, newStock: '', reason: '' });
+  const [savingAdjust, setSavingAdjust] = useState(false);
   // Per-material stock history dialog
   const [stockHistoryDialog, setStockHistoryDialog] = useState({ open: false, materialName: '', loading: false, entries: [] });
 
@@ -569,6 +575,27 @@ export default function SiteEngineerProject() {
     } catch (err) {
       toast.error(err?.response?.data?.detail || 'Failed to record consumption');
     } finally { setSavingConsume(false); }
+  };
+
+  const submitAdjust = async () => {
+    const newStock = parseFloat(adjustDialog.newStock);
+    if (isNaN(newStock)) { toast.error('Enter a valid number'); return; }
+    if (!adjustDialog.reason.trim()) { toast.error('Enter a reason'); return; }
+    setSavingAdjust(true);
+    try {
+      await axios.post(`${API}/material-inventory/adjust`, {
+        project_id: projectId,
+        material_name: adjustDialog.material.material_name,
+        unit: adjustDialog.material.unit,
+        new_closing_stock: newStock,
+        reason: adjustDialog.reason.trim(),
+      });
+      toast.success('Stock adjusted');
+      setAdjustDialog({ open: false, material: null, newStock: '', reason: '' });
+      fetchStockData(stockDate);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Failed to adjust stock');
+    } finally { setSavingAdjust(false); }
   };
 
   const openStockHistory = async (materialName) => {
@@ -1987,16 +2014,30 @@ export default function SiteEngineerProject() {
                                     )}
                                   </td>
                                   <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-7 px-2 text-[10px] gap-1 border-red-300 text-red-700 hover:bg-red-50"
-                                      onClick={() => setConsumeDialog({ open: true, material: m, qty: '', notes: '' })}
-                                      disabled={m.current_stock <= 0}
-                                      data-testid={`inv-consume-${m.material_name}`}
-                                    >
-                                      <ArrowRight className="h-3 w-3" /> Out Stock
-                                    </Button>
+                                    <div className="flex items-center justify-center gap-1">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 px-2 text-[10px] gap-1 border-red-300 text-red-700 hover:bg-red-50"
+                                        onClick={() => setConsumeDialog({ open: true, material: m, qty: '', notes: '' })}
+                                        disabled={m.current_stock <= 0}
+                                        data-testid={`inv-consume-${m.material_name}`}
+                                      >
+                                        <ArrowRight className="h-3 w-3" /> Out Stock
+                                      </Button>
+                                      {user?.role === 'super_admin' && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 px-2 text-[10px] gap-1 border-gray-300 text-gray-600 hover:bg-gray-50"
+                                          onClick={() => setAdjustDialog({ open: true, material: m, newStock: String(m.current_stock ?? 0), reason: '' })}
+                                          title="Manually correct this material's stock (Super Admin)"
+                                          data-testid={`inv-adjust-${m.material_name}`}
+                                        >
+                                          Adjust
+                                        </Button>
+                                      )}
+                                    </div>
                                   </td>
                                 </tr>
                               );})}
@@ -2411,6 +2452,50 @@ export default function SiteEngineerProject() {
             <Button variant="outline" size="sm" onClick={() => setConsumeDialog({ open: false, material: null, qty: '', notes: '' })} disabled={savingConsume}>Cancel</Button>
             <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={submitConsume} disabled={savingConsume} data-testid="consume-confirm">
               {savingConsume ? 'Recording…' : 'Record Out Stock'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Adjust Stock dialog — Super Admin only, manual correction */}
+      <Dialog open={adjustDialog.open} onOpenChange={(o) => !o && setAdjustDialog({ open: false, material: null, newStock: '', reason: '' })}>
+        <DialogContent className="max-w-md" data-testid="adjust-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-gray-700">Adjust Stock — Manual Correction</DialogTitle>
+            <DialogDescription className="text-xs">
+              {adjustDialog.material?.material_name} · Current: <strong>{adjustDialog.material?.current_stock} {adjustDialog.material?.unit}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">New current stock *</Label>
+              <Input
+                type="number"
+                step="any"
+                value={adjustDialog.newStock}
+                onChange={(e) => setAdjustDialog({ ...adjustDialog, newStock: e.target.value })}
+                className="h-9 text-sm"
+                autoFocus
+                data-testid="adjust-new-stock"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Reason *</Label>
+              <Textarea
+                rows={2}
+                value={adjustDialog.reason}
+                onChange={(e) => setAdjustDialog({ ...adjustDialog, reason: e.target.value })}
+                placeholder="e.g. Correcting stale demo/test data after request rejected"
+                className="text-sm"
+                data-testid="adjust-reason"
+              />
+            </div>
+            <p className="text-[10px] text-gray-400">This directly overwrites today's closing stock — use only to correct genuine data errors.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setAdjustDialog({ open: false, material: null, newStock: '', reason: '' })} disabled={savingAdjust}>Cancel</Button>
+            <Button size="sm" className="bg-gray-700 hover:bg-gray-800" onClick={submitAdjust} disabled={savingAdjust} data-testid="adjust-confirm">
+              {savingAdjust ? 'Saving…' : 'Save Correction'}
             </Button>
           </DialogFooter>
         </DialogContent>

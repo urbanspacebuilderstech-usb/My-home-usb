@@ -805,6 +805,75 @@ async def consume_inventory(data: dict, user: User = Depends(get_current_user)):
     return {"message": "Stock consumption recorded", "inventory_id": inventory_id, "used_qty": qty}
 
 
+@router.post("/material-inventory/adjust")
+async def adjust_material_inventory(data: dict, user: User = Depends(get_current_user)):
+    """Manually correct a material's current stock to an exact value —
+    Super Admin only. For fixing test/demo data or reconciling a
+    discrepancy the automatic receive/consume/reversal flows can't cleanly
+    resolve on their own (e.g. a rejected receipt that can't fully back out
+    stock already consumed elsewhere, since that consumption legitimately
+    already happened). Writes/overwrites TODAY's inventory row so the
+    correction is auditable (adjustment_reason/adjusted_by) instead of
+    silently rewriting history."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can adjust inventory")
+
+    project_id = data.get("project_id")
+    material_name = (data.get("material_name") or "").strip()
+    reason = (data.get("reason") or "").strip()
+    if not project_id or not material_name:
+        raise HTTPException(status_code=400, detail="project_id and material_name required")
+    if not reason:
+        raise HTTPException(status_code=400, detail="Reason is required")
+    try:
+        new_closing_stock = float(data.get("new_closing_stock"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="new_closing_stock must be a number")
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    now = datetime.now(timezone.utc).isoformat()
+    existing_today = await db.material_inventory.find_one(
+        {"project_id": project_id, "material_name": material_name, "date": today},
+        {"_id": 0},
+    )
+    adjust_fields = {
+        "closing_stock": new_closing_stock,
+        "adjustment_reason": reason,
+        "adjusted_by": user.user_id,
+        "adjusted_by_name": user.name,
+        "adjusted_at": now,
+        "updated_at": now,
+    }
+    if existing_today:
+        await db.material_inventory.update_one(
+            {"inventory_id": existing_today["inventory_id"]},
+            {"$set": adjust_fields},
+        )
+        inventory_id = existing_today["inventory_id"]
+    else:
+        prior = await db.material_inventory.find_one(
+            {"project_id": project_id, "material_name": material_name, "date": {"$lt": today}},
+            sort=[("date", -1), ("created_at", -1)],
+            projection={"_id": 0, "closing_stock": 1, "unit": 1},
+        )
+        inventory_id = f"inv_{uuid.uuid4().hex[:8]}"
+        await db.material_inventory.insert_one({
+            "inventory_id": inventory_id,
+            "project_id": project_id,
+            "material_name": material_name,
+            "unit": (prior or {}).get("unit") or data.get("unit") or "",
+            "date": today,
+            "opening_stock": float((prior or {}).get("closing_stock") or 0),
+            "received": 0.0,
+            "used": 0.0,
+            "source": "manual_adjustment",
+            "created_by": user.user_id,
+            "created_at": now,
+            **adjust_fields,
+        })
+    return {"message": "Stock adjusted", "inventory_id": inventory_id, "closing_stock": new_closing_stock}
+
+
 # ==================== PROJECT CONTRACTOR ASSIGNMENTS ====================
 
 @router.get("/projects/{project_id}/contractor-assignments")

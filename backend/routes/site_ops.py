@@ -697,6 +697,13 @@ async def _reverse_material_receipt_inventory(request_id: str, reason: str = "")
     missing day-row (data predates the auto-inventory feature, or was
     manually edited away) is silently skipped rather than raising, since
     this must never block the reject itself from completing.
+
+    Clamped — if the material was already consumed (a separate "Out Stock"
+    entry ate into it before the reject happened), there's nothing left to
+    take back; each day's reduction is capped at that day's own closing
+    stock so this can never drive it negative. Walks forward day-by-day
+    from the receipt date, carrying any un-absorbed remainder to the next
+    day, rather than blindly subtracting the same amount from every day.
     """
     request = await db.material_requests.find_one(
         {"request_id": request_id}, {"_id": 0, "project_id": 1, "material_name": 1}
@@ -727,22 +734,29 @@ async def _reverse_material_receipt_inventory(request_id: str, reason: str = "")
 
     now_iso = datetime.now(timezone.utc).isoformat()
     for date, qty in sorted(by_date.items()):
-        day_row = await db.material_inventory.find_one(
-            {"project_id": project_id, "material_name": material_name, "date": date},
-            {"_id": 0, "inventory_id": 1},
-        )
-        if not day_row:
-            continue
-        await db.material_inventory.update_one(
-            {"inventory_id": day_row["inventory_id"]},
-            {"$inc": {"received": -qty, "closing_stock": -qty}, "$set": {"updated_at": now_iso}},
-        )
-        # Every later day's opening (= prior day's closing) carried this qty
-        # forward, so it has to shift down by the same amount too.
-        await db.material_inventory.update_many(
-            {"project_id": project_id, "material_name": material_name, "date": {"$gt": date}},
-            {"$inc": {"opening_stock": -qty, "closing_stock": -qty}},
-        )
+        rows = await db.material_inventory.find(
+            {"project_id": project_id, "material_name": material_name, "date": {"$gte": date}},
+            {"_id": 0, "inventory_id": 1, "date": 1, "received": 1, "closing_stock": 1},
+        ).sort("date", 1).to_list(1000)
+        remaining = qty
+        for row in rows:
+            if remaining <= 0:
+                break
+            closing = float(row.get("closing_stock") or 0)
+            cut = max(0.0, min(remaining, closing))
+            if cut <= 0:
+                continue
+            inc = {"closing_stock": -cut}
+            if row["date"] == date:
+                inc["received"] = -min(cut, float(row.get("received") or 0))
+            else:
+                # This day's opening = the prior day's (now-reduced) closing.
+                inc["opening_stock"] = -cut
+            await db.material_inventory.update_one(
+                {"inventory_id": row["inventory_id"]},
+                {"$inc": inc, "$set": {"updated_at": now_iso}},
+            )
+            remaining -= cut
 
     await db.material_receipts.update_many(
         {"request_id": request_id, "receipt_id": {"$in": [r["receipt_id"] for r in receipts]}},
