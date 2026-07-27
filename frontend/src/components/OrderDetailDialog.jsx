@@ -160,6 +160,31 @@ function buildTimeline(req) {
   if (req.dispatched_at && req.dispatched_at !== req.transit_started_at) events.push({ label: 'Material Dispatched', by: req.vendor_name || 'Vendor', date: req.dispatched_at, icon: Truck, color: 'text-blue-600' });
   if (req.received_at) events.push({ label: 'Material Received', by: req.received_by_name || req.site_engineer_name || 'Site Engineer', date: req.received_at, icon: Package, color: 'text-green-600' });
   if (req.delivered_at && req.delivered_at !== req.received_at) events.push({ label: 'Delivered', by: req.received_by_name || 'Site Engineer', date: req.delivered_at, icon: Package, color: 'text-emerald-600' });
+  // Purchase Verification loop — Procurement rejecting the delivery,
+  // Accounts bouncing an already-verified bill back for re-check, and the
+  // SE giving up and sending it back for a full re-assignment all stamp
+  // their own timestamp/reason fields that weren't being surfaced here.
+  if (req.procurement_verify_rejected_at) events.push({
+    label: `Procurement Rejected Verification${req.procurement_verify_rejection_reason ? `: "${req.procurement_verify_rejection_reason}"` : ''}`,
+    by: req.procurement_verify_rejected_by_name || 'Procurement',
+    date: req.procurement_verify_rejected_at,
+    icon: XCircle,
+    color: 'text-orange-600',
+  });
+  if (req.accounts_rejected_at) events.push({
+    label: `Accounts Rejected — sent back for re-verification${req.accounts_rejected_reason ? `: "${req.accounts_rejected_reason}"` : ''}`,
+    by: 'Accountant',
+    date: req.accounts_rejected_at,
+    icon: XCircle,
+    color: 'text-red-600',
+  });
+  if (req.se_rejected_verification_at) events.push({
+    label: `Site Engineer Rejected Verification — sent back to Procurement${req.se_rejected_verification_reason ? `: "${req.se_rejected_verification_reason}"` : ''}`,
+    by: req.se_rejected_verification_by_name || 'Site Engineer',
+    date: req.se_rejected_verification_at,
+    icon: XCircle,
+    color: 'text-red-600',
+  });
   if (req.rejected_by || req.procurement_rejected_at) events.push({
     label: `Rejected: ${req.rejection_reason || req.procurement_rejection_reason || 'No reason'}`,
     by: req.rejected_by || req.procurement_rejected_by_name || 'Reviewer',
