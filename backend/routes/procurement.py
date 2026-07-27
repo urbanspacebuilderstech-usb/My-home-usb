@@ -2869,7 +2869,10 @@ async def procurement_simple_change_vendor(request_id: str, data: dict, user: Us
         raise HTTPException(status_code=404, detail="Request not found")
     # Vendor swap is meaningful only until Procurement has verified delivery;
     # once verified/paid the invoice is locked to the paying vendor.
-    allowed_statuses = {"procurement_priced", "in_transit", "received_partial"}
+    # procurement_verify_rejected included — swapping vendor there is exactly
+    # how Procurement redoes a delivery that failed verification instead of
+    # re-collecting from the same vendor that caused the mismatch.
+    allowed_statuses = {"procurement_priced", "in_transit", "received_partial", "procurement_verify_rejected"}
     if req.get("status") not in allowed_statuses:
         raise HTTPException(
             status_code=400,
@@ -2943,6 +2946,13 @@ async def procurement_simple_change_vendor(request_id: str, data: dict, user: Us
         "vendor_changed_by": user.user_id,
         "vendor_changed_by_name": user.name,
     }
+    if req.get("status") == "procurement_verify_rejected":
+        # Swapping vendor after a failed verification restarts the delivery
+        # — back to in_transit so the SE collects fresh from the new vendor,
+        # and the stale "Verification Rejected" badge clears since it no
+        # longer applies to this (new) delivery attempt.
+        set_fields["status"] = "in_transit"
+        set_fields["transit_started_at"] = now
     if pricing_changed:
         set_fields.update({
             "unit_price": new_unit_price,

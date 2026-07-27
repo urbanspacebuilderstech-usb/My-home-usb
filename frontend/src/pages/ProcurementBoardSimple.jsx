@@ -2517,7 +2517,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
               <RefreshCw className={`h-3.5 w-3.5 mr-1 ${recalculating ? 'animate-spin' : ''}`} /> Recalculate Amount
             </Button>
           )}
-          {dialogTab === 'details' && readOnly && ['procurement_priced', 'in_transit', 'received_partial'].includes((item.status || '').toLowerCase()) && (
+          {dialogTab === 'details' && readOnly && ['procurement_priced', 'in_transit', 'received_partial', 'procurement_verify_rejected'].includes((item.status || '').toLowerCase()) && (
             <Button
               variant="outline"
               size="sm"
