@@ -6,7 +6,7 @@ import {
   Clock, CheckCircle, XCircle, Truck, Camera, AlertTriangle, Send,
   Calendar, ClipboardList, Warehouse, Save, Trash2, History,
   ChevronRight, Banknote, ArrowRight, Eye, Circle,
-  ListChecks, CheckCircle2, Video, FileText, IndianRupee
+  ListChecks, CheckCircle2, Video, FileText, IndianRupee, Archive
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -1752,6 +1752,16 @@ export default function SiteEngineerProject() {
                                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                                   <h4 className="text-sm font-semibold truncate">{req.material_name}</h4>
                                   <StatusBadge status={req.status} />
+                                  {req.is_archived && (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-600"
+                                      title={req.archived_by_name ? `Archived by ${req.archived_by_name}` : 'Archived by Planning'}
+                                      data-testid={`se-mat-archived-${req.request_id}`}
+                                    >
+                                      <Archive className="h-3 w-3" />
+                                      <span className="hidden sm:inline">Archived</span>
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="text-xs text-gray-600 space-y-0.5">
                                   <p><strong>ID:</strong> {req.request_number || req.order_id || req.request_id}</p>

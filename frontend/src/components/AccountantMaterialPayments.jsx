@@ -230,6 +230,16 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     <Badge variant="outline" className="text-[10px] bg-lime-50 text-lime-700 border-lime-200" data-testid={`acc-mat-se-received-${req.request_id}`}>
                       SE Received
                     </Badge>
+                    {req.is_archived && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] bg-gray-100 text-gray-600 border-gray-300"
+                        title={req.archived_by_name ? `Archived by ${req.archived_by_name}` : 'Archived by Planning'}
+                        data-testid={`acc-mat-archived-${req.request_id}`}
+                      >
+                        Archived
+                      </Badge>
+                    )}
                     {req.cheque_bounced && (
                       <Badge className="bg-red-600 text-white text-[10px]">Cheque Bounced</Badge>
                     )}
