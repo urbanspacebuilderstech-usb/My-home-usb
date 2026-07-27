@@ -2619,6 +2619,7 @@ async def get_my_rejected_expenses(user: User = Depends(get_current_user)):
 class IncomeReviewRequest(BaseModel):
     verification_mode: str  # cash, cheque, bank, dt
     denomination: Optional[Dict[str, int]] = None  # for cash: {"2000": 1, "500": 4, ...}
+    decimal_amount: Optional[float] = None  # cash odd/decimal remainder that no note/coin can represent, e.g. Rs 0.50
     cheque_number: Optional[str] = None  # for single cheque
     cheque_verifications: Optional[List[Dict[str, Any]]] = None  # for multiple cheques: [{"cheque_id": "...", "entered_number": "...", "amount": ...}]
     transaction_id: Optional[str] = None  # for bank
@@ -2698,6 +2699,9 @@ async def review_income(income_id: str, data: IncomeReviewRequest, user: User = 
     if data.denomination:
         verification["denomination"] = data.denomination
         denomination_total = sum(int(k) * v for k, v in data.denomination.items())
+        if data.decimal_amount:
+            denomination_total = round(denomination_total + float(data.decimal_amount), 2)
+            verification["decimal_amount"] = float(data.decimal_amount)
         verification["denomination_total"] = denomination_total
     if data.cheque_number:
         verification["cheque_number"] = data.cheque_number

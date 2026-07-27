@@ -3671,6 +3671,7 @@ function ApprovalsTab() {
   const [reviewForm, setReviewForm] = useState({
     verification_mode: '',
     denomination: { '2000': 0, '500': 0, '200': 0, '100': 0, '50': 0, '20': 0, '10': 0, '5': 0, '2': 0, '1': 0 },
+    decimal_amount: '',
     cheque_number: '',
     transaction_id: '',
     dt_id: '',
@@ -3814,6 +3815,7 @@ function ApprovalsTab() {
     setReviewForm({
       verification_mode: verificationMode,
       denomination: { '2000': 0, '500': 0, '200': 0, '100': 0, '50': 0, '20': 0, '10': 0, '5': 0, '2': 0, '1': 0 },
+      decimal_amount: '',
       cheque_number: '', transaction_id: income.transaction_id || '',
       dt_id: '', notes: ''
     });
@@ -3831,13 +3833,13 @@ function ApprovalsTab() {
     setReviewDialog({ open: true, income });
   };
 
-  const denominationTotal = Object.entries(reviewForm.denomination).reduce((sum, [note, count]) => sum + (parseInt(note) * (parseInt(count) || 0)), 0);
+  const denominationTotal = Object.entries(reviewForm.denomination).reduce((sum, [note, count]) => sum + (parseInt(note) * (parseInt(count) || 0)), 0) + (parseFloat(reviewForm.decimal_amount) || 0);
 
   const handleSubmitReview = async () => {
     const inc = reviewDialog.income;
     if (!inc) return;
 
-    if (reviewForm.verification_mode === 'cash' && denominationTotal !== inc.amount) {
+    if (reviewForm.verification_mode === 'cash' && Math.abs(denominationTotal - inc.amount) > 0.01) {
       toast.error(`Denomination total (₹${denominationTotal.toLocaleString('en-IN')}) doesn't match amount (₹${inc.amount.toLocaleString('en-IN')})`);
       return;
     }
@@ -3864,6 +3866,7 @@ function ApprovalsTab() {
         const denom = {};
         Object.entries(reviewForm.denomination).forEach(([k, v]) => { if (parseInt(v) > 0) denom[k] = parseInt(v); });
         payload.denomination = denom;
+        if (parseFloat(reviewForm.decimal_amount) > 0) payload.decimal_amount = parseFloat(reviewForm.decimal_amount);
       }
       if (reviewForm.verification_mode === 'cheque' && projectCheques.length > 0) {
         payload.cheque_verifications = projectCheques.map(c => ({
@@ -4520,8 +4523,19 @@ function ApprovalsTab() {
                       </div>
                     ))}
                   </div>
-                  <div className={`mt-2 p-2 rounded text-center text-sm font-bold ${denominationTotal === reviewDialog.income.amount ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                    Total: ₹{denominationTotal.toLocaleString('en-IN')} {denominationTotal === reviewDialog.income.amount ? '✓ Matches' : `≠ ₹${reviewDialog.income.amount?.toLocaleString('en-IN')}`}
+                  <div className="flex items-center gap-2 bg-blue-50 rounded px-2 py-1.5 mt-2">
+                    <span className="text-xs font-medium text-blue-700 w-24">Decimal / Odd ₹</span>
+                    <NumericInput
+                      className="h-7 text-xs text-center flex-1"
+                      value={reviewForm.decimal_amount}
+                      onChange={(e) => setReviewForm({ ...reviewForm, decimal_amount: e.target.value })}
+                      placeholder="e.g. 0.50"
+                      data-testid="denom-decimal"
+                    />
+                    <span className="text-[10px] text-gray-400 w-14 text-right">= ₹{(parseFloat(reviewForm.decimal_amount) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className={`mt-2 p-2 rounded text-center text-sm font-bold ${Math.abs(denominationTotal - reviewDialog.income.amount) <= 0.01 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    Total: ₹{denominationTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })} {Math.abs(denominationTotal - reviewDialog.income.amount) <= 0.01 ? '✓ Matches' : `≠ ₹${reviewDialog.income.amount?.toLocaleString('en-IN')}`}
                   </div>
                 </div>
               )}
