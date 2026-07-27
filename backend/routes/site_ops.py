@@ -874,6 +874,46 @@ async def get_planning_inventory_summary(
     return {"date_from": date_from, "date_to": date_to, "rows": rows}
 
 
+@router.get("/planning/material-rate-breakdown")
+async def get_material_rate_breakdown(project_id: str, material_name: str, user: User = Depends(get_current_user)):
+    """Diagnostic view for the Inventory table's "Unit (Rate)" column — that
+    figure is a weighted average across every material_requests/
+    material_expenses row for this (project, material) combo, so a single
+    badly-priced or wrong-quantity record can silently skew the whole
+    average. This surfaces every contributing record so a bad one can be
+    found and corrected precisely instead of guessing at the formula."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can access this")
+
+    rows = []
+    for src_coll, num_field in (("material_requests", "request_number"), ("material_expenses", "expense_id")):
+        docs = await getattr(db, src_coll).find(
+            {"project_id": project_id, "material_name": material_name},
+            {"_id": 0},
+        ).to_list(200)
+        for d in docs:
+            qty = float(d.get("quantity") or 0)
+            price = float(d.get("final_price") if d.get("final_price") is not None else (d.get("estimated_price") or 0))
+            rows.append({
+                "source": src_coll,
+                "label": d.get(num_field) or d.get("request_id") or d.get("expense_id"),
+                "quantity": qty,
+                "price": price,
+                "rate": round(price / qty, 2) if qty > 0 else None,
+                "status": d.get("status"),
+                "created_at": d.get("created_at"),
+            })
+    rows.sort(key=lambda r: r.get("created_at") or "")
+    total_qty = sum(r["quantity"] for r in rows)
+    total_price = sum(r["price"] for r in rows)
+    return {
+        "rows": rows,
+        "total_quantity": total_qty,
+        "total_price": total_price,
+        "average_rate": round(total_price / total_qty, 2) if total_qty > 0 else 0,
+    }
+
+
 @router.get("/site-engineer/project/{project_id}")
 async def get_site_engineer_project_detail(
     project_id: str,

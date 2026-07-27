@@ -45,7 +45,9 @@ import {
   Radio,
   Lock,
   Unlock,
-  Briefcase
+  Briefcase,
+  Info,
+  Loader2
 } from 'lucide-react';
 import { SortableList, SortableTableRow, DragHandle, arrayMove } from '../components/SortableList';
 import { AppHeader } from '../components/AppHeader';
@@ -276,6 +278,17 @@ export default function PlanningBoard({ embedded = false }) {
   const [invSummaryLoading, setInvSummaryLoading] = useState(false);
   const [invProjectSearch, setInvProjectSearch] = useState('');
   const [invMaterialSearch, setInvMaterialSearch] = useState([]); // array of selected material names (multi-select)
+  const [rateBreakdown, setRateBreakdown] = useState({ open: false, projectName: '', materialName: '', loading: false, data: null });
+  const openRateBreakdown = async (projectId, projectName, materialName) => {
+    setRateBreakdown({ open: true, projectName, materialName, loading: true, data: null });
+    try {
+      const res = await axios.get(`${API}/planning/material-rate-breakdown`, { params: { project_id: projectId, material_name: materialName } });
+      setRateBreakdown(s => ({ ...s, loading: false, data: res.data }));
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to load rate breakdown');
+      setRateBreakdown(s => ({ ...s, loading: false, data: { rows: [] } }));
+    }
+  };
   const fetchDlrDprSummary = async () => {
     setDlrDprLoading(true);
     try {
@@ -2355,7 +2368,20 @@ export default function PlanningBoard({ embedded = false }) {
                                     <td className="px-3 py-2 font-medium text-gray-900">{row.project_name}</td>
                                     <td className="px-3 py-2 text-gray-700">{row.material_name}</td>
                                     <td className="px-3 py-2 text-gray-500">{row.unit || '—'}</td>
-                                    <td className="px-3 py-2 text-right text-gray-600">{row.unit_rate > 0 ? formatCurrency(row.unit_rate) : '—'}</td>
+                                    <td className="px-3 py-2 text-right text-gray-600">
+                                      <span className="inline-flex items-center gap-1 justify-end">
+                                        {row.unit_rate > 0 ? formatCurrency(row.unit_rate) : '—'}
+                                        <button
+                                          type="button"
+                                          onClick={(e) => { e.stopPropagation(); openRateBreakdown(row.project_id, row.project_name, row.material_name); }}
+                                          className="text-gray-300 hover:text-indigo-600"
+                                          title="See how this rate was calculated"
+                                          data-testid={`inv-rate-info-${row.project_id}-${row.material_name}`}
+                                        >
+                                          <Info className="h-3.5 w-3.5" />
+                                        </button>
+                                      </span>
+                                    </td>
                                     <td className="px-3 py-2 text-right text-indigo-700 font-medium whitespace-nowrap">
                                       {row.unit_rate > 0 ? formatCurrency((Number(row.current_stock) || 0) * row.unit_rate) : '—'}
                                     </td>
@@ -2373,6 +2399,61 @@ export default function PlanningBoard({ embedded = false }) {
                     </CardContent>
                   </Card>
                 )}
+
+                {/* Rate breakdown — every material_requests/material_expenses row that
+                    feeds the weighted-average Unit (Rate) shown above, so a single
+                    bad price/qty entry can be spotted instead of guessing at the formula. */}
+                <Dialog open={rateBreakdown.open} onOpenChange={(o) => !o && setRateBreakdown(s => ({ ...s, open: false }))}>
+                  <DialogContent className="max-w-2xl" data-testid="inv-rate-breakdown-dialog">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2 text-indigo-700">
+                        <Info className="h-5 w-5" /> Rate Breakdown
+                      </DialogTitle>
+                      <DialogDescription className="text-xs">
+                        {rateBreakdown.materialName} · {rateBreakdown.projectName} — every request/bill contributing to the average rate.
+                      </DialogDescription>
+                    </DialogHeader>
+                    {rateBreakdown.loading ? (
+                      <div className="flex items-center justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-indigo-600" /></div>
+                    ) : !rateBreakdown.data?.rows?.length ? (
+                      <p className="text-sm text-gray-400 text-center py-8">No contributing records found.</p>
+                    ) : (
+                      <>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead className="bg-gray-50 border-y">
+                              <tr>
+                                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase">Source</th>
+                                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase">Ref</th>
+                                <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase">Qty</th>
+                                <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase">Price</th>
+                                <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase">Rate</th>
+                                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {rateBreakdown.data.rows.map((r, i) => (
+                                <tr key={i} className={r.rate && Math.abs(r.rate - rateBreakdown.data.average_rate) > rateBreakdown.data.average_rate ? 'bg-red-50' : ''}>
+                                  <td className="px-2 py-1.5 text-gray-500">{r.source === 'material_requests' ? 'Request' : 'Expense'}</td>
+                                  <td className="px-2 py-1.5 font-mono text-gray-700">{r.label || '—'}</td>
+                                  <td className="px-2 py-1.5 text-right">{r.quantity.toLocaleString('en-IN')}</td>
+                                  <td className="px-2 py-1.5 text-right">{formatCurrency(r.price)}</td>
+                                  <td className="px-2 py-1.5 text-right font-semibold">{r.rate != null ? formatCurrency(r.rate) : '—'}</td>
+                                  <td className="px-2 py-1.5 text-gray-500 capitalize">{(r.status || '').replace(/_/g, ' ')}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="bg-indigo-50 border border-indigo-200 rounded px-3 py-2 flex items-center justify-between text-sm mt-2">
+                          <span className="text-indigo-700 font-medium">Weighted Average Rate</span>
+                          <span className="font-bold text-indigo-800">{formatCurrency(rateBreakdown.data.average_rate)}</span>
+                        </div>
+                        <p className="text-[11px] text-gray-400 mt-1">Rows highlighted in red are far from the average — likely the source of an incorrect rate.</p>
+                      </>
+                    )}
+                  </DialogContent>
+                </Dialog>
               </div>
             )}
           </TabsContent>
