@@ -1983,7 +1983,8 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
         toast.error('Enter advance % between 0-100'); return;
       }
       if (advanceMode === 'amount' && (!advanceAmount || parseFloat(advanceAmount) <= 0 || parseFloat(advanceAmount) > total)) {
-        toast.error('Advance amount must be > 0 and ≤ total'); return;
+        toast.error(`Advance amount must be > 0 and ≤ total (₹${total.toLocaleString('en-IN')}) — check the unit price/qty above`);
+        return;
       }
     }
 
