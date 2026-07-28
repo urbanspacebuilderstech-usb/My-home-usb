@@ -3346,6 +3346,58 @@ async def get_payment_stage_detail(stage_id: str, user: User = Depends(get_curre
     }
 
 
+@router.post("/payment-stages/{stage_id}/resync-received")
+async def resync_payment_stage_received(stage_id: str, user: User = Depends(get_current_user)):
+    """Super-Admin repair tool: recompute a stage's `amount_received` from
+    the sum of its actually-linked (payment_stage_id-matched), non-rejected
+    income records — the source of truth — rather than trusting whatever
+    total is currently stored on the stage.
+
+    Exists because `review_income` (financial.py) used to look up the stage
+    via the wrong field name and write to a field the UI never read, so an
+    approved income could sit fully approved while its stage stayed stuck
+    showing an earlier, smaller received total. That bug is fixed for new
+    approvals, but stages already left stuck by it need one manual resync;
+    this same tool covers any other stage that drifts for whatever reason.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin only")
+
+    stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
+    if not stage:
+        raise HTTPException(status_code=404, detail="Payment stage not found")
+
+    EXCLUDED_INC = {"rejected", "accountant_rejected", "under_correction", "pending_approval", "cheque_bounced"}
+    incomes = await db.income.find(
+        {"payment_stage_id": stage_id}, {"_id": 0, "amount": 1, "status": 1}
+    ).to_list(500)
+    total_received = sum(
+        float(i.get("amount") or 0) for i in incomes if (i.get("status") or "approved") not in EXCLUDED_INC
+    )
+
+    stage_amount = float(stage.get("amount") or 0)
+    now = datetime.now(timezone.utc).isoformat()
+    update_fields = {"amount_received": total_received, "updated_at": now}
+    if stage_amount > 0 and total_received >= stage_amount:
+        update_fields["status"] = "paid"
+        update_fields["paid_at"] = stage.get("paid_at") or now
+    elif total_received > 0:
+        update_fields["status"] = "partial"
+    else:
+        update_fields["status"] = "pending"
+
+    await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": update_fields})
+    await create_audit_log(
+        user.user_id, "resync", "payment_stage", stage_id,
+        {"old_amount_received": stage.get("amount_received"), "new_amount_received": total_received},
+    )
+    return {
+        "message": "Stage resynced from linked incomes",
+        "stage_id": stage_id,
+        "amount_received": total_received,
+        "status": update_fields["status"],
+    }
+
 
 @router.post("/payment-stages")
 async def create_payment_stage(stage_input: PaymentStageCreate, user: User = Depends(get_current_user)):

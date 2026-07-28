@@ -2726,24 +2726,37 @@ async def review_income(income_id: str, data: IncomeReviewRequest, user: User = 
         }}
     )
 
-    # Update payment stage collected amount if linked to a stage
+    # Update payment stage received amount if linked to a stage. Reads
+    # `payment_stage_id` first (the field every income-creation path sets)
+    # and falls back to the legacy `stage_id` name, matching the lookup used
+    # everywhere else in this file — this handler used to check `stage_id`
+    # only, so an approval against a `payment_stage_id`-only income record
+    # found no stage and silently skipped the update below.
     project_id = income.get("project_id")
-    stage_id = income.get("stage_id")
+    stage_id = income.get("payment_stage_id") or income.get("stage_id")
     amount = income.get("amount", 0)
 
     if project_id and stage_id:
         stage = await db.payment_stages.find_one({"stage_id": stage_id, "project_id": project_id})
         if stage:
-            current_collected = stage.get("collected", 0)
-            new_collected = current_collected + amount
-            stage_amount = stage.get("amount", 0)
+            # `amount_received` is the field the Payment Schedule UI and the
+            # self-heal logic in projects.py actually read — this used to
+            # write to a `collected` field that nothing else in the codebase
+            # consults, so the stage never visibly updated despite the
+            # income being approved.
+            current_received = float(stage.get("amount_received") or 0)
+            new_received = current_received + amount
+            stage_amount = float(stage.get("amount") or 0)
             update_fields = {
-                "collected": new_collected,
+                "amount_received": new_received,
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }
-            if new_collected >= stage_amount:
+            if stage_amount > 0 and new_received >= stage_amount:
                 update_fields["status"] = "paid"
+                update_fields["paid_at"] = stage.get("paid_at") or datetime.now(timezone.utc).isoformat()
                 update_fields["completed_date"] = datetime.now(timezone.utc).isoformat()
+            elif new_received > 0:
+                update_fields["status"] = "partial"
             await db.payment_stages.update_one(
                 {"stage_id": stage_id, "project_id": project_id},
                 {"$set": update_fields}
