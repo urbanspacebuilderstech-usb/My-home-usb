@@ -13,6 +13,7 @@ import { Textarea } from './ui/textarea';
 import { CashbookDateFilter, filterByDateRange } from './CashbookDateFilter';
 import ProjectSearchSelect from './ProjectSearchSelect';
 import RequestStatusFilter, { mapToReqStatus } from './RequestStatusFilter';
+import PhotoLightbox from './PhotoLightbox';
 import { Package, Users, Wallet, ThumbsUp, ThumbsDown, Loader2, CheckCircle2, AlertCircle, FileText, Calendar, User as UserIcon, Briefcase, CreditCard, ListChecks, Send, Truck, PackageCheck, ClipboardCheck, Banknote, Trash2, Search, Archive, ArchiveRestore } from 'lucide-react';
 import MetaDateFilter, { rangeForPreset } from './MetaDateFilter';
 import PlanningLabourStageRequests from './PlanningLabourStageRequests';
@@ -1444,6 +1445,15 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
   // parent doc as `advance_paid_amount` / `balance_paid_amount` instead, so
   // a collected advance was showing as ₹0 Paid without this.
   const paidAmt = Number(req.paid_amount || 0) + Number(req.advance_paid_amount || 0) + Number(req.balance_paid_amount || 0);
+  const [photoPreview, setPhotoPreview] = useState({ open: false, index: 0 });
+  const photos = [
+    { id: req.vehicle_front_image_id, label: 'Vehicle Front' },
+    { id: req.vehicle_side_image_id, label: 'Vehicle Side' },
+    { id: req.material_image_id, label: 'Material' },
+    { id: req.dp_copy_image_id, label: 'DP Copy' },
+    ...(!req.vehicle_front_image_id && !req.vehicle_side_image_id && req.lorry_image_id
+      ? [{ id: req.lorry_image_id, label: 'Lorry' }] : []),
+  ].filter(p => p.id);
   return (
     <div className="relative">
       {req.is_high_priority && (
@@ -1587,6 +1597,34 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
             )}
           </div>
         </div>
+
+        {/* SE-uploaded delivery photos — same inline-thumbnail + lightbox
+            pattern as the Procurement board, so Planning can eyeball proof
+            without opening the request. */}
+        {photos.length > 0 && (
+          <div className="mt-2 pt-2 border-t flex items-center gap-1.5 flex-wrap" data-testid={`planning-mat-photos-${id}`}>
+            <span className="text-[10px] uppercase font-semibold text-gray-400">Photos:</span>
+            {photos.map((p, i) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setPhotoPreview({ open: true, index: i }); }}
+                title={p.label}
+                className="h-9 w-9 shrink-0 rounded-md border border-gray-200 overflow-hidden hover:ring-2 hover:ring-amber-400 transition"
+                data-testid={`planning-mat-photo-${id}-${p.label}`}
+              >
+                <img src={`${API}/files/${p.id}/download`} alt={p.label} className="h-full w-full object-cover" />
+              </button>
+            ))}
+            <PhotoLightbox
+              open={photoPreview.open}
+              photos={photos.map(p => ({ src: `${API}/files/${p.id}/download`, label: p.label }))}
+              index={photoPreview.index}
+              onClose={() => setPhotoPreview({ open: false, index: 0 })}
+              onIndexChange={(idx) => setPhotoPreview({ open: true, index: idx })}
+            />
+          </div>
+        )}
 
         {req.procurement_remarks && (
           <div className="mt-2 pt-2 border-t text-[11px] italic text-gray-500 truncate">

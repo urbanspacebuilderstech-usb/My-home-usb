@@ -45,6 +45,7 @@ import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
 import MetaDateFilter from '../components/MetaDateFilter';
+import PhotoLightbox from '../components/PhotoLightbox';
 import ProjectFilterCombobox from '../components/ProjectFilterCombobox';
 import { UnitSelect } from '../components/UnitSelect';
 
@@ -1332,6 +1333,7 @@ function RequestCard({ req, onClick, stockInfo = null }) {
   const isNewRequest = ['requested', 'pm_approved'].includes(status);
   const [priorityBusy, setPriorityBusy] = useState(false);
   const [isHighPriority, setIsHighPriority] = useState(!!req.is_high_priority);
+  const [photoPreview, setPhotoPreview] = useState({ open: false, index: 0 });
   useEffect(() => { setIsHighPriority(!!req.is_high_priority); }, [req.is_high_priority]);
   const togglePriority = async (e) => {
     e.stopPropagation();
@@ -1467,7 +1469,9 @@ function RequestCard({ req, onClick, stockInfo = null }) {
 
         {/* SE-uploaded delivery photos — shown directly on the card (no
             need to open Verify) so Procurement can eyeball proof at a glance,
-            same pattern as the Accounts Board's inline bill thumbnails. */}
+            same pattern as the Accounts Board's inline bill thumbnails.
+            Clicking opens an in-page lightbox (close + left/right through
+            this request's own photo set) instead of a new browser tab. */}
         {(() => {
           const photos = [
             { id: req.vehicle_front_image_id, label: 'Vehicle Front' },
@@ -1479,23 +1483,30 @@ function RequestCard({ req, onClick, stockInfo = null }) {
           ].filter(p => p.id);
           if (!photos.length) return null;
           return (
-            <div className="flex items-center gap-1.5 flex-wrap" data-testid={`proc-card-photos-${req.request_id}`}>
-              <span className="text-[10px] uppercase font-semibold text-gray-400">Photos:</span>
-              {photos.map((p) => (
-                <a
-                  key={p.label}
-                  href={`${API}/files/${p.id}/download`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  title={p.label}
-                  className="h-9 w-9 shrink-0 rounded-md border border-gray-200 overflow-hidden hover:ring-2 hover:ring-amber-400 transition"
-                  data-testid={`proc-card-photo-${req.request_id}-${p.label}`}
-                >
-                  <img src={`${API}/files/${p.id}/download`} alt={p.label} className="h-full w-full object-cover" />
-                </a>
-              ))}
-            </div>
+            <>
+              <div className="flex items-center gap-1.5 flex-wrap" data-testid={`proc-card-photos-${req.request_id}`}>
+                <span className="text-[10px] uppercase font-semibold text-gray-400">Photos:</span>
+                {photos.map((p, i) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setPhotoPreview({ open: true, index: i }); }}
+                    title={p.label}
+                    className="h-9 w-9 shrink-0 rounded-md border border-gray-200 overflow-hidden hover:ring-2 hover:ring-amber-400 transition"
+                    data-testid={`proc-card-photo-${req.request_id}-${p.label}`}
+                  >
+                    <img src={`${API}/files/${p.id}/download`} alt={p.label} className="h-full w-full object-cover" />
+                  </button>
+                ))}
+              </div>
+              <PhotoLightbox
+                open={photoPreview.open}
+                photos={photos.map(p => ({ src: `${API}/files/${p.id}/download`, label: p.label }))}
+                index={photoPreview.index}
+                onClose={() => setPhotoPreview({ open: false, index: 0 })}
+                onIndexChange={(idx) => setPhotoPreview({ open: true, index: idx })}
+              />
+            </>
           );
         })()}
 

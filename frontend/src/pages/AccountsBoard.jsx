@@ -18,6 +18,7 @@ import MetaDateFilter from '../components/MetaDateFilter';
 import MaterialSearchSelect from '../components/MaterialSearchSelect';
 import PayApprovalDialog from '../components/PayApprovalDialog';
 import DTSelectToPayDialog from '../components/DTSelectToPayDialog';
+import PhotoLightbox from '../components/PhotoLightbox';
 import { StatusPill, pillState } from '../components/StatusPill';
 import { CorrectionDialog } from '../components/CorrectionDialog';
 import { toast } from 'sonner';
@@ -4780,29 +4781,15 @@ function ApprovalsTab() {
       </div>
 
       {/* Bill image preview popup — opens in-page over the current screen
-          instead of a new tab; close button sits top-left per Accounts request. */}
-      {billPreview.open && billPreview.bills[billPreview.index] && (
-        <div
-          className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setBillPreview({ open: false, bills: [], index: 0 })}
-        >
-          <button
-            type="button"
-            onClick={() => setBillPreview({ open: false, bills: [], index: 0 })}
-            className="fixed top-4 left-4 z-[101] h-9 w-9 rounded-full bg-white/90 hover:bg-white flex items-center justify-center shadow-lg"
-            title="Close"
-            data-testid="bill-preview-close"
-          >
-            <X className="h-5 w-5 text-gray-800" />
-          </button>
-          <img
-            src={`${API}/files/${billPreview.bills[billPreview.index].bill_file_id}/download`}
-            alt={billPreview.bills[billPreview.index].label || 'Bill'}
-            className="max-h-[90vh] max-w-[90vw] rounded shadow-2xl object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
+          instead of a new tab; close button top-left, left/right arrows
+          step through every bill on this expense. */}
+      <PhotoLightbox
+        open={billPreview.open}
+        photos={(billPreview.bills || []).map(b => ({ src: `${API}/files/${b.bill_file_id}/download`, label: b.label || b.bill_filename || 'Bill' }))}
+        index={billPreview.index}
+        onClose={() => setBillPreview({ open: false, bills: [], index: 0 })}
+        onIndexChange={(i) => setBillPreview((d) => ({ ...d, index: i }))}
+      />
     </div>
   );
 }

@@ -3,11 +3,12 @@ import axios from 'axios';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Wallet, XCircle, AlertTriangle, FileImage, X, RefreshCw } from 'lucide-react';
+import { Wallet, XCircle, AlertTriangle, FileImage, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import PayApprovalDialog from './PayApprovalDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Textarea } from './ui/textarea';
+import PhotoLightbox from './PhotoLightbox';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
@@ -479,29 +480,15 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
       </Dialog>
 
       {/* Collected-photo preview popup — same in-page pattern as the Record
-          Expense bill thumbnails (Accounts Cashbook view). */}
-      {photoPreview.open && photoPreview.photos[photoPreview.index] && (
-        <div
-          className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setPhotoPreview({ open: false, photos: [], index: 0 })}
-        >
-          <button
-            type="button"
-            onClick={() => setPhotoPreview({ open: false, photos: [], index: 0 })}
-            className="fixed top-4 left-4 z-[101] h-9 w-9 rounded-full bg-white/90 hover:bg-white flex items-center justify-center shadow-lg"
-            title="Close"
-            data-testid="acc-mat-photo-preview-close"
-          >
-            <X className="h-5 w-5 text-gray-800" />
-          </button>
-          <img
-            src={`${API}/files/${photoPreview.photos[photoPreview.index].file_id}/download`}
-            alt={photoPreview.photos[photoPreview.index].label}
-            className="max-h-[90vh] max-w-[90vw] rounded shadow-2xl object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
+          Expense bill thumbnails (Accounts Cashbook view), with left/right
+          arrows to step through this request's other collected photos. */}
+      <PhotoLightbox
+        open={photoPreview.open}
+        photos={(photoPreview.photos || []).map(p => ({ src: `${API}/files/${p.file_id}/download`, label: p.label }))}
+        index={photoPreview.index}
+        onClose={() => setPhotoPreview({ open: false, photos: [], index: 0 })}
+        onIndexChange={(i) => setPhotoPreview((d) => ({ ...d, index: i }))}
+      />
     </>
   );
 }
