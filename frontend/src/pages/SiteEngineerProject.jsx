@@ -598,6 +598,17 @@ export default function SiteEngineerProject() {
     } finally { setSavingAdjust(false); }
   };
 
+  const handleDeleteInventoryLine = async (materialName) => {
+    if (!window.confirm(`Permanently delete ALL inventory history for "${materialName}" in this project? This removes it from the Current Stock Levels table entirely and cannot be undone.`)) return;
+    try {
+      await axios.delete(`${API}/material-inventory`, { params: { project_id: projectId, material_name: materialName } });
+      toast.success(`"${materialName}" removed from inventory`);
+      fetchStockData(stockDate);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Failed to delete inventory line');
+    }
+  };
+
   const openStockHistory = async (materialName) => {
     setStockHistoryDialog({ open: true, materialName, loading: true, entries: [] });
     try {
@@ -2035,6 +2046,18 @@ export default function SiteEngineerProject() {
                                           data-testid={`inv-adjust-${m.material_name}`}
                                         >
                                           Adjust
+                                        </Button>
+                                      )}
+                                      {user?.role === 'super_admin' && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 px-2 text-[10px] gap-1 border-red-300 text-red-700 hover:bg-red-50"
+                                          onClick={() => handleDeleteInventoryLine(m.material_name)}
+                                          title="Permanently delete this material's entire inventory history (Super Admin)"
+                                          data-testid={`inv-delete-${m.material_name}`}
+                                        >
+                                          <Trash2 className="h-3 w-3" />
                                         </Button>
                                       )}
                                     </div>

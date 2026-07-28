@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core.database import db
-from core.deps import get_current_user, create_notification
+from core.deps import get_current_user, create_notification, create_audit_log
 from core.models import UserRole, User
 
 router = APIRouter()
@@ -872,6 +872,41 @@ async def adjust_material_inventory(data: dict, user: User = Depends(get_current
             **adjust_fields,
         })
     return {"message": "Stock adjusted", "inventory_id": inventory_id, "closing_stock": new_closing_stock}
+
+
+@router.delete("/material-inventory")
+async def delete_material_inventory(
+    project_id: str,
+    material_name: str,
+    user: User = Depends(get_current_user),
+):
+    """Permanently remove a material's entire Daily Inventory Register
+    history for a project — Super Admin only. For clearing out a stray
+    material line (e.g. one left behind by a deleted/obsolete material
+    request) that the normal receive/consume/adjust flows have no way to
+    make disappear from the Current Stock Levels table, since that table
+    lists any material with at least one historical entry regardless of
+    its current balance. Deletes every `material_inventory` row for this
+    (project, material) — including past date-wise history — plus its
+    saved min-stock threshold, since both are meaningless once the
+    material's ledger no longer exists."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can delete an inventory line")
+
+    result = await db.material_inventory.delete_many(
+        {"project_id": project_id, "material_name": material_name}
+    )
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="No inventory entries found for this material")
+
+    await db.inventory_thresholds.delete_one(
+        {"project_id": project_id, "material_name": material_name}
+    )
+    await create_audit_log(
+        user.user_id, "delete", "material_inventory", f"{project_id}:{material_name}",
+        {"material_name": material_name, "entries_deleted": result.deleted_count},
+    )
+    return {"message": "Inventory line deleted", "material_name": material_name, "entries_deleted": result.deleted_count}
 
 
 # ==================== PROJECT CONTRACTOR ASSIGNMENTS ====================

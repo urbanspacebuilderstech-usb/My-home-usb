@@ -1559,6 +1559,16 @@ async def delete_material_request(
         if owner_id and owner_id != user.user_id:
             raise HTTPException(status_code=403, detail="You can only delete your own requests")
 
+    # If a receipt was already logged for this request (only reachable here
+    # via the Super Admin bypass above, e.g. deleting a "received"/"delivered"
+    # request), back out its stock-in from the Daily Inventory Register
+    # first — otherwise deleting the request leaves an orphaned stock entry
+    # that inventory can never explain or reduce again.
+    try:
+        await _reverse_material_receipt_inventory(request_id, "Material request deleted")
+    except Exception:
+        pass
+
     await db.material_requests.delete_one({"request_id": request_id})
     await create_audit_log(user.user_id, "delete", "material_request", request_id, {"reason": "SE deleted before planning approval"})
     return {"message": "Material request deleted", "request_id": request_id}
