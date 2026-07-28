@@ -2347,6 +2347,21 @@ async def initiate_material_receipt(
     if request["status"] not in ["accountant_approved", "ready_for_delivery", "received_partial", "order_placed", "collected", "procurement_verify_rejected"]:
         raise HTTPException(status_code=400, detail="Material is not ready for receiving")
 
+    # Jul 2026 — Vehicle Front/Side, Material and DP Copy photos are now
+    # mandatory proof-of-delivery (matches the frontend's required-field
+    # markers on the Receive Material dialog). Enforced here too so the
+    # requirement can't be bypassed by calling the API directly.
+    missing_photos = [
+        label for field, label in [
+            ("vehicle_front_image_id", "Vehicle Front View"),
+            ("vehicle_side_image_id", "Vehicle Side View"),
+            ("material_image_id", "Material"),
+            ("dp_copy_image_id", "DP Copy"),
+        ] if not getattr(data, field)
+    ]
+    if missing_photos:
+        raise HTTPException(status_code=400, detail=f"Missing required photo(s): {', '.join(missing_photos)}")
+
     now_iso = datetime.now(timezone.utc).isoformat()
 
     # Build receipt record (auto-verified — no OTP)

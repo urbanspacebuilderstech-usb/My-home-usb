@@ -952,6 +952,10 @@ export default function SiteEngineerProject() {
   };
 
   const handleInitiateReceive = async () => {
+    if (!vehicleFrontImageId || !vehicleSideImageId || !materialImageId || !dpCopyImageId) {
+      toast.error('Vehicle Front View, Vehicle Side View, Material and DP Copy photos are all required');
+      return;
+    }
     if (!gpsLocation) {
       toast.error('GPS location required');
       return;
@@ -2351,7 +2355,7 @@ export default function SiteEngineerProject() {
                   { type: 'dp_copy', label: 'DP Copy', id: dpCopyImageId, testId: 'dp-copy-image-upload' },
                 ].map(({ type, label, id, testId }) => (
                   <div key={type}>
-                    <Label className="text-xs sm:text-sm">{label}</Label>
+                    <Label className="text-xs sm:text-sm">{label} *</Label>
                     <div className="mt-1">
                       {id ? (
                         <div className="bg-green-50 border border-green-200 rounded-lg p-2 text-center">
