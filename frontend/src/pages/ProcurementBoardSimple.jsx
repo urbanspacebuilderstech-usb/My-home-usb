@@ -1465,6 +1465,40 @@ function RequestCard({ req, onClick, stockInfo = null }) {
           )}
         </div>
 
+        {/* SE-uploaded delivery photos — shown directly on the card (no
+            need to open Verify) so Procurement can eyeball proof at a glance,
+            same pattern as the Accounts Board's inline bill thumbnails. */}
+        {(() => {
+          const photos = [
+            { id: req.vehicle_front_image_id, label: 'Vehicle Front' },
+            { id: req.vehicle_side_image_id, label: 'Vehicle Side' },
+            { id: req.material_image_id, label: 'Material' },
+            { id: req.dp_copy_image_id, label: 'DP Copy' },
+            ...(!req.vehicle_front_image_id && !req.vehicle_side_image_id && req.lorry_image_id
+              ? [{ id: req.lorry_image_id, label: 'Lorry' }] : []),
+          ].filter(p => p.id);
+          if (!photos.length) return null;
+          return (
+            <div className="flex items-center gap-1.5 flex-wrap" data-testid={`proc-card-photos-${req.request_id}`}>
+              <span className="text-[10px] uppercase font-semibold text-gray-400">Photos:</span>
+              {photos.map((p) => (
+                <a
+                  key={p.label}
+                  href={`${API}/files/${p.id}/download`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  title={p.label}
+                  className="h-9 w-9 shrink-0 rounded-md border border-gray-200 overflow-hidden hover:ring-2 hover:ring-amber-400 transition"
+                  data-testid={`proc-card-photo-${req.request_id}-${p.label}`}
+                >
+                  <img src={`${API}/files/${p.id}/download`} alt={p.label} className="h-full w-full object-cover" />
+                </a>
+              ))}
+            </div>
+          );
+        })()}
+
         <hr className="border-gray-100" />
 
         {/* Data strip: stats left, vendor + action right, single baseline */}
