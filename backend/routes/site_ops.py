@@ -1001,8 +1001,21 @@ async def get_material_rate_breakdown(project_id: str, material_name: str, user:
 
     rows = []
     for src_coll, num_field in (("material_requests", "request_number"), ("material_expenses", "expense_id")):
+        query = {"project_id": project_id, "material_name": material_name}
+        if src_coll == "material_expenses":
+            # `material_expenses` docs created via a request's advance/balance
+            # payment flow are billing MIRRORS of that material_request (see
+            # procurement.py's "Mirror advance bill to material_expenses" /
+            # "source_request_id" writes) — same quantity, already counted
+            # under material_requests above. Counting them again doubles the
+            # quantity in the average's denominator while contributing ₹0 to
+            # the numerator (their price lives in final_amount/estimated_cost,
+            # not final_price/estimated_price), silently deflating the rate.
+            # Only genuinely standalone material_expenses (no source request —
+            # the legacy pre-material_requests flow) belong here.
+            query["source_request_id"] = {"$exists": False}
         docs = await getattr(db, src_coll).find(
-            {"project_id": project_id, "material_name": material_name},
+            query,
             {"_id": 0},
         ).to_list(200)
         for d in docs:
