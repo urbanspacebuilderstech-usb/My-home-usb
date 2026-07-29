@@ -913,6 +913,54 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
                 if in_range:
                     b["today_out"] += take
 
+        # Reconcile against the Daily Inventory Register's actual running
+        # balance. FIFO batches only come from PRICED material_requests, but
+        # real stock can also enter through a manual ledger entry, an
+        # unpriced request, or legacy data this table can't name — so the
+        # batches can undercount the true remaining stock (e.g. 8mm Steel
+        # showing only 20 units received via a priced request while the
+        # ledger shows far more was actually consumed). Add one synthetic
+        # "unaccounted" row per material to plug that gap, so Current Stock
+        # always adds up to the real ledger total instead of silently
+        # under-reporting it.
+        ledger_pipeline = [
+            {"$match": {"project_id": pid}},
+            {"$sort": {"date": -1, "created_at": -1}},
+            {"$group": {"_id": "$material_name", "latest": {"$first": "$$ROOT"}}},
+            {"$project": {"_id": 0}},
+        ]
+        ledger_docs = await db.material_inventory.aggregate(ledger_pipeline).to_list(500)
+        for ld in ledger_docs:
+            latest = ld.get("latest", {})
+            mat = latest.get("material_name")
+            if not mat:
+                continue
+            true_remaining = latest.get("closing_stock")
+            if true_remaining is None:
+                true_remaining = latest.get("current_stock", 0)
+            true_remaining = float(true_remaining or 0)
+            batches = batches_by_material.setdefault(mat, [])
+            known_remaining = sum(b["remaining"] for b in batches)
+            gap = true_remaining - known_remaining
+            if gap <= 0.01:
+                continue
+            total_qty = sum(b["qty"] for b in batches)
+            # Estimated using this material's own priced batches' weighted
+            # rate — a best-effort value, not a real per-unit price, since
+            # the unaccounted stock's actual cost isn't known.
+            avg_rate = (sum(b["unit_rate"] * b["qty"] for b in batches) / total_qty) if total_qty > 0 else 0.0
+            batches.append({
+                "request_number": "Unaccounted",
+                "status": "unaccounted",
+                "unit": latest.get("unit") or (batches[0]["unit"] if batches else ""),
+                "unit_rate": round(avg_rate, 2),
+                "qty": gap,
+                "remaining": gap,
+                "receive_date": "",
+                "today_in": 0.0,
+                "today_out": 0.0,
+            })
+
         for mat, batches in batches_by_material.items():
             threshold = thresholds.get(mat, 0)
             for b in batches:
