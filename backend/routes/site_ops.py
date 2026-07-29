@@ -1021,6 +1021,15 @@ async def get_material_rate_breakdown(project_id: str, material_name: str, user:
         for d in docs:
             qty = float(d.get("quantity") or 0)
             price = float(d.get("final_price") if d.get("final_price") is not None else (d.get("estimated_price") or 0))
+            # A request still sitting in an early pending stage (not yet
+            # priced by Procurement) always has price 0 — it hasn't
+            # contributed a real rate yet, so counting its quantity here
+            # only inflates the denominator and deflates the average, the
+            # same distortion the material_expenses-mirror filter above
+            # fixes. Only rows with an actual price belong in this
+            # "what forms the rate" breakdown.
+            if price <= 0:
+                continue
             rows.append({
                 "source": src_coll,
                 "label": d.get(num_field) or d.get("request_id") or d.get("expense_id"),
