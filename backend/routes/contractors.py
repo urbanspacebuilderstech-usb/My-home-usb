@@ -617,12 +617,86 @@ async def update_material_threshold(data: dict, user: User = Depends(get_current
     return {"message": "Threshold updated", "material_name": material_name, "min_threshold": min_threshold}
 
 
+async def _fifo_material_request_batches(project_id: str) -> Dict[str, list]:
+    """FIFO-costed material_request batches for one project, keyed by
+    material_name — mirrors site_ops.py's `_inventory_request_rows_for_projects`
+    (same "must have a real unit price" filter, same oldest-received-first
+    consumption walk) but keeps the extra per-batch fields (original qty,
+    its own receive timestamp, when it was last drawn down) the SE Inventory
+    table needs for Total Received / Total Used / Last In / Last Out."""
+    docs = await db.material_requests.find(
+        {"project_id": project_id, "status": {"$nin": ["rejected", "cancelled", "deleted"]}},
+        {"_id": 0},
+    ).to_list(2000)
+
+    batches_by_material: Dict[str, list] = {}
+    for d in docs:
+        unit_rate = float(d.get("unit_price") or d.get("unit_rate") or 0)
+        if unit_rate <= 0:
+            continue
+        qty = d.get("received_quantity")
+        if qty is None:
+            qty = d.get("approved_quantity")
+        if qty is None:
+            qty = d.get("quantity")
+        qty = float(qty or 0)
+        if qty <= 0:
+            continue
+        receive_at = d.get("received_at") or d.get("delivered_at") or d.get("updated_at") or d.get("created_at")
+        mat = d.get("material_name")
+        batches_by_material.setdefault(mat, []).append({
+            "request_number": d.get("request_number") or d.get("order_id") or d.get("request_id"),
+            "status": d.get("status"),
+            "unit": d.get("unit", ""),
+            "unit_rate": unit_rate,
+            "qty": qty,
+            "remaining": qty,
+            "receive_date": str(receive_at or "")[:10],
+            "receive_at": receive_at,
+            "last_out_at": None,
+        })
+
+    for batches in batches_by_material.values():
+        batches.sort(key=lambda b: b["receive_date"] or "")
+
+    consumption_docs = await db.material_inventory.find(
+        {"project_id": project_id, "used": {"$gt": 0}},
+        {"_id": 0, "material_name": 1, "date": 1, "used": 1, "last_out_at": 1},
+    ).sort("date", 1).to_list(5000)
+    for c in consumption_docs:
+        mat = c.get("material_name")
+        batches = batches_by_material.get(mat)
+        if not batches:
+            continue
+        ev_date = str(c.get("date") or "")
+        to_deduct = float(c.get("used") or 0)
+        for b in batches:
+            if to_deduct <= 0:
+                break
+            if b["remaining"] <= 0:
+                continue
+            if b["receive_date"] and ev_date and b["receive_date"] > ev_date:
+                continue  # can't consume a batch before it arrived
+            take = min(b["remaining"], to_deduct)
+            b["remaining"] -= take
+            to_deduct -= take
+            b["last_out_at"] = c.get("last_out_at") or ev_date
+
+    return batches_by_material
+
+
 @router.get("/material-inventory/dashboard")
 async def get_inventory_dashboard(
     project_id: str,
     user: User = Depends(get_current_user)
 ):
-    """Get comprehensive inventory dashboard for a project"""
+    """Get comprehensive inventory dashboard for a project — one row per
+    material_request batch (FIFO-costed) for materials that have been
+    priced through the request flow, so the same material collected
+    multiple times shows as separate lines instead of one merged row.
+    Materials with no priced request (manual/legacy material_inventory
+    entries only) still fall back to a single merged row so nothing
+    disappears from the table."""
     # Get latest stock per material
     pipeline = [
         {"$match": {"project_id": project_id}},
@@ -641,7 +715,8 @@ async def get_inventory_dashboard(
     # Feb 28 2026 — Compute per-material average unit cost from approved
     # material_requests / material_expenses in this project so we can surface
     # "Current Stock Amount" (current_stock × avg unit cost) and "Stock Out
-    # Amount" (total_used × avg unit cost) alongside the qty numbers.
+    # Amount" (total_used × avg unit cost) alongside the qty numbers. Only
+    # used as a fallback now, for materials with no FIFO batches below.
     price_pipeline = [
         {"$match": {"project_id": project_id}},
         {"$group": {
@@ -670,16 +745,49 @@ async def get_inventory_dashboard(
     for t in threshold_docs:
         thresholds[t.get("material_name", "")] = t.get("min_threshold", 0)
 
+    batches_by_material = await _fifo_material_request_batches(project_id)
+
     materials = []
     low_stock_count = 0
     for r in results:
         latest = r.get("latest", {})
         material_name = latest.get("material_name", "")
+        threshold = latest.get("min_threshold", 0) or thresholds.get(material_name, 0)
+        batches = batches_by_material.get(material_name)
+
+        if batches:
+            # One row per priced request batch, FIFO-costed.
+            for b in batches:
+                stock_qty = float(b["remaining"])
+                used_qty = float(b["qty"]) - stock_qty
+                is_low = stock_qty <= threshold and threshold > 0
+                if is_low:
+                    low_stock_count += 1
+                materials.append({
+                    "material_name": material_name,
+                    "request_number": b["request_number"],
+                    "unit": b["unit"],
+                    "current_stock": round(stock_qty, 2),
+                    "last_date": b["receive_date"],
+                    "last_in_at": b["receive_at"],
+                    "last_out_at": b["last_out_at"],
+                    "total_received": b["qty"],
+                    "total_used": round(used_qty, 2),
+                    "min_threshold": threshold,
+                    "is_low_stock": is_low,
+                    "entry_count": 1,
+                    "unit_cost": round(b["unit_rate"], 2),
+                    "current_stock_amount": round(stock_qty * b["unit_rate"], 2),
+                    "stock_out_amount": round(used_qty * b["unit_rate"], 2),
+                })
+            continue
+
+        # Fallback — no priced material_request batches for this material
+        # (manual entry / legacy data): keep the old single merged row.
         # Tolerate legacy schema: prefer `closing_stock`, else `current_stock`.
         closing = latest.get("closing_stock")
         if closing is None:
             closing = latest.get("current_stock", 0)
-        threshold = latest.get("min_threshold", 0) or thresholds.get(material_name, 0)
         is_low = closing <= threshold and threshold > 0
         if is_low:
             low_stock_count += 1
@@ -688,6 +796,7 @@ async def get_inventory_dashboard(
         used_qty = float(r.get("total_used", 0) or latest.get("total_used", 0) or 0)
         materials.append({
             "material_name": material_name,
+            "request_number": None,
             "unit": latest.get("unit", ""),
             "current_stock": closing,
             "last_date": latest.get("date", ""),
@@ -703,11 +812,11 @@ async def get_inventory_dashboard(
             "stock_out_amount": round(used_qty * unit_cost, 2),
         })
 
-    materials.sort(key=lambda x: (not x["is_low_stock"], x["material_name"]))
+    materials.sort(key=lambda x: (not x["is_low_stock"], x["material_name"], x.get("request_number") or ""))
 
     return {
         "project_id": project_id,
-        "total_materials": len(materials),
+        "total_materials": len({m["material_name"] for m in materials}),
         "low_stock_count": low_stock_count,
         "materials": materials,
     }

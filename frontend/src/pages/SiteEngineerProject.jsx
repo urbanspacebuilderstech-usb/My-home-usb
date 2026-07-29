@@ -1978,6 +1978,7 @@ export default function SiteEngineerProject() {
                             <thead className="bg-gray-100 border-b">
                               <tr>
                                 <th className="text-left px-3 py-2 font-medium text-gray-600">Material</th>
+                                <th className="text-left px-2 py-2 font-medium text-gray-600">Request</th>
                                 <th className="text-center px-2 py-2 font-medium text-gray-600">Unit</th>
                                 <th className="text-center px-2 py-2 font-medium text-blue-700">Current Stock</th>
                                 <th className="text-center px-2 py-2 font-medium text-green-700">Last In At</th>
@@ -1997,12 +1998,13 @@ export default function SiteEngineerProject() {
                                 };
                                 return (
                                 <tr
-                                  key={m.material_name}
+                                  key={`${m.material_name}-${m.request_number || i}`}
                                   className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} ${m.is_low_stock ? 'bg-red-50' : ''} cursor-pointer hover:bg-amber-50/50 transition-colors`}
                                   onClick={() => openStockHistory(m.material_name)}
                                   data-testid={`inv-row-${m.material_name}`}
                                 >
                                   <td className="px-3 py-2 font-medium">{m.material_name}</td>
+                                  <td className="px-2 py-2 text-gray-500 font-mono text-[11px]">{m.request_number || '—'}</td>
                                   <td className="px-2 py-2 text-center text-gray-500">{m.unit}</td>
                                   <td className={`px-2 py-2 text-center font-bold ${m.is_low_stock ? 'text-red-700' : 'text-blue-700'}`}>{m.current_stock}</td>
                                   <td className="px-2 py-2 text-center text-gray-600 whitespace-nowrap">{fmtAt(m.last_in_at)}</td>
