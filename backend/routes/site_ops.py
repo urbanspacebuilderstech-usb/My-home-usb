@@ -840,6 +840,8 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
             {"project_id": pid, "status": {"$nin": ["rejected", "cancelled", "deleted"]}},
             {"_id": 0},
         ).to_list(2000)
+        threshold_docs = await db.inventory_thresholds.find({"project_id": pid}, {"_id": 0}).to_list(500)
+        thresholds = {t.get("material_name", ""): t.get("min_threshold", 0) for t in threshold_docs}
 
         # Build FIFO supply batches per material from priced, received requests.
         batches_by_material: Dict[str, list] = {}
@@ -912,7 +914,9 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
                     b["today_out"] += take
 
         for mat, batches in batches_by_material.items():
+            threshold = thresholds.get(mat, 0)
             for b in batches:
+                is_low = b["remaining"] <= threshold and threshold > 0
                 rows.append({
                     "project_id": pid,
                     "project_name": pname,
@@ -928,8 +932,14 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
                     "current_sv": round(b["unit_rate"] * b["remaining"], 2),
                     "today_in": b["today_in"],
                     "today_out": b["today_out"],
+                    "min_threshold": threshold,
+                    "is_low_stock": is_low,
                 })
-    rows.sort(key=lambda r: (r["project_name"].lower(), (r["material_name"] or "").lower(), r.get("request_number") or ""))
+    # Low-stock rows surface first (matches the SE Inventory tab's own
+    # sort), so a material running out doesn't get buried on page 3 — this
+    # ordering survives the frontend's project/material search too, since
+    # filtering only removes rows, it never reshuffles the remaining ones.
+    rows.sort(key=lambda r: (not r["is_low_stock"], r["project_name"].lower(), (r["material_name"] or "").lower(), r.get("request_number") or ""))
     return rows
 
 
@@ -1180,12 +1190,17 @@ async def get_material_rate_breakdown(project_id: str, material_name: str, user:
         {"_id": 0, "date": 1, "used": 1, "consumption_log": 1},
     ).sort("date", 1).to_list(500)
     for c in consumption_docs:
+        used_qty = float(c.get("used") or 0)
         rows.append({
             "source": "consumption",
             "label": "Out Stock",
-            "quantity": float(c.get("used") or 0),
-            "price": None,
-            "rate": None,
+            "quantity": used_qty,
+            # Valued at the material's weighted-average rate — consumption
+            # isn't its own priced transaction, but showing what left the
+            # site is worth (at the same rate basis as the average below)
+            # completes the history instead of leaving it blank.
+            "price": round(used_qty * average_rate, 2) if average_rate > 0 else None,
+            "rate": average_rate if average_rate > 0 else None,
             "status": "used",
             "date": str(c.get("date") or ""),
             "created_at": str(c.get("date") or ""),

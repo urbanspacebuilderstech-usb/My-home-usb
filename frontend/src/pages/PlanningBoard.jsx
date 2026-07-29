@@ -2355,13 +2355,14 @@ export default function PlanningBoard({ embedded = false }) {
                                   <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Current Stock</th>
                                   <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Today In</th>
                                   <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Today Out</th>
+                                  <th className="px-3 py-2 text-center text-[10px] font-semibold text-gray-500 uppercase">Status</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y">
                                 {filteredInvRows.map((row, idx) => (
                                   <tr
                                     key={`${row.project_id}-${row.material_name}-${row.request_number || idx}`}
-                                    className="hover:bg-indigo-50/50 cursor-pointer"
+                                    className={`hover:bg-indigo-50/50 cursor-pointer ${row.is_low_stock ? 'bg-red-50' : ''}`}
                                     data-testid={`inv-summary-row-${idx}`}
                                     onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
                                   >
@@ -2390,6 +2391,13 @@ export default function PlanningBoard({ embedded = false }) {
                                     <td className="px-3 py-2 text-right font-medium">{Math.round(Number(row.current_stock) || 0).toLocaleString('en-IN')}</td>
                                     <td className="px-3 py-2 text-right text-emerald-700">{(() => { const v = Math.round(Number(row.today_in) || 0); return v > 0 ? `+${v.toLocaleString('en-IN')}` : v; })()}</td>
                                     <td className="px-3 py-2 text-right text-red-700">{(() => { const v = Math.round(Number(row.today_out) || 0); return v > 0 ? `-${v.toLocaleString('en-IN')}` : v; })()}</td>
+                                    <td className="px-3 py-2 text-center">
+                                      {row.is_low_stock ? (
+                                        <Badge className="bg-red-100 text-red-700 text-[10px]">LOW</Badge>
+                                      ) : (
+                                        <Badge className="bg-green-100 text-green-700 text-[10px]">OK</Badge>
+                                      )}
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>
