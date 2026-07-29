@@ -824,13 +824,25 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
     rate/qty/value) instead of a single aggregated row. Mirrors the same
     "must have a real price" filter as the Rate Breakdown popup (still-
     pending/unpriced requests contribute no rate yet, so they're excluded
-    rather than showing a phantom ₹0 row)."""
+    rather than showing a phantom ₹0 row).
+
+    Current Stock is FIFO-costed: Out Stock consumption (material_inventory
+    "used" entries) isn't logged against any one request, so it's applied
+    against each material's requests oldest-received-first, depleting a
+    batch fully before spilling into the next. Each row's Current Stock is
+    that specific request's own remaining balance after all consumption to
+    date, and Today Out is however much of THIS batch got consumed within
+    the selected date range (Today In stays the batch's own received qty
+    when its receive date falls in range)."""
     rows = []
     for pid, pname in project_name_map.items():
         docs = await db.material_requests.find(
             {"project_id": pid, "status": {"$nin": ["rejected", "cancelled", "deleted"]}},
             {"_id": 0},
         ).to_list(2000)
+
+        # Build FIFO supply batches per material from priced, received requests.
+        batches_by_material: Dict[str, list] = {}
         for d in docs:
             # Unit (Rate) = the material's actual per-unit price Procurement
             # entered (unit_price/unit_rate) — NOT final_price ÷ quantity.
@@ -841,7 +853,7 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
             unit_rate = float(d.get("unit_price") or d.get("unit_rate") or 0)
             if unit_rate <= 0:
                 continue
-            # Current Stock = what was actually received (received_quantity),
+            # Batch qty = what was actually received (received_quantity),
             # falling back to approved/requested qty for requests that
             # haven't logged a receipt yet.
             qty = d.get("received_quantity")
@@ -852,24 +864,71 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
             qty = float(qty or 0)
             if qty <= 0:
                 continue
-            ref_date = str(d.get("received_at") or d.get("delivered_at") or d.get("updated_at") or d.get("created_at") or "")[:10]
-            in_range = bool(ref_date) and date_from <= ref_date <= date_to
-            rows.append({
-                "project_id": pid,
-                "project_name": pname,
-                "material_name": d.get("material_name"),
-                "unit": d.get("unit", ""),
+            receive_date = str(d.get("received_at") or d.get("delivered_at") or d.get("updated_at") or d.get("created_at") or "")[:10]
+            mat = d.get("material_name")
+            batches_by_material.setdefault(mat, []).append({
                 "request_number": d.get("request_number") or d.get("order_id") or d.get("request_id"),
                 "status": d.get("status"),
-                "unit_rate": round(unit_rate, 2),
-                "current_stock": qty,
-                # Current SV = Unit Rate × Current Stock — a clean
-                # multiplication, not the stored final_price total (which
-                # includes transport/discount and would double-count them).
-                "current_sv": round(unit_rate * qty, 2),
-                "today_in": qty if in_range else 0,
-                "today_out": 0,
+                "unit": d.get("unit", ""),
+                "unit_rate": unit_rate,
+                "qty": qty,
+                "remaining": qty,
+                "receive_date": receive_date,
+                "today_in": 0.0,
+                "today_out": 0.0,
             })
+        for batches in batches_by_material.values():
+            batches.sort(key=lambda b: b["receive_date"] or "")
+            for b in batches:
+                if b["receive_date"] and date_from <= b["receive_date"] <= date_to:
+                    b["today_in"] = b["qty"]
+
+        # Deplete batches oldest-first against every consumption event ever
+        # logged (not just the selected range — a row's Current Stock must
+        # reflect ALL consumption to date, only Today Out is range-scoped).
+        consumption_docs = await db.material_inventory.find(
+            {"project_id": pid, "used": {"$gt": 0}},
+            {"_id": 0, "material_name": 1, "date": 1, "used": 1},
+        ).sort("date", 1).to_list(5000)
+        for c in consumption_docs:
+            mat = c.get("material_name")
+            batches = batches_by_material.get(mat)
+            if not batches:
+                continue
+            ev_date = str(c.get("date") or "")
+            to_deduct = float(c.get("used") or 0)
+            in_range = bool(ev_date) and date_from <= ev_date <= date_to
+            for b in batches:
+                if to_deduct <= 0:
+                    break
+                if b["remaining"] <= 0:
+                    continue
+                if b["receive_date"] and ev_date and b["receive_date"] > ev_date:
+                    continue  # can't consume a batch before it arrived
+                take = min(b["remaining"], to_deduct)
+                b["remaining"] -= take
+                to_deduct -= take
+                if in_range:
+                    b["today_out"] += take
+
+        for mat, batches in batches_by_material.items():
+            for b in batches:
+                rows.append({
+                    "project_id": pid,
+                    "project_name": pname,
+                    "material_name": mat,
+                    "unit": b["unit"],
+                    "request_number": b["request_number"],
+                    "status": b["status"],
+                    "unit_rate": round(b["unit_rate"], 2),
+                    "current_stock": round(b["remaining"], 2),
+                    # Current SV = Unit Rate × (remaining) Current Stock — a
+                    # clean multiplication, not the stored final_price total
+                    # (which includes transport/discount and would double-count).
+                    "current_sv": round(b["unit_rate"] * b["remaining"], 2),
+                    "today_in": b["today_in"],
+                    "today_out": b["today_out"],
+                })
     rows.sort(key=lambda r: (r["project_name"].lower(), (r["material_name"] or "").lower(), r.get("request_number") or ""))
     return rows
 
