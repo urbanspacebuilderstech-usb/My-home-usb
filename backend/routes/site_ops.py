@@ -1106,12 +1106,11 @@ async def get_planning_inventory_summary(
 
 @router.get("/planning/material-rate-breakdown")
 async def get_material_rate_breakdown(project_id: str, material_name: str, user: User = Depends(get_current_user)):
-    """Diagnostic view for the Inventory table's "Unit (Rate)" column — that
-    figure is a weighted average across every material_requests/
-    material_expenses row for this (project, material) combo, so a single
-    badly-priced or wrong-quantity record can silently skew the whole
-    average. This surfaces every contributing record so a bad one can be
-    found and corrected precisely instead of guessing at the formula."""
+    """Full history for one (project, material): every priced request/bill
+    that contributes to the weighted-average Unit (Rate), PLUS every Out
+    Stock consumption event, sorted chronologically — so Planning can see
+    the material's whole story (what came in, at what rate, and what went
+    out) in one place instead of just the pricing side."""
     if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
 
@@ -1136,33 +1135,68 @@ async def get_material_rate_breakdown(project_id: str, material_name: str, user:
         ).to_list(200)
         for d in docs:
             qty = float(d.get("quantity") or 0)
+            # Rate = the actual per-unit price entered (unit_price/unit_rate)
+            # for material_requests — NOT final_price ÷ qty, which is the
+            # all-in total (unit price × qty + transport − discount) and
+            # would bake transport into the displayed rate. material_expenses
+            # has no such field, so it keeps the price÷qty fallback.
+            if src_coll == "material_requests":
+                rate_direct = float(d.get("unit_price") or d.get("unit_rate") or 0)
+            else:
+                rate_direct = 0.0
             price = float(d.get("final_price") if d.get("final_price") is not None else (d.get("estimated_price") or 0))
+            rate = round(rate_direct, 2) if rate_direct > 0 else (round(price / qty, 2) if qty > 0 else None)
             # A request still sitting in an early pending stage (not yet
-            # priced by Procurement) always has price 0 — it hasn't
+            # priced by Procurement) always has no rate — it hasn't
             # contributed a real rate yet, so counting its quantity here
             # only inflates the denominator and deflates the average, the
             # same distortion the material_expenses-mirror filter above
-            # fixes. Only rows with an actual price belong in this
+            # fixes. Only rows with an actual rate belong in this
             # "what forms the rate" breakdown.
-            if price <= 0:
+            if not rate or rate <= 0:
                 continue
+            ref_date = str(d.get("received_at") or d.get("delivered_at") or d.get("updated_at") or d.get("created_at") or "")
             rows.append({
                 "source": src_coll,
                 "label": d.get(num_field) or d.get("request_id") or d.get("expense_id"),
                 "quantity": qty,
-                "price": price,
-                "rate": round(price / qty, 2) if qty > 0 else None,
+                "price": round(rate * qty, 2),
+                "rate": rate,
                 "status": d.get("status"),
+                "date": ref_date,
                 "created_at": d.get("created_at"),
             })
-    rows.sort(key=lambda r: r.get("created_at") or "")
+
+    # Rate/qty totals come ONLY from the priced request/expense rows above —
+    # consumption isn't a purchase and doesn't inform the rate.
     total_qty = sum(r["quantity"] for r in rows)
     total_price = sum(r["price"] for r in rows)
+    average_rate = round(total_price / total_qty, 2) if total_qty > 0 else 0
+
+    # Out Stock consumption history — same material, same project, so the
+    # popup reads as a complete in/out history rather than pricing-only.
+    consumption_docs = await db.material_inventory.find(
+        {"project_id": project_id, "material_name": material_name, "used": {"$gt": 0}},
+        {"_id": 0, "date": 1, "used": 1, "consumption_log": 1},
+    ).sort("date", 1).to_list(500)
+    for c in consumption_docs:
+        rows.append({
+            "source": "consumption",
+            "label": "Out Stock",
+            "quantity": float(c.get("used") or 0),
+            "price": None,
+            "rate": None,
+            "status": "used",
+            "date": str(c.get("date") or ""),
+            "created_at": str(c.get("date") or ""),
+        })
+
+    rows.sort(key=lambda r: r.get("date") or r.get("created_at") or "")
     return {
         "rows": rows,
         "total_quantity": total_qty,
         "total_price": total_price,
-        "average_rate": round(total_price / total_qty, 2) if total_qty > 0 else 0,
+        "average_rate": average_rate,
     }
 
 

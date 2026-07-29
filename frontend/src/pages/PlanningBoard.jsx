@@ -2412,7 +2412,7 @@ export default function PlanningBoard({ embedded = false }) {
                         <Info className="h-5 w-5" /> Rate Breakdown
                       </DialogTitle>
                       <DialogDescription className="text-xs">
-                        {rateBreakdown.materialName} · {rateBreakdown.projectName} — every request/bill contributing to the average rate.
+                        {rateBreakdown.materialName} · {rateBreakdown.projectName} — full history: requests/bills that set the rate, plus every Out Stock consumption.
                       </DialogDescription>
                     </DialogHeader>
                     {rateBreakdown.loading ? (
@@ -2425,6 +2425,7 @@ export default function PlanningBoard({ embedded = false }) {
                           <table className="w-full text-xs">
                             <thead className="bg-gray-50 border-y">
                               <tr>
+                                <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase">Date</th>
                                 <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase">Source</th>
                                 <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase">Ref</th>
                                 <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase">Qty</th>
@@ -2434,16 +2435,21 @@ export default function PlanningBoard({ embedded = false }) {
                               </tr>
                             </thead>
                             <tbody className="divide-y">
-                              {rateBreakdown.data.rows.map((r, i) => (
-                                <tr key={i} className={r.rate && Math.abs(r.rate - rateBreakdown.data.average_rate) > rateBreakdown.data.average_rate ? 'bg-red-50' : ''}>
-                                  <td className="px-2 py-1.5 text-gray-500">{r.source === 'material_requests' ? 'Request' : 'Expense'}</td>
-                                  <td className="px-2 py-1.5 font-mono text-gray-700">{r.label || '—'}</td>
-                                  <td className="px-2 py-1.5 text-right">{r.quantity.toLocaleString('en-IN')}</td>
-                                  <td className="px-2 py-1.5 text-right">{formatCurrency(r.price)}</td>
-                                  <td className="px-2 py-1.5 text-right font-semibold">{r.rate != null ? formatCurrency(r.rate) : '—'}</td>
-                                  <td className="px-2 py-1.5 text-gray-500 capitalize">{(r.status || '').replace(/_/g, ' ')}</td>
-                                </tr>
-                              ))}
+                              {rateBreakdown.data.rows.map((r, i) => {
+                                const isConsumption = r.source === 'consumption';
+                                const sourceLabel = isConsumption ? 'Out Stock' : (r.source === 'material_requests' ? 'Request' : 'Expense');
+                                return (
+                                  <tr key={i} className={!isConsumption && r.rate && Math.abs(r.rate - rateBreakdown.data.average_rate) > rateBreakdown.data.average_rate ? 'bg-red-50' : ''}>
+                                    <td className="px-2 py-1.5 text-gray-500 whitespace-nowrap">{r.date ? String(r.date).slice(0, 10) : '—'}</td>
+                                    <td className={`px-2 py-1.5 ${isConsumption ? 'text-red-600 font-medium' : 'text-gray-500'}`}>{sourceLabel}</td>
+                                    <td className="px-2 py-1.5 font-mono text-gray-700">{r.label || '—'}</td>
+                                    <td className={`px-2 py-1.5 text-right ${isConsumption ? 'text-red-600' : ''}`}>{isConsumption ? '-' : ''}{r.quantity.toLocaleString('en-IN')}</td>
+                                    <td className="px-2 py-1.5 text-right">{r.price != null ? formatCurrency(r.price) : '—'}</td>
+                                    <td className="px-2 py-1.5 text-right font-semibold">{r.rate != null ? formatCurrency(r.rate) : '—'}</td>
+                                    <td className="px-2 py-1.5 text-gray-500 capitalize">{(r.status || '').replace(/_/g, ' ')}</td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
