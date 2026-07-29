@@ -832,9 +832,25 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
             {"_id": 0},
         ).to_list(2000)
         for d in docs:
-            qty = float(d.get("quantity") or 0)
-            price = float(d.get("final_price") if d.get("final_price") is not None else (d.get("estimated_price") or 0))
-            if price <= 0 or qty <= 0:
+            # Unit (Rate) = the material's actual per-unit price Procurement
+            # entered (unit_price/unit_rate) — NOT final_price ÷ quantity.
+            # final_price is the all-in estimated total (unit price × qty,
+            # PLUS transport, MINUS discount), so dividing it back by qty
+            # baked transport into the "rate" and inflated it (e.g. ₹310/bag
+            # showing as ₹320/bag once a ₹500 transport charge got folded in).
+            unit_rate = float(d.get("unit_price") or d.get("unit_rate") or 0)
+            if unit_rate <= 0:
+                continue
+            # Current Stock = what was actually received (received_quantity),
+            # falling back to approved/requested qty for requests that
+            # haven't logged a receipt yet.
+            qty = d.get("received_quantity")
+            if qty is None:
+                qty = d.get("approved_quantity")
+            if qty is None:
+                qty = d.get("quantity")
+            qty = float(qty or 0)
+            if qty <= 0:
                 continue
             ref_date = str(d.get("received_at") or d.get("delivered_at") or d.get("updated_at") or d.get("created_at") or "")[:10]
             in_range = bool(ref_date) and date_from <= ref_date <= date_to
@@ -845,9 +861,12 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
                 "unit": d.get("unit", ""),
                 "request_number": d.get("request_number") or d.get("order_id") or d.get("request_id"),
                 "status": d.get("status"),
-                "unit_rate": round(price / qty, 2),
+                "unit_rate": round(unit_rate, 2),
                 "current_stock": qty,
-                "current_sv": price,
+                # Current SV = Unit Rate × Current Stock — a clean
+                # multiplication, not the stored final_price total (which
+                # includes transport/discount and would double-count them).
+                "current_sv": round(unit_rate * qty, 2),
                 "today_in": qty if in_range else 0,
                 "today_out": 0,
             })
