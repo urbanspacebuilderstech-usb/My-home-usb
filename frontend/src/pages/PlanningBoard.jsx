@@ -278,11 +278,13 @@ export default function PlanningBoard({ embedded = false }) {
   const [invSummaryLoading, setInvSummaryLoading] = useState(false);
   const [invProjectSearch, setInvProjectSearch] = useState('');
   const [invMaterialSearch, setInvMaterialSearch] = useState([]); // array of selected material names (multi-select)
-  const [rateBreakdown, setRateBreakdown] = useState({ open: false, projectName: '', materialName: '', loading: false, data: null });
-  const openRateBreakdown = async (projectId, projectName, materialName) => {
-    setRateBreakdown({ open: true, projectName, materialName, loading: true, data: null });
+  const [rateBreakdown, setRateBreakdown] = useState({ open: false, projectName: '', materialName: '', requestNumber: '', loading: false, data: null });
+  const openRateBreakdown = async (projectId, projectName, materialName, requestNumber = '') => {
+    setRateBreakdown({ open: true, projectName, materialName, requestNumber, loading: true, data: null });
     try {
-      const res = await axios.get(`${API}/planning/material-rate-breakdown`, { params: { project_id: projectId, material_name: materialName } });
+      const params = { project_id: projectId, material_name: materialName };
+      if (requestNumber) params.request_number = requestNumber;
+      const res = await axios.get(`${API}/planning/material-rate-breakdown`, { params });
       setRateBreakdown(s => ({ ...s, loading: false, data: res.data }));
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to load rate breakdown');
@@ -2375,9 +2377,9 @@ export default function PlanningBoard({ embedded = false }) {
                                         {row.unit_rate > 0 ? formatCurrency(row.unit_rate) : '—'}
                                         <button
                                           type="button"
-                                          onClick={(e) => { e.stopPropagation(); openRateBreakdown(row.project_id, row.project_name, row.material_name); }}
+                                          onClick={(e) => { e.stopPropagation(); openRateBreakdown(row.project_id, row.project_name, row.material_name, row.request_number); }}
                                           className="text-gray-300 hover:text-indigo-600"
-                                          title="See how this material's overall average rate is calculated across all its requests"
+                                          title="See this request's own rate detail and Out Stock history"
                                           data-testid={`inv-rate-info-${row.project_id}-${row.material_name}`}
                                         >
                                           <Info className="h-3.5 w-3.5" />
@@ -2409,10 +2411,10 @@ export default function PlanningBoard({ embedded = false }) {
                   <DialogContent className="max-w-2xl" data-testid="inv-rate-breakdown-dialog">
                     <DialogHeader>
                       <DialogTitle className="flex items-center gap-2 text-indigo-700">
-                        <Info className="h-5 w-5" /> Rate Breakdown
+                        <Info className="h-5 w-5" /> {rateBreakdown.requestNumber ? `${rateBreakdown.requestNumber} Detail` : 'Rate Breakdown'}
                       </DialogTitle>
                       <DialogDescription className="text-xs">
-                        {rateBreakdown.materialName} · {rateBreakdown.projectName} — full history: requests/bills that set the rate, plus every Out Stock consumption.
+                        {rateBreakdown.materialName} · {rateBreakdown.projectName} — {rateBreakdown.requestNumber ? `this request's own rate, plus every Out Stock consumption for ${rateBreakdown.materialName}.` : 'full history: requests/bills that set the rate, plus every Out Stock consumption.'}
                       </DialogDescription>
                     </DialogHeader>
                     {rateBreakdown.loading ? (
@@ -2454,10 +2456,12 @@ export default function PlanningBoard({ embedded = false }) {
                           </table>
                         </div>
                         <div className="bg-indigo-50 border border-indigo-200 rounded px-3 py-2 flex items-center justify-between text-sm mt-2">
-                          <span className="text-indigo-700 font-medium">Weighted Average Rate</span>
+                          <span className="text-indigo-700 font-medium">{rateBreakdown.requestNumber ? 'Rate' : 'Weighted Average Rate'}</span>
                           <span className="font-bold text-indigo-800">{formatCurrency(rateBreakdown.data.average_rate)}</span>
                         </div>
-                        <p className="text-[11px] text-gray-400 mt-1">Rows highlighted in red are far from the average — likely the source of an incorrect rate.</p>
+                        {!rateBreakdown.requestNumber && (
+                          <p className="text-[11px] text-gray-400 mt-1">Rows highlighted in red are far from the average — likely the source of an incorrect rate.</p>
+                        )}
                       </>
                     )}
                   </DialogContent>

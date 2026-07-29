@@ -1116,18 +1116,34 @@ async def get_planning_inventory_summary(
 
 
 @router.get("/planning/material-rate-breakdown")
-async def get_material_rate_breakdown(project_id: str, material_name: str, user: User = Depends(get_current_user)):
-    """Full history for one (project, material): every priced request/bill
-    that contributes to the weighted-average Unit (Rate), PLUS every Out
-    Stock consumption event, sorted chronologically — so Planning can see
-    the material's whole story (what came in, at what rate, and what went
-    out) in one place instead of just the pricing side."""
+async def get_material_rate_breakdown(
+    project_id: str,
+    material_name: str,
+    request_number: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """History for one (project, material): every priced request/bill that
+    contributes to the weighted-average Unit (Rate), PLUS every Out Stock
+    consumption event, sorted chronologically — so Planning can see the
+    material's whole story (what came in, at what rate, and what went out)
+    in one place instead of just the pricing side.
+
+    When `request_number` is passed (clicking the info icon on one specific
+    request's own row in the now-per-request Inventory table), the pricing
+    rows are scoped to just that one request instead of every request for
+    the material — clicking USB-MR639 shouldn't pull USB-MR410 in too, now
+    that each row already stands on its own. Out Stock consumption stays
+    material-wide either way, since it's never tied to one specific request."""
     if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
 
     rows = []
     for src_coll, num_field in (("material_requests", "request_number"), ("material_expenses", "expense_id")):
+        if request_number and src_coll == "material_expenses":
+            continue  # scoped to one request — expense mirrors don't apply
         query = {"project_id": project_id, "material_name": material_name}
+        if request_number and src_coll == "material_requests":
+            query["request_number"] = request_number
         if src_coll == "material_expenses":
             # `material_expenses` docs created via a request's advance/balance
             # payment flow are billing MIRRORS of that material_request (see
