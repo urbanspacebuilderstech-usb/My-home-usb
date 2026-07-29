@@ -682,51 +682,6 @@ async def _fifo_material_request_batches(project_id: str) -> Dict[str, list]:
             to_deduct -= take
             b["last_out_at"] = c.get("last_out_at") or ev_date
 
-    # Reconcile against the Daily Inventory Register's actual running
-    # balance. FIFO batches only come from PRICED material_requests, but
-    # real stock can also enter through a manual ledger entry, an unpriced
-    # request, or legacy data this table can't name — so the batches can
-    # undercount the true remaining stock. Add one synthetic "Unaccounted"
-    # row per material to plug that gap, so Current Stock always adds up
-    # to the real ledger total instead of silently under-reporting it.
-    ledger_pipeline = [
-        {"$match": {"project_id": project_id}},
-        {"$sort": {"date": -1, "created_at": -1}},
-        {"$group": {"_id": "$material_name", "latest": {"$first": "$$ROOT"}}},
-        {"$project": {"_id": 0}},
-    ]
-    ledger_docs = await db.material_inventory.aggregate(ledger_pipeline).to_list(500)
-    for ld in ledger_docs:
-        latest = ld.get("latest", {})
-        mat = latest.get("material_name")
-        if not mat:
-            continue
-        true_remaining = latest.get("closing_stock")
-        if true_remaining is None:
-            true_remaining = latest.get("current_stock", 0)
-        true_remaining = float(true_remaining or 0)
-        batches = batches_by_material.setdefault(mat, [])
-        known_remaining = sum(b["remaining"] for b in batches)
-        gap = true_remaining - known_remaining
-        if gap <= 0.01:
-            continue
-        total_qty = sum(b["qty"] for b in batches)
-        # Estimated using this material's own priced batches' weighted rate
-        # — a best-effort value, not a real per-unit price, since the
-        # unaccounted stock's actual cost isn't known.
-        avg_rate = (sum(b["unit_rate"] * b["qty"] for b in batches) / total_qty) if total_qty > 0 else 0.0
-        batches.append({
-            "request_number": "Unaccounted",
-            "status": "unaccounted",
-            "unit": latest.get("unit") or (batches[0]["unit"] if batches else ""),
-            "unit_rate": round(avg_rate, 2),
-            "qty": gap,
-            "remaining": gap,
-            "receive_date": "",
-            "receive_at": None,
-            "last_out_at": None,
-        })
-
     return batches_by_material
 
 
