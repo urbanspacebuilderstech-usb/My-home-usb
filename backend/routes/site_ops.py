@@ -817,6 +817,44 @@ async def _inventory_rows_for_projects(project_name_map: Dict[str, str], date_fr
     return rows
 
 
+async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str], date_from: str, date_to: str) -> list:
+    """Per-REQUEST material rollup for Planning's Inventory sub-tab — one row
+    per priced material_request rather than one merged row per material, so
+    "M Sand collected 3 times" shows as 3 separate lines (each with its own
+    rate/qty/value) instead of a single aggregated row. Mirrors the same
+    "must have a real price" filter as the Rate Breakdown popup (still-
+    pending/unpriced requests contribute no rate yet, so they're excluded
+    rather than showing a phantom ₹0 row)."""
+    rows = []
+    for pid, pname in project_name_map.items():
+        docs = await db.material_requests.find(
+            {"project_id": pid, "status": {"$nin": ["rejected", "cancelled", "deleted"]}},
+            {"_id": 0},
+        ).to_list(2000)
+        for d in docs:
+            qty = float(d.get("quantity") or 0)
+            price = float(d.get("final_price") if d.get("final_price") is not None else (d.get("estimated_price") or 0))
+            if price <= 0 or qty <= 0:
+                continue
+            ref_date = str(d.get("received_at") or d.get("delivered_at") or d.get("updated_at") or d.get("created_at") or "")[:10]
+            in_range = bool(ref_date) and date_from <= ref_date <= date_to
+            rows.append({
+                "project_id": pid,
+                "project_name": pname,
+                "material_name": d.get("material_name"),
+                "unit": d.get("unit", ""),
+                "request_number": d.get("request_number") or d.get("order_id") or d.get("request_id"),
+                "status": d.get("status"),
+                "unit_rate": round(price / qty, 2),
+                "current_stock": qty,
+                "current_sv": price,
+                "today_in": qty if in_range else 0,
+                "today_out": 0,
+            })
+    rows.sort(key=lambda r: (r["project_name"].lower(), (r["material_name"] or "").lower(), r.get("request_number") or ""))
+    return rows
+
+
 async def _assigned_project_name_map(project_ids: list) -> Dict[str, str]:
     if not project_ids:
         return {}
@@ -975,16 +1013,16 @@ async def get_planning_inventory_summary(
     end_date: Optional[str] = None,
     user: User = Depends(get_current_user),
 ):
-    """Project-wise material stock rollup across every project visible to
-    this Planning user: current stock balance, unit rate, plus stock-in and
-    stock-out over the selected date range, one row per (project,
-    material)."""
+    """Project-wise material rollup across every project visible to this
+    Planning user — one row per priced material_request (not merged per
+    material), so a material collected multiple times shows each collection
+    as its own line with its own rate/qty/value."""
     if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
 
     date_from, date_to = _resolve_date_range(date, start_date, end_date)
     project_name_map = await _planning_project_name_map(user)
-    rows = await _inventory_rows_for_projects(project_name_map, date_from, date_to)
+    rows = await _inventory_request_rows_for_projects(project_name_map, date_from, date_to)
     return {"date_from": date_from, "date_to": date_to, "rows": rows}
 
 

@@ -2316,7 +2316,7 @@ export default function PlanningBoard({ embedded = false }) {
                         );
                         const totals = filteredInvRows.reduce((acc, r) => {
                           const rate = Number(r.unit_rate) || 0;
-                          acc.stock += (Number(r.current_stock) || 0) * rate;
+                          acc.stock += r.current_sv != null ? Number(r.current_sv) || 0 : (Number(r.current_stock) || 0) * rate;
                           acc.in += (Number(r.today_in) || 0) * rate;
                           acc.out += (Number(r.today_out) || 0) * rate;
                           return acc;
@@ -2348,6 +2348,7 @@ export default function PlanningBoard({ embedded = false }) {
                                   <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
                                   <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
                                   <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Material</th>
+                                  <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Request</th>
                                   <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Unit</th>
                                   <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Unit (Rate)</th>
                                   <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Current SV</th>
@@ -2359,7 +2360,7 @@ export default function PlanningBoard({ embedded = false }) {
                               <tbody className="divide-y">
                                 {filteredInvRows.map((row, idx) => (
                                   <tr
-                                    key={`${row.project_id}-${row.material_name}-${idx}`}
+                                    key={`${row.project_id}-${row.material_name}-${row.request_number || idx}`}
                                     className="hover:bg-indigo-50/50 cursor-pointer"
                                     data-testid={`inv-summary-row-${idx}`}
                                     onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
@@ -2367,6 +2368,7 @@ export default function PlanningBoard({ embedded = false }) {
                                     <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
                                     <td className="px-3 py-2 font-medium text-gray-900">{row.project_name}</td>
                                     <td className="px-3 py-2 text-gray-700">{row.material_name}</td>
+                                    <td className="px-3 py-2 text-gray-500 font-mono text-[11px]">{row.request_number || '—'}</td>
                                     <td className="px-3 py-2 text-gray-500">{row.unit || '—'}</td>
                                     <td className="px-3 py-2 text-right text-gray-600">
                                       <span className="inline-flex items-center gap-1 justify-end">
@@ -2375,7 +2377,7 @@ export default function PlanningBoard({ embedded = false }) {
                                           type="button"
                                           onClick={(e) => { e.stopPropagation(); openRateBreakdown(row.project_id, row.project_name, row.material_name); }}
                                           className="text-gray-300 hover:text-indigo-600"
-                                          title="See how this rate was calculated"
+                                          title="See how this material's overall average rate is calculated across all its requests"
                                           data-testid={`inv-rate-info-${row.project_id}-${row.material_name}`}
                                         >
                                           <Info className="h-3.5 w-3.5" />
@@ -2383,7 +2385,7 @@ export default function PlanningBoard({ embedded = false }) {
                                       </span>
                                     </td>
                                     <td className="px-3 py-2 text-right text-indigo-700 font-medium whitespace-nowrap">
-                                      {row.unit_rate > 0 ? formatCurrency((Number(row.current_stock) || 0) * row.unit_rate) : '—'}
+                                      {row.current_sv != null ? formatCurrency(row.current_sv) : (row.unit_rate > 0 ? formatCurrency((Number(row.current_stock) || 0) * row.unit_rate) : '—')}
                                     </td>
                                     <td className="px-3 py-2 text-right font-medium">{Math.round(Number(row.current_stock) || 0).toLocaleString('en-IN')}</td>
                                     <td className="px-3 py-2 text-right text-emerald-700">{(() => { const v = Math.round(Number(row.today_in) || 0); return v > 0 ? `+${v.toLocaleString('en-IN')}` : v; })()}</td>
