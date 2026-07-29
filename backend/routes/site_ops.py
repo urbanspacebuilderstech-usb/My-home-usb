@@ -935,11 +935,12 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
                     "min_threshold": threshold,
                     "is_low_stock": is_low,
                 })
-    # Low-stock rows surface first (matches the SE Inventory tab's own
-    # sort), so a material running out doesn't get buried on page 3 — this
-    # ordering survives the frontend's project/material search too, since
-    # filtering only removes rows, it never reshuffles the remaining ones.
-    rows.sort(key=lambda r: (not r["is_low_stock"], r["project_name"].lower(), (r["material_name"] or "").lower(), r.get("request_number") or ""))
+    # Within the same material, exhausted batches (Current Stock 0) sink to
+    # the bottom — a request with real stock left is more useful to see
+    # first than one that's already fully consumed. Survives the frontend's
+    # project/material search too, since filtering only removes rows, it
+    # never reshuffles the remaining ones.
+    rows.sort(key=lambda r: (r["project_name"].lower(), (r["material_name"] or "").lower(), r["current_stock"] <= 0, r.get("request_number") or ""))
     return rows
 
 
