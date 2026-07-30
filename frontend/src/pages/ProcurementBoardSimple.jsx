@@ -84,13 +84,11 @@ export default function ProcurementBoardSimple() {
 // =====================================================================
 // Material lifecycle filter cards — Procurement view.
 // Order: SE → Procurement (New Request) → Transit → Purchase Verification →
-// Payment Pending → Completed. No dedicated tab for Planning's pricing
-// approval (procurement_priced) — Procurement isn't the actor at that
-// point, so it's visible only under "All". procurement_revision (Planning
-// kicked it back to Procurement to fix) folds into New Request since it
-// reuses the same Assign Vendor action dialog. "Received Material" is no
-// longer its own tab — once SE clicks Collect Material (status becomes
-// `collected`) the request folds straight into Purchase Verification.
+// Payment Pending → Completed. procurement_revision (Planning kicked it back
+// to Procurement to fix) folds into New Request since it reuses the same
+// Assign Vendor action dialog. "Received Material" is no longer its own tab
+// — once SE clicks Collect Material (status becomes `collected`) the
+// request folds straight into Purchase Verification.
 const LIFECYCLE_BUCKETS = [
   { key: 'all',                 label: 'All',                    Icon: ListChecks,    cls: 'bg-violet-50 border-violet-200 text-violet-700',    active: 'bg-violet-600 text-white border-violet-600' },
   { key: 'new_request',         label: 'New Request (SE)',       Icon: ClipboardList, cls: 'bg-amber-50 border-amber-200 text-amber-700',       active: 'bg-amber-600 text-white border-amber-600' },
@@ -118,9 +116,10 @@ function bucketForMaterial(req) {
   if (['in_transit', 'procurement_verify_rejected'].includes(status)) return 'transit';
   if (['delivered', 'completed', 'closed'].includes(status)) return 'delivered';
   // procurement_priced (awaiting Planning's pricing approval), rejected /
-  // revision-rejected statuses — nothing for Procurement to action, visible
-  // only under "All".
-  return 'all';
+  // revision-rejected statuses, and anything else unmapped — nothing for
+  // Procurement to action, so hidden entirely (same as planning_initial_pending)
+  // rather than inflating "All" beyond the sum of the 5 visible tabs.
+  return null;
 }
 
 // Payment phase for an Awaiting Accountant item — "Full Advance" means the
