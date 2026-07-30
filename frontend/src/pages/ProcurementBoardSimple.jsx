@@ -223,6 +223,11 @@ function RequestsTab({ dateRange, projectFilter }) {
     const c = { all: procurementVisible.length };
     LIFECYCLE_BUCKETS.forEach(b => { if (b.key !== 'all') c[b.key] = 0; });
     procurementVisible.forEach(r => {
+      // Planning archiving a request pulls it out of its specific stage tab
+      // (mirrors Planning's own board) — it still needs Procurement's real
+      // action, so it stays counted in "All" and gets an "Archived" tag on
+      // its card, just not double-homed under e.g. Payment Pending too.
+      if (r.is_archived) return;
       const b = bucketForMaterial(r);
       if (b) c[b] = (c[b] || 0) + 1;
     });
@@ -232,7 +237,7 @@ function RequestsTab({ dateRange, projectFilter }) {
   const visibleItems = useMemo(() => {
     let scope;
     if (bucket === 'all') scope = procurementVisible;
-    else scope = procurementVisible.filter(r => bucketForMaterial(r) === bucket);
+    else scope = procurementVisible.filter(r => !r.is_archived && bucketForMaterial(r) === bucket);
     // Sub-filter the Awaiting Accountant bucket by payment phase — see
     // awaitingPaymentPhase() above.
     if (bucket === 'awaiting_accountant' && awaitingSubTab !== 'all') {
@@ -250,7 +255,7 @@ function RequestsTab({ dateRange, projectFilter }) {
 
   // Counts for the Awaiting Accountant sub-tabs.
   const awaitingCounts = useMemo(() => {
-    const scope = procurementVisible.filter(r => bucketForMaterial(r) === 'awaiting_accountant');
+    const scope = procurementVisible.filter(r => !r.is_archived && bucketForMaterial(r) === 'awaiting_accountant');
     let adv = 0;
     let fullAdv = 0;
     let postDelivery = 0;
@@ -1383,6 +1388,16 @@ function RequestCard({ req, onClick, stockInfo = null }) {
             {seReceived && (
               <Badge variant="outline" className="text-[10px] bg-lime-50 text-lime-700 border-lime-200" data-testid={`proc-card-se-received-${req.request_id}`}>
                 SE Received
+              </Badge>
+            )}
+            {req.is_archived && (
+              <Badge
+                variant="outline"
+                className="text-[10px] bg-gray-100 text-gray-700 border-gray-300"
+                title="Archived by Planning — organisational filing only, still needs Procurement's action at its real stage"
+                data-testid={`proc-card-archived-${req.request_id}`}
+              >
+                Archived
               </Badge>
             )}
             <Badge variant="outline" className={`text-[10px] ${cardCfg?.cls || ''}`}>
