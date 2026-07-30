@@ -65,8 +65,11 @@ function bucketForMaterial(req) {
   if (status === 'in_transit') return 'transit';
   if (['pending_accounts_approval', 'pending_advance_payment', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'payment_pending';
   if (['delivered', 'completed', 'closed'].includes(status)) return 'completed';
-  // Rejected / revision / anything else — visible only under "All".
-  return 'all';
+  // Rejected / revision / anything else unmapped — nothing left for Planning
+  // to action, so hidden entirely rather than inflating "All" beyond the
+  // sum of the visible tabs (New Request + Purchase + Transit +
+  // Purchase Verification + Payment Pending + Completed + Archive).
+  return null;
 }
 
 // Payment phase for a Payment Pending item — mirrors the Procurement board's
@@ -1265,21 +1268,23 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
     })();
   }, [items]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Hide requests whose status maps to no tab (rejected/revision/unmapped) —
+  // otherwise "All" would count more than the sum of the visible tabs below.
+  const visible = useMemo(() => items.filter(r => bucketForMaterial(r) !== null), [items]);
+
   const counts = useMemo(() => {
-    // "All" excludes archived items, matching every other bucket — archived
-    // requests are only ever visible under the dedicated Archive tab.
-    const c = { all: items.filter(r => !r.is_archived).length };
+    const c = { all: visible.length };
     MAT_LIFECYCLE_BUCKETS.forEach(b => { if (b.key !== 'all') c[b.key] = 0; });
-    items.forEach(r => {
+    visible.forEach(r => {
       const b = bucketForMaterial(r);
-      if (b !== 'all') c[b] = (c[b] || 0) + 1;
+      c[b] = (c[b] || 0) + 1;
     });
     return c;
-  }, [items]);
+  }, [visible]);
 
   // Counts for the Payment Pending sub-tabs.
   const paymentCounts = useMemo(() => {
-    const scope = items.filter(r => bucketForMaterial(r) === 'payment_pending');
+    const scope = visible.filter(r => bucketForMaterial(r) === 'payment_pending');
     let adv = 0;
     let fullAdv = 0;
     let postDelivery = 0;
@@ -1290,10 +1295,10 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
       else postDelivery += 1;
     });
     return { all: scope.length, post_delivery: postDelivery, advance: adv, full_advance: fullAdv };
-  }, [items]);
+  }, [visible]);
 
   const visibleItems = useMemo(() => {
-    let scope = bucket === 'all' ? items.filter(r => !r.is_archived) : items.filter(r => bucketForMaterial(r) === bucket);
+    let scope = bucket === 'all' ? visible : visible.filter(r => bucketForMaterial(r) === bucket);
     if (bucket === 'payment_pending' && paymentSubTab !== 'all') {
       scope = scope.filter(r => awaitingPaymentPhase(r) === paymentSubTab);
     }
@@ -1304,7 +1309,7 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
       if (ap !== bp) return bp - ap;
       return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     });
-  }, [items, bucket, paymentSubTab]);
+  }, [visible, bucket, paymentSubTab]);
 
   return (
     <div className="space-y-3">
