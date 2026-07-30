@@ -1161,7 +1161,14 @@ async def get_material_rate_breakdown(
             {"_id": 0},
         ).to_list(200)
         for d in docs:
-            qty = float(d.get("quantity") or 0)
+            # Use the actual received quantity (falls back to approved/requested)
+            # so this matches Procurement's "Received Qty" — the material_request's
+            # own `quantity` field is only what was originally requested, and stays
+            # stale once Procurement records a different delivered amount.
+            if src_coll == "material_requests":
+                qty = float(d.get("received_quantity") or d.get("approved_quantity") or d.get("quantity") or 0)
+            else:
+                qty = float(d.get("quantity") or 0)
             # Rate = the actual per-unit price entered (unit_price/unit_rate)
             # for material_requests — NOT final_price ÷ qty, which is the
             # all-in total (unit price × qty + transport − discount) and
