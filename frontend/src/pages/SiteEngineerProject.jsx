@@ -1645,11 +1645,20 @@ export default function SiteEngineerProject() {
                           <div>
                             <Label className="text-xs sm:text-sm flex items-center gap-1">
                               Unit
-                              {materialForm.is_locked_from_package && (
+                              {(materialForm.is_locked_from_package || (materialForm.is_approved && materialForm.material_id)) && (
                                 <svg className="h-3 w-3 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" data-testid="unit-lock-icon"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 11c0-1.657 1.343-3 3-3s3 1.343 3 3v3H6v-3c0-1.657 1.343-3 3-3s3 1.343 3 3z"/></svg>
                               )}
                             </Label>
-                            <UnitSelect value={materialForm.unit} onChange={(v) => setMaterialForm({...materialForm, unit: v})} disabled={materialForm.is_locked_from_package} data-testid="material-unit-select" />
+                            {/* Approved-list materials carry their own fixed unit — SE picks the
+                                material, not its unit, so the dropdown is locked once one is
+                                selected (same treatment as a package-locked unit). Custom/Other
+                                entries have no predefined unit and stay editable. */}
+                            <UnitSelect
+                              value={materialForm.unit}
+                              onChange={(v) => setMaterialForm({...materialForm, unit: v})}
+                              disabled={materialForm.is_locked_from_package || (materialForm.is_approved && !!materialForm.material_id)}
+                              data-testid="material-unit-select"
+                            />
                           </div>
                         </div>
                       )}
