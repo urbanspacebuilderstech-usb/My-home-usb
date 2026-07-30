@@ -1115,6 +1115,64 @@ async def get_planning_inventory_summary(
     return {"date_from": date_from, "date_to": date_to, "rows": rows}
 
 
+async def _fifo_scoped_consumption(project_id: str, material_name: str, target_request_number: str) -> list:
+    """Replays the same FIFO batch depletion as the per-request Current Stock
+    calc in `_inventory_request_rows_for_projects` (oldest-received batch
+    drained first), but returns only the slice of each Out Stock event that
+    was actually drawn from `target_request_number`'s own batch — so a
+    request-scoped popup's consumption history agrees with that row's
+    already-computed Current Stock instead of showing every other request's
+    consumption too."""
+    docs = await db.material_requests.find(
+        {"project_id": project_id, "material_name": material_name,
+         "status": {"$nin": ["rejected", "cancelled", "deleted"]}},
+        {"_id": 0},
+    ).to_list(2000)
+    batches = []
+    for d in docs:
+        qty = d.get("received_quantity")
+        if qty is None:
+            qty = d.get("approved_quantity")
+        if qty is None:
+            qty = d.get("quantity")
+        qty = float(qty or 0)
+        if qty <= 0:
+            continue
+        receive_date = str(d.get("received_at") or d.get("delivered_at") or d.get("updated_at") or d.get("created_at") or "")[:10]
+        batches.append({
+            "request_number": d.get("request_number") or d.get("order_id") or d.get("request_id"),
+            "remaining": qty,
+            "receive_date": receive_date,
+        })
+    batches.sort(key=lambda b: b["receive_date"] or "")
+
+    consumption_docs = await db.material_inventory.find(
+        {"project_id": project_id, "material_name": material_name, "used": {"$gt": 0}},
+        {"_id": 0, "date": 1, "used": 1},
+    ).sort("date", 1).to_list(500)
+
+    scoped = []
+    for c in consumption_docs:
+        ev_date = str(c.get("date") or "")
+        to_deduct = float(c.get("used") or 0)
+        taken_from_target = 0.0
+        for b in batches:
+            if to_deduct <= 0:
+                break
+            if b["remaining"] <= 0:
+                continue
+            if b["receive_date"] and ev_date and b["receive_date"] > ev_date:
+                continue  # can't consume a batch before it arrived
+            take = min(b["remaining"], to_deduct)
+            b["remaining"] -= take
+            to_deduct -= take
+            if b["request_number"] == target_request_number:
+                taken_from_target += take
+        if taken_from_target > 0:
+            scoped.append({"date": ev_date, "used": taken_from_target})
+    return scoped
+
+
 @router.get("/planning/material-rate-breakdown")
 async def get_material_rate_breakdown(
     project_id: str,
@@ -1132,8 +1190,11 @@ async def get_material_rate_breakdown(
     request's own row in the now-per-request Inventory table), the pricing
     rows are scoped to just that one request instead of every request for
     the material — clicking USB-MR639 shouldn't pull USB-MR410 in too, now
-    that each row already stands on its own. Out Stock consumption stays
-    material-wide either way, since it's never tied to one specific request."""
+    that each row already stands on its own. Out Stock consumption is FIFO-
+    allocated the same way the per-request Current Stock column already is
+    (oldest-received batch drained first) — a batch shown as fully consumed
+    there must show its own full quantity consumed here too, not the
+    material's total consumption across every other request's batch as well."""
     if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
 
@@ -1209,11 +1270,18 @@ async def get_material_rate_breakdown(
 
     # Out Stock consumption history — same material, same project, so the
     # popup reads as a complete in/out history rather than pricing-only.
-    consumption_docs = await db.material_inventory.find(
-        {"project_id": project_id, "material_name": material_name, "used": {"$gt": 0}},
-        {"_id": 0, "date": 1, "used": 1, "consumption_log": 1},
-    ).sort("date", 1).to_list(500)
-    for c in consumption_docs:
+    # Scoped to just this request's own FIFO-allocated share when a
+    # request_number is given, so it never shows more consumed than this
+    # request actually received.
+    if request_number:
+        consumption_events = await _fifo_scoped_consumption(project_id, material_name, request_number)
+    else:
+        consumption_docs = await db.material_inventory.find(
+            {"project_id": project_id, "material_name": material_name, "used": {"$gt": 0}},
+            {"_id": 0, "date": 1, "used": 1},
+        ).sort("date", 1).to_list(500)
+        consumption_events = [{"date": str(c.get("date") or ""), "used": float(c.get("used") or 0)} for c in consumption_docs]
+    for c in consumption_events:
         used_qty = float(c.get("used") or 0)
         rows.append({
             "source": "consumption",
