@@ -2254,6 +2254,20 @@ async def approve_labour_request(
 # ==================== PLANNING BOARD ENDPOINTS ====================
 # These endpoints are used by the Planning Board to view and approve/reject requests
 
+@router.get("/material-requests/diagnostics")
+async def get_material_requests_diagnostics(user: User = Depends(get_current_user)):
+    """Temporary read-only breakdown of material_requests by status/is_archived,
+    to pin down why Planning's Requests board and Procurement's board show
+    different 'All' counts for what should be the same underlying data."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can access this")
+    total = await db.material_requests.count_documents({})
+    archived = await db.material_requests.count_documents({"is_archived": True})
+    pipeline = [{"$group": {"_id": "$status", "count": {"$sum": 1}}}, {"$sort": {"count": -1}}]
+    by_status = {d["_id"]: d["count"] async for d in db.material_requests.aggregate(pipeline)}
+    return {"total": total, "archived": archived, "by_status": by_status}
+
+
 @router.get("/material-requests")
 async def get_material_requests_for_planning(
     status: Optional[str] = None,
