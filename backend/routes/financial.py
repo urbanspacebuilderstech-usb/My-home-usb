@@ -12,6 +12,7 @@ import uuid
 import os
 import io
 import json
+import re
 import asyncio
 import logging
 from bson import ObjectId
@@ -7684,6 +7685,227 @@ async def _live_vendor_suspense_balance(suspense_type: str, vendor_name: str, re
     return sum(float(e.get("amount", 0) or 0) for e in suspense_entries)
 
 
+async def _resolve_suspense_funding_source(
+    suspense_type: str, vendor_name: str, req: Dict[str, Any], credit_used: float
+):
+    """True-FIFO: replay this vendor/contractor's live suspense ledger in
+    chronological order, depleting each credit entry's balance as later
+    debits consume it, then return whichever credit is actually funding the
+    next `credit_used` rupees.
+
+    Jul 31 2026 — Replaces a naive "oldest credit entry that happens to have
+    a valid linked expense" scan, which could point at a credit that was
+    already fully spent by an earlier debit (e.g. an old HDFC CURRENT
+    payment) while ignoring a newer, still-available cheque-sourced credit
+    that's the money actually being drawn on now. That bug mislabeled the
+    inherited payment mode on suspense-funded payments (SARAVANA TRADERS:
+    showed "Mode: HDFC CURRENT" on a leg really funded by Cheque #607980).
+    """
+    suspense_query = {"type": suspense_type}
+    if suspense_type == "material":
+        suspense_query["vendor_name"] = vendor_name
+    elif suspense_type == "labour":
+        suspense_query["contractor_name"] = vendor_name
+    else:  # petty_cash — keyed by Site Engineer (requested_by)
+        se_id = req.get("requested_by") or req.get("site_engineer_id")
+        if se_id:
+            suspense_query["site_engineer_id"] = se_id
+        else:
+            suspense_query["vendor_name"] = vendor_name
+
+    entries = await db.suspense_entries.find(suspense_query, {"_id": 0}).sort(
+        [("created_at", 1), ("entry_id", 1)]
+    ).to_list(20000)
+
+    # Same "live" filter as _live_vendor_suspense_balance, so the credits we
+    # replay here match what the accountant was actually allowed to spend.
+    if suspense_type == "material":
+        _excl_status = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+        _linked_ids = [e.get("linked_expense_id") or e.get("expense_id") for e in entries if e.get("linked_expense_id") or e.get("expense_id")]
+        _live_ids = set()
+        if _linked_ids:
+            _linked_docs = await db.recorded_expenses.find(
+                {"expense_id": {"$in": _linked_ids}}, {"_id": 0, "expense_id": 1, "status": 1, "is_deleted": 1}
+            ).to_list(len(_linked_ids))
+            _live_ids = {
+                d["expense_id"] for d in _linked_docs
+                if (d.get("status") or "").lower() not in _excl_status and not d.get("is_deleted")
+            }
+        entries = [
+            e for e in entries
+            if not (e.get("linked_expense_id") or e.get("expense_id")) or (e.get("linked_expense_id") or e.get("expense_id")) in _live_ids
+        ]
+
+    queue: List[Dict[str, Any]] = []
+    for se in entries:
+        amt = float(se.get("amount") or 0)
+        if amt > 0.5:
+            queue.append({"entry": se, "remaining": amt})
+        elif amt < -0.5:
+            debit = -amt
+            while debit > 0.5 and queue:
+                head = queue[0]
+                take = min(head["remaining"], debit)
+                head["remaining"] -= take
+                debit -= take
+                if head["remaining"] <= 0.5:
+                    queue.pop(0)
+
+    remaining_to_source = credit_used
+    source_entry = None
+    source_expense = None
+    for head in queue:
+        if remaining_to_source <= 0.5:
+            break
+        se = head["entry"]
+        take = min(head["remaining"], remaining_to_source)
+        remaining_to_source -= take
+        if source_entry is None:
+            linked = se.get("linked_expense_id")
+            if linked:
+                src = await db.recorded_expenses.find_one({"expense_id": linked}, {"_id": 0})
+                if src and (src.get("payment_method") or "").strip():
+                    source_entry = se
+                    source_expense = src
+    return source_entry, source_expense
+
+
+@router.post("/admin/backfill-suspense-funding-source")
+async def backfill_suspense_funding_source(dry_run: bool = True, user: User = Depends(get_current_user)):
+    """Temporary one-time repair (Jul 31 2026, SARAVANA TRADERS report) —
+    Historical suspense-funded payment legs (recorded_expenses with
+    source == "approval_suspense") inherited their payment_method from a
+    naive "oldest credit entry with a valid link" scan, which could point at
+    a credit that was already fully spent by an earlier debit instead of the
+    credit that actually funds that leg (e.g. showing "Mode: HDFC CURRENT"
+    on a leg really funded by Cheque #607980's excess).
+
+    This replays each vendor/contractor's suspense_entries once, in
+    chronological order, with true FIFO balance depletion, re-derives the
+    correct funding source for every historical debit, and corrects any
+    recorded_expense whose stored payment_method/cheque_number disagrees.
+    SUPER_ADMIN only. dry_run=true (default) only reports the diff;
+    dry_run=false applies the correction.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can run this")
+
+    _excl_status = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    changes: List[Dict[str, Any]] = []
+
+    for suspense_type, name_field in (("material", "vendor_name"), ("labour", "contractor_name")):
+        names = [n for n in await db.suspense_entries.distinct(name_field, {"type": suspense_type}) if n]
+        for name in names:
+            entries = await db.suspense_entries.find(
+                {"type": suspense_type, name_field: name}, {"_id": 0}
+            ).sort([("created_at", 1), ("entry_id", 1)]).to_list(20000)
+
+            if suspense_type == "material":
+                _linked_ids = [e.get("linked_expense_id") or e.get("expense_id") for e in entries if e.get("linked_expense_id") or e.get("expense_id")]
+                _live_ids = set()
+                if _linked_ids:
+                    _linked_docs = await db.recorded_expenses.find(
+                        {"expense_id": {"$in": _linked_ids}}, {"_id": 0, "expense_id": 1, "status": 1, "is_deleted": 1}
+                    ).to_list(len(_linked_ids))
+                    _live_ids = {
+                        d["expense_id"] for d in _linked_docs
+                        if (d.get("status") or "").lower() not in _excl_status and not d.get("is_deleted")
+                    }
+                entries = [
+                    e for e in entries
+                    if not (e.get("linked_expense_id") or e.get("expense_id")) or (e.get("linked_expense_id") or e.get("expense_id")) in _live_ids
+                ]
+
+            queue: List[Dict[str, Any]] = []
+            for se in entries:
+                amt = float(se.get("amount") or 0)
+                if amt > 0.5:
+                    queue.append({"entry": se, "remaining": amt})
+                    continue
+                if amt >= -0.5:
+                    continue
+                debit = -amt
+                funding = []
+                while debit > 0.5 and queue:
+                    head = queue[0]
+                    take = min(head["remaining"], debit)
+                    funding.append((head["entry"], take))
+                    head["remaining"] -= take
+                    debit -= take
+                    if head["remaining"] <= 0.5:
+                        queue.pop(0)
+
+                leg_id = se.get("linked_expense_id")
+                if not leg_id or not funding:
+                    continue
+                leg = await db.recorded_expenses.find_one({"expense_id": leg_id}, {"_id": 0})
+                if not leg or leg.get("source") != "approval_suspense":
+                    continue
+
+                source_expense = None
+                for credit_entry, _take in funding:
+                    linked = credit_entry.get("linked_expense_id")
+                    if not linked:
+                        continue
+                    src = await db.recorded_expenses.find_one({"expense_id": linked}, {"_id": 0})
+                    if src and (src.get("payment_method") or "").strip():
+                        source_expense = src
+                        break
+
+                correct_method = (source_expense or {}).get("payment_method") or "suspense"
+                correct_cheque_id = None
+                correct_cheque_ids = []
+                if source_expense and correct_method == "cheque":
+                    correct_cheque_ids = source_expense.get("cheque_ids") or []
+                    correct_cheque_id = source_expense.get("cheque_id") or (correct_cheque_ids[0] if correct_cheque_ids else None)
+                correct_ref = (source_expense or {}).get("transaction_id")
+                correct_cheque_no = None
+                if correct_cheque_id:
+                    ch = await db.cheques.find_one({"cheque_id": correct_cheque_id}, {"_id": 0, "cheque_number": 1})
+                    correct_cheque_no = (ch or {}).get("cheque_number")
+
+                if leg.get("payment_method") == correct_method and (leg.get("cheque_number") or None) == correct_cheque_no:
+                    continue  # already correct — nothing to backfill
+
+                src_hint = ""
+                if correct_method == "cheque" and correct_cheque_no:
+                    src_hint = f" (via Cheque #{correct_cheque_no} suspense)"
+                elif correct_method != "suspense":
+                    src_hint = f" (via {correct_method.replace('_', ' ')} suspense)"
+                else:
+                    src_hint = " (via suspense)"
+                base_desc = re.sub(r"\s*\(via .*? suspense\)\s*$", "", leg.get("description") or "")
+                new_description = base_desc + src_hint
+
+                changes.append({
+                    "expense_id": leg.get("expense_id"),
+                    "name": name,
+                    "suspense_type": suspense_type,
+                    "amount": leg.get("amount"),
+                    "created_at": leg.get("created_at"),
+                    "before": {"payment_method": leg.get("payment_method"), "cheque_number": leg.get("cheque_number")},
+                    "after": {"payment_method": correct_method, "cheque_number": correct_cheque_no},
+                })
+
+                if not dry_run:
+                    await db.recorded_expenses.update_one(
+                        {"expense_id": leg.get("expense_id")},
+                        {"$set": {
+                            "payment_method": correct_method,
+                            "transaction_id": correct_ref,
+                            "cheque_id": correct_cheque_id,
+                            "cheque_ids": correct_cheque_ids,
+                            "cheque_number": correct_cheque_no,
+                            "description": new_description,
+                            "source_of_suspense_expense_id": (source_expense or {}).get("expense_id"),
+                            "backfilled_at": datetime.now(timezone.utc).isoformat(),
+                            "backfilled_by": user.user_id,
+                        }},
+                    )
+
+    return {"dry_run": dry_run, "changed_count": len(changes), "changes": changes}
+
+
 @router.get("/approvals/{req_type}/{request_id}/pay-context")
 async def get_pay_context(req_type: str, request_id: str, user: User = Depends(get_current_user)):
     """Returns request details + current suspense balance + active opened cheques (for the dialog)."""
@@ -8041,34 +8263,14 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     # partially) cover the bill, record a separate `recorded_expenses` row
     # so the Cashbook shows the correct mode. Per user request, that mode
     # inherits from the ORIGINAL source expense (typically the cheque that
-    # created the suspense credit) — not the generic "suspense" tag. FIFO
-    # by created_at picks the oldest positive credit as the source.
+    # created the suspense credit) — not the generic "suspense" tag.
+    # Jul 31 2026 — Source is now resolved via true-FIFO balance depletion
+    # (_resolve_suspense_funding_source), not just "the oldest credit that
+    # happens to have a valid link" — see that function's docstring for why.
     if credit_used > 0.5:
-        sus_query = {"type": suspense_type}
-        if suspense_type == "material":
-            sus_query["vendor_name"] = vendor_name
-        elif suspense_type == "labour":
-            sus_query["contractor_name"] = vendor_name
-        else:
-            se_id = req.get("requested_by") or req.get("site_engineer_id")
-            if se_id:
-                sus_query["site_engineer_id"] = se_id
-            else:
-                sus_query["vendor_name"] = vendor_name
-        # Oldest positive credit — the "first in, first out" source.
-        source_entry = None
-        source_expense = None
-        async for se in db.suspense_entries.find(sus_query).sort("created_at", 1):
-            if float(se.get("amount") or 0) <= 0:
-                continue
-            linked = se.get("linked_expense_id")
-            if not linked:
-                continue
-            src = await db.recorded_expenses.find_one({"expense_id": linked}, {"_id": 0})
-            if src and (src.get("payment_method") or "").strip():
-                source_entry = se
-                source_expense = src
-                break
+        source_entry, source_expense = await _resolve_suspense_funding_source(
+            suspense_type, vendor_name, req, credit_used
+        )
         inherited_method = (source_expense or {}).get("payment_method") or "suspense"
         inherited_cheque_id = None
         inherited_cheque_ids = []
