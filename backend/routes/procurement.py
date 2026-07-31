@@ -4596,8 +4596,13 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
         linked = se.get("linked_expense_id") or se.get("expense_id")
         if linked and linked not in _live_expense_ids:
             continue
-        b, key = _ensure(None, se.get("vendor_name"))
         amt = float(se.get("amount") or 0)
+        # Skip near-zero float-noise entries (legacy rows written before the
+        # >0.5 epsilon guard existed) — they show up as a meaningless
+        # "Suspense ₹0" line in the Activity Timeline.
+        if abs(amt) < 0.5:
+            continue
+        b, key = _ensure(None, se.get("vendor_name"))
         b["suspense_balance"] += amt  # signed: negative = vendor owes, positive = we credit
         timelines[key].append({
             "date": se.get("created_at"),
@@ -4776,11 +4781,17 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
         linked = se.get("linked_expense_id") or se.get("expense_id")
         if linked and linked not in _live_expense_ids_l:
             continue
+        amt = float(se.get("amount") or 0)
+        # Skip near-zero float-noise entries (legacy rows written before the
+        # >0.5 epsilon guard existed) — they show up as a meaningless
+        # "Suspense ₹0" line in the Activity Timeline.
+        if abs(amt) < 0.5:
+            continue
         timeline.append({
             "date": se.get("created_at"),
             "type": "suspense",
             "source_type": "suspense_entry",
-            "amount": float(se.get("amount") or 0),
+            "amount": amt,
             "notes": se.get("description") or "Suspense entry",
         })
 

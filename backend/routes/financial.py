@@ -1418,7 +1418,7 @@ async def delete_cashbook_expense(expense_type: str, record_id: str, user: User 
             try:
                 suspense_amt = float(existing.get("suspense_applied") or 0)
                 contractor_id_h = existing.get("contractor_id")
-                if suspense_amt > 0 and contractor_id_h:
+                if suspense_amt > 0.5 and contractor_id_h:
                     _now_iso = datetime.now(timezone.utc).isoformat()
                     await db.contractor_suspense_ledger.insert_one({
                         "ledger_id": f"susp_{uuid.uuid4().hex[:12]}",
@@ -3361,7 +3361,7 @@ async def process_payment_with_suspense(data: PaymentWithSuspense, user: User = 
         "cheque_amount": data.cheque_amount,
         "suspense_used": suspense_used,
         "actual_paid": actual_needed,
-        "excess_to_suspense": excess if excess > 0 else 0,
+        "excess_to_suspense": excess if excess > 0.5 else 0,
         "payment_method": data.payment_method,
         "site_allocations": data.site_allocations,
         "remarks": data.remarks,
@@ -3372,7 +3372,8 @@ async def process_payment_with_suspense(data: PaymentWithSuspense, user: User = 
     await db.payment_records.insert_one({**payment_record})
     
     # If suspense was used, record a deduction entry
-    if suspense_used > 0:
+    # (>0.5 epsilon avoids logging spurious near-zero float-noise entries)
+    if suspense_used > 0.5:
         await db.suspense_entries.insert_one({
             "entry_id": f"sus_{uuid.uuid4().hex[:12]}",
             "type": data.payment_type,
@@ -3383,9 +3384,9 @@ async def process_payment_with_suspense(data: PaymentWithSuspense, user: User = 
             "payment_id": payment_id,
             "created_at": now,
         })
-    
+
     # If excess, add to suspense
-    if excess > 0:
+    if excess > 0.5:
         await db.suspense_entries.insert_one({
             "entry_id": f"sus_{uuid.uuid4().hex[:12]}",
             "type": data.payment_type,
@@ -3424,7 +3425,7 @@ async def process_payment_with_suspense(data: PaymentWithSuspense, user: User = 
             f"Payment of ₹{alloc['amount']:,.0f} recorded for {data.vendor_or_contractor} on site {alloc.get('project_name', '')}"
         )
     
-    new_balance = current_balance - suspense_used + (excess if excess > 0 else 0)
+    new_balance = current_balance - suspense_used + (excess if excess > 0.5 else 0)
     
     await create_audit_log(user.user_id, "payment", "suspense", payment_id, {
         "type": data.payment_type, "vendor": data.vendor_or_contractor,
@@ -3438,7 +3439,7 @@ async def process_payment_with_suspense(data: PaymentWithSuspense, user: User = 
         "cheque_amount": data.cheque_amount,
         "suspense_used": suspense_used,
         "actual_paid": actual_needed,
-        "excess_to_suspense": excess if excess > 0 else 0,
+        "excess_to_suspense": excess if excess > 0.5 else 0,
         "new_suspense_balance": new_balance,
         "message": f"Payment processed. Suspense balance for {data.vendor_or_contractor}: ₹{new_balance:,.0f}"
     }
@@ -6308,7 +6309,8 @@ async def process_cheque_payment(data: ChequePaymentRequest, user: User = Depend
 
         suspense_used = min(data.suspense_amount_to_use, available_suspense, data.expense_amount)
 
-        if suspense_used > 0:
+        # (>0.5 epsilon avoids logging spurious near-zero float-noise entries)
+        if suspense_used > 0.5:
             # Debit suspense
             await db.cheque_suspense.insert_one({
                 "entry_id": f"csus_{uuid.uuid4().hex[:12]}",
@@ -6325,7 +6327,7 @@ async def process_cheque_payment(data: ChequePaymentRequest, user: User = Depend
     excess = cheque_amount - amount_from_cheque
 
     # If excess, credit to vendor suspense
-    if excess > 0:
+    if excess > 0.5:
         await db.cheque_suspense.insert_one({
             "entry_id": f"csus_{uuid.uuid4().hex[:12]}",
             "vendor_name": data.vendor_name,
@@ -6382,7 +6384,7 @@ async def process_cheque_payment(data: ChequePaymentRequest, user: User = Depend
         "cheque_amount": cheque_amount,
         "expense_amount": data.expense_amount,
         "suspense_used": suspense_used,
-        "excess_to_suspense": excess if excess > 0 else 0,
+        "excess_to_suspense": excess if excess > 0.5 else 0,
         "vendor": data.vendor_name,
     })
 
@@ -6392,7 +6394,7 @@ async def process_cheque_payment(data: ChequePaymentRequest, user: User = Depend
         "expense_amount": data.expense_amount,
         "suspense_used": suspense_used,
         "amount_from_cheque": amount_from_cheque,
-        "excess_to_suspense": excess if excess > 0 else 0,
+        "excess_to_suspense": excess if excess > 0.5 else 0,
         "new_suspense_balance": new_balance,
         "expense": expense_record,
         "message": f"Payment processed via cheque {cheque.get('cheque_number')}. Vendor suspense balance: ₹{new_balance:,.0f}"
@@ -8138,7 +8140,10 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             return {"site_engineer_id": se_id, "site_engineer_name": vendor_name}
         return {"vendor_name": vendor_name}
 
-    if credit_used > 0:
+    # (>0.5 epsilon — matches the credit_used > 0.5 gate above — avoids
+    # writing spurious near-zero float-noise suspense entries that render as
+    # a meaningless "Suspense ₹0" line in the vendor Activity Timeline.)
+    if credit_used > 0.5:
         await db.suspense_entries.insert_one({
             "entry_id": f"se_{uuid.uuid4().hex[:10]}",
             "type": suspense_type,
@@ -8150,7 +8155,7 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             "created_at": now,
             "created_by": user.user_id,
         })
-    if new_suspense_credit > 0:
+    if new_suspense_credit > 0.5:
         await db.suspense_entries.insert_one({
             "entry_id": f"se_{uuid.uuid4().hex[:10]}",
             "type": suspense_type,

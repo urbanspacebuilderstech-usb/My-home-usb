@@ -11947,7 +11947,10 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
     )
 
     # Suspense ledger entries
-    if cheque_excess > 0:
+    # (>0.5 epsilon avoids writing spurious near-zero float-noise entries
+    # that render as a meaningless "Suspense ₹0" line in the Activity
+    # Timeline — mirrors the Material Vendor payment-approval fix.)
+    if cheque_excess > 0.5:
         await db.contractor_suspense_ledger.insert_one({
             "ledger_id": f"sl_{uuid.uuid4().hex[:8]}",
             "contractor_id": contractor_id,
@@ -11963,7 +11966,7 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
             "created_by": user.user_id,
             "created_by_name": user.name,
         })
-    if use_suspense > 0:
+    if use_suspense > 0.5:
         await db.contractor_suspense_ledger.insert_one({
             "ledger_id": f"sl_{uuid.uuid4().hex[:8]}",
             "contractor_id": contractor_id,
@@ -12469,6 +12472,11 @@ async def labour_contractor_payment_ledger(contractor_id: str, user: User = Depe
         # = -ve (contractor spent from credit).
         raw_type = (se.get("type") or se.get("movement") or "").lower()
         raw_amt = float(se.get("amount") or 0)
+        # Skip near-zero float-noise entries — they show up as a meaningless
+        # "Suspense ₹0" line in the Activity Timeline (mirrors the Material
+        # Vendor ledger fix).
+        if abs(raw_amt) < 0.5:
+            continue
         signed = raw_amt if raw_type == "credit" else -raw_amt
         timeline.append({
             "date": se.get("date") or se.get("created_at"),
