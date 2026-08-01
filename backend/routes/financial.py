@@ -7925,11 +7925,96 @@ async def debug_vendor_suspense(vendor_name: str, suspense_type: str = "material
         {"expense_id": {"$in": linked_ids}}, {"_id": 0}
     ).to_list(len(linked_ids)) if linked_ids else []
 
+    # Aug 1 2026 — Also surface EVERY recorded_expense per linked_request_id
+    # (not just the ones a suspense_entries.linked_expense_id happens to
+    # reference), to catch cases where the debit links to the wrong leg and
+    # orphans the actual "approval_suspense" row.
+    request_ids = sorted({e.get("linked_request_id") for e in entries if e.get("linked_request_id")})
+    by_request_docs = await db.recorded_expenses.find(
+        {"request_id": {"$in": request_ids}}, {"_id": 0}
+    ).to_list(2000) if request_ids else []
+
     return {
         "vendor_name": vendor_name,
         "suspense_entries": entries,
         "linked_recorded_expenses": linked_docs,
+        "all_recorded_expenses_by_request_id": by_request_docs,
     }
+
+
+@router.post("/admin/relink-suspense-debit-entries")
+async def relink_suspense_debit_entries(dry_run: bool = True, user: User = Depends(get_current_user)):
+    """Temporary one-time repair (Aug 1 2026, SARAVANA TRADERS report) —
+
+    When a bill is paid via a direct leg (cash/cheque/bank) TOGETHER WITH
+    suspense credit, pay_approval creates two recorded_expenses: the leg
+    itself (source="approval") and a dedicated row carrying the FIFO-
+    resolved funding mode (source="approval_suspense"). A bug had the
+    suspense-debit's `linked_expense_id` point at `primary_expense_id`,
+    which only gets reassigned to the dedicated row when there's NO other
+    leg — so whenever a direct leg coexisted, the debit linked to the leg
+    instead, orphaning the dedicated row and making the vendor Activity
+    Timeline display the leg's mode (e.g. "HDFC CURRENT") instead of the
+    suspense credit's real source (e.g. "Cheque #607980"). Already fixed
+    going forward (see the suspense_entries insert above).
+
+    This finds historical debits still linked to a source="approval" leg
+    where a sibling source="approval_suspense" row exists for the same
+    request_id, and repoints linked_expense_id at that sibling — no amounts
+    or payment_method values are touched, only the link. The existing Mode
+    display already reads the right thing once the link is fixed, since the
+    dedicated row's payment_method was already correctly resolved at write
+    time. SUPER_ADMIN only. dry_run=true (default) only reports the diff;
+    dry_run=false applies it.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can run this")
+
+    debits = await db.suspense_entries.find(
+        {
+            "amount": {"$lt": -0.5},
+            "linked_expense_id": {"$exists": True, "$ne": None},
+            "linked_request_id": {"$exists": True, "$ne": None},
+        },
+        {"_id": 0},
+    ).to_list(20000)
+
+    changes: List[Dict[str, Any]] = []
+    for d in debits:
+        leg_id = d.get("linked_expense_id")
+        req_id = d.get("linked_request_id")
+        leg = await db.recorded_expenses.find_one({"expense_id": leg_id}, {"_id": 0})
+        if not leg or leg.get("source") != "approval":
+            continue  # already points at approval_suspense, or unrelated entry
+        sibling = await db.recorded_expenses.find_one(
+            {"request_id": req_id, "source": "approval_suspense"}, {"_id": 0}
+        )
+        if not sibling or sibling.get("expense_id") == leg_id:
+            continue
+
+        changes.append({
+            "entry_id": d.get("entry_id"),
+            "linked_request_id": req_id,
+            "amount": d.get("amount"),
+            "before_linked_expense_id": leg_id,
+            "before_leg_mode": leg.get("payment_method"),
+            "after_linked_expense_id": sibling.get("expense_id"),
+            "after_mode": sibling.get("payment_method"),
+            "after_cheque_number": sibling.get("cheque_number"),
+        })
+
+        if not dry_run:
+            await db.suspense_entries.update_one(
+                {"entry_id": d.get("entry_id")},
+                {"$set": {
+                    "linked_expense_id": sibling.get("expense_id"),
+                    "relinked_at": datetime.now(timezone.utc).isoformat(),
+                    "relinked_by": user.user_id,
+                    "relinked_from": leg_id,
+                }},
+            )
+
+    return {"dry_run": dry_run, "changed_count": len(changes), "changes": changes}
 
 
 @router.get("/approvals/{req_type}/{request_id}/pay-context")
@@ -8372,13 +8457,22 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     # writing spurious near-zero float-noise suspense entries that render as
     # a meaningless "Suspense ₹0" line in the vendor Activity Timeline.)
     if credit_used > 0.5:
+        # Aug 1 2026 — Must link to `suspense_expense_id` (the dedicated
+        # "approval_suspense" row that carries the FIFO-resolved mode), not
+        # `primary_expense_id`. When a direct leg (cash/cheque/bank) ALSO
+        # exists alongside suspense credit, `primary_expense_id` stays
+        # pointed at that leg's own recorded_expense — so this debit was
+        # linking to the wrong document and orphaning the correctly-computed
+        # suspense row, which showed the direct leg's mode instead (SARAVANA
+        # TRADERS: showed "Mode: HDFC CURRENT" on a debit really funded by
+        # Cheque #607980's suspense credit).
         await db.suspense_entries.insert_one({
             "entry_id": f"se_{uuid.uuid4().hex[:10]}",
             "type": suspense_type,
             **_suspense_key(),
             "amount": -credit_used,
             "description": f"Suspense applied to {req_type} bill (request {request_id})",
-            "linked_expense_id": primary_expense_id,
+            "linked_expense_id": suspense_expense_id,
             "linked_request_id": request_id,
             "created_at": now,
             "created_by": user.user_id,
