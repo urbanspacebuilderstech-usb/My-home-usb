@@ -7906,6 +7906,32 @@ async def backfill_suspense_funding_source(dry_run: bool = True, user: User = De
     return {"dry_run": dry_run, "changed_count": len(changes), "changes": changes}
 
 
+@router.get("/admin/debug-vendor-suspense")
+async def debug_vendor_suspense(vendor_name: str, suspense_type: str = "material", user: User = Depends(get_current_user)):
+    """Temporary read-only diagnostic (Aug 1 2026) — dumps a vendor/contractor's
+    raw suspense_entries + linked recorded_expenses so a specific mislabeled
+    entry can be traced by hand. SUPER_ADMIN only. Remove after the SARAVANA
+    TRADERS Mode investigation is closed out."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can run this")
+
+    name_field = "vendor_name" if suspense_type == "material" else "contractor_name"
+    entries = await db.suspense_entries.find(
+        {"type": suspense_type, name_field: vendor_name}, {"_id": 0}
+    ).sort([("created_at", 1), ("entry_id", 1)]).to_list(20000)
+
+    linked_ids = sorted({e.get("linked_expense_id") or e.get("expense_id") for e in entries if e.get("linked_expense_id") or e.get("expense_id")})
+    linked_docs = await db.recorded_expenses.find(
+        {"expense_id": {"$in": linked_ids}}, {"_id": 0}
+    ).to_list(len(linked_ids)) if linked_ids else []
+
+    return {
+        "vendor_name": vendor_name,
+        "suspense_entries": entries,
+        "linked_recorded_expenses": linked_docs,
+    }
+
+
 @router.get("/approvals/{req_type}/{request_id}/pay-context")
 async def get_pay_context(req_type: str, request_id: str, user: User = Depends(get_current_user)):
     """Returns request details + current suspense balance + active opened cheques (for the dialog)."""
