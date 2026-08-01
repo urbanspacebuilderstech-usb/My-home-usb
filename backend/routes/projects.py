@@ -12478,6 +12478,13 @@ async def labour_contractor_payment_ledger(contractor_id: str, user: User = Depe
         if abs(raw_amt) < 0.5:
             continue
         signed = raw_amt if raw_type == "credit" else -raw_amt
+        # Jul 31 2026 — Every contractor suspense credit in this flow
+        # originates from a cheque-excess (see the release handler above,
+        # which only ever writes source_type="cheque_excess" credits), so
+        # "Mode: Cheque" is accurate for both the credit and any debit that
+        # later draws on it — mirrors the Material Vendor Mode fix.
+        st_source = (se.get("source_type") or "").lower()
+        _mode = "cheque" if st_source in ("cheque_excess", "release") else None
         timeline.append({
             "date": se.get("date") or se.get("created_at"),
             "type": "suspense",
@@ -12485,6 +12492,8 @@ async def labour_contractor_payment_ledger(contractor_id: str, user: User = Depe
             "amount": signed,
             "project": project_map.get(se.get("project_id"), "") or se.get("project_name", ""),
             "status": raw_type,
+            "payment_mode": _mode,
+            "reference": se.get("cheque_no"),
             "notes": se.get("notes") or se.get("description") or se.get("remarks") or ("Suspense " + raw_type),
             "reference": se.get("cheque_no") or se.get("reference_id") or se.get("ledger_id"),
         })

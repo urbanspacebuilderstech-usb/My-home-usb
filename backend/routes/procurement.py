@@ -4586,6 +4586,12 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
         and (rx.get("status") or "").lower() not in _EXCL_STATUS
         and not rx.get("is_deleted")
     }
+    # Jul 31 2026 — Suspense timeline rows showed no "Mode" at all (the excess
+    # entry that created e.g. ₹1,66,870 of suspense credit from a cheque gave
+    # no indication it came from a cheque). Look up the linked recorded_expense
+    # so each suspense row can surface the same payment_mode/reference the
+    # Payment rows already show.
+    _expense_by_id = {rx.get("expense_id"): rx for rx in recorded_payments if rx.get("expense_id")}
     for se in suspense_entries:
         if not se.get("vendor_name"):
             continue
@@ -4604,11 +4610,14 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
             continue
         b, key = _ensure(None, se.get("vendor_name"))
         b["suspense_balance"] += amt  # signed: negative = vendor owes, positive = we credit
+        _src = _expense_by_id.get(linked) or {}
         timelines[key].append({
             "date": se.get("created_at"),
             "type": "suspense",
             "source_type": "suspense_entry",
             "amount": amt,
+            "payment_mode": _src.get("payment_mode") or _src.get("payment_method"),
+            "reference": _src.get("cheque_number") or _src.get("reference_number") or _src.get("transaction_id"),
             "notes": se.get("description") or "Suspense entry",
         })
 
@@ -4775,6 +4784,10 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
         and (rx.get("status") or "").lower() not in _EXCL_STATUS_L
         and not rx.get("is_deleted")
     }
+    # Jul 31 2026 — Surface which payment mode actually generated/consumed
+    # each suspense row (e.g. a cheque excess should read "Mode: Cheque"),
+    # same as the summary endpoint.
+    _expense_by_id_l = {rx.get("expense_id"): rx for rx in recorded_payments if rx.get("expense_id")}
     for se in suspense_entries:
         if not _matches(se) or not _project_ok(se):
             continue
@@ -4787,11 +4800,14 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
         # "Suspense ₹0" line in the Activity Timeline.
         if abs(amt) < 0.5:
             continue
+        _src_l = _expense_by_id_l.get(linked) or {}
         timeline.append({
             "date": se.get("created_at"),
             "type": "suspense",
             "source_type": "suspense_entry",
             "amount": amt,
+            "payment_mode": _src_l.get("payment_mode") or _src_l.get("payment_method"),
+            "reference": _src_l.get("cheque_number") or _src_l.get("reference_number") or _src_l.get("transaction_id"),
             "notes": se.get("description") or "Suspense entry",
         })
 
