@@ -883,8 +883,13 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
     return {
         "income_by_mode": income_by_mode,
         "expense_by_mode": expense_by_mode,
-        "income_entries": incomes[:200],
-        "expense_entries": sorted(all_expenses, key=lambda x: x.get("created_at", ""), reverse=True)[:200],
+        # Aug 3 2026 — Dropped the [:200] truncation (same bug class fixed on
+        # /accountant/cashbook-filtered): income_by_mode/expense_by_mode and
+        # project_wise above already sum the FULL incomes/all_expenses lists,
+        # so a truncated "entries" array here made the drilldown disagree
+        # with the card headline and silently hid older months/categories.
+        "income_entries": incomes,
+        "expense_entries": sorted(all_expenses, key=lambda x: x.get("created_at", ""), reverse=True),
         "petty_cash": {"issued": petty_total_issued, "spent": petty_total_spent, "balance": petty_total_issued - petty_total_spent},
         "suspense_balance": suspense_total,
         "suspense_breakdown": {
@@ -6021,10 +6026,10 @@ async def get_cashbook_filtered(
         expense_by_mode[_classify(e.get("payment_method") or e.get("payment_mode"))] += e.get("amount", 0)
 
     # Build project-wise breakdown from the FULL incomes/expenses lists
-    # (NOT the [:500] truncated slices below) and seed EVERY real project
-    # so the Project-Wise tab always shows all 51 projects — including
-    # those with zero balance and those whose entries fell outside the
-    # top-500 window (e.g. Mrs. Abinaya's older incomes).
+    # and seed EVERY real project so the Project-Wise tab always shows all
+    # 51 projects — including those with zero balance and (historically,
+    # before the [:500] truncation below was removed) those whose entries
+    # fell outside the top-500 window (e.g. Mrs. Abinaya's older incomes).
     # `real_pid_set` already computed above (for filtered totals).
     project_wise_map = {p["project_id"]: {
         "project_id": p["project_id"],
@@ -6174,8 +6179,15 @@ async def get_cashbook_filtered(
         # bucket-card drilldown ("Cash — Breakdown" etc.) sums to the
         # SAME number as the card's headline. Total income docs are
         # ~700 firm-wide so the JSON payload stays small.
+        # Aug 3 2026 — Same fix for expenses: `all_expenses` is built by
+        # APPENDING recorded_expenses + labour_expenses + material_requests
+        # (not merged by date), so [:500] could silently drop entire expense
+        # categories (or older months) whenever recorded_expenses alone
+        # exceeded 500 rows — the Expense tab showed "500" while real older
+        # entries and whole categories were missing from both the drilldown
+        # and the by-mode/project-wise totals built from the same list.
         "income_entries": incomes,
-        "expense_entries": all_expenses[:500],
+        "expense_entries": all_expenses,
         "projects": projects_list,
         "project_wise": project_wise_sorted,
         "income_by_mode": income_by_mode,
