@@ -66,7 +66,9 @@ import {
   Truck,
   Check,
   Trash2,
-  CalendarDays
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -278,7 +280,24 @@ function getTransactionId(e, type) {
   return legIds.join(', ');
 }
 
+// Aug 3 2026 — Income/Expense drilldown tables were rendering every entry
+// in one unpaginated list (1400+ rows for Expense once the [:500]/[:200]
+// truncation was fixed upstream). Page it client-side, 200 rows at a time,
+// shared here so every DrilldownView call site (mode drilldown, category
+// drilldown) gets it for free.
+const DRILLDOWN_PAGE_SIZE = 200;
+
 function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = false, hideHeader = false }) {
+  const [page, setPage] = useState(1);
+  // Reset to page 1 whenever the underlying entry set changes (filters,
+  // tab switch, etc.) so we never land on a now-out-of-range page.
+  useEffect(() => { setPage(1); }, [entries]);
+
+  const totalPages = Math.max(1, Math.ceil(entries.length / DRILLDOWN_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * DRILLDOWN_PAGE_SIZE;
+  const pageEntries = entries.slice(pageStart, pageStart + DRILLDOWN_PAGE_SIZE);
+
   return (
     <div className="space-y-3" data-testid="drilldown-view">
       {!hideHeader && (
@@ -324,9 +343,9 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
               <tbody className="divide-y">
                 {entries.length === 0 ? (
                   <tr><td colSpan={(type === 'expense' ? 8 : 7) + (canDelete ? 1 : 0)} className="px-4 py-8 text-center text-gray-400">No entries found</td></tr>
-                ) : entries.map((e, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                ) : pageEntries.map((e, i) => (
+                  <tr key={pageStart + i} className="hover:bg-gray-50">
+                    <td className="px-3 py-2 text-gray-400">{pageStart + i + 1}</td>
                     <td className="px-3 py-2">{new Date(e.payment_date || e.created_at).toLocaleDateString('en-IN')}</td>
                     <td className="px-3 py-2 font-medium">
                       {e.stage || e.description || e.material_name || e.category || '-'}
@@ -354,7 +373,7 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
                           size="sm"
                           className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
                           onClick={() => onDelete && onDelete(e)}
-                          data-testid={`drilldown-delete-${e.income_id || e.expense_id || e.request_id || i}`}
+                          data-testid={`drilldown-delete-${e.income_id || e.expense_id || e.request_id || (pageStart + i)}`}
                           title={type === 'income' ? 'Delete income entry' : 'Delete expense'}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -366,6 +385,36 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
               </tbody>
             </table>
           </div>
+          {entries.length > 0 && (
+            <div className="flex items-center justify-between px-3 py-2 border-t text-xs text-gray-600">
+              <span>
+                Showing {pageStart + 1}–{Math.min(pageStart + DRILLDOWN_PAGE_SIZE, entries.length)} of {entries.length}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  data-testid="drilldown-prev-page"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" /> Prev
+                </Button>
+                <span className="text-gray-500">Page {currentPage} of {totalPages}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  data-testid="drilldown-next-page"
+                >
+                  Next <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
