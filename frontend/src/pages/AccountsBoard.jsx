@@ -287,11 +287,55 @@ function getTransactionId(e, type) {
 // drilldown) gets it for free.
 const DRILLDOWN_PAGE_SIZE = 200;
 
+// Shared Prev/Next bar — rendered both above and below the table so paging
+// through doesn't require scrolling to the bottom first.
+function DrilldownPaginationBar({ pageStart, currentPage, totalPages, total, onPrev, onNext, testIdSuffix, borderClass = 'border-t' }) {
+  if (total === 0) return null;
+  return (
+    <div className={`flex items-center justify-between px-3 py-2 text-xs text-gray-600 ${borderClass}`}>
+      <span>
+        Showing {pageStart + 1}–{Math.min(pageStart + DRILLDOWN_PAGE_SIZE, total)} of {total}
+      </span>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1 text-xs"
+          disabled={currentPage <= 1}
+          onClick={onPrev}
+          data-testid={`drilldown-prev-page${testIdSuffix}`}
+        >
+          <ChevronLeft className="h-3.5 w-3.5" /> Prev
+        </Button>
+        <span className="text-gray-500">Page {currentPage} of {totalPages}</span>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1 text-xs"
+          disabled={currentPage >= totalPages}
+          onClick={onNext}
+          data-testid={`drilldown-next-page${testIdSuffix}`}
+        >
+          Next <ChevronRight className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = false, hideHeader = false }) {
   const [page, setPage] = useState(1);
-  // Reset to page 1 whenever the underlying entry set changes (filters,
-  // tab switch, etc.) so we never land on a now-out-of-range page.
-  useEffect(() => { setPage(1); }, [entries]);
+  // Reset to page 1 when the underlying entry SET actually changes (a real
+  // filter/tab switch, which changes the count). Aug 3 2026 — this used to
+  // depend on `entries` (the array reference) directly, but callers like
+  // ModeDrilldownView rebuild `filteredIncome`/`filteredExpense` with a
+  // fresh .filter() on every render without memoizing, so any unrelated
+  // parent re-render (e.g. a background poll) produced a new array with
+  // the SAME content and silently reset the user back to page 1 mid-browse,
+  // making Next/Prev look broken. Keying off the length is stable across
+  // those re-renders and still resets whenever a filter genuinely changes
+  // what's shown.
+  useEffect(() => { setPage(1); }, [entries.length]);
 
   const totalPages = Math.max(1, Math.ceil(entries.length / DRILLDOWN_PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -325,6 +369,16 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
       )}
       <Card>
         <CardContent className="p-0">
+          <DrilldownPaginationBar
+            pageStart={pageStart}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            total={entries.length}
+            onPrev={() => setPage(p => Math.max(1, p - 1))}
+            onNext={() => setPage(p => Math.min(totalPages, p + 1))}
+            testIdSuffix="-top"
+            borderClass="border-b"
+          />
           <div className="overflow-x-auto">
             <table className="w-full text-xs" data-testid="drilldown-table">
               <thead className="bg-gray-50 border-b">
@@ -385,36 +439,15 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
               </tbody>
             </table>
           </div>
-          {entries.length > 0 && (
-            <div className="flex items-center justify-between px-3 py-2 border-t text-xs text-gray-600">
-              <span>
-                Showing {pageStart + 1}–{Math.min(pageStart + DRILLDOWN_PAGE_SIZE, entries.length)} of {entries.length}
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1 text-xs"
-                  disabled={currentPage <= 1}
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  data-testid="drilldown-prev-page"
-                >
-                  <ChevronLeft className="h-3.5 w-3.5" /> Prev
-                </Button>
-                <span className="text-gray-500">Page {currentPage} of {totalPages}</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1 text-xs"
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                  data-testid="drilldown-next-page"
-                >
-                  Next <ChevronRight className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
-          )}
+          <DrilldownPaginationBar
+            pageStart={pageStart}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            total={entries.length}
+            onPrev={() => setPage(p => Math.max(1, p - 1))}
+            onNext={() => setPage(p => Math.min(totalPages, p + 1))}
+            testIdSuffix=""
+          />
         </CardContent>
       </Card>
     </div>
