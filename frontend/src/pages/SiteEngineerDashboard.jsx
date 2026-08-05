@@ -1290,38 +1290,42 @@ export default function SiteEngineerDashboard() {
                       </CardTitle>
                       <p className="text-xs text-gray-500 mt-0.5">One line per DLR — works count, amount, and stage for the selected date range.</p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="relative">
+                    {/* Aug 5 2026 — Full-width stacked filters on mobile instead of
+                        cramped fixed-width inputs squeezed onto their own line each. */}
+                    <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                      <div className="relative w-full sm:w-44">
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
                         <Input
                           placeholder="Search project..."
                           value={dlrDprProjectSearch}
                           onChange={(e) => setDlrDprProjectSearch(e.target.value)}
-                          className="pl-8 h-9 w-44 text-sm"
+                          className="pl-8 h-9 w-full text-sm"
                           data-testid="dlrdpr-project-search"
                         />
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <Label className="text-xs text-gray-500">Start Date</Label>
-                        <input
-                          type="date"
-                          value={dlrDprStartDate}
-                          max={dlrDprEndDate}
-                          onChange={(e) => setDlrDprStartDate(e.target.value)}
-                          className="h-9 px-2 border rounded-md text-sm"
-                          data-testid="dlrdpr-start-date-picker"
-                        />
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Label className="text-xs text-gray-500">End Date</Label>
-                        <input
-                          type="date"
-                          value={dlrDprEndDate}
-                          min={dlrDprStartDate}
-                          onChange={(e) => setDlrDprEndDate(e.target.value)}
-                          className="h-9 px-2 border rounded-md text-sm"
-                          data-testid="dlrdpr-end-date-picker"
-                        />
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 flex-1">
+                          <Label className="text-xs text-gray-500 shrink-0">Start</Label>
+                          <input
+                            type="date"
+                            value={dlrDprStartDate}
+                            max={dlrDprEndDate}
+                            onChange={(e) => setDlrDprStartDate(e.target.value)}
+                            className="h-9 px-2 border rounded-md text-sm w-full min-w-0"
+                            data-testid="dlrdpr-start-date-picker"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-1">
+                          <Label className="text-xs text-gray-500 shrink-0">End</Label>
+                          <input
+                            type="date"
+                            value={dlrDprEndDate}
+                            min={dlrDprStartDate}
+                            onChange={(e) => setDlrDprEndDate(e.target.value)}
+                            className="h-9 px-2 border rounded-md text-sm w-full min-w-0"
+                            data-testid="dlrdpr-end-date-picker"
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1337,9 +1341,14 @@ export default function SiteEngineerDashboard() {
                     { label: 'DLR Entry Count', value: dlrEntryCount, cls: 'bg-violet-50 border-violet-200 text-violet-700' },
                   ];
                   return (
-                    <div className="flex gap-1.5 sm:gap-3 px-4 pb-4 overflow-x-auto" data-testid="dlrdpr-summary-pills">
+                    // Aug 5 2026 — Was a single flex row with overflow-x-auto,
+                    // squeezing all 6 pills to near-illegible width on mobile
+                    // instead of scrolling or wrapping. 3-per-row grid on
+                    // mobile (2 rows of 3), reverts to one row at `sm+`
+                    // where there's room for all 6 side by side.
+                    <div className="grid grid-cols-3 sm:flex gap-1.5 sm:gap-3 px-4 pb-4" data-testid="dlrdpr-summary-pills">
                       {pills.map(p => (
-                        <div key={p.label} className={`flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${p.cls}`}>
+                        <div key={p.label} className={`sm:flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${p.cls}`}>
                           <span className="text-[9px] sm:text-xs font-medium text-center leading-tight">{p.label}</span>
                           <span className="text-base sm:text-2xl font-bold mt-0.5">{p.value}</span>
                         </div>
@@ -1355,62 +1364,111 @@ export default function SiteEngineerDashboard() {
                       {dlrDprProjectSearch ? 'No matching projects.' : 'No DLR recorded for this date range across your projects.'}
                     </p>
                   ) : (
-                    <div className="overflow-x-auto" data-testid="dlrdpr-table">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 border-y">
-                          <tr>
-                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
-                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Date</th>
-                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
-                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Stage</th>
-                            <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Contractor</th>
-                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Works Count</th>
-                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Skilled</th>
-                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Semi-Skilled</th>
-                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Unskilled</th>
-                            <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Amount</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                          {filteredDlrDprRows.map((row, idx) => (
-                            <tr
-                              key={row.dlr_id || `${row.project_id}-${idx}`}
-                              className="hover:bg-orange-50/50 cursor-pointer"
-                              data-testid={`dlrdpr-row-${row.dlr_id || idx}`}
-                              onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
-                            >
-                              <td className="px-3 py-2 text-gray-500 align-top">{idx + 1}</td>
-                              <td className="px-3 py-2 text-gray-600 whitespace-nowrap align-top">
-                                {row.date ? new Date(row.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : <span className="text-gray-300">—</span>}
-                              </td>
-                              <td className="px-3 py-2 font-medium text-gray-900 align-top">
-                                <span className="inline-flex items-center gap-1.5">
-                                  {row.dlr_id && <span className="h-2 w-2 rounded-full bg-green-500 shrink-0" title="Has a DLR entry" data-testid={`dlrdpr-has-entry-dot-${row.dlr_id}`} />}
-                                  {row.project_name}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 text-gray-600 align-top">{row.stage_name || <span className="text-gray-300">—</span>}</td>
-                              <td className="px-3 py-2 text-gray-600 align-top">{row.contractor_name || <span className="text-gray-300">—</span>}</td>
-                              <td className="px-3 py-2 text-right align-top">{row.works_count}</td>
-                              <td className="px-3 py-2 text-right align-top">{row.skilled}</td>
-                              <td className="px-3 py-2 text-right align-top">{row.semi_skilled}</td>
-                              <td className="px-3 py-2 text-right align-top">{row.unskilled}</td>
-                              <td className="px-3 py-2 text-right font-medium align-top">{formatCurrency(row.amount)}</td>
+                    <>
+                      {/* Aug 5 2026 — A 10-column table squeezed into a phone
+                          width made every cell wrap its text (Stage/Project
+                          text breaking mid-word), which read as broken
+                          alignment rather than a deliberately scrollable
+                          table. Mobile gets one card per DLR entry instead;
+                          the full table is kept at `sm+` where it fits. */}
+                      <div className="sm:hidden divide-y" data-testid="dlrdpr-cards">
+                        {filteredDlrDprRows.map((row, idx) => (
+                          <div
+                            key={row.dlr_id || `${row.project_id}-${idx}`}
+                            className="px-4 py-3 active:bg-orange-50/50"
+                            data-testid={`dlrdpr-card-${row.dlr_id || idx}`}
+                            onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5">
+                                  {row.dlr_id && <span className="h-2 w-2 rounded-full bg-green-500 shrink-0" title="Has a DLR entry" data-testid={`dlrdpr-has-entry-dot-mobile-${row.dlr_id}`} />}
+                                  <span className="font-semibold text-gray-900 text-sm truncate">{row.project_name}</span>
+                                </div>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                  {row.date ? new Date(row.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                                </p>
+                              </div>
+                              <span className="text-sm font-bold text-emerald-700 shrink-0">{formatCurrency(row.amount)}</span>
+                            </div>
+                            {(row.stage_name || row.contractor_name) && (
+                              <p className="text-xs text-gray-600 mt-1.5">
+                                {row.stage_name && <span>{row.stage_name}</span>}
+                                {row.stage_name && row.contractor_name && <span className="text-gray-300"> · </span>}
+                                {row.contractor_name && <span>{row.contractor_name}</span>}
+                              </p>
+                            )}
+                            <div className="flex items-center gap-3 mt-2 text-[11px]">
+                              <span className="text-gray-500">Works <span className="font-semibold text-gray-800">{row.works_count}</span></span>
+                              <span className="text-gray-500">Skilled <span className="font-semibold text-gray-800">{row.skilled}</span></span>
+                              <span className="text-gray-500">Semi <span className="font-semibold text-gray-800">{row.semi_skilled}</span></span>
+                              <span className="text-gray-500">Unskilled <span className="font-semibold text-gray-800">{row.unskilled}</span></span>
+                            </div>
+                          </div>
+                        ))}
+                        <div className="px-4 py-3 bg-gray-50 flex items-center justify-between text-xs font-semibold text-gray-700">
+                          <span>Total ({filteredDlrDprRows.length} entries)</span>
+                          <span>{formatCurrency(filteredDlrDprRows.reduce((s, r) => s + (r.amount || 0), 0))}</span>
+                        </div>
+                      </div>
+
+                      <div className="hidden sm:block overflow-x-auto" data-testid="dlrdpr-table">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 border-y">
+                            <tr>
+                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Date</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Stage</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Contractor</th>
+                              <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Works Count</th>
+                              <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Skilled</th>
+                              <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Semi-Skilled</th>
+                              <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Unskilled</th>
+                              <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Amount</th>
                             </tr>
-                          ))}
-                        </tbody>
-                        <tfoot className="bg-gray-50 border-t font-semibold">
-                          <tr>
-                            <td className="px-3 py-2" colSpan={5}>Total</td>
-                            <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0)}</td>
-                            <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0)}</td>
-                            <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0)}</td>
-                            <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0)}</td>
-                            <td className="px-3 py-2 text-right">{formatCurrency(filteredDlrDprRows.reduce((s, r) => s + (r.amount || 0), 0))}</td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
+                          </thead>
+                          <tbody className="divide-y">
+                            {filteredDlrDprRows.map((row, idx) => (
+                              <tr
+                                key={row.dlr_id || `${row.project_id}-${idx}`}
+                                className="hover:bg-orange-50/50 cursor-pointer"
+                                data-testid={`dlrdpr-row-${row.dlr_id || idx}`}
+                                onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
+                              >
+                                <td className="px-3 py-2 text-gray-500 align-top">{idx + 1}</td>
+                                <td className="px-3 py-2 text-gray-600 whitespace-nowrap align-top">
+                                  {row.date ? new Date(row.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : <span className="text-gray-300">—</span>}
+                                </td>
+                                <td className="px-3 py-2 font-medium text-gray-900 align-top">
+                                  <span className="inline-flex items-center gap-1.5">
+                                    {row.dlr_id && <span className="h-2 w-2 rounded-full bg-green-500 shrink-0" title="Has a DLR entry" data-testid={`dlrdpr-has-entry-dot-${row.dlr_id}`} />}
+                                    {row.project_name}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-gray-600 align-top">{row.stage_name || <span className="text-gray-300">—</span>}</td>
+                                <td className="px-3 py-2 text-gray-600 align-top">{row.contractor_name || <span className="text-gray-300">—</span>}</td>
+                                <td className="px-3 py-2 text-right align-top">{row.works_count}</td>
+                                <td className="px-3 py-2 text-right align-top">{row.skilled}</td>
+                                <td className="px-3 py-2 text-right align-top">{row.semi_skilled}</td>
+                                <td className="px-3 py-2 text-right align-top">{row.unskilled}</td>
+                                <td className="px-3 py-2 text-right font-medium align-top">{formatCurrency(row.amount)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot className="bg-gray-50 border-t font-semibold">
+                            <tr>
+                              <td className="px-3 py-2" colSpan={5}>Total</td>
+                              <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0)}</td>
+                              <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0)}</td>
+                              <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0)}</td>
+                              <td className="px-3 py-2 text-right">{filteredDlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0)}</td>
+                              <td className="px-3 py-2 text-right">{formatCurrency(filteredDlrDprRows.reduce((s, r) => s + (r.amount || 0), 0))}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </>
                   )}
                 </CardContent>
               </Card>
