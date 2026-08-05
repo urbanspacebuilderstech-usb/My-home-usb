@@ -1849,83 +1849,84 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
 
 
 @router.post("/admin/recompute-material-payment-tracking")
-async def recompute_material_payment_tracking(dry_run: bool = True, user: User = Depends(get_current_user)):
+async def recompute_material_payment_tracking(target_id: str, dry_run: bool = True, user: User = Depends(get_current_user)):
     """Temporary one-time repair (Aug 5 2026, Shree Rahul Traders report) —
     send-back-to-approvals used to unconditionally wipe a material bill's
     paid_amount/status when ANY one of its payment legs was deleted, even
-    when a sibling leg still exists (e.g. deleting one of two ₹50,000
-    releases wiped out the other ₹50,000's tracking too, leaving a stale
-    remaining_balance behind). Already fixed going forward (see the
-    recorded_expenses branch above). This finds material_requests /
-    material_expenses docs whose stored paid_amount disagrees with what
-    their SURVIVING recorded_expenses legs actually sum to, and corrects
-    paid_amount/remaining_balance/status from those live legs.
-    SUPER_ADMIN only. dry_run=true (default) only reports the diff;
-    dry_run=false applies it.
+    when a sibling leg still exists. Already fixed going forward (see the
+    recorded_expenses branch above).
+
+    Aug 5 2026 — This originally swept EVERY material_requests /
+    material_expenses doc and recomputed paid_amount from whatever
+    recorded_expenses rows matched request_id/material_request_id/
+    material_expense_id. A dry run surfaced real cross-bill contamination
+    in production data — e.g. a ₹9,700 bill picking up a ₹14,950 bill's
+    leg too (paid_amount came out to 24650 = 9700+14950) — because those
+    linking fields aren't reliably scoped to a single bill for older/
+    legacy rows. Applying that broadly would have corrupted far more
+    records than it fixed. Restricted to a single explicitly-named
+    `target_id` (the material_expenses `expense_id` or material_requests
+    `request_id`) so it only ever touches a record you've already
+    verified by hand. SUPER_ADMIN only. dry_run=true (default) only
+    reports the diff; dry_run=false applies it.
     """
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Only Super Admin can run this")
 
     _EXCL = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
-    changes: List[Dict[str, Any]] = []
 
-    for coll, id_fields, amt_fields in (
-        (db.material_requests, ["request_id"], ["final_price", "estimated_price"]),
-        (db.material_expenses, ["expense_id", "material_expense_id"], ["final_amount", "estimated_cost"]),
-    ):
-        docs = await coll.find({}, {"_id": 0}).to_list(20000)
-        for doc in docs:
-            ids = {doc.get(f) for f in id_fields if doc.get(f)}
-            if not ids:
-                continue
-            legs = await db.recorded_expenses.find(
-                {"$or": (
-                    [{"request_id": i} for i in ids]
-                    + [{"material_request_id": i} for i in ids]
-                    + [{"material_expense_id": i} for i in ids]
-                )},
-                {"_id": 0, "amount": 1, "status": 1},
-            ).to_list(200)
-            if not legs:
-                continue
-            live_paid = sum(
-                float(l.get("amount") or 0) for l in legs
-                if (l.get("status") or "").lower() not in _EXCL
-            )
-            stored_paid = float(doc.get("paid_amount") or 0)
-            if abs(live_paid - stored_paid) < 0.5:
-                continue
+    doc = await db.material_requests.find_one({"request_id": target_id}, {"_id": 0})
+    coll = db.material_requests
+    match_field = "request_id"
+    amt_fields = ["final_price", "estimated_price"]
+    if not doc:
+        doc = await db.material_expenses.find_one(
+            {"$or": [{"expense_id": target_id}, {"material_expense_id": target_id}]}, {"_id": 0}
+        )
+        coll = db.material_expenses
+        match_field = "expense_id" if (doc or {}).get("expense_id") == target_id else "material_expense_id"
+        amt_fields = ["final_amount", "estimated_cost"]
+    if not doc:
+        raise HTTPException(status_code=404, detail=f"No material_requests/material_expenses doc found for id {target_id}")
 
-            bill_amt = 0.0
-            for f in amt_fields:
-                if doc.get(f):
-                    bill_amt = float(doc.get(f))
-                    break
-            new_remaining = max(0.0, bill_amt - live_paid)
-            if live_paid <= 0.5:
-                new_status = doc.get("status")
-            elif new_remaining <= 0.5:
-                new_status = "paid"
-            else:
-                new_status = "partially_paid"
+    legs = await db.recorded_expenses.find(
+        {"$or": [{"request_id": target_id}, {"material_request_id": target_id}, {"material_expense_id": target_id}]},
+        {"_id": 0, "expense_id": 1, "amount": 1, "status": 1, "payment_method": 1, "created_at": 1},
+    ).to_list(200)
+    live_legs = [l for l in legs if (l.get("status") or "").lower() not in _EXCL]
+    live_paid = sum(float(l.get("amount") or 0) for l in live_legs)
 
-            match_field = id_fields[0] if doc.get(id_fields[0]) else id_fields[-1]
-            changes.append({
-                "collection": coll.name,
-                "id": doc.get(match_field),
-                "vendor_name": doc.get("vendor_name"),
-                "bill_amount": bill_amt,
-                "before": {"paid_amount": stored_paid, "remaining_balance": doc.get("remaining_balance"), "status": doc.get("status")},
-                "after": {"paid_amount": live_paid, "remaining_balance": new_remaining, "status": new_status},
-            })
+    bill_amt = 0.0
+    for f in amt_fields:
+        if doc.get(f):
+            bill_amt = float(doc.get(f))
+            break
+    new_remaining = max(0.0, bill_amt - live_paid)
+    if live_paid <= 0.5:
+        new_status = doc.get("status")
+    elif new_remaining <= 0.5:
+        new_status = "paid"
+    else:
+        new_status = "partially_paid"
 
-            if not dry_run:
-                update_fields = {"paid_amount": live_paid, "remaining_balance": new_remaining, "updated_at": datetime.now(timezone.utc).isoformat()}
-                if new_status != doc.get("status"):
-                    update_fields["status"] = new_status
-                await coll.update_one({match_field: doc.get(match_field)}, {"$set": update_fields})
+    result = {
+        "dry_run": dry_run,
+        "target_id": target_id,
+        "collection": coll.name,
+        "vendor_name": doc.get("vendor_name"),
+        "bill_amount": bill_amt,
+        "live_legs": live_legs,
+        "before": {"paid_amount": doc.get("paid_amount"), "remaining_balance": doc.get("remaining_balance"), "status": doc.get("status")},
+        "after": {"paid_amount": live_paid, "remaining_balance": new_remaining, "status": new_status},
+    }
 
-    return {"dry_run": dry_run, "changed_count": len(changes), "changes": changes}
+    if not dry_run:
+        update_fields = {"paid_amount": live_paid, "remaining_balance": new_remaining, "updated_at": datetime.now(timezone.utc).isoformat()}
+        if new_status != doc.get("status"):
+            update_fields["status"] = new_status
+        await coll.update_one({match_field: target_id}, {"$set": update_fields})
+
+    return result
 
 
 # ==================== UNIFIED APPROVALS ENDPOINT ====================
