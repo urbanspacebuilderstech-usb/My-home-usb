@@ -5979,6 +5979,22 @@ async def get_cashbook_filtered(
     for me in material_exps_legacy:
         if me.get("material_expense_id") in mirrored_mexp_ids or me.get("expense_id") in mirrored_mexp_ids:
             continue
+        # Aug 5 2026 — `mirrored_mexp_ids` is built from `recorded_exps`,
+        # which is fetched under the SAME date-range filter as this list.
+        # A bill created on day 1 but paid on day 2 (common — approval and
+        # payment rarely land in the same call) has its recorded_expenses
+        # mirror fall outside a narrow single-day filter, so the guard
+        # above misses it and the material_expense row leaks through as a
+        # duplicate — showing a second "Miscellaneous" copy of a bill
+        # already correctly represented under its real mode (SS AGENCY
+        # ₹23,800 case: material_expense mexp_308c3818bbd5, payment_method
+        # null, vs. its real payment recorded_expenses row exp_242d931adf61
+        # with payment_method "cheque"). `paid_via_expense_id` is stamped
+        # on the material_expense document itself by pay_approval once it's
+        # settled, so checking it directly is independent of any date
+        # window and catches this case the cross-reference set misses.
+        if me.get("paid_via_expense_id"):
+            continue
         amt = me.get("final_amount") or me.get("amount") or 0
         all_expenses.append({
             **me,
