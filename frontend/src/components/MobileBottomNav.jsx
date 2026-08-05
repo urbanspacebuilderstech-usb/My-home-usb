@@ -20,7 +20,11 @@ import {
   Settings,
   Users,
   X,
-  LogOut
+  LogOut,
+  FileText,
+  ClipboardList,
+  Wallet,
+  Clock
 } from 'lucide-react';
 import { useState } from 'react';
 import axios from 'axios';
@@ -77,6 +81,18 @@ const OTHER_ROLES = {
     { label: 'Alerts', icon: Bell, path: '/notifications' },
     { label: 'Profile', icon: User, path: '/settings' },
   ],
+  // Aug 5 2026 — Sr. Site Engineer had no entry here, so it silently fell
+  // back to SA_BOTTOM (Dashboard/Projects/Accounts/Planning/More) — a
+  // Super Admin nav that makes no sense for this role. Mirror the 5 tabs
+  // on the dashboard's own tab bar via `?tab=` so tapping one here lands
+  // directly on that tab instead of always reopening on Projects.
+  sr_site_engineer: [
+    { label: 'Projects', icon: HardHat, path: '/site-engineer' },
+    { label: 'DLR&DPR', icon: FileText, path: '/site-engineer?tab=dlrdpr' },
+    { label: 'Requests', icon: ClipboardList, path: '/site-engineer?tab=requests' },
+    { label: 'Petty Cash', icon: Wallet, path: '/site-engineer?tab=pettycash' },
+    { label: 'Attendance', icon: Clock, path: '/site-engineer?tab=attendance' },
+  ],
   procurement: [
     { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     { label: 'Procurement', icon: ShoppingCart, path: '/procurement-board-v2' },
@@ -128,8 +144,21 @@ export default function MobileBottomNav({ user }) {
   const moreItems = isSuperAdmin ? SA_MORE_ITEMS : isAccountant ? ACCOUNTANT_MORE : [];
   
   const isActive = (path) => {
+    // Aug 5 2026 — Sr. Site Engineer's tabs all share the SAME base path
+    // ('/site-engineer') and differ only by `?tab=` query string, so a
+    // plain pathname comparison would either highlight every one of them
+    // at once or none of them. Compare the query too when the nav item
+    // itself carries one; for query-less items, only treat as active
+    // when the current URL ALSO has no differentiating `tab=` query.
+    if (path.includes('?')) {
+      const [itemPath, itemQuery] = path.split('?');
+      return location.pathname === itemPath && location.search === `?${itemQuery}`;
+    }
     if (path === '/dashboard' && location.pathname === '/dashboard') return true;
-    if (path !== '/dashboard' && location.pathname.startsWith(path)) return true;
+    if (path !== '/dashboard' && location.pathname.startsWith(path)) {
+      if (location.search && location.search.includes('tab=')) return false;
+      return true;
+    }
     return false;
   };
 

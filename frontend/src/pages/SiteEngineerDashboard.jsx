@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import {
   Building2,
@@ -310,7 +311,20 @@ export default function SiteEngineerDashboard() {
   const [workOrders, setWorkOrders] = useState([]);
   const [selectedContractor, setSelectedContractor] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('projects');
+  // Aug 5 2026 — Synced with `?tab=` so the mobile bottom nav (a separate,
+  // always-mounted component that can only navigate by URL) can jump
+  // straight to a specific tab instead of always landing on Projects.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTabState] = useState(searchParams.get('tab') || 'projects');
+  const setActiveTab = (tab) => {
+    setActiveTabState(tab);
+    setSearchParams(tab === 'projects' ? {} : { tab }, { replace: true });
+  };
+  useEffect(() => {
+    const urlTab = searchParams.get('tab') || 'projects';
+    if (urlTab !== activeTab) setActiveTabState(urlTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // DLR & DPR tab — one line per assigned project for a given day
   const [dlrDprSubTab, setDlrDprSubTab] = useState('dlr');
