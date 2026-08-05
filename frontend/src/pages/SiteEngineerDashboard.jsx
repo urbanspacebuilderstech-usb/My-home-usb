@@ -1184,38 +1184,45 @@ export default function SiteEngineerDashboard() {
         </div>
 
         {/* Top-level dashboard tabs — only My Projects, Petty Cash, Attendance.
-            Site visits / Work orders / Cashbook / Curing video moved inside the project view. */}
+            Site visits / Work orders / Cashbook / Curing video moved inside the project view.
+            Aug 5 2026 — On narrow mobile screens a rigid grid-cols-5 with
+            text-base labels had nowhere to shrink to, so the tab text
+            overflowed its column and visually overlapped the neighboring
+            tab (Sr. Site Engineer's 5-tab row was unreadable). Switch to a
+            horizontally-scrollable strip with mobile-sized text/icons below
+            `sm`, falling back to the original equal-width grid at `sm+`
+            where there's room. */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">
-          <TabsList className={`grid ${user?.role === 'sr_site_engineer' || user?.role === 'super_admin' ? 'grid-cols-5' : 'grid-cols-4'} w-full h-auto bg-gray-100 p-1 rounded-lg`} data-testid="se-dashboard-tabs">
+          <TabsList className={`flex overflow-x-auto sm:grid ${user?.role === 'sr_site_engineer' || user?.role === 'super_admin' ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} w-full h-auto bg-gray-100 p-1 rounded-lg gap-1 sm:gap-0`} data-testid="se-dashboard-tabs">
             <TabsTrigger
               value="projects"
-              className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow"
+              className="shrink-0 sm:shrink gap-1 sm:gap-2 whitespace-nowrap text-xs sm:text-lg font-semibold py-2 sm:py-3 px-3 sm:px-2 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow"
               data-testid="tab-projects"
             >
-              <Building2 className="h-5 w-5" /> My Projects
+              <Building2 className="h-4 w-4 sm:h-5 sm:w-5" /> My Projects
             </TabsTrigger>
             <TabsTrigger
               value="dlrdpr"
-              className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-orange-700 data-[state=active]:shadow"
+              className="shrink-0 sm:shrink gap-1 sm:gap-2 whitespace-nowrap text-xs sm:text-lg font-semibold py-2 sm:py-3 px-3 sm:px-2 data-[state=active]:bg-white data-[state=active]:text-orange-700 data-[state=active]:shadow"
               data-testid="tab-dlrdpr"
             >
-              <FileText className="h-5 w-5" /> DLR & DPR
+              <FileText className="h-4 w-4 sm:h-5 sm:w-5" /> DLR & DPR
             </TabsTrigger>
             {(user?.role === 'sr_site_engineer' || user?.role === 'super_admin') && (
               <TabsTrigger
                 value="requests"
-                className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-violet-700 data-[state=active]:shadow"
+                className="shrink-0 sm:shrink gap-1 sm:gap-2 whitespace-nowrap text-xs sm:text-lg font-semibold py-2 sm:py-3 px-3 sm:px-2 data-[state=active]:bg-white data-[state=active]:text-violet-700 data-[state=active]:shadow"
                 data-testid="tab-sr-se-requests"
               >
-                <ClipboardList className="h-5 w-5" /> Requests
+                <ClipboardList className="h-4 w-4 sm:h-5 sm:w-5" /> Requests
               </TabsTrigger>
             )}
             <TabsTrigger
               value="pettycash"
-              className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow"
+              className="shrink-0 sm:shrink gap-1 sm:gap-2 whitespace-nowrap text-xs sm:text-lg font-semibold py-2 sm:py-3 px-3 sm:px-2 data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow"
               data-testid="tab-pettycash"
             >
-              <Wallet className="h-5 w-5" /> Petty Cash
+              <Wallet className="h-4 w-4 sm:h-5 sm:w-5" /> Petty Cash
               {pettyCashList.filter(p => p.status === 'issued' || p.status === 'partially_spent').length > 0 && (
                 <Badge className="h-5 min-w-[20px] px-1 flex items-center justify-center text-xs bg-emerald-500">
                   {pettyCashList.filter(p => p.status === 'issued' || p.status === 'partially_spent').length}
@@ -1224,10 +1231,10 @@ export default function SiteEngineerDashboard() {
             </TabsTrigger>
             <TabsTrigger
               value="attendance"
-              className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow"
+              className="shrink-0 sm:shrink gap-1 sm:gap-2 whitespace-nowrap text-xs sm:text-lg font-semibold py-2 sm:py-3 px-3 sm:px-2 data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow"
               data-testid="tab-attendance"
             >
-              <Clock className="h-5 w-5" /> Attendance
+              <Clock className="h-4 w-4 sm:h-5 sm:w-5" /> Attendance
             </TabsTrigger>
           </TabsList>
 
