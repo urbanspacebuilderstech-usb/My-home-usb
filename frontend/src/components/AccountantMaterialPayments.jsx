@@ -362,19 +362,35 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
         {/* Legacy material_expenses (orphan / no live parent material_request) */}
         {showLegacy.map(exp => {
           const amt = exp.final_amount || exp.estimated_cost || exp.estimated_price || 0;
+          // Aug 5 2026 — This card was always showing the ORIGINAL full bill
+          // amount as its headline figure, even for bills already partially
+          // paid — a ₹3,33,748 bill with ₹1,00,000 already paid (correctly
+          // tracked server-side in remaining_balance: 233748) still showed
+          // "₹3,33,748" with no indication anything had been paid. Mirror
+          // the live material_requests card above, which already handles
+          // this correctly.
+          const isPartial = exp.status === 'partially_paid' || !!exp.last_partial_paid_at;
+          const headlineAmt = isPartial && exp.remaining_balance > 0 ? exp.remaining_balance : amt;
           return (
-            <Card key={`legacy-${exp.expense_id}`} className="hover:shadow-md transition-shadow border-l-4" style={{ borderLeftColor: '#6b7280' }}>
+            <Card key={`legacy-${exp.expense_id}`} className={`hover:shadow-md transition-shadow border-l-4 ${isPartial ? 'ring-1 ring-yellow-200' : ''}`} style={{ borderLeftColor: isPartial ? '#eab308' : '#6b7280' }}>
               <CardContent className="p-3 sm:p-4">
+                {isPartial && exp.remaining_balance > 0 && (
+                  <div className="mb-2 bg-yellow-50 border border-yellow-200 rounded px-2 py-1.5 text-[11px] text-yellow-800 flex items-center justify-between">
+                    <span><span className="font-semibold">Partially Paid:</span> {fmt(exp.paid_amount || 0)} of {fmt(amt)} paid</span>
+                    <span className="font-bold">Balance: {fmt(exp.remaining_balance)}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <Badge variant="outline" className="text-[10px] bg-gray-50 text-gray-700 border-gray-300">Legacy</Badge>
                     <Badge variant="outline" className="text-[10px] capitalize">{(exp.payment_phase || 'full')} payment</Badge>
                     {exp.payment_mode && <Badge variant="outline" className="text-[10px] capitalize">{exp.payment_mode.replace(/_/g, ' ')}</Badge>}
+                    {isPartial && <Badge className="bg-yellow-500 text-white text-[10px]">Partially Paid</Badge>}
                     {exp.request_number && (
                       <Badge variant="outline" className="text-[10px] font-mono border-violet-300 text-violet-700 bg-violet-50">{exp.request_number}</Badge>
                     )}
                   </div>
-                  <span className="text-base font-bold text-emerald-700">{fmt(amt)}</span>
+                  <span className="text-base font-bold text-emerald-700">{fmt(headlineAmt)}</span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                   <div>
