@@ -131,15 +131,23 @@ export default function SrSERequestsTab() {
               key={t.id}
               onClick={() => setActiveSub(t.id)}
               data-testid={`sr-se-req-subtab-${t.id}`}
-              className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg border-2 transition-all
+              // Aug 5 2026 — This was `justify-between` on one row with an
+              // unbounded label span, so the longest label ("Labour
+              // Payments") left no room for its own count badge on a
+              // narrow mobile column — the badge got clipped at the
+              // button's edge. Stack icon+label above the badge on
+              // mobile instead of squeezing both onto one row; reverts
+              // to the original side-by-side layout at sm+ where there's
+              // width for it.
+              className={`flex flex-col sm:flex-row items-center sm:justify-between gap-1 sm:gap-2 px-2 sm:px-3 py-2 sm:py-2.5 rounded-lg border-2 transition-all text-center sm:text-left
                 ${isActive
                   ? `bg-${t.color}-50 border-${t.color}-400 text-${t.color}-800 font-semibold shadow-sm`
                   : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'}`}
             >
-              <span className="flex items-center gap-1.5 text-xs sm:text-sm">
-                <Icon className="h-4 w-4" /> {t.label}
+              <span className="flex items-center justify-center sm:justify-start gap-1 sm:gap-1.5 text-[11px] sm:text-sm leading-tight">
+                <Icon className="h-4 w-4 shrink-0" /> {t.label}
               </span>
-              <Badge className={`${isActive ? `bg-${t.color}-600 text-white` : 'bg-gray-100 text-gray-700'} text-[10px]`}>
+              <Badge className={`${isActive ? `bg-${t.color}-600 text-white` : 'bg-gray-100 text-gray-700'} text-[10px] shrink-0`}>
                 {t.count}
               </Badge>
             </button>

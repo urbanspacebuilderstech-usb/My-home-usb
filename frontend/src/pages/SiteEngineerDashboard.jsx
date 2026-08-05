@@ -2092,8 +2092,11 @@ export default function SiteEngineerDashboard() {
                 amber:  { base: 'bg-white text-amber-700 border-amber-200',    active: 'bg-amber-600 text-white border-amber-600',    hover: 'hover:border-amber-400' },
                 blue:   { base: 'bg-white text-blue-700 border-blue-200',      active: 'bg-blue-600 text-white border-blue-600',      hover: 'hover:border-blue-400' },
               };
+              // Aug 5 2026 — 5 tiles in a 2-column grid stranded the 5th
+              // tile alone next to an empty cell on mobile (matches the
+              // 3-per-row pattern used for DLR & DPR's summary pills).
               return (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-4" data-testid="pc-segmented-tiles">
+                <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-4" data-testid="pc-segmented-tiles">
                   {pills.map(p => {
                     const tones = toneMap[p.tone];
                     const isActive =
