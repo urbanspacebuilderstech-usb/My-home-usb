@@ -240,6 +240,14 @@ const classifyMode = (mode) => {
   const map = {
     cash: 'cash', bank_transfer: 'current_account', neft: 'current_account',
     rtgs: 'current_account', imps: 'current_account', upi: 'current_account',
+    // Aug 5 2026 — `escrow` was missing here entirely (present in the
+    // backend's classify_payment_mode as the documented source of truth,
+    // but this frontend copy had drifted), so every Escrow-mode expense
+    // silently displayed as "Miscellaneous" even though its amount was
+    // already correctly counted under HDFC CURRENT server-side — looked
+    // like the money had vanished from the account calculation when it
+    // was really just mislabeled.
+    escrow: 'current_account',
     cheque: 'cheque', petty_cash: 'petty_cash', savings: 'savings_account',
     savings_account: 'savings_account', current_account: 'current_account',
     // IssueCashDialog emits these underscored values:
