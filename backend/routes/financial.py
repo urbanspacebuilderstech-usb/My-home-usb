@@ -153,7 +153,7 @@ _CF_LOCK_SOURCE = "carry_forward_lock"
 # drifted: `hdfc_current` / `hdfc_savings` rows silently fell into the
 # invisible Miscellaneous bucket in one endpoint but not the other,
 # under-counting HDFC tiles by lakhs. Every endpoint MUST use this helper.
-PAYMENT_MODE_KEYS = ["cash", "current_account", "savings_account", "cheque", "petty_cash", "miscellaneous", "direct_transfer", "suspense_account"]
+PAYMENT_MODE_KEYS = ["cash", "current_account", "savings_account", "cheque", "petty_cash", "miscellaneous", "direct_transfer", "suspense_account", "multi"]
 
 _PAYMENT_MODE_MAP = {
     "cash": "cash",
@@ -167,6 +167,15 @@ _PAYMENT_MODE_MAP = {
     "direct_transfer": "direct_transfer", "dt": "direct_transfer",
     "cash_dt": "direct_transfer", "upi": "current_account",
     "suspense": "suspense_account", "suspense_account": "suspense_account",
+    # Aug 5 2026 — Material bills paid via a mix of legs (e.g. part cheque +
+    # part cash) get `payment_method: "multi"` stamped on the parent
+    # material_requests doc so "the UI doesn't lie" about it being one mode
+    # (see pay_approval's request_update, financial.py ~8281). But "multi"
+    # was never classified anywhere, so it silently fell into the invisible
+    # Miscellaneous bucket instead of its own honestly-labeled bucket —
+    # looked like the payment mode was wrong AND the amount had dropped out
+    # of the mode-based totals. Give it its own explicit key instead.
+    "multi": "multi",
 }
 
 

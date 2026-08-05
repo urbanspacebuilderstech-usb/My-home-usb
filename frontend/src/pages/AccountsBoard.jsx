@@ -86,12 +86,17 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const MODE_LABELS = {
   cash: 'Cash', current_account: 'HDFC CURRENT', savings_account: 'HDFC SAVINGS',
   cheque: 'Cheque', petty_cash: 'Petty Cash', miscellaneous: 'Miscellaneous',
-  direct_transfer: 'CASH D/T', suspense_account: 'Suspense A/c'
+  direct_transfer: 'CASH D/T', suspense_account: 'Suspense A/c',
+  // Aug 5 2026 — bills paid via a mix of legs (part cheque + part cash,
+  // etc.) get tagged "multi" so the UI doesn't falsely claim a single
+  // mode. Give it its own honest label instead of folding into the
+  // catch-all Miscellaneous bucket.
+  multi: 'Mixed'
 };
 const MODE_ICONS = {
   cash: Banknote, current_account: Landmark, savings_account: PiggyBank,
   cheque: FileText, petty_cash: Wallet, miscellaneous: IndianRupee,
-  direct_transfer: ArrowUpRight, suspense_account: RefreshCw
+  direct_transfer: ArrowUpRight, suspense_account: RefreshCw, multi: PieChart
 };
 const MODE_COLORS = {
   cash: 'bg-green-50 text-green-700 border-green-200',
@@ -101,7 +106,8 @@ const MODE_COLORS = {
   petty_cash: 'bg-amber-50 text-amber-700 border-amber-200',
   miscellaneous: 'bg-gray-50 text-gray-700 border-gray-200',
   direct_transfer: 'bg-orange-50 text-orange-700 border-orange-200',
-  suspense_account: 'bg-red-50 text-red-700 border-red-200'
+  suspense_account: 'bg-red-50 text-red-700 border-red-200',
+  multi: 'bg-teal-50 text-teal-700 border-teal-200'
 };
 
 const CHEQUE_STATUSES = [
@@ -256,7 +262,11 @@ const classifyMode = (mode) => {
     hdfccurrent: 'current_account', hdfcsavings: 'savings_account',
     miscellaneous: 'miscellaneous', direct_transfer: 'direct_transfer',
     dt: 'direct_transfer', cash_dt: 'direct_transfer',
-    suspense: 'suspense_account', suspense_account: 'suspense_account'
+    suspense: 'suspense_account', suspense_account: 'suspense_account',
+    // Aug 5 2026 — bills paid via a mix of legs get tagged "multi" server-
+    // side (pay_approval / labour release) so the UI doesn't falsely claim
+    // one mode; give it its own honest bucket instead of Miscellaneous.
+    multi: 'multi'
   };
   if (map[m]) return map[m];
   // Jul 7 2026 — Fuzzy fallback (mirrors backend classify_payment_mode).
