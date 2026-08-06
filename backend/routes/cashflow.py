@@ -263,14 +263,37 @@ async def get_ledger(
 
 
 @router.get("/cashflow/summary")
-async def get_summary(project_id: Optional[str] = None, user: User = Depends(get_current_user)):
-    """Direct pool balance, Indirect pool balance, Net cash position — globally or per project."""
+async def get_summary(
+    project_id: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Direct pool balance, Indirect pool balance, Net cash position — globally or per project.
+
+    Aug 6 2026 — Added date_from/date_to so this reconciles with Accounts >
+    Project Wise, which already excludes Carry Forward (a lump-sum opening
+    balance not tied to any date) the moment a date range is applied.
+    Without this, Cashflow Engine always showed the true all-time position
+    (CF included) while Project Wise's "All Months / <year>" selector
+    silently applies a Jan 1 – Dec 31 bound and drops CF — any project with
+    a non-zero carry-forward then showed two different numbers for what
+    looked like the same view (Sai Karthick reported Mr Sridhar's Net
+    ₹7,31,902.75 vs Project Wise Balance ₹4,03,354.76 — exactly the
+    project's ₹3,28,548 carry-forward expense).
+    """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
+
+    is_date_filtered = bool(date_from or date_to)
 
     match: Dict[str, Any] = {}
     if project_id:
         match["project_id"] = project_id
+    if date_from:
+        match["created_at"] = {"$gte": date_from}
+    if date_to:
+        match.setdefault("created_at", {})["$lte"] = date_to + "T23:59:59"
 
     pipeline = [
         {"$match": match} if match else {"$match": {}},
@@ -322,8 +345,13 @@ async def get_summary(project_id: Optional[str] = None, user: User = Depends(get
                 "direct_out": 0.0, "indirect_out": 0.0,
             } for p in valid_projects
         }
+        pp_match: Dict[str, Any] = {"project_id": {"$in": list(valid_pid_set)}}
+        if date_from:
+            pp_match["created_at"] = {"$gte": date_from}
+        if date_to:
+            pp_match.setdefault("created_at", {})["$lte"] = date_to + "T23:59:59"
         pp_pipeline = [
-            {"$match": {"project_id": {"$in": list(valid_pid_set)}}},
+            {"$match": pp_match},
             {"$group": {
                 "_id": {"project_id": "$project_id", "kind": "$kind"},
                 "direct": {"$sum": "$direct_amount"},
@@ -359,42 +387,50 @@ async def get_summary(project_id: Optional[str] = None, user: User = Depends(get
         #
         # Income side currently has no per-bucket breakdown, so we keep
         # the 85/15 split for `income_carry_forward + income_adjustment`.
-        async for cf in db.project_carry_forwards.find(
-            {"project_id": {"$in": list(valid_pid_set)}},
-            {"_id": 0, "project_id": 1, "income_carry_forward": 1, "income_adjustment": 1,
-             "expense_carry_forward": 1, "expense_adjustment": 1,
-             "material_carry_forward": 1, "labour_carry_forward": 1,
-             "petty_cash_carry_forward": 1, "indirect_carry_forward": 1},
-        ):
-            pid = cf.get("project_id")
-            if pid not in agg:
-                continue
-            sp = await _get_effective_split(pid)
-            dp = float(sp.get("direct_pct", 85.0)) / 100.0
-            ip = float(sp.get("indirect_pct", 15.0)) / 100.0
-            # Income CF — split by the project's effective ratio.
-            cf_inc = float(cf.get("income_carry_forward") or 0) + float(cf.get("income_adjustment") or 0)
-            agg[pid]["direct_in"] += round(cf_inc * dp, 2)
-            agg[pid]["indirect_in"] += round(cf_inc * ip, 2)
-            # Expense CF — use explicit per-bucket breakdown when present.
-            mat_cf = float(cf.get("material_carry_forward") or 0)
-            lab_cf = float(cf.get("labour_carry_forward") or 0)
-            pc_cf = float(cf.get("petty_cash_carry_forward") or 0)
-            ind_cf = float(cf.get("indirect_carry_forward") or 0)
-            direct_cf = mat_cf + lab_cf + pc_cf
-            if direct_cf == 0 and ind_cf == 0:
-                # Legacy doc (pre per-bucket schema): fall back to the
-                # rolled-up total and the 85/15 ratio. `expense_adjustment`
-                # in legacy docs duplicates `indirect_carry_forward`, so
-                # don't add it twice here.
-                legacy_total = float(cf.get("expense_carry_forward") or 0)
-                if legacy_total == 0:
-                    legacy_total = float(cf.get("expense_adjustment") or 0)
-                agg[pid]["direct_out"] += round(legacy_total * dp, 2)
-                agg[pid]["indirect_out"] += round(legacy_total * ip, 2)
-            else:
-                agg[pid]["direct_out"] += round(direct_cf, 2)
-                agg[pid]["indirect_out"] += round(ind_cf, 2)
+        #
+        # Aug 6 2026 — Only roll CF in for the true all-time (unbounded)
+        # view. CF is a lump-sum opening balance with no date of its own,
+        # so folding it into a date-bounded view would inflate that range
+        # by the full historical CF on top of its real entries — same
+        # convention `/accountant/cashbook-filtered` already uses for the
+        # Project Wise tab (see `_date_filtered` there).
+        if not is_date_filtered:
+            async for cf in db.project_carry_forwards.find(
+                {"project_id": {"$in": list(valid_pid_set)}},
+                {"_id": 0, "project_id": 1, "income_carry_forward": 1, "income_adjustment": 1,
+                 "expense_carry_forward": 1, "expense_adjustment": 1,
+                 "material_carry_forward": 1, "labour_carry_forward": 1,
+                 "petty_cash_carry_forward": 1, "indirect_carry_forward": 1},
+            ):
+                pid = cf.get("project_id")
+                if pid not in agg:
+                    continue
+                sp = await _get_effective_split(pid)
+                dp = float(sp.get("direct_pct", 85.0)) / 100.0
+                ip = float(sp.get("indirect_pct", 15.0)) / 100.0
+                # Income CF — split by the project's effective ratio.
+                cf_inc = float(cf.get("income_carry_forward") or 0) + float(cf.get("income_adjustment") or 0)
+                agg[pid]["direct_in"] += round(cf_inc * dp, 2)
+                agg[pid]["indirect_in"] += round(cf_inc * ip, 2)
+                # Expense CF — use explicit per-bucket breakdown when present.
+                mat_cf = float(cf.get("material_carry_forward") or 0)
+                lab_cf = float(cf.get("labour_carry_forward") or 0)
+                pc_cf = float(cf.get("petty_cash_carry_forward") or 0)
+                ind_cf = float(cf.get("indirect_carry_forward") or 0)
+                direct_cf = mat_cf + lab_cf + pc_cf
+                if direct_cf == 0 and ind_cf == 0:
+                    # Legacy doc (pre per-bucket schema): fall back to the
+                    # rolled-up total and the 85/15 ratio. `expense_adjustment`
+                    # in legacy docs duplicates `indirect_carry_forward`, so
+                    # don't add it twice here.
+                    legacy_total = float(cf.get("expense_carry_forward") or 0)
+                    if legacy_total == 0:
+                        legacy_total = float(cf.get("expense_adjustment") or 0)
+                    agg[pid]["direct_out"] += round(legacy_total * dp, 2)
+                    agg[pid]["indirect_out"] += round(legacy_total * ip, 2)
+                else:
+                    agg[pid]["direct_out"] += round(direct_cf, 2)
+                    agg[pid]["indirect_out"] += round(ind_cf, 2)
 
         for v in agg.values():
             v["direct_balance"] = round(v["direct_in"] - v["direct_out"], 2)
@@ -433,6 +469,9 @@ async def get_summary(project_id: Optional[str] = None, user: User = Depends(get
         "effective_split": await _get_effective_split(project_id) if project_id else await _get_global_split(),
         "has_override": bool(await db.cashflow_config.find_one({"_id": f"project:{project_id}"}, {"_id": 1})) if project_id else False,
         "global_split": await _get_global_split(),
+        "date_from": date_from,
+        "date_to": date_to,
+        "carry_forward_included": not is_date_filtered,
     }
 
 

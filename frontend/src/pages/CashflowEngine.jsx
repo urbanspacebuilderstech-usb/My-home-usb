@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,8 +8,9 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { ArrowLeft, RefreshCw, Save, Trash2, Wallet, TrendingUp, TrendingDown, ArrowDownLeft, ArrowUpRight, BarChart3, Settings as SettingsIcon, Lock } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Save, Trash2, Wallet, TrendingUp, TrendingDown, ArrowDownLeft, ArrowUpRight, BarChart3, Settings as SettingsIcon, Lock, Info } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { CashbookDateFilter } from '@/components/CashbookDateFilter';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
@@ -32,15 +33,31 @@ export default function CashflowEngine() {
   // Feb 22 2026 — Per-Project Cashflow search filter (case-insensitive,
   // matches project name).
   const [ppSearch, setPpSearch] = useState('');
+  // Aug 6 2026 — Date filter so this page can be compared apples-to-apples
+  // with Accounts > Project Wise, which already excludes Carry Forward
+  // (lump-sum, not tied to a date) once a range is applied. Empty by
+  // default = true all-time view (CF included), matching prior behavior.
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  // Aug 6 2026 — Only the very first load shows the full-page spinner;
+  // date-filter changes use `refetching` instead so the header + date
+  // filter control stay mounted and visible while the tables reload.
+  const [refetching, setRefetching] = useState(false);
+  const didInitialLoad = useRef(false);
 
   const fetchAll = async () => {
-    setLoading(true);
+    if (didInitialLoad.current) setRefetching(true); else setLoading(true);
     try {
+      const dateParams = new URLSearchParams();
+      if (dateFrom) dateParams.append('date_from', dateFrom);
+      if (dateTo) dateParams.append('date_to', dateTo);
+      const dq = dateParams.toString();
       const [s, c, inc, exp, projs] = await Promise.all([
-        axios.get(`${API}/cashflow/summary`),
+        axios.get(`${API}/cashflow/summary${dq ? `?${dq}` : ''}`),
         axios.get(`${API}/cashflow/config`),
-        axios.get(`${API}/cashflow/ledger?kind=income`),
-        axios.get(`${API}/cashflow/ledger?kind=expense`),
+        axios.get(`${API}/cashflow/ledger?kind=income${dq ? `&${dq}` : ''}`),
+        axios.get(`${API}/cashflow/ledger?kind=expense${dq ? `&${dq}` : ''}`),
         axios.get(`${API}/projects?limit=500`).catch(() => ({ data: [] })),
       ]);
       setSummary(s.data);
@@ -53,13 +70,19 @@ export default function CashflowEngine() {
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Failed to load cashflow');
     }
+    didInitialLoad.current = true;
     setLoading(false);
+    setRefetching(false);
   };
 
   useEffect(() => {
     axios.get(`${API}/auth/me`).then(r => setUser(r.data)).catch(() => {});
-    fetchAll();
   }, []);
+
+  useEffect(() => {
+    fetchAll();
+    /* eslint-disable-next-line */
+  }, [dateFrom, dateTo]);
 
   const isAdmin = user?.role === 'super_admin';
 
@@ -164,7 +187,16 @@ export default function CashflowEngine() {
               <p className="text-xs text-gray-500">Splits every approved income into Direct & Indirect pools; expenses drain the matching pool.</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <CashbookDateFilter
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              setDateFrom={setDateFrom}
+              setDateTo={setDateTo}
+              testIdPrefix="cf"
+              accent="blue"
+            />
+            {refetching && <RefreshCw className="h-4 w-4 animate-spin text-indigo-600" />}
             <Button variant="outline" size="sm" onClick={fetchAll} disabled={busy} data-testid="cf-refresh-btn"><RefreshCw className={`h-4 w-4 mr-1 ${busy ? 'animate-spin' : ''}`} /> Refresh</Button>
             {isAdmin && (
               <Button size="sm" variant="outline" className="border-indigo-300 text-indigo-700" onClick={fullRecompute} disabled={busy} data-testid="cf-recompute-btn">
@@ -172,6 +204,25 @@ export default function CashflowEngine() {
               </Button>
             )}
           </div>
+        </div>
+
+        {/* Aug 6 2026 — Carry Forward (a lump-sum opening balance, not tied
+            to any date) is only included in the true all-time view — same
+            convention Accounts > Project Wise already uses. Make that
+            explicit here so the two pages' numbers are never a silent
+            mismatch when a date range is picked. */}
+        <div
+          className={`flex items-center gap-2 text-xs rounded-lg px-3 py-2 border ${
+            summary?.carry_forward_included
+              ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+              : 'bg-amber-50 border-amber-200 text-amber-800'
+          }`}
+          data-testid="cf-carry-forward-note"
+        >
+          <Info className="h-3.5 w-3.5 shrink-0" />
+          {summary?.carry_forward_included
+            ? 'Showing all-time totals, including each project’s Carry Forward opening balance.'
+            : 'Date filter active — Carry Forward opening balances are excluded (same as Project Wise). Clear the date to see true all-time totals.'}
         </div>
 
         {/* Summary Strip — 3 cards × 3 metrics each */}
