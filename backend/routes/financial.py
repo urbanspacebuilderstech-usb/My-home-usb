@@ -1929,6 +1929,59 @@ async def recompute_material_payment_tracking(target_id: str, dry_run: bool = Tr
     return result
 
 
+@router.post("/admin/mark-material-expense-superseded")
+async def mark_material_expense_superseded(
+    expense_id: str, superseded_by: str, dry_run: bool = True, user: User = Depends(get_current_user)
+):
+    """Temporary one-time repair (Aug 6 2026, USB-MR601 duplicate report) —
+    retroactively marks an orphaned material_expenses mirror row that
+    predates the assign-vendor revive-in-place fix so it stops showing as
+    a ghost duplicate in the Approvals queue (see the status="superseded"
+    exclusion added to /approvals/unified above). Guarded so it can only
+    ever touch a row that is already a dead end: terminal rejected status
+    AND zero paid amount AND `superseded_by` must point at a real, distinct,
+    currently-open-or-paid material_expenses doc. SUPER_ADMIN only.
+    dry_run=true (default) only reports what would change."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can run this")
+    if expense_id == superseded_by:
+        raise HTTPException(status_code=400, detail="expense_id and superseded_by must differ")
+
+    exp = await db.material_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not exp:
+        raise HTTPException(status_code=404, detail=f"No material_expenses doc for {expense_id}")
+    if exp.get("status") not in ("accountant_rejected", "rejected"):
+        raise HTTPException(status_code=400, detail=f"Refusing — not a terminal-rejected row (status: {exp.get('status')})")
+    paid = float(exp.get("paid_amount") or exp.get("amount_paid") or 0)
+    if paid > 0.5:
+        raise HTTPException(status_code=400, detail=f"Refusing — already paid ₹{paid:,.0f}")
+
+    successor = await db.material_expenses.find_one({"expense_id": superseded_by}, {"_id": 0})
+    if not successor:
+        raise HTTPException(status_code=404, detail=f"successor {superseded_by} not found")
+    if successor.get("source_request_id") != exp.get("source_request_id"):
+        raise HTTPException(status_code=400, detail="successor is not linked to the same source_request_id")
+
+    result = {
+        "dry_run": dry_run,
+        "expense_id": expense_id,
+        "before_status": exp.get("status"),
+        "superseded_by": superseded_by,
+        "successor_status": successor.get("status"),
+    }
+    if not dry_run:
+        await db.material_expenses.update_one(
+            {"expense_id": expense_id},
+            {"$set": {
+                "status": "superseded",
+                "superseded_by": superseded_by,
+                "superseded_at": datetime.now(timezone.utc).isoformat(),
+                "superseded_reason": "Orphaned duplicate mirror row — replaced by a fresh mirror on vendor re-assignment (pre-fix behavior).",
+            }},
+        )
+    return result
+
+
 @router.get("/admin/debug-material-request/{request_number}")
 async def debug_material_request(request_number: str, user: User = Depends(get_current_user)):
     """Temporary read-only diagnostic (Aug 6 2026, duplicate USB-MR601 report
@@ -2044,10 +2097,20 @@ async def get_unified_approvals(
     if recorded_expense_statuses is not None:
         rec_query["status"] = {"$in": recorded_expense_statuses}
 
+    # Aug 6 2026 — `material_expenses` mirror rows superseded by a later
+    # mirror for the same request (see procurement_simple_assign_vendor's
+    # revive-in-place fix) are marked status="superseded" and must never
+    # resurface in this queue under ANY filter, including 'all' — the
+    # current/correct mirror already carries the live state, so a
+    # superseded row is pure dead weight (was showing as ghost duplicate
+    # "accountant rejected" entries, e.g. USB-MR601 / Shree Rahul Traders).
+    _mat_status_query = _q(material_statuses)
+    _mat_status_query["status"] = {"$in": material_statuses} if material_statuses is not None else {"$ne": "superseded"}
+
     # Parallel fetch
     (incomes, materials, labour, vendor, petty_cash, recorded_expenses_q, projects_list) = await asyncio.gather(
         db.income.find(_q(income_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
-        db.material_expenses.find(_q(material_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
+        db.material_expenses.find(_mat_status_query, {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
         db.labour_expenses.find(_q(labour_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
         db.vendor_service_expenses.find(_q(vendor_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),
         db.petty_cash.find(_q(petty_cash_statuses), {"_id": 0}).sort("created_at", -1).limit(1000).to_list(1000),

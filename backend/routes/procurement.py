@@ -2735,30 +2735,74 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
     # and /approvals/pay endpoint operate on it directly.
     if payment_mode == "advance":
         try:
-            exp_id = f"mexp_{uuid.uuid4().hex[:12]}"
-            await db.material_expenses.insert_one({
-                "expense_id": exp_id,
-                "source_request_id": request_id,
-                "project_id": req.get("project_id"),
-                "project_name": req.get("project_name"),
-                "material_name": req.get("material_name"),
-                "quantity": qty,
-                "unit": req.get("unit"),
-                "unit_price": unit_price,
-                "vendor_id": vendor_id,
-                "vendor_name": vendor_name,
-                "estimated_cost": advance_amount,
-                "final_amount": advance_amount,
-                "payment_mode": "advance",
-                "payment_phase": "advance",
-                "status": "pending_accounts_approval",
-                "site_engineer_id": req.get("site_engineer_id"),
-                "site_engineer_name": req.get("site_engineer_name"),
-                "created_at": now,
-                "updated_at": now,
-                "description": f"ADVANCE — {req.get('material_name', '')} ({qty} {req.get('unit', '')})",
-                "request_type": "material",
-            })
+            # Aug 6 2026 — Re-assigning vendor after Accounts rejects a
+            # pre-verification advance bill bounces the request back to
+            # `procurement_revision`, which re-enters this same endpoint.
+            # This used to unconditionally insert a BRAND NEW mirror every
+            # time, leaving the previous rejected one behind as a dead
+            # orphan that stayed visible in the Approvals queue forever
+            # (USB-MR601 / Shree Rahul Traders ended up with 3 mirror rows
+            # for one request). Reuse the existing mirror instead — same
+            # "look up before insert" pattern already used by the
+            # receipt-verification mirror further down (~line 3290).
+            existing_exp = await db.material_expenses.find_one(
+                {"source_request_id": request_id}, {"_id": 0, "expense_id": 1, "status": 1},
+            )
+            if existing_exp and existing_exp.get("status") not in ("partially_paid", "paid", "completed"):
+                exp_id = existing_exp["expense_id"]
+                await db.material_expenses.update_one(
+                    {"expense_id": exp_id},
+                    {"$set": {
+                        "project_id": req.get("project_id"),
+                        "project_name": req.get("project_name"),
+                        "material_name": req.get("material_name"),
+                        "quantity": qty,
+                        "unit": req.get("unit"),
+                        "unit_price": unit_price,
+                        "vendor_id": vendor_id,
+                        "vendor_name": vendor_name,
+                        "estimated_cost": advance_amount,
+                        "final_amount": advance_amount,
+                        "payment_mode": "advance",
+                        "payment_phase": "advance",
+                        "status": "pending_accounts_approval",
+                        "description": f"ADVANCE — {req.get('material_name', '')} ({qty} {req.get('unit', '')})",
+                        "updated_at": now,
+                        "rejection_reason": None,
+                        "rejected_by": None,
+                        "rejected_by_name": None,
+                        "rejected_at": None,
+                    }},
+                )
+            elif existing_exp:
+                # Already partially/fully paid — never spawn a second bill
+                # for the same request; leave the paid one untouched.
+                exp_id = existing_exp["expense_id"]
+            else:
+                exp_id = f"mexp_{uuid.uuid4().hex[:12]}"
+                await db.material_expenses.insert_one({
+                    "expense_id": exp_id,
+                    "source_request_id": request_id,
+                    "project_id": req.get("project_id"),
+                    "project_name": req.get("project_name"),
+                    "material_name": req.get("material_name"),
+                    "quantity": qty,
+                    "unit": req.get("unit"),
+                    "unit_price": unit_price,
+                    "vendor_id": vendor_id,
+                    "vendor_name": vendor_name,
+                    "estimated_cost": advance_amount,
+                    "final_amount": advance_amount,
+                    "payment_mode": "advance",
+                    "payment_phase": "advance",
+                    "status": "pending_accounts_approval",
+                    "site_engineer_id": req.get("site_engineer_id"),
+                    "site_engineer_name": req.get("site_engineer_name"),
+                    "created_at": now,
+                    "updated_at": now,
+                    "description": f"ADVANCE — {req.get('material_name', '')} ({qty} {req.get('unit', '')})",
+                    "request_type": "material",
+                })
             await db.material_requests.update_one(
                 {"request_id": request_id},
                 {"$set": {"advance_expense_id": exp_id}},
