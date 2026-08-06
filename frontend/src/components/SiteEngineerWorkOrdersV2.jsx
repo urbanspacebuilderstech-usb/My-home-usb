@@ -301,15 +301,31 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
         </div>
       </Card>
 
-      {/* Tabs */}
+      {/* Tabs — Aug 6 2026: 6 long labels ("Payment Schedule Stages",
+          "Additional RAB", "Scope of Work"...) forced into a rigid
+          grid-cols-6 overlapped/truncated illegibly on mobile. Scrolls
+          horizontally with short labels below `sm`; full grid + full
+          labels from `sm` up. */}
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="w-full grid grid-cols-6">
-          <TabsTrigger value="payments" data-testid="wov2-tab-payments">Payment Schedule Stages</TabsTrigger>
-          <TabsTrigger value="rab" data-testid="wov2-tab-rab" className="data-[state=active]:bg-violet-600 data-[state=active]:text-white">{"Total RAB's"}</TabsTrigger>
-          <TabsTrigger value="additional" data-testid="wov2-tab-additional">Additional</TabsTrigger>
-          <TabsTrigger value="additional_rab" data-testid="wov2-tab-additional-rab" className="data-[state=active]:bg-violet-600 data-[state=active]:text-white">Additional RAB</TabsTrigger>
-          <TabsTrigger value="scope" data-testid="wov2-tab-scope">Scope of Work</TabsTrigger>
-          <TabsTrigger value="dlr" data-testid="wov2-tab-dlr">DLR Report</TabsTrigger>
+        <TabsList className="w-full flex overflow-x-auto sm:grid sm:grid-cols-6 gap-1 sm:gap-0 justify-start sm:justify-center">
+          <TabsTrigger value="payments" data-testid="wov2-tab-payments" className="shrink-0 text-xs sm:text-sm">
+            <span className="sm:hidden">Payments</span>
+            <span className="hidden sm:inline">Payment Schedule Stages</span>
+          </TabsTrigger>
+          <TabsTrigger value="rab" data-testid="wov2-tab-rab" className="shrink-0 text-xs sm:text-sm data-[state=active]:bg-violet-600 data-[state=active]:text-white">{"Total RAB's"}</TabsTrigger>
+          <TabsTrigger value="additional" data-testid="wov2-tab-additional" className="shrink-0 text-xs sm:text-sm">Additional</TabsTrigger>
+          <TabsTrigger value="additional_rab" data-testid="wov2-tab-additional-rab" className="shrink-0 text-xs sm:text-sm data-[state=active]:bg-violet-600 data-[state=active]:text-white">
+            <span className="sm:hidden">Add. RAB</span>
+            <span className="hidden sm:inline">Additional RAB</span>
+          </TabsTrigger>
+          <TabsTrigger value="scope" data-testid="wov2-tab-scope" className="shrink-0 text-xs sm:text-sm">
+            <span className="sm:hidden">Scope</span>
+            <span className="hidden sm:inline">Scope of Work</span>
+          </TabsTrigger>
+          <TabsTrigger value="dlr" data-testid="wov2-tab-dlr" className="shrink-0 text-xs sm:text-sm">
+            <span className="sm:hidden">DLR</span>
+            <span className="hidden sm:inline">DLR Report</span>
+          </TabsTrigger>
         </TabsList>
 
         {/* ADDITIONAL TAB — mirrors the Payment Schedule UI exactly, scoped to
@@ -319,11 +335,20 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
             automatically — Planning unlocks them from the Project board. */}
         <TabsContent value="additional" className="mt-3">
           <Tabs defaultValue="claimable" className="w-full">
-            <TabsList className="grid grid-cols-4 w-full">
-              <TabsTrigger value="claimable" data-testid="se-add-tab-claimable">Claimable From Client</TabsTrigger>
-              <TabsTrigger value="non_claimable" data-testid="se-add-tab-nonclaimable">Non-Claimable From Client</TabsTrigger>
-              <TabsTrigger value="rework_se" data-testid="se-add-tab-rework-se">Rework (Site Engineer)</TabsTrigger>
-              <TabsTrigger value="rework_client" data-testid="se-add-tab-rework-client">Rework (Client)</TabsTrigger>
+            <TabsList className="w-full flex overflow-x-auto sm:grid sm:grid-cols-4 gap-1 sm:gap-0 justify-start sm:justify-center">
+              <TabsTrigger value="claimable" data-testid="se-add-tab-claimable" className="shrink-0 text-xs sm:text-sm">
+                <span className="sm:hidden">Claimable</span>
+                <span className="hidden sm:inline">Claimable From Client</span>
+              </TabsTrigger>
+              <TabsTrigger value="non_claimable" data-testid="se-add-tab-nonclaimable" className="shrink-0 text-xs sm:text-sm">
+                <span className="sm:hidden">Non-Claimable</span>
+                <span className="hidden sm:inline">Non-Claimable From Client</span>
+              </TabsTrigger>
+              <TabsTrigger value="rework_se" data-testid="se-add-tab-rework-se" className="shrink-0 text-xs sm:text-sm">
+                <span className="sm:hidden">Rework (SE)</span>
+                <span className="hidden sm:inline">Rework (Site Engineer)</span>
+              </TabsTrigger>
+              <TabsTrigger value="rework_client" data-testid="se-add-tab-rework-client" className="shrink-0 text-xs sm:text-sm">Rework (Client)</TabsTrigger>
             </TabsList>
             {[
               { key: 'claimable', label: 'Claimable' },
@@ -663,7 +688,15 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage, stageFilter, ti
             • planning_open → 3 buckets (Open / Locked / All)
             • se_request    → full 9-bucket SE-driven lifecycle */}
       <div className="px-3 pb-2" data-testid="wov2-stage-filter-cards">
-        <div className={`grid gap-1.5 ${visibleBuckets.length === 3 ? 'grid-cols-3' : 'grid-cols-3 sm:grid-cols-9'}`}>
+        {/* Aug 6 2026 — planning_open mode always renders exactly 4 buckets
+            (Open/Completed/Locked/All), but this fell into the 9-bucket
+            branch below, forcing 3 mobile columns so the 4th card ("All
+            Stages") wrapped alone onto its own row. 2x2 on mobile instead. */}
+        <div className={`grid gap-1.5 ${
+          visibleBuckets.length === 3 ? 'grid-cols-3'
+          : visibleBuckets.length === 4 ? 'grid-cols-2 sm:grid-cols-4'
+          : 'grid-cols-3 sm:grid-cols-9'
+        }`}>
           {visibleBuckets.map(b => {
             const Icon = b.Icon;
             const active = filterKey === b.key;
