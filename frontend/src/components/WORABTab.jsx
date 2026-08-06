@@ -441,15 +441,24 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
       </div>
 
       <Tabs defaultValue="all" className="w-full">
-        <TabsList className="w-full justify-start bg-gray-50 border-b rounded-none h-auto p-0">
-          <TabsTrigger value="all" className="text-xs flex items-center gap-1.5 px-3 py-2 data-[state=active]:bg-white data-[state=active]:border-b-2 data-[state=active]:border-violet-600 rounded-none">
+        {/* Aug 6 2026 — no overflow handling meant "Requested RAB" (and
+            whatever came after it) just got cut off on narrow screens
+            instead of wrapping or scrolling into view. */}
+        <TabsList className="w-full flex justify-start overflow-x-auto bg-gray-50 border-b rounded-none h-auto p-0">
+          <TabsTrigger value="all" className="shrink-0 whitespace-nowrap text-xs flex items-center gap-1.5 px-3 py-2 data-[state=active]:bg-white data-[state=active]:border-b-2 data-[state=active]:border-violet-600 rounded-none">
             <FileText className="h-3 w-3" /> All <Badge className="ml-1 bg-violet-100 text-violet-700 border-0 text-[10px]">{rabs.length}</Badge>
           </TabsTrigger>
-          <TabsTrigger value="released" className="text-xs flex items-center gap-1.5 px-3 py-2 data-[state=active]:bg-white data-[state=active]:border-b-2 data-[state=active]:border-emerald-600 rounded-none">
-            <CheckCircle2 className="h-3 w-3" /> Released RAB <Badge className="ml-1 bg-emerald-100 text-emerald-700 border-0 text-[10px]">{RELEASED.length}</Badge>
+          <TabsTrigger value="released" className="shrink-0 whitespace-nowrap text-xs flex items-center gap-1.5 px-3 py-2 data-[state=active]:bg-white data-[state=active]:border-b-2 data-[state=active]:border-emerald-600 rounded-none">
+            <CheckCircle2 className="h-3 w-3" />
+            <span className="sm:hidden">Released</span>
+            <span className="hidden sm:inline">Released RAB</span>
+            <Badge className="ml-1 bg-emerald-100 text-emerald-700 border-0 text-[10px]">{RELEASED.length}</Badge>
           </TabsTrigger>
-          <TabsTrigger value="requested" className="text-xs flex items-center gap-1.5 px-3 py-2 data-[state=active]:bg-white data-[state=active]:border-b-2 data-[state=active]:border-orange-600 rounded-none">
-            <Clock className="h-3 w-3" /> Requested RAB <Badge className="ml-1 bg-orange-100 text-orange-700 border-0 text-[10px]">{REQUESTED.length}</Badge>
+          <TabsTrigger value="requested" className="shrink-0 whitespace-nowrap text-xs flex items-center gap-1.5 px-3 py-2 data-[state=active]:bg-white data-[state=active]:border-b-2 data-[state=active]:border-orange-600 rounded-none">
+            <Clock className="h-3 w-3" />
+            <span className="sm:hidden">Requested</span>
+            <span className="hidden sm:inline">Requested RAB</span>
+            <Badge className="ml-1 bg-orange-100 text-orange-700 border-0 text-[10px]">{REQUESTED.length}</Badge>
           </TabsTrigger>
         </TabsList>
 
