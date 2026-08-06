@@ -2017,6 +2017,11 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
   const [filterProject, setFilterProject] = useState('');
   const [expenseSubTab, setExpenseSubTab] = useState('material');
   const [sourceFilter, setSourceFilter] = useState('all'); // 'all' | 'manual' | 'approval'
+  // Aug 6 2026 — Material/Labour/Petty Cash each render 300-400+ rows in one
+  // unpaginated table. Same 200-per-page Prev/Next pattern already used by
+  // the drilldown views (DRILLDOWN_PAGE_SIZE/DrilldownPaginationBar above).
+  const [expensePage, setExpensePage] = useState(1);
+  useEffect(() => { setExpensePage(1); }, [expenseSubTab, sourceFilter]);
   const [viewDialog, setViewDialog] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState(null);
   // Edit-mode for income view dialog: lets accountant change payment_mode + ref + cheque
@@ -2205,6 +2210,10 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
     if (expenseSubTab === 'petty_cash') return e.expense_type === 'petty_cash';
     return false;
   });
+  const expenseTotalPages = Math.max(1, Math.ceil(filteredExpenses.length / DRILLDOWN_PAGE_SIZE));
+  const expenseCurrentPage = Math.min(expensePage, expenseTotalPages);
+  const expensePageStart = (expenseCurrentPage - 1) * DRILLDOWN_PAGE_SIZE;
+  const pagedExpenses = filteredExpenses.slice(expensePageStart, expensePageStart + DRILLDOWN_PAGE_SIZE);
 
   // Drilldown click handlers
   const handleModeClick = (mode) => {
@@ -2780,6 +2789,16 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
           })()}
           <Card>
             <CardContent className="px-0">
+              <DrilldownPaginationBar
+                pageStart={expensePageStart}
+                currentPage={expenseCurrentPage}
+                totalPages={expenseTotalPages}
+                total={filteredExpenses.length}
+                onPrev={() => setExpensePage(p => Math.max(1, p - 1))}
+                onNext={() => setExpensePage(p => Math.min(expenseTotalPages, p + 1))}
+                testIdSuffix="-expense-top"
+                borderClass="border-b"
+              />
               <div className="overflow-x-auto">
                 <table className="w-full text-xs" data-testid="cashbook-expense-table">
                   <thead>
@@ -2856,9 +2875,9 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                         </td>
                       </tr>
                     )}
-                    {filteredExpenses.map((entry, i) => (
+                    {pagedExpenses.map((entry, i) => (
                       <tr key={entry.expense_id || entry.request_id || i} className="border-b hover:bg-gray-50">
-                        <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                        <td className="px-3 py-2 text-gray-400">{expensePageStart + i + 1}</td>
                         <td className="px-3 py-2">
                           <Badge className={
                             entry.expense_type === 'material' ? 'bg-blue-100 text-blue-700' :
@@ -2932,6 +2951,15 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                   </tbody>
                 </table>
               </div>
+              <DrilldownPaginationBar
+                pageStart={expensePageStart}
+                currentPage={expenseCurrentPage}
+                totalPages={expenseTotalPages}
+                total={filteredExpenses.length}
+                onPrev={() => setExpensePage(p => Math.max(1, p - 1))}
+                onNext={() => setExpensePage(p => Math.min(expenseTotalPages, p + 1))}
+                testIdSuffix="-expense-bottom"
+              />
             </CardContent>
           </Card>
         </TabsContent>
