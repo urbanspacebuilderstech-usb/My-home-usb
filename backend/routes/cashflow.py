@@ -532,6 +532,23 @@ async def debug_project_cashflow(project_name: str, user: User = Depends(get_cur
     async for row in db.income.aggregate(inc_pipeline):
         income_by_status[row["_id"] or "(none)"] = {"count": row["count"], "amount": row["amount"]}
 
+    # Diff: which "approved" recorded_expenses ids never made it into
+    # cashflow_ledger (kind=expense, source_id=expense_id)?
+    approved_re = await db.recorded_expenses.find(
+        {"project_id": pid, "$or": [
+            {"status": {"$in": ["accounts_approved", "super_admin_approved", "approved"]}},
+            {"status": {"$exists": False}},
+            {"status": None},
+        ]},
+        {"_id": 0, "expense_id": 1, "amount": 1, "category": 1, "description": 1, "created_at": 1},
+    ).to_list(2000)
+    ledger_expense_ids = set(
+        r["source_id"] for r in await db.cashflow_ledger.find(
+            {"project_id": pid, "kind": "expense"}, {"_id": 0, "source_id": 1}
+        ).to_list(2000)
+    )
+    missing_from_ledger = [r for r in approved_re if r.get("expense_id") not in ledger_expense_ids]
+
     return {
         "project_id": pid,
         "project_name": proj.get("name"),
@@ -539,6 +556,8 @@ async def debug_project_cashflow(project_name: str, user: User = Depends(get_cur
         "cashflow_ledger_summary": ledger_summary,
         "recorded_expenses_by_status": recorded_expenses_by_status,
         "income_by_status": income_by_status,
+        "approved_recorded_expenses_count": len(approved_re),
+        "missing_from_cashflow_ledger": missing_from_ledger,
     }
 
 
