@@ -262,6 +262,21 @@ async def startup_init():
     # Income/Expenses by project_id (used in cashbook + safe-delete check)
     await _safe_index(startup_db.income, [("project_id", 1), ("created_at", -1)])
     await _safe_index(startup_db.expenses, [("project_id", 1), ("created_at", -1)])
+    # Aug 6 2026 — /accountant/cashbook-filtered and /accountant/overview
+    # query these collections by status + created_at with NO project_id
+    # filter (the default "All Projects" view every page load starts on).
+    # Every other status-filtered collection here already has a
+    # {status, created_at} index except these four — recorded_expenses in
+    # particular is the single busiest collection in the app, so an
+    # unindexed query against it forces a full collection scan on every
+    # Cashbook page load. Measured 25.7s (all-time) / 9.5s (6-day range)
+    # before this fix; the 6-day case not scaling down with the date
+    # range was the tell that this was a missing-index problem, not a
+    # response-size problem.
+    await _safe_index(startup_db.recorded_expenses, [("status", 1), ("created_at", -1)])
+    await _safe_index(startup_db.income, [("status", 1), ("created_at", -1)])
+    await _safe_index(startup_db.material_requests, [("status", 1), ("created_at", -1)])
+    await _safe_index(startup_db.direct_expenses, [("status", 1), ("created_at", -1)])
     logger.info("MongoDB indexes verified/created")
 
     # Auto-seed demo users only in DEMO_MODE
