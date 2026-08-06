@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Bell, LogOut, UserCircle, Moon, Sun } from 'lucide-react';
+import { Bell, LogOut, UserCircle, Moon, Sun, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import axios from 'axios';
 import { useTheme } from '../hooks/useTheme';
@@ -160,7 +160,7 @@ const ROLE_LABEL_MAP = {
 };
 const roleLabel = (r) => (r ? (ROLE_LABEL_MAP[r] || r.replace(/_/g, ' ')) : '…');
 
-export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange, headerActions, hideNav = false }) {
+export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange, headerActions, hideNav = false, backTo = null }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark, toggleTheme } = useTheme();
@@ -281,15 +281,33 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
       {/* Main Header */}
       <header data-testid="app-header" className="bg-white border-b border-gray-200 shadow-sm dark:bg-gray-900 dark:border-gray-800">
         <div className="flex items-center justify-between px-4 lg:px-6 h-14">
-          {/* Left: Logo + Brand */}
-          <div className="flex items-center gap-2.5 cursor-pointer shrink-0" onClick={() => navigate(navItems[0]?.path || '/dashboard')} data-testid="header-brand">
-            <img src="/logo.webp" alt="My Home USB" className="h-9 w-9 object-contain" style={{ mixBlendMode: 'multiply' }} />
-            <div className="leading-tight">
-              <span className="font-bold text-base text-gray-900 block">My Home USB</span>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600">
-                {roleLabel(role)}
-              </span>
+          {/* Left: Logo + Brand (+ optional page Back button). Aug 6 2026 —
+              a page-level "Back" button used to be squeezed in on the right
+              via headerActions, crammed next to the unrelated theme/bell/
+              profile icons with no visual grouping. It now lives on the
+              left, right next to the brand it's returning from — the
+              wordmark text collapses on mobile (icon-only) to make room. */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 min-w-0">
+            <div className="flex items-center gap-2.5 cursor-pointer shrink-0" onClick={() => navigate(navItems[0]?.path || '/dashboard')} data-testid="header-brand">
+              <img src="/logo.webp" alt="My Home USB" className="h-9 w-9 object-contain" style={{ mixBlendMode: 'multiply' }} />
+              <div className={`leading-tight ${backTo ? 'hidden sm:block' : ''}`}>
+                <span className="font-bold text-base text-gray-900 block">My Home USB</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600">
+                  {roleLabel(role)}
+                </span>
+              </div>
             </div>
+            {backTo && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate(backTo)}
+                className="h-8 px-2 sm:px-3 text-xs border-amber-300 text-amber-700 hover:bg-amber-50 gap-1 shrink-0"
+                data-testid="app-header-back-btn"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" /> Back
+              </Button>
+            )}
           </div>
 
           {/* Center: Desktop Nav (hidden when caller passes hideNav) */}

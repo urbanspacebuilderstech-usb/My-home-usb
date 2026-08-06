@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { 
-  HardHat, LogOut, ArrowLeft, Plus, Package, Users, MapPin, Building2,
+  HardHat, LogOut, Plus, Package, Users, MapPin, Building2,
   Clock, CheckCircle, XCircle, Truck, Camera, AlertTriangle, Send,
   Calendar, ClipboardList, Warehouse, Save, Trash2, History,
   ChevronRight, Banknote, ArrowRight, Eye, Circle,
@@ -1099,21 +1099,10 @@ export default function SiteEngineerProject() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Standard App Header (Planning-style) */}
-      <AppHeader
-        user={user}
-        headerActions={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => window.location.href = '/site-engineer'}
-            className="h-8 text-xs border-amber-300 text-amber-700 hover:bg-amber-50"
-            data-testid="back-to-projects-btn"
-          >
-            <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back
-          </Button>
-        }
-      />
+      {/* Standard App Header (Planning-style) — Back button lives on the
+          left next to the brand (see AppHeader's backTo prop) instead of
+          being crammed into the right-side icon cluster. */}
+      <AppHeader user={user} backTo="/site-engineer" />
 
       <div className="max-w-6xl mx-auto px-3 py-3 sm:px-6 sm:py-6">
         {/* Compact Project Header */}

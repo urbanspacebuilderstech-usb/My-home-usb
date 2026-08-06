@@ -2655,46 +2655,46 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, workOrders,
               />
             </div>
           )}
-          <div className="border rounded-lg overflow-hidden">
-            <table className="w-full text-xs">
+          <div className="border rounded-lg overflow-x-auto">
+            <table className="w-full text-xs min-w-[340px]">
               <thead className="bg-gray-100 border-b">
                 <tr>
-                  <th className="text-left px-3 py-2 font-semibold text-gray-600 w-[120px]">Type</th>
-                  <th className="text-center px-3 py-2 font-semibold text-gray-600 w-[90px]">Workers</th>
-                  <th className="text-center px-3 py-2 font-semibold text-gray-600 w-[110px]">Day</th>
-                  <th className="text-right px-3 py-2 font-semibold text-gray-600 w-[100px]">Rate</th>
-                  <th className="text-right px-3 py-2 font-semibold text-gray-600 w-[100px]">Total</th>
+                  <th className="text-left px-2 py-2 font-semibold text-gray-600 w-[86px]">Type</th>
+                  <th className="text-center px-2 py-2 font-semibold text-gray-600 w-[64px]">Workers</th>
+                  <th className="text-center px-2 py-2 font-semibold text-gray-600 w-[76px]">Day</th>
+                  <th className="text-right px-2 py-2 font-semibold text-gray-600 w-[60px]">Rate</th>
+                  <th className="text-right px-2 py-2 font-semibold text-gray-600 w-[64px]">Total</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {rows.map((r, i) => (
                   <tr key={r.type}>
-                    <td className="px-3 py-2 font-medium">{r.label}</td>
-                    <td className="px-3 py-2">
-                      <Input type="number" min="0" value={r.count} onChange={(e) => updateRow(i, 'count', e.target.value)} className="h-8 text-center text-xs" data-testid={`wov2-dlr-count-${r.type}`} />
+                    <td className="px-2 py-2 font-medium">{r.label}</td>
+                    <td className="px-2 py-2">
+                      <Input type="number" min="0" value={r.count} onChange={(e) => updateRow(i, 'count', e.target.value)} className="h-8 text-center text-xs px-1" data-testid={`wov2-dlr-count-${r.type}`} />
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-2">
                       <Select value={String(r.day_value)} onValueChange={(v) => updateRow(i, 'day_value', v)}>
-                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-8 text-xs px-2"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {DAY_OPTIONS.map(d => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-2 py-2 text-right">
                       {Number(r.rate_per_day) > 0 ? <span className="text-xs">{fmt(r.rate_per_day)}</span> : <span className="text-[10px] text-red-500">Not set</span>}
                     </td>
-                    <td className="px-3 py-2 text-right font-semibold text-teal-700">{calcRow(r) > 0 ? fmt(calcRow(r)) : '—'}</td>
+                    <td className="px-2 py-2 text-right font-semibold text-teal-700">{calcRow(r) > 0 ? fmt(calcRow(r)) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot className="bg-teal-50 border-t">
                 <tr>
-                  <td className="px-3 py-2 font-bold">Total</td>
-                  <td className="px-3 py-2 text-center font-bold">{totalWorkers}</td>
-                  <td className="px-3 py-2"></td>
-                  <td className="px-3 py-2"></td>
-                  <td className="px-3 py-2 text-right font-bold text-teal-700">{fmt(totalCost)}</td>
+                  <td className="px-2 py-2 font-bold">Total</td>
+                  <td className="px-2 py-2 text-center font-bold">{totalWorkers}</td>
+                  <td className="px-2 py-2"></td>
+                  <td className="px-2 py-2"></td>
+                  <td className="px-2 py-2 text-right font-bold text-teal-700">{fmt(totalCost)}</td>
                 </tr>
               </tfoot>
             </table>
