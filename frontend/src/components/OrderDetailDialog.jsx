@@ -480,9 +480,9 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate, onRe
               </h3>
               <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-3 space-y-2">
                 {(order.vendor_name || order.assigned_vendor_name) && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-500">Vendor</span>
-                    <span className="text-sm font-medium text-blue-800" data-testid="detail-vendor">{order.vendor_name || order.assigned_vendor_name}</span>
+                  <div className="flex justify-between items-start gap-2 flex-wrap">
+                    <span className="text-xs text-gray-500 shrink-0">Vendor</span>
+                    <span className="text-sm font-medium text-blue-800 text-right" data-testid="detail-vendor">{order.vendor_name || order.assigned_vendor_name}</span>
                   </div>
                 )}
                 {order.unit_rate > 0 && (

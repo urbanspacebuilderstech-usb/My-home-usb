@@ -1851,10 +1851,14 @@ export default function SiteEngineerProject() {
                                     <p className="text-[11px] text-amber-700"><strong>Steel:</strong> Ø{req.steel_specs.diameter_mm}mm × {req.steel_specs.rod_count} rods = {req.steel_specs.calculated_weight_kg} kg</p>
                                   ) : null}
                                   {(req.assigned_vendor_name || req.vendor_name) && (
-                                    <div className="flex items-center gap-1 flex-wrap">
-                                      <span className="font-medium text-blue-700">Vendor:</span> {req.vendor_name || req.assigned_vendor_name}
-                                      {req.po_id && <Badge variant="outline" className="text-[9px] ml-1 border-green-300 text-green-700">PO: {req.po_id}</Badge>}
-                                    </div>
+                                    // Aug 6 2026 — was a flex row with the label and value as
+                                    // separate flex items; a long vendor name had nowhere to go
+                                    // but its own line below an empty "Vendor:" line. Plain text
+                                    // flow keeps the label glued to the start of the value.
+                                    <p className="text-blue-700">
+                                      <strong className="font-medium">Vendor:</strong> {req.vendor_name || req.assigned_vendor_name}
+                                      {req.po_id && <Badge variant="outline" className="text-[9px] ml-1 border-green-300 text-green-700 align-middle">PO: {req.po_id}</Badge>}
+                                    </p>
                                   )}
                                   {req.payment_mode && (
                                     <p className="text-purple-700"><strong>Payment:</strong> {req.payment_mode}</p>
@@ -1923,7 +1927,19 @@ export default function SiteEngineerProject() {
                                     <Package className="h-3 w-3" />Material Collecting
                                   </Button>
                                 )}
-                                <Eye className="h-4 w-4 text-gray-400" />
+                                {/* Aug 6 2026 — was a bare decorative icon with no click
+                                    handler of its own; it only "worked" because the parent
+                                    Card's onClick happened to bubble up to it. Made it a real
+                                    button so it's not silently dependent on that bubbling. */}
+                                <button
+                                  type="button"
+                                  title="View details"
+                                  onClick={(e) => { e.stopPropagation(); setSelectedOrder(req); }}
+                                  className="h-7 w-7 flex items-center justify-center rounded text-gray-400 hover:text-amber-600 hover:bg-amber-50"
+                                  data-testid={`se-mat-view-${req.request_id}`}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
                               </div>
                             </div>
                           </CardContent>
@@ -1972,6 +1988,11 @@ export default function SiteEngineerProject() {
                           <div className="bg-gray-800 text-white px-3 py-2 text-xs font-semibold flex items-center gap-1">
                             <Warehouse className="h-3 w-3" /> Current Stock Levels
                           </div>
+                          {/* Aug 6 2026 — 11 columns (incl. two nowrap date/time columns)
+                              inside overflow-hidden silently clipped most of the table on
+                              mobile instead of letting it scroll. Scope the scroll to just
+                              the table so the dark header bar above stays full-width. */}
+                          <div className="overflow-x-auto">
                           <table className="w-full text-xs">
                             <thead className="bg-gray-100 border-b">
                               <tr>
@@ -2070,6 +2091,7 @@ export default function SiteEngineerProject() {
                               );})}
                             </tbody>
                           </table>
+                          </div>
                           <p className="text-[10px] text-gray-400 px-3 py-1 border-t bg-gray-50">
                             Click any row to see date-wise stock history. "Out Stock" records consumption with timestamp.
                           </p>
