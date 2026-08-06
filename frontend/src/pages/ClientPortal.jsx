@@ -949,7 +949,74 @@ export default function ClientPortal() {
               <div className="hidden print:block p-4 border-b">
                 <h3 className="text-lg font-bold">Payment Schedule</h3>
               </div>
-              <div className="overflow-x-auto">
+              {/* Aug 6 2026 — A 7-column table with long stage names (e.g.
+                  "Advance payment for Super Structure - Ground Floor- Brick
+                  work and Slab casting") was unusable on mobile: the Stage
+                  cell wrapped to 4-5 lines while Amount/Received/Balance sat
+                  scrolled off-screen with no visible affordance to reach
+                  them. Stacked cards below `sm`; the original table stays
+                  for `sm` and up (and print). */}
+              {paymentStages.length === 0 ? (
+                <p className="px-6 py-8 text-center text-gray-500 text-sm">Payment schedule not yet defined</p>
+              ) : (
+              <div className="sm:hidden divide-y divide-gray-200" data-testid="cp-payments-cards">
+                {paymentStages.map((stage, idx) => {
+                  const stageBalance = (stage.amount || 0) - (stage.amount_received || 0);
+                  const isPaid = (stage.amount || 0) > 0 && stageBalance <= 0;
+                  const isPartial = (stage.amount_received || 0) > 0 && stageBalance > 0;
+                  return (
+                    <div key={stage.stage_id} className={`p-3 ${isPaid ? 'bg-green-50/60' : ''}`}>
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-gray-400 font-medium">#{idx + 1}</p>
+                          <p className="font-medium text-sm leading-snug">{stage.stage_name}</p>
+                          {stage.due_date && (
+                            <p className="text-xs text-gray-500 mt-0.5">Due: {new Date(stage.due_date).toLocaleDateString('en-IN')}</p>
+                          )}
+                        </div>
+                        {isPaid ? (
+                          <span className="shrink-0 px-2 py-1 rounded-full text-[10px] font-medium bg-green-100 text-green-700">Paid</span>
+                        ) : isPartial ? (
+                          <span className="shrink-0 px-2 py-1 rounded-full text-[10px] font-medium bg-yellow-100 text-yellow-700">Partial</span>
+                        ) : (
+                          <span className="shrink-0 px-2 py-1 rounded-full text-[10px] font-medium bg-gray-100 text-gray-700">Pending</span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-4 gap-1.5 text-center mt-2">
+                        <div className="bg-gray-50 rounded p-1.5">
+                          <p className="text-[9px] text-gray-400 uppercase">%</p>
+                          <p className="text-xs font-semibold">{stage.percentage || 0}%</p>
+                        </div>
+                        <div className="bg-gray-50 rounded p-1.5">
+                          <p className="text-[9px] text-gray-400 uppercase">Amount</p>
+                          <p className="text-xs font-semibold">₹{(stage.amount || 0).toLocaleString()}</p>
+                        </div>
+                        <div className="bg-green-50 rounded p-1.5">
+                          <p className="text-[9px] text-gray-400 uppercase">Received</p>
+                          <p className="text-xs font-semibold text-green-700">₹{(stage.amount_received || 0).toLocaleString()}</p>
+                        </div>
+                        <div className={`rounded p-1.5 ${stageBalance > 0 ? 'bg-orange-50' : 'bg-green-50'}`}>
+                          <p className="text-[9px] text-gray-400 uppercase">Balance</p>
+                          <p className={`text-xs font-semibold ${stageBalance > 0 ? 'text-orange-600' : 'text-green-600'}`}>₹{stageBalance.toLocaleString()}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="p-3 bg-amber-50">
+                  <div className="flex items-center justify-between text-xs font-bold mb-1">
+                    <span>Total Amount</span><span>₹{totalScheduled.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-bold text-green-600 mb-1">
+                    <span>Total Received</span><span>₹{totalReceived.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-bold text-orange-600">
+                    <span>Balance</span><span>₹{balance.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+              )}
+              <div className="hidden sm:block overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
@@ -977,7 +1044,7 @@ export default function ClientPortal() {
                         // as Pending until a real amount is configured.
                         const isPaid = (stage.amount || 0) > 0 && stageBalance <= 0;
                         const isPartial = (stage.amount_received || 0) > 0 && stageBalance > 0;
-                        
+
                         return (
                           <tr key={stage.stage_id} className={`hover:bg-gray-50 ${isPaid ? 'bg-green-50' : ''}`}>
                             <td className="px-4 py-3 text-sm">{idx + 1}</td>
@@ -1491,7 +1558,40 @@ export default function ClientPortal() {
                           <p className="text-2xl font-bold text-gray-900 mt-0.5">{visibleEntries.length}</p>
                         </div>
                       </div>
-                      <div className="overflow-x-auto" data-testid="cp-income-table-all">
+                      {/* Aug 6 2026 — even with Type/Mode already hidden below
+                          md/sm, S.No + Date + a 200px-min Description +
+                          Amount + Status was still wider than a phone
+                          screen, so Description (and Amount, past it) sat
+                          scrolled off-screen with no visible affordance to
+                          reach them. Stacked cards below sm. */}
+                      <div className="sm:hidden divide-y divide-gray-100" data-testid="cp-income-cards">
+                        {visibleEntries.map((inc, idx) => {
+                          const st = STATUS_STYLES[inc.status] || { label: (inc.status || 'Unknown').replace(/_/g, ' '), cls: 'bg-gray-100 text-gray-700 border-gray-200' };
+                          const d = inc.payment_date ? new Date(inc.payment_date) : null;
+                          const isBounce = inc.status === 'cheque_bounced';
+                          return (
+                            <div
+                              key={inc.income_id || idx}
+                              className={`p-3 ${isBounce ? 'bg-red-50/30' : ''}`}
+                              data-testid={`cp-income-card-${inc.income_id || idx}`}
+                            >
+                              <div className="flex items-start justify-between gap-2 mb-1">
+                                <p className="text-[10px] text-gray-400">
+                                  #{idx + 1} · {d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                                </p>
+                                <Badge className={`text-[10px] font-medium border shrink-0 ${st.cls}`}>{st.label}</Badge>
+                              </div>
+                              <p className="text-sm text-gray-900 font-medium leading-snug">{inc.description || inc.category || 'Payment'}</p>
+                              {inc.reference && <p className="text-[11px] text-gray-400 mt-0.5">Ref: {inc.reference}</p>}
+                              <div className="flex items-center justify-between mt-1.5">
+                                <span className="text-xs text-gray-500 capitalize">{(inc.payment_mode || '—').replace(/_/g, ' ')}</span>
+                                <span className="text-sm font-semibold text-gray-900">₹{(inc.amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="hidden sm:block overflow-x-auto" data-testid="cp-income-table-all">
                         <table className="w-full text-sm">
                           <thead className="bg-gray-50 border-b border-gray-200">
                             <tr>
