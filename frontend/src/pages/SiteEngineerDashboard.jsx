@@ -1199,44 +1199,43 @@ export default function SiteEngineerDashboard() {
 
         {/* Top-level dashboard tabs — only My Projects, Petty Cash, Attendance.
             Site visits / Work orders / Cashbook / Curing video moved inside the project view.
-            Aug 5 2026 — On narrow mobile screens a rigid grid-cols-5 with
-            text-base labels had nowhere to shrink to, so the tab text
-            overflowed its column and visually overlapped the neighboring
-            tab (Sr. Site Engineer's 5-tab row was unreadable). Switch to a
-            horizontally-scrollable strip with mobile-sized text/icons below
-            `sm`, falling back to the original equal-width grid at `sm+`
-            where there's room. */}
+            Aug 5 2026 — Now that MobileBottomNav has its own Sr. Site
+            Engineer entry covering these exact 5 tabs, this top bar is
+            redundant on mobile (same navigation, shown twice). Hide it
+            below `lg` — MobileBottomNav is `lg:hidden`, so this is its
+            exact complement — and keep it for lg+ screens, which have no
+            bottom nav at all. */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">
-          <TabsList className={`flex overflow-x-auto sm:grid ${user?.role === 'sr_site_engineer' || user?.role === 'super_admin' ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} w-full h-auto bg-gray-100 p-1 rounded-lg gap-1 sm:gap-0`} data-testid="se-dashboard-tabs">
+          <TabsList className={`hidden lg:grid ${user?.role === 'sr_site_engineer' || user?.role === 'super_admin' ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} w-full h-auto bg-gray-100 p-1 rounded-lg`} data-testid="se-dashboard-tabs">
             <TabsTrigger
               value="projects"
-              className="shrink-0 sm:shrink gap-1 sm:gap-2 whitespace-nowrap text-xs sm:text-lg font-semibold py-2 sm:py-3 px-3 sm:px-2 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow"
+              className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow"
               data-testid="tab-projects"
             >
-              <Building2 className="h-4 w-4 sm:h-5 sm:w-5" /> My Projects
+              <Building2 className="h-5 w-5" /> My Projects
             </TabsTrigger>
             <TabsTrigger
               value="dlrdpr"
-              className="shrink-0 sm:shrink gap-1 sm:gap-2 whitespace-nowrap text-xs sm:text-lg font-semibold py-2 sm:py-3 px-3 sm:px-2 data-[state=active]:bg-white data-[state=active]:text-orange-700 data-[state=active]:shadow"
+              className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-orange-700 data-[state=active]:shadow"
               data-testid="tab-dlrdpr"
             >
-              <FileText className="h-4 w-4 sm:h-5 sm:w-5" /> DLR & DPR
+              <FileText className="h-5 w-5" /> DLR & DPR
             </TabsTrigger>
             {(user?.role === 'sr_site_engineer' || user?.role === 'super_admin') && (
               <TabsTrigger
                 value="requests"
-                className="shrink-0 sm:shrink gap-1 sm:gap-2 whitespace-nowrap text-xs sm:text-lg font-semibold py-2 sm:py-3 px-3 sm:px-2 data-[state=active]:bg-white data-[state=active]:text-violet-700 data-[state=active]:shadow"
+                className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-violet-700 data-[state=active]:shadow"
                 data-testid="tab-sr-se-requests"
               >
-                <ClipboardList className="h-4 w-4 sm:h-5 sm:w-5" /> Requests
+                <ClipboardList className="h-5 w-5" /> Requests
               </TabsTrigger>
             )}
             <TabsTrigger
               value="pettycash"
-              className="shrink-0 sm:shrink gap-1 sm:gap-2 whitespace-nowrap text-xs sm:text-lg font-semibold py-2 sm:py-3 px-3 sm:px-2 data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow"
+              className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow"
               data-testid="tab-pettycash"
             >
-              <Wallet className="h-4 w-4 sm:h-5 sm:w-5" /> Petty Cash
+              <Wallet className="h-5 w-5" /> Petty Cash
               {pettyCashList.filter(p => p.status === 'issued' || p.status === 'partially_spent').length > 0 && (
                 <Badge className="h-5 min-w-[20px] px-1 flex items-center justify-center text-xs bg-emerald-500">
                   {pettyCashList.filter(p => p.status === 'issued' || p.status === 'partially_spent').length}
@@ -1245,10 +1244,10 @@ export default function SiteEngineerDashboard() {
             </TabsTrigger>
             <TabsTrigger
               value="attendance"
-              className="shrink-0 sm:shrink gap-1 sm:gap-2 whitespace-nowrap text-xs sm:text-lg font-semibold py-2 sm:py-3 px-3 sm:px-2 data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow"
+              className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow"
               data-testid="tab-attendance"
             >
-              <Clock className="h-4 w-4 sm:h-5 sm:w-5" /> Attendance
+              <Clock className="h-5 w-5" /> Attendance
             </TabsTrigger>
           </TabsList>
 
@@ -1303,9 +1302,13 @@ export default function SiteEngineerDashboard() {
                           data-testid="dlrdpr-project-search"
                         />
                       </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1.5 flex-1">
-                          <Label className="text-xs text-gray-500 shrink-0">Start</Label>
+                      {/* Aug 5 2026 — Label-beside-input squeezed both onto
+                          one cramped line per field. Label above input
+                          reads more clearly and gives the date box its
+                          own full-width row. */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="flex flex-col gap-1">
+                          <Label className="text-[11px] text-gray-500">Start Date</Label>
                           <input
                             type="date"
                             value={dlrDprStartDate}
@@ -1315,8 +1318,8 @@ export default function SiteEngineerDashboard() {
                             data-testid="dlrdpr-start-date-picker"
                           />
                         </div>
-                        <div className="flex items-center gap-1.5 flex-1">
-                          <Label className="text-xs text-gray-500 shrink-0">End</Label>
+                        <div className="flex flex-col gap-1">
+                          <Label className="text-[11px] text-gray-500">End Date</Label>
                           <input
                             type="date"
                             value={dlrDprEndDate}
@@ -2975,7 +2978,11 @@ export default function SiteEngineerDashboard() {
 
       {/* Petty Cash Request Dialog */}
       <Dialog open={pettyCashDialog} onOpenChange={(o) => { if (!o) { setEditingPettyCashId(null); } setPettyCashDialog(o); }}>
-        <DialogContent>
+        {/* Aug 5 2026 — Default DialogContent is `w-full` with no mobile
+            margin/rounding until `sm:`, so on a phone it sat edge-to-edge
+            with square corners. Give it real margin + a rounded card look
+            at every size. */}
+        <DialogContent className="max-w-[95vw] sm:max-w-md rounded-xl">
           <DialogHeader>
             <DialogTitle>{editingPettyCashId ? 'Edit & Resubmit Petty Cash' : 'Request Petty Cash'}</DialogTitle>
             <DialogDescription>
@@ -3175,7 +3182,7 @@ export default function SiteEngineerDashboard() {
 
       {/* Record Expense Dialog */}
       <Dialog open={directExpenseDialog} onOpenChange={setDirectExpenseDialog}>
-        <DialogContent className="max-w-lg" data-testid="record-expense-dialog">
+        <DialogContent className="max-w-[95vw] sm:max-w-lg rounded-xl" data-testid="record-expense-dialog">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base"><Receipt className="h-4 w-4 text-orange-600" /> Record Expense</DialogTitle>
             <DialogDescription>Add expense line items directly — no approval needed.</DialogDescription>
@@ -3301,9 +3308,12 @@ export default function SiteEngineerDashboard() {
                         </Button>
                       )}
                     </div>
-                    <div className="flex gap-2">
-                      <Input placeholder="Expense name" className="h-8 text-xs flex-1" value={item.expense_name} onChange={e => { const n = [...directExpItems]; n[idx].expense_name = e.target.value; setDirectExpItems(n); }} />
-                      <Input placeholder="Amount" type="number" className="h-8 text-xs w-24" value={item.amount} onChange={e => { const n = [...directExpItems]; n[idx].amount = e.target.value; setDirectExpItems(n); }} />
+                    {/* Aug 5 2026 — Name + fixed-width Amount side by side
+                        left almost no room for the name field on a phone.
+                        Stack on mobile, side by side again at sm+. */}
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <Input placeholder="Expense name" className="h-8 text-xs w-full sm:flex-1" value={item.expense_name} onChange={e => { const n = [...directExpItems]; n[idx].expense_name = e.target.value; setDirectExpItems(n); }} />
+                      <Input placeholder="Amount" type="number" className="h-8 text-xs w-full sm:w-24" value={item.amount} onChange={e => { const n = [...directExpItems]; n[idx].amount = e.target.value; setDirectExpItems(n); }} />
                     </div>
                     <div className="flex items-center gap-2">
                       <label className="flex items-center gap-1.5 text-xs text-blue-600 cursor-pointer hover:text-blue-800">
