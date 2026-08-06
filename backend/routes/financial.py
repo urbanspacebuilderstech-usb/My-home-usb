@@ -1929,6 +1929,44 @@ async def recompute_material_payment_tracking(target_id: str, dry_run: bool = Tr
     return result
 
 
+@router.get("/admin/debug-material-request/{request_number}")
+async def debug_material_request(request_number: str, user: User = Depends(get_current_user)):
+    """Temporary read-only diagnostic (Aug 6 2026, duplicate USB-MR601 report
+    — same underlying Shree Rahul Traders bill as the recompute repair
+    above). Dumps every material_requests / material_expenses /
+    recorded_expenses doc linked to a human-readable request_number so
+    duplicate or orphaned legacy rows can be identified before deciding
+    what to clean up. No writes. SUPER_ADMIN only."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can run this")
+
+    requests_ = await db.material_requests.find({"request_number": request_number}, {"_id": 0}).to_list(50)
+    request_ids = [r["request_id"] for r in requests_ if r.get("request_id")]
+
+    mexp_query = {"source_request_id": {"$in": request_ids}} if request_ids else {"request_id_never_matches": True}
+    expenses = await db.material_expenses.find(mexp_query, {"_id": 0}).to_list(50)
+    expense_ids = [e.get("expense_id") for e in expenses if e.get("expense_id")]
+    all_ids = list(set(request_ids + expense_ids))
+
+    legs = []
+    if all_ids:
+        legs = await db.recorded_expenses.find(
+            {"$or": [
+                {"request_id": {"$in": all_ids}},
+                {"material_request_id": {"$in": all_ids}},
+                {"material_expense_id": {"$in": all_ids}},
+            ]},
+            {"_id": 0},
+        ).to_list(200)
+
+    return {
+        "request_number": request_number,
+        "material_requests": requests_,
+        "material_expenses": expenses,
+        "recorded_expenses_legs": legs,
+    }
+
+
 # ==================== UNIFIED APPROVALS ENDPOINT ====================
 
 @router.get("/approvals/unified")
