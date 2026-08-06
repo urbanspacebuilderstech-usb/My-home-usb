@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import {
   Building2,
@@ -86,7 +86,20 @@ export default function ClientPortal() {
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [projectData, setProjectData] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview');
+  // Aug 6 2026 — Client bottom nav (Overview/Income/Payments/Additional/More)
+  // now drives this same page's tabs via ?tab=, same URL-sync pattern used
+  // for the Sr Site Engineer dashboard's bottom nav.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTabState] = useState(searchParams.get('tab') || 'overview');
+  const setActiveTab = (tab) => {
+    setActiveTabState(tab);
+    setSearchParams(tab === 'overview' ? {} : { tab }, { replace: true });
+  };
+  useEffect(() => {
+    const urlTab = searchParams.get('tab') || 'overview';
+    if (urlTab !== activeTab) setActiveTabState(urlTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [loading, setLoading] = useState(true);
   // Decision dialog state — proper modal instead of window.prompt
   // `kind` distinguishes the entity ('addition' is default for back-compat; 'deduction' for deductions).
@@ -711,7 +724,10 @@ export default function ClientPortal() {
         {/* Tabs */}
         <Card className="print:shadow-none print:border-0">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <CardHeader className="border-b print:hidden bg-gradient-to-r from-gray-50 via-white to-gray-50 py-3 sm:py-4 px-3 sm:px-4">
+            {/* Aug 6 2026 — Below `lg` the bottom nav (Overview/Income/
+                Payments/Additional/More) now drives these same tabs via
+                ?tab=, so this top strip is desktop-only. */}
+            <CardHeader className="hidden lg:block border-b print:hidden bg-gradient-to-r from-gray-50 via-white to-gray-50 py-3 sm:py-4 px-3 sm:px-4">
               <div className="overflow-x-auto -mx-3 sm:-mx-4 px-3 sm:px-4 scrollbar-thin">
                 <TabsList className="bg-transparent p-0 h-auto w-max flex flex-nowrap gap-1 sm:gap-1.5 justify-start">
                   {[

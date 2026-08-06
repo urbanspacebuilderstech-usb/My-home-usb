@@ -24,7 +24,13 @@ import {
   FileText,
   ClipboardList,
   Wallet,
-  Clock
+  Clock,
+  Receipt,
+  PlusCircle,
+  MinusCircle,
+  FileCheck,
+  ListChecks,
+  Image
 } from 'lucide-react';
 import { useState } from 'react';
 import axios from 'axios';
@@ -105,11 +111,18 @@ const OTHER_ROLES = {
     { label: 'Alerts', icon: Bell, path: '/notifications' },
     { label: 'Settings', icon: Settings, path: '/settings' },
   ],
+  // Aug 6 2026 — Overview/Payments used to both point at the exact same
+  // path with no way to tell them apart, and none of the portal's other
+  // 6 tabs (Deductions/Final Estimate/Income/Scope/Photos/Documents) were
+  // reachable from mobile at all except by scrolling the desktop tab
+  // strip sideways. Mirrors the Sr Site Engineer pattern: primary tabs on
+  // the bar via `?tab=`, the rest in More.
   client: [
     { label: 'Overview', icon: Home, path: '/client-portal' },
-    { label: 'Payments', icon: CreditCard, path: '/client-portal' },
-    { label: 'Alerts', icon: Bell, path: '/notifications' },
-    { label: 'Profile', icon: User, path: '/settings' },
+    { label: 'Income', icon: Receipt, path: '/client-portal?tab=income' },
+    { label: 'Payments', icon: CreditCard, path: '/client-portal?tab=payments' },
+    { label: 'Additional', icon: PlusCircle, path: '/client-portal?tab=additional' },
+    { label: 'More', icon: Menu, action: 'more' },
   ],
   pre_sales: [
     { label: 'Leads', icon: Target, path: '/crm-pre-sales' },
@@ -130,6 +143,14 @@ const ACCOUNTANT_MORE = [
   { label: 'Notifications', icon: Bell, path: '/notifications' },
 ];
 
+const CLIENT_MORE = [
+  { label: 'Deductions', icon: MinusCircle, path: '/client-portal?tab=deductions' },
+  { label: 'Final Estimate', icon: FileCheck, path: '/client-portal?tab=final_estimate' },
+  { label: 'Scope of Work', icon: ListChecks, path: '/client-portal?tab=scope' },
+  { label: 'Photos', icon: Image, path: '/client-portal?tab=photos' },
+  { label: 'Documents', icon: FileText, path: '/client-portal?tab=documents' },
+];
+
 export default function MobileBottomNav({ user }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -139,9 +160,10 @@ export default function MobileBottomNav({ user }) {
 
   const isSuperAdmin = user.role === 'super_admin';
   const isAccountant = user.role === 'accountant';
-  const hasMore = isSuperAdmin || isAccountant;
+  const isClient = user.role === 'client';
+  const hasMore = isSuperAdmin || isAccountant || isClient;
   const navItems = isSuperAdmin ? SA_BOTTOM : (OTHER_ROLES[user.role] || SA_BOTTOM);
-  const moreItems = isSuperAdmin ? SA_MORE_ITEMS : isAccountant ? ACCOUNTANT_MORE : [];
+  const moreItems = isSuperAdmin ? SA_MORE_ITEMS : isAccountant ? ACCOUNTANT_MORE : isClient ? CLIENT_MORE : [];
   
   const isActive = (path) => {
     // Aug 5 2026 — Sr. Site Engineer's tabs all share the SAME base path
@@ -152,7 +174,13 @@ export default function MobileBottomNav({ user }) {
     // when the current URL ALSO has no differentiating `tab=` query.
     if (path.includes('?')) {
       const [itemPath, itemQuery] = path.split('?');
-      return location.pathname === itemPath && location.search === `?${itemQuery}`;
+      // Client can be viewing a specific project at /client-portal/:projectId
+      // rather than the bare /client-portal — match on the base path so the
+      // active tab still highlights correctly for that project's URL.
+      const pathMatches = itemPath === '/client-portal'
+        ? location.pathname.startsWith('/client-portal')
+        : location.pathname === itemPath;
+      return pathMatches && location.search === `?${itemQuery}`;
     }
     if (path === '/dashboard' && location.pathname === '/dashboard') return true;
     if (path !== '/dashboard' && location.pathname.startsWith(path)) {
@@ -165,10 +193,20 @@ export default function MobileBottomNav({ user }) {
   const handleNav = (item) => {
     if (item.action === 'more') {
       setMoreOpen(!moreOpen);
-    } else {
-      setMoreOpen(false);
-      navigate(item.path);
+      return;
     }
+    setMoreOpen(false);
+    let target = item.path;
+    // Client bottom-nav items are hardcoded to the bare /client-portal base
+    // path, but a client with multiple projects views a specific one at
+    // /client-portal/:projectId. Preserve that project segment instead of
+    // bouncing back to the picker/default project on every tab tap.
+    if (target.startsWith('/client-portal') && location.pathname.startsWith('/client-portal/')) {
+      const projectSegment = location.pathname.slice('/client-portal'.length); // '/proj_xyz'
+      const [, query] = target.split('?');
+      target = `/client-portal${projectSegment}${query ? `?${query}` : ''}`;
+    }
+    navigate(target);
   };
 
   const handleLogout = async () => {
