@@ -9,6 +9,7 @@ from core.deps import get_current_user
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 import os
 import secrets
 import logging
@@ -181,6 +182,14 @@ app.add_middleware(CSRFMiddleware)
 # GlobalRateLimitMiddleware disabled per request — was causing false-positive
 # 429s on legitimate dashboard usage (multiple parallel fetches on tab switch).
 # The per-user RateLimiter in core/deps.py is also bypassed for the same reason.
+
+# Aug 6 2026 — No response compression was enabled anywhere, so every API
+# response (including the 2.56MB Cashbook payload) crossed the network at
+# full size. JSON like this — many repeated field names/values — typically
+# compresses 80-90%, so this is a broad, low-risk win across every endpoint
+# in the app, not just the one page that surfaced it. minimum_size=1000
+# skips compressing tiny responses where the overhead isn't worth it.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.add_middleware(
     CORSMiddleware,
