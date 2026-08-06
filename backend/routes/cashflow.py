@@ -475,6 +475,73 @@ async def get_summary(
     }
 
 
+# ===================== TEMP DIAGNOSTIC (Aug 6 2026, Mr Sridhar gap) =====
+@router.get("/cashflow/debug-project/{project_name}")
+async def debug_project_cashflow(project_name: str, user: User = Depends(get_current_user)):
+    """Temporary read-only diagnostic — dumps the raw project_carry_forwards
+    doc plus cashflow_ledger and live recorded_expenses/income sums for a
+    project (matched by name, case-insensitive) so the Cashflow Engine vs
+    Project Wise gap can be reconciled field-by-field. No writes.
+    SUPER_ADMIN only."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can run this")
+
+    proj = await db.projects.find_one(
+        {"name": {"$regex": f"^{project_name}$", "$options": "i"}}, {"_id": 0}
+    )
+    if not proj:
+        proj = await db.projects.find_one(
+            {"name": {"$regex": project_name, "$options": "i"}}, {"_id": 0}
+        )
+    if not proj:
+        raise HTTPException(status_code=404, detail=f"No project matching '{project_name}'")
+    pid = proj["project_id"]
+
+    cf_doc = await db.project_carry_forwards.find_one({"project_id": pid}, {"_id": 0})
+
+    ledger_pipeline = [
+        {"$match": {"project_id": pid}},
+        {"$group": {
+            "_id": "$kind",
+            "count": {"$sum": 1},
+            "amount": {"$sum": "$amount"},
+            "direct": {"$sum": "$direct_amount"},
+            "indirect": {"$sum": "$indirect_amount"},
+        }},
+    ]
+    ledger_summary = {}
+    async for row in db.cashflow_ledger.aggregate(ledger_pipeline):
+        ledger_summary[row["_id"]] = {
+            "count": row["count"], "amount": row["amount"],
+            "direct": row["direct"], "indirect": row["indirect"],
+        }
+
+    re_pipeline = [
+        {"$match": {"project_id": pid}},
+        {"$group": {"_id": "$status", "count": {"$sum": 1}, "amount": {"$sum": "$amount"}}},
+    ]
+    recorded_expenses_by_status = {}
+    async for row in db.recorded_expenses.aggregate(re_pipeline):
+        recorded_expenses_by_status[row["_id"] or "(none)"] = {"count": row["count"], "amount": row["amount"]}
+
+    inc_pipeline = [
+        {"$match": {"project_id": pid}},
+        {"$group": {"_id": "$status", "count": {"$sum": 1}, "amount": {"$sum": "$amount"}}},
+    ]
+    income_by_status = {}
+    async for row in db.income.aggregate(inc_pipeline):
+        income_by_status[row["_id"] or "(none)"] = {"count": row["count"], "amount": row["amount"]}
+
+    return {
+        "project_id": pid,
+        "project_name": proj.get("name"),
+        "project_carry_forward_doc": cf_doc,
+        "cashflow_ledger_summary": ledger_summary,
+        "recorded_expenses_by_status": recorded_expenses_by_status,
+        "income_by_status": income_by_status,
+    }
+
+
 # ===================== ENDPOINTS — RECOMPUTE =====================
 @router.post("/cashflow/recompute")
 async def full_recompute(user: User = Depends(get_current_user)):
