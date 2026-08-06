@@ -277,6 +277,22 @@ async def startup_init():
     await _safe_index(startup_db.income, [("status", 1), ("created_at", -1)])
     await _safe_index(startup_db.material_requests, [("status", 1), ("created_at", -1)])
     await _safe_index(startup_db.direct_expenses, [("status", 1), ("created_at", -1)])
+    # Aug 6 2026 — The {status, created_at} indexes above barely moved the
+    # needle (25.7s -> 23.3s). The actual query is a 3-branch $or on status
+    # ($in [...], $exists:false, null) combined with .sort("created_at").
+    # MongoDB generally can't use a compound {status, created_at} index to
+    # avoid an in-memory sort across heterogeneous $or branches like that —
+    # it needs an index on the sort field itself so it can scan in
+    # already-sorted order and apply the (cheap, in-memory) status filter
+    # per document as it goes, instead of collecting every match first and
+    # sorting the whole result set. Plain single-field index, cheap to
+    # maintain, directly targets what was actually slow.
+    await _safe_index(startup_db.recorded_expenses, [("created_at", -1)])
+    await _safe_index(startup_db.income, [("created_at", -1)])
+    await _safe_index(startup_db.material_requests, [("created_at", -1)])
+    await _safe_index(startup_db.direct_expenses, [("created_at", -1)])
+    await _safe_index(startup_db.material_expenses, [("created_at", -1)])
+    await _safe_index(startup_db.labour_expenses, [("created_at", -1)])
     logger.info("MongoDB indexes verified/created")
 
     # Auto-seed demo users only in DEMO_MODE
