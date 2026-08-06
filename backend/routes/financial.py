@@ -8310,6 +8310,17 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             "approved_at": now,
             "approved_by": user.user_id,
         })
+        # Aug 6 2026 — pay_approval is the single busiest expense-creation
+        # path in the app (every material/labour/petty-cash release goes
+        # through here) yet never synced into cashflow_ledger, so the
+        # Cashflow Engine silently drifted further behind Project Wise's
+        # live expense total with every payment released (Mr Sridhar was
+        # missing 3 of these legs, ₹3.3L+, from just the last two days).
+        try:
+            from routes.cashflow import allocate_expense
+            await allocate_expense(leg_exp_id, project_id, leg_effective, suspense_type, req.get("project_name") or "", source="approval")
+        except Exception as _e:
+            import logging; logging.getLogger(__name__).warning(f"cashflow allocate_expense failed for leg {leg_exp_id}: {_e}")
 
     # Jul 03 2026 — When the accountant applies vendor suspense to (fully or
     # partially) cover the bill, record a separate `recorded_expenses` row
@@ -8379,6 +8390,11 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             "approved_at": now,
             "approved_by": user.user_id,
         })
+        try:
+            from routes.cashflow import allocate_expense
+            await allocate_expense(suspense_expense_id, project_id, credit_used, suspense_type, req.get("project_name") or "", source="approval_suspense")
+        except Exception as _e:
+            import logging; logging.getLogger(__name__).warning(f"cashflow allocate_expense failed for suspense leg {suspense_expense_id}: {_e}")
         if not legs:
             primary_expense_id = suspense_expense_id
             leg_expense_ids.append(suspense_expense_id)

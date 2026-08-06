@@ -595,9 +595,21 @@ async def full_recompute(user: User = Depends(get_current_user)):
         except Exception:
             continue
 
-    # Replay recorded expenses
+    # Replay recorded expenses — Aug 6 2026: this used to query `{}` with NO
+    # status filter at all, which would have replayed pending/rejected rows
+    # too (over-counting) the moment anyone ran this. Match the exact same
+    # "counts as a real approved expense" rule cashbook-filtered/Project
+    # Wise uses so a recompute always reconciles with it, never drifts from
+    # it.
     expense_count = 0
-    async for exp in db.recorded_expenses.find({}, {"_id": 0, "expense_id": 1, "project_id": 1, "amount": 1, "category": 1, "expense_type": 1, "source": 1, "project_name": 1}):
+    async for exp in db.recorded_expenses.find(
+        {"$or": [
+            {"status": {"$in": ["accounts_approved", "super_admin_approved", "approved"]}},
+            {"status": {"$exists": False}},
+            {"status": None},
+        ]},
+        {"_id": 0, "expense_id": 1, "project_id": 1, "amount": 1, "category": 1, "expense_type": 1, "source": 1, "project_name": 1},
+    ):
         try:
             amt = float(exp.get("amount") or 0)
             if amt <= 0:
