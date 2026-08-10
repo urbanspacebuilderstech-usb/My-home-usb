@@ -1955,7 +1955,14 @@ async def get_unified_approvals(
     # Status sets per filter — incomes and expenses use slightly different
     # vocabularies, so we keep two maps.
     if sf == "pending":
-        income_statuses = ["pending_approval"]
+        # Aug 10 2026 — a bounced incoming cheque flips its income to
+        # status="cheque_bounced" (must stay excluded from every cashbook/
+        # cashflow total elsewhere — that string is checked in ~15 places),
+        # but that also meant it silently vanished instead of coming back
+        # for the accountant to act on, unlike the mirrored expense-side
+        # bounce flow which explicitly re-queues into Approvals. Surface it
+        # here too without touching the status value anywhere else.
+        income_statuses = ["pending_approval", "cheque_bounced"]
         material_statuses = ["requested", "planning_approved", "procurement_priced", "pending_accounts_approval", "pending_advance_payment", "pending_balance_payment"]
         labour_statuses = ["requested", "planning_approved", "pending_accounts_approval"]
         vendor_statuses = ["requested", "planning_approved", "pending_accounts_approval"]

@@ -39,6 +39,9 @@ const STATE_MAP = {
   payment_done: "approved",
   // under_correction (was approved, accountant pulled back)
   under_correction: "correction",
+  // Aug 10 2026 — bounced incoming cheque, re-queued into Approvals for the
+  // accountant to act on (see /approvals/unified's pending income_statuses).
+  cheque_bounced: "bounced",
 };
 
 const STYLES = {
@@ -66,6 +69,11 @@ const STYLES = {
     label: "Under Correction",
     cls: "bg-red-100 text-red-800 border border-red-300",
     dot: "bg-red-500 animate-pulse",
+  },
+  bounced: {
+    label: "Cheque Bounced",
+    cls: "bg-rose-100 text-rose-800 border border-rose-300",
+    dot: "bg-rose-500 animate-pulse",
   },
 };
 

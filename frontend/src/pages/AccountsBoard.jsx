@@ -4255,12 +4255,26 @@ function ApprovalsTab() {
                         const isApproved = ['approved', 'verified', 'accountant_verified'].includes(st);
                         const isRejected = ['rejected', 'accountant_rejected', 'accounts_rejected'].includes(st);
                         const isCorrection = st === 'under_correction';
+                        // Aug 10 2026 — bounced incoming cheque, re-queued into
+                        // Approvals (see backend's pending income_statuses) so it
+                        // doesn't silently vanish. Approving it makes no sense
+                        // (the money never arrived) — the only sane action is to
+                        // formally reject/close it out; a fresh collection creates
+                        // a brand new income entry when the client actually pays.
+                        const isChequeBounced = st === 'cheque_bounced';
                         return (
-                          <tr key={inc.income_id} className={`border-b hover:bg-gray-50 ${isCorrection ? 'bg-orange-50/40' : isRejected ? 'bg-red-50/40' : ''}`} data-testid={`approval-income-row-${inc.income_id}`}>
+                          <tr key={inc.income_id} className={`border-b hover:bg-gray-50 ${isCorrection ? 'bg-orange-50/40' : isRejected ? 'bg-red-50/40' : isChequeBounced ? 'bg-rose-50/40' : ''}`} data-testid={`approval-income-row-${inc.income_id}`}>
                             <td className="px-3 py-2 text-gray-400">{i + 1}</td>
                             <td className="px-3 py-2 whitespace-nowrap">{new Date(inc.created_at).toLocaleDateString('en-IN')}</td>
                             <td className="px-3 py-2 font-medium">{inc.project_name || 'N/A'}</td>
-                            <td className="px-3 py-2">{inc.stage || inc.remarks || inc.description || 'Payment'}</td>
+                            <td className="px-3 py-2">
+                              {inc.stage || inc.remarks || inc.description || 'Payment'}
+                              {isChequeBounced && (
+                                <p className="text-[10px] text-rose-600 mt-0.5" data-testid={`approval-income-bounce-reason-${inc.income_id}`}>
+                                  ⚠ Cheque bounced{inc.bounce_reason ? ` — ${inc.bounce_reason}` : ''}
+                                </p>
+                              )}
+                            </td>
                             <td className="px-3 py-2">
                               <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(inc.payment_mode)]}`}>
                                 {MODE_LABELS[classifyMode(inc.payment_mode)] || inc.payment_mode || 'Cash'}
@@ -4282,6 +4296,14 @@ function ApprovalsTab() {
                                     onClick={() => openReviewDialog(inc)}
                                     data-testid={`review-income-btn-${inc.income_id}`}>
                                     {processing === inc.income_id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ClipboardCheck className="h-3 w-3" />} Review
+                                  </Button>
+                                )}
+                                {isChequeBounced && (
+                                  <Button size="sm" variant="outline" className="h-6 text-[10px] text-rose-700 border-rose-300 hover:bg-rose-50 gap-1"
+                                    disabled={processing === inc.income_id}
+                                    onClick={() => setRejectDialog({ open: true, type: 'income', id: inc.income_id, reason: '' })}
+                                    data-testid={`close-bounced-income-btn-${inc.income_id}`}>
+                                    <XCircle className="h-3 w-3" /> Close / Reject
                                   </Button>
                                 )}
                                 {isApproved && (
