@@ -8277,11 +8277,22 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     cheque_ids_used_all = [c["cheque_id"] for c in cheque_docs] if cheque_docs else []
     cheque_numbers_used = [c.get("cheque_number") for c in cheque_docs] if cheque_docs else []
     leg_expense_ids = []
+    # Aug 10 2026 — step 8 below used to link EVERY cheque used anywhere in
+    # this payment to `primary_expense_id` (leg 0's expense doc) regardless
+    # of which leg actually spent it. For a multi-leg payment where a cheque
+    # wasn't leg 0 (e.g. cash + cheque, or cheque as the 2nd leg), a later
+    # bounce on that cheque reversed the WRONG (unrelated) leg while leaving
+    # the real bounced-cheque leg untouched — still "approved", still
+    # counted everywhere, and never re-queued into Approvals. Track each
+    # cheque's OWN leg's expense_id here instead.
+    cheque_expense_map = {}
     remaining_to_apply = payable
     for idx, leg in enumerate(legs):
         leg_exp_id = primary_expense_id if idx == 0 else f"exp_{uuid.uuid4().hex[:12]}"
         leg_expense_ids.append(leg_exp_id)
         leg_cheque_ids = list(leg.cheque_ids or [])
+        for cid in leg_cheque_ids:
+            cheque_expense_map[cid] = leg_exp_id
         leg_face = float(leg.amount)
         leg_effective = max(0.0, min(leg_face, remaining_to_apply))
         remaining_to_apply -= leg_effective
@@ -8455,12 +8466,15 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             "created_by": user.user_id,
         })
 
-    # 8. Mark all selected cheques as used
+    # 8. Mark all selected cheques as used — link each cheque to the expense
+    # doc of the leg that actually spent it (see cheque_expense_map above),
+    # not blindly to primary_expense_id, so a later bounce reverses the
+    # right record.
     for cd in cheque_docs:
         await db.cheques.update_one(
             {"cheque_id": cd["cheque_id"]},
             {"$set": {
-                "used_for_expense_id": primary_expense_id,
+                "used_for_expense_id": cheque_expense_map.get(cd["cheque_id"], primary_expense_id),
                 "used_at": now,
                 "used_by": user.user_id,
                 "used_by_name": user.name,
