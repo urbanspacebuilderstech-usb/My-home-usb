@@ -1886,6 +1886,18 @@ async def get_monthly_schedule(
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    # Aug 11 2026 — auto-heal every section-addition payment stage's amount
+    # from its section's current line items before reading payment_stages
+    # below, so editing a section (e.g. adding a deduction row) after it was
+    # already sent to CRE shows up here immediately instead of staying
+    # stale until someone manually re-clicks "Req Payment". No-op per stage
+    # when nothing has drifted.
+    try:
+        from routes.projects import _resync_all_section_addition_stages
+        await _resync_all_section_addition_stages()
+    except Exception:
+        import logging; logging.getLogger(__name__).warning("section-addition stage auto-resync failed", exc_info=True)
+
     today = datetime.now(timezone.utc).date()
     today_month = today.month
     today_year = today.year

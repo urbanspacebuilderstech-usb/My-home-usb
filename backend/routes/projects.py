@@ -5907,6 +5907,86 @@ async def request_additional_payment(cost_id: str, request: Request, user: User 
 
 
 
+async def _compute_section_eligible_costs(project_id: str, section_id: str, existing_stage_id: Optional[str] = None):
+    """Shared by request_addition_section_payment (manual trigger) and
+    _resync_all_section_addition_stages (auto-heal on every CRE Payment
+    Schedule view) so the two never drift apart again the way the totals
+    did before Aug 11 2026.
+
+    A row counts as eligible when it's client-approved (directly, or via
+    the whole section being client-approved) and NOT already fully
+    collected — except negative (deduction/correction) rows, which are
+    always included: a negative balance is their permanent, correct state,
+    not "already paid off".
+    """
+    section = await db.addition_sections.find_one(
+        {"section_id": section_id, "project_id": project_id}, {"_id": 0, "client_approval_status": 1}
+    )
+    section_client_ok = (section or {}).get("client_approval_status") == "client_approved"
+    costs = await db.additional_costs.find({"project_id": project_id, "section_id": section_id}, {"_id": 0}).to_list(1000)
+    eligible = []
+    for c in costs:
+        if (c.get("client_approval_status") != "client_approved") and not section_client_ok:
+            continue
+        amount = c.get("estimated_amount") or c.get("actual_amount") or ((c.get("qty") or 0) * (c.get("price") or 0)) or 0
+        recv = c.get("income_received", 0) or 0
+        balance = float(amount) - float(recv)
+        if float(amount) >= 0 and balance <= 0:
+            continue
+        existing_stage_id_on_row = c.get("linked_stage_id")
+        if existing_stage_id_on_row and existing_stage_id_on_row != existing_stage_id:
+            other = await db.payment_stages.find_one({"stage_id": existing_stage_id_on_row}, {"_id": 0, "is_section_addition": 1})
+            if other and not other.get("is_section_addition"):
+                continue
+        eligible.append({"cost_id": c["cost_id"], "balance": balance, "amount": float(amount)})
+    section_total = sum(e["balance"] for e in eligible)
+    return eligible, section_total
+
+
+async def _resync_all_section_addition_stages(project_id: Optional[str] = None):
+    """Auto-heal: recompute every is_section_addition payment_stage's
+    `amount` from its section's CURRENT additional_costs rows, so editing a
+    section (adding/removing rows) after it was already sent to CRE doesn't
+    leave the Payment Schedule showing a stale total until someone manually
+    re-clicks "Req Payment". Silent no-op per stage when nothing drifted —
+    safe to call on every CRE Payment Schedule view."""
+    query: Dict[str, Any] = {"is_section_addition": True}
+    if project_id:
+        query["project_id"] = project_id
+    stages = await db.payment_stages.find(
+        query, {"_id": 0, "stage_id": 1, "project_id": 1, "linked_section_id": 1, "amount": 1, "amount_received": 1}
+    ).to_list(2000)
+    for stage in stages:
+        section_id = stage.get("linked_section_id")
+        if not section_id:
+            continue
+        try:
+            eligible, section_total = await _compute_section_eligible_costs(stage["project_id"], section_id, stage["stage_id"])
+        except Exception:
+            continue
+        if not eligible:
+            continue
+        current_amount = float(stage.get("amount") or 0)
+        if abs(section_total - current_amount) < 0.5:
+            continue
+        cost_ids = [e["cost_id"] for e in eligible]
+        rec = float(stage.get("amount_received", 0) or 0)
+        new_status = "paid" if rec >= section_total - 0.5 else ("partial" if rec > 0 else "pending")
+        await db.payment_stages.update_one(
+            {"stage_id": stage["stage_id"]},
+            {"$set": {
+                "amount": section_total,
+                "linked_addition_ids": cost_ids,
+                "status": new_status,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }}
+        )
+        await db.additional_costs.update_many(
+            {"cost_id": {"$in": cost_ids}},
+            {"$set": {"linked_stage_id": stage["stage_id"], "payment_requested": True}}
+        )
+
+
 @router.post("/projects/{project_id}/addition-sections/{section_id}/request-payment")
 async def request_addition_section_payment(project_id: str, section_id: str, request: Request, user: User = Depends(get_current_user)):
     """Section-level Pay Request — bundles every client-approved Additional Work
@@ -5949,9 +6029,8 @@ async def request_addition_section_payment(project_id: str, section_id: str, req
     # Pull every cost in this section that is (a) client-approved, (b) has open balance,
     # (c) not already attached to ANOTHER payment stage. The section batch approval
     # also satisfies the client-approval gate (mirrors per-row endpoint logic).
-    section_client_ok = section.get("client_approval_status") == "client_approved"
-    costs = await db.additional_costs.find({"project_id": project_id, "section_id": section_id}, {"_id": 0}).to_list(1000)
-    if not costs:
+    costs_count = await db.additional_costs.count_documents({"project_id": project_id, "section_id": section_id})
+    if not costs_count:
         raise HTTPException(status_code=400, detail="No additional work rows in this section yet")
 
     # Re-use any existing section stage so this endpoint is idempotent on double-clicks
@@ -5960,31 +6039,15 @@ async def request_addition_section_payment(project_id: str, section_id: str, req
         {"_id": 0},
     )
 
-    eligible = []
-    for c in costs:
-        if (c.get("client_approval_status") != "client_approved") and not section_client_ok:
-            continue
-        amount = c.get("estimated_amount") or c.get("actual_amount") or ((c.get("qty") or 0) * (c.get("price") or 0)) or 0
-        recv = c.get("income_received", 0) or 0
-        balance = float(amount) - float(recv)
-        # Aug 11 2026 — `balance <= 0` correctly skips a positive row that's
-        # already fully collected, but a NEGATIVE row (a deduction/correction
-        # entered against the section, e.g. "-15 rft toughened glass") always
-        # has balance <= 0 too (income_received is 0 against it), so it was
-        # getting silently dropped from the section total instead of
-        # subtracting from it — Sai Karthick reported Mr Sridhar's "Elevation
-        # work" showing 6,37,691 on the CRE Payment Schedule vs the correct
-        # 5,88,190.95 on the Additional Work list, exactly the sum of the two
-        # dropped deductions (34,500 + 15,000 = 49,500.05 rounding aside).
-        if float(amount) >= 0 and balance <= 0:
-            continue
-        # Skip rows already linked to a DIFFERENT (non-section) stage so we don't double-bill
-        existing_stage_id = c.get("linked_stage_id")
-        if existing_stage_id and (not existing_stage or existing_stage_id != existing_stage.get("stage_id")):
-            other = await db.payment_stages.find_one({"stage_id": existing_stage_id}, {"_id": 0, "is_section_addition": 1})
-            if other and not other.get("is_section_addition"):
-                continue
-        eligible.append({"cost_id": c["cost_id"], "balance": balance, "amount": float(amount)})
+    # Aug 11 2026 — shared with _resync_all_section_addition_stages (auto-heal
+    # on every CRE Payment Schedule view) so the two can't drift apart again
+    # the way they did when this used to silently drop negative/deduction
+    # rows instead of subtracting them (Mr Sridhar's "Elevation work":
+    # CRE showed 6,37,691 vs the correct 5,88,190.95 on the Additional Work
+    # list — exactly the two dropped deductions, 34,500 + 15,000).
+    eligible, _section_total_unused = await _compute_section_eligible_costs(
+        project_id, section_id, (existing_stage or {}).get("stage_id")
+    )
 
     if not eligible:
         raise HTTPException(status_code=400, detail="No client-approved rows with open balance in this section. Approve rows first (or click 'Send to Client') before requesting payment.")
