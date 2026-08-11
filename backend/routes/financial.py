@@ -816,7 +816,31 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
         expense_by_mode[mode] = expense_by_mode.get(mode, 0) + amt
         expense_by_mode["total"] += amt
         all_expenses.append({**m, "expense_type": "material", "amount": amt, "project_name": project_map.get(m.get("project_id"), "")})
-    
+
+    # Aug 11 2026 — same cheque-number resolution as /accountant/cashbook-filtered
+    # (a cheque-mode leg only ever stored cheque_id, never the human-readable
+    # number). This endpoint is used as a fallback data source, so needs the
+    # same enrichment to avoid an empty "Cheque No" row here too.
+    _cheque_ids_needed = set()
+    for e in all_expenses:
+        if e.get("cheque_number"):
+            continue
+        ids = e.get("cheque_ids") or ([e["cheque_id"]] if e.get("cheque_id") else [])
+        _cheque_ids_needed.update(i for i in ids if i)
+    if _cheque_ids_needed:
+        _cheque_docs = await db.cheques.find(
+            {"cheque_id": {"$in": list(_cheque_ids_needed)}},
+            {"_id": 0, "cheque_id": 1, "cheque_number": 1},
+        ).to_list(len(_cheque_ids_needed))
+        _cheque_num_map = {c["cheque_id"]: c.get("cheque_number") for c in _cheque_docs}
+        for e in all_expenses:
+            if e.get("cheque_number"):
+                continue
+            ids = e.get("cheque_ids") or ([e["cheque_id"]] if e.get("cheque_id") else [])
+            nums = [_cheque_num_map[i] for i in ids if _cheque_num_map.get(i)]
+            if nums:
+                e["cheque_number"] = ", ".join(nums)
+
     # Petty cash totals
     petty_total_issued = sum(pc.get("amount_issued", 0) for pc in petty_cash_list)
     petty_total_spent = sum(pc.get("amount_spent", 0) for pc in petty_cash_list)
@@ -6169,6 +6193,34 @@ async def get_cashbook_filtered(
     # source of truth and is gated by the accountant-approval filter above.
 
     all_expenses.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+    # Aug 11 2026 — a cheque-mode recorded_expenses leg only ever stored
+    # `cheque_id` (a reference into the cheques collection), never the
+    # human-readable cheque NUMBER — Transaction Details already had a
+    # "Cheque No" row wired up, it just always came back empty because the
+    # field itself was never populated. Batch-resolve it for every entry
+    # (material/labour/petty cash alike, existing rows included — this
+    # runs on every read, not just new payments) that has a cheque_id /
+    # cheque_ids but no cheque_number of its own yet.
+    _cheque_ids_needed = set()
+    for e in all_expenses:
+        if e.get("cheque_number"):
+            continue
+        ids = e.get("cheque_ids") or ([e["cheque_id"]] if e.get("cheque_id") else [])
+        _cheque_ids_needed.update(i for i in ids if i)
+    if _cheque_ids_needed:
+        _cheque_docs = await db.cheques.find(
+            {"cheque_id": {"$in": list(_cheque_ids_needed)}},
+            {"_id": 0, "cheque_id": 1, "cheque_number": 1},
+        ).to_list(len(_cheque_ids_needed))
+        _cheque_num_map = {c["cheque_id"]: c.get("cheque_number") for c in _cheque_docs}
+        for e in all_expenses:
+            if e.get("cheque_number"):
+                continue
+            ids = e.get("cheque_ids") or ([e["cheque_id"]] if e.get("cheque_id") else [])
+            nums = [_cheque_num_map[i] for i in ids if _cheque_num_map.get(i)]
+            if nums:
+                e["cheque_number"] = ", ".join(nums)
 
     # Feb 22 2026 — The headline Total Income / Total Expense KPI cards must
     # match the Project Wise table's bottom Total. The table is built ONLY
