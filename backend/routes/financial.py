@@ -7158,6 +7158,258 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
     }
 
 
+class ChequeSuspenseFalloutRequest(BaseModel):
+    dry_run: bool = True
+
+
+@router.post("/admin/cheques/{cheque_id}/reverse-suspense-fallout")
+async def reverse_cheque_suspense_fallout(cheque_id: str, payload: ChequeSuspenseFalloutRequest, user: User = Depends(get_current_user)):
+    """Aug 11 2026 — `bounce_cheque` above only reverses ONE directly-linked
+    income and ONE directly-linked expense (`used_for_expense_id`). It has
+    no idea a labour work-order release can fund a CONTRACTOR'S POOLED
+    SUSPENSE BALANCE (contractor_suspense_ledger) instead of / in addition
+    to a direct leg — money from one bounced cheque can end up spent across
+    several unrelated bills on several unrelated projects via that pool
+    (Yuvaraj / Cheque 000014 / Mr. Muralikannan case: ₹96,400 credited,
+    ₹82,815 of it already spent on 6 bills across 3 other projects, plus a
+    ₹3,600 direct leg on the ORIGINAL bill that `bounce_cheque` also missed
+    because it only knows about a single `used_for_expense_id`).
+
+    This is a SEPARATE, targeted follow-up for an ALREADY-bounced cheque —
+    it does not touch the income side (that's `bounce_cheque`'s job and, per
+    the linked income row's cumulative `partial_bounce_deducted`, already
+    ran for this case).
+
+    Every reversal is done by INSERTING offsetting ledger entries (never
+    mutating/zeroing an existing one), mirroring the exact pattern already
+    used by `delete_cashbook_expense`'s "expense_delete_reversal" — full
+    audit trail preserved, and safe to reason about: the original credit
+    from this cheque gets a same-amount offsetting DEBIT; each downstream
+    bill that drew from it gets a same-amount offsetting CREDIT (since that
+    bill is being sent back to Approvals and its debit should no longer
+    count as spent).
+
+    Call with dry_run=true (default) first — it changes nothing and returns
+    the exact plan (every ledger entry and expense that WOULD be touched).
+    Only call with dry_run=false once that plan has been reviewed.
+    SUPER_ADMIN only.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can run this")
+
+    cheque = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail="Cheque not found")
+    if cheque.get("status") != "bounced":
+        raise HTTPException(status_code=400, detail="Cheque is not marked bounced — use /accountant/cheques/{cheque_id}/bounce first")
+
+    now = datetime.now(timezone.utc).isoformat()
+    reason = f"Cheque {cheque.get('cheque_number')} bounced" + (f" ({cheque['bounce_reason']})" if cheque.get("bounce_reason") else "")
+
+    credit_query = {"cheque_no": cheque.get("cheque_number"), "type": "credit", "source_type": "cheque_excess"}
+    if cheque.get("used_for_request_id"):
+        credit_query["reference_id"] = cheque["used_for_request_id"]
+    credits = await db.contractor_suspense_ledger.find(credit_query, {"_id": 0}).to_list(20)
+
+    plan: Dict[str, Any] = {
+        "dry_run": payload.dry_run,
+        "cheque_id": cheque_id,
+        "cheque_number": cheque.get("cheque_number"),
+        "credits_reversed": [],
+        "debits_reversed": [],
+        "expenses_reversed": [],
+        "already_bounced_expenses": [],
+        "work_orders_recomputed": [],
+    }
+
+    request_ids_to_reverse = set()
+    if cheque.get("used_for_request_id"):
+        request_ids_to_reverse.add(cheque["used_for_request_id"])
+
+    for credit in credits:
+        contractor_id = credit.get("contractor_id")
+        target_ledger_id = credit["ledger_id"]
+
+        # Skip if this credit was already reversed in a prior run.
+        already = await db.contractor_suspense_ledger.find_one(
+            {"reversed_ledger_id": target_ledger_id, "source_type": "cheque_bounce_reversal", "type": "debit"},
+            {"_id": 0, "ledger_id": 1},
+        )
+        if already:
+            plan.setdefault("skipped_already_reversed_credits", []).append(target_ledger_id)
+            continue
+
+        ledger_rows = await db.contractor_suspense_ledger.find({"contractor_id": contractor_id}, {}).to_list(2000)
+        for r in ledger_rows:
+            r["_id"] = str(r["_id"])
+        ledger_rows.sort(key=lambda r: (r.get("date") or "", r["_id"]))
+
+        # FIFO replay (same algorithm as _resolve_labour_suspense_cheque_numbers)
+        # but tracking ledger_id provenance so we know exactly how much of
+        # THIS credit each downstream debit drew.
+        queue: List[List[Any]] = []  # [ledger_id_or_None, remaining]
+        consumed_from_target: Dict[str, float] = {}
+        for row in ledger_rows:
+            if row.get("type") == "credit":
+                queue.append([row["ledger_id"], float(row.get("amount") or 0)])
+            elif row.get("type") == "debit":
+                remaining = float(row.get("amount") or 0)
+                while remaining > 0.5 and queue:
+                    entry = queue[0]
+                    take = min(remaining, entry[1])
+                    if entry[0] == target_ledger_id and take > 0.5:
+                        consumed_from_target[row["ledger_id"]] = consumed_from_target.get(row["ledger_id"], 0.0) + take
+                    entry[1] -= take
+                    remaining -= take
+                    if entry[1] <= 0.5:
+                        queue.pop(0)
+
+        if not payload.dry_run:
+            await db.contractor_suspense_ledger.insert_one({
+                "ledger_id": f"sl_{uuid.uuid4().hex[:8]}",
+                "contractor_id": contractor_id,
+                "contractor_name": credit.get("contractor_name"),
+                "project_id": credit.get("project_id"),
+                "amount": float(credit.get("amount") or 0),
+                "type": "debit",
+                "source_type": "cheque_bounce_reversal",
+                "reference_id": credit.get("reference_id"),
+                "reversed_ledger_id": target_ledger_id,
+                "date": now,
+                "notes": f"Reversal: {reason} — voids suspense credit {target_ledger_id}",
+                "created_by": user.user_id,
+                "created_by_name": user.name,
+            })
+        plan["credits_reversed"].append({
+            "ledger_id": target_ledger_id, "amount": credit.get("amount"),
+            "contractor_name": credit.get("contractor_name"), "contractor_id": contractor_id,
+        })
+
+        for row in ledger_rows:
+            if row.get("type") != "debit":
+                continue
+            amt = consumed_from_target.get(row["ledger_id"])
+            if not amt:
+                continue
+            ref_id = row.get("reference_id")
+            if ref_id:
+                request_ids_to_reverse.add(ref_id)
+            if not payload.dry_run:
+                await db.contractor_suspense_ledger.insert_one({
+                    "ledger_id": f"sl_{uuid.uuid4().hex[:8]}",
+                    "contractor_id": contractor_id,
+                    "contractor_name": credit.get("contractor_name"),
+                    "project_id": row.get("project_id"),
+                    "amount": amt,
+                    "type": "credit",
+                    "source_type": "cheque_bounce_reversal",
+                    "reference_id": ref_id,
+                    "reversed_ledger_id": row["ledger_id"],
+                    "date": now,
+                    "notes": f"Reversal: {reason} — restores suspense consumed by {ref_id} (bill sent back to Approvals)",
+                    "created_by": user.user_id,
+                    "created_by_name": user.name,
+                })
+            plan["debits_reversed"].append({
+                "ledger_id": row["ledger_id"], "reference_id": ref_id, "amount": amt,
+                "project_id": row.get("project_id"), "notes": row.get("notes"),
+            })
+
+    expense_rows = []
+    if request_ids_to_reverse:
+        expense_rows = await db.recorded_expenses.find(
+            {"request_id": {"$in": list(request_ids_to_reverse)}, "category": "labour"}, {"_id": 0},
+        ).to_list(200)
+    direct_rows = await db.recorded_expenses.find(
+        {"$or": [{"cheque_id": cheque_id}, {"cheque_ids": cheque_id}]}, {"_id": 0},
+    ).to_list(50)
+    by_expense_id = {r["expense_id"]: r for r in expense_rows}
+    for r in direct_rows:
+        by_expense_id[r["expense_id"]] = r
+    expense_rows = list(by_expense_id.values())
+
+    wo_touch: Dict[str, set] = {}
+    for exp in expense_rows:
+        expense_id = exp["expense_id"]
+        already_bounced = exp.get("status") == "cheque_bounced"
+        if already_bounced:
+            plan["already_bounced_expenses"].append({"expense_id": expense_id, "amount": exp.get("amount"), "request_id": exp.get("request_id")})
+        else:
+            plan["expenses_reversed"].append({
+                "expense_id": expense_id, "amount": exp.get("amount"),
+                "request_id": exp.get("request_id"), "project_id": exp.get("project_id"),
+                "description": exp.get("description"),
+            })
+            if not payload.dry_run:
+                await db.recorded_expenses.update_one(
+                    {"expense_id": expense_id},
+                    {"$set": {
+                        "status": "cheque_bounced",
+                        "bounced_at": now,
+                        "bounced_by_cheque_id": cheque_id,
+                        "bounce_reason": reason,
+                        "updated_at": now,
+                    }},
+                )
+        if not payload.dry_run:
+            try:
+                from routes.cashflow import reverse_allocation
+                await reverse_allocation(expense_id, kind="expense")
+            except Exception as e:
+                import logging; logging.getLogger(__name__).warning(f"cashflow reverse_allocation failed for {expense_id}: {e}")
+
+        wo_id, stage_id, req_id = exp.get("work_order_id"), exp.get("stage_id"), exp.get("request_id")
+        if wo_id and stage_id and req_id:
+            if not payload.dry_run:
+                # Only reset if still "approved" — if the accountant already
+                # re-released this PR through a later, unrelated action,
+                # don't clobber it.
+                await db.project_work_orders.update_one(
+                    {
+                        "work_order_id": wo_id,
+                        "stages": {"$elemMatch": {"stage_id": stage_id, "payment_requests": {"$elemMatch": {"request_id": req_id, "status": "approved"}}}},
+                    },
+                    {"$set": {
+                        "stages.$[s].payment_requests.$[p].status": "planning_approved",
+                        "stages.$[s].payment_requests.$[p].released_at": None,
+                        "stages.$[s].payment_requests.$[p].released_by": None,
+                        "stages.$[s].payment_requests.$[p].reverted_by_accountant_at": now,
+                        "stages.$[s].payment_requests.$[p].reverted_by_accountant_id": user.user_id,
+                        "stages.$[s].payment_requests.$[p].reverted_reason": reason,
+                    }},
+                    array_filters=[{"s.stage_id": stage_id}, {"p.request_id": req_id, "p.status": "approved"}],
+                )
+            wo_touch.setdefault(wo_id, set()).add(stage_id)
+
+    for wo_id in wo_touch:
+        wo = await db.project_work_orders.find_one({"work_order_id": wo_id}, {"_id": 0})
+        if not wo:
+            continue
+        total_paid = 0.0
+        for stg in wo.get("stages", []):
+            released = sum(float(p.get("approved_amount", 0) or 0) for p in stg.get("payment_requests", []) if p.get("status") == "approved")
+            pending = sum(float(p.get("amount", 0) or 0) for p in stg.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
+            stg["amount_released"] = released
+            stg["amount_pending"] = pending
+            total_paid += released
+        if not payload.dry_run:
+            await db.project_work_orders.update_one(
+                {"work_order_id": wo_id},
+                {"$set": {"stages": wo["stages"], "paid_amount": total_paid, "updated_at": now}},
+            )
+        plan["work_orders_recomputed"].append({"work_order_id": wo_id, "new_paid_amount": total_paid, "old_paid_amount": wo.get("paid_amount")})
+
+    plan["total_expense_amount_reversed"] = sum(float(e["amount"] or 0) for e in plan["expenses_reversed"])
+    plan["total_already_bounced_amount"] = sum(float(e["amount"] or 0) for e in plan["already_bounced_expenses"])
+    plan["total_credit_reversed"] = sum(float(c["amount"] or 0) for c in plan["credits_reversed"])
+    plan["total_debit_reversed"] = sum(float(d["amount"] or 0) for d in plan["debits_reversed"])
+
+    if not payload.dry_run:
+        await create_audit_log(user.user_id, "reverse_suspense_fallout", "cheque", cheque_id, plan)
+
+    return plan
+
+
 @router.get("/accountant/cheques/bounced")
 async def list_bounced_cheques(user: User = Depends(get_current_user)):
     """List all bounced cheques for the dedicated Bounced tab."""
