@@ -1965,7 +1965,8 @@ async def debug_expense_cheque(vendor_name: str, user: User = Depends(get_curren
     rows = await db.recorded_expenses.find(
         {"vendor_name": {"$regex": vendor_name, "$options": "i"}},
         {"_id": 0, "expense_id": 1, "vendor_name": 1, "amount": 1, "payment_method": 1,
-         "cheque_id": 1, "cheque_ids": 1, "cheque_number": 1, "created_at": 1, "request_id": 1},
+         "cheque_id": 1, "cheque_ids": 1, "cheque_number": 1, "created_at": 1, "request_id": 1,
+         "category": 1, "suspense_applied": 1, "cash_paid": 1, "contractor_id": 1, "cheque_no": 1},
     ).sort("created_at", -1).to_list(50)
 
     all_ids = set()
@@ -1982,7 +1983,27 @@ async def debug_expense_cheque(vendor_name: str, user: User = Depends(get_curren
             {"_id": 0, "cheque_id": 1, "cheque_number": 1, "used_for_expense_id": 1},
         ).to_list(len(all_ids))
 
-    return {"vendor_name": vendor_name, "recorded_expenses": rows, "linked_cheques_found": cheque_docs, "cheque_ids_referenced": list(all_ids)}
+    # Aug 11 2026 — for suspense-funded labour rows (category="labour",
+    # suspense_applied>0), the cheque was never linked to the expense row
+    # itself — it funded the CONTRACTOR's pooled suspense balance earlier.
+    # Dump the raw contractor_suspense_ledger for each contractor_id found
+    # so we can see whether cheque_no is actually recoverable via FIFO
+    # replay of that ledger, before building any attribution logic.
+    contractor_ids = {r.get("contractor_id") for r in rows if r.get("contractor_id")}
+    ledger_rows = []
+    if contractor_ids:
+        ledger_rows = await db.contractor_suspense_ledger.find(
+            {"contractor_id": {"$in": list(contractor_ids)}},
+            {"_id": 0},
+        ).sort("date", 1).to_list(500)
+
+    return {
+        "vendor_name": vendor_name,
+        "recorded_expenses": rows,
+        "linked_cheques_found": cheque_docs,
+        "cheque_ids_referenced": list(all_ids),
+        "contractor_suspense_ledger": ledger_rows,
+    }
 
 
 # ==================== UNIFIED APPROVALS ENDPOINT ====================
