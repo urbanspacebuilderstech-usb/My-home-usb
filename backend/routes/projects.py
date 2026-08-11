@@ -12166,7 +12166,16 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
                 "suspense_applied": row_suspense,
                 "payment_method": cashbook_method_map.get(row_method, row_method),
                 "transaction_id": (ent.get("bank_ref") if ent else "") or ((ent.get("cheque_ids", [None])[0] if (ent and ent.get("cheque_ids")) else "")),
-                "cheque_no": (ent.get("cheque_ids") or [None])[0] if (ent and row_method == "cheque" and not info["is_suspense"]) else None,
+                # Aug 11 2026 — must be the printed cheque NUMBER (what the
+                # Transaction Details popup's "Cheque No" row reads), not the
+                # internal cheque_id — this previously stored the raw
+                # "chq_xxxxxxxx" reference, which is meaningless to a human
+                # and never matched the `cheque_number` field the frontend
+                # actually displays (Yuvaraj ₹3,600 "Stage - 7" case).
+                "cheque_no": (
+                    ", ".join(cheques_by_id[cid].get("cheque_number") or cid for cid in ent.get("cheque_ids", []))
+                    if (ent and row_method == "cheque" and not info["is_suspense"] and ent.get("cheque_ids")) else None
+                ),
                 "cheque_amount": float(ent.get("amount") or 0) if (ent and row_method == "cheque" and not info["is_suspense"]) else None,
                 "bank_ref": ent.get("bank_ref") if (ent and row_method in ("bank", "current_account", "savings_account")) else None,
                 "vendor_name": wo.get("contractor_name", ""),

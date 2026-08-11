@@ -797,6 +797,48 @@ async def _resolve_labour_suspense_cheque_numbers(all_expenses: List[Dict[str, A
             e["cheque_number"] = ", ".join(nums)
 
 
+async def _resolve_cheque_numbers(all_expenses: List[Dict[str, Any]]) -> None:
+    """Aug 11 2026 — `cheque_number` (the printed number) can be missing for
+    two different reasons: (1) only `cheque_id`/`cheque_ids` was stored and
+    never resolved against the `cheques` collection, or (2) a `cheque_no`
+    field already holds the printed number directly (the accountant-typed
+    legacy field) — except for a handful of rows written by a since-fixed
+    bug in the multi-mode labour split path, where `cheque_no` held a raw
+    internal cheque_id ("chq_xxxxxxxx") instead. Handle all three without a
+    DB round trip when the number is already sitting there in plain form.
+    """
+    def _candidate_ids(e: Dict[str, Any]) -> List[str]:
+        ids = e.get("cheque_ids") or ([e["cheque_id"]] if e.get("cheque_id") else [])
+        cheque_no = e.get("cheque_no")
+        if not ids and isinstance(cheque_no, str) and cheque_no.startswith("chq_"):
+            ids = [cheque_no]
+        return [i for i in ids if i]
+
+    ids_needed = set()
+    for e in all_expenses:
+        if e.get("cheque_number"):
+            continue
+        cheque_no = e.get("cheque_no")
+        if isinstance(cheque_no, str) and cheque_no and not cheque_no.startswith("chq_"):
+            e["cheque_number"] = cheque_no
+            continue
+        ids_needed.update(_candidate_ids(e))
+
+    if not ids_needed:
+        return
+    docs = await db.cheques.find(
+        {"cheque_id": {"$in": list(ids_needed)}},
+        {"_id": 0, "cheque_id": 1, "cheque_number": 1},
+    ).to_list(len(ids_needed))
+    num_map = {d["cheque_id"]: d.get("cheque_number") for d in docs}
+    for e in all_expenses:
+        if e.get("cheque_number"):
+            continue
+        nums = [num_map[i] for i in _candidate_ids(e) if num_map.get(i)]
+        if nums:
+            e["cheque_number"] = ", ".join(nums)
+
+
 @router.get("/accountant/overview")
 async def get_accountant_overview(user: User = Depends(get_current_user)):
     """Comprehensive accountant overview: income/expense by payment mode, project-wise"""
@@ -882,30 +924,7 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
         expense_by_mode["total"] += amt
         all_expenses.append({**m, "expense_type": "material", "amount": amt, "project_name": project_map.get(m.get("project_id"), "")})
 
-    # Aug 11 2026 — same cheque-number resolution as /accountant/cashbook-filtered
-    # (a cheque-mode leg only ever stored cheque_id, never the human-readable
-    # number). This endpoint is used as a fallback data source, so needs the
-    # same enrichment to avoid an empty "Cheque No" row here too.
-    _cheque_ids_needed = set()
-    for e in all_expenses:
-        if e.get("cheque_number"):
-            continue
-        ids = e.get("cheque_ids") or ([e["cheque_id"]] if e.get("cheque_id") else [])
-        _cheque_ids_needed.update(i for i in ids if i)
-    if _cheque_ids_needed:
-        _cheque_docs = await db.cheques.find(
-            {"cheque_id": {"$in": list(_cheque_ids_needed)}},
-            {"_id": 0, "cheque_id": 1, "cheque_number": 1},
-        ).to_list(len(_cheque_ids_needed))
-        _cheque_num_map = {c["cheque_id"]: c.get("cheque_number") for c in _cheque_docs}
-        for e in all_expenses:
-            if e.get("cheque_number"):
-                continue
-            ids = e.get("cheque_ids") or ([e["cheque_id"]] if e.get("cheque_id") else [])
-            nums = [_cheque_num_map[i] for i in ids if _cheque_num_map.get(i)]
-            if nums:
-                e["cheque_number"] = ", ".join(nums)
-
+    await _resolve_cheque_numbers(all_expenses)
     await _resolve_labour_suspense_cheque_numbers(all_expenses)
 
     # Petty cash totals
@@ -6314,34 +6333,7 @@ async def get_cashbook_filtered(
 
     all_expenses.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
-    # Aug 11 2026 — a cheque-mode recorded_expenses leg only ever stored
-    # `cheque_id` (a reference into the cheques collection), never the
-    # human-readable cheque NUMBER — Transaction Details already had a
-    # "Cheque No" row wired up, it just always came back empty because the
-    # field itself was never populated. Batch-resolve it for every entry
-    # (material/labour/petty cash alike, existing rows included — this
-    # runs on every read, not just new payments) that has a cheque_id /
-    # cheque_ids but no cheque_number of its own yet.
-    _cheque_ids_needed = set()
-    for e in all_expenses:
-        if e.get("cheque_number"):
-            continue
-        ids = e.get("cheque_ids") or ([e["cheque_id"]] if e.get("cheque_id") else [])
-        _cheque_ids_needed.update(i for i in ids if i)
-    if _cheque_ids_needed:
-        _cheque_docs = await db.cheques.find(
-            {"cheque_id": {"$in": list(_cheque_ids_needed)}},
-            {"_id": 0, "cheque_id": 1, "cheque_number": 1},
-        ).to_list(len(_cheque_ids_needed))
-        _cheque_num_map = {c["cheque_id"]: c.get("cheque_number") for c in _cheque_docs}
-        for e in all_expenses:
-            if e.get("cheque_number"):
-                continue
-            ids = e.get("cheque_ids") or ([e["cheque_id"]] if e.get("cheque_id") else [])
-            nums = [_cheque_num_map[i] for i in ids if _cheque_num_map.get(i)]
-            if nums:
-                e["cheque_number"] = ", ".join(nums)
-
+    await _resolve_cheque_numbers(all_expenses)
     await _resolve_labour_suspense_cheque_numbers(all_expenses)
 
     # Feb 22 2026 — The headline Total Income / Total Expense KPI cards must
