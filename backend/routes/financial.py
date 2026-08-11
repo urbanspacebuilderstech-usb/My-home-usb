@@ -7242,7 +7242,17 @@ async def reverse_cheque_suspense_fallout(cheque_id: str, payload: ChequeSuspens
         contractor_id = credit.get("contractor_id")
         target_ledger_id = credit["ledger_id"]
 
-        ledger_rows = await db.contractor_suspense_ledger.find({"contractor_id": contractor_id}, {}).to_list(2000)
+        # Aug 11 2026 — exclude our OWN correction entries from the replay.
+        # A re-run (or a second credit in the same cheque) would otherwise
+        # feed a previously-inserted reversal entry back into the FIFO queue
+        # as if it were a fresh real transaction, and the replay would
+        # "attribute" it against the very credit it was correcting —
+        # producing a phantom follow-up reversal of an already-correct
+        # reversal (caught before going live: a spurious ledger_id showed up
+        # proposing to re-reverse ₹13,585 that had already been reversed).
+        ledger_rows = await db.contractor_suspense_ledger.find(
+            {"contractor_id": contractor_id, "source_type": {"$ne": "cheque_bounce_reversal"}}, {},
+        ).to_list(2000)
         for r in ledger_rows:
             r["_id"] = str(r["_id"])
         ledger_rows.sort(key=lambda r: (r.get("date") or "", r["_id"]))
