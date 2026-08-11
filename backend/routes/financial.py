@@ -730,6 +730,71 @@ async def save_project_carry_forward(project_id: str, payload: Dict[str, Any], u
     return row
 
 
+async def _resolve_labour_suspense_cheque_numbers(all_expenses: List[Dict[str, Any]]) -> None:
+    """Aug 11 2026 — a labour bill paid from a contractor's pooled suspense
+    balance (category="labour", suspense_applied>0) never carries a
+    cheque_id of its own: the cash came from an EARLIER cheque-excess
+    credit sitting in contractor_suspense_ledger, not a cheque swiped for
+    this specific bill (Yuvaraj "NMR WORK" ₹7,200 showed Mode: Cheque with
+    a blank Cheque No because of this). Trace it by FIFO-replaying that
+    contractor's full ledger (oldest first, same order the balance itself
+    is drawn down in) so each debit ("release") is attributed to the exact
+    originating cheque(s) it consumed — not a guess, a deterministic replay
+    of real linked data. Mutates matching rows in place, setting
+    `cheque_number`. Rows funded by a non-cheque credit (e.g. a delete
+    reversal) correctly get no attribution rather than a fabricated one.
+    """
+    targets = [
+        e for e in all_expenses
+        if e.get("category") == "labour"
+        and not e.get("cheque_number")
+        and float(e.get("suspense_applied") or 0) > 0.5
+        and e.get("contractor_id") and e.get("request_id")
+    ]
+    if not targets:
+        return
+    contractor_ids = list({e["contractor_id"] for e in targets})
+    ledger_rows = await db.contractor_suspense_ledger.find(
+        {"contractor_id": {"$in": contractor_ids}},
+        {"contractor_id": 1, "type": 1, "amount": 1, "cheque_no": 1, "reference_id": 1, "date": 1},
+    ).to_list(5000)
+    # `date` alone can tie (credit + its debit are often stamped with the
+    # same request timestamp) — `_id` is a monotonically increasing
+    # ObjectId, so it's a reliable insertion-order tiebreaker.
+    ledger_rows.sort(key=lambda r: (r.get("date") or "", str(r.get("_id", ""))))
+
+    by_contractor: Dict[str, List[Dict[str, Any]]] = {}
+    for row in ledger_rows:
+        by_contractor.setdefault(row["contractor_id"], []).append(row)
+
+    attribution: Dict[str, List[str]] = {}
+    for rows in by_contractor.values():
+        queue: List[List[Any]] = []  # [cheque_no_or_None, remaining_amount]
+        for row in rows:
+            if row.get("type") == "credit":
+                queue.append([row.get("cheque_no"), float(row.get("amount") or 0)])
+            elif row.get("type") == "debit":
+                remaining = float(row.get("amount") or 0)
+                cheques_used = []
+                while remaining > 0.5 and queue:
+                    entry = queue[0]
+                    take = min(remaining, entry[1])
+                    if entry[0] and take > 0.5:
+                        cheques_used.append(entry[0])
+                    entry[1] -= take
+                    remaining -= take
+                    if entry[1] <= 0.5:
+                        queue.pop(0)
+                ref = row.get("reference_id")
+                if ref and cheques_used:
+                    seen = set()
+                    ordered = [c for c in cheques_used if not (c in seen or seen.add(c))]
+                    attribution[ref] = ordered
+
+    for e in targets:
+        nums = attribution.get(e["request_id"])
+        if nums:
+            e["cheque_number"] = ", ".join(nums)
 
 
 @router.get("/accountant/overview")
@@ -840,6 +905,8 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
             nums = [_cheque_num_map[i] for i in ids if _cheque_num_map.get(i)]
             if nums:
                 e["cheque_number"] = ", ".join(nums)
+
+    await _resolve_labour_suspense_cheque_numbers(all_expenses)
 
     # Petty cash totals
     petty_total_issued = sum(pc.get("amount_issued", 0) for pc in petty_cash_list)
@@ -6274,6 +6341,8 @@ async def get_cashbook_filtered(
             nums = [_cheque_num_map[i] for i in ids if _cheque_num_map.get(i)]
             if nums:
                 e["cheque_number"] = ", ".join(nums)
+
+    await _resolve_labour_suspense_cheque_numbers(all_expenses)
 
     # Feb 22 2026 — The headline Total Income / Total Expense KPI cards must
     # match the Project Wise table's bottom Total. The table is built ONLY
