@@ -2092,6 +2092,64 @@ async def debug_expense_cheque(vendor_name: str, user: User = Depends(get_curren
     }
 
 
+@router.get("/admin/debug-cheque-bounce-fallout/{cheque_number}")
+async def debug_cheque_bounce_fallout(cheque_number: str, user: User = Depends(get_current_user)):
+    """Temporary read-only diagnostic (Aug 11 2026, cheque-bounce reversal
+    investigation) — for a bounced cheque, dump everything it could have
+    funded: the cheque doc(s) themselves, any recorded_expenses row paid
+    DIRECTLY off it, any income row referencing it (to check whether the
+    existing /accountant/cheques/{id}/bounce cascade already reversed the
+    income side), and the contractor_suspense_ledger credit(s) it created
+    plus each affected contractor's FULL ledger (so FIFO attribution can be
+    verified against real ordering, including _id as tiebreaker). No
+    writes. SUPER_ADMIN only.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can run this")
+
+    cheque_docs = await db.cheques.find({"cheque_number": cheque_number}, {"_id": 0}).to_list(20)
+    cheque_ids = [c["cheque_id"] for c in cheque_docs if c.get("cheque_id")]
+
+    direct_legs = []
+    if cheque_ids:
+        direct_legs = await db.recorded_expenses.find(
+            {"$or": [{"cheque_id": {"$in": cheque_ids}}, {"cheque_ids": {"$in": cheque_ids}}]},
+            {"_id": 0},
+        ).to_list(200)
+
+    income_rows = []
+    or_clauses = []
+    for c in cheque_docs:
+        or_clauses.append({"cheque_id": c["cheque_id"]})
+        if c.get("income_id"):
+            or_clauses.append({"income_id": c["income_id"]})
+        if c.get("bulk_collection_id"):
+            or_clauses.append({"bulk_collection_id": c["bulk_collection_id"]})
+    if or_clauses:
+        income_rows = await db.income.find({"$or": or_clauses}, {"_id": 0}).to_list(200)
+
+    ledger_credits = await db.contractor_suspense_ledger.find(
+        {"cheque_no": cheque_number, "type": "credit"}, {"_id": 0},
+    ).to_list(50)
+
+    contractor_ids = list({c["contractor_id"] for c in ledger_credits if c.get("contractor_id")})
+    full_ledgers = {}
+    for cid in contractor_ids:
+        rows = await db.contractor_suspense_ledger.find({"contractor_id": cid}, {}).to_list(500)
+        for r in rows:
+            r["_id"] = str(r["_id"])
+        full_ledgers[cid] = sorted(rows, key=lambda r: (r.get("date") or "", r["_id"]))
+
+    return {
+        "cheque_number": cheque_number,
+        "cheque_docs": cheque_docs,
+        "direct_expense_legs": direct_legs,
+        "income_rows": income_rows,
+        "ledger_credits_from_this_cheque": ledger_credits,
+        "full_contractor_ledgers": full_ledgers,
+    }
+
+
 # ==================== UNIFIED APPROVALS ENDPOINT ====================
 
 @router.get("/approvals/unified")
