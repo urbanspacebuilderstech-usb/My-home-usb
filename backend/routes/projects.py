@@ -5967,7 +5967,16 @@ async def request_addition_section_payment(project_id: str, section_id: str, req
         amount = c.get("estimated_amount") or c.get("actual_amount") or ((c.get("qty") or 0) * (c.get("price") or 0)) or 0
         recv = c.get("income_received", 0) or 0
         balance = float(amount) - float(recv)
-        if balance <= 0:
+        # Aug 11 2026 — `balance <= 0` correctly skips a positive row that's
+        # already fully collected, but a NEGATIVE row (a deduction/correction
+        # entered against the section, e.g. "-15 rft toughened glass") always
+        # has balance <= 0 too (income_received is 0 against it), so it was
+        # getting silently dropped from the section total instead of
+        # subtracting from it — Sai Karthick reported Mr Sridhar's "Elevation
+        # work" showing 6,37,691 on the CRE Payment Schedule vs the correct
+        # 5,88,190.95 on the Additional Work list, exactly the sum of the two
+        # dropped deductions (34,500 + 15,000 = 49,500.05 rounding aside).
+        if float(amount) >= 0 and balance <= 0:
             continue
         # Skip rows already linked to a DIFFERENT (non-section) stage so we don't double-bill
         existing_stage_id = c.get("linked_stage_id")
