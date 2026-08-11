@@ -7277,6 +7277,28 @@ async def get_cheque_usage(cheque_id: str, user: User = Depends(get_current_user
     if not cheque:
         raise HTTPException(status_code=404, detail="Cheque not found")
 
+    # Aug 11 2026 — regular Payment Schedule collections (single-stage and
+    # bulk) never stored party_name or a human-readable recorded-by name,
+    # only project_id and collected_by (a raw user_id) — Cheque Usage
+    # Details showed "Party: —" / "Recorded By: —" for every one of them.
+    # Both are resolvable from data that DOES exist (project_id ->
+    # client_name, collected_by -> users.name), so self-heal + persist here
+    # rather than leaving historical cheques permanently blank.
+    _heal_fields: Dict[str, Any] = {}
+    if not cheque.get("party_name") and cheque.get("project_id"):
+        _proj = await db.projects.find_one({"project_id": cheque["project_id"]}, {"_id": 0, "client_name": 1, "name": 1})
+        if _proj and (_proj.get("client_name") or _proj.get("name")):
+            _heal_fields["party_name"] = _proj.get("client_name") or _proj.get("name")
+    if not cheque.get("recorded_by_name") and not cheque.get("created_by_name"):
+        _uid = cheque.get("collected_by") or cheque.get("created_by")
+        if _uid:
+            _u = await db.users.find_one({"user_id": _uid}, {"_id": 0, "name": 1})
+            if _u and _u.get("name"):
+                _heal_fields["recorded_by_name"] = _u["name"]
+    if _heal_fields:
+        await db.cheques.update_one({"cheque_id": cheque_id}, {"$set": _heal_fields})
+        cheque.update(_heal_fields)
+
     # Diagnostic flags surfaced to the popup so users understand WHY no
     # income is linked when the cheque has a dangling reference.
     diagnostics = {

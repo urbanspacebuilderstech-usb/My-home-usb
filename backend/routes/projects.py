@@ -4103,6 +4103,13 @@ async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInpu
                             "stage_id": stage_id,
                             "status": "received",
                             "collected_by": user.user_id,
+                            # Aug 11 2026 — Cheque Usage Details showed blank
+                            # "Party"/"Recorded By" for every cheque collected
+                            # through this endpoint; unlike the lead/RE-
+                            # conversion cheque paths, this one never stored
+                            # them at all.
+                            "party_name": (project or {}).get("client_name") or (project or {}).get("name"),
+                            "recorded_by_name": user.name,
                             "created_at": datetime.now(timezone.utc).isoformat()
                         }
                         await db.cheques.insert_one(cheque_record)
@@ -4357,6 +4364,11 @@ async def collect_payment_bulk(
                     "bulk_collection_id": shared_collection_id,
                     "status": "received",
                     "collected_by": user.user_id,
+                    # Aug 11 2026 — same gap as the single-stage collect
+                    # endpoint above: party_name/recorded_by_name were never
+                    # stored, leaving Cheque Usage Details permanently blank.
+                    "party_name": (project or {}).get("client_name") or (project or {}).get("name"),
+                    "recorded_by_name": user.name,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 })
 
