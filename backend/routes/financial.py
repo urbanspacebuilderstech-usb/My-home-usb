@@ -1953,6 +1953,38 @@ async def recompute_material_payment_tracking(target_id: str, dry_run: bool = Tr
     return result
 
 
+@router.get("/admin/debug-expense-cheque/{vendor_name}")
+async def debug_expense_cheque(vendor_name: str, user: User = Depends(get_current_user)):
+    """Temporary read-only diagnostic (Aug 11 2026, missing Cheque No report)
+    — dumps recorded_expenses rows for a vendor with cheque-related fields
+    plus whether their linked cheque doc actually resolves. No writes.
+    SUPER_ADMIN only."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can run this")
+
+    rows = await db.recorded_expenses.find(
+        {"vendor_name": {"$regex": vendor_name, "$options": "i"}},
+        {"_id": 0, "expense_id": 1, "vendor_name": 1, "amount": 1, "payment_method": 1,
+         "cheque_id": 1, "cheque_ids": 1, "cheque_number": 1, "created_at": 1, "request_id": 1},
+    ).sort("created_at", -1).to_list(50)
+
+    all_ids = set()
+    for r in rows:
+        if r.get("cheque_id"):
+            all_ids.add(r["cheque_id"])
+        for cid in (r.get("cheque_ids") or []):
+            all_ids.add(cid)
+
+    cheque_docs = []
+    if all_ids:
+        cheque_docs = await db.cheques.find(
+            {"cheque_id": {"$in": list(all_ids)}},
+            {"_id": 0, "cheque_id": 1, "cheque_number": 1, "used_for_expense_id": 1},
+        ).to_list(len(all_ids))
+
+    return {"vendor_name": vendor_name, "recorded_expenses": rows, "linked_cheques_found": cheque_docs, "cheque_ids_referenced": list(all_ids)}
+
+
 # ==================== UNIFIED APPROVALS ENDPOINT ====================
 
 @router.get("/approvals/unified")
