@@ -7226,18 +7226,21 @@ async def reverse_cheque_suspense_fallout(cheque_id: str, payload: ChequeSuspens
     if cheque.get("used_for_request_id"):
         request_ids_to_reverse.add(cheque["used_for_request_id"])
 
+    # Aug 11 2026 — fetch existing reversal entries up front so idempotency is
+    # checked per LEDGER ENTRY, not per credit. The first cut skipped the
+    # entire FIFO replay (and therefore never even looked up the downstream
+    # request_ids) whenever the original credit had already been reversed —
+    # so a re-run after a partial/earlier success silently stopped checking
+    # the 6 downstream bills at all instead of confirming they were done too.
+    existing_reversals = await db.contractor_suspense_ledger.find(
+        {"source_type": "cheque_bounce_reversal", "reversed_ledger_id": {"$exists": True}},
+        {"_id": 0, "reversed_ledger_id": 1},
+    ).to_list(2000)
+    already_reversed_ledger_ids = {r["reversed_ledger_id"] for r in existing_reversals}
+
     for credit in credits:
         contractor_id = credit.get("contractor_id")
         target_ledger_id = credit["ledger_id"]
-
-        # Skip if this credit was already reversed in a prior run.
-        already = await db.contractor_suspense_ledger.find_one(
-            {"reversed_ledger_id": target_ledger_id, "source_type": "cheque_bounce_reversal", "type": "debit"},
-            {"_id": 0, "ledger_id": 1},
-        )
-        if already:
-            plan.setdefault("skipped_already_reversed_credits", []).append(target_ledger_id)
-            continue
 
         ledger_rows = await db.contractor_suspense_ledger.find({"contractor_id": contractor_id}, {}).to_list(2000)
         for r in ledger_rows:
@@ -7264,26 +7267,29 @@ async def reverse_cheque_suspense_fallout(cheque_id: str, payload: ChequeSuspens
                     if entry[1] <= 0.5:
                         queue.pop(0)
 
-        if not payload.dry_run:
-            await db.contractor_suspense_ledger.insert_one({
-                "ledger_id": f"sl_{uuid.uuid4().hex[:8]}",
-                "contractor_id": contractor_id,
-                "contractor_name": credit.get("contractor_name"),
-                "project_id": credit.get("project_id"),
-                "amount": float(credit.get("amount") or 0),
-                "type": "debit",
-                "source_type": "cheque_bounce_reversal",
-                "reference_id": credit.get("reference_id"),
-                "reversed_ledger_id": target_ledger_id,
-                "date": now,
-                "notes": f"Reversal: {reason} — voids suspense credit {target_ledger_id}",
-                "created_by": user.user_id,
-                "created_by_name": user.name,
+        if target_ledger_id in already_reversed_ledger_ids:
+            plan.setdefault("skipped_already_reversed_credits", []).append(target_ledger_id)
+        else:
+            if not payload.dry_run:
+                await db.contractor_suspense_ledger.insert_one({
+                    "ledger_id": f"sl_{uuid.uuid4().hex[:8]}",
+                    "contractor_id": contractor_id,
+                    "contractor_name": credit.get("contractor_name"),
+                    "project_id": credit.get("project_id"),
+                    "amount": float(credit.get("amount") or 0),
+                    "type": "debit",
+                    "source_type": "cheque_bounce_reversal",
+                    "reference_id": credit.get("reference_id"),
+                    "reversed_ledger_id": target_ledger_id,
+                    "date": now,
+                    "notes": f"Reversal: {reason} — voids suspense credit {target_ledger_id}",
+                    "created_by": user.user_id,
+                    "created_by_name": user.name,
+                })
+            plan["credits_reversed"].append({
+                "ledger_id": target_ledger_id, "amount": credit.get("amount"),
+                "contractor_name": credit.get("contractor_name"), "contractor_id": contractor_id,
             })
-        plan["credits_reversed"].append({
-            "ledger_id": target_ledger_id, "amount": credit.get("amount"),
-            "contractor_name": credit.get("contractor_name"), "contractor_id": contractor_id,
-        })
 
         for row in ledger_rows:
             if row.get("type") != "debit":
@@ -7294,6 +7300,9 @@ async def reverse_cheque_suspense_fallout(cheque_id: str, payload: ChequeSuspens
             ref_id = row.get("reference_id")
             if ref_id:
                 request_ids_to_reverse.add(ref_id)
+            if row["ledger_id"] in already_reversed_ledger_ids:
+                plan.setdefault("skipped_already_reversed_debits", []).append(row["ledger_id"])
+                continue
             if not payload.dry_run:
                 await db.contractor_suspense_ledger.insert_one({
                     "ledger_id": f"sl_{uuid.uuid4().hex[:8]}",
