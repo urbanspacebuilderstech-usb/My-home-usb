@@ -4,7 +4,6 @@ import {
   FolderKanban,
   Bell,
   User,
-  Camera,
   ShoppingCart,
   CheckSquare,
   IndianRupee,
@@ -81,11 +80,15 @@ const OTHER_ROLES = {
     { label: 'Alerts', icon: Bell, path: '/notifications' },
     { label: 'Settings', icon: Settings, path: '/settings' },
   ],
+  // Aug 11 2026 — was Projects/Receipt/Alerts/Profile, which didn't match
+  // the dashboard's own tab bar at all. Mirrors the Sr. Site Engineer
+  // pattern (same underlying page, just without the Sr-only Requests tab)
+  // so tapping one of these lands directly on that tab via `?tab=`.
   site_engineer: [
     { label: 'Projects', icon: HardHat, path: '/site-engineer' },
-    { label: 'Receipt', icon: Camera, path: '/site-engineer/material-receipt' },
-    { label: 'Alerts', icon: Bell, path: '/notifications' },
-    { label: 'Profile', icon: User, path: '/settings' },
+    { label: 'DLR&DPR', icon: FileText, path: '/site-engineer?tab=dlrdpr' },
+    { label: 'Petty Cash', icon: Wallet, path: '/site-engineer?tab=pettycash' },
+    { label: 'Attendance', icon: Clock, path: '/site-engineer?tab=attendance' },
   ],
   // Aug 5 2026 — Sr. Site Engineer had no entry here, so it silently fell
   // back to SA_BOTTOM (Dashboard/Projects/Accounts/Planning/More) — a
