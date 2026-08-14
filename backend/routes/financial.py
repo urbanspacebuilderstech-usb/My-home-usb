@@ -1787,6 +1787,12 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
     }
     if _last_cheque_label:
         set_fields["last_cheque_number"] = _last_cheque_label
+        # `found` is either the material_requests/material_expenses doc
+        # itself (paid_amount = what it had recorded as paid) or the
+        # recorded_expenses mirror being deleted (amount = what that leg
+        # applied to the bill) — either way this is exactly what that
+        # cheque had paid before this send-back, for the Approvals card.
+        set_fields["last_paid_amount"] = float(found.get("paid_amount") or found.get("amount") or 0)
     # Clear payment fields so accountant can re-enter via PayApprovalDialog.
     # NOTE: `next_payment_phase` is NOT in $unset because the material_requests
     # branch needs to $set it to "full" (Mongo forbids touching the same path

@@ -228,7 +228,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                 {req.pulled_back_from_cashbook && req.last_cheque_number && (
                   <div className="mb-2 bg-blue-50 border border-blue-200 rounded px-2 py-1.5 text-[11px] text-blue-700 flex items-start gap-1.5" data-testid={`acc-mat-last-cheque-${req.request_id}`}>
                     <span className="font-semibold">↩ Sent back from Cashbook:</span>
-                    <span>previously paid via Cheque #{req.last_cheque_number}</span>
+                    <span>previously paid {fmt(req.last_paid_amount || 0)} via Cheque #{req.last_cheque_number}</span>
                   </div>
                 )}
                 {(req.status === 'partially_paid' || req.last_partial_paid_at) && req.remaining_balance > 0 && (
@@ -389,7 +389,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                 {exp.pulled_back_from_cashbook && exp.last_cheque_number && (
                   <div className="mb-2 bg-blue-50 border border-blue-200 rounded px-2 py-1.5 text-[11px] text-blue-700 flex items-start gap-1.5" data-testid={`acc-mat-last-cheque-legacy-${exp.expense_id}`}>
                     <span className="font-semibold">↩ Sent back from Cashbook:</span>
-                    <span>previously paid via Cheque #{exp.last_cheque_number}</span>
+                    <span>previously paid {fmt(exp.last_paid_amount || 0)} via Cheque #{exp.last_cheque_number}</span>
                   </div>
                 )}
                 <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
