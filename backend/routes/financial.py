@@ -7206,6 +7206,133 @@ async def debug_mr_devan_cheque_state(user: User = Depends(get_current_user)):
     }
 
 
+class OneTimeChequeRestoreRequest(BaseModel):
+    dry_run: bool = True
+
+
+# Aug 14 2026 — ONE-TIME manual correction, hardcoded to the exact two
+# records identified via /admin/debug-mr-devan-cheque-state: material bill
+# mexp_9e27d6b45119 (Mr Devan, M Sand, SATHISKUMAR AGENCY, ₹17,516) was
+# paid via Cheque #001684 (chq_8e7e0aae) then deleted/sent-back under the
+# OLD (pre-fix) send_material_back_to_approvals, which fully freed the
+# cheque and deleted its ₹1,82,484 excess-to-suspense credit. Per explicit
+# instruction: restore the bill as paid for exactly ₹17,516, re-lock the
+# cheque as historically used, do NOT recreate the ₹1,82,484 excess, and
+# do NOT touch any of SATHISKUMAR AGENCY's other 15 suspense entries or
+# any other bill. Not a generic/reusable endpoint — remove after use.
+@router.post("/admin/one-time-fix/mr-devan-cheque-001684")
+async def one_time_fix_mr_devan_cheque(payload: OneTimeChequeRestoreRequest, user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    CHEQUE_ID = "chq_8e7e0aae"
+    BILL_EXPENSE_ID = "mexp_9e27d6b45119"
+    BILL_REQUEST_ID = "mreq_022165ca5e8c"
+    AMOUNT = 17516.0
+
+    cheque = await db.cheques.find_one({"cheque_id": CHEQUE_ID}, {"_id": 0})
+    bill = await db.material_expenses.find_one({"expense_id": BILL_EXPENSE_ID}, {"_id": 0})
+    if not cheque or not bill:
+        raise HTTPException(status_code=404, detail="Expected cheque or bill record not found — production state has changed since diagnosis, stop and re-verify.")
+
+    already_done = bill.get("status") == "paid" and cheque.get("used_for_expense_id")
+    if already_done:
+        return {
+            "message": "Already corrected — no changes made.",
+            "bill_status": bill.get("status"),
+            "cheque_used_for_expense_id": cheque.get("used_for_expense_id"),
+        }
+    if bill.get("status") != "pending_accounts_approval":
+        raise HTTPException(status_code=400, detail=f"Bill status is '{bill.get('status')}', not 'pending_accounts_approval' — production state has changed since diagnosis, stop and re-verify.")
+    if cheque.get("used_for_expense_id"):
+        raise HTTPException(status_code=400, detail=f"Cheque is already used_for_expense_id={cheque.get('used_for_expense_id')} — production state has changed since diagnosis, stop and re-verify.")
+
+    now = datetime.now(timezone.utc).isoformat()
+    new_expense_id = f"exp_{uuid.uuid4().hex[:12]}"
+
+    plan = {
+        "new_recorded_expense": {
+            "expense_id": new_expense_id, "project_id": bill.get("project_id"), "project_name": bill.get("project_name"),
+            "amount": AMOUNT, "payment_method": "cheque", "cheque_id": CHEQUE_ID, "cheque_number": "001684",
+            "vendor_name": bill.get("vendor_name"), "request_id": BILL_REQUEST_ID, "source": "manual_correction",
+        },
+        "material_expenses_update": {"expense_id": BILL_EXPENSE_ID, "status": "paid", "paid_amount": AMOUNT, "paid_via_expense_id": new_expense_id, "cheque_number": "001684"},
+        "material_requests_update": {"request_id": BILL_REQUEST_ID, "balance_paid_amount": AMOUNT},
+        "cheque_update": {"cheque_id": CHEQUE_ID, "used_for_expense_id": new_expense_id},
+        "suspense_entries_created": 0,
+        "suspense_entries_modified": 0,
+        "other_bills_touched": 0,
+    }
+
+    if payload.dry_run:
+        return {"dry_run": True, "plan": plan}
+
+    await db.recorded_expenses.insert_one({
+        "expense_id": new_expense_id,
+        "project_id": bill.get("project_id"),
+        "project_name": bill.get("project_name"),
+        "category": "material",
+        "expense_type": "material",
+        "description": bill.get("material_name") or "M Sand",
+        "amount": AMOUNT,
+        "tendered_amount": AMOUNT,
+        "payment_method": "cheque",
+        "cheque_id": CHEQUE_ID,
+        "cheque_ids": [CHEQUE_ID],
+        "cheque_number": "001684",
+        "vendor_name": bill.get("vendor_name"),
+        "request_id": BILL_REQUEST_ID,
+        "request_type": "material",
+        "is_partial": False,
+        "recorded_by": user.user_id,
+        "recorded_by_name": user.name,
+        "remarks": "One-time manual correction — restores bill sent-back-from-Cashbook under the pre-fix send_material_back_to_approvals bug, without recreating cheque excess-to-suspense or touching other suspense entries.",
+        "status": "approved",
+        "source": "manual_correction",
+        "created_at": now,
+        "approved_at": now,
+        "approved_by": user.user_id,
+    })
+
+    try:
+        from routes.cashflow import allocate_expense
+        await allocate_expense(new_expense_id, bill.get("project_id"), AMOUNT, "material", bill.get("project_name") or "", source="manual_correction")
+    except Exception as e:
+        import logging; logging.getLogger(__name__).warning(f"cashflow allocate_expense failed in one-time correction: {e}")
+
+    await db.material_expenses.update_one(
+        {"expense_id": BILL_EXPENSE_ID},
+        {
+            "$set": {
+                "status": "paid", "paid_amount": AMOUNT, "paid_at": now,
+                "paid_by": user.user_id, "paid_by_name": user.name,
+                "payment_method": "cheque", "cheque_number": "001684", "cheque_no": "001684",
+                "paid_via_expense_id": new_expense_id, "updated_at": now,
+            },
+            "$unset": {
+                "pulled_back_from_cashbook": "", "sent_back_to_approvals_at": "",
+                "sent_back_to_approvals_by": "", "sent_back_to_approvals_by_name": "",
+                "last_cheque_number": "", "last_paid_amount": "",
+            },
+        }
+    )
+    await db.material_requests.update_one(
+        {"request_id": BILL_REQUEST_ID},
+        {"$set": {"balance_paid_amount": AMOUNT, "balance_paid_at": now, "balance_paid_by": user.user_id, "balance_paid_by_name": user.name, "updated_at": now}}
+    )
+    await db.cheques.update_one(
+        {"cheque_id": CHEQUE_ID},
+        {"$set": {"used_for_expense_id": new_expense_id, "used_at": now, "used_by": user.user_id, "used_by_name": user.name, "updated_at": now}}
+    )
+
+    await create_audit_log(
+        user.user_id, "manual_correction", "material_expense", BILL_EXPENSE_ID,
+        {"reason": "Restore bill paid via Cheque #001684 after pre-fix send_material_back_to_approvals bug", "new_expense_id": new_expense_id, "amount": AMOUNT}
+    )
+
+    return {"dry_run": False, "applied": True, "plan": plan}
+
+
 class ChequeSuspenseFalloutRequest(BaseModel):
     dry_run: bool = True
 
