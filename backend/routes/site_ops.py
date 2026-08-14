@@ -3247,15 +3247,21 @@ async def get_my_petty_cash(project_id: Optional[str] = None, user: User = Depen
     petty_cash_list = await db.petty_cash.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
 
     # Enrich each row with `exp_waiting_amount` — the total of SE-recorded
-    # expenses currently sitting at PM-approved status (Accountant hasn't
-    # finalised) that were funded from this bucket. This lets the Record
-    # Expense picker show the *true* remaining balance = issued − spent −
-    # exp_waiting, so the SE can't over-allocate a bucket that already has
-    # pending expenses queued at the Accountant desk.
+    # expenses not yet finalised by the Accountant (status `recorded` = just
+    # submitted, not even PM-approved yet; `pm_approved` = PM signed off,
+    # awaiting Accountant) that were funded from this bucket. This lets the
+    # Record Expense picker show the *true* remaining balance = issued −
+    # spent − exp_waiting, so the SE can't over-allocate a bucket that
+    # already has pending expenses queued in the approval pipeline.
+    # Aug 14 2026 — Was matching status "pm_approved" only, so a bucket with
+    # money tied up in a freshly-submitted (not yet PM-approved) expense
+    # showed its full balance as "available" here, then got rejected at
+    # submit time by `/site-engineer/direct-expense`'s validation (which
+    # correctly matches both statuses) — the two queries had drifted apart.
     if petty_cash_list:
         pc_ids = [pc["petty_cash_id"] for pc in petty_cash_list]
         agg = await db.recorded_expenses.aggregate([
-            {"$match": {"linked_petty_cash_id": {"$in": pc_ids}, "status": "pm_approved"}},
+            {"$match": {"linked_petty_cash_id": {"$in": pc_ids}, "status": {"$in": ["recorded", "pm_approved"]}}},
             {"$group": {"_id": "$linked_petty_cash_id", "total": {"$sum": "$amount"}}},
         ]).to_list(2000)
         by_pc = {row["_id"]: float(row["total"] or 0) for row in agg}
@@ -4296,9 +4302,11 @@ async def get_direct_expenses(project_id: Optional[str] = None, date_from: Optio
 async def get_income_history(user: User = Depends(get_current_user)):
     """Get petty cash income history (acknowledged/issued amounts) enriched
     with the pending "Exp Waiting A/C" total per bucket — i.e. sum of every
-    `recorded_expenses` row still at status `pm_approved` (Accountant hasn't
-    finalised) that was funded from this petty cash bucket. This drives the
-    new "Exp Waiting" column in the SE Income History table.
+    `recorded_expenses` row not yet finalised by the Accountant (status
+    `recorded` or `pm_approved`) that was funded from this petty cash
+    bucket. This drives the "Exp Waiting" column in the SE Income History
+    table. Aug 14 2026 — kept in sync with the identical fix in
+    `/site-engineer/petty-cash` (was missing `recorded`, undercounting).
     """
     if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Access denied")
@@ -4308,7 +4316,7 @@ async def get_income_history(user: User = Depends(get_current_user)):
     if records:
         pc_ids = [r["petty_cash_id"] for r in records]
         agg = await db.recorded_expenses.aggregate([
-            {"$match": {"linked_petty_cash_id": {"$in": pc_ids}, "status": "pm_approved"}},
+            {"$match": {"linked_petty_cash_id": {"$in": pc_ids}, "status": {"$in": ["recorded", "pm_approved"]}}},
             {"$group": {"_id": "$linked_petty_cash_id", "total": {"$sum": "$amount"}}},
         ]).to_list(2000)
         by_pc = {row["_id"]: float(row["total"] or 0) for row in agg}
