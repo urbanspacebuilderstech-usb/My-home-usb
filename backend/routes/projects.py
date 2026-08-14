@@ -5951,7 +5951,21 @@ async def _compute_section_eligible_costs(project_id: str, section_id: str, exis
             if other and not other.get("is_section_addition"):
                 continue
         eligible.append({"cost_id": c["cost_id"], "balance": balance, "amount": float(amount)})
-    section_total = sum(e["balance"] for e in eligible)
+    # Aug 14 2026 — must be the sum of the FULL amounts, not balances
+    # (amount minus already-received). The stage's `amount` field is the
+    # section's gross total; `amount_received` already tracks what's been
+    # collected separately, and the CRE Board subtracts amount_received
+    # from amount to show Balance. Summing balances here fed an
+    # already-net figure into `amount`, so the CRE Board's Balance
+    # double-subtracted the received portion (Mr Gopinath - nanmangalam
+    # "Elevation work": ₹2,40,897 total / ₹1,14,458 received showed as
+    # Amount ₹1,26,439 / Balance ₹11,981 instead of Amount ₹2,40,897 /
+    # Balance ₹1,26,439). Only surfaces once a section has a partial
+    # collection against it, which is why Mr Sridhar's case — fixed
+    # earlier for a different bug (dropped negative/deduction rows) —
+    # didn't expose this: no partial payment existed yet, so sum(balance)
+    # and sum(amount) happened to coincide.
+    section_total = sum(e["amount"] for e in eligible)
     return eligible, section_total
 
 
@@ -6057,14 +6071,17 @@ async def request_addition_section_payment(project_id: str, section_id: str, req
     # rows instead of subtracting them (Mr Sridhar's "Elevation work":
     # CRE showed 6,37,691 vs the correct 5,88,190.95 on the Additional Work
     # list — exactly the two dropped deductions, 34,500 + 15,000).
-    eligible, _section_total_unused = await _compute_section_eligible_costs(
+    # Aug 14 2026 — use the shared helper's own section_total (sum of full
+    # amounts) instead of recomputing a local copy — this endpoint used to
+    # independently sum balances here too, drifting from the shared helper
+    # in exactly the way the Aug 11 refactor was meant to prevent.
+    eligible, section_total = await _compute_section_eligible_costs(
         project_id, section_id, (existing_stage or {}).get("stage_id")
     )
 
     if not eligible:
         raise HTTPException(status_code=400, detail="No client-approved rows with open balance in this section. Approve rows first (or click 'Send to Client') before requesting payment.")
 
-    section_total = sum(e["balance"] for e in eligible)
     cost_ids = [e["cost_id"] for e in eligible]
     now_iso = datetime.now(timezone.utc).isoformat()
 
