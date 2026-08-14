@@ -225,6 +225,12 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     <span>#{req.bounced_from_cheque_number} · {fmt(req.bounced_from_cheque_amount)} · {req.bounce_reason || 'No reason'}</span>
                   </div>
                 )}
+                {req.pulled_back_from_cashbook && req.last_cheque_number && (
+                  <div className="mb-2 bg-blue-50 border border-blue-200 rounded px-2 py-1.5 text-[11px] text-blue-700 flex items-start gap-1.5" data-testid={`acc-mat-last-cheque-${req.request_id}`}>
+                    <span className="font-semibold">↩ Sent back from Cashbook:</span>
+                    <span>previously paid via Cheque #{req.last_cheque_number}</span>
+                  </div>
+                )}
                 {(req.status === 'partially_paid' || req.last_partial_paid_at) && req.remaining_balance > 0 && (
                   <div className="mb-2 bg-yellow-50 border border-yellow-200 rounded px-2 py-1.5 text-[11px] text-yellow-800 flex items-center justify-between">
                     <span><span className="font-semibold">Partially Paid:</span> {fmt(req.paid_amount || 0)} of {fmt(total)} paid</span>
@@ -378,6 +384,12 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                   <div className="mb-2 bg-yellow-50 border border-yellow-200 rounded px-2 py-1.5 text-[11px] text-yellow-800 flex items-center justify-between">
                     <span><span className="font-semibold">Partially Paid:</span> {fmt(exp.paid_amount || 0)} of {fmt(amt)} paid</span>
                     <span className="font-bold">Balance: {fmt(exp.remaining_balance)}</span>
+                  </div>
+                )}
+                {exp.pulled_back_from_cashbook && exp.last_cheque_number && (
+                  <div className="mb-2 bg-blue-50 border border-blue-200 rounded px-2 py-1.5 text-[11px] text-blue-700 flex items-start gap-1.5" data-testid={`acc-mat-last-cheque-legacy-${exp.expense_id}`}>
+                    <span className="font-semibold">↩ Sent back from Cashbook:</span>
+                    <span>previously paid via Cheque #{exp.last_cheque_number}</span>
                   </div>
                 )}
                 <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">

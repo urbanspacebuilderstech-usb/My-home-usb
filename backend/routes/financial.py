@@ -1738,6 +1738,34 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
     if not found:
         raise HTTPException(status_code=404, detail="Material entry not found — please hard-refresh (Ctrl+Shift+R) and try again. It may have already been sent back.")
 
+    # Aug 14 2026 — Capture which cheque this bill was paid with BEFORE the
+    # unset below wipes cheque_no/cheque_id, and stamp it as `last_cheque_number`
+    # so the Approvals card can show accountants "this was previously paid via
+    # Cheque #X" as reference — otherwise a bill sent back from Cashbook re-shows
+    # in Approvals with no trace of the cheque that funded it before.
+    async def _resolve_last_cheque_label(doc: Dict[str, Any]) -> Optional[str]:
+        if doc.get("cheque_number"):
+            return doc["cheque_number"]
+        cheque_no = doc.get("cheque_no")
+        if isinstance(cheque_no, str) and cheque_no and not cheque_no.startswith("chq_"):
+            return cheque_no
+        ids = set()
+        if isinstance(cheque_no, str) and cheque_no.startswith("chq_"):
+            ids.add(cheque_no)
+        if doc.get("cheque_id"):
+            ids.add(doc["cheque_id"])
+        for cid in (doc.get("cheque_ids") or []):
+            if cid:
+                ids.add(cid)
+        for leg in (doc.get("payment_legs") or []):
+            if leg.get("cheque_id"):
+                ids.add(leg["cheque_id"])
+        if not ids:
+            return None
+        cheque_docs = await db.cheques.find({"cheque_id": {"$in": list(ids)}}, {"_id": 0, "cheque_number": 1}).to_list(len(ids))
+        nums = [d.get("cheque_number") for d in cheque_docs if d.get("cheque_number")]
+        return ", ".join(nums) if nums else None
+
     # 1) Reverse cashflow allocation.
     try:
         from routes.cashflow import reverse_allocation
@@ -1748,6 +1776,7 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
         import logging; logging.getLogger(__name__).warning(f"cashflow reverse_allocation failed in material send-back {record_id}: {e}")
 
     coll_name = found_coll.name
+    _last_cheque_label = await _resolve_last_cheque_label(found)
     set_fields = {
         "status": "pending_accounts_approval",
         "pulled_back_from_cashbook": True,
@@ -1756,6 +1785,8 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
         "sent_back_to_approvals_by_name": user.name,
         "updated_at": now_iso,
     }
+    if _last_cheque_label:
+        set_fields["last_cheque_number"] = _last_cheque_label
     # Clear payment fields so accountant can re-enter via PayApprovalDialog.
     # NOTE: `next_payment_phase` is NOT in $unset because the material_requests
     # branch needs to $set it to "full" (Mongo forbids touching the same path
