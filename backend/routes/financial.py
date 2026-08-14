@@ -1811,8 +1811,101 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
         "last_partial_paid_by": "", "last_partial_paid_by_name": "",
     }
 
-    # Feb 28 2026 — Helper: free any cheques used for a recorded_expense
-    # and delete the mirror so the cashbook stops showing it.
+    # Aug 14 2026 — Reversing a paid mirror used to unconditionally free
+    # EVERY cheque it referenced and hard-delete EVERY suspense_entries row
+    # tied to it. Correct only for a simple exact-amount cheque payment.
+    # Two real scenarios broke it:
+    #   1. The cheque had EXCESS that went to vendor suspense (bill ₹17,516
+    #      paid from a ₹2,00,000 cheque → ₹1,82,484 credited to suspense).
+    #      Deleting the bill deleted that credit row outright — even if
+    #      OTHER live bills had already drawn on it — and freed the FULL
+    #      ₹2,00,000 cheque, letting it be swiped a second time
+    #      (double-spend) while orphaning whatever those other bills'
+    #      funding trail pointed at.
+    #   2. A bill funded FROM suspense (not a direct cheque swipe) carries
+    #      an *inherited* cheque_id purely for display (which cheque
+    #      originally seeded the pool) — freeing THAT cheque on delete
+    #      incorrectly touched a cheque some other, still-live bill owns.
+    # Fix: only free a cheque if it's genuinely THIS mirror's own swipe
+    # (verified against the cheque's own `used_for_expense_id`, not just
+    # trusted from the mirror's field) AND that swipe never created
+    # suspense excess. A credit row this mirror created is never deleted —
+    # only offset by a fresh, independent credit for exactly this leg's own
+    # amount, leaving any other bill's consumption of the original credit
+    # completely undisturbed. A debit row this mirror created (it was
+    # itself suspense-funded) is safe to delete outright — a private,
+    # one-off consumption record nothing else references.
+    async def _reverse_mirror_cheque_and_suspense(m: Dict[str, Any]):
+        exp_id = m.get("expense_id")
+        if not exp_id:
+            return
+        cheque_ids = set()
+        if m.get("cheque_id"):
+            cheque_ids.add(m["cheque_id"])
+        for leg in (m.get("payment_legs") or []):
+            if leg.get("cheque_id"):
+                cheque_ids.add(leg["cheque_id"])
+
+        # Scoped strictly to rows THIS mirror itself created (linked_expense_id
+        # is always self-referential — the direct leg's own id for a credit
+        # it generated, the suspense leg's own id for a debit it generated —
+        # never a sibling leg's id) so a bill paid across multiple legs can't
+        # cross-contaminate another leg's entries.
+        own_suspense_rows = await db.suspense_entries.find(
+            {"linked_expense_id": exp_id}, {"_id": 0}
+        ).to_list(50)
+        created_excess = any(float(r.get("amount") or 0) > 0.5 for r in own_suspense_rows)
+
+        for cid in cheque_ids:
+            cheque = await db.cheques.find_one({"cheque_id": cid}, {"_id": 0, "used_for_expense_id": 1})
+            if not cheque or cheque.get("used_for_expense_id") != exp_id:
+                continue  # not genuinely this mirror's own swipe — leave it alone
+            if created_excess:
+                continue  # this cheque's money is still in the vendor's suspense pool — keep it locked
+            await db.cheques.update_one(
+                {"cheque_id": cid},
+                {"$unset": {"used_for_expense_id": "", "used_at": "", "used_by": "", "used_by_name": ""},
+                 "$set": {"is_opened": True, "updated_at": now_iso}}
+            )
+
+        for r in own_suspense_rows:
+            amt = float(r.get("amount") or 0)
+            if amt < -0.5 and r.get("entry_id"):
+                await db.suspense_entries.delete_one({"entry_id": r["entry_id"]})
+            elif amt > 0.5 and r.get("entry_id"):
+                # This credit's originating expense (exp_id) is about to be
+                # deleted below. _live_vendor_suspense_balance and
+                # _resolve_suspense_funding_source both treat a suspense row
+                # whose linked_expense_id points at a no-longer-existing
+                # recorded_expense as stale and exclude it from the balance
+                # (a safety net written for the OLD delete flow, which used
+                # to hard-delete orphaned suspense rows outright). This
+                # credit is still real, standing money in the vendor's pool
+                # — detach it from the about-to-be-deleted expense so it
+                # keeps counting instead of silently vanishing from the
+                # balance while still sitting in the database.
+                await db.suspense_entries.update_one(
+                    {"entry_id": r["entry_id"]},
+                    {"$unset": {"linked_expense_id": "", "linked_request_id": ""}}
+                )
+
+        if created_excess:
+            direct_amt = float(m.get("amount") or 0)
+            if direct_amt > 0.5:
+                await db.suspense_entries.insert_one({
+                    "entry_id": f"se_{uuid.uuid4().hex[:10]}",
+                    "type": "material",
+                    "vendor_name": m.get("vendor_name") or "Unknown Vendor",
+                    "amount": direct_amt,
+                    "description": f"Reversal: {m.get('description') or 'material bill'} sent back to Approvals from Cashbook",
+                    "source_type": "expense_delete_reversal",
+                    "reversed_expense_id": exp_id,
+                    "created_at": now_iso,
+                    "created_by": user.user_id,
+                })
+
+    # Helper: reverse cheque/suspense for a recorded_expense mirror, then
+    # delete the mirror so the cashbook stops showing it.
     async def _cleanup_mirrors_for_parent(parent_request_id=None, parent_expense_id=None):
         if not (parent_request_id or parent_expense_id):
             return
@@ -1825,34 +1918,8 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
             mirror_filter["$or"].append({"material_expense_id": parent_expense_id})
         mirrors = await db.recorded_expenses.find(mirror_filter, {"_id": 0}).to_list(50)
         for m in mirrors:
-            cheque_ids_to_free = set()
-            if m.get("cheque_id"):
-                cheque_ids_to_free.add(m["cheque_id"])
-            for leg in (m.get("payment_legs") or []):
-                if leg.get("cheque_id"):
-                    cheque_ids_to_free.add(leg["cheque_id"])
-            for cid in cheque_ids_to_free:
-                await db.cheques.update_one(
-                    {"cheque_id": cid},
-                    {"$unset": {"used_for_expense_id": "", "used_at": "", "used_by": "", "used_by_name": ""},
-                     "$set": {"is_opened": True, "updated_at": now_iso}}
-                )
-            # Drop any vendor suspense credit AND any "credit applied" entry
-            # that was linked to this release's cheque excess. Match on
-            # linked_expense_id (recorded_expense id), linked_request_id
-            # (material_request/expense id), or any linked cheque id.
-            exp_id = m.get("expense_id")
-            req_id = m.get("request_id") or m.get("material_request_id") or m.get("material_expense_id")
-            or_clauses = []
-            if exp_id:
-                or_clauses.append({"linked_expense_id": exp_id})
-            if req_id:
-                or_clauses.append({"linked_request_id": req_id})
-            if cheque_ids_to_free:
-                or_clauses.append({"linked_cheque_ids": {"$in": list(cheque_ids_to_free)}})
-            if or_clauses:
-                await db.suspense_entries.delete_many({"$or": or_clauses})
-            await db.recorded_expenses.delete_one({"expense_id": exp_id})
+            await _reverse_mirror_cheque_and_suspense(m)
+            await db.recorded_expenses.delete_one({"expense_id": m.get("expense_id")})
 
     if coll_name == "material_requests":
         # Re-stage for accounts approval; reset paid_amount and remaining.
@@ -1895,32 +1962,13 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
                 {"$set": {**set_fields, "next_payment_phase": "full"}, "$unset": unset_fields}
             )
     elif coll_name == "recorded_expenses":
-        # Cashbook mirror of a material release. BEFORE deleting, free any
-        # cheque(s) used so they can be reused. (Feb 28 2026 user request:
-        # "i use in cheque i need that cheque also go back".)
-        cheque_ids_to_free = set()
-        if found.get("cheque_id"):
-            cheque_ids_to_free.add(found["cheque_id"])
-        for leg in (found.get("payment_legs") or []):
-            if leg.get("cheque_id"):
-                cheque_ids_to_free.add(leg["cheque_id"])
-        for cid in cheque_ids_to_free:
-            await db.cheques.update_one(
-                {"cheque_id": cid},
-                {"$unset": {"used_for_expense_id": "", "used_at": "", "used_by": "", "used_by_name": ""},
-                 "$set": {"is_opened": True, "updated_at": now_iso}}
-            )
-        # Drop any vendor suspense credit AND any "credit applied" entry
-        # that was created from this release. Match on linked_expense_id
-        # (this recorded_expense), linked_request_id (parent material id), or
-        # any linked cheque id.
-        parent_id_for_suspense = found.get("request_id") or found.get("material_request_id") or found.get("material_expense_id")
-        suspense_or = [{"linked_expense_id": record_id}]
-        if parent_id_for_suspense:
-            suspense_or.append({"linked_request_id": parent_id_for_suspense})
-        if cheque_ids_to_free:
-            suspense_or.append({"linked_cheque_ids": {"$in": list(cheque_ids_to_free)}})
-        await db.suspense_entries.delete_many({"$or": suspense_or})
+        # Cashbook mirror of a material release. BEFORE deleting, reverse
+        # its cheque/suspense footprint with the same ownership-aware logic
+        # as _cleanup_mirrors_for_parent above (Feb 28 2026 user request:
+        # "i use in cheque i need that cheque also go back" — Aug 14 2026:
+        # made surgical so it doesn't touch a cheque/credit another live
+        # bill depends on).
+        await _reverse_mirror_cheque_and_suspense(found)
 
         # Now delete the mirror AND reset the parent material_request /
         # material_expense so it re-surfaces in Approvals → Materials.
@@ -8607,6 +8655,29 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     if req.get("status") in ("paid", "settled", "rejected"):
         raise HTTPException(status_code=400, detail=f"Already processed (status={req.get('status')})")
 
+    # Aug 14 2026 — Close the race where a double-click / duplicate submit
+    # fires two overlapping calls for the same request_id: both read
+    # `status` above before either writes back "paid" (that write happens
+    # many steps below), so both pass the check and both apply a full
+    # suspense-debit + payment. Claim an atomic, short-lived lock via a
+    # single-document find_one_and_update (Mongo guarantees only one
+    # concurrent caller can win it) before doing any of that work. The lock
+    # self-expires after 30s so a crash mid-request can't brick the record
+    # permanently; the success path below clears it explicitly.
+    _lock_now = datetime.now(timezone.utc)
+    _lock_claim = await db[coll].find_one_and_update(
+        {
+            id_field: request_id,
+            "$or": [
+                {"_payment_lock_at": {"$exists": False}},
+                {"_payment_lock_at": {"$lt": (_lock_now - timedelta(seconds=30)).isoformat()}},
+            ],
+        },
+        {"$set": {"_payment_lock_at": _lock_now.isoformat()}},
+    )
+    if _lock_claim is None:
+        raise HTTPException(status_code=409, detail="This payment is already being processed — please wait a moment and refresh.")
+
     bill_amount = float(amount_fn(req) or 0)
     vendor_name = vendor_fn(req)
     project_id = req.get("project_id")
@@ -8994,7 +9065,10 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
         request_update["last_partial_paid_by"] = user.user_id
         request_update["last_partial_paid_by_name"] = user.name
         request_update["remaining_balance"] = max(0.0, bill_amount - credit_used - new_total_paid)
-    await db[coll].update_one({id_field: request_id}, {"$set": request_update})
+    await db[coll].update_one(
+        {id_field: request_id},
+        {"$set": request_update, "$unset": {"_payment_lock_at": ""}},
+    )
 
     # 10. Phase cascade for material requests — only on FULL payment
     if req_type == "material" and is_full_payment:
