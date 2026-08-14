@@ -425,202 +425,260 @@ async def startup_init():
 
     # Start background auto-sync for Google Sheets
     import asyncio
-    
+    import time
+
+    # Aug 11 2026 — this loop used to call googleapiclient's SYNCHRONOUS
+    # `.execute()` directly from inside an `async def`, which blocks the
+    # entire single-worker event loop (confirmed via PM2 logs: a 401→
+    # refresh cycle firing on almost every 60s tick, meaning every request
+    # in flight at that moment stalled for the duration of that Google API
+    # round-trip). Root cause of the 401-every-cycle: `Credentials` was
+    # rebuilt from the DB-stored access_token on every single cycle with no
+    # expiry check, and the token google-auth silently refreshed in-memory
+    # was NEVER written back to `google_sheets_tokens` — so the next cycle
+    # always reloaded the same already-stale token and had to refresh again.
+    # `_sheets_client_cache` fixes that by reusing the same Credentials/
+    # service objects across cycles (persisting the refresh the same way
+    # `get_sheets_credentials` in routes/crm.py already does), only
+    # rebuilding when the underlying refresh_token/client credentials on
+    # file actually change.
+    _sheets_sync_lock = asyncio.Lock()
+    _sheets_client_cache = {}
+
+    def _build_sheets_service(token_doc):
+        """Sync (runs off the event loop via to_thread). Builds fresh
+        Credentials + a Sheets service object — only called on a cache miss."""
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+        creds = Credentials(
+            token=token_doc.get("access_token"),
+            refresh_token=token_doc.get("refresh_token"),
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=token_doc.get("client_id") or os.environ.get("GOOGLE_SHEETS_CLIENT_ID"),
+            client_secret=token_doc.get("client_secret") or os.environ.get("GOOGLE_SHEETS_CLIENT_SECRET"),
+        )
+        service = build('sheets', 'v4', credentials=creds, cache_discovery=False)
+        return creds, service
+
+    def _sheets_meta(service, sid):
+        return service.spreadsheets().get(spreadsheetId=sid).execute()
+
+    def _sheets_values(service, sid, rng):
+        return service.spreadsheets().values().get(spreadsheetId=sid, range=rng).execute()
+
     async def sheets_auto_sync_loop():
         """Background task: check connected sheets for new rows every 60 seconds"""
         from core.database import db as sync_db
         while True:
             try:
                 await asyncio.sleep(60)  # Check every 1 minute for near-immediate sync
-                
-                # Get all auto-sync configs that are enabled
-                configs = await sync_db.sheets_auto_sync.find({"enabled": True}, {"_id": 0}).to_list(50)
-                
-                for config in configs:
-                    user_id = config.get("user_id")
-                    if not user_id:
-                        continue
-                    
-                    # Get connected sheets for this user
-                    connected = await sync_db.connected_sheets.find({"user_id": user_id}, {"_id": 0}).to_list(50)
-                    if not connected:
-                        continue
-                    
-                    # Get Google credentials
-                    token_doc = await sync_db.google_sheets_tokens.find_one({"user_id": user_id}, {"_id": 0})
-                    if not token_doc:
-                        continue
-                    
-                    try:
-                        from google.oauth2.credentials import Credentials
-                        from googleapiclient.discovery import build
-                        
-                        # Use the client_id/secret saved on the token itself (set at
-                        # OAuth-issue time from the DB-saved credentials, falling back
-                        # to env vars only for old tokens issued before that existed)
-                        # rather than reading os.environ directly, so a Super Admin
-                        # rotating credentials via the app doesn't strand existing
-                        # tokens on the old client.
-                        creds = Credentials(
-                            token=token_doc.get("access_token"),
-                            refresh_token=token_doc.get("refresh_token"),
-                            token_uri="https://oauth2.googleapis.com/token",
-                            client_id=token_doc.get("client_id") or os.environ.get("GOOGLE_SHEETS_CLIENT_ID"),
-                            client_secret=token_doc.get("client_secret") or os.environ.get("GOOGLE_SHEETS_CLIENT_SECRET")
-                        )
-                        
-                        service = build('sheets', 'v4', credentials=creds)
-                        
-                        for sheet_doc in connected:
-                            sid = sheet_doc.get("spreadsheet_id")
-                            tab_configs = list(sheet_doc.get("tab_configs", []))
-                            old_row_counts = sheet_doc.get("tab_row_counts", {})
-                            new_row_counts = {}
-                            new_leads_total = 0
-                            known_tab_names = {tc.get("tab_name") for tc in tab_configs}
-                            
-                            # Discover new tabs
-                            try:
-                                meta = service.spreadsheets().get(spreadsheetId=sid).execute()
-                                all_sheet_tabs = [s["properties"]["title"] for s in meta.get("sheets", [])]
-                            except:
-                                all_sheet_tabs = list(known_tab_names)
-                            
-                            for tab_title in all_sheet_tabs:
-                                if tab_title not in known_tab_names:
-                                    try:
-                                        result = service.spreadsheets().values().get(
-                                            spreadsheetId=sid, range=f"'{tab_title}'!1:1"
-                                        ).execute()
-                                        headers = result.get('values', [[]])[0]
-                                        if not headers:
-                                            continue
-                                        auto_mapping = {}
-                                        field_keywords = {
-                                            "name": ["name", "client", "customer", "lead name", "full name", "client name"],
-                                            "phone": ["phone", "mobile", "contact", "number", "cell", "tel"],
-                                            "email": ["email", "mail", "e-mail"],
-                                            "city": ["city", "location", "area", "place"],
-                                            "budget": ["budget", "amount", "value", "price"],
-                                            "notes": ["notes", "remarks", "comment", "description", "requirement"],
-                                        }
-                                        for col_idx, header in enumerate(headers):
-                                            header_lower = header.strip().lower()
-                                            col_letter = chr(65 + col_idx) if col_idx < 26 else chr(64 + col_idx // 26) + chr(65 + col_idx % 26)
-                                            for field_name, keywords in field_keywords.items():
-                                                if any(kw in header_lower for kw in keywords):
-                                                    if field_name not in auto_mapping.values():
-                                                        auto_mapping[col_letter] = field_name
-                                                    break
-                                            else:
-                                                if header.strip():
-                                                    auto_mapping[col_letter] = header.strip().lower().replace(" ", "_")
-                                        if auto_mapping:
-                                            tab_configs.append({"tab_name": tab_title, "column_mapping": auto_mapping, "auto_discovered": True})
-                                            known_tab_names.add(tab_title)
-                                            logger.info(f"Auto-sync: Discovered new tab '{tab_title}'")
-                                    except:
-                                        continue
-                            
-                            for tc in tab_configs:
-                                tab_name = tc.get("tab_name")
-                                col_mapping = tc.get("column_mapping", {})
-                                old_count = old_row_counts.get(tab_name, 0)
-                                # Track phones already inserted in this auto-sync pass
-                                seen_phones_in_run: set[str] = set()
-                                
+
+                async with _sheets_sync_lock:
+                    cycle_start = time.monotonic()
+                    logger.info("Sheets auto-sync: cycle start")
+
+                    # Get all auto-sync configs that are enabled
+                    configs = await sync_db.sheets_auto_sync.find({"enabled": True}, {"_id": 0}).to_list(50)
+
+                    for config in configs:
+                        user_id = config.get("user_id")
+                        if not user_id:
+                            continue
+
+                        # Get connected sheets for this user
+                        connected = await sync_db.connected_sheets.find({"user_id": user_id}, {"_id": 0}).to_list(50)
+                        if not connected:
+                            continue
+
+                        # Get Google credentials
+                        token_doc = await sync_db.google_sheets_tokens.find_one({"user_id": user_id}, {"_id": 0})
+                        if not token_doc:
+                            continue
+
+                        try:
+                            # Reuse the cached Credentials/service for this user unless
+                            # the underlying refresh_token/client creds on file changed
+                            # (e.g. a Super Admin reconnected/rotated credentials) —
+                            # avoids rebuilding the service (and re-fetching the
+                            # discovery doc) on every single cycle.
+                            rt = token_doc.get("refresh_token")
+                            cid = token_doc.get("client_id") or os.environ.get("GOOGLE_SHEETS_CLIENT_ID")
+                            csecret = token_doc.get("client_secret") or os.environ.get("GOOGLE_SHEETS_CLIENT_SECRET")
+                            cached = _sheets_client_cache.get(user_id)
+                            if cached and cached["refresh_token"] == rt and cached["client_id"] == cid and cached["client_secret"] == csecret:
+                                creds, service = cached["creds"], cached["service"]
+                            else:
+                                creds, service = await asyncio.to_thread(_build_sheets_service, token_doc)
+                                cached = {"creds": creds, "service": service, "refresh_token": rt, "client_id": cid, "client_secret": csecret, "last_written_token": token_doc.get("access_token")}
+                                _sheets_client_cache[user_id] = cached
+
+                            for sheet_doc in connected:
+                                sid = sheet_doc.get("spreadsheet_id")
+                                tab_configs = list(sheet_doc.get("tab_configs", []))
+                                old_row_counts = sheet_doc.get("tab_row_counts", {})
+                                new_row_counts = {}
+                                new_leads_total = 0
+                                known_tab_names = {tc.get("tab_name") for tc in tab_configs}
+
+                                # Discover new tabs
                                 try:
-                                    result = service.spreadsheets().values().get(
-                                        spreadsheetId=sid, range=f"'{tab_name}'"
-                                    ).execute()
+                                    meta = await asyncio.to_thread(_sheets_meta, service, sid)
+                                    all_sheet_tabs = [s["properties"]["title"] for s in meta.get("sheets", [])]
                                 except:
-                                    new_row_counts[tab_name] = old_count
-                                    continue
-                                
-                                values = result.get('values', [])
-                                if len(values) < 2:
-                                    new_row_counts[tab_name] = 0
-                                    continue
-                                
-                                all_data = values[1:]
-                                current_count = len(all_data)
-                                new_row_counts[tab_name] = current_count
-                                
-                                if current_count <= old_count:
-                                    continue
-                                
-                                new_rows = all_data[old_count:]
-                                source_name = tab_name.lower().replace(" ", "_").replace("-", "_")
-                                
-                                for row in new_rows:
-                                    lead_data = {
-                                        "lead_id": f"lead_{uuid.uuid4().hex[:12]}",
-                                        "source": source_name,
-                                        "source_display": tab_name,
-                                        "stage_type": "pre_sales",
-                                        "current_stage_id": "stg_new_lead",
-                                        "created_at": datetime.now(timezone.utc).isoformat(),
-                                        "imported_from_sheet": sid,
-                                        "auto_synced": True,
-                                        "custom_fields": {}
-                                    }
-                                    
-                                    for col_letter, field_name in col_mapping.items():
-                                        if not field_name or field_name == '_skip':
+                                    all_sheet_tabs = list(known_tab_names)
+
+                                for tab_title in all_sheet_tabs:
+                                    if tab_title not in known_tab_names:
+                                        try:
+                                            result = await asyncio.to_thread(_sheets_values, service, sid, f"'{tab_title}'!1:1")
+                                            headers = result.get('values', [[]])[0]
+                                            if not headers:
+                                                continue
+                                            auto_mapping = {}
+                                            field_keywords = {
+                                                "name": ["name", "client", "customer", "lead name", "full name", "client name"],
+                                                "phone": ["phone", "mobile", "contact", "number", "cell", "tel"],
+                                                "email": ["email", "mail", "e-mail"],
+                                                "city": ["city", "location", "area", "place"],
+                                                "budget": ["budget", "amount", "value", "price"],
+                                                "notes": ["notes", "remarks", "comment", "description", "requirement"],
+                                            }
+                                            for col_idx, header in enumerate(headers):
+                                                header_lower = header.strip().lower()
+                                                col_letter = chr(65 + col_idx) if col_idx < 26 else chr(64 + col_idx // 26) + chr(65 + col_idx % 26)
+                                                for field_name, keywords in field_keywords.items():
+                                                    if any(kw in header_lower for kw in keywords):
+                                                        if field_name not in auto_mapping.values():
+                                                            auto_mapping[col_letter] = field_name
+                                                        break
+                                                else:
+                                                    if header.strip():
+                                                        auto_mapping[col_letter] = header.strip().lower().replace(" ", "_")
+                                            if auto_mapping:
+                                                tab_configs.append({"tab_name": tab_title, "column_mapping": auto_mapping, "auto_discovered": True})
+                                                known_tab_names.add(tab_title)
+                                                logger.info(f"Auto-sync: Discovered new tab '{tab_title}'")
+                                        except:
                                             continue
-                                        col_idx = ord(col_letter[0]) - 65
-                                        if len(col_letter) > 1:
-                                            col_idx = 26 + ord(col_letter[1]) - 65
-                                        if col_idx < len(row):
-                                            value = str(row[col_idx]).strip() if row[col_idx] else ""
-                                            if field_name in ["name", "phone", "email", "city", "budget", "notes", "address", "state"]:
-                                                lead_data[field_name] = value
-                                            else:
-                                                lead_data["custom_fields"][field_name] = value
-                                    
-                                    
-                                    if not lead_data.get("name") and not lead_data.get("phone"):
+
+                                for tc in tab_configs:
+                                    tab_name = tc.get("tab_name")
+                                    col_mapping = tc.get("column_mapping", {})
+                                    old_count = old_row_counts.get(tab_name, 0)
+                                    # Track phones already inserted in this auto-sync pass
+                                    seen_phones_in_run: set[str] = set()
+
+                                    try:
+                                        result = await asyncio.to_thread(_sheets_values, service, sid, f"'{tab_name}'")
+                                    except:
+                                        new_row_counts[tab_name] = old_count
                                         continue
-                                    # Country-code-tolerant + in-batch dedup
-                                    from routes.crm import normalize_phone, find_existing_lead_by_phone
-                                    phone_raw = lead_data.get("phone") or ""
-                                    phone_norm = normalize_phone(phone_raw)
-                                    if phone_norm:
-                                        if phone_norm in seen_phones_in_run:
+
+                                    values = result.get('values', [])
+                                    if len(values) < 2:
+                                        new_row_counts[tab_name] = 0
+                                        continue
+
+                                    all_data = values[1:]
+                                    current_count = len(all_data)
+                                    new_row_counts[tab_name] = current_count
+
+                                    if current_count <= old_count:
+                                        continue
+
+                                    new_rows = all_data[old_count:]
+                                    source_name = tab_name.lower().replace(" ", "_").replace("-", "_")
+
+                                    for row in new_rows:
+                                        lead_data = {
+                                            "lead_id": f"lead_{uuid.uuid4().hex[:12]}",
+                                            "source": source_name,
+                                            "source_display": tab_name,
+                                            "stage_type": "pre_sales",
+                                            "current_stage_id": "stg_new_lead",
+                                            "created_at": datetime.now(timezone.utc).isoformat(),
+                                            "imported_from_sheet": sid,
+                                            "auto_synced": True,
+                                            "custom_fields": {}
+                                        }
+
+                                        for col_letter, field_name in col_mapping.items():
+                                            if not field_name or field_name == '_skip':
+                                                continue
+                                            col_idx = ord(col_letter[0]) - 65
+                                            if len(col_letter) > 1:
+                                                col_idx = 26 + ord(col_letter[1]) - 65
+                                            if col_idx < len(row):
+                                                value = str(row[col_idx]).strip() if row[col_idx] else ""
+                                                if field_name in ["name", "phone", "email", "city", "budget", "notes", "address", "state"]:
+                                                    lead_data[field_name] = value
+                                                else:
+                                                    lead_data["custom_fields"][field_name] = value
+
+                                        if not lead_data.get("name") and not lead_data.get("phone"):
                                             continue
-                                        existing = await find_existing_lead_by_phone(sync_db, phone_raw)
-                                        if existing:
-                                            continue
-                                        seen_phones_in_run.add(phone_norm)
-                                        lead_data["phone_normalized"] = phone_norm
-                                    
-                                    # Auto-assign via round-robin
-                                    from routes.crm import assign_lead_to_next_user
-                                    rr_user_id = await assign_lead_to_next_user("pre_sales")
-                                    if rr_user_id:
-                                        rr_user = await sync_db.users.find_one({"user_id": rr_user_id}, {"_id": 0})
-                                        lead_data["assigned_to"] = rr_user_id
-                                        lead_data["assigned_to_name"] = rr_user.get("name") if rr_user else None
-                                    
-                                    await sync_db.leads.insert_one(lead_data)
-                                    new_leads_total += 1
-                            
-                            # Update row counts + tab_configs (with newly discovered tabs)
-                            await sync_db.connected_sheets.update_one(
-                                {"spreadsheet_id": sid, "user_id": user_id},
-                                {"$set": {
-                                    "tab_configs": tab_configs,
-                                    "tab_row_counts": new_row_counts,
-                                    "last_synced": datetime.now(timezone.utc).isoformat()
-                                }}
-                            )
-                            
-                            if new_leads_total > 0:
-                                logger.info(f"Auto-sync: {new_leads_total} new leads from sheet {sid}")
-                    except Exception as e:
-                        logger.warning(f"Auto-sync error for user {user_id}: {e}")
+                                        # Country-code-tolerant + in-batch dedup
+                                        from routes.crm import normalize_phone, find_existing_lead_by_phone
+                                        phone_raw = lead_data.get("phone") or ""
+                                        phone_norm = normalize_phone(phone_raw)
+                                        if phone_norm:
+                                            if phone_norm in seen_phones_in_run:
+                                                continue
+                                            existing = await find_existing_lead_by_phone(sync_db, phone_raw)
+                                            if existing:
+                                                continue
+                                            seen_phones_in_run.add(phone_norm)
+                                            lead_data["phone_normalized"] = phone_norm
+
+                                        # Auto-assign via round-robin
+                                        from routes.crm import assign_lead_to_next_user
+                                        rr_user_id = await assign_lead_to_next_user("pre_sales")
+                                        if rr_user_id:
+                                            rr_user = await sync_db.users.find_one({"user_id": rr_user_id}, {"_id": 0})
+                                            lead_data["assigned_to"] = rr_user_id
+                                            lead_data["assigned_to_name"] = rr_user.get("name") if rr_user else None
+
+                                        await sync_db.leads.insert_one(lead_data)
+                                        new_leads_total += 1
+
+                                # Update row counts + tab_configs (with newly discovered tabs)
+                                await sync_db.connected_sheets.update_one(
+                                    {"spreadsheet_id": sid, "user_id": user_id},
+                                    {"$set": {
+                                        "tab_configs": tab_configs,
+                                        "tab_row_counts": new_row_counts,
+                                        "last_synced": datetime.now(timezone.utc).isoformat()
+                                    }}
+                                )
+
+                                if new_leads_total > 0:
+                                    logger.info(f"Auto-sync: {new_leads_total} new leads from sheet {sid}")
+
+                            # Persist the token if google-auth silently refreshed it during
+                            # any of the .execute() calls above — this is the fix for the
+                            # every-cycle 401: without this, the next cycle reloads the same
+                            # now-stale access_token from the DB and has to refresh again.
+                            if creds.token and creds.token != cached.get("last_written_token"):
+                                await sync_db.google_sheets_tokens.update_one(
+                                    {"user_id": user_id},
+                                    {"$set": {
+                                        "access_token": creds.token,
+                                        "expires_at": creds.expiry.isoformat() if creds.expiry else None,
+                                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                                    }},
+                                )
+                                cached["last_written_token"] = creds.token
+                                logger.info(f"Sheets auto-sync: refreshed & persisted token for user {user_id}")
+                        except Exception as e:
+                            logger.warning(f"Auto-sync error for user {user_id}: {e}")
+                            # A bad cached client (e.g. revoked token) shouldn't keep
+                            # failing every cycle — drop it so the next cycle rebuilds.
+                            _sheets_client_cache.pop(user_id, None)
+
+                    duration = time.monotonic() - cycle_start
+                    logger.info(f"Sheets auto-sync: cycle end, duration={duration:.2f}s, configs={len(configs)}")
             except Exception as e:
                 logger.warning(f"Auto-sync loop error: {e}")
-    
+
     asyncio.create_task(sheets_auto_sync_loop())
     logger.info("Background Google Sheets auto-sync started (1-min interval)")
