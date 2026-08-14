@@ -7168,6 +7168,41 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
     }
 
 
+@router.get("/admin/debug-mr-devan-cheque-state")
+async def debug_mr_devan_cheque_state(user: User = Depends(get_current_user)):
+    """TEMPORARY read-only diagnostic — Aug 14 2026. Inspects the current
+    production state of Cheque #001684 / the Mr Devan "M Sand" material
+    bill / SATHISKUMAR AGENCY's suspense entries, to plan a one-time
+    correction after that bill was deleted+re-approved-back under the old
+    (pre-fix) send_material_back_to_approvals logic. No writes. Remove
+    after use.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    cheques = await db.cheques.find({"cheque_number": "001684"}, {"_id": 0}).to_list(20)
+    bills_re = {"$regex": "M Sand", "$options": "i"}
+    vendor_re = {"$regex": "SATHISKUMAR", "$options": "i"}
+    material_expenses = await db.material_expenses.find(
+        {"$or": [{"vendor_name": vendor_re}, {"material_name": bills_re}]}, {"_id": 0}
+    ).to_list(50)
+    material_requests = await db.material_requests.find(
+        {"$or": [{"vendor_name": vendor_re}, {"material_name": bills_re}]}, {"_id": 0}
+    ).to_list(50)
+    recorded = await db.recorded_expenses.find(
+        {"$or": [{"vendor_name": vendor_re}, {"description": bills_re}]}, {"_id": 0}
+    ).to_list(50)
+    suspense = await db.suspense_entries.find({"vendor_name": vendor_re}, {"_id": 0}).to_list(100)
+
+    return {
+        "cheques_001684": cheques,
+        "material_expenses": material_expenses,
+        "material_requests": material_requests,
+        "recorded_expenses_matching": recorded,
+        "suspense_entries_sathiskumar": suspense,
+    }
+
+
 class ChequeSuspenseFalloutRequest(BaseModel):
     dry_run: bool = True
 
