@@ -447,13 +447,22 @@ export default function SuspenseAccountPage() {
                             <tr key={`${k}-detail`} className="bg-blue-50/30">
                               <td colSpan={3} className="px-4 py-2">
                                 <div className="space-y-1">
-                                  {entries.map((e, i) => (
+                                  {entries.map((e, i) => {
+                                    const modeLabel = e.mode ? e.mode.replace(/_/g, ' ').toUpperCase() : null;
+                                    const dateStr = e.date ? new Date(e.date).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+                                    return (
                                     <div key={e.ledger_id || i} className="flex items-center justify-between gap-2 bg-white rounded px-3 py-2 border border-blue-100" data-testid={`mat-entry-${e.ledger_id || i}`}>
-                                      <div className="text-xs">
-                                        <div className="font-medium text-gray-800">{e.material || 'Unspecified material'}</div>
-                                        <div className="text-[10px] text-gray-500">{e.status || '—'} · {e.due_date ? new Date(e.due_date).toLocaleDateString('en-IN') : 'No due date'}</div>
+                                      <div className="text-xs min-w-0 flex-1">
+                                        <div className="font-medium text-gray-800 truncate">{e.label || 'Material suspense'}</div>
+                                        {e.description && <div className="text-[10px] text-gray-500 truncate">{e.description}</div>}
+                                        <div className="text-[10px] text-gray-400 mt-0.5 flex flex-wrap gap-x-1.5">
+                                          {e.project_name && <span>Project: <span className="text-gray-600">{e.project_name}</span></span>}
+                                          {modeLabel && <span>· Mode: <span className="text-gray-600">{modeLabel}</span></span>}
+                                          {e.status && <span>· <span className="text-gray-600 capitalize">{e.status.replace(/_/g, ' ')}</span></span>}
+                                          {dateStr && <span>· {dateStr}</span>}
+                                        </div>
                                       </div>
-                                      <div className="flex items-center gap-3">
+                                      <div className="flex items-center gap-3 shrink-0">
                                         <span className="text-sm font-bold text-blue-700">{fmt(e.balance)}</span>
                                         {canDelete && (
                                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:bg-red-50" onClick={(ev) => { ev.stopPropagation(); deleteMaterialEntry(e); }} data-testid={`delete-mat-${e.ledger_id || i}`}>
@@ -462,7 +471,8 @@ export default function SuspenseAccountPage() {
                                         )}
                                       </div>
                                     </div>
-                                  ))}
+                                    );
+                                  })}
                                 </div>
                               </td>
                             </tr>
@@ -511,13 +521,23 @@ export default function SuspenseAccountPage() {
                             <tr key={`${k}-detail`} className="bg-purple-50/30">
                               <td colSpan={3} className="px-4 py-2">
                                 <div className="space-y-1">
-                                  {entries.map((e, i) => (
-                                    <div key={e.labour_expense_id || i} className="flex items-center justify-between gap-2 bg-white rounded px-3 py-2 border border-purple-100" data-testid={`lab-entry-${e.labour_expense_id || i}`}>
-                                      <div className="text-xs">
-                                        <div className="font-medium text-gray-800">{e.description || 'Labour entry'}</div>
-                                        <div className="text-[10px] text-gray-500">{e.status || '—'}</div>
+                                  {entries.map((e, i) => {
+                                    const modeLabel = e.mode ? e.mode.replace(/_/g, ' ').toUpperCase() : null;
+                                    const dateStr = e.date ? new Date(e.date).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+                                    return (
+                                    <div key={e.ledger_id || i} className="flex items-center justify-between gap-2 bg-white rounded px-3 py-2 border border-purple-100" data-testid={`lab-entry-${e.labour_expense_id || i}`}>
+                                      <div className="text-xs min-w-0 flex-1">
+                                        <div className="font-medium text-gray-800 truncate">{e.label || 'Labour suspense'}</div>
+                                        {e.description && <div className="text-[10px] text-gray-500 truncate">{e.description}</div>}
+                                        <div className="text-[10px] text-gray-400 mt-0.5 flex flex-wrap gap-x-1.5">
+                                          {e.project_name && <span>Project: <span className="text-gray-600">{e.project_name}</span></span>}
+                                          {modeLabel && <span>· Mode: <span className="text-gray-600">{modeLabel}</span></span>}
+                                          {e.status && <span>· <span className="text-gray-600 capitalize">{e.status.replace(/_/g, ' ')}</span></span>}
+                                          {e.cheque_no && <span>· Ref: <span className="text-gray-600">{e.cheque_no}</span></span>}
+                                          {dateStr && <span>· {dateStr}</span>}
+                                        </div>
                                       </div>
-                                      <div className="flex items-center gap-3">
+                                      <div className="flex items-center gap-3 shrink-0">
                                         <span className="text-sm font-bold text-purple-700">{fmt(e.balance)}</span>
                                         {canDelete && (
                                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:bg-red-50" onClick={(ev) => { ev.stopPropagation(); deleteLabourEntry(e); }} data-testid={`delete-lab-${e.labour_expense_id || i}`}>
@@ -526,7 +546,8 @@ export default function SuspenseAccountPage() {
                                         )}
                                       </div>
                                     </div>
-                                  ))}
+                                    );
+                                  })}
                                 </div>
                               </td>
                             </tr>

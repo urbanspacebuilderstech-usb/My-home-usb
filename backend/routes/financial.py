@@ -3261,11 +3261,13 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
         db.contractor_suspense_ledger.find({}, {"_id": 0}).to_list(5000),
         db.recorded_expenses.find(
             {"category": "material"},
-            {"_id": 0, "expense_id": 1, "status": 1, "is_deleted": 1},
+            {"_id": 0, "expense_id": 1, "status": 1, "is_deleted": 1, "description": 1,
+             "payment_method": 1, "project_id": 1, "project_name": 1, "created_at": 1},
         ).to_list(5000),
         db.recorded_expenses.find(
             {"category": "labour"},
-            {"_id": 0, "contractor_id": 1, "request_id": 1, "linked_request_ids": 1, "status": 1, "is_deleted": 1},
+            {"_id": 0, "contractor_id": 1, "request_id": 1, "linked_request_ids": 1, "status": 1, "is_deleted": 1,
+             "description": 1, "payment_method": 1, "project_id": 1, "project_name": 1, "created_at": 1},
         ).to_list(5000),
     )
 
@@ -3285,7 +3287,9 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
     petty_total_ac_approved = sum(p.get("amount_ac_approved", 0) or 0 for p in petty_active)
     petty_total_spent = sum(p.get("amount_spent", 0) or 0 for p in petty_active)
     petty_balance = petty_total_issued - petty_total_spent
-    
+
+    project_map = {p["project_id"]: p.get("name") for p in projects_list}
+
     # ---- Material Suspense (Pay & Settle) ----
     # Build live-material-expense set → drop suspense_entries whose
     # linked_expense_id no longer exists in the Cashbook.
@@ -3295,6 +3299,14 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
         and (r.get("status") or "").lower() not in _EXCLUDED_EXPENSE_STATUSES
         and not r.get("is_deleted")
     }
+    # Aug 14 2026 — `suspense_entries` rows never carried the material name,
+    # project or payment mode (only a vendor + amount + a generic sentence),
+    # so the Suspense A/c → Materials dropdown rendered "Unspecified
+    # material — No due date" for every row. The real detail lives on the
+    # `recorded_expenses` doc each entry is `linked_expense_id`-linked to —
+    # same join `_resolve_cheque_numbers`/the vendor Activity Timeline
+    # already use. Resolve it here so the dropdown shows the real bill.
+    _mat_exp_by_id = {r["expense_id"]: r for r in material_recorded_exps if r.get("expense_id")}
     material_suspense = {}  # vendor_name -> { balance, entries:[] }
     for se in mat_suspense_entries:
         vendor = se.get("vendor_name") or "Unknown Vendor"
@@ -3304,12 +3316,19 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
         amt = float(se.get("amount") or 0)
         if amt == 0:
             continue
+        src = _mat_exp_by_id.get(linked) or {}
+        pid = se.get("project_id") or src.get("project_id")
         bucket = material_suspense.setdefault(vendor, {"name": vendor, "balance": 0, "entries": []})
         bucket["balance"] += amt
         bucket["entries"].append({
             "entry_id": se.get("entry_id"),
             "description": se.get("description") or "",
-            "project_id": se.get("project_id"),
+            "label": src.get("description") or "Material suspense",
+            "project_id": pid,
+            "project_name": src.get("project_name") or project_map.get(pid, ""),
+            "mode": src.get("payment_method"),
+            "status": src.get("status"),
+            "date": se.get("created_at") or src.get("created_at"),
             "amount": amt,
             "balance": amt,
             "linked_expense_id": linked,
@@ -3333,6 +3352,16 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
         for pr in (exp.get("linked_request_ids") or []):
             prs.add(pr)
 
+    # Aug 14 2026 — Same gap as Material Suspense above: contractor_suspense_ledger
+    # rows only carry a generic `notes` sentence, no labour type / mode / status.
+    # Join to the recorded_expense the ledger row's `reference_id` (== the
+    # expense's `request_id`) points at for the real detail.
+    _lab_exp_by_request: Dict[str, Dict[str, Any]] = {}
+    for r in labour_recorded_exps:
+        rid = r.get("request_id")
+        if rid and rid not in _lab_exp_by_request:
+            _lab_exp_by_request[rid] = r
+
     labour_suspense = {}
     for row in contractor_suspense_rows:
         cid = row.get("contractor_id")
@@ -3347,12 +3376,19 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
         amt = float(row.get("amount") or 0)
         mv = (row.get("type") or row.get("movement") or "").lower()
         signed = amt if mv == "credit" else -amt
+        src = _lab_exp_by_request.get(ref) or {}
+        pid = row.get("project_id") or src.get("project_id")
         bucket = labour_suspense.setdefault(cname, {"name": cname, "contractor_id": cid, "balance": 0, "entries": []})
         bucket["balance"] += signed
         bucket["entries"].append({
             "ledger_id": row.get("ledger_id"),
             "description": row.get("notes") or row.get("remarks") or "",
-            "project_id": row.get("project_id"),
+            "label": src.get("description") or "Labour suspense",
+            "project_id": pid,
+            "project_name": src.get("project_name") or project_map.get(pid, ""),
+            "mode": src.get("payment_method") or ("cheque" if row.get("cheque_no") else None),
+            "status": src.get("status"),
+            "date": row.get("date") or src.get("created_at"),
             "amount": signed,
             "balance": signed,
             "reference_id": ref,
