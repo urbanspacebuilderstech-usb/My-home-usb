@@ -7181,24 +7181,27 @@ async def debug_mr_devan_cheque_state(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Access denied")
 
     cheques = await db.cheques.find({"cheque_number": "001684"}, {"_id": 0}).to_list(20)
-    bills_re = {"$regex": "M Sand", "$options": "i"}
     vendor_re = {"$regex": "SATHISKUMAR", "$options": "i"}
+    devan_re = {"$regex": "^Mr Devan$", "$options": "i"}
     material_expenses = await db.material_expenses.find(
-        {"$or": [{"vendor_name": vendor_re}, {"material_name": bills_re}]}, {"_id": 0}
-    ).to_list(50)
+        {"vendor_name": vendor_re, "project_name": devan_re}, {"_id": 0}
+    ).to_list(20)
     material_requests = await db.material_requests.find(
-        {"$or": [{"vendor_name": vendor_re}, {"material_name": bills_re}]}, {"_id": 0}
-    ).to_list(50)
+        {"vendor_name": vendor_re, "project_name": devan_re}, {"_id": 0}
+    ).to_list(20)
     recorded = await db.recorded_expenses.find(
-        {"$or": [{"vendor_name": vendor_re}, {"description": bills_re}]}, {"_id": 0}
-    ).to_list(50)
-    suspense = await db.suspense_entries.find({"vendor_name": vendor_re}, {"_id": 0}).to_list(100)
+        {"vendor_name": vendor_re, "project_name": devan_re}, {"_id": 0}
+    ).to_list(20)
+    suspense = await db.suspense_entries.find({"vendor_name": vendor_re}, {"_id": 0}).sort(
+        [("created_at", 1)]
+    ).to_list(200)
 
     return {
         "cheques_001684": cheques,
-        "material_expenses": material_expenses,
-        "material_requests": material_requests,
-        "recorded_expenses_matching": recorded,
+        "material_expenses_mr_devan": material_expenses,
+        "material_requests_mr_devan": material_requests,
+        "recorded_expenses_mr_devan": recorded,
+        "suspense_entries_sathiskumar_count": len(suspense),
         "suspense_entries_sathiskumar": suspense,
     }
 
