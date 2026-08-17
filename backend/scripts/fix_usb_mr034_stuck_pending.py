@@ -35,7 +35,21 @@ other request. Idempotent: re-running after success is a no-op.
 Exit codes (so a CI run's pass/fail is a trustworthy signal):
     0  applied, post-conditions verified  |  already corrected
     1  live state does not match the diagnosis -- nothing written
+
+Stages
+------
+Run with --stage to isolate WHICH check fails. CI exposes per-step pass/fail
+but not step output without a token, so each stage is wired as its own deploy
+step and the pattern of conclusions localises the problem with no log access:
+
+    --stage env            can we load .env and reach Mongo at all
+    --stage records        do the three documents exist
+    --stage preconditions  does the live state match the diagnosis
+    --stage apply          perform the write, then verify (default)
+
+env/records/preconditions are strictly read-only.
 """
+import argparse
 import asyncio
 import os
 import sys
@@ -67,16 +81,37 @@ def fail(msg: str) -> None:
 
 
 async def main() -> int:
-    cli = AsyncIOMotorClient(os.environ["MONGO_URL"])
-    db = cli[os.environ["DB_NAME"]]
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--stage", default="apply",
+                    choices=["env", "records", "preconditions", "apply"])
+    stage = ap.parse_args().stage
+
+    mongo_url = os.environ.get("MONGO_URL")
+    db_name = os.environ.get("DB_NAME")
+    print(f"=== USB-MR034 heal / stage={stage} ===")
+    if not mongo_url or not db_name:
+        fail(f"MONGO_URL/DB_NAME missing from environment (looked in {BACKEND_DIR / '.env'}). "
+             f"MONGO_URL set={bool(mongo_url)} DB_NAME set={bool(db_name)}")
+        return 1
+
+    cli = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=10000)
+    db = cli[db_name]
     try:
+        if stage == "env":
+            n = await db.material_requests.count_documents({})
+            print(f"  db={db_name} reachable; material_requests={n}")
+            return 0
+
         parent = await db.material_requests.find_one({"request_id": REQUEST_ID}, {"_id": 0})
         bill = await db.material_expenses.find_one({"expense_id": BILL_EXPENSE_ID}, {"_id": 0})
         cheque = await db.cheques.find_one({"cheque_id": CHEQUE_ID}, {"_id": 0})
 
-        print("=== USB-MR034 stuck-pending heal ===")
         if not parent:
             fail(f"material_requests {REQUEST_ID} not found.")
+            # Help locate the right document if the id has moved.
+            by_num = await db.material_requests.find_one({"request_number": "USB-MR034"}, {"_id": 0})
+            print(f"  lookup by request_number USB-MR034: "
+                  f"{by_num.get('request_id') if by_num else 'also not found'}")
             return 1
         print(f"  request_number : {parent.get('request_number')}")
         print(f"  material       : {parent.get('material_name')} / {parent.get('vendor_name')}")
@@ -88,6 +123,13 @@ async def main() -> int:
         print(f"  cheque #{(cheque or {}).get('cheque_number')} "
               f"used_for_expense_id={(cheque or {}).get('used_for_expense_id')}")
 
+        if not bill:
+            fail(f"material_expenses {BILL_EXPENSE_ID} not found.")
+            return 1
+        if stage == "records":
+            print("  all three documents present")
+            return 0
+
         # Idempotent success path.
         if parent.get("status") == TO_STATUS:
             print(f"  Already corrected -- parent status is '{TO_STATUS}'. No-op.")
@@ -95,9 +137,6 @@ async def main() -> int:
 
         # Preconditions. Any mismatch means the live state is not what was
         # diagnosed, so refuse rather than guess.
-        if not bill:
-            fail(f"material_expenses {BILL_EXPENSE_ID} not found.")
-            return 1
         if parent.get("status") != FROM_STATUS:
             fail(f"parent status is '{parent.get('status')}', expected '{FROM_STATUS}'.")
             return 1
@@ -118,6 +157,9 @@ async def main() -> int:
             fail("parent has cheque_bounced=True -- the payment story differs from "
                  "the diagnosis. Not clearing it; needs a human decision.")
             return 1
+        if stage == "preconditions":
+            print("  all preconditions match -- safe to apply")
+            return 0
 
         now = datetime.now(timezone.utc).isoformat()
         res = await db.material_requests.update_one(

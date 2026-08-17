@@ -124,7 +124,13 @@ jobs:
       # green step here means "applied and post-conditions verified" or
       # "already correct". Runs last, so a refusal cannot affect the deploy
       # itself. REMOVE THIS STEP once it has run.
-      - name: One-time data heal (USB-MR034)
+      # Split into one step per check. Step output needs a token to read, but
+      # per-step pass/fail is visible via the API, so the pattern of
+      # conclusions localises a refusal without log access. The first three
+      # stages are strictly read-only; only "apply" writes, and it is the one
+      # step with no if:always() so it cannot run after a failed check.
+      - name: 'heal 1/4: env + mongo reachable'
+        if: always()
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -137,4 +143,51 @@ jobs:
             cd ${{ secrets.VPS_APP_PATH }}/backend
             if [ -d venv ]; then source venv/bin/activate; fi
             PY=$(command -v python || command -v python3)
-            "$PY" scripts/fix_usb_mr034_stuck_pending.py
+            "$PY" scripts/fix_usb_mr034_stuck_pending.py --stage env
+
+      - name: 'heal 2/4: records present'
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -e
+            cd ${{ secrets.VPS_APP_PATH }}/backend
+            if [ -d venv ]; then source venv/bin/activate; fi
+            PY=$(command -v python || command -v python3)
+            "$PY" scripts/fix_usb_mr034_stuck_pending.py --stage records
+
+      - name: 'heal 3/4: preconditions match'
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -e
+            cd ${{ secrets.VPS_APP_PATH }}/backend
+            if [ -d venv ]; then source venv/bin/activate; fi
+            PY=$(command -v python || command -v python3)
+            "$PY" scripts/fix_usb_mr034_stuck_pending.py --stage preconditions
+
+      - name: 'heal 4/4: apply + verify'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -e
+            cd ${{ secrets.VPS_APP_PATH }}/backend
+            if [ -d venv ]; then source venv/bin/activate; fi
+            PY=$(command -v python || command -v python3)
+            "$PY" scripts/fix_usb_mr034_stuck_pending.py --stage apply
