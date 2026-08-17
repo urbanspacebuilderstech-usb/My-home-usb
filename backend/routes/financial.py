@@ -6404,6 +6404,33 @@ async def get_cashbook_filtered(
     await _resolve_cheque_numbers(all_expenses)
     await _resolve_labour_suspense_cheque_numbers(all_expenses)
 
+    # Aug 17 2026 — Enrich material rows with the human-friendly USB-MR
+    # request number for the Expense table's "MR Number" column. Only the
+    # live material_requests parent carries `request_number` — recorded_expenses
+    # mirrors and legacy material_expenses rows don't have it themselves.
+    # Mirrors the identical enrichment already used in get_unified_approvals.
+    _mat_rows_needing_number = [
+        e for e in all_expenses
+        if e.get("expense_type") == "material" and not e.get("request_number")
+    ]
+    if _mat_rows_needing_number:
+        _mat_req_ids = {
+            e.get("request_id") or e.get("source_request_id")
+            for e in _mat_rows_needing_number
+            if e.get("request_id") or e.get("source_request_id")
+        }
+        if _mat_req_ids:
+            _parent_reqs = await db.material_requests.find(
+                {"request_id": {"$in": list(_mat_req_ids)}},
+                {"_id": 0, "request_id": 1, "request_number": 1},
+            ).to_list(len(_mat_req_ids))
+            _req_number_map = {r["request_id"]: r.get("request_number") for r in _parent_reqs if r.get("request_number")}
+            for e in _mat_rows_needing_number:
+                rid = e.get("request_id") or e.get("source_request_id")
+                rn = _req_number_map.get(rid)
+                if rn:
+                    e["request_number"] = rn
+
     # Feb 22 2026 — The headline Total Income / Total Expense KPI cards must
     # match the Project Wise table's bottom Total. The table is built ONLY
     # from incomes/expenses whose `project_id` belongs to a "real" project
