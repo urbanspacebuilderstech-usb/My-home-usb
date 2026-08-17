@@ -298,6 +298,37 @@ function getTransactionId(e, type) {
   return legIds.join(', ');
 }
 
+// Aug 17 2026 — Every image the Site Engineer attached to one cashbook
+// expense row, in one flat list for the Transaction Details viewer.
+//   • Petty cash / Record-Expense rows carry `item_bills[]` (one entry per
+//     uploaded bill), with `bill_file_id`/`bill_filename` as the pre-multi-
+//     bill legacy shape.
+//   • Material rows carry the 4 collection photos the SE shoots on delivery
+//     (vehicle front/side, material, DP copy); `lorry_image_id` is the
+//     legacy single-photo form used before that split, so it only fills in
+//     when no vehicle photo exists. Same field set / labels / fallback rule
+//     as PlanningRequestsTab and AccountantMaterialPayments.
+// Deduped by file id — a legacy row backfilled server-side has its first
+// item_bill mirrored onto `bill_file_id`.
+function siteEngineerUploads(entry) {
+  if (!entry) return [];
+  const photos = [];
+  const seen = new Set();
+  const push = (file_id, label) => {
+    if (!file_id || seen.has(file_id)) return;
+    seen.add(file_id);
+    photos.push({ file_id, label });
+  };
+  (entry.item_bills || []).forEach(b => push(b.bill_file_id, b.label || b.bill_filename || 'Bill'));
+  push(entry.bill_file_id, entry.bill_filename || 'Bill');
+  push(entry.vehicle_front_image_id, 'Vehicle Front View');
+  push(entry.vehicle_side_image_id, 'Vehicle Side View');
+  push(entry.material_image_id, 'Material');
+  push(entry.dp_copy_image_id, 'DP Copy');
+  if (!entry.vehicle_front_image_id && !entry.vehicle_side_image_id) push(entry.lorry_image_id, 'Lorry Photo');
+  return photos;
+}
+
 // Aug 3 2026 — Income/Expense drilldown tables were rendering every entry
 // in one unpaginated list (1400+ rows for Expense once the [:500]/[:200]
 // truncation was fixed upstream). Page it client-side, 200 rows at a time,
@@ -2024,6 +2055,13 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
   useEffect(() => { setExpensePage(1); }, [expenseSubTab, sourceFilter]);
   const [viewDialog, setViewDialog] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState(null);
+  // Aug 17 2026 — SE-uploaded bills / delivery photos shown as thumbnails
+  // inside the Transaction Details dialog (above Print Receipt). The
+  // lightbox stacks ON TOP of that dialog, so closing it drops the user
+  // back on the same dialog / same page instead of unwinding the whole
+  // flow (the old behaviour opened the file in a new browser tab).
+  const [entryPhotoPreview, setEntryPhotoPreview] = useState({ open: false, index: 0 });
+  const selectedEntryPhotos = useMemo(() => siteEngineerUploads(selectedEntry), [selectedEntry]);
   // Edit-mode for income view dialog: lets accountant change payment_mode + ref + cheque
   const [editingIncome, setEditingIncome] = useState(false);
   const [editIncomeForm, setEditIncomeForm] = useState({ payment_mode: 'cash', reference_number: '', cheque_number: '', bank_name: '' });
@@ -2971,8 +3009,16 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
           <IndirectExpenseSection userRole={userRole} />
         </TabsContent>
       </Tabs>
-      <Dialog open={viewDialog} onOpenChange={(o) => { setViewDialog(o); if (!o) setEditingIncome(false); }}>
-        <DialogContent>
+      <Dialog open={viewDialog} onOpenChange={(o) => { setViewDialog(o); if (!o) { setEditingIncome(false); setEntryPhotoPreview({ open: false, index: 0 }); } }}>
+        <DialogContent
+          // While the image lightbox is up it owns Escape and every click —
+          // without these guards Radix would treat both as "dismiss" and
+          // close Transaction Details underneath it, dumping the accountant
+          // back on the bare table instead of the row they were viewing.
+          onEscapeKeyDown={(e) => { if (entryPhotoPreview.open) e.preventDefault(); }}
+          onPointerDownOutside={(e) => { if (entryPhotoPreview.open) e.preventDefault(); }}
+          onInteractOutside={(e) => { if (entryPhotoPreview.open) e.preventDefault(); }}
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between">
               <span>Transaction Details</span>
@@ -3053,6 +3099,33 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                   </div>
                 </div>
               )}
+              {!editingIncome && selectedEntryPhotos.length > 0 && (
+                <div className="space-y-1.5 border-t pt-3" data-testid="txn-se-uploads">
+                  <p className="text-xs font-medium text-gray-500">
+                    Site Engineer Uploads ({selectedEntryPhotos.length})
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedEntryPhotos.map((p, i) => (
+                      <button
+                        key={p.file_id}
+                        type="button"
+                        onClick={() => setEntryPhotoPreview({ open: true, index: i })}
+                        className="w-20 rounded border border-gray-200 overflow-hidden hover:border-amber-500 hover:shadow transition"
+                        title={p.label}
+                        data-testid={`txn-se-upload-${i}`}
+                      >
+                        <img
+                          src={`${API}/files/${p.file_id}/download`}
+                          alt={p.label}
+                          loading="lazy"
+                          className="h-16 w-20 object-cover bg-gray-50"
+                        />
+                        <span className="block px-1 py-0.5 text-[9px] text-gray-600 truncate">{p.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {!editingIncome && (
                 <Button className="w-full bg-amber-600 hover:bg-amber-700" onClick={() => handlePrintReceipt(selectedEntry)}>
                   <Printer className="h-4 w-4 mr-2" /> Print Receipt
@@ -3062,6 +3135,17 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Sits above the Transaction Details dialog (portalled to <body>) so
+          Close / ← / → step through the SE's uploads and land back on the
+          still-open dialog. */}
+      <PhotoLightbox
+        open={entryPhotoPreview.open}
+        photos={selectedEntryPhotos.map(p => ({ src: `${API}/files/${p.file_id}/download`, label: p.label }))}
+        index={entryPhotoPreview.index}
+        onClose={() => setEntryPhotoPreview({ open: false, index: 0 })}
+        onIndexChange={(i) => setEntryPhotoPreview(d => ({ ...d, index: i }))}
+      />
 
       {/* Submit Confirmation */}
       <Dialog open={showSubmitConfirm} onOpenChange={setShowSubmitConfirm}>

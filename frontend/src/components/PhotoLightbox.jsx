@@ -1,9 +1,19 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 
 // Full-screen in-page image viewer — close button top-left, left/right
 // buttons to step through a photo set (also bound to arrow/Escape keys).
 // Renders nothing when closed or empty so it's safe to always mount.
+//
+// Aug 17 2026 — Portals to <body> and forces `pointer-events: auto`. Call
+// sites that open it from INSIDE a Radix Dialog (Cashbook → Expense →
+// Transaction Details) otherwise got a broken overlay: DialogContent is
+// `translate-x/y-[-50%]`, and a transformed ancestor makes `position: fixed`
+// children resolve against the dialog box instead of the viewport, while
+// Radix's modal layer sets `pointer-events: none` on the body, killing the
+// close/prev/next buttons. Portaling out of the dialog fixes both, and is a
+// no-op for the call sites that render it on a plain page.
 export default function PhotoLightbox({ open, photos, index, onClose, onIndexChange }) {
   const count = photos?.length || 0;
   const safeIndex = count ? ((index % count) + count) % count : 0;
@@ -27,9 +37,10 @@ export default function PhotoLightbox({ open, photos, index, onClose, onIndexCha
   const photo = photos[safeIndex];
   if (!photo) return null;
 
-  return (
+  return createPortal((
     <div
       className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4"
+      style={{ pointerEvents: 'auto' }}
       onClick={(e) => { e.stopPropagation(); onClose(); }}
       data-testid="photo-lightbox"
     >
@@ -79,5 +90,5 @@ export default function PhotoLightbox({ open, photos, index, onClose, onIndexCha
         )}
       </div>
     </div>
-  );
+  ), document.body);
 }

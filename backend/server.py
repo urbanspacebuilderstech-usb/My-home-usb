@@ -302,6 +302,13 @@ async def startup_init():
     await _safe_index(startup_db.direct_expenses, [("created_at", -1)])
     await _safe_index(startup_db.material_expenses, [("created_at", -1)])
     await _safe_index(startup_db.labour_expenses, [("created_at", -1)])
+    # Aug 18 2026 — `_backfill_item_bills` (site_ops) resolves SE-uploaded
+    # bills for legacy recorded_expenses rows via
+    # `direct_expenses.find({"expense_id": {"$in": [...]}})`. It runs on the
+    # Accountant approvals queue, /pm/recorded-expenses AND now on
+    # /accountant/cashbook-filtered — the perf-critical endpoint tuned above.
+    # Unindexed, that lookup is a full scan on every one of those page loads.
+    await _safe_index(startup_db.direct_expenses, [("expense_id", 1)])
     logger.info("MongoDB indexes verified/created")
 
     # Auto-seed demo users only in DEMO_MODE
