@@ -116,3 +116,25 @@ jobs:
             ls frontend/build/index.html
             pm2 status
             echo "===DEPLOY COMPLETE==="
+
+      # TEMPORARY — one-time data heal for USB-MR034, stuck in Account
+      # Approvals after its Aug 14 repair left the parent material_request at
+      # pending_accounts_approval. Idempotent (no-op once corrected) and it
+      # refuses to write unless the live state matches the diagnosis, so a
+      # green step here means "applied and post-conditions verified" or
+      # "already correct". Runs last, so a refusal cannot affect the deploy
+      # itself. REMOVE THIS STEP once it has run.
+      - name: One-time data heal (USB-MR034)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -e
+            cd ${{ secrets.VPS_APP_PATH }}/backend
+            if [ -d venv ]; then source venv/bin/activate; fi
+            PY=$(command -v python || command -v python3)
+            "$PY" scripts/fix_usb_mr034_stuck_pending.py
