@@ -84,7 +84,15 @@ async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--stage", default="apply",
                     choices=["env", "records", "preconditions", "apply"])
-    stage = ap.parse_args().stage
+    # Read-only single-fact probes. Each is wired as its own CI step so the
+    # pattern of step conclusions reconstructs the live state without log
+    # access. Never writes.
+    ap.add_argument("--assert", dest="assertion", default=None, choices=[
+        "parent-pending", "parent-delivered", "bill-paid", "bill-amount",
+        "cheque-locked", "not-bounced", "parent-has-balance-paid",
+    ])
+    args = ap.parse_args()
+    stage = args.stage
 
     mongo_url = os.environ.get("MONGO_URL")
     db_name = os.environ.get("DB_NAME")
@@ -122,6 +130,28 @@ async def main() -> int:
               f"paid_amount={(bill or {}).get('paid_amount')}")
         print(f"  cheque #{(cheque or {}).get('cheque_number')} "
               f"used_for_expense_id={(cheque or {}).get('used_for_expense_id')}")
+
+        if args.assertion:
+            a = args.assertion
+            checks = {
+                "parent-pending": (parent.get("status") == FROM_STATUS,
+                                   f"parent.status={parent.get('status')!r}"),
+                "parent-delivered": (parent.get("status") == TO_STATUS,
+                                     f"parent.status={parent.get('status')!r}"),
+                "bill-paid": ((bill or {}).get("status") == "paid",
+                              f"bill.status={(bill or {}).get('status')!r}"),
+                "bill-amount": (abs(float((bill or {}).get("paid_amount") or 0) - AMOUNT) <= 0.01,
+                                f"bill.paid_amount={(bill or {}).get('paid_amount')!r}"),
+                "cheque-locked": (bool(cheque and cheque.get("used_for_expense_id")),
+                                  f"cheque.used_for_expense_id={(cheque or {}).get('used_for_expense_id')!r}"),
+                "not-bounced": (not parent.get("cheque_bounced"),
+                                f"parent.cheque_bounced={parent.get('cheque_bounced')!r}"),
+                "parent-has-balance-paid": (abs(float(parent.get("balance_paid_amount") or 0) - AMOUNT) <= 0.01,
+                                            f"parent.balance_paid_amount={parent.get('balance_paid_amount')!r}"),
+            }
+            ok, observed = checks[a]
+            print(f"  assert {a}: {'PASS' if ok else 'FAIL'} ({observed})")
+            return 0 if ok else 1
 
         if not bill:
             fail(f"material_expenses {BILL_EXPENSE_ID} not found.")

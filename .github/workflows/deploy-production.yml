@@ -161,7 +161,13 @@ jobs:
             PY=$(command -v python || command -v python3)
             "$PY" scripts/fix_usb_mr034_stuck_pending.py --stage records
 
-      - name: 'heal 3/4: preconditions match'
+      # "preconditions" failed as a single step, so each fact is probed
+      # separately here. All read-only, all if:always(), so one run reports
+      # the complete live state through the pattern of conclusions.
+      # NO APPLY STEP IN THIS RUN — the state contradicts the diagnosis and
+      # marking the parent delivered while the bill is genuinely unpaid would
+      # bury a real ₹17,516 payable. Read first, decide after.
+      - name: 'probe: parent-pending'
         if: always()
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -170,14 +176,10 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
           script_stop: true
-          script: |
-            set -e
-            cd ${{ secrets.VPS_APP_PATH }}/backend
-            if [ -d venv ]; then source venv/bin/activate; fi
-            PY=$(command -v python || command -v python3)
-            "$PY" scripts/fix_usb_mr034_stuck_pending.py --stage preconditions
+          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/fix_usb_mr034_stuck_pending.py --assert parent-pending
 
-      - name: 'heal 4/4: apply + verify'
+      - name: 'probe: parent-delivered'
+        if: always()
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -185,9 +187,59 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
           script_stop: true
-          script: |
-            set -e
-            cd ${{ secrets.VPS_APP_PATH }}/backend
-            if [ -d venv ]; then source venv/bin/activate; fi
-            PY=$(command -v python || command -v python3)
-            "$PY" scripts/fix_usb_mr034_stuck_pending.py --stage apply
+          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/fix_usb_mr034_stuck_pending.py --assert parent-delivered
+
+      - name: 'probe: bill-paid'
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/fix_usb_mr034_stuck_pending.py --assert bill-paid
+
+      - name: 'probe: bill-amount'
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/fix_usb_mr034_stuck_pending.py --assert bill-amount
+
+      - name: 'probe: cheque-locked'
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/fix_usb_mr034_stuck_pending.py --assert cheque-locked
+
+      - name: 'probe: not-bounced'
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/fix_usb_mr034_stuck_pending.py --assert not-bounced
+
+      - name: 'probe: parent-has-balance-paid'
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/fix_usb_mr034_stuck_pending.py --assert parent-has-balance-paid
