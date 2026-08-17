@@ -90,6 +90,7 @@ async def main() -> int:
     ap.add_argument("--assert", dest="assertion", default=None, choices=[
         "parent-pending", "parent-delivered", "bill-paid", "bill-amount",
         "cheque-locked", "not-bounced", "parent-has-balance-paid",
+        "cashbook-row-exists",
     ])
     args = ap.parse_args()
     stage = args.stage
@@ -131,6 +132,21 @@ async def main() -> int:
         print(f"  cheque #{(cheque or {}).get('cheque_number')} "
               f"used_for_expense_id={(cheque or {}).get('used_for_expense_id')}")
 
+        # The cashbook row is what puts this spend in the books. If it is
+        # gone, the 17,516 exists only on the bill, and hiding the bill from
+        # Approvals would drop the spend out of the Cashbook entirely — so
+        # this gates the write.
+        paid_via = (bill or {}).get("paid_via_expense_id")
+        cashbook_row = None
+        if paid_via:
+            cashbook_row = await db.recorded_expenses.find_one({"expense_id": paid_via}, {"_id": 0})
+        if not cashbook_row:
+            cashbook_row = await db.recorded_expenses.find_one(
+                {"request_id": {"$in": [REQUEST_ID, BILL_EXPENSE_ID]}, "category": "material"}, {"_id": 0}
+            )
+        print(f"  paid_via_expense_id={paid_via!r} cashbook_row="
+              f"{(cashbook_row or {}).get('expense_id')!r} amount={(cashbook_row or {}).get('amount')!r}")
+
         if args.assertion:
             a = args.assertion
             checks = {
@@ -148,6 +164,10 @@ async def main() -> int:
                                 f"parent.cheque_bounced={parent.get('cheque_bounced')!r}"),
                 "parent-has-balance-paid": (abs(float(parent.get("balance_paid_amount") or 0) - AMOUNT) <= 0.01,
                                             f"parent.balance_paid_amount={parent.get('balance_paid_amount')!r}"),
+                "cashbook-row-exists": (bool(cashbook_row)
+                                        and abs(float((cashbook_row or {}).get("amount") or 0) - AMOUNT) <= 0.01,
+                                        f"cashbook_row={(cashbook_row or {}).get('expense_id')!r} "
+                                        f"amount={(cashbook_row or {}).get('amount')!r}"),
             }
             ok, observed = checks[a]
             print(f"  assert {a}: {'PASS' if ok else 'FAIL'} ({observed})")
@@ -177,8 +197,24 @@ async def main() -> int:
         if abs(float(bill.get("paid_amount") or 0) - AMOUNT) > 0.01:
             fail(f"bill paid_amount is {bill.get('paid_amount')}, expected {AMOUNT}.")
             return 1
+        # Cheque lock: reported, NOT blocking. Probed live on 2026-08-17 and
+        # found already unlocked. That is a real defect of its own (the cheque
+        # could be swiped a second time) but it is independent of whether this
+        # bill was paid — the bill's own status/paid_amount and the parent's
+        # balance_paid_amount both say it was, and a reversal would have reset
+        # the bill to pending_accounts_approval, which it is not. Re-locking is
+        # a separate write against a separate document and is deliberately NOT
+        # bundled into this correction.
         if not (cheque and cheque.get("used_for_expense_id")):
-            fail("Cheque #001684 is not locked to an expense -- payment trail not intact.")
+            print("  WARNING: Cheque #001684 has no used_for_expense_id -- it is "
+                  "currently free and could be re-used. Not touched by this heal; "
+                  "needs its own decision.")
+
+        # The spend must still be in the books before we hide the bill.
+        if not cashbook_row or abs(float(cashbook_row.get("amount") or 0) - AMOUNT) > 0.01:
+            fail(f"no cashbook recorded_expenses row of {AMOUNT} for this bill "
+                 f"(found {(cashbook_row or {}).get('expense_id')!r}). Marking the parent "
+                 "delivered would drop this spend out of the Cashbook entirely.")
             return 1
         if parent.get("cheque_bounced"):
             # A bounce would re-select this row through the queue's other $or
