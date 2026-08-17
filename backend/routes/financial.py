@@ -10015,3 +10015,157 @@ async def reopen_daily_closing(closing_id: str, payload: Dict[str, Any], user: U
     except Exception:
         pass
     return {"message": "Row re-opened for correction", "closing_id": closing_id}
+
+
+# ============ TEMPORARY — USB-MR034 stuck-pending correction (remove after use) ============
+#
+# ROOT CAUSE
+# ----------
+# Material bill mexp_9e27d6b45119 (Mr Devan / M Sand / SATHISKUMAR AGENCY,
+# ₹17,516) was paid via Cheque #001684, then sent back from the Cashbook under
+# the old send_material_back_to_approvals bug, which reset BOTH the mirror
+# (material_expenses) and the parent (material_requests) to
+# "pending_accounts_approval".
+#
+# The Aug 14 one-time correction (commit ece5c7e8, since removed) restored the
+# mirror to "paid" and re-locked the cheque, but its material_requests update
+# wrote only balance_paid_amount / balance_paid_at / balance_paid_by. It never
+# wrote the parent status transition the real payment path performs — see
+# pay_approval's full-payment phase cascade, which sets status="delivered" plus
+# delivered_at on the parent. So the parent stayed at "pending_accounts_approval".
+#
+# /procurement-simple/accountant/queue selects on the PARENT's status, and its
+# keep-filter only drops in_transit / procurement_verifying /
+# pending_advance_payment rows — a fully-paid "pending_accounts_approval" row is
+# never dropped. Hence the bill sits in Account Approvals forever while the
+# mirror reports paid, and Release Payment offers already-paid 17,516 -> net
+# payable 0 -> the whole tender would land in vendor suspense as "excess".
+#
+# Neither send_material_back_to_approvals nor pay_approval can produce this
+# state on its own — both keep mirror and parent in step. Only the removed
+# one-off script did, so this is a data repair, not a live code defect.
+#
+# THE CORRECTION
+# --------------
+# One field (plus its timestamp) on one document: bring the parent to the same
+# "delivered" state a real full payment would have left it in. Nothing else is
+# touched — no new recorded_expenses row, no cheque change, no suspense_entries
+# write, no other bill. dry_run defaults to true.
+
+_MR034_REQUEST_ID = "mreq_022165ca5e8c"
+_MR034_BILL_EXPENSE_ID = "mexp_9e27d6b45119"
+_MR034_CHEQUE_ID = "chq_8e7e0aae"
+_MR034_AMOUNT = 17516.0
+
+
+@router.get("/admin/debug-usb-mr034-state")
+async def debug_usb_mr034_state(user: User = Depends(get_current_user)):
+    """Read-only. Confirms the live state before anything is changed."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    parent_by_id = await db.material_requests.find_one({"request_id": _MR034_REQUEST_ID}, {"_id": 0})
+    parent_by_number = await db.material_requests.find_one({"request_number": "USB-MR034"}, {"_id": 0})
+    bill = await db.material_expenses.find_one({"expense_id": _MR034_BILL_EXPENSE_ID}, {"_id": 0})
+    cheque = await db.cheques.find_one({"cheque_id": _MR034_CHEQUE_ID}, {"_id": 0})
+
+    def _slim_parent(p):
+        if not p:
+            return None
+        return {k: p.get(k) for k in (
+            "request_id", "request_number", "status", "material_name", "vendor_name",
+            "project_name", "total_amount", "estimated_price", "paid_amount",
+            "advance_paid_amount", "balance_paid_amount", "delivered_at",
+            "pulled_back_from_cashbook", "last_expense_id", "expense_id", "cheque_bounced",
+        )}
+
+    cashbook_rows = await db.recorded_expenses.find(
+        {"request_id": {"$in": [_MR034_REQUEST_ID, _MR034_BILL_EXPENSE_ID]}}, {"_id": 0}
+    ).to_list(20)
+    _linked_ids = [r.get("expense_id") for r in cashbook_rows if r.get("expense_id")] or ["__none__"]
+    suspense_rows = await db.suspense_entries.find(
+        {"linked_expense_id": {"$in": _linked_ids}}, {"_id": 0}
+    ).to_list(50)
+
+    return {
+        "ids_agree": bool(parent_by_id and parent_by_number
+                          and parent_by_id.get("request_id") == parent_by_number.get("request_id")),
+        "parent_by_request_id": _slim_parent(parent_by_id),
+        "parent_by_request_number_USB_MR034": _slim_parent(parent_by_number),
+        "bill": {k: (bill or {}).get(k) for k in (
+            "expense_id", "source_request_id", "status", "paid_amount", "final_amount",
+            "paid_via_expense_id", "cheque_number", "vendor_name",
+        )} if bill else None,
+        "cheque": {k: (cheque or {}).get(k) for k in (
+            "cheque_id", "cheque_number", "amount", "used_for_expense_id", "is_opened",
+        )} if cheque else None,
+        "cashbook_expense_rows": [
+            {k: r.get(k) for k in ("expense_id", "amount", "payment_method", "cheque_number", "status", "source", "created_at")}
+            for r in cashbook_rows
+        ],
+        "suspense_entries_linked_to_those_rows": [
+            {k: s.get(k) for k in ("entry_id", "amount", "linked_expense_id", "vendor_name", "created_at")}
+            for s in suspense_rows
+        ],
+        "shows_in_accountant_queue": (parent_by_id or {}).get("status") in (
+            "pending_accounts_approval", "pending_balance_payment", "partially_paid"
+        ),
+    }
+
+
+class UsbMr034FixRequest(BaseModel):
+    dry_run: bool = True
+
+
+@router.post("/admin/one-time-fix/usb-mr034-mark-delivered")
+async def one_time_fix_usb_mr034(payload: UsbMr034FixRequest, user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    parent = await db.material_requests.find_one({"request_id": _MR034_REQUEST_ID}, {"_id": 0})
+    bill = await db.material_expenses.find_one({"expense_id": _MR034_BILL_EXPENSE_ID}, {"_id": 0})
+    cheque = await db.cheques.find_one({"cheque_id": _MR034_CHEQUE_ID}, {"_id": 0})
+    if not parent or not bill:
+        raise HTTPException(status_code=404, detail="Expected request or bill not found — production state has changed, stop and re-verify with /admin/debug-usb-mr034-state.")
+
+    # Idempotent: already corrected → no-op.
+    if parent.get("status") == "delivered":
+        return {"message": "Already corrected — no changes made.", "parent_status": parent.get("status")}
+
+    # Preconditions. Any mismatch means the state is not what was diagnosed,
+    # so refuse rather than guess.
+    if parent.get("status") != "pending_accounts_approval":
+        raise HTTPException(status_code=400, detail=f"Parent status is '{parent.get('status')}', expected 'pending_accounts_approval' — stop and re-verify.")
+    if bill.get("status") != "paid":
+        raise HTTPException(status_code=400, detail=f"Bill status is '{bill.get('status')}', expected 'paid' — the payment is NOT already recorded, so this correction does not apply. Stop and re-verify.")
+    if abs(float(bill.get("paid_amount") or 0) - _MR034_AMOUNT) > 0.01:
+        raise HTTPException(status_code=400, detail=f"Bill paid_amount is {bill.get('paid_amount')}, expected {_MR034_AMOUNT} — stop and re-verify.")
+    if not (cheque and cheque.get("used_for_expense_id")):
+        raise HTTPException(status_code=400, detail="Cheque #001684 is not locked to an expense — the payment trail is not intact, stop and re-verify.")
+
+    now = datetime.now(timezone.utc).isoformat()
+    plan = {
+        "collection": "material_requests",
+        "request_id": _MR034_REQUEST_ID,
+        "set": {"status": "delivered", "delivered_at": now, "updated_at": now},
+        "from_status": parent.get("status"),
+        "rationale": "Matches the parent transition pay_approval performs on a full material payment; the payment itself is already recorded on the bill.",
+        "recorded_expenses_created": 0,
+        "cheques_touched": 0,
+        "suspense_entries_touched": 0,
+        "other_requests_touched": 0,
+    }
+    if payload.dry_run:
+        return {"dry_run": True, "plan": plan}
+
+    res = await db.material_requests.update_one(
+        {"request_id": _MR034_REQUEST_ID, "status": "pending_accounts_approval"},
+        {"$set": {"status": "delivered", "delivered_at": now, "updated_at": now}},
+    )
+    await create_audit_log(
+        user.user_id, "manual_correction", "material_request", _MR034_REQUEST_ID,
+        {"reason": "USB-MR034 stuck in Account Approvals: bill already paid 17516 via Cheque #001684, parent status never advanced by the Aug 14 one-time script.",
+         "from": "pending_accounts_approval", "to": "delivered"},
+    )
+    after = await db.material_requests.find_one({"request_id": _MR034_REQUEST_ID}, {"_id": 0, "status": 1, "delivered_at": 1})
+    return {"dry_run": False, "applied": True, "matched": res.matched_count, "modified": res.modified_count, "plan": plan, "after": after}
