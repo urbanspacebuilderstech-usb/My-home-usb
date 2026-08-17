@@ -8570,12 +8570,40 @@ async def update_wo_template(template_id: str, body: WorkOrderTemplateInput, use
     return doc
 
 
+def _resync_wo_stage_progress(wo: dict) -> bool:
+    """Self-heal `stage.amount_released` / `amount_pending` from each stage's
+    own `payment_requests` on every read. Several write paths (RAB request
+    creation, approval, reversal, section-lock toggling) already recompute
+    these two fields with this exact formula at their own point of mutation
+    — but a GET here previously just returned whatever was last persisted,
+    so any write path that missed the recompute left stale figures behind
+    silently. This mirrors the same formula so a read can never disagree
+    with what the payment_requests actually show. Aug 18 2026 — surfaced by
+    the Work Order (Labour) > Additionals section footer always showing
+    "Received: ₹0 / Balance: [full total]" regardless of what had actually
+    been released to the contractor for that section.
+    """
+    changed = False
+    for stage in wo.get("stages") or []:
+        prs = stage.get("payment_requests") or []
+        released = sum(float(p.get("approved_amount") or 0) for p in prs if p.get("status") == "approved")
+        pending = sum(float(p.get("amount") or 0) for p in prs if p.get("status") in ("requested", "pm_approved", "qc_approved", "planning_approved"))
+        if abs(float(stage.get("amount_released") or 0) - released) > 0.5 or abs(float(stage.get("amount_pending") or 0) - pending) > 0.5:
+            stage["amount_released"] = released
+            stage["amount_pending"] = pending
+            changed = True
+    return changed
+
+
 @router.get("/projects/{project_id}/work-orders")
 async def get_project_work_orders(project_id: str, user: User = Depends(get_current_user)):
     """Get all work orders for a project"""
     orders = await db.project_work_orders.find({"project_id": project_id, "is_active": {"$ne": False}}, {"_id": 0}).sort("created_at", -1).to_list(500)
     from routes.site_ops import attach_advance_summary_to_work_orders
     await attach_advance_summary_to_work_orders(project_id, orders)
+    for wo in orders:
+        if _resync_wo_stage_progress(wo):
+            await db.project_work_orders.update_one({"work_order_id": wo["work_order_id"]}, {"$set": {"stages": wo["stages"]}})
     return orders
 
 @router.get("/projects/{project_id}/work-orders/{work_order_id}")
@@ -8586,6 +8614,8 @@ async def get_project_work_order(project_id: str, work_order_id: str, user: User
         raise HTTPException(status_code=404, detail="Work order not found")
     from routes.site_ops import attach_advance_summary_to_work_orders
     await attach_advance_summary_to_work_orders(project_id, [wo])
+    if _resync_wo_stage_progress(wo):
+        await db.project_work_orders.update_one({"work_order_id": wo["work_order_id"]}, {"$set": {"stages": wo["stages"]}})
     return wo
 
 @router.post("/projects/{project_id}/work-orders")

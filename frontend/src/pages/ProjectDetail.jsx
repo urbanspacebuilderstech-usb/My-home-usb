@@ -11435,6 +11435,14 @@ export default function ProjectDetail() {
                                           {tabSections.map(sec => {
                                             const secItems = rows.filter(r => r.section_id === sec.section_id);
                                             const secSubtotal = secItems.reduce((s, r) => s + (r.total || 0), 0);
+                                            // Aug 18 2026 — "Received" was hardcoded to 0 (and Balance to the
+                                            // full total) regardless of what had actually been released to
+                                            // the contractor. Each section has a linked stage in wo.stages
+                                            // (linked_section_id) whose amount_released is the real, tracked
+                                            // paid-to-contractor figure — same one every other RAB view uses.
+                                            const secStage = (wo.stages || []).find(st => st.linked_section_id === sec.section_id);
+                                            const secReceived = Number(secStage?.amount_released || 0);
+                                            const secBalance = Math.max(0, secSubtotal - secReceived);
                                             return (
                                               <div key={sec.section_id} className="border rounded-lg overflow-hidden" data-testid={`wo-additional-section-${sec.section_id}`}>
                                                 <div className="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-violet-50 to-blue-50 border-b">
@@ -11469,8 +11477,8 @@ export default function ProjectDetail() {
                                                   )}
                                                   <div className="flex justify-end gap-4 text-xs text-gray-600 mt-2 px-3 border-t pt-2">
                                                     <span>Section Total: <span className="font-bold text-gray-900">{formatCurrency(secSubtotal)}</span></span>
-                                                    <span>Received: <span className="font-bold text-emerald-700">{formatCurrency(0)}</span></span>
-                                                    <span>Balance: <span className="font-bold text-amber-700">{formatCurrency(secSubtotal)}</span></span>
+                                                    <span>Received: <span className="font-bold text-emerald-700">{formatCurrency(secReceived)}</span></span>
+                                                    <span>Balance: <span className="font-bold text-amber-700">{formatCurrency(secBalance)}</span></span>
                                                   </div>
                                                 </div>
                                               </div>
