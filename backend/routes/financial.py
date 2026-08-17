@@ -6404,32 +6404,87 @@ async def get_cashbook_filtered(
     await _resolve_cheque_numbers(all_expenses)
     await _resolve_labour_suspense_cheque_numbers(all_expenses)
 
-    # Aug 17 2026 — Enrich material rows with the human-friendly USB-MR
-    # request number for the Expense table's "MR Number" column. Only the
-    # live material_requests parent carries `request_number` — recorded_expenses
-    # mirrors and legacy material_expenses rows don't have it themselves.
-    # Mirrors the identical enrichment already used in get_unified_approvals.
-    _mat_rows_needing_number = [
+    # Aug 17 2026 — Legacy petty-cash rows (created before the multi-bill
+    # patch) carry neither `item_bills` nor `bill_file_id`, so the SE's
+    # uploaded bills rendered blank in the Expense → Transaction Details
+    # viewer. Self-heal on read via the same helper the Accountant queue and
+    # `/pm/recorded-expenses` already use — it only touches rows that have a
+    # `direct_expense_id` and no bills yet.
+    from routes.site_ops import _backfill_item_bills
+    await _backfill_item_bills(all_expenses)
+
+    # Aug 17 2026 — Enrich material rows from their live material_requests
+    # parent. recorded_expenses mirrors and legacy material_expenses rows
+    # carry neither the human-friendly USB-MR `request_number` (Expense
+    # table's "MR Number" column) nor the SE's delivery photos (vehicle
+    # front/side, material, DP copy — shown in Transaction Details); only
+    # the parent has them. Mirrors the enrichment in get_unified_approvals.
+    _MAT_PHOTO_FIELDS = (
+        "vehicle_front_image_id", "vehicle_side_image_id", "material_image_id",
+        "dp_copy_image_id", "lorry_image_id",
+    )
+    _mat_rows_needing_parent = [
         e for e in all_expenses
-        if e.get("expense_type") == "material" and not e.get("request_number")
+        if e.get("expense_type") == "material"
+        and (not e.get("request_number") or not any(e.get(f) for f in _MAT_PHOTO_FIELDS))
     ]
-    if _mat_rows_needing_number:
-        _mat_req_ids = {
-            e.get("request_id") or e.get("source_request_id")
-            for e in _mat_rows_needing_number
-            if e.get("request_id") or e.get("source_request_id")
-        }
+    if _mat_rows_needing_parent:
+        _mat_req_ids = set()
+        _mexp_ids = set()
+        for e in _mat_rows_needing_parent:
+            rid = e.get("request_id") or e.get("source_request_id")
+            if not rid:
+                continue
+            # Aug 18 2026 — `request_id` on a material row is usually a
+            # material_expenses.expense_id ("mexp_..."), NOT a
+            # material_requests.request_id directly — pay_approval's
+            # "material" approval type is keyed by material_expenses (see
+            # _request_collection_and_keys), so the recorded_expenses mirror
+            # it creates stamps `request_id` with that mexp_ id. Querying
+            # material_requests with that id directly (the previous version
+            # of this block) never matched anything, so every accountant-
+            # released bill's MR Number column showed "-". Route mexp_ ids
+            # through material_expenses.source_request_id first to reach the
+            # actual material_requests parent.
+            if rid.startswith("mexp_"):
+                _mexp_ids.add(rid)
+            else:
+                _mat_req_ids.add(rid)
+
+        _mexp_to_mreq = {}
+        if _mexp_ids:
+            _mexp_docs = await db.material_expenses.find(
+                {"$or": [{"expense_id": {"$in": list(_mexp_ids)}}, {"material_expense_id": {"$in": list(_mexp_ids)}}]},
+                {"_id": 0, "expense_id": 1, "material_expense_id": 1, "source_request_id": 1},
+            ).to_list(len(_mexp_ids))
+            for d in _mexp_docs:
+                mreq_id = d.get("source_request_id")
+                if not mreq_id:
+                    continue
+                _mat_req_ids.add(mreq_id)
+                for key in (d.get("expense_id"), d.get("material_expense_id")):
+                    if key:
+                        _mexp_to_mreq[key] = mreq_id
+
         if _mat_req_ids:
             _parent_reqs = await db.material_requests.find(
                 {"request_id": {"$in": list(_mat_req_ids)}},
-                {"_id": 0, "request_id": 1, "request_number": 1},
+                {"_id": 0, "request_id": 1, "request_number": 1,
+                 **{f: 1 for f in _MAT_PHOTO_FIELDS}},
             ).to_list(len(_mat_req_ids))
-            _req_number_map = {r["request_id"]: r.get("request_number") for r in _parent_reqs if r.get("request_number")}
-            for e in _mat_rows_needing_number:
+            _parent_map = {r["request_id"]: r for r in _parent_reqs}
+            for e in _mat_rows_needing_parent:
                 rid = e.get("request_id") or e.get("source_request_id")
-                rn = _req_number_map.get(rid)
-                if rn:
-                    e["request_number"] = rn
+                if not rid:
+                    continue
+                parent = _parent_map.get(_mexp_to_mreq.get(rid, rid))
+                if not parent:
+                    continue
+                if not e.get("request_number") and parent.get("request_number"):
+                    e["request_number"] = parent["request_number"]
+                for f in _MAT_PHOTO_FIELDS:
+                    if not e.get(f) and parent.get(f):
+                        e[f] = parent[f]
 
     # Feb 22 2026 — The headline Total Income / Total Expense KPI cards must
     # match the Project Wise table's bottom Total. The table is built ONLY
