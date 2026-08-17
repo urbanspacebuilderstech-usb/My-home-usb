@@ -3105,11 +3105,20 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                   </div>
                 </div>
               )}
-              {!editingIncome && selectedEntryPhotos.length > 0 && (
+              {/* Expense rows always show this block. When the row genuinely
+                  has no uploads, say so — rendering nothing at all made
+                  "the SE attached no bill" look identical to "the feature is
+                  broken", which cost a round of debugging. */}
+              {!editingIncome && !selectedEntry.income_id && (
                 <div className="space-y-1.5 border-t pt-3" data-testid="txn-se-uploads">
                   <p className="text-xs font-medium text-gray-500">
                     Site Engineer Uploads ({selectedEntryPhotos.length})
                   </p>
+                  {selectedEntryPhotos.length === 0 && (
+                    <p className="text-xs text-gray-400 italic" data-testid="txn-se-uploads-empty">
+                      No bill or photo was uploaded against this entry.
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     {selectedEntryPhotos.map((p, i) => (
                       <button
