@@ -2845,7 +2845,9 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                       <th className="text-left px-3 py-2 font-medium text-gray-500">Type</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-500">Date & Time</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
-                      <th className="text-left px-3 py-2 font-medium text-gray-500">MR Number</th>
+                      {expenseSubTab === 'material' && (
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">MR Number</th>
+                      )}
                       <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-500">Vendor</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
@@ -2887,7 +2889,9 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                             </SelectContent>
                           </Select>
                         </td>
-                        <td className="px-1 py-1.5 text-center text-[10px] text-gray-400">—</td>
+                        {expenseSubTab === 'material' && (
+                          <td className="px-1 py-1.5 text-center text-[10px] text-gray-400">—</td>
+                        )}
                         <td className="px-1 py-1.5">
                           <NumericInput placeholder="Amount" className="h-7 text-[11px] w-24 bg-white text-right"
                             value={newExpense.amount} onChange={e => setNewExpense(p => ({...p, amount: e.target.value}))} />
@@ -2935,7 +2939,9 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                             {MODE_LABELS[classifyMode(entry.payment_method || entry.payment_mode)] || 'Cash'}
                           </Badge>
                         </td>
-                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap" data-testid={`expense-mr-number-${i}`}>{entry.request_number || '-'}</td>
+                        {expenseSubTab === 'material' && (
+                          <td className="px-3 py-2 text-gray-600 whitespace-nowrap" data-testid={`expense-mr-number-${i}`}>{entry.request_number || '-'}</td>
+                        )}
                         <td className="px-3 py-2 text-right font-bold text-red-600"><MaskedValue value={entry.amount} className="text-red-600" /></td>
                         <td className="px-3 py-2 text-gray-600">{entry.vendor_name || '-'}</td>
                         <td className="px-3 py-2 font-medium">{entry.project_name || 'N/A'}</td>
@@ -2987,7 +2993,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                       </tr>
                     ))}
                     {filteredExpenses.length === 0 && (
-                      <tr><td colSpan={10} className="text-center py-8 text-gray-400">No expense entries found</td></tr>
+                      <tr><td colSpan={expenseSubTab === 'material' ? 10 : 9} className="text-center py-8 text-gray-400">No expense entries found</td></tr>
                     )}
                   </tbody>
                 </table>
