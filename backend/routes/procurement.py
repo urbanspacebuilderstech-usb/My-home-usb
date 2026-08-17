@@ -3462,9 +3462,20 @@ async def recalculate_material_request_amount(request_id: str, user: User = Depe
     }
     await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
 
-    # Keep the mirrored Accountant bill in sync too, unless it's already paid.
+    # Keep the mirrored Accountant bill in sync too, unless it's already paid
+    # or dead. Aug 18 2026 — this used to only match status
+    # "pending_accounts_approval", so a bill that had already taken a
+    # partial payment (status → partially_paid) never got its mirror's
+    # final_amount re-synced here — Pay & Settle then showed a stale,
+    # pre-correction bill amount that disagreed with this endpoint's own
+    # corrected material_requests.total_amount (Mr Shiva / Rmc concrete:
+    # mirror stuck at ₹1,12,000 while the parent correctly read ₹98,000).
+    # Match any live, not-yet-fully-settled status instead of allow-listing
+    # just one.
     exp = await db.material_expenses.find_one(
-        {"source_request_id": request_id, "status": {"$in": ["pending_accounts_approval"]}},
+        {"source_request_id": request_id, "status": {"$nin": [
+            "paid", "rejected", "accountant_rejected", "accounts_rejected", "cheque_bounced",
+        ]}},
         {"_id": 0, "expense_id": 1},
     )
     if exp:

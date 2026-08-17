@@ -8707,6 +8707,40 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
         if pid:
             ch["project_name"] = project_cache.get(pid) or ch.get("project_name")
 
+    # Jul 10 2026 — For material advance/balance legs, `bill_amount` above is
+    # only THIS leg's amount (e.g. the ₹10 advance). Look up the parent
+    # material_request so Pay & Settle can show the full Advance / Balance /
+    # Total breakdown instead of just the flat leg amount.
+    payment_phase = None
+    total_amount = None
+    advance_amount = None
+    balance_amount = None
+    if req_type == "material" and req.get("payment_phase") in ("advance", "balance") and req.get("source_request_id"):
+        parent = await db.material_requests.find_one(
+            {"request_id": req["source_request_id"]},
+            {"_id": 0, "total_amount": 1, "advance_amount": 1, "balance_amount": 1},
+        )
+        if parent:
+            payment_phase = req.get("payment_phase")
+            total_amount = float(parent.get("total_amount") or 0)
+            advance_amount = float(parent.get("advance_amount") or 0)
+            balance_amount = float(parent.get("balance_amount") or max(0.0, total_amount - advance_amount))
+            # Aug 18 2026 — `bill_amount` above came from the material_expenses
+            # mirror's own `final_amount`, a denormalized copy that
+            # recalculate_material_request_amount only re-syncs while the bill
+            # is still `pending_accounts_approval`. Once a bill has taken any
+            # partial payment (status → partially_paid), a later recalculation
+            # correctly updates the parent material_request's total_amount but
+            # silently leaves this mirror's final_amount stale — Pay & Settle
+            # then showed "Bill Advance ₹1,12,000" / Net Payable ₹62,000 for a
+            # bill the Approvals card (which reads the parent directly) showed
+            # as Total ₹98,000 / Balance Due ₹48,000 (Mr Shiva, Rmc concrete).
+            # The parent's total_amount is the actively-maintained source of
+            # truth here; prefer it so this dialog can never disagree with the
+            # card the accountant just clicked Release Payment from.
+            if total_amount > 0.5:
+                bill_amount = total_amount
+
     # Feb 28 2026 — User asked to STOP auto-netting vendor suspense (positive
     # OR negative) against the bill. Net Payable now always equals the bill
     # amount minus what's been directly paid — vendor suspense stays visible
@@ -8726,25 +8760,6 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
         # Suspense was already credited; do not double-apply.
         credit_used = 0.0
         payable = max(0.0, bill_amount - already_paid)
-
-    # Jul 10 2026 — For material advance/balance legs, `bill_amount` above is
-    # only THIS leg's amount (e.g. the ₹10 advance). Look up the parent
-    # material_request so Pay & Settle can show the full Advance / Balance /
-    # Total breakdown instead of just the flat leg amount.
-    payment_phase = None
-    total_amount = None
-    advance_amount = None
-    balance_amount = None
-    if req_type == "material" and req.get("payment_phase") in ("advance", "balance") and req.get("source_request_id"):
-        parent = await db.material_requests.find_one(
-            {"request_id": req["source_request_id"]},
-            {"_id": 0, "total_amount": 1, "advance_amount": 1, "balance_amount": 1},
-        )
-        if parent:
-            payment_phase = req.get("payment_phase")
-            total_amount = float(parent.get("total_amount") or 0)
-            advance_amount = float(parent.get("advance_amount") or 0)
-            balance_amount = float(parent.get("balance_amount") or max(0.0, total_amount - advance_amount))
 
     return {
         "request": {
@@ -8825,6 +8840,26 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     project_id = req.get("project_id")
     already_paid = float(req.get("paid_amount") or 0)
     is_continuation = already_paid > 0 and req.get("status") == "partially_paid"
+
+    # Aug 18 2026 — Same fix as get_pay_context (GET preview): for a material
+    # advance/balance leg, `bill_amount` above came from the material_expenses
+    # mirror's own `final_amount`, a denormalized copy that
+    # recalculate_material_request_amount only re-syncs while the bill is
+    # still `pending_accounts_approval` — once a bill has taken a partial
+    # payment, a later recalculation updates the parent material_request's
+    # total_amount but leaves this mirror stale. Without this, the actual
+    # payment processing here could validate/settle against a stale bill
+    # amount that disagrees with what the GET preview just showed the
+    # accountant (and what the Approvals card, which reads the parent
+    # directly, displays). Prefer the parent's total_amount when resolvable.
+    if req_type == "material" and req.get("payment_phase") in ("advance", "balance") and req.get("source_request_id"):
+        _parent = await db.material_requests.find_one(
+            {"request_id": req["source_request_id"]},
+            {"_id": 0, "total_amount": 1},
+        )
+        _parent_total = float((_parent or {}).get("total_amount") or 0)
+        if _parent_total > 0.5:
+            bill_amount = _parent_total
 
     # Feb 28 2026 — Auto-netting of vendor suspense (positive OR negative)
     # against the bill has been disabled at the user's request.
