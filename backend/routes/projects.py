@@ -11597,6 +11597,11 @@ async def accountant_labour_payments(status: str = "pending", user: User = Depen
                     "stage_breakdown": [],
                 })
     out.sort(key=lambda r: r.get("planning_approved_at") or r.get("requested_at") or "", reverse=True)
+    # Aug 18 2026 — "Accounts Received" date on every Approvals card. Same
+    # field name and resolution rules as the other two Approvals tabs; for a
+    # stage payment request that is the moment Planning forwarded it.
+    from routes.financial import stamp_accounts_received
+    stamp_accounts_received(out, "labour")
     return {"count": len(out), "requests": out}
 
 

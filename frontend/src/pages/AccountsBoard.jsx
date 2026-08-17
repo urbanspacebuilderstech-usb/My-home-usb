@@ -19,6 +19,7 @@ import MaterialSearchSelect from '../components/MaterialSearchSelect';
 import PayApprovalDialog from '../components/PayApprovalDialog';
 import DTSelectToPayDialog from '../components/DTSelectToPayDialog';
 import PhotoLightbox from '../components/PhotoLightbox';
+import AccountsReceivedDate, { formatAccountsReceived } from '../components/AccountsReceivedDate';
 import { StatusPill, pillState } from '../components/StatusPill';
 import { CorrectionDialog } from '../components/CorrectionDialog';
 import { toast } from 'sonner';
@@ -4506,11 +4507,12 @@ function ApprovalsTab() {
                           </div>
                           <span className="text-base font-bold text-emerald-700">₹{(pc.amount_requested || pc.amount_issued || 0).toLocaleString('en-IN')}</span>
                         </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
                           <div><p className="text-[10px] uppercase text-gray-400 font-semibold">Requested By</p><p className="font-medium truncate">{pc.requested_by_name || '-'}</p></div>
                           <div><p className="text-[10px] uppercase text-gray-400 font-semibold">Project</p><p className="font-medium truncate">{pc.project_name || 'General'}</p></div>
                           <div><p className="text-[10px] uppercase text-gray-400 font-semibold">PM Approved</p><p className="font-medium truncate">{pc.pm_approved_by_name || '-'}</p></div>
                           <div><p className="text-[10px] uppercase text-gray-400 font-semibold">Date</p><p className="font-medium">{new Date(pc.created_at).toLocaleDateString('en-IN')}</p></div>
+                          <AccountsReceivedDate value={pc.accounts_received_at} testId={`approval-petty-received-${pc.petty_cash_id}`} />
                         </div>
                         <div className="flex justify-end gap-2 mt-2">
                           <Button
@@ -4573,6 +4575,7 @@ function ApprovalsTab() {
                           <div><p className="text-[10px] uppercase text-gray-400 font-semibold">Recorded By</p><p className="font-medium truncate">{re.recorded_by_name || '-'}</p></div>
                           <div><p className="text-[10px] uppercase text-gray-400 font-semibold">PM Approved</p><p className="font-medium truncate">{re.pm_approved_by_name || '-'}</p></div>
                           <div><p className="text-[10px] uppercase text-gray-400 font-semibold">Date</p><p className="font-medium">{new Date(re.created_at).toLocaleDateString('en-IN')}</p></div>
+                          <AccountsReceivedDate value={re.accounts_received_at} testId={`approval-record-received-${re.expense_id}`} />
                         </div>
                         {(() => {
                           const bills = Array.isArray(re.item_bills) && re.item_bills.length
@@ -5194,6 +5197,7 @@ function ApprovalExpenseTable({ items, type, idField, amountField, altAmountFiel
               <tr className="border-b bg-gray-50">
                 <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-500">Date</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-500">A/C Received</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-500">Description</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
                 <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
@@ -5212,6 +5216,13 @@ function ApprovalExpenseTable({ items, type, idField, amountField, altAmountFiel
                   <tr key={id} className="border-b hover:bg-gray-50" data-testid={`approval-${type}-row-${id}`}>
                     <td className="px-3 py-2 text-gray-400">{i + 1}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{item.created_at ? new Date(item.created_at).toLocaleDateString('en-IN') : '-'}</td>
+                    <td
+                      className={`px-3 py-2 whitespace-nowrap ${formatAccountsReceived(item.accounts_received_at) ? '' : 'text-gray-400'}`}
+                      title={item.accounts_received_at ? new Date(item.accounts_received_at).toLocaleString('en-IN') : 'Not recorded'}
+                      data-testid={`approval-${type}-received-${id}`}
+                    >
+                      {formatAccountsReceived(item.accounts_received_at) || '—'}
+                    </td>
                     <td className="px-3 py-2 font-medium">{desc}</td>
                     <td className="px-3 py-2">{item.project_name || 'N/A'}</td>
                     <td className="px-3 py-2 text-right font-bold text-amber-700"><MaskedValue value={amount} className="text-amber-700" /></td>

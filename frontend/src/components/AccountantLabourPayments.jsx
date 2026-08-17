@@ -12,6 +12,7 @@ import ProjectFilterCombobox from '@/components/ProjectFilterCombobox';
 import { Banknote, CheckCircle, Send, Wallet, ArrowDownToLine } from 'lucide-react';
 import { toast } from 'sonner';
 import LabourRABReleaseDialog from './LabourRABReleaseDialog';
+import { formatAccountsReceived } from './AccountsReceivedDate';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
@@ -144,6 +145,7 @@ export default function AccountantLabourPayments() {
                     <th className="text-left px-3 py-2 font-semibold text-gray-600">Project</th>
                     <th className="text-left px-3 py-2 font-semibold text-gray-600">Stage</th>
                     <th className="text-left px-3 py-2 font-semibold text-gray-600">Status</th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-600">A/C Received</th>
                     <th className="text-right px-3 py-2 font-semibold text-gray-600">Amount</th>
                     <th className="text-right px-3 py-2 font-semibold text-amber-700">Suspense</th>
                     <th className="text-right px-3 py-2 font-semibold text-gray-600 w-28">Action</th>
@@ -196,6 +198,13 @@ export default function AccountantLabourPayments() {
                         ) : (
                           <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">Pending</Badge>
                         )}
+                      </td>
+                      <td
+                        className={`px-3 py-2 whitespace-nowrap ${formatAccountsReceived(r.accounts_received_at) ? 'text-gray-700' : 'text-gray-400'}`}
+                        title={r.accounts_received_at ? new Date(r.accounts_received_at).toLocaleString('en-IN') : 'Not recorded'}
+                        data-testid={`alp-received-${r.request_id}`}
+                      >
+                        {formatAccountsReceived(r.accounts_received_at) || '—'}
                       </td>
                       <td className="px-3 py-2 text-right font-bold text-amber-700">
                         {fmt(r.amount)}

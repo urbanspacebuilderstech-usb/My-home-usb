@@ -3921,6 +3921,10 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
 
     for r in rows:
         r["project_name"] = (projects.get(r.get("project_id")) or {}).get("name", r.get("project_name") or "Unknown")
+    # Aug 18 2026 — "Accounts Received" date on every Approvals card. Same
+    # field name and resolution rules as the other two Approvals tabs.
+    from routes.financial import stamp_accounts_received
+    stamp_accounts_received(rows, "material_request")
     return {"count": len(rows), "requests": rows}
 
 

@@ -2215,6 +2215,49 @@ async def recompute_material_payment_tracking(target_id: str, dry_run: bool = Tr
     return result
 
 
+# Aug 18 2026 — "Accounts Received" date, shown on every card in Accounts →
+# Approvals → Expense Approvals (Materials / Labour Work Order / Petty Cash).
+#
+# Nothing writes an explicit timestamp at the moment an entry lands in the
+# Accountant's queue, so it is derived from whichever transition actually put
+# it there — a different one per source:
+#
+#   material_request   Procurement verifies the delivery and flips the request
+#                      to pending_accounts_approval (procurement.py's
+#                      verify-approve). `planning_approved_at` covers the
+#                      advance-payment path, which reaches Accounts straight
+#                      from Planning without a delivery to verify.
+#   material_expense   The mirror bill is CREATED at the moment it enters the
+#                      accounts queue, so its own created_at is exact.
+#   labour / vendor    Planning forwards the stage payment request.
+#   petty_cash         PM approves the SE's request.
+#   recorded_expense   PM approves the SE's recorded spend.
+#
+# `accounts_received_at` leads every chain so a real stored value always wins
+# if one is added later; `created_at` is the last resort so a row can never
+# render a blank date.
+_ACCOUNTS_RECEIVED_CHAINS = {
+    "material_request": ("accounts_received_at", "procurement_verified_at", "planning_approved_at", "updated_at", "created_at"),
+    "material_expense": ("accounts_received_at", "created_at", "updated_at"),
+    "labour": ("accounts_received_at", "planning_approved_at", "requested_at", "created_at"),
+    "vendor": ("accounts_received_at", "planning_approved_at", "requested_at", "created_at"),
+    "petty_cash": ("accounts_received_at", "pm_approved_at", "planning_approved_at", "created_at"),
+    "recorded_expense": ("accounts_received_at", "pm_approved_at", "created_at"),
+}
+
+
+def stamp_accounts_received(rows: List[Dict[str, Any]], kind: str) -> List[Dict[str, Any]]:
+    """Set `accounts_received_at` in place on every row, per the chain above.
+
+    One field name across all three Approvals tabs so the frontend renders
+    them identically instead of each card guessing at its own date field.
+    """
+    chain = _ACCOUNTS_RECEIVED_CHAINS[kind]
+    for r in rows:
+        r["accounts_received_at"] = next((r.get(f) for f in chain if r.get(f)), None)
+    return rows
+
+
 # ==================== UNIFIED APPROVALS ENDPOINT ====================
 
 @router.get("/approvals/unified")
@@ -2325,6 +2368,12 @@ async def get_unified_approvals(
         item["project_name"] = project_map.get(item.get("project_id"), "Unknown")
     for item in materials + labour + vendor:
         item["project_name"] = project_map.get(item.get("project_id"), "Unknown")
+
+    stamp_accounts_received(materials, "material_expense")
+    stamp_accounts_received(labour, "labour")
+    stamp_accounts_received(vendor, "vendor")
+    stamp_accounts_received(petty_cash, "petty_cash")
+    stamp_accounts_received(recorded_expenses_q, "recorded_expense")
 
     # material_expenses mirror rows don't carry the human-friendly USB-MR
     # sequential number themselves — only the live material_requests parent

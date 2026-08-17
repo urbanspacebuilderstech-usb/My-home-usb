@@ -9,6 +9,7 @@ import PayApprovalDialog from './PayApprovalDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Textarea } from './ui/textarea';
 import PhotoLightbox from './PhotoLightbox';
+import AccountsReceivedDate from './AccountsReceivedDate';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
@@ -284,7 +285,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                   </div>
                   <span className="text-base font-bold text-emerald-700">{fmt(req.balance_due > 0 ? req.balance_due : (req.remaining_balance > 0 ? req.remaining_balance : due))}</span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
                   <div>
                     <p className="text-[10px] uppercase text-gray-400 font-semibold">Material</p>
                     <p className="font-medium truncate">{req.material_name}</p>
@@ -301,6 +302,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     <p className="text-[10px] uppercase text-gray-400 font-semibold">Total / Paid</p>
                     <p className="font-medium">{fmt(total)} / {fmt(req.partially_collected ? (req.collected_amount || 0) : paid)}</p>
                   </div>
+                  <AccountsReceivedDate value={req.accounts_received_at} testId={`acc-mat-received-${req.request_id}`} />
                 </div>
                 {(() => {
                   const photos = collectionPhotos(req);
@@ -404,7 +406,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                   </div>
                   <span className="text-base font-bold text-emerald-700">{fmt(headlineAmt)}</span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
                   <div>
                     <p className="text-[10px] uppercase text-gray-400 font-semibold">Material</p>
                     <p className="font-medium truncate">{exp.material_name || exp.description || '-'}</p>
@@ -421,6 +423,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     <p className="text-[10px] uppercase text-gray-400 font-semibold">Status</p>
                     <p className="font-medium truncate">{(exp.status || '').replace(/_/g, ' ')}</p>
                   </div>
+                  <AccountsReceivedDate value={exp.accounts_received_at} testId={`acc-mat-received-legacy-${exp.expense_id}`} />
                 </div>
                 <div className="flex justify-end gap-2 mt-2">
                   {['accountant_rejected', 'rejected'].includes(exp.status) ? (
