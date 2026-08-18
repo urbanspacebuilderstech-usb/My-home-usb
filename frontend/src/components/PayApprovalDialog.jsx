@@ -203,8 +203,13 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
       if (amt <= 0) { toast.error(`Leg amount must be > 0 (${l.method})`); return; }
       if (l.method === 'cheque') {
         if (!l.chequeIds || l.chequeIds.length === 0) { toast.error('Cheque leg needs at least one cheque selected'); return; }
-        const chTotal = l.chequeIds.reduce((s, cid) => s + Number(allCheques[cid]?.amount || 0), 0);
-        if (Math.abs(chTotal - amt) > 0.5) { toast.error(`Cheque leg amount ${fmt(amt)} must match selected cheques total ${fmt(chTotal)}`); return; }
+        // Aug 18 2026 — A cheque leg draws against the cheques' REMAINING
+        // balance, not face value (matches legMath/toggleChequeOnLeg above
+        // and the backend's own check) — a smaller draw is valid, the rest
+        // just stays on the cheque. Only reject when the leg asks for MORE
+        // than the selected cheques actually have available.
+        const chAvailable = l.chequeIds.reduce((s, cid) => s + Number(allCheques[cid]?.available_amount ?? allCheques[cid]?.amount ?? 0), 0);
+        if (amt > chAvailable + 0.5) { toast.error(`Cheque leg amount ${fmt(amt)} exceeds selected cheques' available balance ${fmt(chAvailable)}`); return; }
       } else if (isBankLike(l.method)) {
         // Transaction ID is optional — accountant may not have UTR/ref at
         // payment time; it can be back-filled later from Cheque Mgmt /
