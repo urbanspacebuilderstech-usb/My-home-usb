@@ -9254,7 +9254,16 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
         if source_req_id:
             parent = await db.material_requests.find_one({"request_id": source_req_id}, {"_id": 0})
             if parent:
-                parent_update = {"updated_at": now}
+                # Aug 18 2026 — bounce_cheque flags cheque_bounced=True on
+                # BOTH this mirror and the parent material_request. The
+                # $set a few lines above already clears it on the mirror
+                # once full payment lands, but this parent_update never
+                # did — so a bounced-then-fully-repaid bill stayed stuck in
+                # /procurement-simple/accountant/queue forever (its `$or`
+                # includes `cheque_bounced: True` unconditionally, no status
+                # check). Clear it here too so both sides agree once the
+                # bill is genuinely settled (Mr harish Gunasekaran / USB-MR843).
+                parent_update = {"updated_at": now, "cheque_bounced": False}
                 notify_se_msg = None
                 if phase == "advance":
                     parent_update.update({

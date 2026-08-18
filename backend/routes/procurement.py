@@ -3889,6 +3889,21 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
         total_amt = float(r.get("total_amount") or r.get("estimated_price") or 0)
         collected = adv_paid + mirror_partial
         bal = max(0.0, total_amt - collected)
+        # Aug 18 2026 — Self-heal: this row's `cheque_bounced=True` is what
+        # pulled it into the $or above in the first place, but pay_approval
+        # only ever cleared that flag on the material_expenses mirror, never
+        # here on the parent — so a bounced cheque that was later fully
+        # repaid (via ANY combination of legs, cash/cheque/bank) stayed
+        # stuck in this queue forever even though it's genuinely settled
+        # (Mr harish Gunasekaran / USB-MR843: bounced ₹1,00,000 re-paid via
+        # 3 separate legs summing to the full ₹1,56,800). Detect it here so
+        # already-stuck rows clear immediately on the next read instead of
+        # needing another payment action to trigger the write-time fix.
+        if r.get("cheque_bounced") and total_amt > 0.5 and bal <= 0.5:
+            await db.material_requests.update_one(
+                {"request_id": r["request_id"]}, {"$set": {"cheque_bounced": False}}
+            )
+            continue
         if collected > 0.01 and bal > 0.01 and r.get("status") in (
             "pending_accounts_approval", "in_transit", "procurement_verifying", "pending_balance_payment", "partially_paid", "pending_advance_payment",
         ):
