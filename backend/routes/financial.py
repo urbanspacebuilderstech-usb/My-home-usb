@@ -8574,6 +8574,60 @@ async def reverse_cheque_allocations_for_expense(expense_id: str, reason: str,
     return round(released, 2)
 
 
+_PAID_LEG_EXCLUDED_STATUS = {"rejected", "accountant_rejected", "accounts_rejected",
+                             "under_correction", "cheque_bounced"}
+
+
+async def _reconciled_already_paid(req: Dict[str, Any]) -> float:
+    """How much of this bill is *actually* still paid for.
+
+    Aug 18 2026 — `paid_amount` stored on a bill is a flag, not evidence. When
+    the cashbook legs that funded it are later deleted (Cashbook → delete /
+    send back to Approvals), the flag survives while the money does not. The
+    bill then re-enters Approvals insisting it is already settled: Net Payable
+    ₹0, no payment modes offered, and the accountant's whole tender routed to
+    vendor suspense as "excess" — which is how a dozen fully-"paid" legacy
+    rows ended up sitting in the Materials queue unable to be paid.
+
+    Surviving `recorded_expenses` legs are the real evidence, so they win.
+
+    Deliberately conservative — it can only ever LOWER the figure, and only on
+    evidence:
+      • legs found  → trust their sum (a genuinely part-paid bill with intact
+        legs reconciles to the same number and is unaffected);
+      • no legs, but `paid_via_expense_id` points at a recorded_expense that
+        no longer exists → positive proof the funding leg was deleted, so 0;
+      • no legs and no such proof → keep the stored value untouched, because
+        absence of legs alone could just be a linkage this doesn't know about,
+        and under-counting would invite a double payment.
+    """
+    stored = float(req.get("paid_amount") or 0)
+    if stored <= 0.5:
+        return 0.0
+    ids = [i for i in {req.get("expense_id"), req.get("source_request_id"),
+                       req.get("request_id"), req.get("material_expense_id")} if i]
+    if not ids:
+        return stored
+    legs = await db.recorded_expenses.find(
+        {"$or": [
+            {"request_id": {"$in": ids}},
+            {"material_request_id": {"$in": ids}},
+            {"material_expense_id": {"$in": ids}},
+        ]},
+        {"_id": 0, "amount": 1, "status": 1},
+    ).to_list(200)
+    surviving = round(sum(
+        float(l.get("amount") or 0) for l in legs
+        if (l.get("status") or "").lower() not in _PAID_LEG_EXCLUDED_STATUS
+    ), 2)
+    if surviving > 0.5:
+        return min(stored, surviving)
+    pv = req.get("paid_via_expense_id")
+    if pv and not await db.recorded_expenses.find_one({"expense_id": pv}, {"_id": 0, "expense_id": 1}):
+        return 0.0
+    return stored
+
+
 class PaymentDenomination(BaseModel):
     note: int
     count: int
@@ -8888,7 +8942,7 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
     # Partial payment continuation — if the request already has paid_amount from
     # a prior partial settlement, the remaining payable shrinks accordingly and
     # suspense was already consumed in the first call.
-    already_paid = float(req.get("paid_amount") or 0)
+    already_paid = await _reconciled_already_paid(req)
     is_continuation = already_paid > 0 and req.get("status") == "partially_paid"
     if is_continuation:
         # Suspense was already credited; do not double-apply.
@@ -8972,7 +9026,7 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     bill_amount = float(amount_fn(req) or 0)
     vendor_name = vendor_fn(req)
     project_id = req.get("project_id")
-    already_paid = float(req.get("paid_amount") or 0)
+    already_paid = await _reconciled_already_paid(req)
     is_continuation = already_paid > 0 and req.get("status") == "partially_paid"
 
     # Aug 18 2026 — Same fix as get_pay_context (GET preview): for a material
