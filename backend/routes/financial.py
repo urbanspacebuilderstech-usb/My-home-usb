@@ -8683,6 +8683,19 @@ async def trace_cheque_usage(cheque: Dict[str, Any]) -> Dict[str, Any]:
             row["excluded_reason"] = f"leg status {st!r} — money returned"
             skipped.append(row)
             continue
+        # Aug 18 2026 — A bill paid FROM the vendor's suspense pool carries an
+        # INHERITED cheque_id, purely so accountants can see which cheque
+        # originally seeded that pool (see the src_hint "(via Cheque #X
+        # suspense)" built at payment time). No money left the cheque a second
+        # time — it left once, on the direct swipe, and part of it landed in
+        # the pool. Counting these as cheque outflow double-counts the same
+        # rupees and can drive the traced spend past the face value, which is
+        # exactly what it did on #001684: 11 rows totalling 3,76,507 against a
+        # 2,00,000 cheque.
+        if (l.get("source") or "") == "approval_suspense" or float(l.get("credit_applied") or 0) > 0.5:
+            row["excluded_reason"] = "funded from the vendor suspense pool — cheque_id is inherited for display only"
+            skipped.append(row)
+            continue
         out = row["tendered_amount"] or row["amount_applied_to_bill"]
         row["counted_as_spent"] = round(out, 2)
         leg_total += out
@@ -10379,6 +10392,11 @@ async def cheque_balance_trace(cheque_number: str, restore_amount: float = 0.0,
         "balance_before_restore_from_evidence": before,
         "restore_amount": float(restore_amount or 0),
         "balance_after_restore": after,
+        "overspent_warning": (
+            f"Traced spend {trace['total_spent_from_cheque']} EXCEEDS the face value "
+            f"{trace['face_value']} — the evidence is being double-counted somewhere. "
+            f"Do not act on these numbers."
+        ) if trace["total_spent_from_cheque"] > trace["face_value"] + 0.5 else None,
         "proposed_write": {
             "collection": "cheque_allocations",
             "action": "insert ONE opening row recording historical usage",
