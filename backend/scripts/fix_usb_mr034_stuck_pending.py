@@ -138,12 +138,27 @@ async def main() -> int:
         # this gates the write.
         paid_via = (bill or {}).get("paid_via_expense_id")
         cashbook_row = None
+        probes = []
         if paid_via:
             cashbook_row = await db.recorded_expenses.find_one({"expense_id": paid_via}, {"_id": 0})
+            probes.append(f"by paid_via_expense_id={paid_via}: {'hit' if cashbook_row else 'miss'}")
         if not cashbook_row:
+            # Broadened so a missing/renamed link field cannot produce a false
+            # "the money is gone" verdict: any link id, no category constraint.
+            cashbook_row = await db.recorded_expenses.find_one({"$or": [
+                {"request_id": {"$in": [REQUEST_ID, BILL_EXPENSE_ID]}},
+                {"source_request_id": {"$in": [REQUEST_ID, BILL_EXPENSE_ID]}},
+                {"material_request_id": REQUEST_ID},
+                {"material_expense_id": BILL_EXPENSE_ID},
+            ]}, {"_id": 0})
+            probes.append(f"by link ids: {'hit' if cashbook_row else 'miss'}")
+        if not cashbook_row:
+            # Last resort: same vendor, same amount.
             cashbook_row = await db.recorded_expenses.find_one(
-                {"request_id": {"$in": [REQUEST_ID, BILL_EXPENSE_ID]}, "category": "material"}, {"_id": 0}
-            )
+                {"amount": {"$gte": AMOUNT - 0.5, "$lte": AMOUNT + 0.5},
+                 "vendor_name": (bill or {}).get("vendor_name")}, {"_id": 0})
+            probes.append(f"by vendor+amount: {'hit' if cashbook_row else 'miss'}")
+        print("  cashbook lookup -> " + "; ".join(probes))
         print(f"  paid_via_expense_id={paid_via!r} cashbook_row="
               f"{(cashbook_row or {}).get('expense_id')!r} amount={(cashbook_row or {}).get('amount')!r}")
 
@@ -210,12 +225,17 @@ async def main() -> int:
                   "currently free and could be re-used. Not touched by this heal; "
                   "needs its own decision.")
 
-        # The spend must still be in the books before we hide the bill.
+        # Cashbook row: reported, NOT blocking. Probed live 2026-08-17 and
+        # found absent, which is consistent with the payment having been sent
+        # back from the Cashbook after the Aug 14 repair -- that path deletes
+        # the recorded_expenses mirror and frees the cheque, both of which
+        # match the observed state. The operator was told, and instructed
+        # explicitly and repeatedly to apply the status correction anyway and
+        # to create no payment. Honour that; surface the finding loudly.
         if not cashbook_row or abs(float(cashbook_row.get("amount") or 0) - AMOUNT) > 0.01:
-            fail(f"no cashbook recorded_expenses row of {AMOUNT} for this bill "
-                 f"(found {(cashbook_row or {}).get('expense_id')!r}). Marking the parent "
-                 "delivered would drop this spend out of the Cashbook entirely.")
-            return 1
+            print(f"  WARNING: no cashbook recorded_expenses row of {AMOUNT} for this bill. "
+                  f"The spend is NOT in the Cashbook; the bill's paid flag is the only record "
+                  f"of it. Creating no payment -- reported for a separate decision.")
         if parent.get("cheque_bounced"):
             # A bounce would re-select this row through the queue's other $or
             # branch anyway, and would mean the payment is not good. Clearing
