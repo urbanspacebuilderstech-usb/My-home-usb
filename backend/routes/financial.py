@@ -10356,6 +10356,66 @@ async def reopen_daily_closing(closing_id: str, payload: Dict[str, Any], user: U
     return {"message": "Row re-opened for correction", "closing_id": closing_id}
 
 
+# ===== TEMPORARY, READ-ONLY — how was a deleted bill actually funded? =====
+# The payment row itself is gone, but pay_approval writes an audit entry per
+# payment carrying credit_used (suspense drawn), new_suspense (excess created)
+# and leg_count. That is enough to tell a DIRECT cheque swipe apart from a bill
+# paid FROM the vendor's suspense pool, which is the difference between
+# returning a deleted amount to a cheque or to the pool. WRITES NOTHING.
+@router.get("/admin/payment-funding-audit")
+async def payment_funding_audit(request_id: str, user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    logs = await db.audit_logs.find(
+        {"$or": [{"resource_id": request_id}, {"details.record_id": request_id}]}, {"_id": 0}
+    ).sort("timestamp", 1).to_list(200)
+
+    pays = [l for l in logs if (l.get("action") or "") == "pay"]
+    verdict, evidence = "unknown", []
+    for l in pays:
+        d = l.get("details") or {}
+        credit_used = float(d.get("credit_used") or 0)
+        new_suspense = float(d.get("new_suspense") or 0)
+        evidence.append({
+            "timestamp": l.get("timestamp"), "action": l.get("action"),
+            "credit_used": credit_used, "new_suspense": new_suspense,
+            "leg_count": d.get("leg_count"),
+            "effective_paid_this_call": d.get("effective_paid_this_call"),
+            "bill_amount": d.get("bill_amount"),
+            "reading": ("funded from SUSPENSE pool" if credit_used > 0.5 and new_suspense <= 0.5
+                        else "DIRECT swipe that seeded suspense" if new_suspense > 0.5
+                        else "direct payment, no suspense involved"),
+        })
+    if evidence:
+        last = evidence[-1]
+        verdict = ("approval_suspense" if last["credit_used"] > 0.5 and last["new_suspense"] <= 0.5
+                   else "direct_cheque_swipe" if last["new_suspense"] > 0.5 else "direct_no_suspense")
+
+    bill = await db.material_expenses.find_one({"expense_id": request_id}, {"_id": 0})
+    return {
+        "write_performed": False,
+        "request_id": request_id,
+        "bill": {k: (bill or {}).get(k) for k in
+                 ("expense_id", "status", "paid_amount", "final_amount", "vendor_name",
+                  "cheque_number", "paid_via_expense_id", "source_request_id")} if bill else None,
+        "pay_audit_entries": evidence,
+        "other_audit_actions": [
+            {"action": l.get("action"), "timestamp": l.get("timestamp"),
+             "details": l.get("details")}
+            for l in logs if (l.get("action") or "") != "pay"
+        ],
+        "verdict": verdict,
+        "verdict_meaning": {
+            "approval_suspense": "Paid FROM the vendor suspense pool. Deleting it must return the amount to the POOL, not to any cheque.",
+            "direct_cheque_swipe": "A direct cheque swipe that seeded suspense excess. Deleting it returns the cheque.",
+            "direct_no_suspense": "Direct payment with no suspense involved.",
+            "unknown": "No 'pay' audit entry found for this id — cannot confirm from the audit trail.",
+        }.get(verdict),
+        "note": "Read-only. Nothing was written.",
+    }
+
+
 # ===== TEMPORARY, READ-ONLY — cheque balance trace (remove after use) =====
 # Reconstructs a cheque's real spend from production records only. Nothing is
 # assumed, nothing is hardcoded, and NOTHING IS WRITTEN — there is deliberately
