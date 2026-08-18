@@ -5992,16 +5992,33 @@ async def _resync_all_section_addition_stages(project_id: Optional[str] = None):
             continue
         if not eligible:
             continue
+        # Aug 18 2026 — amount_received must track the SAME authoritative
+        # figure the project's own Additional Work section shows (sum of
+        # accountant-approved income_received across every row currently in
+        # the section), not whatever was last cached on the stage the moment
+        # CRE collected it. Without this, a later correction (e.g. Accountant
+        # reverses/re-approves a bounced collection, which self-heals
+        # additional_costs.income_received via /payment-summary) never
+        # propagates back to payment_stages.amount_received — leaving the
+        # CRE Payment Schedule showing a stale Received figure (sometimes
+        # exceeding the total, with a negative Balance) while the project's
+        # Additional tab already shows the corrected number.
+        section_rows = await db.additional_costs.find(
+            {"project_id": stage["project_id"], "section_id": section_id},
+            {"_id": 0, "income_received": 1},
+        ).to_list(1000)
+        healed_received = sum(float(r.get("income_received") or 0) for r in section_rows)
         current_amount = float(stage.get("amount") or 0)
-        if abs(section_total - current_amount) < 0.5:
+        current_received = float(stage.get("amount_received") or 0)
+        if abs(section_total - current_amount) < 0.5 and abs(healed_received - current_received) < 0.5:
             continue
         cost_ids = [e["cost_id"] for e in eligible]
-        rec = float(stage.get("amount_received", 0) or 0)
-        new_status = "paid" if rec >= section_total - 0.5 else ("partial" if rec > 0 else "pending")
+        new_status = "paid" if healed_received >= section_total - 0.5 else ("partial" if healed_received > 0 else "pending")
         await db.payment_stages.update_one(
             {"stage_id": stage["stage_id"]},
             {"$set": {
                 "amount": section_total,
+                "amount_received": healed_received,
                 "linked_addition_ids": cost_ids,
                 "status": new_status,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
