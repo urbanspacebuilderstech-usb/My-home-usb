@@ -8628,6 +8628,83 @@ async def _reconciled_already_paid(req: Dict[str, Any]) -> float:
     return stored
 
 
+async def trace_cheque_usage(cheque: Dict[str, Any]) -> Dict[str, Any]:
+    """Reconstruct, from production records only, how much has actually left a
+    cheque. No assumed or hardcoded figures anywhere.
+
+    Aug 18 2026 — Cheques predating the allocation model carry no allocation
+    rows, and where the old send-back bug deleted their excess-to-suspense
+    credit they carry no trace of it there either, so the balance formula sees
+    an untouched face value. The money did move though, and the payment legs
+    that moved it are still on record.
+
+    Evidence, in priority order per funding record:
+      • cheque_allocations (new model) — the drawn amount, exact.
+      • recorded_expenses legs referencing this cheque (old model) — the whole
+        face left the cheque on a swipe, so `tendered_amount` is what went out;
+        `amount` (the part applied to the bill) is the fallback when a leg
+        predates that field. Counting `tendered_amount` already includes any
+        portion that went to suspense, so suspense rows are reported for
+        visibility but never added — that would double-count.
+
+    Legs are matched by cheque_id, cheque_ids[], payment_legs[].cheque_id, and
+    by cheque_number, so a leg linked either way is caught. Reversed
+    allocations and rejected/bounced legs are excluded: that money came back.
+    """
+    cid = cheque.get("cheque_id")
+    cnum = cheque.get("cheque_number")
+    face = float(cheque.get("amount") or 0)
+    _EXCL = _PAID_LEG_EXCLUDED_STATUS
+
+    allocs = await db.cheque_allocations.find(
+        {"cheque_id": cid, "status": "active"}, {"_id": 0}).to_list(200)
+    alloc_total = round(sum(float(a.get("amount") or 0) for a in allocs), 2)
+
+    or_terms: List[Dict[str, Any]] = [
+        {"cheque_id": cid}, {"cheque_ids": cid}, {"cheque_no": cid},
+        {"payment_legs.cheque_id": cid},
+    ]
+    if cnum:
+        or_terms += [{"cheque_number": cnum}, {"cheque_no": cnum}]
+    legs = await db.recorded_expenses.find({"$or": or_terms}, {"_id": 0}).to_list(500)
+
+    counted, skipped = [], []
+    leg_total = 0.0
+    for l in legs:
+        st = (l.get("status") or "").lower()
+        row = {
+            "expense_id": l.get("expense_id"), "request_id": l.get("request_id"),
+            "description": l.get("description"), "status": l.get("status"),
+            "amount_applied_to_bill": float(l.get("amount") or 0),
+            "tendered_amount": float(l.get("tendered_amount") or 0),
+            "created_at": l.get("created_at"),
+        }
+        if st in _EXCL:
+            row["excluded_reason"] = f"leg status {st!r} — money returned"
+            skipped.append(row)
+            continue
+        out = row["tendered_amount"] or row["amount_applied_to_bill"]
+        row["counted_as_spent"] = round(out, 2)
+        leg_total += out
+        counted.append(row)
+
+    susp = await db.suspense_entries.find(
+        {"linked_cheque_ids": cid}, {"_id": 0, "entry_id": 1, "amount": 1, "description": 1}
+    ).to_list(200)
+
+    spent = round(alloc_total + leg_total, 2)
+    return {
+        "cheque_id": cid, "cheque_number": cnum, "face_value": face,
+        "allocations_active": allocs, "allocations_total": alloc_total,
+        "funding_legs_counted": counted, "funding_legs_total": round(leg_total, 2),
+        "funding_legs_excluded": skipped,
+        "suspense_rows_reported_not_counted": susp,
+        "evidence_record_count": len(allocs) + len(counted),
+        "total_spent_from_cheque": spent,
+        "balance_from_evidence": round(max(0.0, face - spent), 2),
+    }
+
+
 class PaymentDenomination(BaseModel):
     note: int
     count: int
@@ -10266,54 +10343,55 @@ async def reopen_daily_closing(closing_id: str, payload: Dict[str, Any], user: U
     return {"message": "Row re-opened for correction", "closing_id": closing_id}
 
 
-# ===== TEMPORARY, READ-ONLY — Cheque #001684 historical-allocation dry run =====
-# Cheque #001684 predates the partial-allocation model, and the old send-back
-# bug deleted the suspense credit that used to account for its unspent
-# portion. It has no record of the 1,72,484 already spent from it, so under
-#     available = face - allocations - seeded suspense
-# it reads as a full 2,00,000 and those rupees could be spent twice.
+# ===== TEMPORARY, READ-ONLY — cheque balance trace (remove after use) =====
+# Reconstructs a cheque's real spend from production records only. Nothing is
+# assumed, nothing is hardcoded, and NOTHING IS WRITTEN — there is deliberately
+# no apply endpoint deployed alongside this.
 #
-# The proposed repair is ONE opening allocation of 1,72,484 for the historical
-# usage, leaving 27,516 available; USB-MR034's 17,516 then leaves 10,000.
-#
-# THIS ENDPOINT WRITES NOTHING. There is deliberately no apply endpoint
-# deployed alongside it — nothing can change until the dry run is approved.
-@router.get("/admin/cheque-001684-allocation-dryrun")
-async def cheque_001684_allocation_dryrun(user: User = Depends(get_current_user)):
+# `restore_amount` models a deletion being reversed: it is the amount a deleted
+# expense would hand back, so the response shows the balance both before and
+# after that single restoration and nothing else moves.
+@router.get("/admin/cheque-balance-trace")
+async def cheque_balance_trace(cheque_number: str, restore_amount: float = 0.0,
+                               user: User = Depends(get_current_user)):
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    CHEQUE_ID, FACE, HISTORICAL_USED, TARGET = "chq_8e7e0aae", 200000.0, 172484.0, 27516.0
-    cq = await db.cheques.find_one({"cheque_id": CHEQUE_ID}, {"_id": 0})
+    cq = await db.cheques.find_one({"cheque_number": cheque_number}, {"_id": 0})
     if not cq:
-        raise HTTPException(status_code=404, detail=f"Cheque {CHEQUE_ID} not found")
+        raise HTTPException(status_code=404, detail=f"No cheque numbered {cheque_number}")
 
-    allocs = await db.cheque_allocations.find({"cheque_id": CHEQUE_ID}, {"_id": 0}).to_list(200)
-    active = [a for a in allocs if a.get("status") == "active"]
-    alloc_total = round(sum(float(a.get("amount") or 0) for a in active), 2)
-    susp = await db.suspense_entries.find({"linked_cheque_ids": CHEQUE_ID}, {"_id": 0}).to_list(200)
-    susp_credit = round(sum(float(s.get("amount") or 0) for s in susp if float(s.get("amount") or 0) > 0), 2)
-    current_available = (await cheque_available_map([cq]))[CHEQUE_ID]
-    projected = round(max(0.0, float(cq.get("amount") or 0) - (alloc_total + HISTORICAL_USED) - susp_credit), 2)
+    trace = await trace_cheque_usage(cq)
+    reported_available = (await cheque_available_map([cq]))[cq["cheque_id"]]
+    # The deleted expense's leg is ALREADY absent from the evidence, so the
+    # traced balance is the AFTER figure. The before is that minus the amount
+    # being restored — adding it would credit the same rupees twice.
+    after = trace["balance_from_evidence"]
+    before = round(after - float(restore_amount or 0), 2)
 
     return {
         "write_performed": False,
-        "cheque": {k: cq.get(k) for k in ("cheque_id", "cheque_number", "amount", "status",
-                                          "is_opened", "used_for_expense_id", "party_name")},
-        "precondition_no_existing_allocations": len(allocs) == 0,
-        "existing_allocations": [
-            {k: a.get(k) for k in ("allocation_id", "status", "amount", "expense_id", "request_id")}
-            for a in allocs
-        ],
-        "precondition_no_seeded_suspense": susp_credit <= 0.5,
-        "linked_suspense_entries": [
-            {k: s.get(k) for k in ("entry_id", "amount", "description", "linked_expense_id")}
-            for s in susp
-        ],
-        "current_available": current_available,
-        "proposed_opening_allocation": HISTORICAL_USED,
-        "projected_available_after_seed": projected,
-        "projected_matches_target_27516": abs(projected - TARGET) <= 0.5,
-        "projected_after_usb_mr034_pays_17516": round(projected - 17516.0, 2),
-        "note": "Read-only. No apply endpoint is deployed; nothing changes until this is approved.",
+        "cheque": {k: cq.get(k) for k in ("cheque_id", "cheque_number", "amount", "bank_name",
+                                          "project_name", "party_name", "status", "is_opened",
+                                          "used_for_expense_id")},
+        "trace": trace,
+        "balance_currently_reported_by_app": reported_available,
+        "balance_before_restore_from_evidence": before,
+        "restore_amount": float(restore_amount or 0),
+        "balance_after_restore": after,
+        "proposed_write": {
+            "collection": "cheque_allocations",
+            "action": "insert ONE opening row recording historical usage",
+            "amount": trace["total_spent_from_cheque"],
+            "effect": f"available becomes {after} instead of {reported_available}",
+            "creates_suspense": False,
+            "touches_other_allocations": False,
+            "touches_other_bills": False,
+        } if trace["evidence_record_count"] > 0 else None,
+        "warning": None if trace["evidence_record_count"] > 0 else (
+            "No funding records reference this cheque, so its historical spend cannot be "
+            "reconstructed from production data. Nothing will be proposed — a figure would "
+            "have to come from the bank statement."
+        ),
+        "note": "Read-only. No apply endpoint is deployed; nothing changes without approval.",
     }
