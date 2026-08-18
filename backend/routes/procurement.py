@@ -2961,6 +2961,38 @@ async def procurement_simple_change_vendor(request_id: str, data: dict, user: Us
     )
     new_total = max(0.0, new_unit_price * new_qty + new_transport - new_discount)
 
+    # Optional payment-mode edit alongside the vendor swap. Only advance /
+    # post_delivery are offered here (matching SELECTABLE_PAYMENT_MODES in
+    # the Change Vendor UI) — pre_paid/credit are legacy-only and not part
+    # of this flow.
+    old_payment_mode = (req.get("payment_mode") or "post_delivery").lower()
+    raw_payment_mode = data.get("payment_mode")
+    new_payment_mode = (raw_payment_mode or old_payment_mode).strip().lower() if isinstance(raw_payment_mode, str) and raw_payment_mode.strip() else old_payment_mode
+    if new_payment_mode not in ("advance", "post_delivery"):
+        raise HTTPException(status_code=400, detail="payment_mode must be advance or post_delivery")
+    payment_mode_changed = new_payment_mode != old_payment_mode
+    switching_to_advance = payment_mode_changed and new_payment_mode == "advance"
+
+    advance_pct = None
+    advance_amount = 0.0
+    if switching_to_advance:
+        adv_mode = (data.get("advance_input_mode") or "amount").lower()
+        if adv_mode == "percent":
+            try:
+                advance_pct = float(data.get("advance_percent") or 0)
+            except (TypeError, ValueError):
+                advance_pct = 0
+            if advance_pct <= 0 or advance_pct > 100:
+                raise HTTPException(status_code=400, detail="advance_percent must be between 0 and 100")
+            advance_amount = round(new_total * advance_pct / 100, 2)
+        else:
+            try:
+                advance_amount = float(data.get("advance_amount") or 0)
+            except (TypeError, ValueError):
+                advance_amount = 0
+            if advance_amount <= 0 or advance_amount > new_total + 0.01:
+                raise HTTPException(status_code=400, detail="advance_amount must be > 0 and ≤ total")
+
     now = datetime.now(timezone.utc).isoformat()
     history_entry = {
         "from_vendor_id": req.get("vendor_id") or "",
@@ -2980,6 +3012,11 @@ async def procurement_simple_change_vendor(request_id: str, data: dict, user: Us
             "from_discount": old_discount, "to_discount": new_discount,
             "from_total": round(old_unit_price * old_qty + old_transport - old_discount, 2),
             "to_total": round(new_total, 2),
+        })
+    if payment_mode_changed:
+        history_entry.update({
+            "from_payment_mode": old_payment_mode,
+            "to_payment_mode": new_payment_mode,
         })
 
     set_fields = {
@@ -3008,6 +3045,27 @@ async def procurement_simple_change_vendor(request_id: str, data: dict, user: Us
             "estimated_price": new_total,
             "estimated_cost": new_total,
         })
+    if switching_to_advance:
+        # Advance requires Accountant approval BEFORE the new vendor's goods
+        # move — same rule as the initial assign-vendor flow. Pull the
+        # request out of Transit back to the advance-approval queue instead
+        # of leaving it (incorrectly) marked in_transit with no advance paid.
+        set_fields.update({
+            "payment_mode": "advance",
+            "advance_percent": advance_pct,
+            "advance_amount": advance_amount,
+            "balance_amount": max(0.0, new_total - advance_amount),
+            "status": "pending_advance_payment",
+            "next_payment_phase": "advance",
+            "pending_next_status": "in_transit",
+            "transit_started_at": None,
+            "transit_started_by": None,
+        })
+    elif payment_mode_changed:
+        set_fields.update({
+            "payment_mode": "post_delivery",
+            "credit_days": 0,
+        })
     await db.material_requests.update_one(
         {"request_id": request_id},
         {
@@ -3015,12 +3073,95 @@ async def procurement_simple_change_vendor(request_id: str, data: dict, user: Us
             "$push": {"vendor_change_history": history_entry},
         },
     )
+
+    # Mirror the advance bill to material_expenses, same look-up-before-insert
+    # pattern as assign-vendor, so Accountant Approvals / /approvals/pay pick
+    # it up directly.
+    if switching_to_advance:
+        try:
+            existing_exp = await db.material_expenses.find_one(
+                {"source_request_id": request_id}, {"_id": 0, "expense_id": 1, "status": 1},
+            )
+            if existing_exp and existing_exp.get("status") not in ("partially_paid", "paid", "completed"):
+                exp_id = existing_exp["expense_id"]
+                await db.material_expenses.update_one(
+                    {"expense_id": exp_id},
+                    {"$set": {
+                        "project_id": req.get("project_id"),
+                        "project_name": req.get("project_name"),
+                        "material_name": req.get("material_name"),
+                        "quantity": new_qty,
+                        "unit": req.get("unit"),
+                        "unit_price": new_unit_price,
+                        "vendor_id": new_vendor_id,
+                        "vendor_name": new_vendor_name,
+                        "estimated_cost": advance_amount,
+                        "final_amount": advance_amount,
+                        "payment_mode": "advance",
+                        "payment_phase": "advance",
+                        "status": "pending_accounts_approval",
+                        "description": f"ADVANCE — {req.get('material_name', '')} ({new_qty} {req.get('unit', '')})",
+                        "updated_at": now,
+                        "rejection_reason": None,
+                        "rejected_by": None,
+                        "rejected_by_name": None,
+                        "rejected_at": None,
+                    }},
+                )
+            elif existing_exp:
+                exp_id = existing_exp["expense_id"]
+            else:
+                exp_id = f"mexp_{uuid.uuid4().hex[:12]}"
+                await db.material_expenses.insert_one({
+                    "expense_id": exp_id,
+                    "source_request_id": request_id,
+                    "project_id": req.get("project_id"),
+                    "project_name": req.get("project_name"),
+                    "material_name": req.get("material_name"),
+                    "quantity": new_qty,
+                    "unit": req.get("unit"),
+                    "unit_price": new_unit_price,
+                    "vendor_id": new_vendor_id,
+                    "vendor_name": new_vendor_name,
+                    "estimated_cost": advance_amount,
+                    "final_amount": advance_amount,
+                    "payment_mode": "advance",
+                    "payment_phase": "advance",
+                    "status": "pending_accounts_approval",
+                    "site_engineer_id": req.get("site_engineer_id"),
+                    "site_engineer_name": req.get("site_engineer_name"),
+                    "created_at": now,
+                    "updated_at": now,
+                    "description": f"ADVANCE — {req.get('material_name', '')} ({new_qty} {req.get('unit', '')})",
+                    "request_type": "material",
+                })
+            await db.material_requests.update_one(
+                {"request_id": request_id},
+                {"$set": {"advance_expense_id": exp_id}},
+            )
+        except Exception as _e:
+            await create_audit_log(user.user_id, "advance_mirror_failed", "material_request", request_id, {"error": str(_e)})
+
     try:
         await create_audit_log(user.user_id, "change_vendor", "material_request", request_id, history_entry)
     except Exception:
         pass
-    # Notify SE so they know who to collect from now
-    if req.get("site_engineer_id"):
+    # Notify next role in chain — Accountant when the swap now needs a fresh
+    # advance approval, SE otherwise (same split as assign-vendor).
+    if switching_to_advance:
+        try:
+            acc_users = await db.users.find(
+                {"role": {"$in": ["accountant", "super_admin"]}, "is_active": {"$ne": False}},
+                {"_id": 0, "user_id": 1},
+            ).to_list(50)
+            for u in acc_users:
+                await create_notification(
+                    u["user_id"],
+                    f"Advance payment pending: {req.get('material_name')} → {new_vendor_name} (Advance ₹{advance_amount:,.0f} of ₹{new_total:,.0f})",
+                )
+        except Exception:
+            pass
+    elif req.get("site_engineer_id"):
         try:
             await create_notification(
                 req["site_engineer_id"],
@@ -3028,7 +3169,11 @@ async def procurement_simple_change_vendor(request_id: str, data: dict, user: Us
             )
         except Exception:
             pass
-    return {"message": "Vendor updated", "vendor_change_history": history_entry}
+    return {
+        "message": "Sent to Accountant for advance approval" if switching_to_advance else "Vendor updated",
+        "vendor_change_history": history_entry,
+        "status": set_fields.get("status", req.get("status")),
+    }
 
 
 @router.patch("/procurement-simple/material-requests/{request_id}/toggle-priority")

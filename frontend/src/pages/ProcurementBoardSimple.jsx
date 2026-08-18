@@ -1887,6 +1887,10 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   const [cvApprovedQty, setCvApprovedQty] = useState('');
   const [cvTransport, setCvTransport] = useState('0');
   const [cvDiscount, setCvDiscount] = useState('0');
+  const [cvPaymentMode, setCvPaymentMode] = useState('post_delivery');
+  const [cvAdvanceMode, setCvAdvanceMode] = useState('percent');
+  const [cvAdvancePercent, setCvAdvancePercent] = useState('30');
+  const [cvAdvanceAmount, setCvAdvanceAmount] = useState('');
   // Phase-1 new fields
   const [timelineType, setTimelineType] = useState('date'); // 'date' | 'days'
   const [timelineDate, setTimelineDate] = useState('');
@@ -2107,6 +2111,13 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
       toast.error(err.response?.data?.detail || 'Recalculate failed');
     } finally { setRecalculating(false); }
   };
+
+  // Change-Vendor sub-flow totals — mirrors the main total/advance formulas
+  // above but against the cv* fields the Change Vendor popup edits.
+  const cvTotal = Math.max(0, (parseFloat(cvUnitPrice) || 0) * (parseFloat(cvApprovedQty) || 0) + (parseFloat(cvTransport) || 0) - (parseFloat(cvDiscount) || 0));
+  const cvComputedAdvance = cvPaymentMode === 'advance'
+    ? (cvAdvanceMode === 'percent' ? Math.round(cvTotal * (parseFloat(cvAdvancePercent) || 0) / 100) : (parseFloat(cvAdvanceAmount) || 0))
+    : 0;
 
   return (
     <Dialog open={!!item} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -2588,6 +2599,10 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
                 setCvApprovedQty(String(item.approved_quantity ?? item.quantity ?? ''));
                 setCvTransport(String(item.transport_cost || 0));
                 setCvDiscount(String(item.discount || 0));
+                setCvPaymentMode(item.payment_mode === 'advance' ? 'advance' : 'post_delivery');
+                setCvAdvancePercent(String(item.advance_percent || 30));
+                setCvAdvanceAmount(String(item.advance_amount || ''));
+                setCvAdvanceMode(item.advance_percent ? 'percent' : 'amount');
                 setChangeVendorOpen(true);
               }}
               data-testid="proc-assign-change-vendor"
@@ -2649,15 +2664,66 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
                 <Input type="number" min="0" value={cvDiscount} onChange={(e) => setCvDiscount(e.target.value)} className="mt-1" data-testid="proc-change-vendor-discount" />
               </div>
             </div>
-            {(() => {
-              const total = Math.max(0, (parseFloat(cvUnitPrice) || 0) * (parseFloat(cvApprovedQty) || 0) + (parseFloat(cvTransport) || 0) - (parseFloat(cvDiscount) || 0));
-              return (
-                <div className="bg-emerald-50 border border-emerald-200 rounded px-3 py-2 flex items-center justify-between text-sm">
-                  <span className="text-emerald-700 font-medium">Estimated Total</span>
-                  <span className="font-bold text-emerald-800" data-testid="proc-change-vendor-total">{fmt(total)}</span>
+            <div className="bg-emerald-50 border border-emerald-200 rounded px-3 py-2 flex items-center justify-between text-sm">
+              <span className="text-emerald-700 font-medium">Estimated Total</span>
+              <span className="font-bold text-emerald-800" data-testid="proc-change-vendor-total">{fmt(cvTotal)}</span>
+            </div>
+            <div>
+              <Label className="text-xs">Payment Mode</Label>
+              <div className="grid grid-cols-2 gap-2 mt-1">
+                {SELECTABLE_PAYMENT_MODES.map((key) => {
+                  const cfg = PAYMENT_MODE_DISPLAY[key];
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setCvPaymentMode(key)}
+                      className={`flex flex-col items-center justify-center px-2 py-2 rounded border text-xs transition-all min-h-[52px] cursor-pointer ${
+                        cvPaymentMode === key ? 'bg-amber-600 text-white border-amber-600 shadow-sm' : 'bg-white border-gray-200 text-gray-700 hover:border-amber-300'
+                      }`}
+                      data-testid={`proc-change-vendor-payment-${key}`}
+                    >
+                      <span className="font-semibold leading-tight text-center">{cfg.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-gray-500 italic mt-1">{PAYMENT_MODE_DISPLAY[cvPaymentMode]?.desc}</p>
+              {cvPaymentMode === 'advance' && (
+                <div className="space-y-2 bg-orange-50/50 border border-orange-200 rounded p-2 mt-1.5">
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setCvAdvanceMode('percent')}
+                      className={`flex-1 px-2 py-1 text-[11px] rounded border ${cvAdvanceMode === 'percent' ? 'bg-orange-600 text-white border-orange-600' : 'bg-white border-gray-200 text-gray-600'}`}
+                      data-testid="proc-change-vendor-advance-mode-percent"
+                    >By Percent</button>
+                    <button
+                      type="button"
+                      onClick={() => setCvAdvanceMode('amount')}
+                      className={`flex-1 px-2 py-1 text-[11px] rounded border ${cvAdvanceMode === 'amount' ? 'bg-orange-600 text-white border-orange-600' : 'bg-white border-gray-200 text-gray-600'}`}
+                      data-testid="proc-change-vendor-advance-mode-amount"
+                    >By Amount</button>
+                  </div>
+                  {cvAdvanceMode === 'percent' ? (
+                    <div>
+                      <Label className="text-xs">Advance % *</Label>
+                      <Input type="number" min="1" max="100" value={cvAdvancePercent} onChange={(e) => setCvAdvancePercent(e.target.value)} className="mt-1" data-testid="proc-change-vendor-advance-percent" />
+                    </div>
+                  ) : (
+                    <div>
+                      <Label className="text-xs">Advance Amount (₹) *</Label>
+                      <Input type="number" min="1" value={cvAdvanceAmount} onChange={(e) => setCvAdvanceAmount(e.target.value)} className="mt-1" data-testid="proc-change-vendor-advance-amount" />
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-orange-200 text-xs">
+                    <div className="text-orange-700"><p className="text-[10px] font-semibold uppercase">Advance Now</p><p className="font-bold">{fmt(cvComputedAdvance)}</p></div>
+                    <div className="text-orange-700 text-right"><p className="text-[10px] font-semibold uppercase">Balance on Delivery</p><p className="font-bold">{fmt(Math.max(0, cvTotal - cvComputedAdvance))}</p></div>
+                  </div>
+                  <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">Switching to Advance sends this request back to the Accountant for advance approval before it moves again.</p>
                 </div>
-              );
-            })()}
+              )}
+            </div>
             <div>
               <Label className="text-xs">Reason for change *</Label>
               <Textarea
@@ -2680,6 +2746,14 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
               onClick={async () => {
                 if (!newVendorId) { toast.error('Select the new vendor'); return; }
                 if (!changeReason.trim()) { toast.error('Reason is required'); return; }
+                if (cvPaymentMode === 'advance') {
+                  if (cvAdvanceMode === 'percent' && (!cvAdvancePercent || parseFloat(cvAdvancePercent) <= 0 || parseFloat(cvAdvancePercent) > 100)) {
+                    toast.error('Enter advance % between 0-100'); return;
+                  }
+                  if (cvAdvanceMode === 'amount' && (!cvAdvanceAmount || parseFloat(cvAdvanceAmount) <= 0 || parseFloat(cvAdvanceAmount) > cvTotal)) {
+                    toast.error(`Advance amount must be > 0 and ≤ total (₹${cvTotal.toLocaleString('en-IN')})`); return;
+                  }
+                }
                 const chosen = vendors.find(v => v.vendor_id === newVendorId);
                 setChangeBusy(true);
                 try {
@@ -2691,8 +2765,12 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
                     approved_quantity: cvApprovedQty,
                     transport_cost: cvTransport,
                     discount: cvDiscount,
+                    payment_mode: cvPaymentMode,
+                    advance_input_mode: cvPaymentMode === 'advance' ? cvAdvanceMode : null,
+                    advance_percent: cvPaymentMode === 'advance' && cvAdvanceMode === 'percent' ? cvAdvancePercent : null,
+                    advance_amount: cvPaymentMode === 'advance' && cvAdvanceMode === 'amount' ? cvAdvanceAmount : null,
                   });
-                  toast.success('Vendor updated');
+                  toast.success(cvPaymentMode === 'advance' ? 'Vendor updated — sent to Accountant for advance approval' : 'Vendor updated');
                   setChangeVendorOpen(false);
                   onDone();
                 } catch (err) {
