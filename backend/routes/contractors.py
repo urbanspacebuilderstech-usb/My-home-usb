@@ -853,6 +853,30 @@ async def consume_inventory(data: dict, user: User = Depends(get_current_user)):
     if not project_id or not material_name or qty <= 0:
         raise HTTPException(status_code=400, detail="project_id, material_name and positive qty required")
 
+    # Materials with priced material_request receipts are stock-tracked via
+    # FIFO batches (see _fifo_material_request_batches / the Inventory
+    # dashboard) — that "remaining" figure is what the SE actually sees on
+    # screen before clicking Out Stock. The legacy material_inventory ledger
+    # below only ever records CONSUMPTION events; nothing increments its
+    # closing_stock when a material_request is received, so for any
+    # FIFO-tracked material it silently drifts to (wrongly) near-zero and
+    # blocked a genuinely in-stock "Out Stock" with a stale "0.0 available"
+    # error. When FIFO batches exist for this material, they are the
+    # authoritative available-stock check instead.
+    fifo_available = None
+    try:
+        batches_by_material = await _fifo_material_request_batches(project_id)
+        material_batches = batches_by_material.get(material_name)
+        if material_batches:
+            fifo_available = sum(b["remaining"] for b in material_batches)
+    except Exception:
+        fifo_available = None
+    if fifo_available is not None and qty > fifo_available + 0.01:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient stock — only {round(fifo_available, 2)} {data.get('unit') or ''} available".strip(),
+        )
+
     today = data.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     now = datetime.now(timezone.utc).isoformat()
 
@@ -879,20 +903,31 @@ async def consume_inventory(data: dict, user: User = Depends(get_current_user)):
     if existing_today:
         new_used = float(existing_today.get("used") or 0) + qty
         new_received = float(existing_today.get("received") or 0)
-        new_opening = float(existing_today.get("opening_stock") or 0)
-        new_closing = new_opening + new_received - new_used
-        if new_closing < 0:
-            raise HTTPException(status_code=400, detail=f"Insufficient stock — only {new_opening + new_received - float(existing_today.get('used') or 0)} {unit} available")
+        if fifo_available is not None:
+            # fifo_available already nets out everything consumed to date,
+            # including whatever was already logged today — add that back so
+            # Stock History still shows a sensible "opening" for today rather
+            # than the disconnected legacy figure.
+            new_opening = fifo_available + float(existing_today.get("used") or 0)
+            new_closing = fifo_available - qty
+        else:
+            new_opening = float(existing_today.get("opening_stock") or 0)
+            new_closing = new_opening + new_received - new_used
+            if new_closing < 0:
+                raise HTTPException(status_code=400, detail=f"Insufficient stock — only {new_opening + new_received - float(existing_today.get('used') or 0)} {unit} available")
         await db.material_inventory.update_one(
             {"inventory_id": existing_today["inventory_id"]},
-            {"$set": {"used": new_used, "closing_stock": new_closing, "last_out_at": now, "updated_at": now},
+            {"$set": {"used": new_used, "opening_stock": new_opening, "closing_stock": new_closing, "last_out_at": now, "updated_at": now},
              "$push": {"consumption_log": {"qty": qty, "notes": notes, "at": now, "by": user.user_id, "by_name": user.name}}},
         )
         inventory_id = existing_today["inventory_id"]
     else:
-        opening = float((prior or {}).get("closing_stock") or 0)
-        if opening < qty:
-            raise HTTPException(status_code=400, detail=f"Insufficient stock — only {opening} {unit} available")
+        if fifo_available is not None:
+            opening = fifo_available
+        else:
+            opening = float((prior or {}).get("closing_stock") or 0)
+            if opening < qty:
+                raise HTTPException(status_code=400, detail=f"Insufficient stock — only {opening} {unit} available")
         inventory_id = f"inv_{uuid.uuid4().hex[:8]}"
         await db.material_inventory.insert_one({
             "inventory_id": inventory_id,
