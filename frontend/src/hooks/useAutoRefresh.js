@@ -12,6 +12,14 @@ import { useEffect, useRef } from 'react';
 export function useAutoRefresh(refreshFn, interval = 15000, enabled = true) {
   const savedCallback = useRef(refreshFn);
   const intervalRef = useRef(null);
+  // Aug 14 2026 — Guards against overlapping refresh cycles. Without this,
+  // a tick that fires while the previous refreshFn call is still in flight
+  // (e.g. a slow multi-request page under load) starts a second concurrent
+  // call on top of the first, compounding backend load exactly when it's
+  // already under pressure. Also closes the same race against the
+  // visibilitychange handler below, which can otherwise fire its own call
+  // while an interval-triggered one is still running.
+  const isRefreshingRef = useRef(false);
 
   useEffect(() => {
     savedCallback.current = refreshFn;
@@ -20,9 +28,19 @@ export function useAutoRefresh(refreshFn, interval = 15000, enabled = true) {
   useEffect(() => {
     if (!enabled) return;
 
+    const runRefresh = async () => {
+      if (isRefreshingRef.current) return;
+      isRefreshingRef.current = true;
+      try {
+        await savedCallback.current(false);
+      } finally {
+        isRefreshingRef.current = false;
+      }
+    };
+
     const tick = () => {
       if (document.visibilityState === 'visible') {
-        savedCallback.current(false);
+        runRefresh();
       }
     };
 
@@ -31,7 +49,7 @@ export function useAutoRefresh(refreshFn, interval = 15000, enabled = true) {
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         // Immediately refresh when tab becomes visible again
-        savedCallback.current(false);
+        runRefresh();
       }
     };
 
