@@ -10210,3 +10210,56 @@ async def reopen_daily_closing(closing_id: str, payload: Dict[str, Any], user: U
     except Exception:
         pass
     return {"message": "Row re-opened for correction", "closing_id": closing_id}
+
+
+# ===== TEMPORARY, READ-ONLY — Cheque #001684 historical-allocation dry run =====
+# Cheque #001684 predates the partial-allocation model, and the old send-back
+# bug deleted the suspense credit that used to account for its unspent
+# portion. It has no record of the 1,72,484 already spent from it, so under
+#     available = face - allocations - seeded suspense
+# it reads as a full 2,00,000 and those rupees could be spent twice.
+#
+# The proposed repair is ONE opening allocation of 1,72,484 for the historical
+# usage, leaving 27,516 available; USB-MR034's 17,516 then leaves 10,000.
+#
+# THIS ENDPOINT WRITES NOTHING. There is deliberately no apply endpoint
+# deployed alongside it — nothing can change until the dry run is approved.
+@router.get("/admin/cheque-001684-allocation-dryrun")
+async def cheque_001684_allocation_dryrun(user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    CHEQUE_ID, FACE, HISTORICAL_USED, TARGET = "chq_8e7e0aae", 200000.0, 172484.0, 27516.0
+    cq = await db.cheques.find_one({"cheque_id": CHEQUE_ID}, {"_id": 0})
+    if not cq:
+        raise HTTPException(status_code=404, detail=f"Cheque {CHEQUE_ID} not found")
+
+    allocs = await db.cheque_allocations.find({"cheque_id": CHEQUE_ID}, {"_id": 0}).to_list(200)
+    active = [a for a in allocs if a.get("status") == "active"]
+    alloc_total = round(sum(float(a.get("amount") or 0) for a in active), 2)
+    susp = await db.suspense_entries.find({"linked_cheque_ids": CHEQUE_ID}, {"_id": 0}).to_list(200)
+    susp_credit = round(sum(float(s.get("amount") or 0) for s in susp if float(s.get("amount") or 0) > 0), 2)
+    current_available = (await cheque_available_map([cq]))[CHEQUE_ID]
+    projected = round(max(0.0, float(cq.get("amount") or 0) - (alloc_total + HISTORICAL_USED) - susp_credit), 2)
+
+    return {
+        "write_performed": False,
+        "cheque": {k: cq.get(k) for k in ("cheque_id", "cheque_number", "amount", "status",
+                                          "is_opened", "used_for_expense_id", "party_name")},
+        "precondition_no_existing_allocations": len(allocs) == 0,
+        "existing_allocations": [
+            {k: a.get(k) for k in ("allocation_id", "status", "amount", "expense_id", "request_id")}
+            for a in allocs
+        ],
+        "precondition_no_seeded_suspense": susp_credit <= 0.5,
+        "linked_suspense_entries": [
+            {k: s.get(k) for k in ("entry_id", "amount", "description", "linked_expense_id")}
+            for s in susp
+        ],
+        "current_available": current_available,
+        "proposed_opening_allocation": HISTORICAL_USED,
+        "projected_available_after_seed": projected,
+        "projected_matches_target_27516": abs(projected - TARGET) <= 0.5,
+        "projected_after_usb_mr034_pays_17516": round(projected - 17516.0, 2),
+        "note": "Read-only. No apply endpoint is deployed; nothing changes until this is approved.",
+    }

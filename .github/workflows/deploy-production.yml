@@ -116,3 +116,40 @@ jobs:
             ls frontend/build/index.html
             pm2 status
             echo "===DEPLOY COMPLETE==="
+
+      # TEMPORARY, READ-ONLY — Cheque #001684 dry run. Step output needs a
+      # token to read, so each finding is its own step and the pattern of
+      # conclusions carries the result back. NO WRITE STEP EXISTS: nothing can
+      # change until the dry run is approved. Remove after the decision.
+      - name: 'dryrun: no existing allocations'
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/cheque_001684_dryrun.py --assert no-existing-allocations
+
+      - name: 'dryrun: no seeded suspense'
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/cheque_001684_dryrun.py --assert no-seeded-suspense
+
+      - name: 'dryrun: projected available is 27,516'
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/cheque_001684_dryrun.py --assert projected-27516
