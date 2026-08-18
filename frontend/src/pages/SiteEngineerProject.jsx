@@ -2010,7 +2010,13 @@ export default function SiteEngineerProject() {
                               </tr>
                             </thead>
                             <tbody className="divide-y">
-                              {inventoryDashboard.materials.map((m, i) => {
+                              {inventoryDashboard.materials.slice().sort((a, b) => {
+                                // In-stock materials first, out-of-stock ones pushed to the
+                                // bottom — sort is stable so each group keeps its existing order.
+                                const aAvail = (a.current_stock || 0) > 0 ? 0 : 1;
+                                const bAvail = (b.current_stock || 0) > 0 ? 0 : 1;
+                                return aAvail - bAvail;
+                              }).map((m, i) => {
                                 const fmtAt = (s) => {
                                   if (!s) return '—';
                                   try { return new Date(s).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }); } catch { return '—'; }
