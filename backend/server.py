@@ -309,6 +309,11 @@ async def startup_init():
     # /accountant/cashbook-filtered — the perf-critical endpoint tuned above.
     # Unindexed, that lookup is a full scan on every one of those page loads.
     await _safe_index(startup_db.direct_expenses, [("expense_id", 1)])
+    # Aug 18 2026 — Partial cheque allocation. Every Pay & Settle dialog and
+    # every cheque picker sums live allocations per cheque, and every delete
+    # looks them up by expense, so both access paths are indexed.
+    await _safe_index(startup_db.cheque_allocations, [("cheque_id", 1), ("status", 1)])
+    await _safe_index(startup_db.cheque_allocations, [("expense_id", 1), ("status", 1)])
     logger.info("MongoDB indexes verified/created")
 
     # Auto-seed demo users only in DEMO_MODE

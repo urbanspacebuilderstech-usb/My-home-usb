@@ -100,7 +100,12 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
 
   // Per-leg & total math
   const legMath = legs.map(l => {
-    const chequeTotal = (l.chequeIds || []).reduce((s, cid) => s + Number(allCheques[cid]?.amount || 0), 0);
+    // Aug 18 2026 — A cheque leg draws against REMAINING balance, not face
+    // value, so the cap is available_amount (falling back to amount for any
+    // cheque the API hasn't annotated). A part-drawn cheque contributes only
+    // what is left on it.
+    const chequeTotal = (l.chequeIds || []).reduce(
+      (s, cid) => s + Number(allCheques[cid]?.available_amount ?? allCheques[cid]?.amount ?? 0), 0);
     const denomTotal = Object.entries(l.denoms || {}).reduce((s, [n, c]) => s + (Number(n) * Number(c || 0)), 0);
     const stated = Number(l.amount) || 0;
     return { id: l.id, chequeTotal, denomTotal, stated, isCheque: l.method === 'cheque' };
@@ -126,9 +131,17 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
     if (claimed.has(cid)) { toast.error('Cheque already selected in another leg'); return; }
     const current = leg.chequeIds || [];
     const next = current.includes(cid) ? current.filter(x => x !== cid) : [...current, cid];
-    // Auto-update amount = sum of selected cheques (cheque legs must match face value)
-    const newAmount = next.reduce((s, x) => s + Number(allCheques[x]?.amount || 0), 0);
-    updateLeg(legId, { chequeIds: next, amount: newAmount > 0 ? String(newAmount) : '' });
+    // Aug 18 2026 — Pre-fill with what this payment actually needs, capped at
+    // the cheques' remaining balance. Previously this forced the full face
+    // value, which is what made every cheque all-or-nothing and pushed the
+    // rest into suspense. The field stays editable, so a smaller draw is fine
+    // and the remainder simply stays on the cheque.
+    const availTotal = next.reduce(
+      (s, x) => s + Number(allCheques[x]?.available_amount ?? allCheques[x]?.amount ?? 0), 0);
+    const otherLegs = legs.filter(l => l.id !== legId).reduce((s, l) => s + (Number(l.amount) || 0), 0);
+    const stillNeeded = Math.max(0, payable - otherLegs);
+    const newAmount = Math.min(availTotal, stillNeeded || availTotal);
+    updateLeg(legId, { chequeIds: next, amount: newAmount > 0 ? String(Math.round(newAmount * 100) / 100) : '' });
   };
 
   const requestOpenCheque = async (cheque) => {
@@ -510,7 +523,7 @@ function LegEditor({ leg, idx, canRemove, ctx, allCheques, claimedByOther, updat
                         <th className="text-left px-2 py-1.5">Project</th>
                         <th className="text-left px-2 py-1.5">Bank</th>
                         <th className="text-left px-2 py-1.5">Cheque #</th>
-                        <th className="text-right px-2 py-1.5">Amount</th>
+                        <th className="text-right px-2 py-1.5">Available</th>
                         <th className="text-center px-2 py-1.5">Pick</th>
                       </tr>
                     </thead>
@@ -522,7 +535,17 @@ function LegEditor({ leg, idx, canRemove, ctx, allCheques, claimedByOther, updat
                             <td className="px-2 py-1.5">{c.project_name || '—'}</td>
                             <td className="px-2 py-1.5"><Badge className="bg-blue-100 text-blue-700 text-[9px]">{c.bank_name || '—'}</Badge></td>
                             <td className="px-2 py-1.5 font-mono">{c.cheque_number}</td>
-                            <td className="px-2 py-1.5 text-right font-bold text-emerald-700">{fmt(c.amount)}</td>
+                            <td className="px-2 py-1.5 text-right">
+                              <span className="font-bold text-emerald-700">{fmt(c.available_amount ?? c.amount)}</span>
+                              {/* Part-drawn cheque: show what is left against
+                                  the face value so the accountant can see the
+                                  cheque is shared, not whole. */}
+                              {Number(c.allocated_amount) > 0.5 && (
+                                <span className="block text-[9px] text-gray-400 font-normal">
+                                  of {fmt(c.amount)} · {fmt(c.allocated_amount)} used
+                                </span>
+                              )}
+                            </td>
                             <td className="px-2 py-1.5 text-center">
                               <input type="checkbox" checked={sel} onChange={() => toggleCheque(c.cheque_id)} onClick={e => e.stopPropagation()} className="h-3.5 w-3.5 accent-emerald-600" />
                             </td>

@@ -1930,6 +1930,17 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
         exp_id = m.get("expense_id")
         if not exp_id:
             return
+        # Aug 18 2026 — Allocation-era payments: return exactly this expense's
+        # own draw to each cheque and stop. No other bill's draw on the same
+        # cheque is touched, and no suspense is created or destroyed, because
+        # a partial draw never seeded any. The legacy whole-cheque handling
+        # below only applies to payments made before allocations existed.
+        released = await reverse_cheque_allocations_for_expense(
+            exp_id, reason=f"expense {exp_id} deleted / sent back to approvals",
+            user_id=user.user_id,
+        )
+        if released > 0:
+            return
         cheque_ids = set()
         if m.get("cheque_id"):
             cheque_ids.add(m["cheque_id"])
@@ -8452,6 +8463,117 @@ async def reopen_material_expense_to_procurement(expense_id: str, user: User = D
 #   8. Insert suspense_entries adjustments (debit + new credit if any)
 #   9. Mark cheque used / set request status='paid'
 
+# ---------------------------------------------------------------------------
+# Aug 18 2026 — PARTIAL CHEQUE ALLOCATION
+#
+# Cheques used to be indivisible: picking one consumed its whole face value,
+# `used_for_expense_id` locked it to a single expense, and any excess was
+# pushed into the vendor's suspense pool. That made "delete one expense" an
+# all-or-nothing operation — you either freed the entire cheque (re-opening it
+# for a second full spend) or left it locked forever, and the excess credit
+# could not be unwound without disturbing other bills that had drawn on the
+# same pool.
+#
+# A cheque is now a balance that many bills can draw against. Each draw is one
+# `cheque_allocations` row tied to the expense leg that made it, so reversing
+# an expense returns exactly its own amount and leaves every sibling draw
+# untouched.
+#
+#   available = face_amount − Σ(active allocations) − Σ(suspense credits it seeded)
+#
+# Both models coexist. A pre-existing cheque consumed the old way has no
+# allocation rows, so the `used_for_expense_id` branch reports it as fully
+# consumed rather than letting its face value look spendable again. Where the
+# old path did roll excess into suspense, that credit is still money out of
+# the cheque, so it is subtracted too — otherwise the same rupees would be
+# spendable twice, once from the pool and once from the cheque.
+# ---------------------------------------------------------------------------
+
+async def _cheque_allocated_totals(cheque_ids: List[str]) -> Dict[str, float]:
+    """Sum of live allocations per cheque."""
+    if not cheque_ids:
+        return {}
+    out: Dict[str, float] = {}
+    async for row in db.cheque_allocations.aggregate([
+        {"$match": {"cheque_id": {"$in": list(cheque_ids)}, "status": "active"}},
+        {"$group": {"_id": "$cheque_id", "t": {"$sum": "$amount"}}},
+    ]):
+        out[row["_id"]] = float(row.get("t") or 0)
+    return out
+
+
+async def _cheque_seeded_suspense(cheque_ids: List[str]) -> Dict[str, float]:
+    """Positive suspense credits each cheque seeded under the legacy path."""
+    if not cheque_ids:
+        return {}
+    out: Dict[str, float] = {}
+    rows = await db.suspense_entries.find(
+        {"linked_cheque_ids": {"$in": list(cheque_ids)}, "amount": {"$gt": 0}},
+        {"_id": 0, "linked_cheque_ids": 1, "amount": 1},
+    ).to_list(2000)
+    for r in rows:
+        amt = float(r.get("amount") or 0)
+        ids = [c for c in (r.get("linked_cheque_ids") or []) if c in cheque_ids]
+        if not ids:
+            continue
+        # A credit seeded by several cheques is split evenly across them; the
+        # per-cheque split is not recorded, and an even split is the only
+        # assumption that keeps the totals reconciling.
+        for cid in ids:
+            out[cid] = out.get(cid, 0.0) + amt / len(ids)
+    return out
+
+
+async def cheque_available_map(cheque_docs: List[Dict[str, Any]]) -> Dict[str, float]:
+    """Spendable balance per cheque, keyed by cheque_id. See the block above."""
+    ids = [c["cheque_id"] for c in cheque_docs if c.get("cheque_id")]
+    allocated = await _cheque_allocated_totals(ids)
+    seeded = await _cheque_seeded_suspense(ids)
+    out: Dict[str, float] = {}
+    for c in cheque_docs:
+        cid = c.get("cheque_id")
+        if not cid:
+            continue
+        alloc = allocated.get(cid, 0.0)
+        if alloc <= 0.005 and c.get("used_for_expense_id"):
+            out[cid] = 0.0  # consumed the old way, before allocations existed
+            continue
+        face = float(c.get("amount") or 0)
+        out[cid] = max(0.0, round(face - alloc - seeded.get(cid, 0.0), 2))
+    return out
+
+
+async def reverse_cheque_allocations_for_expense(expense_id: str, reason: str,
+                                                 user_id: Optional[str] = None) -> float:
+    """Return one expense's cheque draws to their cheques. Returns the total
+    released. Sibling draws on the same cheques are untouched — that is the
+    whole point of tracking allocations per expense rather than per cheque."""
+    if not expense_id:
+        return 0.0
+    rows = await db.cheque_allocations.find(
+        {"expense_id": expense_id, "status": "active"}, {"_id": 0}
+    ).to_list(100)
+    if not rows:
+        return 0.0
+    now = datetime.now(timezone.utc).isoformat()
+    released = 0.0
+    for r in rows:
+        await db.cheque_allocations.update_one(
+            {"allocation_id": r["allocation_id"], "status": "active"},
+            {"$set": {"status": "reversed", "reversed_at": now,
+                      "reversed_by": user_id, "reversed_reason": reason}},
+        )
+        released += float(r.get("amount") or 0)
+        # The cheque is spendable again, so it must not still read as locked
+        # to this expense.
+        await db.cheques.update_one(
+            {"cheque_id": r["cheque_id"], "used_for_expense_id": expense_id},
+            {"$unset": {"used_for_expense_id": "", "used_at": "", "used_by": "", "used_by_name": ""},
+             "$set": {"updated_at": now}},
+        )
+    return round(released, 2)
+
+
 class PaymentDenomination(BaseModel):
     note: int
     count: int
@@ -8682,20 +8804,32 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
     # (which Cheque Management already hides) was leaking into this picker
     # and showing up as pickable in the Pay & Settle dialog.
     _excluded_status = ["bounced", "cancelled", "cleared", "rejected", "deleted", "disabled"]
+    # Aug 18 2026 — Selectable on REMAINING balance, not "never touched". A
+    # cheque part-drawn by an earlier bill still has money on it and must stay
+    # pickable for the rest; one fully drawn drops out on available == 0
+    # rather than on the presence of used_for_expense_id.
     active_cheques = await db.cheques.find({
         "cheque_type": "incoming",
         "is_opened": True,
         "status": {"$nin": _excluded_status},
-        "$or": [{"used_for_expense_id": {"$exists": False}}, {"used_for_expense_id": None}],
-    }, {"_id": 0}).sort("cheque_date", -1).to_list(200)
+    }, {"_id": 0}).sort("cheque_date", -1).to_list(400)
+    _avail_active = await cheque_available_map(active_cheques)
+    for _c in active_cheques:
+        _c["available_amount"] = _avail_active.get(_c["cheque_id"], 0.0)
+        _c["allocated_amount"] = round(float(_c.get("amount") or 0) - _c["available_amount"], 2)
+    active_cheques = [c for c in active_cheques if c["available_amount"] > 0.5]
 
     # Inactive (locked / not yet CRE-opened) incoming cheques — Accountant can "Request Open"
     inactive_cheques = await db.cheques.find({
         "cheque_type": "incoming",
         "is_opened": {"$ne": True},
         "status": {"$nin": _excluded_status},
-        "$or": [{"used_for_expense_id": {"$exists": False}}, {"used_for_expense_id": None}],
-    }, {"_id": 0}).sort("cheque_date", -1).to_list(200)
+    }, {"_id": 0}).sort("cheque_date", -1).to_list(400)
+    _avail_inactive = await cheque_available_map(inactive_cheques)
+    for _c in inactive_cheques:
+        _c["available_amount"] = _avail_inactive.get(_c["cheque_id"], 0.0)
+        _c["allocated_amount"] = round(float(_c.get("amount") or 0) - _c["available_amount"], 2)
+    inactive_cheques = [c for c in inactive_cheques if c["available_amount"] > 0.5]
 
     # Enrich with project name for both lists
     project_cache = {}
@@ -8929,6 +9063,8 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     total_leg_amount = 0.0
     total_cheque_amount = 0.0  # sum of face values of cheques in cheque legs
     cheque_docs = []  # all selected cheque docs across legs
+    # Per-cheque draw amounts for this payment: [{cheque_id, cheque_number, amount}]
+    leg_cheque_draws: List[Dict[str, Any]] = []
     for leg in legs:
         leg_amount = float(leg.amount or 0)
         if leg_amount <= 0:
@@ -8944,16 +9080,35 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
                     raise HTTPException(status_code=400, detail=f"Cheque {cd.get('cheque_number')} is {cd.get('status')} and cannot be used")
                 if not cd.get("is_opened"):
                     raise HTTPException(status_code=400, detail=f"Cheque {cd.get('cheque_number')} is not opened by CRE yet")
-                if cd.get("used_for_expense_id"):
-                    raise HTTPException(status_code=400, detail=f"Cheque {cd.get('cheque_number')} has already been used")
                 if any(c["cheque_id"] == cid for c in cheque_docs):
                     raise HTTPException(status_code=400, detail=f"Cheque {cd.get('cheque_number')} selected twice")
                 cheque_docs.append(cd)
                 total_cheque_amount += float(cd.get("amount", 0) or 0)
-            # leg.amount must equal sum of its cheques
-            leg_chq_total = sum(float(c.get("amount", 0) or 0) for c in cheque_docs if c["cheque_id"] in (leg.cheque_ids or []))
-            if abs(leg_chq_total - leg_amount) > 0.5:
-                raise HTTPException(status_code=400, detail=f"Cheque leg amount ₹{leg_amount:,.0f} must match selected cheques total ₹{leg_chq_total:,.0f}")
+            # Aug 18 2026 — A cheque leg draws against AVAILABLE balance, not
+            # face value. Previously leg.amount had to equal the full face
+            # total, which is what forced every cheque to be all-or-nothing
+            # and pushed the remainder into vendor suspense. A leg may now
+            # take any amount up to what its cheques still have left; the
+            # remainder simply stays on the cheque for the next bill.
+            _leg_cheques = [c for c in cheque_docs if c["cheque_id"] in (leg.cheque_ids or [])]
+            _avail = await cheque_available_map(_leg_cheques)
+            leg_avail_total = round(sum(_avail.get(c["cheque_id"], 0.0) for c in _leg_cheques), 2)
+            for c in _leg_cheques:
+                if _avail.get(c["cheque_id"], 0.0) <= 0.005:
+                    raise HTTPException(status_code=400, detail=f"Cheque {c.get('cheque_number')} has no balance left (fully allocated)")
+            if leg_amount > leg_avail_total + 0.5:
+                raise HTTPException(status_code=400, detail=f"Cheque leg amount ₹{leg_amount:,.0f} exceeds available balance ₹{leg_avail_total:,.0f} on the selected cheque(s)")
+            # Draw from the selected cheques in order until the leg is covered.
+            _need = leg_amount
+            for c in _leg_cheques:
+                if _need <= 0.005:
+                    break
+                take = min(_need, _avail.get(c["cheque_id"], 0.0))
+                if take > 0.005:
+                    leg_cheque_draws.append({"cheque_id": c["cheque_id"],
+                                             "cheque_number": c.get("cheque_number"),
+                                             "amount": round(take, 2)})
+                    _need -= take
         elif leg.method in ("current_account", "savings", "hdfc_current", "hdfc_savings", "direct_transfer", "escrow"):
             # Transaction ID is optional (Feb 28 2026 user request — accountant
             # may not have UTR/ref at payment time; back-fill later from
@@ -9197,18 +9352,49 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     # doc of the leg that actually spent it (see cheque_expense_map above),
     # not blindly to primary_expense_id, so a later bounce reverses the
     # right record.
+    # Aug 18 2026 — Record each draw as its own allocation row, then mark the
+    # cheque used ONLY when nothing is left on it. A partially-drawn cheque
+    # stays pickable for its remaining balance, and deleting this expense
+    # returns just this draw (see reverse_cheque_allocations_for_expense).
+    _draw_by_cheque: Dict[str, float] = {}
+    for d in leg_cheque_draws:
+        _draw_by_cheque[d["cheque_id"]] = _draw_by_cheque.get(d["cheque_id"], 0.0) + float(d["amount"] or 0)
+    _pre_avail = await cheque_available_map(cheque_docs)
     for cd in cheque_docs:
-        await db.cheques.update_one(
-            {"cheque_id": cd["cheque_id"]},
-            {"$set": {
-                "used_for_expense_id": cheque_expense_map.get(cd["cheque_id"], primary_expense_id),
+        cid = cd["cheque_id"]
+        drawn = round(_draw_by_cheque.get(cid, 0.0), 2)
+        exp_for_cheque = cheque_expense_map.get(cid, primary_expense_id)
+        if drawn > 0.005:
+            await db.cheque_allocations.insert_one({
+                "allocation_id": f"cha_{uuid.uuid4().hex[:10]}",
+                "cheque_id": cid,
+                "cheque_number": cd.get("cheque_number"),
+                "expense_id": exp_for_cheque,
+                "request_id": request_id,
+                "request_type": req_type,
+                "amount": drawn,
+                "vendor_name": vendor_name,
+                "project_id": project_id,
+                "status": "active",
+                "created_at": now,
+                "created_by": user.user_id,
+                "created_by_name": user.name,
+            })
+        remaining_after = round(_pre_avail.get(cid, 0.0) - drawn, 2)
+        cheque_update: Dict[str, Any] = {
+            "status": "deposited" if cd.get("status") == "issued" else cd.get("status"),
+            "updated_at": now,
+        }
+        if remaining_after <= 0.5:
+            # Fully consumed — lock it, same as the pre-allocation behaviour so
+            # bounce/reversal paths that key off used_for_expense_id still work.
+            cheque_update.update({
+                "used_for_expense_id": exp_for_cheque,
                 "used_at": now,
                 "used_by": user.user_id,
                 "used_by_name": user.name,
-                "status": "deposited" if cd.get("status") == "issued" else cd.get("status"),
-                "updated_at": now,
-            }}
-        )
+            })
+        await db.cheques.update_one({"cheque_id": cid}, {"$set": cheque_update})
 
     # 9. Update request status — fully paid or partially paid
     new_total_paid = already_paid + effective_paid
