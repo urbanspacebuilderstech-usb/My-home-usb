@@ -11893,6 +11893,7 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
             "amount": synth_amount,  # may be None → filled later from approved_amount - use_suspense
             "bank_ref": bank_ref,
             "cheque_ids": cheque_ids,
+            "transfer_to": (data.get("transfer_to") or "").strip(),
         }]
     else:
         payment_entries_list = []
@@ -11912,6 +11913,10 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
                 "amount": a,
                 "bank_ref": (e.get("bank_ref") or "").strip(),
                 "cheque_ids": e.get("cheque_ids") or [],
+                # Aug 18 2026 — which of the company's own accounts a CASH D/T
+                # (direct_transfer) entry moved through. Only meaningful for
+                # that method; ignored otherwise.
+                "transfer_to": (e.get("transfer_to") or "").strip(),
             })
 
     now = datetime.now(timezone.utc).isoformat()
@@ -12230,6 +12235,9 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
                 ),
                 "cheque_amount": float(ent.get("amount") or 0) if (ent and row_method == "cheque" and not info["is_suspense"]) else None,
                 "bank_ref": ent.get("bank_ref") if (ent and row_method in ("bank", "current_account", "savings_account")) else None,
+                # Aug 18 2026 — which company account a CASH D/T row moved
+                # through, shown in Transaction Details for direct_transfer rows.
+                "transfer_to_account": ent.get("transfer_to") if (ent and row_method == "direct_transfer" and not info["is_suspense"] and ent.get("transfer_to")) else None,
                 "vendor_name": wo.get("contractor_name", ""),
                 "contractor_id": contractor_id,
                 "contractor_type": wo.get("contractor_type", ""),

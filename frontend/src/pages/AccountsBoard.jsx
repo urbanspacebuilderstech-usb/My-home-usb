@@ -3052,6 +3052,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                     ['Date', new Date(selectedEntry.approved_at || selectedEntry.payment_date || selectedEntry.created_at).toLocaleString('en-IN')],
                     ['Mode', MODE_LABELS[classifyMode(selectedEntry.payment_mode || selectedEntry.payment_method)] || selectedEntry.payment_mode || selectedEntry.payment_method || 'Cash'],
                     ['Reference / Txn', selectedEntry.reference_number],
+                    ['Transfer To', selectedEntry.transfer_to_account],
                     ['Cheque No', selectedEntry.cheque_number],
                     ['Bank', selectedEntry.bank_name],
                     ['Vendor', selectedEntry.vendor_name],

@@ -4,9 +4,13 @@
 //   - PettyCashIssueDialog
 //   - any other release flow needing split payment by mode
 //
-// Yields `payment_entries: [{ method, amount, bank_ref?, cheque_ids?, cheque_no? }]`.
+// Yields `payment_entries: [{ method, amount, bank_ref?, cheque_ids?, cheque_no?, transfer_to? }]`.
 // Validation: sum(amounts) must equal `targetTotal`.
 // Multiple cheque rows allowed (each row can independently pick from available cheques).
+// Aug 18 2026 — direct_transfer (CASH D/T) now gets the same reference field
+// as the bank modes (labeled "Transaction ID" here, reusing `bank_ref`), plus
+// a "Transfer To" account select — which of the company's own accounts the
+// cash was transferred via.
 import { useMemo, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
@@ -27,6 +31,11 @@ const METHOD_META = {
 };
 
 const ALL_METHODS = Object.keys(METHOD_META);
+
+// Aug 18 2026 — Options for the CASH D/T "Transfer To" account select —
+// the company's own known payment channels (same set already recognized
+// elsewhere in this dialog), not a third-party/vendor account.
+const TRANSFER_TO_ACCOUNTS = ['HDFC Current', 'HDFC Savings', 'Escrow A/c'];
 
 const fmt = (n) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
@@ -55,7 +64,7 @@ export default function MultiPaymentEntryRows({
     const def = remaining > 0 ? remaining : 0;
     setEntries((rows) => [
       ...rows,
-      { method: 'cash', amount: def, bank_ref: '', cheque_ids: [], cheque_no: '' },
+      { method: 'cash', amount: def, bank_ref: '', cheque_ids: [], cheque_no: '', transfer_to: '' },
     ]);
   };
   const toggleCheque = (idx, chequeId) => {
@@ -113,7 +122,7 @@ export default function MultiPaymentEntryRows({
                 <Icon className={`h-3.5 w-3.5 text-${meta.color}-700`} />
                 <select
                   value={row.method}
-                  onChange={(e) => update(idx, { method: e.target.value, cheque_ids: [], cheque_no: '', bank_ref: '' })}
+                  onChange={(e) => update(idx, { method: e.target.value, cheque_ids: [], cheque_no: '', bank_ref: '', transfer_to: '' })}
                   className="h-7 text-xs border rounded px-1 bg-white"
                   data-testid={`multi-pay-row-${idx}-method`}
                 >
@@ -139,16 +148,32 @@ export default function MultiPaymentEntryRows({
                   </span>
                 )}
               </div>
-              {(row.method === 'current_account' || row.method === 'savings_account') && (
+              {(row.method === 'current_account' || row.method === 'savings_account' || row.method === 'direct_transfer') && (
                 <div className="flex items-center gap-1 flex-1 min-w-[140px]">
-                  <Label className="text-[10px] text-gray-500">UTR/Ref *</Label>
+                  <Label className="text-[10px] text-gray-500">{row.method === 'direct_transfer' ? 'Transaction ID *' : 'UTR/Ref *'}</Label>
                   <Input
                     value={row.bank_ref || ''}
                     onChange={(e) => update(idx, { bank_ref: e.target.value })}
-                    placeholder="UTRNO123456"
+                    placeholder={row.method === 'direct_transfer' ? 'TXN123456' : 'UTRNO123456'}
                     className="h-7 text-xs flex-1"
                     data-testid={`multi-pay-row-${idx}-bankref`}
                   />
+                </div>
+              )}
+              {row.method === 'direct_transfer' && (
+                <div className="flex items-center gap-1 flex-1 min-w-[140px]">
+                  <Label className="text-[10px] text-gray-500">Transfer To *</Label>
+                  <select
+                    value={row.transfer_to || ''}
+                    onChange={(e) => update(idx, { transfer_to: e.target.value })}
+                    className="h-7 text-xs border rounded px-1 bg-white flex-1"
+                    data-testid={`multi-pay-row-${idx}-transferto`}
+                  >
+                    <option value="">Select account...</option>
+                    {TRANSFER_TO_ACCOUNTS.map((a) => (
+                      <option key={a} value={a}>{a}</option>
+                    ))}
+                  </select>
                 </div>
               )}
               <Button
