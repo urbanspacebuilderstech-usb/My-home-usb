@@ -1970,6 +1970,27 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
                  "$set": {"is_opened": True, "updated_at": now_iso}}
             )
 
+        # Aug 18 2026 — A suspense-FUNDED expense must hand its own amount back
+        # to the pool when deleted, and only its own. The debit is normally
+        # linked to this very row, but on a multi-leg payment it can be linked
+        # to the sibling leg that carried the credit, in which case the lookup
+        # above misses it and the pool stays short by exactly this bill —
+        # which is how USB-MR034's 17,516 went missing. Fall back to the
+        # parent request, and reverse ONE debit matching this row's own
+        # credit_applied so no sibling's amount is touched.
+        credit_applied = float(m.get("credit_applied") or 0)
+        is_suspense_funded = (m.get("source") or "") == "approval_suspense" or credit_applied > 0.5
+        if is_suspense_funded and not any(float(r.get("amount") or 0) < -0.5 for r in own_suspense_rows):
+            parent_req = m.get("request_id") or m.get("material_request_id")
+            if parent_req:
+                target = round(credit_applied or float(m.get("amount") or 0), 2)
+                stray = await db.suspense_entries.find_one({
+                    "linked_request_id": parent_req,
+                    "amount": {"$gte": -target - 0.5, "$lte": -target + 0.5},
+                }, {"_id": 0})
+                if stray and stray.get("entry_id"):
+                    own_suspense_rows.append(stray)
+
         for r in own_suspense_rows:
             amt = float(r.get("amount") or 0)
             if amt < -0.5 and r.get("entry_id"):
