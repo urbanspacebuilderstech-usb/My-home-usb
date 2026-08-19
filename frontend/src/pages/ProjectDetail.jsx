@@ -1119,7 +1119,6 @@ export default function ProjectDetail() {
   const [psResubmitDialog, setPsResubmitDialog] = useState({ open: false, stage: null, mode: null, amount: '', remarks: '', submitting: false });
   // Super-Admin View Stage Detail dialog (full lifecycle: summary, advance, incomes, cheques, timeline)
   const [stageDetailDialog, setStageDetailDialog] = useState({ open: false, stage: null, data: null, loading: false, tab: 'summary' });
-  const [resyncingStage, setResyncingStage] = useState(false);
   // Payment Schedule month/year filter (filters by expected_payment_date)
   const [psMonthFilter, setPsMonthFilter] = useState(''); // '' = all, format 'YYYY-MM'
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
@@ -3256,25 +3255,6 @@ export default function ProjectDetail() {
     } catch (e) {
       toast.error(typeof e?.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to load stage details');
       setStageDetailDialog({ open: false, stage: null, data: null, loading: false, tab: 'summary' });
-    }
-  };
-
-  // Super-Admin: recompute this stage's amount_received from its actually-
-  // linked income records — repairs stages left stuck by an approved income
-  // that never got counted (e.g. a stale field-name mismatch bug).
-  const handleResyncStage = async () => {
-    const stage = stageDetailDialog.stage;
-    if (!stage?.stage_id) return;
-    setResyncingStage(true);
-    try {
-      const res = await axios.post(`${API}/payment-stages/${stage.stage_id}/resync-received`);
-      toast.success(`Resynced — received now ₹${Number(res.data.amount_received || 0).toLocaleString('en-IN')}`);
-      await openStageDetailDialog(stage);
-      fetchData(false);
-    } catch (e) {
-      toast.error(typeof e?.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to resync stage');
-    } finally {
-      setResyncingStage(false);
     }
   };
 
@@ -12530,20 +12510,6 @@ export default function ProjectDetail() {
               {/* SUMMARY */}
               {stageDetailDialog.tab === 'summary' && (
                 <div className="space-y-3">
-                  <div className="flex justify-end">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2 text-[11px] gap-1 border-blue-300 text-blue-700 hover:bg-blue-50"
-                      onClick={handleResyncStage}
-                      disabled={resyncingStage}
-                      title="Recompute Received from this stage's actually-linked income records"
-                      data-testid="stage-detail-resync"
-                    >
-                      {resyncingStage ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                      Resync from Incomes
-                    </Button>
-                  </div>
                   <div className="grid grid-cols-2 gap-3 text-xs">
                   {Object.entries({
                     'Stage Name': stageDetailDialog.data.summary.stage_name,
