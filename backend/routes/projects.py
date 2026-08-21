@@ -14248,3 +14248,140 @@ async def permanent_wipe_project(
         "total_deleted": total,
     }
 # ==================== END PERMANENT WIPE ====================
+
+
+# ==================== TEMP DIAGNOSTIC — Yuvaraj suspense -1400 (Aug 19 2026) ====================
+# READ-ONLY. Dumps the raw, UNFILTERED contractor_suspense_ledger rows for a
+# contractor (matched by name) alongside the current status of each row's
+# referenced recorded_expense/cheque, plus an explicit "why is/isn't this
+# counted" annotation using the exact same rules _get_contractor_suspense_
+# balance applies. No writes. To be removed once the investigation is done.
+@router.get("/admin/debug-contractor-suspense-chain")
+async def debug_contractor_suspense_chain(contractor_name: str, user: User = Depends(get_current_user)):
+    import re as _re
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin only")
+
+    contractors = await db.labour_contractors.find(
+        {"name": {"$regex": f"^{_re.escape(contractor_name)}$", "$options": "i"}}, {"_id": 0}
+    ).to_list(20)
+    if not contractors:
+        contractors = await db.labour_contractors.find(
+            {"name": {"$regex": _re.escape(contractor_name), "$options": "i"}}, {"_id": 0}
+        ).to_list(20)
+
+    result = {"query": contractor_name, "matched_contractors": contractors, "chains": []}
+
+    contractor_ids = {c.get("contractor_id") for c in contractors if c.get("contractor_id")}
+    # Also catch ledger rows keyed only by contractor_name (no id backfilled).
+    ledger_rows = await db.contractor_suspense_ledger.find(
+        {"$or": [
+            {"contractor_id": {"$in": list(contractor_ids)}} if contractor_ids else {"contractor_id": "__none__"},
+            {"contractor_name": {"$regex": _re.escape(contractor_name), "$options": "i"}},
+        ]},
+        {"_id": 0},
+    ).sort("date", 1).to_list(1000)
+
+    all_refs = {r.get("reference_id") for r in ledger_rows if r.get("reference_id")}
+    ref_expenses = {}
+    if all_refs:
+        docs = await db.recorded_expenses.find(
+            {"$or": [{"request_id": {"$in": list(all_refs)}}, {"linked_request_ids": {"$in": list(all_refs)}}, {"expense_id": {"$in": list(all_refs)}}]},
+            {"_id": 0},
+        ).to_list(2000)
+        for d in docs:
+            keys = {d.get("request_id"), d.get("expense_id"), *(d.get("linked_request_ids") or [])}
+            for k in keys:
+                if k:
+                    ref_expenses.setdefault(k, []).append(d)
+
+    _EXCL_STATUS = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    # Reproduce the exact live-reference-id set _get_contractor_suspense_balance builds.
+    live_pr_ids = set()
+    for cid in contractor_ids:
+        async for exp in db.recorded_expenses.find(
+            {"category": "labour", "contractor_id": cid},
+            {"_id": 0, "request_id": 1, "linked_request_ids": 1, "status": 1, "is_deleted": 1},
+        ):
+            if (exp.get("status") or "").lower() in _EXCL_STATUS or exp.get("is_deleted"):
+                continue
+            if exp.get("request_id"):
+                live_pr_ids.add(exp["request_id"])
+            for pr in (exp.get("linked_request_ids") or []):
+                live_pr_ids.add(pr)
+
+    computed_total = 0.0
+    for row in ledger_rows:
+        st = (row.get("source_type") or "").lower()
+        ref = row.get("reference_id")
+        mv = (row.get("type") or row.get("movement") or "").lower()
+        amt = float(row.get("amount") or 0)
+        excluded_reason = None
+        if st.startswith("expense_delete_reversal") or st.startswith("susp_heal"):
+            excluded_reason = "compensation_row_source_type"
+        elif not ref:
+            excluded_reason = "no_reference_id"
+        elif ref not in live_pr_ids:
+            excluded_reason = "reference_expense_not_live"
+        included = excluded_reason is None
+        if included:
+            computed_total += amt if mv == "credit" else -amt
+
+        matched_expenses = ref_expenses.get(ref, []) if ref else []
+        cheque_docs = []
+        for e in matched_expenses:
+            cids = e.get("cheque_ids") or ([e["cheque_id"]] if e.get("cheque_id") else [])
+            if cids:
+                cheque_docs.extend(await db.cheques.find(
+                    {"cheque_id": {"$in": cids}}, {"_id": 0}
+                ).to_list(20))
+
+        result["chains"].append({
+            "ledger_id": row.get("ledger_id"),
+            "contractor_id": row.get("contractor_id"),
+            "contractor_name": row.get("contractor_name"),
+            "type": mv,
+            "amount": amt,
+            "source_type": row.get("source_type"),
+            "reference_id": ref,
+            "date": row.get("date"),
+            "notes": row.get("notes"),
+            "cheque_no": row.get("cheque_no"),
+            "created_by_name": row.get("created_by_name"),
+            "included_in_live_balance": included,
+            "excluded_reason": excluded_reason,
+            "referenced_expenses": [
+                {
+                    "expense_id": e.get("expense_id"),
+                    "request_id": e.get("request_id"),
+                    "status": e.get("status"),
+                    "is_deleted": e.get("is_deleted"),
+                    "amount": e.get("amount"),
+                    "cheque_ids": e.get("cheque_ids") or e.get("cheque_id"),
+                    "payment_date": e.get("payment_date") or e.get("created_at"),
+                    "description": e.get("description"),
+                    "rejection_reason": e.get("rejection_reason"),
+                    "project_id": e.get("project_id"),
+                    "project_name": e.get("project_name"),
+                }
+                for e in matched_expenses
+            ],
+            "referenced_cheques": [
+                {
+                    "cheque_id": c.get("cheque_id"),
+                    "cheque_number": c.get("cheque_number"),
+                    "amount": c.get("amount"),
+                    "status": c.get("status"),
+                    "bounced_at": c.get("bounced_at"),
+                    "bounce_reason": c.get("bounce_reason"),
+                }
+                for c in cheque_docs
+            ],
+        })
+
+    result["computed_live_balance"] = round(computed_total, 2)
+    for cid in contractor_ids:
+        result.setdefault("live_balance_per_contractor_id", {})[cid] = round(await _get_contractor_suspense_balance(cid), 2)
+
+    return result
+# ==================== END TEMP DIAGNOSTIC ====================
