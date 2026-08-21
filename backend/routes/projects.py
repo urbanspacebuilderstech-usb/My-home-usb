@@ -14263,17 +14263,14 @@ async def debug_contractor_suspense_chain(contractor_name: str, user: User = Dep
         raise HTTPException(status_code=403, detail="Super Admin only")
 
     contractors = await db.labour_contractors.find(
-        {"name": {"$regex": f"^{_re.escape(contractor_name)}$", "$options": "i"}}, {"_id": 0}
+        {"name": {"$regex": f"^{_re.escape(contractor_name)}$", "$options": "i"}}, {"_id": 0, "contractor_id": 1, "name": 1}
     ).to_list(20)
     if not contractors:
         contractors = await db.labour_contractors.find(
-            {"name": {"$regex": _re.escape(contractor_name), "$options": "i"}}, {"_id": 0}
+            {"name": {"$regex": _re.escape(contractor_name), "$options": "i"}}, {"_id": 0, "contractor_id": 1, "name": 1}
         ).to_list(20)
 
-    result = {"query": contractor_name, "matched_contractors": contractors, "chains": []}
-
     contractor_ids = {c.get("contractor_id") for c in contractors if c.get("contractor_id")}
-    # Also catch ledger rows keyed only by contractor_name (no id backfilled).
     ledger_rows = await db.contractor_suspense_ledger.find(
         {"$or": [
             {"contractor_id": {"$in": list(contractor_ids)}} if contractor_ids else {"contractor_id": "__none__"},
@@ -14287,7 +14284,7 @@ async def debug_contractor_suspense_chain(contractor_name: str, user: User = Dep
     if all_refs:
         docs = await db.recorded_expenses.find(
             {"$or": [{"request_id": {"$in": list(all_refs)}}, {"linked_request_ids": {"$in": list(all_refs)}}, {"expense_id": {"$in": list(all_refs)}}]},
-            {"_id": 0},
+            {"_id": 0, "expense_id": 1, "request_id": 1, "linked_request_ids": 1, "status": 1, "is_deleted": 1, "amount": 1, "payment_date": 1, "created_at": 1, "cheque_id": 1, "cheque_ids": 1, "project_id": 1, "project_name": 1},
         ).to_list(2000)
         for d in docs:
             keys = {d.get("request_id"), d.get("expense_id"), *(d.get("linked_request_ids") or [])}
@@ -14295,8 +14292,20 @@ async def debug_contractor_suspense_chain(contractor_name: str, user: User = Dep
                 if k:
                     ref_expenses.setdefault(k, []).append(d)
 
+    # Resolve cheque_id for every cheque_no seen on a credit row (for the
+    # follow-up dry-run reverse-suspense-fallout call).
+    cheque_nos = {r.get("cheque_no") for r in ledger_rows if r.get("cheque_no")}
+    cheque_id_by_no = {}
+    if cheque_nos:
+        cdocs = await db.cheques.find(
+            {"cheque_number": {"$in": list(cheque_nos)}}, {"_id": 0, "cheque_id": 1, "cheque_number": 1, "status": 1, "amount": 1}
+        ).to_list(50)
+        for c in cdocs:
+            cheque_id_by_no.setdefault(c["cheque_number"], []).append(
+                {"cheque_id": c.get("cheque_id"), "status": c.get("status"), "amount": c.get("amount")}
+            )
+
     _EXCL_STATUS = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
-    # Reproduce the exact live-reference-id set _get_contractor_suspense_balance builds.
     live_pr_ids = set()
     for cid in contractor_ids:
         async for exp in db.recorded_expenses.find(
@@ -14311,6 +14320,7 @@ async def debug_contractor_suspense_chain(contractor_name: str, user: User = Dep
                 live_pr_ids.add(pr)
 
     computed_total = 0.0
+    chains = []
     for row in ledger_rows:
         st = (row.get("source_type") or "").lower()
         ref = row.get("reference_id")
@@ -14328,60 +14338,30 @@ async def debug_contractor_suspense_chain(contractor_name: str, user: User = Dep
             computed_total += amt if mv == "credit" else -amt
 
         matched_expenses = ref_expenses.get(ref, []) if ref else []
-        cheque_docs = []
-        for e in matched_expenses:
-            cids = e.get("cheque_ids") or ([e["cheque_id"]] if e.get("cheque_id") else [])
-            if cids:
-                cheque_docs.extend(await db.cheques.find(
-                    {"cheque_id": {"$in": cids}}, {"_id": 0}
-                ).to_list(20))
-
-        result["chains"].append({
+        chains.append({
             "ledger_id": row.get("ledger_id"),
-            "contractor_id": row.get("contractor_id"),
-            "contractor_name": row.get("contractor_name"),
             "type": mv,
             "amount": amt,
             "source_type": row.get("source_type"),
             "reference_id": ref,
             "date": row.get("date"),
-            "notes": row.get("notes"),
             "cheque_no": row.get("cheque_no"),
             "created_by_name": row.get("created_by_name"),
-            "included_in_live_balance": included,
+            "included": included,
             "excluded_reason": excluded_reason,
-            "referenced_expenses": [
-                {
-                    "expense_id": e.get("expense_id"),
-                    "request_id": e.get("request_id"),
-                    "status": e.get("status"),
-                    "is_deleted": e.get("is_deleted"),
-                    "amount": e.get("amount"),
-                    "cheque_ids": e.get("cheque_ids") or e.get("cheque_id"),
-                    "payment_date": e.get("payment_date") or e.get("created_at"),
-                    "description": e.get("description"),
-                    "rejection_reason": e.get("rejection_reason"),
-                    "project_id": e.get("project_id"),
-                    "project_name": e.get("project_name"),
-                }
-                for e in matched_expenses
-            ],
-            "referenced_cheques": [
-                {
-                    "cheque_id": c.get("cheque_id"),
-                    "cheque_number": c.get("cheque_number"),
-                    "amount": c.get("amount"),
-                    "status": c.get("status"),
-                    "bounced_at": c.get("bounced_at"),
-                    "bounce_reason": c.get("bounce_reason"),
-                }
-                for c in cheque_docs
-            ],
+            "ref_expense_statuses": sorted({e.get("status") for e in matched_expenses}),
         })
 
-    result["computed_live_balance"] = round(computed_total, 2)
-    for cid in contractor_ids:
-        result.setdefault("live_balance_per_contractor_id", {})[cid] = round(await _get_contractor_suspense_balance(cid), 2)
-
+    result = {
+        "query": contractor_name,
+        "matched_contractors": [{"contractor_id": c.get("contractor_id"), "name": c.get("name")} for c in contractors],
+        "computed_live_balance": round(computed_total, 2),
+        "live_balance_per_contractor_id": {cid: round(await _get_contractor_suspense_balance(cid), 2) for cid in contractor_ids},
+        "cheque_ids_by_number": cheque_id_by_no,
+        "total_ledger_rows": len(ledger_rows),
+        "included_count": sum(1 for c in chains if c["included"]),
+        "excluded_count": sum(1 for c in chains if not c["included"]),
+        "chains": chains,
+    }
     return result
 # ==================== END TEMP DIAGNOSTIC ====================
