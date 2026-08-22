@@ -14450,4 +14450,103 @@ async def debug_payment_request_detail(request_id: str, user: User = Depends(get
         "wo_stage_entry": wo_stage_entry,
         "suspense_ledger_rows": suspense_rows,
     }
+
+
+# One-time, idempotent correction for the Yuvaraj / pr_c5108732 / sl_a7121b60
+# orphaned suspense debit (see debug-payment-request-detail investigation).
+# Evidence: the Aug 13 re-release of Stage 7 Advance recorded the FULL
+# ₹5,000 as paid (₹3,600 direct transfer + ₹1,400 "from suspense"), but
+# Yuvaraj's real suspense balance was already ₹0 at that point — his only
+# genuine credit was spent Aug 5 and correctly never restored; the Aug-5
+# cheque-excess credit was correctly voided when Cheque #000014 bounced.
+# The bill is genuinely paid in full; only the ledger's attribution of
+# where that ₹1,400 came from was wrong. Inserts ONE offsetting credit —
+# never touches recorded_expenses / work-order / payment records. Guarded
+# so a second call is a safe no-op (checks for an existing correction
+# entry by reversed_ledger_id before writing).
+@router.post("/admin/apply-yuvaraj-suspense-correction")
+async def apply_yuvaraj_suspense_correction(user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin only")
+
+    CONTRACTOR_ID = "lc_f2ffedbd"
+    TARGET_LEDGER_ID = "sl_a7121b60"
+    REQUEST_ID = "pr_c5108732"
+    CORRECTION_AMOUNT = 1400.0
+
+    balance_before = await _get_contractor_suspense_balance(CONTRACTOR_ID)
+
+    # Idempotency guard — a correction for this exact debit already exists.
+    existing = await db.contractor_suspense_ledger.find_one(
+        {"source_type": "suspense_overspend_correction", "reversed_ledger_id": TARGET_LEDGER_ID}, {"_id": 0}
+    )
+    if existing:
+        return {
+            "message": "Already applied — no changes made.",
+            "already_applied": True,
+            "existing_correction_ledger_id": existing.get("ledger_id"),
+            "balance_before": round(balance_before, 2),
+            "balance_now": round(balance_before, 2),
+        }
+
+    # Precondition checks — refuse to write if production state has drifted
+    # from what this correction was verified against, rather than silently
+    # applying a now-stale fix.
+    target_row = await db.contractor_suspense_ledger.find_one(
+        {"ledger_id": TARGET_LEDGER_ID, "contractor_id": CONTRACTOR_ID}, {"_id": 0}
+    )
+    if not target_row:
+        raise HTTPException(status_code=409, detail=f"Ledger row {TARGET_LEDGER_ID} not found — aborting, state has changed since investigation")
+    if target_row.get("type") != "debit" or abs(float(target_row.get("amount") or 0) - CORRECTION_AMOUNT) > 0.01:
+        raise HTTPException(status_code=409, detail=f"Ledger row {TARGET_LEDGER_ID} no longer matches expected debit of ₹{CORRECTION_AMOUNT:,.0f} — aborting")
+    if target_row.get("reference_id") != REQUEST_ID:
+        raise HTTPException(status_code=409, detail=f"Ledger row {TARGET_LEDGER_ID} reference_id changed — aborting")
+    if abs(balance_before - (-CORRECTION_AMOUNT)) > 0.01:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Live balance is ₹{balance_before:,.0f}, not the expected -₹{CORRECTION_AMOUNT:,.0f} — state has changed since investigation, aborting",
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+    correction = {
+        "ledger_id": f"sl_{uuid.uuid4().hex[:8]}",
+        "contractor_id": CONTRACTOR_ID,
+        "contractor_name": target_row.get("contractor_name") or "Yuvaraj",
+        "project_id": target_row.get("project_id"),
+        "amount": CORRECTION_AMOUNT,
+        "type": "credit",
+        "source_type": "suspense_overspend_correction",
+        "reference_id": REQUEST_ID,
+        "reversed_ledger_id": TARGET_LEDGER_ID,
+        "date": now,
+        "notes": (
+            "Correction: the Aug 13 2026 re-release of Stage 7 Advance (pr_c5108732) recorded the "
+            "full ₹5,000 as paid (₹3,600 direct transfer + ₹1,400 'from suspense'), but the "
+            "contractor's real suspense balance was already ₹0 at that point — the only genuine "
+            "credit was spent on Aug 5 and correctly never restored, and the Aug-5 cheque-excess "
+            "credit (Cheque #000014) was correctly voided when it bounced on Aug 11. The bill is "
+            "genuinely paid in full; this offsetting credit corrects only the suspense ledger's "
+            "mistaken attribution of the ₹1,400 leg, restoring the balance to the correct ₹0. "
+            "No recorded_expenses / work-order / payment records were changed."
+        ),
+        "created_by": user.user_id,
+        "created_by_name": user.name,
+    }
+    await db.contractor_suspense_ledger.insert_one(correction)
+
+    balance_after = await _get_contractor_suspense_balance(CONTRACTOR_ID)
+
+    await create_audit_log(
+        user.user_id, "suspense_overspend_correction", "contractor_suspense_ledger", correction["ledger_id"],
+        {"contractor_id": CONTRACTOR_ID, "reference_id": REQUEST_ID, "reversed_ledger_id": TARGET_LEDGER_ID,
+         "amount": CORRECTION_AMOUNT, "balance_before": balance_before, "balance_after": balance_after},
+    )
+
+    return {
+        "message": "Correction applied.",
+        "already_applied": False,
+        "correction_ledger_id": correction["ledger_id"],
+        "balance_before": round(balance_before, 2),
+        "balance_now": round(balance_after, 2),
+    }
 # ==================== END TEMP DIAGNOSTIC ====================
