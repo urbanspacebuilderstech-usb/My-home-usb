@@ -14364,4 +14364,90 @@ async def debug_contractor_suspense_chain(contractor_name: str, user: User = Dep
         "chains": chains,
     }
     return result
+
+
+# Follow-up — full detail for ONE payment_request: every recorded_expense
+# leg, the cheques those legs used (and whether they actually cleared), and
+# the work-order stage's own payment_requests entry, so we can tell whether
+# a specific bill was genuinely paid in full or only partially. READ-ONLY.
+@router.get("/admin/debug-payment-request-detail")
+async def debug_payment_request_detail(request_id: str, user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin only")
+
+    expenses = await db.recorded_expenses.find(
+        {"$or": [{"request_id": request_id}, {"linked_request_ids": request_id}]}, {"_id": 0}
+    ).sort([("payment_date", 1), ("created_at", 1)]).to_list(100)
+
+    cheque_ids = set()
+    for e in expenses:
+        if e.get("cheque_id"):
+            cheque_ids.add(e["cheque_id"])
+        for cid in (e.get("cheque_ids") or []):
+            cheque_ids.add(cid)
+    cheques = await db.cheques.find({"cheque_id": {"$in": list(cheque_ids)}}, {"_id": 0}).to_list(50) if cheque_ids else []
+
+    wo = await db.project_work_orders.find_one(
+        {"stages.payment_requests.request_id": request_id}, {"_id": 0}
+    )
+    wo_stage_entry = None
+    if wo:
+        for stage in wo.get("stages", []):
+            for pr in (stage.get("payment_requests") or []):
+                if pr.get("request_id") == request_id:
+                    wo_stage_entry = {
+                        "work_order_id": wo.get("work_order_id"),
+                        "stage_id": stage.get("stage_id"),
+                        "stage_name": stage.get("name") or stage.get("stage_name"),
+                        "stage_amount_released": stage.get("amount_released"),
+                        "stage_amount_pending": stage.get("amount_pending"),
+                        "payment_request": pr,
+                        "payment_record": pr.get("payment_record"),
+                    }
+                    break
+            if wo_stage_entry:
+                break
+
+    suspense_rows = await db.contractor_suspense_ledger.find(
+        {"reference_id": request_id}, {"_id": 0}
+    ).sort("date", 1).to_list(50)
+
+    return {
+        "request_id": request_id,
+        "expenses": [
+            {
+                "expense_id": e.get("expense_id"),
+                "status": e.get("status"),
+                "amount": e.get("amount"),
+                "tendered_amount": e.get("tendered_amount"),
+                "payment_method": e.get("payment_method"),
+                "payment_date": e.get("payment_date") or e.get("created_at"),
+                "cheque_id": e.get("cheque_id"),
+                "cheque_ids": e.get("cheque_ids"),
+                "cheque_number": e.get("cheque_number"),
+                "transaction_id": e.get("transaction_id"),
+                "description": e.get("description"),
+                "notes": e.get("notes") or e.get("accountant_notes"),
+                "is_deleted": e.get("is_deleted"),
+                "released_by_name": e.get("released_by_name"),
+            }
+            for e in expenses
+        ],
+        "cheques": [
+            {
+                "cheque_id": c.get("cheque_id"),
+                "cheque_number": c.get("cheque_number"),
+                "amount": c.get("amount"),
+                "status": c.get("status"),
+                "bounced_at": c.get("bounced_at"),
+                "bounce_reason": c.get("bounce_reason"),
+                "used_for_expense_id": c.get("used_for_expense_id"),
+                "used_for_request_id": c.get("used_for_request_id"),
+                "cleared_at": c.get("cleared_at"),
+            }
+            for c in cheques
+        ],
+        "wo_stage_entry": wo_stage_entry,
+        "suspense_ledger_rows": suspense_rows,
+    }
 # ==================== END TEMP DIAGNOSTIC ====================
