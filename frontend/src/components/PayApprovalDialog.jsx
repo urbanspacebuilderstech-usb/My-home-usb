@@ -146,6 +146,13 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
   const isUnder = remaining > 0.5;
   const isOver = remaining < -0.5;
 
+  // Aug 23 2026 — Applying credit and choosing no payment method means exactly
+  // one thing: settle with the credit and leave the balance. Treat it as such
+  // instead of demanding a method for money the accountant is not paying today.
+  // A method on any leg means a real payment is being made, so the normal path
+  // (and its "choose a payment method" validation) applies.
+  const suspenseOnlyMode = applySusNum > 0.5 && payable > 0 && legs.every(l => !l.method);
+
   // Only cheque legs can produce excess (cash/bank must be exact)
   const nonChequeTotal = legMath.filter(m => !m.isCheque).reduce((s, m) => s + m.stated, 0);
   const nonChequeOverpaying = nonChequeTotal > payable + 0.5;
@@ -483,29 +490,20 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>Cancel</Button>
-          {/* Credit covers only part of the bill and the balance is not being
-              funded today — settle with the credit alone and carry the rest. */}
-          {applySusNum > 0.5 && payable > 0 && (
-            <Button
-              variant="outline"
-              className="border-amber-400 text-amber-800 hover:bg-amber-50"
-              onClick={submitSuspenseOnly}
-              disabled={submitting || !ctx}
-              data-testid="pay-suspense-only-btn"
-            >
-              <Wallet className="h-4 w-4 mr-1" />
-              Use {fmt(applySusNum)} suspense only · leave {fmt(payable)}
-            </Button>
-          )}
+          {/* ONE primary action. Two buttons meant the obvious green one still
+              demanded a payment method, which is the error that kept coming
+              back. It now does what the screen is actually set up to do. */}
           <Button
-            className={`${isUnder ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
-            onClick={submit}
-            disabled={submitting || !ctx || (payable > 0 && totalLegAmount <= 0)}
+            className={`${suspenseOnlyMode || isUnder ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+            onClick={suspenseOnlyMode ? submitSuspenseOnly : submit}
+            disabled={submitting || !ctx || (!suspenseOnlyMode && payable > 0 && totalLegAmount <= 0)}
             data-testid="pay-submit-btn"
           >
             {submitting
               ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Processing…</>
-              : <><CheckCircle2 className="h-4 w-4 mr-1" /> {isUnder ? 'Record Partial Payment' : 'Pay & Settle'}</>
+              : suspenseOnlyMode
+                ? <><Wallet className="h-4 w-4 mr-1" /> Apply {fmt(applySusNum)} suspense · leave {fmt(payable)}</>
+                : <><CheckCircle2 className="h-4 w-4 mr-1" /> {isUnder ? 'Record Partial Payment' : 'Pay & Settle'}</>
             }
           </Button>
         </DialogFooter>
