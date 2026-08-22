@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
@@ -51,6 +51,9 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
   const [requestingOpen, setRequestingOpen] = useState(null);
   // Jul 03 2026 — Accountant-set amount to net off from vendor suspense credit.
   const [applySuspense, setApplySuspense] = useState('');
+  // Aug 22 2026 — Remembers the amount WE pre-filled, so applying suspense can
+  // refresh it without ever overwriting a figure the accountant typed.
+  const autoFilledAmount = useRef('');
 
   const reload = async () => {
     setLoading(true);
@@ -59,7 +62,9 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
       setCtx(r.data);
       // Pre-fill the first leg amount with the net payable for convenience
       const payable = r.data?.payable_after_suspense || 0;
-      setLegs([{ ...makeLeg('cheque'), amount: payable > 0 ? String(payable) : '' }]);
+      const prefill = payable > 0 ? String(payable) : '';
+      autoFilledAmount.current = prefill;
+      setLegs([{ ...makeLeg('cheque'), amount: prefill }]);
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Failed to load context');
     } finally {
@@ -85,6 +90,26 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
   const billAmount = ctx?.request?.bill_amount || 0;
   const alreadyPaid = ctx?.request?.already_paid || 0;
   const isContinuation = !!ctx?.request?.is_continuation;
+
+  // Aug 22 2026 — Keep the pre-filled leg amount in step with Net Payable when
+  // suspense is applied. It used to be set once on load, so typing an "Apply ₹"
+  // left the leg holding the FULL bill while payable dropped: the dialog then
+  // read Applied-to-bill 18,900 / Tendered 74,400 / Excess → suspense 55,500,
+  // i.e. it would spend 55,500 of the vendor's credit and immediately hand the
+  // same 55,500 straight back as fresh excess. Only refreshes the figure we
+  // filled in ourselves — a manually typed amount is never overwritten.
+  useEffect(() => {
+    if (!ctx) return;
+    setLegs(prev => {
+      if (prev.length !== 1) return prev;               // split payment: leave it alone
+      if ((prev[0].amount || '') !== autoFilledAmount.current) return prev;  // hand-edited
+      const next = payable > 0 ? String(Math.round(payable * 100) / 100) : '';
+      if (next === prev[0].amount) return prev;
+      autoFilledAmount.current = next;
+      return [{ ...prev[0], amount: next }];
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payable, ctx]);
 
   // Cheque-id → cheque object map (across both lists)
   const allCheques = useMemo(() => {
