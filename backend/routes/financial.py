@@ -8821,6 +8821,35 @@ async def trace_cheque_usage(cheque: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def check_tender_not_over_payable(total_leg_amount: float, payable: float,
+                                  allow_excess: bool = False, tolerance: float = 0.5):
+    """Reject a tender larger than what is actually owed.
+
+    Aug 22 2026 — The Pay & Settle dialog pre-fills the leg amount when it
+    opens. Applying vendor suspense afterwards lowers Net Payable, and a client
+    that does not refresh that pre-filled figure submits the ORIGINAL bill
+    amount against the reduced payable. The server then treats the difference
+    as cheque excess and rolls it back into the vendor's suspense — spending
+    the credit and immediately re-creating it (SS AGENCY, bill 74,400, apply
+    55,500: tendered 74,400 against a payable of 18,900, so 55,500 round-trips
+    through the pool).
+
+    The frontend is fixed, but a stale tab, a replayed request or any other
+    client must not be able to reproduce it, so the rule is enforced here too.
+    Deliberate over-tender is still possible via allow_excess, which a caller
+    has to opt into explicitly rather than reach by accident.
+
+    Returns an error string, or None when the tender is acceptable.
+    """
+    if allow_excess:
+        return None
+    if total_leg_amount > payable + tolerance:
+        return (f"Tender ₹{total_leg_amount:,.0f} exceeds the amount actually payable "
+                f"₹{payable:,.0f}. The bill may have been part-paid or suspense applied "
+                f"since this screen opened — refresh and re-enter the amount.")
+    return None
+
+
 class PaymentDenomination(BaseModel):
     note: int
     count: int
@@ -8835,6 +8864,10 @@ class PaymentLeg(BaseModel):
 class PayApprovalRequest(BaseModel):
     # New multi-leg path (preferred): a single request can split across cheque + cash + bank
     payment_legs: Optional[List[PaymentLeg]] = None
+    # Aug 22 2026 — Explicit opt-in for deliberately tendering more than the
+    # bill needs and parking the difference in vendor suspense. Defaults off so
+    # a stale client amount can never produce excess by accident.
+    allow_excess_to_suspense: bool = False
     # Jul 03 2026 — Optional manual suspense-apply amount. When > 0, this
     # much of the vendor's positive suspense credit is netted against the
     # bill (debits the vendor's suspense ledger and reduces the payable).
@@ -9375,6 +9408,11 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     #    face values). Cash/bank legs must equal the amount stated. So the
     #    accountant's "intended-to-pay" cash+bank+cheque-face-values must NOT
     #    exceed payable + cheque-allowed-excess.
+    _tender_err = check_tender_not_over_payable(
+        total_leg_amount, payable, allow_excess=bool(getattr(data, "allow_excess_to_suspense", False)))
+    if _tender_err:
+        raise HTTPException(status_code=400, detail=_tender_err)
+
     non_cheque_total = sum(float(l.amount or 0) for l in legs if l.method != "cheque")
     if non_cheque_total > payable + 0.5:
         raise HTTPException(status_code=400, detail=f"Cash/bank legs total ₹{non_cheque_total:,.0f} exceeds payable ₹{payable:,.0f} — adjust amounts (only cheque excess is allowed to roll to suspense)")
