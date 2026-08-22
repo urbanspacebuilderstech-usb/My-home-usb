@@ -29,8 +29,13 @@ const METHOD_OPTS = [
 // Bank-like methods require a transaction reference but no denom/cheque list.
 const isBankLike = (m) => m === 'hdfc_current' || m === 'hdfc_savings' || m === 'direct_transfer' || m === 'escrow' || m === 'current_account' || m === 'savings';
 
-// One payment leg = method + amount + method-specific input fields
-const makeLeg = (method = 'cheque') => ({
+// One payment leg = method + amount + method-specific input fields.
+// Aug 23 2026 — starts with NO method chosen. It used to default to 'cheque',
+// so every bill silently became a cheque payment and Pay & Settle demanded a
+// cheque the accountant never asked to use — most confusingly right after
+// applying vendor suspense, where the remainder is usually settled by cash or
+// bank. Cheque is now one option among six rather than the assumed one.
+const makeLeg = (method = '') => ({
   id: newLegId(),
   method,
   amount: '',
@@ -46,7 +51,7 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
   const [ctx, setCtx] = useState(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [legs, setLegs] = useState([makeLeg('cheque')]);
+  const [legs, setLegs] = useState([makeLeg()]);
   const [remarks, setRemarks] = useState('');
   const [requestingOpen, setRequestingOpen] = useState(null);
   // Jul 03 2026 — Accountant-set amount to net off from vendor suspense credit.
@@ -64,7 +69,7 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
       const payable = r.data?.payable_after_suspense || 0;
       const prefill = payable > 0 ? String(payable) : '';
       autoFilledAmount.current = prefill;
-      setLegs([{ ...makeLeg('cheque'), amount: prefill }]);
+      setLegs([{ ...makeLeg(), amount: prefill }]);
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Failed to load context');
     } finally {
@@ -75,7 +80,7 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
   useEffect(() => {
     if (!open || !requestId) return;
     setCtx(null);
-    setLegs([makeLeg('cheque')]);
+    setLegs([makeLeg()]);
     setRemarks('');
     setApplySuspense('');
     reload();
@@ -147,7 +152,7 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
 
   // Update / Add / Remove legs
   const updateLeg = (legId, patch) => setLegs(prev => prev.map(l => l.id === legId ? { ...l, ...patch } : l));
-  const addLeg = () => setLegs(prev => [...prev, makeLeg(prev.length === 0 ? 'cheque' : 'cash')]);
+  const addLeg = () => setLegs(prev => [...prev, makeLeg()]);
   const removeLeg = (legId) => setLegs(prev => prev.filter(l => l.id !== legId));
 
   const toggleChequeOnLeg = (legId, cid) => {
@@ -225,9 +230,14 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
     if (legs.length === 0) { toast.error('Add at least one payment leg'); return; }
     for (const l of legs) {
       const amt = Number(l.amount) || 0;
+      const legNo = legs.indexOf(l) + 1;
+      if (!l.method) { toast.error(`Leg ${legNo}: choose a payment method (Cheque, Cash, HDFC, Cash D/T or Escrow).`); return; }
       if (amt <= 0) { toast.error(`Leg amount must be > 0 (${l.method})`); return; }
       if (l.method === 'cheque') {
-        if (!l.chequeIds || l.chequeIds.length === 0) { toast.error('Cheque leg needs at least one cheque selected'); return; }
+        if (!l.chequeIds || l.chequeIds.length === 0) {
+          toast.error(`Leg ${legNo} is set to Cheque but no cheque is ticked. Pick one from the list below, or switch the method to Cash / HDFC / Cash D/T.`);
+          return;
+        }
         // Aug 18 2026 — A cheque leg draws against the cheques' REMAINING
         // balance, not face value (matches legMath/toggleChequeOnLeg above
         // and the backend's own check) — a smaller draw is valid, the rest
@@ -494,9 +504,12 @@ function LegEditor({ leg, idx, canRemove, ctx, allCheques, claimedByOther, updat
       <CardContent className="p-3 space-y-3">
         <div className="flex items-center gap-2">
           <Badge className="bg-emerald-600 text-white text-[10px]">Leg {idx + 1}</Badge>
-          <Select value={leg.method} onValueChange={(v) => update({ method: v, chequeIds: [], transactionId: '', denoms: {}, amount: '' })}>
-            <SelectTrigger className="h-8 text-xs w-44" data-testid={`leg-method-${idx}`}>
-              <SelectValue />
+          {/* Switching method used to blank the amount, so picking Cash after
+              applying suspense emptied the 18,900 that had just been worked
+              out. Keep whatever is already there and let the caller refill. */}
+          <Select value={leg.method || undefined} onValueChange={(v) => update({ method: v, chequeIds: [], transactionId: '', denoms: {} })}>
+            <SelectTrigger className={`h-8 text-xs w-44 ${leg.method ? '' : 'border-amber-400 text-amber-700'}`} data-testid={`leg-method-${idx}`}>
+              <SelectValue placeholder="Select payment method" />
             </SelectTrigger>
             <SelectContent>
               {METHOD_OPTS.map(({ v, label, icon: Icon }) => (
