@@ -7326,6 +7326,29 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
             reversal_summary["expense_reversed"] = True
             reversal_summary["expense_project_id"] = rec_exp.get("project_id")
 
+    # 2c. Pooled CONTRACTOR SUSPENSE ledger correction (Aug 22 2026) — a
+    # labour release can fund itself from the contractor's POOLED suspense
+    # balance (contractor_suspense_ledger), not just the single
+    # directly-linked expense leg reversed in step 2b above. Void that
+    # cheque's excess credit — and restore whatever live debits already
+    # drew on it — right here, automatically, instead of leaving it as a
+    # separate manual Super-Admin follow-up someone has to remember to run.
+    # That gap is exactly how Yuvaraj's Cheque #000014 case produced an
+    # orphaned ₹1,400 suspense debit: a later, unrelated release drew
+    # against a credit that should already have been voided. Deliberately
+    # does NOT revert any downstream bill's paid status — that stays a
+    # separate, reviewed decision via
+    # /admin/cheques/{cheque_id}/reverse-suspense-fallout. No-op for
+    # cheques with no matching labour suspense credit.
+    try:
+        pooled_plan = await _reverse_cheque_pooled_suspense_credit(
+            {**cheque, "cheque_id": cheque_id, "bounce_reason": payload.reason.strip()}, user, dry_run=False,
+        )
+        reversal_summary["pooled_suspense_credit_reversed"] = pooled_plan.get("total_credit_reversed", 0.0)
+        reversal_summary["pooled_suspense_debit_restored"] = pooled_plan.get("total_debit_reversed", 0.0)
+    except Exception as e:
+        import logging; logging.getLogger(__name__).warning(f"pooled suspense credit reversal failed for bounced cheque {cheque_id}: {e}")
+
     # 3. Audit log
     await create_audit_log(user.user_id, "bounce", "cheque", cheque_id, {
         "cheque_number": cheque.get("cheque_number"),
@@ -7346,47 +7369,30 @@ class ChequeSuspenseFalloutRequest(BaseModel):
     dry_run: bool = True
 
 
-@router.post("/admin/cheques/{cheque_id}/reverse-suspense-fallout")
-async def reverse_cheque_suspense_fallout(cheque_id: str, payload: ChequeSuspenseFalloutRequest, user: User = Depends(get_current_user)):
-    """Aug 11 2026 — `bounce_cheque` above only reverses ONE directly-linked
-    income and ONE directly-linked expense (`used_for_expense_id`). It has
-    no idea a labour work-order release can fund a CONTRACTOR'S POOLED
-    SUSPENSE BALANCE (contractor_suspense_ledger) instead of / in addition
-    to a direct leg — money from one bounced cheque can end up spent across
-    several unrelated bills on several unrelated projects via that pool
-    (Yuvaraj / Cheque 000014 / Mr. Muralikannan case: ₹96,400 credited,
-    ₹82,815 of it already spent on 6 bills across 3 other projects, plus a
-    ₹3,600 direct leg on the ORIGINAL bill that `bounce_cheque` also missed
-    because it only knows about a single `used_for_expense_id`).
+async def _reverse_cheque_pooled_suspense_credit(cheque: Dict[str, Any], user: User, dry_run: bool) -> Dict[str, Any]:
+    """Core of the pooled contractor-suspense-ledger correction for a
+    bounced cheque — voids the cheque_excess credit it produced and, via a
+    FIFO replay of the contractor's full ledger, restores whatever live
+    debits had already drawn on that specific credit.
 
-    This is a SEPARATE, targeted follow-up for an ALREADY-bounced cheque —
-    it does not touch the income side (that's `bounce_cheque`'s job and, per
-    the linked income row's cumulative `partial_bounce_deducted`, already
-    ran for this case).
-
-    Every reversal is done by INSERTING offsetting ledger entries (never
-    mutating/zeroing an existing one), mirroring the exact pattern already
-    used by `delete_cashbook_expense`'s "expense_delete_reversal" — full
-    audit trail preserved, and safe to reason about: the original credit
-    from this cheque gets a same-amount offsetting DEBIT; each downstream
-    bill that drew from it gets a same-amount offsetting CREDIT (since that
-    bill is being sent back to Approvals and its debit should no longer
-    count as spent).
-
-    Call with dry_run=true (default) first — it changes nothing and returns
-    the exact plan (every ledger entry and expense that WOULD be touched).
-    Only call with dry_run=false once that plan has been reviewed.
-    SUPER_ADMIN only.
+    Split out of `reverse_cheque_suspense_fallout` (Aug 22 2026) so
+    `bounce_cheque` can run this LEDGER-ONLY half automatically and
+    unconditionally on every bounce, closing the window during which a
+    phantom cheque-excess credit stays spendable and a later, unrelated
+    release can draw on it with nothing left to fund it — exactly how
+    Yuvaraj's Cheque #000014 case produced an orphaned ₹1,400 suspense
+    debit on an Aug-13 re-release: the credit had already been voided by
+    the time of the retry, but nothing had capped what was drawable in the
+    interim, and (separately) nothing forced this correction to run before
+    that gap could even open. Deliberately does NOT touch recorded_expenses
+    or work-order payment status — reverting a DIFFERENT bill's "paid"
+    state to send it back to Approvals is a separate, consequential
+    decision that stays with the manual, reviewed
+    `reverse_cheque_suspense_fallout` endpoint below. Safe to call on every
+    bounce regardless of cheque type: a cheque with no matching labour
+    suspense credit is a no-op (empty `credits`).
     """
-    if user.role != UserRole.SUPER_ADMIN:
-        raise HTTPException(status_code=403, detail="Only Super Admin can run this")
-
-    cheque = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
-    if not cheque:
-        raise HTTPException(status_code=404, detail="Cheque not found")
-    if cheque.get("status") != "bounced":
-        raise HTTPException(status_code=400, detail="Cheque is not marked bounced — use /accountant/cheques/{cheque_id}/bounce first")
-
+    cheque_id = cheque["cheque_id"]
     now = datetime.now(timezone.utc).isoformat()
     reason = f"Cheque {cheque.get('cheque_number')} bounced" + (f" ({cheque['bounce_reason']})" if cheque.get("bounce_reason") else "")
 
@@ -7396,14 +7402,12 @@ async def reverse_cheque_suspense_fallout(cheque_id: str, payload: ChequeSuspens
     credits = await db.contractor_suspense_ledger.find(credit_query, {"_id": 0}).to_list(20)
 
     plan: Dict[str, Any] = {
-        "dry_run": payload.dry_run,
+        "dry_run": dry_run,
         "cheque_id": cheque_id,
         "cheque_number": cheque.get("cheque_number"),
         "credits_reversed": [],
         "debits_reversed": [],
-        "expenses_reversed": [],
-        "already_bounced_expenses": [],
-        "work_orders_recomputed": [],
+        "request_ids_touched": [],
     }
 
     request_ids_to_reverse = set()
@@ -7464,7 +7468,7 @@ async def reverse_cheque_suspense_fallout(cheque_id: str, payload: ChequeSuspens
         if target_ledger_id in already_reversed_ledger_ids:
             plan.setdefault("skipped_already_reversed_credits", []).append(target_ledger_id)
         else:
-            if not payload.dry_run:
+            if not dry_run:
                 await db.contractor_suspense_ledger.insert_one({
                     "ledger_id": f"sl_{uuid.uuid4().hex[:8]}",
                     "contractor_id": contractor_id,
@@ -7497,7 +7501,7 @@ async def reverse_cheque_suspense_fallout(cheque_id: str, payload: ChequeSuspens
             if row["ledger_id"] in already_reversed_ledger_ids:
                 plan.setdefault("skipped_already_reversed_debits", []).append(row["ledger_id"])
                 continue
-            if not payload.dry_run:
+            if not dry_run:
                 await db.contractor_suspense_ledger.insert_one({
                     "ledger_id": f"sl_{uuid.uuid4().hex[:8]}",
                     "contractor_id": contractor_id,
@@ -7517,6 +7521,84 @@ async def reverse_cheque_suspense_fallout(cheque_id: str, payload: ChequeSuspens
                 "ledger_id": row["ledger_id"], "reference_id": ref_id, "amount": amt,
                 "project_id": row.get("project_id"), "notes": row.get("notes"),
             })
+
+    plan["request_ids_touched"] = sorted(request_ids_to_reverse)
+    plan["total_credit_reversed"] = sum(float(c["amount"] or 0) for c in plan["credits_reversed"])
+    plan["total_debit_reversed"] = sum(float(d["amount"] or 0) for d in plan["debits_reversed"])
+    return plan
+
+
+@router.post("/admin/cheques/{cheque_id}/reverse-suspense-fallout")
+async def reverse_cheque_suspense_fallout(cheque_id: str, payload: ChequeSuspenseFalloutRequest, user: User = Depends(get_current_user)):
+    """Aug 11 2026 — `bounce_cheque` above only reverses ONE directly-linked
+    income and ONE directly-linked expense (`used_for_expense_id`). It has
+    no idea a labour work-order release can fund a CONTRACTOR'S POOLED
+    SUSPENSE BALANCE (contractor_suspense_ledger) instead of / in addition
+    to a direct leg — money from one bounced cheque can end up spent across
+    several unrelated bills on several unrelated projects via that pool
+    (Yuvaraj / Cheque 000014 / Mr. Muralikannan case: ₹96,400 credited,
+    ₹82,815 of it already spent on 6 bills across 3 other projects, plus a
+    ₹3,600 direct leg on the ORIGINAL bill that `bounce_cheque` also missed
+    because it only knows about a single `used_for_expense_id`).
+
+    Aug 22 2026 — the pooled LEDGER correction (void the credit, restore
+    live downstream debits) now also runs automatically inside
+    `bounce_cheque` via `_reverse_cheque_pooled_suspense_credit`, so most of
+    the time this endpoint's ledger half will already show up as
+    `skipped_already_reversed_*`. This endpoint remains the place to run —
+    and review, via dry_run — the SEPARATE, more consequential decision of
+    sending the downstream bills themselves back to Approvals (resetting
+    their work-order payment_request status), which `bounce_cheque` does
+    NOT do automatically.
+
+    This is a SEPARATE, targeted follow-up for an ALREADY-bounced cheque —
+    it does not touch the income side (that's `bounce_cheque`'s job and, per
+    the linked income row's cumulative `partial_bounce_deducted`, already
+    ran for this case).
+
+    Every reversal is done by INSERTING offsetting ledger entries (never
+    mutating/zeroing an existing one), mirroring the exact pattern already
+    used by `delete_cashbook_expense`'s "expense_delete_reversal" — full
+    audit trail preserved, and safe to reason about: the original credit
+    from this cheque gets a same-amount offsetting DEBIT; each downstream
+    bill that drew from it gets a same-amount offsetting CREDIT (since that
+    bill is being sent back to Approvals and its debit should no longer
+    count as spent).
+
+    Call with dry_run=true (default) first — it changes nothing and returns
+    the exact plan (every ledger entry and expense that WOULD be touched).
+    Only call with dry_run=false once that plan has been reviewed.
+    SUPER_ADMIN only.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can run this")
+
+    cheque = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail="Cheque not found")
+    if cheque.get("status") != "bounced":
+        raise HTTPException(status_code=400, detail="Cheque is not marked bounced — use /accountant/cheques/{cheque_id}/bounce first")
+
+    now = datetime.now(timezone.utc).isoformat()
+    reason = f"Cheque {cheque.get('cheque_number')} bounced" + (f" ({cheque['bounce_reason']})" if cheque.get("bounce_reason") else "")
+
+    ledger_plan = await _reverse_cheque_pooled_suspense_credit(cheque, user, payload.dry_run)
+
+    plan: Dict[str, Any] = {
+        "dry_run": payload.dry_run,
+        "cheque_id": cheque_id,
+        "cheque_number": cheque.get("cheque_number"),
+        "credits_reversed": ledger_plan["credits_reversed"],
+        "debits_reversed": ledger_plan["debits_reversed"],
+        "expenses_reversed": [],
+        "already_bounced_expenses": [],
+        "work_orders_recomputed": [],
+    }
+    for k in ("skipped_already_reversed_credits", "skipped_already_reversed_debits"):
+        if k in ledger_plan:
+            plan[k] = ledger_plan[k]
+
+    request_ids_to_reverse = set(ledger_plan["request_ids_touched"])
 
     expense_rows = []
     if request_ids_to_reverse:
