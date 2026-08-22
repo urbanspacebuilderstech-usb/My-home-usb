@@ -174,6 +174,28 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
     updateLeg(legId, { chequeIds: next, amount: newAmount > 0 ? String(Math.round(newAmount * 100) / 100) : '' });
   };
 
+  // Aug 23 2026 — Apply the vendor credit now and leave the balance for later.
+  // Without this, applying 55,500 against a 74,400 bill forced you to fund the
+  // remaining 18,900 in the same action or not use the credit at all. The bill
+  // lands as partially_paid and moves to Partially Collected to be finished
+  // when the money is actually collected.
+  const submitSuspenseOnly = async () => {
+    if (applySusNum <= 0.5) return;
+    setSubmitting(true);
+    try {
+      const r = await axios.post(`${API}/approvals/${reqType}/${requestId}/pay`, {
+        remarks: remarks || null,
+        apply_suspense: applySusNum,
+        suspense_only: true,
+      });
+      toast.success(`Applied ${fmt(applySusNum)} from suspense. ${fmt(payable)} left outstanding — moved to Partially Collected.`);
+      onPaid && onPaid(r.data);
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Could not apply suspense');
+    } finally { setSubmitting(false); }
+  };
+
   const requestOpenCheque = async (cheque) => {
     if (cheque.open_requested) { toast.info('Already requested. CRE will open it.'); return; }
     setRequestingOpen(cheque.cheque_id);
@@ -461,6 +483,20 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>Cancel</Button>
+          {/* Credit covers only part of the bill and the balance is not being
+              funded today — settle with the credit alone and carry the rest. */}
+          {applySusNum > 0.5 && payable > 0 && (
+            <Button
+              variant="outline"
+              className="border-amber-400 text-amber-800 hover:bg-amber-50"
+              onClick={submitSuspenseOnly}
+              disabled={submitting || !ctx}
+              data-testid="pay-suspense-only-btn"
+            >
+              <Wallet className="h-4 w-4 mr-1" />
+              Use {fmt(applySusNum)} suspense only · leave {fmt(payable)}
+            </Button>
+          )}
           <Button
             className={`${isUnder ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
             onClick={submit}

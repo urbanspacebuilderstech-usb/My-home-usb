@@ -8868,6 +8868,11 @@ class PayApprovalRequest(BaseModel):
     # bill needs and parking the difference in vendor suspense. Defaults off so
     # a stale client amount can never produce excess by accident.
     allow_excess_to_suspense: bool = False
+    # Aug 23 2026 — Settle using ONLY the applied suspense credit and leave any
+    # balance outstanding (bill -> partially_paid, shown under Partially
+    # Collected). Explicit so a client that simply forgot to add a leg still
+    # gets the "add a payment leg" error rather than silently part-paying.
+    suspense_only: bool = False
     # Jul 03 2026 — Optional manual suspense-apply amount. When > 0, this
     # much of the vendor's positive suspense credit is netted against the
     # bill (debits the vendor's suspense ledger and reduces the payable).
@@ -9314,6 +9319,17 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
         legs = []
     elif data.payment_legs:
         legs = list(data.payment_legs)
+    elif data.suspense_only and credit_used > 0.5:
+        # Aug 23 2026 — Credit-only PARTIAL settlement. Vendor suspense covers
+        # part of the bill and the accountant is not paying the balance today:
+        # apply the credit now, leave the rest outstanding, and let the bill
+        # move to Partially Collected to be finished later. Previously a no-leg
+        # payment was only accepted when suspense covered the bill in FULL, so
+        # applying 55,500 of credit against a 74,400 bill forced you to fund
+        # the remaining 18,900 in the same action or not use the credit at all.
+        # is_full_payment below is computed from credit + paid vs bill, so this
+        # correctly lands as partially_paid with the balance carried.
+        legs = []
     elif data.payment_method:
         ch_ids = list(data.cheque_ids or [])
         if data.cheque_id and data.cheque_id not in ch_ids:

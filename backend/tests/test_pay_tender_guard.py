@@ -106,3 +106,42 @@ def test_retry_after_partial_payment_cannot_overpay():
     8,900 remains and replaying the full 18,900 must be refused."""
     assert check(total_leg_amount=NET_PAYABLE, payable=NET_PAYABLE - 10000.0) is not None
     assert check(total_leg_amount=8900.0, payable=NET_PAYABLE - 10000.0) is None
+
+
+# --- credit-only partial settlement (Aug 23 2026) -----------------------------
+# Applying part of a vendor's suspense and leaving the balance for later must
+# land as PARTIALLY paid, not full, so the bill moves to Partially Collected
+# instead of disappearing as settled.
+
+def _is_full(already_paid, effective_paid, credit_used, bill):
+    """Mirrors pay_approval's is_full_payment rule."""
+    return (already_paid + effective_paid + credit_used) >= bill - 0.5
+
+
+def test_credit_only_partial_is_not_treated_as_fully_paid():
+    """SS AGENCY: 55,500 credit against a 74,400 bill, no legs. 18,900 remains,
+    so the bill must stay open rather than close as settled."""
+    assert _is_full(0.0, 0.0, SUSPENSE, BILL) is False
+
+
+def test_credit_only_partial_leaves_the_right_balance():
+    assert BILL - SUSPENSE == 18900.0
+
+
+def test_credit_covering_the_whole_bill_is_full():
+    """Unchanged behaviour: credit >= bill still settles it outright."""
+    assert _is_full(0.0, 0.0, BILL, BILL) is True
+
+
+def test_credit_only_tender_is_zero_so_the_over_tender_guard_passes():
+    """No legs means nothing is tendered, so the payable cap cannot block a
+    credit-only settlement."""
+    assert check(total_leg_amount=0.0, payable=NET_PAYABLE) is None
+
+
+def test_second_credit_only_call_cannot_overdraw_the_bill():
+    """Retry safety: after the first 55,500 lands, only 18,900 is payable, so a
+    replayed credit application is bounded by the remaining balance."""
+    remaining = BILL - SUSPENSE
+    assert _is_full(SUSPENSE, 0.0, remaining, BILL) is True
+    assert check(total_leg_amount=0.0, payable=remaining) is None
