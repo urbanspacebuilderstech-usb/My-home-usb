@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Copy, Check, MessageCircle, KeyRound, RefreshCw } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Copy, Check, MessageCircle, KeyRound, RefreshCw, Shield, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -23,6 +24,13 @@ export default function CreateClientPortalDialog({ project, open, onOpenChange, 
   const [submitting, setSubmitting] = useState(false);
   const [created, setCreated] = useState(null);
   const [copied, setCopied] = useState(false);
+  // Authenticator 2FA for this portal. OFF means the client signs in with email
+  // + password only; ON means they pair Google Authenticator at next sign-in.
+  const [twoFactor, setTwoFactor] = useState(false);
+  const [twoFactorPaired, setTwoFactorPaired] = useState(false);
+  const [twoFactorBusy, setTwoFactorBusy] = useState(false);
+
+  const hasPortal = !!project?.client_user_id;
 
   // Reset state when dialog opens for a different project
   const reset = () => {
@@ -34,12 +42,42 @@ export default function CreateClientPortalDialog({ project, open, onOpenChange, 
   // initialize on open
   if (open && !created && password === '' && project) reset();
 
+  // For a portal that already exists, read back its live 2FA state so the switch
+  // reflects reality rather than defaulting to off every time the dialog opens.
+  useEffect(() => {
+    if (!open || !project?.project_id || !hasPortal) return;
+    let cancelled = false;
+    axios.get(`${API}/projects/${project.project_id}/client-2fa`)
+      .then((res) => {
+        if (cancelled) return;
+        setTwoFactor(!!res.data?.two_factor_required);
+        setTwoFactorPaired(!!res.data?.two_factor_enabled);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [open, project?.project_id, hasPortal]);
+
+  // On an existing portal the switch applies straight away — there is no Save on
+  // this path, and the CRE should not have to reset a password to change it.
+  const toggleTwoFactor = async (next) => {
+    if (!hasPortal) { setTwoFactor(next); return; }
+    setTwoFactorBusy(true);
+    try {
+      const res = await axios.put(`${API}/projects/${project.project_id}/client-2fa`, { enabled: next });
+      setTwoFactor(!!res.data?.two_factor_required);
+      setTwoFactorPaired(!!res.data?.two_factor_enabled);
+      toast.success(res.data?.message || 'Updated');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Could not update 2FA');
+    } finally { setTwoFactorBusy(false); }
+  };
+
   const submit = async () => {
     if (!email || !email.includes('@')) { toast.error('Enter a valid email'); return; }
     if (password.length < 6) { toast.error('Password must be at least 6 characters'); return; }
     setSubmitting(true);
     try {
-      const res = await axios.post(`${API}/projects/${project.project_id}/create-client-portal`, { email: email.trim(), password });
+      const res = await axios.post(`${API}/projects/${project.project_id}/create-client-portal`, { email: email.trim(), password, two_factor_required: twoFactor });
       setCreated(res.data);
       toast.success('Client portal created');
       onCreated?.(res.data);
@@ -50,7 +88,12 @@ export default function CreateClientPortalDialog({ project, open, onOpenChange, 
 
   const buildShareMessage = () => {
     const cred = created || { email, password };
-    return `Hello ${project?.client_name || 'Sir/Ma\'am'},\n\nYour project portal is ready.\n\n🏗️ Project: ${project?.name || ''}\n🔗 Login: ${PORTAL_BASE}\n📧 Email: ${cred.email}\n🔑 Password: ${cred.password}\n\nThank you!`;
+    // Flag 2FA in the handover note, otherwise the QR step at first login
+    // lands on the client with no warning.
+    const twoFactorNote = (created?.two_factor_required ?? twoFactor)
+      ? `\n\nSecurity: On your first login you will be asked to scan a QR code with the Google Authenticator app, then enter the 6-digit code it shows. You will need that code every time you log in.`
+      : '';
+    return `Hello ${project?.client_name || 'Sir/Ma\'am'},\n\nYour project portal is ready.\n\n🏗️ Project: ${project?.name || ''}\n🔗 Login: ${PORTAL_BASE}\n📧 Email: ${cred.email}\n🔑 Password: ${cred.password}${twoFactorNote}\n\nThank you!`;
   };
 
   const copyMessage = async () => {
@@ -71,6 +114,7 @@ export default function CreateClientPortalDialog({ project, open, onOpenChange, 
 
   const handleClose = () => {
     setEmail(''); setPassword(''); setCreated(null); setCopied(false);
+    setTwoFactor(false); setTwoFactorPaired(false); setTwoFactorBusy(false);
     onOpenChange(false);
   };
 
@@ -110,6 +154,33 @@ export default function CreateClientPortalDialog({ project, open, onOpenChange, 
               </div>
               <p className="text-[10px] text-gray-500 mt-1">Min 6 characters. The password is shown only once after creation.</p>
             </div>
+
+            {/* Authenticator 2FA — off unless it is deliberately switched on. */}
+            <div className="flex items-start justify-between gap-3 rounded-lg border p-2.5">
+              <div>
+                <Label className="text-xs flex items-center gap-1.5">
+                  <Shield className="h-3.5 w-3.5 text-blue-600" /> Authenticator 2FA
+                </Label>
+                <p className="text-[10px] text-gray-500 mt-1">
+                  {twoFactor
+                    ? (twoFactorPaired
+                        ? 'On — the client enters a code from Google Authenticator at every login.'
+                        : 'On — the client scans a QR to pair Google Authenticator at their next login.')
+                    : 'Off — the client signs in with email and password only.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
+                {twoFactorBusy && <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />}
+                <Switch
+                  checked={twoFactor}
+                  disabled={twoFactorBusy}
+                  onCheckedChange={toggleTwoFactor}
+                  data-testid="ccp-2fa-toggle"
+                  aria-label="Authenticator 2FA"
+                />
+              </div>
+            </div>
+
             <DialogFooter>
               <Button variant="outline" size="sm" onClick={handleClose}>Cancel</Button>
               <Button size="sm" className="bg-amber-600 hover:bg-amber-700" disabled={submitting} onClick={submit} data-testid="ccp-submit">
@@ -125,6 +196,7 @@ export default function CreateClientPortalDialog({ project, open, onOpenChange, 
                 <div className="flex justify-between gap-2"><span className="text-green-700">Login URL:</span><span className="font-mono text-green-900 truncate">{PORTAL_BASE}</span></div>
                 <div className="flex justify-between gap-2"><span className="text-green-700">Email:</span><span className="font-mono text-green-900">{created.email}</span></div>
                 <div className="flex justify-between gap-2"><span className="text-green-700">Password:</span><span className="font-mono text-green-900">{created.password}</span></div>
+                <div className="flex justify-between gap-2"><span className="text-green-700">Authenticator 2FA:</span><span className="font-medium text-green-900">{created.two_factor_required ? 'On — pair at first login' : 'Off'}</span></div>
               </div>
             </div>
             <div className="bg-gray-50 border rounded-lg p-2.5 text-[11px] text-gray-700 max-h-32 overflow-y-auto whitespace-pre-wrap" data-testid="ccp-share-preview">

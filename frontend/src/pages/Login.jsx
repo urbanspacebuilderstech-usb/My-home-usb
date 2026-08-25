@@ -68,6 +68,9 @@ export default function Login() {
   const [selectedEmail, setSelectedEmail] = useState('admin@constructionos.com');
   const [needs2FA, setNeeds2FA] = useState(false);
   const [totpCode, setTotpCode] = useState('');
+  // First-time pairing: set when an admin has required 2FA on this account but
+  // no authenticator is attached yet. Holds the QR + secret to scan.
+  const [setup2FA, setSetup2FA] = useState(null);
 
   // Feb 26 2026 — Branding (app name + logo URL) loaded from /api/branding
   // so the Super Admin can change them without a deploy.
@@ -96,20 +99,29 @@ export default function Login() {
       toast.error('Please enter email and password');
       return;
     }
-    if (needs2FA && (!totpCode || totpCode.length !== 6)) {
+    if ((needs2FA || setup2FA) && (!totpCode || totpCode.length !== 6)) {
       toast.error('Please enter your 6-digit authenticator code');
       return;
     }
     setIsLoading(true);
     try {
-      const payload = { email, password };
-      if (needs2FA) payload.totp_code = totpCode;
-      const response = await axios.post(`${API}/auth/login`, payload, { withCredentials: true });
+      // Mid-pairing the code proves the client scanned the QR, so it goes to the
+      // enrol endpoint, which attaches the device and signs them in in one step.
+      const response = setup2FA
+        ? await axios.post(`${API}/auth/2fa/enroll`, { email, password, code: totpCode }, { withCredentials: true })
+        : await axios.post(`${API}/auth/login`, needs2FA ? { email, password, totp_code: totpCode } : { email, password }, { withCredentials: true });
       const data = response.data;
       if (data.requires_2fa) {
         setNeeds2FA(true);
         setTotpCode('');
         toast.info('Enter your Google Authenticator code');
+        setIsLoading(false);
+        return;
+      }
+      if (data.requires_2fa_setup) {
+        setSetup2FA({ qr: data.qr_code, secret: data.secret });
+        setTotpCode('');
+        toast.info('Set up Google Authenticator to continue');
         setIsLoading(false);
         return;
       }
@@ -256,11 +268,38 @@ export default function Login() {
                   </div>
                 </div>
 
+                {/* First-time pairing — QR to scan, then the code it produces. */}
+                {setup2FA && (
+                  <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50/40 p-3" data-testid="2fa-setup-section">
+                    <p className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                      <Shield className="h-3.5 w-3.5 text-blue-600" /> Set up Google Authenticator
+                    </p>
+                    <ol className="text-[11px] text-slate-600 list-decimal list-inside space-y-0.5">
+                      <li>Install <span className="font-medium">Google Authenticator</span> on your phone.</li>
+                      <li>Tap <span className="font-medium">+</span> → <span className="font-medium">Scan a QR code</span>.</li>
+                      <li>Enter the 6-digit code it shows below.</li>
+                    </ol>
+                    {setup2FA.qr && (
+                      <img
+                        src={setup2FA.qr}
+                        alt="Authenticator QR code"
+                        className="mx-auto h-40 w-40 rounded bg-white p-1.5 border border-blue-200"
+                        data-testid="2fa-setup-qr"
+                      />
+                    )}
+                    <p className="text-[10px] text-center text-slate-500">
+                      Can&apos;t scan? Enter this key manually:
+                      <br />
+                      <span className="font-mono text-[11px] text-slate-700 break-all">{setup2FA.secret}</span>
+                    </p>
+                  </div>
+                )}
+
                 {/* 2FA Code Field */}
-                {needs2FA && (
+                {(needs2FA || setup2FA) && (
                   <div className="space-y-2" data-testid="2fa-login-section">
                     <Label className="text-slate-700 text-sm font-medium flex items-center gap-1.5">
-                      <Shield className="h-3.5 w-3.5 text-blue-600" /> Authenticator Code
+                      <Shield className="h-3.5 w-3.5 text-blue-600" /> {setup2FA ? 'Confirm Code from App' : 'Authenticator Code'}
                     </Label>
                     <Input
                       data-testid="totp-code-input"
@@ -273,7 +312,9 @@ export default function Login() {
                       className="h-11 text-center text-xl tracking-[0.4em] font-mono bg-blue-50/50 border-blue-200 text-slate-900 placeholder:text-slate-400 [color-scheme:light] focus:border-blue-400 focus:ring-blue-400/20"
                       autoFocus
                     />
-                    <p className="text-[10px] text-blue-500 text-center">Enter the 6-digit code from Google Authenticator</p>
+                    <p className="text-[10px] text-blue-500 text-center">
+                      {setup2FA ? 'Enter the code shown after scanning to finish setup' : 'Enter the 6-digit code from Google Authenticator'}
+                    </p>
                   </div>
                 )}
 
@@ -283,7 +324,7 @@ export default function Login() {
                   disabled={isLoading}
                   className="w-full h-11 text-base font-bold bg-slate-800 hover:bg-slate-900 text-white rounded-lg transition-all duration-200"
                 >
-                  {isLoading ? 'Logging in...' : 'Login'}
+                  {isLoading ? 'Logging in...' : (setup2FA ? 'Verify & Login' : 'Login')}
                 </Button>
               </form>
 

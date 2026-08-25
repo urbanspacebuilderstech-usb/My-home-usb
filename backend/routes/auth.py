@@ -311,10 +311,28 @@ async def login(login_request: LoginRequest, request: Request, response: Respons
     if user_doc.get("two_factor_enabled") and user_doc.get("totp_secret"):
         if not login_request.totp_code:
             return {"requires_2fa": True, "message": "2FA verification required"}
-        import pyotp
         totp = pyotp.TOTP(user_doc["totp_secret"])
         if not totp.verify(login_request.totp_code, valid_window=1):
             raise HTTPException(status_code=401, detail="Invalid 2FA code")
+    elif user_doc.get("two_factor_required"):
+        # An admin switched 2FA on for this account but no authenticator has ever
+        # been paired with it. Hand back a QR so the sign-in can continue straight
+        # into enrolment — the password already checked out. No session is issued
+        # here; /auth/2fa/enroll does that once a code from this secret verifies.
+        # An in-flight pending secret is reused so reloading the page does not
+        # invalidate a QR the client has already scanned.
+        pending = user_doc.get("totp_secret_pending")
+        if not pending:
+            pending = pyotp.random_base32()
+            await db.users.update_one(
+                {"user_id": user_doc["user_id"]},
+                {"$set": {"totp_secret_pending": pending}}
+            )
+        return {
+            "requires_2fa_setup": True,
+            "message": "Two-factor setup required",
+            **_build_totp_enrollment(email, pending),
+        }
 
     if isinstance(user_doc.get("created_at"), str):
         user_doc["created_at"] = datetime.fromisoformat(user_doc["created_at"])
@@ -837,6 +855,27 @@ async def verify_password_endpoint(data: PasswordVerifyRequest, user: User = Dep
     return {"verified": True}
 
 
+def _build_totp_enrollment(email: str, secret: str) -> dict:
+    """Everything an authenticator app needs to enrol one account: the shared
+    secret, the otpauth:// URI, and that URI rendered as a scannable QR PNG."""
+    totp = pyotp.TOTP(secret)
+    provisioning_uri = totp.provisioning_uri(name=email, issuer_name="My Home USB")
+
+    qr = qrcode.QRCode(version=1, box_size=6, border=2)
+    qr.add_data(provisioning_uri)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    qr_base64 = base64.b64encode(buffer.getvalue()).decode()
+
+    return {
+        "secret": secret,
+        "qr_code": f"data:image/png;base64,{qr_base64}",
+        "provisioning_uri": provisioning_uri,
+    }
+
+
 @router.post("/auth/2fa/setup")
 async def setup_2fa(data: TwoFactorSetupRequest, user: User = Depends(get_current_user)):
     """Step 1: Verify password and generate TOTP secret + QR code"""
@@ -853,18 +892,6 @@ async def setup_2fa(data: TwoFactorSetupRequest, user: User = Depends(get_curren
 
     # Generate TOTP secret
     secret = pyotp.random_base32()
-    totp = pyotp.TOTP(secret)
-    email = user_doc.get("email", "user")
-    provisioning_uri = totp.provisioning_uri(name=email, issuer_name="My Home USB")
-
-    # Generate QR code as base64
-    qr = qrcode.QRCode(version=1, box_size=6, border=2)
-    qr.add_data(provisioning_uri)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    buffer = io.BytesIO()
-    img.save(buffer, format="PNG")
-    qr_base64 = base64.b64encode(buffer.getvalue()).decode()
 
     # Store secret temporarily (not yet enabled)
     await db.users.update_one(
@@ -872,11 +899,7 @@ async def setup_2fa(data: TwoFactorSetupRequest, user: User = Depends(get_curren
         {"$set": {"totp_secret_pending": secret}}
     )
 
-    return {
-        "secret": secret,
-        "qr_code": f"data:image/png;base64,{qr_base64}",
-        "provisioning_uri": provisioning_uri
-    }
+    return _build_totp_enrollment(user_doc.get("email", "user"), secret)
 
 
 class TwoFactorVerifyRequest(BaseModel):
@@ -911,6 +934,74 @@ async def verify_and_enable_2fa(data: TwoFactorVerifyRequest, user: User = Depen
     return {"message": "2FA enabled successfully", "two_factor_enabled": True}
 
 
+class TwoFactorEnrollRequest(BaseModel):
+    email: str
+    password: str
+    code: str
+
+
+@router.post("/auth/2fa/enroll")
+async def enroll_2fa_at_login(data: TwoFactorEnrollRequest, request: Request, response: Response):
+    """Finish first-time 2FA pairing for an account an admin marked as required.
+
+    Runs before any session exists — the client is mid-login — so it re-checks
+    email + password itself and is rate limited exactly like /auth/login. On a
+    good code the pending secret is promoted to the real one and the session is
+    issued, so pairing and signing in are a single step for the client.
+    """
+    client_ip = _real_client_ip(request)
+    email_key = (data.email or "").strip().lower()[:200]
+    ok_email = rate_limiter.check_login_rate_limit(f"login:{client_ip}|{email_key}", SecurityConfig.LOGIN_RATE_LIMIT_MAX)
+    ok_ip = rate_limiter.check_login_rate_limit(f"login:ip:{client_ip}", SecurityConfig.LOGIN_RATE_LIMIT_PER_IP)
+    if not (ok_email and ok_ip):
+        raise HTTPException(status_code=429, detail="Too many attempts. Please wait a minute.")
+
+    try:
+        email = InputValidator.validate_email(data.email)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not InputValidator.check_nosql_injection(email):
+        raise HTTPException(status_code=400, detail="Invalid input detected")
+
+    user_doc = await db.users.find_one({"email": email}, {"_id": 0})
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not user_doc.get("is_active", True):
+        raise HTTPException(status_code=403, detail="Account is deactivated. Contact administrator.")
+
+    stored_hash = user_doc.get("password_hash")
+    if not stored_hash or not verify_password(data.password, stored_hash):
+        audit_entry = AuditLogger.create_audit_entry(
+            user_id=user_doc.get("user_id", "unknown"), action=AuditAction.LOGIN_FAILED,
+            resource_type="auth", details={"reason": "invalid_password", "stage": "2fa_enroll"},
+            ip_address=client_ip, success=False
+        )
+        await db.audit_logs.insert_one(audit_entry)
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    pending = user_doc.get("totp_secret_pending")
+    if not pending:
+        raise HTTPException(status_code=400, detail="No 2FA setup in progress. Please sign in again.")
+
+    if not pyotp.TOTP(pending).verify(data.code, valid_window=1):
+        raise HTTPException(status_code=400, detail="Invalid verification code. Please try again.")
+
+    await db.users.update_one(
+        {"user_id": user_doc["user_id"]},
+        {"$set": {
+            "totp_secret": pending,
+            "two_factor_enabled": True,
+            "two_factor_enabled_at": datetime.now(timezone.utc).isoformat(),
+        }, "$unset": {"totp_secret_pending": ""}}
+    )
+    user_doc["two_factor_enabled"] = True
+
+    if isinstance(user_doc.get("created_at"), str):
+        user_doc["created_at"] = datetime.fromisoformat(user_doc["created_at"])
+
+    return await _create_session_and_respond(user_doc, request, response, "password+2fa_enroll")
+
+
 class TwoFactorDisableRequest(BaseModel):
     password: str
     code: str
@@ -925,6 +1016,12 @@ async def disable_2fa(data: TwoFactorDisableRequest, user: User = Depends(get_cu
 
     if not user_doc.get("two_factor_enabled"):
         raise HTTPException(status_code=400, detail="2FA is not enabled")
+
+    # Admin-enforced 2FA can only be lifted by an admin. Without this the user
+    # could switch it off here and simply be pushed back into pairing on the
+    # next sign-in, which reads as a broken loop rather than a policy.
+    if user_doc.get("two_factor_required"):
+        raise HTTPException(status_code=403, detail="Two-factor is required on this account by your administrator and cannot be turned off here.")
 
     stored_hash = user_doc.get("password_hash")
     if not stored_hash or not verify_password(data.password, stored_hash):

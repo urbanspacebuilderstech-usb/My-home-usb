@@ -56,7 +56,10 @@ class SecurityConfig:
     MAX_PHONE_LENGTH = 20
     
     # Sensitive fields to never return
-    SENSITIVE_FIELDS = ['password', 'password_hash', 'session_token', 'access_token', 'refresh_token', 'secret_key']
+    # totp_secret / totp_secret_pending are the shared secret behind authenticator
+    # 2FA — handing them back in a login payload would let a caller mint their own
+    # codes, so they are stripped from every response like any other credential.
+    SENSITIVE_FIELDS = ['password', 'password_hash', 'session_token', 'access_token', 'refresh_token', 'secret_key', 'totp_secret', 'totp_secret_pending']
 
 
 # =============================================================================

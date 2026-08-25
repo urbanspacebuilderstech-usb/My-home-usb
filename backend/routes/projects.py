@@ -2300,6 +2300,11 @@ async def create_client_portal(project_id: str, data: dict, user: User = Depends
     existing = await db.users.find_one({"email": email}, {"_id": 0})
     now = datetime.now(timezone.utc).isoformat()
 
+    # Optional at creation: start this portal with authenticator 2FA switched on.
+    # It only marks the account as required — the client pairs their own device
+    # on first sign-in, so nothing is handed out that can lock them out.
+    two_factor_required = bool(data.get("two_factor_required"))
+
     if existing:
         # Re-use this account; ensure role is client (or already client) & update password.
         if existing.get("role") not in (UserRole.CLIENT.value, "client"):
@@ -2307,7 +2312,7 @@ async def create_client_portal(project_id: str, data: dict, user: User = Depends
             raise HTTPException(status_code=400, detail="An account with this email already exists with a different role. Use a different email.")
         await db.users.update_one(
             {"user_id": existing["user_id"]},
-            {"$set": {"password_hash": pw_hash, "is_active": True, "name": existing.get("name") or project.get("client_name", "Client"), "updated_at": now}}
+            {"$set": {"password_hash": pw_hash, "is_active": True, "name": existing.get("name") or project.get("client_name", "Client"), "updated_at": now, "two_factor_required": two_factor_required}}
         )
         client_user_id = existing["user_id"]
     else:
@@ -2323,6 +2328,7 @@ async def create_client_portal(project_id: str, data: dict, user: User = Depends
             "created_at": now,
             "updated_at": now,
             "created_by": user.user_id,
+            "two_factor_required": two_factor_required,
         }
         await db.users.insert_one(client_doc)
 
@@ -2342,7 +2348,100 @@ async def create_client_portal(project_id: str, data: dict, user: User = Depends
         "email": email,
         "password": password,  # returned ONCE so CRE can share. Not stored in plain text anywhere else.
         "portal_url": f"/client",
+        "two_factor_required": two_factor_required,
     }
+
+
+# ==================== CLIENT PORTAL — AUTHENTICATOR 2FA ====================
+# CRE / PM / Super Admin decide per portal whether the client must present a
+# Google Authenticator code. Switching it on never mints a secret here: the
+# client pairs their own device at their next sign-in (see /auth/2fa/enroll),
+# so a portal can never be switched into a state its owner cannot get into.
+
+
+def _can_manage_client_portal(user: User) -> bool:
+    return user.role in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.CRE]
+
+
+async def _client_2fa_state(project: dict) -> dict:
+    client_user_id = project.get("client_user_id")
+    state = {
+        "project_id": project.get("project_id"),
+        "has_portal": bool(client_user_id),
+        "email": project.get("client_email"),
+        "two_factor_required": False,
+        "two_factor_enabled": False,
+    }
+    if not client_user_id:
+        return state
+    client = await db.users.find_one(
+        {"user_id": client_user_id},
+        {"_id": 0, "email": 1, "two_factor_required": 1, "two_factor_enabled": 1},
+    )
+    if client:
+        state["email"] = client.get("email") or state["email"]
+        state["two_factor_required"] = bool(client.get("two_factor_required"))
+        # True only once the client has actually paired a device.
+        state["two_factor_enabled"] = bool(client.get("two_factor_enabled"))
+    return state
+
+
+@router.get("/projects/{project_id}/client-2fa")
+async def get_client_portal_2fa(project_id: str, user: User = Depends(get_current_user)):
+    """Current authenticator state for this project's client portal."""
+    if not _can_manage_client_portal(user):
+        raise HTTPException(status_code=403, detail="Not allowed to view client portal settings")
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return await _client_2fa_state(project)
+
+
+@router.put("/projects/{project_id}/client-2fa")
+async def set_client_portal_2fa(project_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Turn authenticator 2FA on or off for this project's client portal.
+
+    Body: { enabled: bool }
+    ON  — the account is marked as required; the client pairs a device on their
+          next sign-in. An already-paired device keeps working untouched.
+    OFF — clears the requirement *and* any paired device, so the client is back
+          to email + password. This is also the way out when a client has lost
+          the phone holding their authenticator.
+    """
+    if not _can_manage_client_portal(user):
+        raise HTTPException(status_code=403, detail="Not allowed to change client portal settings")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    client_user_id = project.get("client_user_id")
+    if not client_user_id:
+        raise HTTPException(status_code=400, detail="This project has no client portal yet. Create the portal first.")
+
+    enabled = bool(data.get("enabled"))
+    if enabled:
+        update = {"$set": {"two_factor_required": True, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    else:
+        update = {
+            "$set": {"two_factor_required": False, "two_factor_enabled": False,
+                     "updated_at": datetime.now(timezone.utc).isoformat()},
+            "$unset": {"totp_secret": "", "totp_secret_pending": ""},
+        }
+
+    result = await db.users.update_one({"user_id": client_user_id}, update)
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Client portal account not found")
+
+    await create_audit_log(
+        user.user_id, "set_client_portal_2fa", "project", project_id,
+        {"client_user_id": client_user_id, "enabled": enabled},
+    )
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    state = await _client_2fa_state(project)
+    state["message"] = "Authenticator 2FA turned on" if enabled else "Authenticator 2FA turned off"
+    return state
 
 
 # ==================== FULL CRUD - UPDATE/DELETE ENDPOINTS ====================
