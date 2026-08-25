@@ -24,6 +24,7 @@ from core.deps import get_current_user, create_notification, create_audit_log, s
 from core.models import *
 from core.counters import next_seq, backfill_collection
 from security import InputValidator
+from services.expense_engine import compute_project_expense_total
 
 # Resend (transactional email) — initialised at module load so all email-OTP
 # endpoints (work-order freeze, archive project, etc.) share the same client.
@@ -5067,15 +5068,20 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     total_project_value = project_value
     additional_cost = additions_total  # back-compat alias
 
-    # Project-wide expenses (used by the redesigned strip) — APPROVED only.
-    # Exclude rejected / under_correction so the strip stops counting amounts
-    # the Accountant has pulled back.
-    EXCLUDED_EXPENSE_STATUSES = ["rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"]
-    project_expenses_list = await db.recorded_expenses.find(
-        {"project_id": project_id, "status": {"$nin": EXCLUDED_EXPENSE_STATUSES}},
-        {"_id": 0, "amount": 1}
-    ).to_list(2000)
-    total_expense = sum(e.get("amount", 0) for e in project_expenses_list)
+    # Project-wide expenses (used by the redesigned strip).
+    #
+    # Aug 25 2026 — This used to be a LOCAL blacklist over `recorded_expenses`
+    # alone (status $nin rejected/under_correction/…), which meant the project
+    # page counted money still sitting in the Approvals queue and ignored
+    # labour, materials and carry-forward entirely. Finance Board > Project
+    # Wise used a completely different (whitelist + 5 collections + CF) rule,
+    # so the same project showed two different Total Expense figures — Mr
+    # Sridhar read ₹95,18,529.24 here vs ₹93,31,389.24 there.
+    #
+    # There is now exactly ONE definition of project expense, in
+    # services/expense_engine.py, and both screens call it. Do NOT reintroduce
+    # a local formula here.
+    total_expense = await compute_project_expense_total(project_id)
     
     # ── SELF-HEALING PAYMENT STAGE AMOUNTS ──────────────────────────────────
     # If a stage stores a percentage, ensure amount = locked × pct / 100 every

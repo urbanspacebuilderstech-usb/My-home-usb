@@ -21,6 +21,14 @@ from core.database import db, fs
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
 from core.models import *
 from security import InputValidator
+from services.expense_engine import (
+    build_expense_query,
+    compute_project_expense_buckets,
+    build_expense_rows,
+    carry_forward_expense,
+    carry_forward_income,
+    fetch_expense_source_docs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -408,88 +416,22 @@ async def backfill_closing_balance_to_cashbook(user: User = Depends(get_current_
 
 
 async def _cashbook_parity_expense(pid: str) -> Dict[str, float]:
-    """Jul 7 2026 — STRICT CASHBOOK PARITY expense computation.
+    """STRICT CASHBOOK PARITY expense computation — thin wrapper.
 
-    User rule: "A/C approve then only it comes in Expense". Returns the
-    per-bucket live expense totals matching the Cashbook Expense view
-    (`/accountant/cashbook-filtered` → all_expenses) exactly:
-      • recorded_expenses — accountant-approved (or legacy no-status),
-        skip pulled-back rows, SE-direct rows gated on approval
-      • material_requests — accountant-approved PRE-release rows only
-        (post-release states are counted via their recorded_expenses mirror)
-      • material_expenses — skip pulled-back + already-mirrored rows
-      • labour_expenses  — accounts_approved only (releases mirror into
-        recorded_expenses with status="approved")
-      • direct_expenses (petty cash) — NOT counted (always mirrored into
-        recorded_expenses on submit; counting items double-counted spends)
-    Shared by Carry Forward (`_compute_project_carry_forward_row`) and the
-    project header (`/projects/{id}/full-details`) so both always agree.
+    Jul 7 2026 — introduced so Carry Forward and the project header agreed
+    with Cashbook. Aug 25 2026 — it had since drifted from the Cashbook
+    builder it was supposed to mirror: it never got the `paid_via_expense_id`
+    guard (Aug 5 2026) that skips a legacy material PO already represented by
+    its recorded_expenses payment row, so settled material bills were counted
+    twice here and once in Project Wise. That is why Mr Sridhar's header read
+    ₹95,18,529.24 against Project Wise's ₹93,31,389.24.
+
+    The rules now live in exactly ONE place — services/expense_engine.py —
+    and this wrapper only keeps the historic bucket shape
+    ({recorded, material, labour, petty_cash, total}) for its callers.
+    Do NOT reimplement the buckets here.
     """
-    # 1) recorded_expenses
-    re_docs = await db.recorded_expenses.find(
-        {"project_id": pid, "$or": [
-            {"status": {"$in": ["accounts_approved", "super_admin_approved", "approved"]}},
-            {"status": {"$exists": False}},
-            {"status": None},
-        ]},
-        {"_id": 0, "amount": 1, "status": 1, "source": 1, "category": 1,
-         "request_id": 1, "pulled_back_from_cashbook": 1},
-    ).to_list(5000)
-    re_total = 0.0
-    mirrored_mexp_ids = set()
-    for e in re_docs:
-        if e.get("pulled_back_from_cashbook"):
-            continue
-        src = e.get("source") or ""
-        if src in ("site_engineer_direct", "site_engineer", "se_direct"):
-            if (e.get("status") or "").lower() not in ("approved", "verified", "recorded_into_cashbook"):
-                continue
-        re_total += float(e.get("amount") or 0)
-        if e.get("category") == "material" and (e.get("request_id") or "").startswith("mexp_"):
-            mirrored_mexp_ids.add(e.get("request_id"))
-
-    # 2) material_requests — pre-release, no mirror
-    mat_total = 0.0
-    mr_docs = await db.material_requests.find(
-        {"project_id": pid,
-         "status": {"$in": ["accounts_approved", "approved_for_po", "po_issued", "in_transit", "received", "delivered", "paid"]},
-         "pulled_back_from_cashbook": {"$ne": True}},
-        {"_id": 0, "status": 1, "last_expense_id": 1, "estimated_price": 1, "final_price": 1},
-    ).to_list(5000)
-    for m in mr_docs:
-        if m.get("last_expense_id"):
-            continue
-        if (m.get("status") or "") in ("in_transit", "received", "delivered", "paid"):
-            continue
-        mat_total += float(m.get("estimated_price") or m.get("final_price") or 0)
-
-    # 3) Legacy material_expenses — dedupe against recorded mirrors
-    mx_docs = await db.material_expenses.find(
-        {"project_id": pid,
-         "status": {"$in": ["accounts_approved", "issued", "settled", "completed", "paid"]},
-         "pulled_back_from_cashbook": {"$ne": True}},
-        {"_id": 0, "material_expense_id": 1, "expense_id": 1, "final_amount": 1, "amount": 1},
-    ).to_list(5000)
-    for me in mx_docs:
-        if me.get("material_expense_id") in mirrored_mexp_ids or me.get("expense_id") in mirrored_mexp_ids:
-            continue
-        mat_total += float(me.get("final_amount") or me.get("amount") or 0)
-
-    # 4) labour_expenses — accounts_approved only
-    wo_total = 0.0
-    async for r in db.labour_expenses.aggregate([
-        {"$match": {"project_id": pid, "status": "accounts_approved"}},
-        {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}},
-    ]):
-        wo_total = float(r.get("total") or 0)
-
-    return {
-        "recorded": re_total,
-        "material": mat_total,
-        "labour": wo_total,
-        "petty_cash": 0.0,
-        "total": re_total + mat_total + wo_total,
-    }
+    return await compute_project_expense_buckets(pid)
 
 
 async def _compute_project_carry_forward_row(project, cf_doc):
@@ -931,7 +873,16 @@ async def _enrich_expense_uploads(all_expenses: List[Dict[str, Any]]) -> None:
 
 @router.get("/accountant/overview")
 async def get_accountant_overview(user: User = Depends(get_current_user)):
-    """Comprehensive accountant overview: income/expense by payment mode, project-wise"""
+    """Comprehensive accountant overview: income/expense by payment mode, project-wise
+
+    ⚠ Aug 25 2026 — NOT canonical. This legacy endpoint still sums expenses with
+    its own looser blacklist (no mirror de-duplication, no legacy
+    material_expenses, no carry-forward), so its project_wise numbers can sit
+    above Finance Board > Project Wise. It only backs AccountsBoard's fallback
+    path (the Project Wise tab reads /accountant/cashbook-filtered). Migrating
+    it to services/expense_engine.py would move the Accounts tab totals, so it
+    is left alone deliberately — do not copy this formula anywhere.
+    """
     allowed = [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail="Access denied")
@@ -4417,16 +4368,15 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     # header totals so the Financial Performance strip and Project Wise tab
     # always show the same ledger numbers (live + CF).
     cf_doc = await db.project_carry_forwards.find_one({"project_id": project_id}, {"_id": 0}) or {}
-    cf_income = float(cf_doc.get("income_carry_forward") or 0) + float(cf_doc.get("income_adjustment") or 0)
-    mat_cf = float(cf_doc.get("material_carry_forward") or 0)
-    lab_cf = float(cf_doc.get("labour_carry_forward") or 0)
-    pc_cf = float(cf_doc.get("petty_cash_carry_forward") or 0)
-    ind_cf = float(cf_doc.get("indirect_carry_forward") or 0)
-    cf_expense = mat_cf + lab_cf + pc_cf + ind_cf
-    if cf_expense == 0:
-        cf_expense = float(cf_doc.get("expense_carry_forward") or 0) + float(cf_doc.get("expense_adjustment") or 0)
-    expense_total_with_cf = expense_total + cf_expense
-    income_total_with_cf = income_total + cf_income
+    # Aug 25 2026 — CF roll-up rules come from the canonical engine so the
+    # header, Project Wise and Carry Forward can't drift apart.
+    cf_income = carry_forward_income(cf_doc)
+    cf_expense = carry_forward_expense(cf_doc)
+    # Round to paise: Project Wise rounds the identical sum the same way, so
+    # the two screens agree to the last decimal instead of drifting by float
+    # dust (see expense_engine.compute_project_expense_total).
+    expense_total_with_cf = round(expense_total + cf_expense, 2)
+    income_total_with_cf = round(income_total + cf_income, 2)
 
     return {
         "project": project,
@@ -6262,7 +6212,6 @@ async def get_cashbook_filtered(
         raise HTTPException(status_code=403, detail="Access denied")
 
     income_q = {}
-    expense_q = {}
 
     # Income tab should only show APPROVED entries (or legacy entries without
     # an explicit status field). Hide pending_approval / rejected so the
@@ -6275,67 +6224,22 @@ async def get_cashbook_filtered(
 
     if project_id:
         income_q["project_id"] = project_id
-        expense_q["project_id"] = project_id
 
     if start_date:
         income_q.setdefault("created_at", {})["$gte"] = start_date
-        expense_q.setdefault("created_at", {})["$gte"] = start_date
     if end_date:
         income_q.setdefault("created_at", {})["$lte"] = end_date + "T23:59:59"
-        expense_q.setdefault("created_at", {})["$lte"] = end_date + "T23:59:59"
 
-    (incomes, recorded_exps, labour_exps, material_reqs, material_exps_legacy, direct_exps, projects_list) = await asyncio.gather(
+    # Expense scope (project + date) is built by the canonical engine so every
+    # caller filters the expense collections identically.
+    expense_q = build_expense_query(project_id=project_id, start_date=start_date, end_date=end_date)
+
+    (incomes, expense_source_docs, projects_list) = await asyncio.gather(
         db.income.find(income_q, {"_id": 0}).sort("created_at", -1).to_list(2000),
-        # Recorded (manual) expenses: only show those approved by accountant
-        # or super admin in the Expense list. Pending/rejected stay in queue.
-        # Legacy entries without a status field are surfaced too (backwards-
-        # compatible with pre-approval-flow expenses).
-        db.recorded_expenses.find(
-            {**expense_q, "$or": [
-                # Labour RAB releases use status="approved"; Material direct
-                # accountant approvals use "accounts_approved"; manual /
-                # super-admin entries use "super_admin_approved"; legacy
-                # rows have no status. Include all four.
-                {"status": {"$in": ["accounts_approved", "super_admin_approved", "approved"]}},
-                {"status": {"$exists": False}},
-                {"status": None},
-            ]},
-            {"_id": 0}
-        ).sort("created_at", -1).to_list(2000),
-        db.labour_expenses.find({**expense_q, "status": "accounts_approved"}, {"_id": 0}).sort("created_at", -1).to_list(1000),
-        # Materials in Expense list should only include those APPROVED by
-        # accountant or already paid. Pending / planning-only / procurement-
-        # priced statuses stay in the Approvals queue. Without this filter
-        # the same material card showed up in both Approvals AND Expense.
-        # Feb 28 2026 — also exclude rows pulled back to Approvals.
-        db.material_requests.find(
-            {**expense_q, "status": {"$in": ["accounts_approved", "approved_for_po", "po_issued", "in_transit", "received", "delivered", "paid"]}, "pulled_back_from_cashbook": {"$ne": True}},
-            {"_id": 0}
-        ).sort("created_at", -1).to_list(1000),
-        # Feb 20 2026 — Legacy `material_expenses` collection (Cement/Sand/
-        # Steel direct POs, pre-material_requests flow). Paid rows here were
-        # invisible in Cashbook / Expense > Material card / Project Wise even
-        # though Carry Forward already counted them, causing the Mrs.Abinaya
-        # ₹93,902.75 mismatch reported on Feb 20. Include paid / settled /
-        # accounts_approved so the Material card surfaces them.
-        db.material_expenses.find(
-            {**expense_q, "status": {"$in": ["accounts_approved", "issued", "settled", "completed", "paid"]}, "pulled_back_from_cashbook": {"$ne": True}},
-            {"_id": 0}
-        ).sort("created_at", -1).to_list(1000),
-        # Feb 20 2026 — Petty cash issued items (`direct_expenses.items[]`)
-        # were missing from the Cashbook Petty Cash card. They're real cash-
-        # outflow once the PM/Accountant records a site spend, so include them
-        # in the unified expense_entries list. They flatten one row per item.
-        # Strict accountant-approval rule: only count items inside docs that
-        # are accountant-approved (or legacy docs without a status field).
-        db.direct_expenses.find(
-            {**expense_q, "$or": [
-                {"status": {"$in": ["accounts_approved", "paid", "completed", "acknowledged", "payment_done"]}},
-                {"status": {"$exists": False}},
-                {"status": None},
-            ]},
-            {"_id": 0}
-        ).sort("created_at", -1).to_list(1000),
+        # Canonical expense sources (recorded / labour / material requests /
+        # legacy material POs / petty cash) — one definition, shared with
+        # /projects/{id}/payment-summary. See services/expense_engine.py.
+        fetch_expense_source_docs(expense_q),
         # Cashbook's All-Projects dropdown lists EVERY real project — those
         # surfaced under Planning's New / Current / Delivered tabs. The
         # explicit name $nin removes specific demo / test rows. The blanket
@@ -6350,6 +6254,7 @@ async def get_cashbook_filtered(
             {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "status": 1, "planning_status": 1, "created_at": 1},
         ).sort("name", 1).to_list(5000),
     )
+    (recorded_exps, labour_exps, material_reqs, material_exps_legacy, direct_exps) = expense_source_docs
 
     project_map = {p["project_id"]: p["name"] for p in projects_list}
 
@@ -6473,103 +6378,15 @@ async def get_cashbook_filtered(
     for i in incomes:
         i["project_name"] = project_map.get(i.get("project_id"), "Unknown")
 
-    # Build all expenses list — every row gets a unified `expense_id` so the
-    # frontend has a single field to send back when deleting, regardless of
-    # which collection it came from.
-    all_expenses = []
-    for e in recorded_exps:
-        # Feb 28 2026 — Skip entries pulled back from cashbook (sent back
-        # to Approvals). They must vanish from the Expense view until
-        # re-approved by the accountant.
-        if e.get("pulled_back_from_cashbook"):
-            continue
-        # SE-direct expenses only hit the cashbook AFTER the accountant approves
-        # them. Any earlier status (`recorded`, `pm_approved`, rejected) is still
-        # in the workflow and must not show as a confirmed cashbook spend.
-        e_source = e.get("source") or ""
-        if e_source in ("site_engineer_direct", "site_engineer", "se_direct"):
-            if (e.get("status") or "").lower() not in ("approved", "verified", "recorded_into_cashbook"):
-                continue
-        all_expenses.append({
-            **e,
-            "expense_id": e.get("expense_id") or str(e.get("_id", "")),
-            "expense_type": e.get("category", "other"),
-            "project_name": project_map.get(e.get("project_id"), ""),
-            "source": e.get("source") or ("approval" if e.get("approval_id") or e.get("from_approval") else "manual"),
-        })
-    for l in labour_exps:
-        all_expenses.append({
-            **l,
-            "expense_id": l.get("labour_expense_id") or l.get("expense_id"),
-            "expense_type": "labour",
-            "amount": l.get("total_amount", 0),
-            "project_name": project_map.get(l.get("project_id"), ""),
-            "source": "approval",
-        })
-    for m in material_reqs:
-        # Feb 28 2026 — Dedupe: every payment release ALREADY inserts a
-        # `recorded_expenses` row (the cashbook mirror). Emitting the
-        # parent material_request on top of that created duplicate rows
-        # (one as "Miscellaneous" from the parent, one with the real
-        # payment_method from the mirror). Skip the parent row if a
-        # mirror exists or the request is in a post-release state.
-        if m.get("last_expense_id"):
-            continue
-        if (m.get("status") or "") in ("in_transit", "received", "delivered", "paid"):
-            continue
-        amt = m.get("estimated_price", 0) or m.get("final_price", 0)
-        all_expenses.append({
-            **m,
-            "expense_id": m.get("request_id") or m.get("expense_id"),
-            "expense_type": "material",
-            "amount": amt,
-            "project_name": project_map.get(m.get("project_id"), ""),
-            "source": "approval",
-        })
-    # Legacy `material_expenses` collection — paid material POs (Cement,
-    # Sand, Steel, etc.) recorded before the material_requests flow.
-    # Feb 28 2026 — Dedupe against recorded_expenses mirrors. The unified
-    # PayApprovalDialog creates a recorded_expense linked to material_expense
-    # via `request_id`; emitting both rows produced the cement-duplicate
-    # bug (one as "Miscellaneous" or actual mode from material_expenses,
-    # one with real mode from recorded_expenses).
-    mirrored_mexp_ids = {
-        e.get("request_id") for e in recorded_exps
-        if e.get("category") == "material" and (e.get("request_id") or "").startswith("mexp_")
-    }
-    for me in material_exps_legacy:
-        if me.get("material_expense_id") in mirrored_mexp_ids or me.get("expense_id") in mirrored_mexp_ids:
-            continue
-        # Aug 5 2026 — `mirrored_mexp_ids` is built from `recorded_exps`,
-        # which is fetched under the SAME date-range filter as this list.
-        # A bill created on day 1 but paid on day 2 (common — approval and
-        # payment rarely land in the same call) has its recorded_expenses
-        # mirror fall outside a narrow single-day filter, so the guard
-        # above misses it and the material_expense row leaks through as a
-        # duplicate — showing a second "Miscellaneous" copy of a bill
-        # already correctly represented under its real mode (SS AGENCY
-        # ₹23,800 case: material_expense mexp_308c3818bbd5, payment_method
-        # null, vs. its real payment recorded_expenses row exp_242d931adf61
-        # with payment_method "cheque"). `paid_via_expense_id` is stamped
-        # on the material_expense document itself by pay_approval once it's
-        # settled, so checking it directly is independent of any date
-        # window and catches this case the cross-reference set misses.
-        if me.get("paid_via_expense_id"):
-            continue
-        amt = me.get("final_amount") or me.get("amount") or 0
-        all_expenses.append({
-            **me,
-            "expense_id": me.get("material_expense_id") or me.get("expense_id") or str(me.get("_id", "")),
-            "expense_type": "material",
-            "amount": amt,
-            "project_name": project_map.get(me.get("project_id"), ""),
-            "source": "approval",
-        })
-    # NOTE: We no longer emit a row per `direct_expenses.items[]` here. Every
-    # SE-direct expense already lives in `recorded_expenses` (mirrored on
-    # submit) — emitting both produced two cashbook rows per spend (one
-    # "Manual", one "Approval"). The `recorded_expenses` mirror is the
-    # source of truth and is gated by the accountant-approval filter above.
+    # Build all expenses list via the CANONICAL engine (services/expense_engine).
+    # Aug 25 2026 — This is the exact same call the project page's Financial
+    # Performance card makes, so Project Wise > Expense and Project > Total
+    # Expense can never drift apart again. Every row gets a unified
+    # `expense_id` so the frontend has a single field to send back when
+    # deleting, regardless of which collection it came from.
+    all_expenses = build_expense_rows(
+        recorded_exps, labour_exps, material_reqs, material_exps_legacy, project_map
+    )
 
     all_expenses.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
@@ -6649,14 +6466,8 @@ async def get_cashbook_filtered(
         pid = cf.get("project_id")
         if pid not in project_wise_map:
             continue
-        cf_inc = float(cf.get("income_carry_forward") or 0) + float(cf.get("income_adjustment") or 0)
-        mat_cf = float(cf.get("material_carry_forward") or 0)
-        lab_cf = float(cf.get("labour_carry_forward") or 0)
-        pc_cf = float(cf.get("petty_cash_carry_forward") or 0)
-        ind_cf = float(cf.get("indirect_carry_forward") or 0)
-        cf_exp = mat_cf + lab_cf + pc_cf + ind_cf
-        if cf_exp == 0:
-            cf_exp = float(cf.get("expense_carry_forward") or 0) + float(cf.get("expense_adjustment") or 0)
+        cf_inc = carry_forward_income(cf)
+        cf_exp = carry_forward_expense(cf)
         project_wise_map[pid]["cf_income"] = cf_inc
         project_wise_map[pid]["cf_expense"] = cf_exp
     # Carry-forward is a lump-sum opening balance, not tied to any date, so it
@@ -6670,7 +6481,13 @@ async def get_cashbook_filtered(
         if not _date_filtered:
             pw["income"] = pw["income"] + pw["cf_income"]
             pw["expense"] = pw["expense"] + pw["cf_expense"]
-        pw["balance"] = pw["income"] - pw["expense"]
+        # Aug 25 2026 — Round to paise. The project page's Financial
+        # Performance card rounds the identical sum the same way
+        # (expense_engine.compute_project_expense_total), so the two screens
+        # agree to the last decimal instead of drifting by float dust.
+        pw["income"] = round(pw["income"], 2)
+        pw["expense"] = round(pw["expense"], 2)
+        pw["balance"] = round(pw["income"] - pw["expense"], 2)
     project_wise_sorted = sorted(project_wise_map.values(), key=lambda x: (-x["income"], x["project_name"]))
 
     # Recompute the global Total Income / Total Expense headline cards
