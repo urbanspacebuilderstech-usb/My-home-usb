@@ -4803,25 +4803,42 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
              "is_section_addition": 1, "amount_received": 1, "amount": 1},
         ).to_list(500)
 
-        # ── Bulk-fetch APPROVED income totals per stage label ────────────
-        stage_labels = list({(s.get("stage_label") or s.get("stage_name") or "") for s in addition_stages})
-        approved_by_label = {}
-        if stage_labels:
-            inc_agg = await db.income.aggregate([
-                {"$match": {
-                    "project_id": project_id,
-                    "category": "payment_collection",
-                    "status": "approved",
-                    "stage": {"$in": stage_labels},
-                }},
-                {"$group": {"_id": "$stage", "total": {"$sum": "$amount"}}},
-            ]).to_list(1000)
-            for item in inc_agg:
-                approved_by_label[item["_id"]] = float(item["total"] or 0)
+        # ── Bulk-fetch APPROVED income, matched by STAGE ID ──────────────
+        # Aug 25 2026 — This used to group approved income by the stage's
+        # free-text LABEL. Two additions that share a name — the same work
+        # raised twice, a section duplicated, a renamed section — then had
+        # each other's collections folded into their own total, so a section
+        # could report more Received than its rows are worth and show a
+        # negative balance (Mr Rajesh puzhal, "Difference of cost - wirecut
+        # brick vs Flyash brick": rows total 31,200, Received read 58,400,
+        # Balance -27,200).
+        #
+        # Every collection stamps `payment_stage_id` on the income it creates
+        # (see collect_payment_stage), so the link is exact and a name
+        # collision can no longer cross-credit. Rows that carry no stage link
+        # at all are legacy, and only those still fall back to the label.
+        inc_rows = await db.income.find(
+            {"project_id": project_id, "category": "payment_collection", "status": "approved"},
+            {"_id": 0, "amount": 1, "stage": 1, "payment_stage_id": 1, "stage_id": 1},
+        ).to_list(5000)
+        approved_by_stage_id, approved_by_label_legacy = {}, {}
+        for _r in inc_rows:
+            _amt = float(_r.get("amount") or 0)
+            _sid = _r.get("payment_stage_id") or _r.get("stage_id")
+            if _sid:
+                approved_by_stage_id[_sid] = approved_by_stage_id.get(_sid, 0.0) + _amt
+            else:
+                _lbl = _r.get("stage") or ""
+                approved_by_label_legacy[_lbl] = approved_by_label_legacy.get(_lbl, 0.0) + _amt
 
         def _approved_for_stage(stage):
+            # This stage's own linked collections, plus any unlinked legacy row
+            # bearing its label. Another stage's linked income is never counted.
+            sid = stage.get("stage_id")
+            total = approved_by_stage_id.get(sid, 0.0) if sid else 0.0
             label = stage.get("stage_label") or stage.get("stage_name") or ""
-            return float(approved_by_label.get(label, 0))
+            total += approved_by_label_legacy.get(label, 0.0)
+            return float(total)
 
         # Single-row addition stages — preserve legacy behavior but use APPROVED total
         single_cost_ids = [s.get("linked_addition_id") for s in addition_stages if s.get("linked_addition_id") and not s.get("is_section_addition")]
@@ -11469,6 +11486,60 @@ async def get_contractor_suspense(contractor_id: str, user: User = Depends(get_c
         {"contractor_id": contractor_id}, {"_id": 0}
     ).sort("date", -1).limit(200).to_list(200)
     return {"contractor_id": contractor_id, "balance": balance, "ledger": ledger}
+
+
+# ===== TEMPORARY, READ-ONLY — addition Received/Balance diagnostic =====
+# Shows, per addition stage, what the OLD label matching counted versus what
+# the stage's own linked collections actually are, so a wrong "Received" can be
+# traced to the exact income rows being cross-credited. WRITES NOTHING.
+@router.get("/admin/addition-income-trace")
+async def addition_income_trace(project_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    stages = await db.payment_stages.find(
+        {"project_id": project_id, "is_addition": True},
+        {"_id": 0, "stage_id": 1, "stage_name": 1, "stage_label": 1,
+         "linked_addition_id": 1, "linked_addition_ids": 1, "is_section_addition": 1},
+    ).to_list(500)
+    incomes = await db.income.find(
+        {"project_id": project_id, "category": "payment_collection", "status": "approved"},
+        {"_id": 0, "income_id": 1, "amount": 1, "stage": 1, "payment_stage_id": 1,
+         "stage_id": 1, "payment_date": 1, "payment_mode": 1},
+    ).to_list(5000)
+
+    out = []
+    for st in stages:
+        sid = st.get("stage_id")
+        label = st.get("stage_label") or st.get("stage_name") or ""
+        by_label = [i for i in incomes if (i.get("stage") or "") == label]
+        by_id = [i for i in incomes if (i.get("payment_stage_id") or i.get("stage_id")) == sid]
+        cross = [i for i in by_label if (i.get("payment_stage_id") or i.get("stage_id")) not in (None, "", sid)]
+        cids = st.get("linked_addition_ids") or ([st["linked_addition_id"]] if st.get("linked_addition_id") else [])
+        rows = await db.additional_costs.find(
+            {"cost_id": {"$in": cids}},
+            {"_id": 0, "cost_id": 1, "description": 1, "estimated_amount": 1, "income_received": 1},
+        ).to_list(200) if cids else []
+        rows_total = round(sum(float(r.get("estimated_amount") or 0) for r in rows), 2)
+        def _sum(v):
+            return round(sum(float(x.get("amount") or 0) for x in v), 2)
+        out.append({
+            "stage_id": sid, "label": label,
+            "is_section_addition": bool(st.get("is_section_addition")),
+            "rows_total": rows_total,
+            "rows": rows,
+            "OLD_received_by_label": _sum(by_label),
+            "NEW_received_by_stage_id": _sum(by_id),
+            "difference": round(_sum(by_label) - _sum(by_id), 2),
+            "income_counted_by_label": [
+                {k: i.get(k) for k in ("income_id", "amount", "payment_date", "payment_mode",
+                                       "payment_stage_id", "stage")} for i in by_label],
+            "cross_credited_from_other_stages": [
+                {k: i.get(k) for k in ("income_id", "amount", "payment_stage_id", "stage")}
+                for i in cross],
+        })
+    return {"write_performed": False, "project_id": project_id, "addition_stages": out,
+            "note": "OLD = matched by stage label (the bug). NEW = matched by the stage's own id."}
 
 
 @router.get("/accountant/labour-payments")
