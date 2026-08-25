@@ -13,7 +13,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { ChevronDown, ChevronUp, Loader2, CalendarDays, ArrowLeft } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
+import { ChevronDown, ChevronUp, Loader2, CalendarDays, ArrowLeft, Download, FileSpreadsheet } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
 
@@ -32,6 +37,19 @@ const ALLOWED_ROLES = ['accountant', 'super_admin'];
 const fmtInr = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 
+// Closing dates are stored as plain YYYY-MM-DD in local terms, so derive the
+// range the same way rather than via toISOString(), which would shift the day
+// backwards for IST once it is past midnight UTC.
+const isoDay = (d) => {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+const daysAgo = (n) => {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return isoDay(d);
+};
+
 export default function CloseBooksHistoryPage() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -40,6 +58,10 @@ export default function CloseBooksHistoryPage() {
   const [days, setDays] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
+  const [downloading, setDownloading] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customFrom, setCustomFrom] = useState(daysAgo(30));
+  const [customTo, setCustomTo] = useState(isoDay(new Date()));
 
   useEffect(() => {
     axios.get(`${API}/auth/me`, { withCredentials: true })
@@ -69,6 +91,38 @@ export default function CloseBooksHistoryPage() {
 
   useEffect(() => { if (authChecked) fetchHistory(); }, [authChecked, fetchHistory]);
 
+  // The export is driven by an explicit date range rather than whatever month
+  // is on screen, so a download can span months without changing the view.
+  const downloadXlsx = useCallback(async (from, to, label) => {
+    if (from && to && from > to) {
+      toast.error('From date cannot be after To date');
+      return;
+    }
+    setDownloading(true);
+    try {
+      const res = await axios.get(`${API}/accountant/daily-closing/history/export`, {
+        params: { start_date: from, end_date: to },
+        responseType: 'blob',
+      });
+      const blob = new Blob([res.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = from === to ? `close-books-${from}.xlsx` : `close-books-${from}-to-${to}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(`Downloaded ${label}`);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to download Excel');
+    } finally {
+      setDownloading(false);
+    }
+  }, []);
+
   if (!authChecked) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -95,7 +149,7 @@ export default function CloseBooksHistoryPage() {
 
         <Card>
           <CardContent className="p-4 sm:p-6">
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
               <Input
                 type="month"
                 value={month}
@@ -103,6 +157,49 @@ export default function CloseBooksHistoryPage() {
                 className="h-9 w-44 text-sm"
                 data-testid="close-books-history-month"
               />
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-9 gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                    disabled={downloading}
+                    data-testid="close-books-download-btn"
+                  >
+                    {downloading
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <FileSpreadsheet className="h-4 w-4" />}
+                    Download Excel
+                    <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuLabel className="text-xs text-gray-500">Choose a period</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-sm gap-2"
+                    onSelect={() => downloadXlsx(isoDay(new Date()), isoDay(new Date()), 'today')}
+                    data-testid="close-books-download-today"
+                  >
+                    <Download className="h-3.5 w-3.5 text-gray-400" /> Today
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-sm gap-2"
+                    onSelect={() => downloadXlsx(daysAgo(6), isoDay(new Date()), 'last 7 days')}
+                    data-testid="close-books-download-7d"
+                  >
+                    <Download className="h-3.5 w-3.5 text-gray-400" /> Last 7 Days
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-sm gap-2"
+                    onSelect={() => setCustomOpen(true)}
+                    data-testid="close-books-download-custom"
+                  >
+                    <CalendarDays className="h-3.5 w-3.5 text-gray-400" /> Custom Range...
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             {loading ? (
@@ -183,6 +280,56 @@ export default function CloseBooksHistoryPage() {
           </CardContent>
         </Card>
       </div>
+      <Dialog open={customOpen} onOpenChange={setCustomOpen}>
+        <DialogContent className="max-w-[95vw] sm:max-w-sm" data-testid="close-books-custom-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600" /> Download Custom Range
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">From</Label>
+              <Input
+                type="date"
+                value={customFrom}
+                max={customTo || undefined}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                className="h-9 text-sm mt-1"
+                data-testid="close-books-custom-from"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">To</Label>
+              <Input
+                type="date"
+                value={customTo}
+                min={customFrom || undefined}
+                onChange={(e) => setCustomTo(e.target.value)}
+                className="h-9 text-sm mt-1"
+                data-testid="close-books-custom-to"
+              />
+            </div>
+          </div>
+          <p className="text-[11px] text-gray-500">Both dates are included. The file has a Summary sheet (one row per day) and a Detail sheet (one row per payment mode).</p>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setCustomOpen(false)}>Cancel</Button>
+            <Button
+              size="sm"
+              className="bg-emerald-600 hover:bg-emerald-700 gap-1.5"
+              disabled={downloading || !customFrom || !customTo}
+              onClick={async () => {
+                await downloadXlsx(customFrom, customTo, `${customFrom} to ${customTo}`);
+                setCustomOpen(false);
+              }}
+              data-testid="close-books-custom-download"
+            >
+              {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Download
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <MobileBottomNav user={user} />
     </div>
   );

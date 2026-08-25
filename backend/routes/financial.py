@@ -10491,6 +10491,131 @@ async def get_daily_closing_history(
     return {"days": days}
 
 
+@router.get("/accountant/daily-closing/history/export")
+async def export_daily_closing_history(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Closing history for a date range as a two-sheet .xlsx.
+
+    Summary carries one row per day (the totals the history list shows);
+    Detail carries one row per mode per day, which is what a reconciliation
+    against the bank statement actually needs. Range is inclusive on both
+    ends; both bounds are optional, so an open end means "everything since".
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    await _ensure_daily_closing_indexes()
+
+    q: Dict[str, Any] = {}
+    if start_date or end_date:
+        q["date"] = {}
+        if start_date: q["date"]["$gte"] = start_date
+        if end_date:   q["date"]["$lte"] = end_date
+
+    rows = await db.daily_closings.find(q, {"_id": 0}).sort("date", -1).to_list(5000)
+
+    MODE_LABELS = {
+        "cash": "Cash",
+        "current_account": "HDFC Current",
+        "savings_account": "HDFC Savings",
+        "cheque": "Cheque",
+        "direct_transfer": "Cash DT",
+    }
+    MODE_ORDER = ["cash", "current_account", "savings_account", "cheque", "direct_transfer"]
+
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        d = r["date"]
+        g = grouped.setdefault(d, {
+            "date": d, "modes": {}, "closed_by_name": r.get("closed_by_name"),
+            "total_computed": 0.0, "total_actual": 0.0, "total_variance": 0.0,
+        })
+        g["modes"][r.get("mode")] = r
+        g["total_computed"] += float(r.get("computed_balance", 0) or 0)
+        g["total_actual"] += float(r.get("actual_balance", 0) or 0)
+        g["total_variance"] += float(r.get("variance", 0) or 0)
+    days = sorted(grouped.values(), key=lambda x: x["date"], reverse=True)
+
+    wb = Workbook()
+    head_font = Font(bold=True, color="FFFFFF")
+    head_fill = PatternFill("solid", fgColor="B45309")  # amber-700, matching the board
+    money = '#,##0.00'
+
+    def _style_header(ws, ncols):
+        for c in range(1, ncols + 1):
+            cell = ws.cell(row=1, column=c)
+            cell.font = head_font
+            cell.fill = head_fill
+            cell.alignment = Alignment(horizontal="center")
+        ws.freeze_panes = "A2"
+
+    def _autosize(ws, widths):
+        for i, w in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+
+    def _verdict(v: float) -> str:
+        if abs(v) < 0.005:
+            return "Matched"
+        return "Surplus" if v > 0 else "Shortfall"
+
+    # --- Sheet 1: one row per day
+    ws = wb.active
+    ws.title = "Summary"
+    ws.append(["Date", "Closed By", "Computed", "Actual", "Variance", "Result"])
+    for d in days:
+        ws.append([
+            d["date"], d.get("closed_by_name") or "-",
+            round(d["total_computed"], 2), round(d["total_actual"], 2),
+            round(d["total_variance"], 2), _verdict(d["total_variance"]),
+        ])
+    for row in ws.iter_rows(min_row=2, min_col=3, max_col=5):
+        for cell in row:
+            cell.number_format = money
+    _style_header(ws, 6)
+    _autosize(ws, [14, 22, 16, 16, 16, 12])
+
+    # --- Sheet 2: one row per mode per day
+    ws2 = wb.create_sheet("Detail")
+    ws2.append(["Date", "Closed By", "Mode", "Computed", "Actual", "Variance", "Status", "Remark"])
+    for d in days:
+        for m in MODE_ORDER:
+            r = d["modes"].get(m)
+            if not r:
+                continue
+            ws2.append([
+                d["date"], d.get("closed_by_name") or "-", MODE_LABELS.get(m, m),
+                round(float(r.get("computed_balance", 0) or 0), 2),
+                round(float(r.get("actual_balance", 0) or 0), 2),
+                round(float(r.get("variance", 0) or 0), 2),
+                "Re-opened" if r.get("reopened") else "Closed",
+                r.get("remark") or "",
+            ])
+    for row in ws2.iter_rows(min_row=2, min_col=4, max_col=6):
+        for cell in row:
+            cell.number_format = money
+    _style_header(ws2, 8)
+    _autosize(ws2, [14, 22, 16, 16, 16, 16, 12, 40])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    span = f"{start_date or 'start'}_to_{end_date or 'today'}"
+    filename = f"close-books-{span}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.patch("/accountant/daily-closing/{closing_id}/reopen")
 async def reopen_daily_closing(closing_id: str, payload: Dict[str, Any], user: User = Depends(get_current_user)):
     """Super Admin can re-open a closed row for correction. Requires a reason."""
