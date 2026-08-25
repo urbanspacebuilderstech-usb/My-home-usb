@@ -539,8 +539,12 @@ function ProjectCashflowTab({ projectId, isAdmin }) {
   const additionsTotal = psData?.additions_total || 0;
   const deductionsTotal = psData?.deductions_total || 0;
   const grandTotal = scopeTotal + additionsTotal - deductionsTotal;
-  const totalIncome = psData?.summary?.total_received || data.income_total || 0;
-  const totalExpense = psData?.total_expense || data.expense_total || 0;
+  const totalIncome = psData?.summary?.total_received ?? data.income_total ?? 0;
+  // Aug 25 2026 — `??`, not `||`. `payment-summary.total_expense` is now the
+  // canonical figure (services/expense_engine.py, same one Finance Board >
+  // Project Wise shows); a genuine ₹0 must render as ₹0 rather than falling
+  // through to the cashflow-ledger figure and disagreeing with Project Wise.
+  const totalExpense = psData?.total_expense ?? data.expense_total ?? 0;
   const receivableBalance = Math.max(0, grandTotal - totalIncome);
   const collectionPct = grandTotal > 0 ? (totalIncome / grandTotal) * 100 : 0;
 
