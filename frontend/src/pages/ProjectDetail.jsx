@@ -1300,10 +1300,19 @@ export default function ProjectDetail() {
         return;
       }
       
-      // Run ALL data fetches in parallel
-      const [projectRes, summaryRes, stagesRes, templatesRes, filesRes, designRes, teamRes, materialsRes, laboursRes, vendorAssignRes, vendorsRes, vendorCatsRes, poRes, pkgRes, incomeRes, expRes] = await Promise.all([
+      // Aug 25 2026 — payment-summary must finish BEFORE full-details is read.
+      // It is not just a read: it runs the auto-heal that rewrites
+      // additional_costs.income_received (projects.py "AUTO-HEAL: sync
+      // additional_costs.income_received"), and full-details is what returns
+      // those rows to this page. Firing both in one Promise.all raced the heal
+      // against the read, so the Additional Work section always rendered the
+      // values from BEFORE this load's heal — a corrected figure never appeared
+      // to take effect no matter how many times the page was reloaded.
+      const summaryRes = await axios.get(`${API}/projects/${projectId}/payment-summary`).catch(() => null);
+
+      // Run the remaining data fetches in parallel
+      const [projectRes, stagesRes, templatesRes, filesRes, designRes, teamRes, materialsRes, laboursRes, vendorAssignRes, vendorsRes, vendorCatsRes, poRes, pkgRes, incomeRes, expRes] = await Promise.all([
         axios.get(`${API}/projects/${projectId}/full-details`),
-        axios.get(`${API}/projects/${projectId}/payment-summary`).catch(() => null),
         axios.get(`${API}/projects/${projectId}/project-stages`).catch(() => null),
         axios.get(`${API}/stage-templates`).catch(() => null),
         axios.get(`${API}/files?project_id=${projectId}`, { withCredentials: true }).catch(() => null),
