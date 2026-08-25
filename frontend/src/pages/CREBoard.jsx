@@ -1625,6 +1625,7 @@ export default function CREBoard() {
                               />
                             </th>
                           )}
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase w-14">S.No</th>
                           <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Project</th>
                           <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Client</th>
                           <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase hidden sm:table-cell">Location</th>
@@ -1633,7 +1634,7 @@ export default function CREBoard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {filteredProjects.map((p) => (
+                        {filteredProjects.map((p, idx) => (
                           <tr key={p.project_id} className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 ${bulkSelected.has(p.project_id) ? 'bg-red-50/40' : ''}`} data-testid={`project-row-${p.project_id}`}>
                             {isSuperAdmin && (
                               <td className="px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
@@ -1645,6 +1646,7 @@ export default function CREBoard() {
                                 />
                               </td>
                             )}
+                            <td className="px-4 py-2.5 text-gray-500 tabular-nums">{idx + 1}</td>
                             <td className="px-4 py-2.5">
                               <p className="font-medium text-gray-900">{p.name}</p>
                               <p className="text-xs text-gray-400">{p.project_code || p.project_id}</p>
