@@ -4875,10 +4875,28 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
             cids = st.get("linked_addition_ids") or []
             if not cids:
                 continue
-            rows = await db.additional_costs.find(
-                {"cost_id": {"$in": cids}},
-                {"_id": 0, "cost_id": 1, "estimated_amount": 1, "actual_amount": 1, "qty": 1, "price": 1, "income_received": 1, "cre_approved": 1},
-            ).to_list(len(cids))
+            _proj = {"_id": 0, "cost_id": 1, "estimated_amount": 1, "actual_amount": 1,
+                     "qty": 1, "price": 1, "income_received": 1, "cre_approved": 1,
+                     "section_id": 1}
+            rows = await db.additional_costs.find({"cost_id": {"$in": cids}}, _proj).to_list(len(cids))
+
+            # Aug 25 2026 — Distribute across the section's CURRENT rows, not the
+            # id list captured when the stage was raised. `linked_addition_ids`
+            # is a snapshot: rows added to the section afterwards are never in
+            # it, so the heal split the collection over a stale subset while the
+            # section footer summed every row, and the two disagreed. That is
+            # how Mr Rajesh puzhal's 4,000 Sump tank row came to hold the whole
+            # 31,200 - it was the only linked row of three. Resolving the
+            # section from the linked rows and re-reading it keeps the split
+            # correct however many rows are added later, instead of drifting
+            # again on the next addition.
+            _section_ids = {r.get("section_id") for r in rows if r.get("section_id")}
+            if len(_section_ids) == 1:
+                _sec = _section_ids.pop()
+                _all = await db.additional_costs.find(
+                    {"project_id": project_id, "section_id": _sec}, _proj).to_list(500)
+                if _all:
+                    rows = _all
             totals = {}
             grand = 0.0
             for r in rows:

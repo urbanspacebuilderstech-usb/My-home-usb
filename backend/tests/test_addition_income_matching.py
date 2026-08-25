@@ -149,3 +149,60 @@ def test_partial_collection_still_splits_pro_rata():
 
 def test_zero_grand_does_not_divide_by_zero():
     assert share_for(4000.0, 0.0, 31200.0) == 0
+
+
+# --- the recurrence guard (Aug 25 2026) ---------------------------------------
+# linked_addition_ids is a SNAPSHOT taken when the stage was raised. Rows added
+# to the section afterwards are absent from it, so distributing over that list
+# splits the collection across a stale subset while the section footer sums
+# every row. The heal now re-reads the section, so adding rows later cannot
+# drift again.
+
+def distribute(section_rows, approved_total):
+    """Mirrors the heal: pro rata across the section's CURRENT rows, capped."""
+    grand = sum(section_rows.values())
+    if grand <= 0:
+        return {c: 0.0 for c in section_rows}
+    return {c: min((a / grand) * approved_total, a) for c, a in section_rows.items()}
+
+
+SECTION = {"basement": 20000.0, "septic": 7200.0, "sump": 4000.0}
+COLLECTED = 31200.0
+
+
+def test_distribution_covers_every_row_in_the_section():
+    """The reported shape: the stage linked only 'sump', but all three rows
+    share the collection, so no single row is overloaded."""
+    got = distribute(SECTION, COLLECTED)
+    assert round(got["basement"], 2) == 20000.0
+    assert round(got["septic"], 2) == 7200.0
+    assert round(got["sump"], 2) == 4000.0
+    assert round(sum(got.values()), 2) == COLLECTED
+
+
+def test_footer_balances_to_zero():
+    got = distribute(SECTION, COLLECTED)
+    assert round(sum(SECTION.values()) - sum(got.values()), 2) == 0.0
+
+
+def test_row_added_after_the_stage_was_raised_does_not_break_the_split():
+    """The recurrence case: a fourth row is added later. It is not in
+    linked_addition_ids, but re-reading the section still splits correctly and
+    no row exceeds its own value."""
+    grown = {**SECTION, "parapet": 5000.0}
+    got = distribute(grown, COLLECTED)
+    assert all(got[c] <= grown[c] + 0.01 for c in grown), got
+    assert round(sum(got.values()), 2) == COLLECTED
+
+
+def test_no_row_can_ever_exceed_its_own_value():
+    """Even if a collection somehow exceeds the section total, the cap holds
+    and nothing shows more received than it is worth."""
+    got = distribute(SECTION, 999999.0)
+    for c, a in SECTION.items():
+        assert got[c] == a, f"{c} exceeded its value"
+
+
+def test_empty_section_cannot_divide_by_zero():
+    assert distribute({}, COLLECTED) == {}
+    assert distribute({"x": 0.0}, COLLECTED) == {"x": 0.0}
