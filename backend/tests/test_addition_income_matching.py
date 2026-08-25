@@ -97,3 +97,55 @@ def test_pro_rata_share_across_section_rows_sums_to_the_total():
     assert grand == 31200.0
     assert round(sum(shares.values()), 2) == approved
     assert round(shares["c1"], 2) == 20000.0
+
+
+# --- pro-rata must never exceed a row's own value (Aug 25 2026) ---------------
+# Mr Rajesh puzhal, "Difference of cost - wirecut brick vs Flyash brick":
+# the stage links only the 4,000 Sump tank row, but the section also holds
+# 20,000 + 7,200. The pro-rata handed that one row the entire 31,200
+# collection, and the section footer (which sums income_received across ALL
+# its rows) read 58,400 against a 31,200 total => balance -27,200.
+
+def share_for(row_total, grand, approved_total):
+    """Mirrors the heal's per-row share, including the cap."""
+    share = (row_total / grand) * approved_total if grand else 0
+    return min(share, row_total)
+
+
+def test_row_never_receives_more_than_it_is_worth():
+    """The reported case: a 4,000 row must not absorb a 31,200 collection."""
+    assert share_for(4000.0, 4000.0, 31200.0) == 4000.0
+
+
+def test_section_footer_totals_correctly_after_the_cap():
+    """Section rows 20,000 + 7,200 (already fully received) + the capped
+    4,000 sum to 31,200, matching the section total, so balance is zero."""
+    capped_sump = share_for(4000.0, 4000.0, 31200.0)
+    received = 20000.0 + 7200.0 + capped_sump
+    rows_total = 20000.0 + 7200.0 + 4000.0
+    assert received == 31200.0
+    assert rows_total - received == 0.0
+
+
+def test_normal_pro_rata_split_is_unchanged():
+    """When the stage links the whole section, the split is untouched."""
+    grand = 31200.0
+    # round: (4000/31200)*31200 lands on 3999.9999999999995 in binary float.
+    # Production compares with a 0.5 tolerance, so this is presentation only.
+    assert round(share_for(20000.0, grand, 31200.0), 2) == 20000.0
+    assert round(share_for(7200.0, grand, 31200.0), 2) == 7200.0
+    assert round(share_for(4000.0, grand, 31200.0), 2) == 4000.0
+
+
+def test_partial_collection_still_splits_pro_rata():
+    """A part-paid section is below the cap, so proportions still apply."""
+    grand = 31200.0
+    half = 15600.0
+    assert round(share_for(20000.0, grand, half), 2) == 10000.0
+    assert round(share_for(7200.0, grand, half), 2) == 3600.0
+    assert round(share_for(4000.0, grand, half), 2) == 2000.0
+    assert round(sum(share_for(a, grand, half) for a in (20000.0, 7200.0, 4000.0)), 2) == half
+
+
+def test_zero_grand_does_not_divide_by_zero():
+    assert share_for(4000.0, 0.0, 31200.0) == 0

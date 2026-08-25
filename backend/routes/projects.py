@@ -4891,7 +4891,20 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
             for r in rows:
                 cid = r["cost_id"]
                 row_total = totals.get(cid, 0)
+                # Aug 25 2026 — Cap each row's share at its own value.
+                # `grand` is the total of the rows this stage LINKS to, which
+                # can be a subset of the section: Mr Rajesh puzhal's
+                # "Difference of cost - wirecut brick vs Flyash brick" stage
+                # links only the 4,000 Sump tank row, while the section also
+                # holds 20,000 + 7,200. The pro-rata then handed that single
+                # 4,000 row the whole 31,200 collection (4000/4000 x 31200),
+                # and the section footer - which sums income_received across
+                # ALL its rows - read 58,400 against a 31,200 total, showing a
+                # -27,200 balance. A row can never have received more than it
+                # is worth, so clamp it; any genuine surplus belongs to the
+                # section's other rows, not to this one.
                 share = (row_total / grand) * approved_total if grand else 0
+                share = min(share, row_total)
                 set_doc = {}
                 current_received = r.get("income_received", 0) or 0
                 if abs(share - current_received) > 0.5:
