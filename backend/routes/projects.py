@@ -11656,16 +11656,26 @@ async def labour_bounce_audit(user: User = Depends(get_current_user)):
                     pr, stg_name = cand, stg.get("name")
         if not pr:
             continue
-        # Already handled? Either reopened, or a live replacement exists.
+        # Aug 26 2026 — Compare AMOUNTS, not mere existence. The first version
+        # treated any live replacement as "settled", which hid a partially
+        # re-paid RAB: pr_c5108732 bounced twice (1,400 then 3,600 of a 5,000
+        # bill) and only 1,400 was re-paid, leaving 3,600 owed while the audit
+        # reported it clear. What is owed is the bill less everything still
+        # live against it.
         reopened = pr.get("reopened_amount")
-        live = await db.recorded_expenses.find_one(
+        live_rows = await db.recorded_expenses.find(
             {"request_id": req_id,
              "status": {"$in": ["approved", "accounts_approved", "super_admin_approved"]}},
-            {"_id": 0, "expense_id": 1, "amount": 1})
+            {"_id": 0, "expense_id": 1, "amount": 1}).to_list(50)
+        live_total = round(sum(float(r.get("amount") or 0) for r in live_rows), 2)
+        bill = float(pr.get("amount") or 0)
+        outstanding = round(max(0.0, bill - live_total), 2)
         ch = await db.cheques.find_one(
             {"cheque_id": e.get("bounced_by_cheque_id")}, {"_id": 0}) or {}
-        should_reopen = bounced_leg_amount(e, ch.get("cheque_id"), ch.get("amount"))
-        stranded = (pr.get("status") == "approved") and not live and not reopened
+        should_reopen = min(bounced_leg_amount(e, ch.get("cheque_id"), ch.get("amount")),
+                            outstanding) if outstanding > 0.005 else 0.0
+        stranded = (pr.get("status") == "approved") and outstanding > 0.5 and not reopened
+        live = live_rows[0] if live_rows else None
         findings.append({
             "project_id": wo.get("project_id"),
             "contractor_name": wo.get("contractor_name"),
@@ -11677,7 +11687,9 @@ async def labour_bounce_audit(user: User = Depends(get_current_user)):
             "bounced_amount": float(e.get("amount") or 0),
             "bounced_at": e.get("bounced_at"), "bounce_reason": e.get("bounce_reason"),
             "cheque_number": ch.get("cheque_number"), "cheque_status": ch.get("status"),
-            "live_replacement_expense": live,
+            "live_replacement_expenses": live_rows,
+            "live_replacement_total": live_total,
+            "outstanding_after_live_payments": outstanding,
             "already_reopened_amount": reopened,
             "amount_that_should_be_payable": should_reopen,
             "STRANDED": stranded,

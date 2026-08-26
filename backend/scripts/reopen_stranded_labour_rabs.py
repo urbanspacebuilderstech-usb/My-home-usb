@@ -9,8 +9,13 @@ fully paid. The contractor is owed the money and nothing appears in any queue.
 Stranded means ALL of:
   - a recorded_expenses row with status cheque_bounced, for a labour release
   - its WO payment_request still status "approved"
-  - no live replacement expense for that request
+  - money still OUTSTANDING: bill less every live expense against it
   - never already reopened (no reopened_amount)
+
+Outstanding is compared by AMOUNT, not by whether some replacement exists. A
+RAB can bounce twice and be only partly re-paid - pr_c5108732 had 1,400 and
+3,600 of a 5,000 bill both bounce, with only 1,400 coming back - which an
+existence check calls settled while 3,600 is still owed.
 
 Each one is reopened for the BOUNCED LEG ONLY, using the same
 bounced_leg_amount() the live flow uses, so suspense / cash / bank legs that
@@ -45,7 +50,7 @@ async def find_stranded(db, bounced_leg_amount):
          "$or": [{"request_type": "labour_stage_payment"}, {"category": "labour"}]},
         {"_id": 0}).to_list(2000)
 
-    out = []
+    out, seen = [], set()
     for e in bounced:
         req_id = e.get("request_id")
         if not req_id:
@@ -61,21 +66,36 @@ async def find_stranded(db, bounced_leg_amount):
                     pr, stage_name = cand, stg.get("name")
         if not pr or pr.get("status") != "approved" or pr.get("reopened_amount"):
             continue
-        live = await db.recorded_expenses.find_one(
+        # Compare AMOUNTS, not mere existence. A RAB can bounce twice and be
+        # only partly re-paid (pr_c5108732: 1,400 + 3,600 of a 5,000 bill both
+        # bounced, only 1,400 came back), which an existence check reports as
+        # settled while 3,600 is still owed. What is owed is the bill less
+        # everything still live against it.
+        live_rows = await db.recorded_expenses.find(
             {"request_id": req_id, "status": {"$in": LIVE_STATUS}},
-            {"_id": 0, "expense_id": 1})
-        if live:
-            continue  # already re-paid; nothing owed
+            {"_id": 0, "expense_id": 1, "amount": 1}).to_list(50)
+        live_total = round(sum(float(r.get("amount") or 0) for r in live_rows), 2)
+        bill = float(pr.get("amount") or 0)
+        outstanding = round(max(0.0, bill - live_total), 2)
+        if outstanding <= 0.5:
+            continue  # fully settled by live payments; nothing owed
         ch = await db.cheques.find_one(
             {"cheque_id": e.get("bounced_by_cheque_id")}, {"_id": 0}) or {}
-        amount = bounced_leg_amount(e, ch.get("cheque_id"), ch.get("amount"))
+        # One entry per REQUEST, not per bounced expense. A RAB that bounced
+        # twice has two cheque_bounced rows; emitting both listed it twice and
+        # double-counted the total, and reopening per-bounce would restore only
+        # one leg's amount. What is owed is the outstanding figure, once.
+        if req_id in seen:
+            continue
+        seen.add(req_id)
+        amount = outstanding
         if amount <= 0.005:
             continue
         out.append({
             "wo_id": wo.get("work_order_id"), "project_id": wo.get("project_id"),
             "contractor": wo.get("contractor_name"), "rab": pr.get("rab_number"),
             "request_id": req_id, "stage": stage_name,
-            "bill_amount": float(pr.get("amount") or 0),
+            "bill_amount": bill, "live_paid": live_total, "outstanding": outstanding,
             "prior_approved": float(pr.get("approved_amount") or pr.get("amount") or 0),
             "reopen_amount": amount,
             "expense_id": e.get("expense_id"),
@@ -106,7 +126,8 @@ async def main() -> int:
             return 0
         total = round(sum(r["reopen_amount"] for r in rows), 2)
         for r in rows:
-            print(f"  {r['rab'] or '?':8} {str(r['contractor'])[:18]:18} bill={r['bill_amount']:>12,.2f} "
+            print(f"  {r['rab'] or '?':8} {str(r['contractor'])[:18]:18} bill={r['bill_amount']:>10,.0f} "
+                  f"live={r['live_paid']:>10,.0f} owed={r['outstanding']:>10,.0f} "
                   f"reopen={r['reopen_amount']:>12,.2f}  chq#{r['cheque_number']} "
                   f"bounced={str(r['bounced_at'])[:10]}  {r['request_id']}")
         print(f"  ---- {len(rows)} stranded, total to reopen {total:,.2f}")
