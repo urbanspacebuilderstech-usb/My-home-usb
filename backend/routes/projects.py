@@ -11633,11 +11633,32 @@ _CASHBOOK_LIVE_STATUS = {"approved", "accounts_approved", "super_admin_approved"
 
 
 @router.get("/admin/labour-rab-trace")
-async def labour_rab_trace(project_id: str, amount: Optional[float] = None,
+async def labour_rab_trace(project_id: Optional[str] = None, project_name: Optional[str] = None,
+                           amount: Optional[float] = None,
                            contractor: Optional[str] = None,
                            user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Access denied")
+
+    # Accept a name so the caller does not have to dig the id out of a URL.
+    # Reports what it matched, so a wrong project is obvious rather than
+    # silently returning an empty trace.
+    matched_project = None
+    if not project_id and project_name:
+        cands = await db.projects.find(
+            {"name": {"$regex": project_name.strip(), "$options": "i"}},
+            {"_id": 0, "project_id": 1, "name": 1}).to_list(20)
+        if not cands:
+            raise HTTPException(status_code=404, detail=f"No project name matching '{project_name}'")
+        if len(cands) > 1:
+            raise HTTPException(status_code=400, detail=(
+                f"'{project_name}' matches {len(cands)} projects: "
+                + ", ".join(f"{c['name']} ({c['project_id']})" for c in cands)
+                + " — pass project_id instead."))
+        matched_project = cands[0]
+        project_id = matched_project["project_id"]
+    if not project_id:
+        raise HTTPException(status_code=400, detail="Pass project_id or project_name")
 
     wos = await db.project_work_orders.find({"project_id": project_id}, {"_id": 0}).to_list(200)
     reqs, req_ids, group_ids = [], set(), set()
@@ -11719,7 +11740,8 @@ async def labour_rab_trace(project_id: str, amount: Optional[float] = None,
     live_total = round(sum(float(r.get("amount") or 0) for r in live), 2)
     return {
         "write_performed": False,
-        "project_id": project_id, "filter_amount": amount, "filter_contractor": contractor,
+        "project_id": project_id, "matched_project": matched_project,
+        "filter_amount": amount, "filter_contractor": contractor,
         "rab_requests": reqs,
         "expense_mirrors": expense_rows,
         "cheques": [{k: c.get(k) for k in (
