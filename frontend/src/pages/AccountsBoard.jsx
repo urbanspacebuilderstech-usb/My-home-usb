@@ -517,10 +517,6 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
   const [projectFilter, setProjectFilter] = useState('');
   const [dateRange, setDateRange] = useState(null); // { from, to }
   const [materialFilter, setMaterialFilter] = useState('');
-  // Aug 26 2026 — Mode of Payment filter. Uses the SAME classifyMode() the
-  // Mode column renders with, so what the dropdown selects and what the row
-  // displays can never disagree.
-  const [modeFilter, setModeFilter] = useState('');
 
   // Build unique project list from all entries in this bucket
   const projects = React.useMemo(() => {
@@ -544,11 +540,6 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
       const t = new Date(dRaw).getTime();
       if (dateRange.from && t < new Date(dateRange.from + 'T00:00:00').getTime()) return false;
       if (dateRange.to && t > new Date(dateRange.to + 'T23:59:59').getTime()) return false;
-    }
-    if (modeFilter) {
-      // Income rows carry payment_mode, expense rows payment_method — the same
-      // pair the Mode column reads.
-      if (classifyMode(e.payment_mode || e.payment_method) !== modeFilter) return false;
     }
     return true;
   };
@@ -642,24 +633,10 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
             <X className="h-3 w-3 mr-1" /> Clear
           </Button>
         )}
-        {/* Mode of Payment — the five reconcilable channels. Labels come from
-            MODE_LABELS so they read exactly as the Mode column does. */}
-        <Select value={modeFilter || 'all'} onValueChange={(v) => setModeFilter(v === 'all' ? '' : v)}>
-          <SelectTrigger className="h-9 w-48 text-xs" data-testid="mode-drilldown-mode-filter">
-            <SelectValue placeholder="All Payment Modes" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Payment Modes</SelectItem>
-            {DRILLDOWN_MODE_FILTERS.map(k => (
-              <SelectItem key={k} value={k}>{MODE_LABELS[k]}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {modeFilter && (
-          <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => setModeFilter('')} data-testid="mode-drilldown-mode-clear">
-            <X className="h-3 w-3 mr-1" /> Clear
-          </Button>
-        )}
+        {/* No "Mode of Payment" filter here — this whole view is already
+            locked to the single bucket the Cashbook tile was clicked from
+            (shown by the badge below), so a second mode dropdown offering
+            the other 4 modes would only ever return zero rows. */}
         <Badge variant="outline" className="text-xs">{label}</Badge>
       </div>
       <Tabs defaultValue="income">
