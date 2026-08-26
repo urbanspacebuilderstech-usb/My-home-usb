@@ -524,10 +524,11 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
 
 // ============ MODE DRILLDOWN (Cash / HDFC Current / HDFC Savings / Cheque / Cash DT) ============
 // Single back arrow + project search bar shared across Income/Expense tabs.
-function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDelete, onDeleteIncome, onDeleteExpense }) {
+function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack, canDelete, onDeleteIncome, onDeleteExpense }) {
   const [projectFilter, setProjectFilter] = useState('');
   const [dateRange, setDateRange] = useState(null); // { from, to }
   const [materialFilter, setMaterialFilter] = useState('');
+  const [modeFilter, setModeFilter] = useState('');
 
   // Build unique project list from all entries in this bucket
   const projects = React.useMemo(() => {
@@ -552,6 +553,10 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
       if (dateRange.from && t < new Date(dateRange.from + 'T00:00:00').getTime()) return false;
       if (dateRange.to && t > new Date(dateRange.to + 'T23:59:59').getTime()) return false;
     }
+    // Aug 26 2026 — only meaningful when this drilldown spans every bucket
+    // (the black "Total" tile, mode === 'all'); a single-bucket drilldown is
+    // already locked to one mode so this filter is hidden there (see JSX).
+    if (modeFilter && classifyMode(e.payment_mode || e.payment_method) !== modeFilter) return false;
     return true;
   };
   const filteredIncome = incomeEntries.filter(matchesFilters);
@@ -644,10 +649,32 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
             <X className="h-3 w-3 mr-1" /> Clear
           </Button>
         )}
-        {/* No "Mode of Payment" filter here — this whole view is already
-            locked to the single bucket the Cashbook tile was clicked from
-            (shown by the badge below), so a second mode dropdown offering
-            the other 4 modes would only ever return zero rows. */}
+        {/* Aug 26 2026 — Mode of Payment filter only for the combined "Total"
+            drilldown (mode === 'all', opened from the black Total tile),
+            which spans all 5 buckets. A single-bucket drilldown (e.g. Cash
+            DT) is already locked to one mode — shown by the badge below —
+            so offering the other 4 modes there would only ever return zero
+            rows, which is why it's hidden in that case. */}
+        {mode === 'all' && (
+          <>
+            <Select value={modeFilter || 'all'} onValueChange={(v) => setModeFilter(v === 'all' ? '' : v)}>
+              <SelectTrigger className="h-9 w-48 text-xs" data-testid="mode-drilldown-mode-filter">
+                <SelectValue placeholder="All Payment Modes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Payment Modes</SelectItem>
+                {DRILLDOWN_MODE_FILTERS.map(k => (
+                  <SelectItem key={k} value={k}>{MODE_LABELS[k]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {modeFilter && (
+              <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => setModeFilter('')} data-testid="mode-drilldown-mode-clear">
+                <X className="h-3 w-3 mr-1" /> Clear
+              </Button>
+            )}
+          </>
+        )}
         <Badge variant="outline" className="text-xs">{label}</Badge>
       </div>
       <Tabs defaultValue="income">
@@ -2524,6 +2551,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
     return (
       <ModeDrilldownView
         label={drilldown.label}
+        mode={drilldown.mode}
         incomeEntries={drilldown.incomeEntries}
         expenseEntries={drilldown.expenseEntries}
         onBack={() => setDrilldown(null)}
