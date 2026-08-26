@@ -11702,8 +11702,9 @@ async def labour_bounce_audit(user: User = Depends(get_current_user)):
         "stranded_total": round(sum(f["amount_that_should_be_payable"] for f in stranded), 2),
         "stranded": stranded,
         "all_findings": findings,
-        "note": "STRANDED = request still status 'approved', no live replacement expense, "
-                "and never reopened. These are owed but invisible in every queue.",
+        "note": "STRANDED = request still status 'approved', money still outstanding "
+                "(bill less every live expense against it), and never reopened. "
+                "These are owed but invisible in every queue.",
     }
 
 
