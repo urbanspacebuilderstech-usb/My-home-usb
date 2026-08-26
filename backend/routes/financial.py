@@ -6582,6 +6582,10 @@ async def get_cashbook_filtered(
     grand_total_value = round(scope_value + additions_total - deductions_total, 2)
     receivable = round(grand_total_value - total_income_with_cf, 2)
 
+    _cb_lock_doc = await db.closing_balances.find_one(
+        {"_id": CLOSING_BALANCE_DOC_ID}, {"_id": 0, "buckets": 1, "locked_at": 1}
+    ) or {}
+
     return {
         # Feb 26 2026 — Drop the [:500] truncation on incomes so the
         # bucket-card drilldown ("Cash — Breakdown" etc.) sums to the
@@ -6626,9 +6630,11 @@ async def get_cashbook_filtered(
         #     Total Income  card = live cashbook income  + lock CF income
         # per bucket (Cash / HDFC Current / HDFC Savings / Cheque / Cash DT).
         # Returned regardless of date / project filter — these are firm-wide.
-        "closing_balance_buckets": (await db.closing_balances.find_one(
-            {"_id": CLOSING_BALANCE_DOC_ID}, {"_id": 0, "buckets": 1}
-        ) or {}).get("buckets") or {},
+        "closing_balance_buckets": _cb_lock_doc.get("buckets") or {},
+        # Aug 26 2026 — so the per-bucket drilldown's synthetic "Carry Forward
+        # (Opening Balance)" row (see handleModeClick/ModeDrilldownView) can
+        # show a real date instead of "Invalid Date".
+        "closing_balance_locked_at": _cb_lock_doc.get("locked_at"),
     }
 
 

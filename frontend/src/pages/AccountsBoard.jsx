@@ -100,6 +100,13 @@ const MODE_LABELS = {
 // suspense_account / multi are deliberately not offered - they are internal
 // buckets, not ways money physically moved.
 const DRILLDOWN_MODE_FILTERS = ['current_account', 'savings_account', 'cash', 'cheque', 'direct_transfer'];
+// Aug 26 2026 — maps a Cashbook mode key to its key inside
+// `closing_balance_buckets` (the Lock Closing Balance doc). Only
+// `savings_account` differs (`savings`) — see the cbBuckets list below.
+const MODE_LOCK_KEY = {
+  cash: 'cash', current_account: 'current_account', savings_account: 'savings',
+  cheque: 'cheque', direct_transfer: 'direct_transfer',
+};
 
 const MODE_ICONS = {
   cash: Banknote, current_account: Landmark, savings_account: PiggyBank,
@@ -457,7 +464,7 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
                 ) : pageEntries.map((e, i) => (
                   <tr key={pageStart + i} className="hover:bg-gray-50">
                     <td className="px-3 py-2 text-gray-400">{pageStart + i + 1}</td>
-                    <td className="px-3 py-2">{new Date(e.payment_date || e.created_at).toLocaleDateString('en-IN')}</td>
+                    <td className="px-3 py-2">{(e.payment_date || e.created_at) ? new Date(e.payment_date || e.created_at).toLocaleDateString('en-IN') : '-'}</td>
                     <td className="px-3 py-2 font-medium">
                       {e.stage || e.description || e.material_name || e.category || '-'}
                       {e.expense_type === 'material' && e.material_name && (e.quantity || e.unit) && (
@@ -479,16 +486,20 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
                     </td>
                     {canDelete && (
                       <td className="px-3 py-2 text-center">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
-                          onClick={() => onDelete && onDelete(e)}
-                          data-testid={`drilldown-delete-${e.income_id || e.expense_id || e.request_id || (pageStart + i)}`}
-                          title={type === 'income' ? 'Delete income entry' : 'Delete expense'}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        {e._isLockRow ? (
+                          <span className="text-[10px] text-gray-400" title="Set via Lock Closing Balance — edit there to change">Locked</span>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
+                            onClick={() => onDelete && onDelete(e)}
+                            data-testid={`drilldown-delete-${e.income_id || e.expense_id || e.request_id || (pageStart + i)}`}
+                            title={type === 'income' ? 'Delete income entry' : 'Delete expense'}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </td>
                     )}
                   </tr>
@@ -2403,7 +2414,28 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
     // Show income entries for this mode
     const modeIncome = incomeEntries.filter(e => classifyMode(e.payment_mode) === mode);
     const modeExpense = allExpenseEntries.filter(e => classifyMode(e.payment_method || e.payment_mode) === mode);
-    setDrilldown({ type: 'mode', mode, incomeEntries: modeIncome, expenseEntries: modeExpense, label: MODE_LABELS[mode] });
+    // Aug 26 2026 — the tile's own Expense total (cbBuckets' expFor() above)
+    // = this live modeExpense sum + a manually-entered "Lock Closing Balance"
+    // opening-balance figure for the bucket, which has no real transaction
+    // behind it (unlike lock income, which is mirrored into a real db.income
+    // row — see _sync_carry_forward_to_cashbook on the backend). Without this,
+    // the drilldown could never add up to the tile whenever that lock value
+    // is non-zero (reported: Cash DT tile ₹49,98,022 vs drilldown ₹2,00,000).
+    // Inject one synthetic, non-deletable row so they always reconcile.
+    const lockKey = MODE_LOCK_KEY[mode];
+    const lockExpense = lockKey ? Number((cashbookData?.closing_balance_buckets?.[lockKey] || {}).expense || 0) : 0;
+    const modeExpenseWithLock = lockExpense > 0
+      ? [...modeExpense, {
+          expense_id: `lock_${mode}`,
+          amount: lockExpense,
+          description: 'Carry Forward (Opening Balance) — Lock Closing Balance',
+          project_name: 'Carry Forward',
+          payment_mode: mode,
+          created_at: cashbookData?.closing_balance_locked_at || null,
+          _isLockRow: true,
+        }]
+      : modeExpense;
+    setDrilldown({ type: 'mode', mode, incomeEntries: modeIncome, expenseEntries: modeExpenseWithLock, label: MODE_LABELS[mode] });
   };
 
   const handleCategoryClick = (catKey) => {
