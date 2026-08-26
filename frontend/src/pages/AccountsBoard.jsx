@@ -94,6 +94,13 @@ const MODE_LABELS = {
   // catch-all Miscellaneous bucket.
   multi: 'Mixed'
 };
+// Aug 26 2026 — Modes offered by the drilldown's Mode of Payment filter: the
+// five channels that reconcile to a real cash box or bank account, matching
+// the Cashbook tiles and the Close Books screen. petty_cash / miscellaneous /
+// suspense_account / multi are deliberately not offered - they are internal
+// buckets, not ways money physically moved.
+const DRILLDOWN_MODE_FILTERS = ['current_account', 'savings_account', 'cash', 'cheque', 'direct_transfer'];
+
 const MODE_ICONS = {
   cash: Banknote, current_account: Landmark, savings_account: PiggyBank,
   cheque: FileText, petty_cash: Wallet, miscellaneous: IndianRupee,
@@ -510,6 +517,10 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
   const [projectFilter, setProjectFilter] = useState('');
   const [dateRange, setDateRange] = useState(null); // { from, to }
   const [materialFilter, setMaterialFilter] = useState('');
+  // Aug 26 2026 — Mode of Payment filter. Uses the SAME classifyMode() the
+  // Mode column renders with, so what the dropdown selects and what the row
+  // displays can never disagree.
+  const [modeFilter, setModeFilter] = useState('');
 
   // Build unique project list from all entries in this bucket
   const projects = React.useMemo(() => {
@@ -533,6 +544,11 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
       const t = new Date(dRaw).getTime();
       if (dateRange.from && t < new Date(dateRange.from + 'T00:00:00').getTime()) return false;
       if (dateRange.to && t > new Date(dateRange.to + 'T23:59:59').getTime()) return false;
+    }
+    if (modeFilter) {
+      // Income rows carry payment_mode, expense rows payment_method — the same
+      // pair the Mode column reads.
+      if (classifyMode(e.payment_mode || e.payment_method) !== modeFilter) return false;
     }
     return true;
   };
@@ -623,6 +639,24 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
         />
         {materialFilter && (
           <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => setMaterialFilter('')} data-testid="mode-drilldown-material-clear">
+            <X className="h-3 w-3 mr-1" /> Clear
+          </Button>
+        )}
+        {/* Mode of Payment — the five reconcilable channels. Labels come from
+            MODE_LABELS so they read exactly as the Mode column does. */}
+        <Select value={modeFilter || 'all'} onValueChange={(v) => setModeFilter(v === 'all' ? '' : v)}>
+          <SelectTrigger className="h-9 w-48 text-xs" data-testid="mode-drilldown-mode-filter">
+            <SelectValue placeholder="All Payment Modes" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Payment Modes</SelectItem>
+            {DRILLDOWN_MODE_FILTERS.map(k => (
+              <SelectItem key={k} value={k}>{MODE_LABELS[k]}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {modeFilter && (
+          <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => setModeFilter('')} data-testid="mode-drilldown-mode-clear">
             <X className="h-3 w-3 mr-1" /> Clear
           </Button>
         )}
