@@ -11624,6 +11624,122 @@ async def get_contractor_suspense(contractor_id: str, user: User = Depends(get_c
     return {"contractor_id": contractor_id, "balance": balance, "ledger": ledger}
 
 
+# ===== TEMPORARY, READ-ONLY — labour RAB payment history tracer =====
+# Follows one RAB release across every collection it touches: the WO payment
+# request, its payment_record, the recorded_expenses mirrors, the cheques
+# consumed, any bounce, and any later re-payment. Answers "which payment
+# actually counts in the Cashbook right now". WRITES NOTHING.
+_CASHBOOK_LIVE_STATUS = {"approved", "accounts_approved", "super_admin_approved"}
+
+
+@router.get("/admin/labour-rab-trace")
+async def labour_rab_trace(project_id: str, amount: Optional[float] = None,
+                           contractor: Optional[str] = None,
+                           user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    wos = await db.project_work_orders.find({"project_id": project_id}, {"_id": 0}).to_list(200)
+    reqs, req_ids, group_ids = [], set(), set()
+    for wo in wos:
+        if contractor and contractor.lower() not in (wo.get("contractor_name") or "").lower():
+            continue
+        for stg in wo.get("stages", []) or []:
+            for pr in stg.get("payment_requests", []) or []:
+                amt = float(pr.get("amount") or 0)
+                if amount is not None and abs(amt - amount) > 0.5:
+                    continue
+                rec = pr.get("payment_record") or {}
+                reqs.append({
+                    "request_id": pr.get("request_id"), "rab_number": pr.get("rab_number"),
+                    "contractor_name": wo.get("contractor_name"),
+                    "stage_name": stg.get("name"), "amount": amt,
+                    "status": pr.get("status"),
+                    "approved_amount": pr.get("approved_amount"),
+                    "accountant_approved_at": pr.get("accountant_approved_at"),
+                    "payment_record": {k: rec.get(k) for k in (
+                        "method", "cheque_no", "cheque_ids", "cheque_amount", "bank_ref",
+                        "payment_date", "released_at", "released_by_name", "payment_entries",
+                        "rab_group_id", "suspense_credited")} if rec else None,
+                })
+                if pr.get("request_id"):
+                    req_ids.add(pr["request_id"])
+                if rec.get("rab_group_id"):
+                    group_ids.add(rec["rab_group_id"])
+
+    # Every cashbook mirror that could belong to these releases.
+    or_terms: List[Dict[str, Any]] = []
+    if req_ids:
+        or_terms += [{"request_id": {"$in": list(req_ids)}},
+                     {"linked_request_ids": {"$in": list(req_ids)}}]
+    if group_ids:
+        or_terms.append({"rab_group_id": {"$in": list(group_ids)}})
+    if amount is not None:
+        or_terms.append({"project_id": project_id, "category": "labour",
+                         "amount": {"$gte": amount - 0.5, "$lte": amount + 0.5}})
+    exps = await db.recorded_expenses.find({"$or": or_terms}, {"_id": 0}).to_list(200) if or_terms else []
+
+    cheque_ids = set()
+    for e in exps:
+        for c in (e.get("cheque_ids") or []):
+            cheque_ids.add(c)
+        if e.get("cheque_id"):
+            cheque_ids.add(e["cheque_id"])
+        for leg in (e.get("payment_entries") or []):
+            for c in (leg.get("cheque_ids") or []):
+                cheque_ids.add(c)
+    for r in reqs:
+        for c in ((r.get("payment_record") or {}).get("cheque_ids") or []):
+            cheque_ids.add(c)
+        for leg in ((r.get("payment_record") or {}).get("payment_entries") or []):
+            for c in (leg.get("cheque_ids") or []):
+                cheque_ids.add(c)
+    cheques = await db.cheques.find({"cheque_id": {"$in": list(cheque_ids)}}, {"_id": 0}).to_list(200) if cheque_ids else []
+
+    def _counts(e):
+        st = (e.get("status") or "").lower()
+        return (st in _CASHBOOK_LIVE_STATUS or not st) and not e.get("pulled_back_from_cashbook")
+
+    expense_rows = [{
+        "expense_id": e.get("expense_id"), "amount": e.get("amount"),
+        "status": e.get("status"), "category": e.get("category"),
+        "expense_type": e.get("expense_type"), "source": e.get("source"),
+        "payment_method": e.get("payment_method") or e.get("method"),
+        "cheque_ids": e.get("cheque_ids"), "cheque_no": e.get("cheque_no"),
+        "payment_entries": e.get("payment_entries"),
+        "request_id": e.get("request_id"), "rab_group_id": e.get("rab_group_id"),
+        "created_at": e.get("created_at"), "payment_date": e.get("payment_date"),
+        "bounced_at": e.get("bounced_at"), "bounce_reason": e.get("bounce_reason"),
+        "pulled_back_from_cashbook": e.get("pulled_back_from_cashbook"),
+        "COUNTS_IN_CASHBOOK": _counts(e),
+        "shows_in_labour_tab": _counts(e) and (e.get("category") == "labour"),
+    } for e in exps]
+
+    live = [r for r in expense_rows if r["COUNTS_IN_CASHBOOK"]]
+    live_total = round(sum(float(r.get("amount") or 0) for r in live), 2)
+    return {
+        "write_performed": False,
+        "project_id": project_id, "filter_amount": amount, "filter_contractor": contractor,
+        "rab_requests": reqs,
+        "expense_mirrors": expense_rows,
+        "cheques": [{k: c.get(k) for k in (
+            "cheque_id", "cheque_number", "amount", "status", "bounce_reason", "bounced_at",
+            "used_for_expense_id", "is_opened", "party_name", "bank_name")} for c in cheques],
+        "summary": {
+            "mirror_count": len(expense_rows),
+            "live_in_cashbook_count": len(live),
+            "live_in_cashbook_total": live_total,
+            "live_expense_ids": [r["expense_id"] for r in live],
+            "bounced_or_excluded": [
+                {"expense_id": r["expense_id"], "status": r["status"], "amount": r["amount"]}
+                for r in expense_rows if not r["COUNTS_IN_CASHBOOK"]],
+            "exactly_one_live_payment": len(live) == 1,
+        },
+        "note": "Read-only. COUNTS_IN_CASHBOOK mirrors the cashbook status filter "
+                "(approved/accounts_approved/super_admin_approved, not pulled back).",
+    }
+
+
 # ===== TEMPORARY, READ-ONLY — addition Received/Balance diagnostic =====
 # Shows, per addition stage, what the OLD label matching counted versus what
 # the stage's own linked collections actually are, so a wrong "Received" can be
