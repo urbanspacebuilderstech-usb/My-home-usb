@@ -708,6 +708,128 @@ function ModeDrilldownView({ label, incomeEntries, expenseEntries, onBack, canDe
   );
 }
 
+// ============ CATEGORY DRILLDOWN (Overall Income / All Expense / Material / Labour / Petty Cash / Other) ============
+// Aug 26 2026 — same Project / Date / Search Material / Mode of Payment
+// filters already available on the per-mode drilldown (ModeDrilldownView),
+// added here so the KPI-card drilldowns (Overall Income, Expense, Balance,
+// and the Expense-category cards) can be narrowed down the same way.
+function CategoryDrilldownView({ label, entries, type, onBack, canDelete, onDelete }) {
+  const [projectFilter, setProjectFilter] = useState('');
+  const [dateRange, setDateRange] = useState(null); // { from, to }
+  const [materialFilter, setMaterialFilter] = useState('');
+  const [modeFilter, setModeFilter] = useState('');
+
+  const projects = React.useMemo(() => {
+    const map = new Map();
+    entries.forEach(e => {
+      const pid = e.project_id || e.project_name;
+      if (!pid) return;
+      if (!map.has(pid)) map.set(pid, { project_id: pid, name: e.project_name || pid });
+    });
+    return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [entries]);
+
+  const matchesFilters = (e) => {
+    if (projectFilter) {
+      const eid = e.project_id || e.project_name;
+      if (eid !== projectFilter) return false;
+    }
+    if (dateRange?.from || dateRange?.to) {
+      const dRaw = e.created_at || e.date || e.payment_date || e.expected_at;
+      if (!dRaw) return false;
+      const t = new Date(dRaw).getTime();
+      if (dateRange.from && t < new Date(dateRange.from + 'T00:00:00').getTime()) return false;
+      if (dateRange.to && t > new Date(dateRange.to + 'T23:59:59').getTime()) return false;
+    }
+    if (modeFilter) {
+      if (classifyMode(e.payment_mode || e.payment_method) !== modeFilter) return false;
+    }
+    return true;
+  };
+  const projectDateModeFiltered = entries.filter(matchesFilters);
+
+  // Material search only makes sense for expense rows (income rows carry no
+  // material_name/expense_type).
+  const materials = React.useMemo(() => {
+    if (type !== 'expense') return [];
+    const map = new Map();
+    projectDateModeFiltered.forEach(e => {
+      if (e.expense_type !== 'material') return;
+      const name = (e.material_name || e.description || '').trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (!map.has(key)) map.set(key, { name, qty: 0, unit: e.unit || '', count: 0, amount: 0 });
+      const m = map.get(key);
+      m.qty += Number(e.quantity || 0);
+      m.count += 1;
+      m.amount += Number(e.amount || 0);
+      if (!m.unit && e.unit) m.unit = e.unit;
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [projectDateModeFiltered, type]);
+
+  const filteredEntries = (type === 'expense' && materialFilter)
+    ? projectDateModeFiltered.filter(e => (e.material_name || e.description || '').trim().toLowerCase() === materialFilter.toLowerCase())
+    : projectDateModeFiltered;
+
+  return (
+    <div className="space-y-3" data-testid="category-drilldown">
+      <div className="flex items-center gap-2 flex-wrap">
+        <ProjectSearchSelect
+          value={projectFilter}
+          onChange={setProjectFilter}
+          projects={projects}
+          placeholder="All Projects"
+          width="w-56"
+          testId="category-drilldown-project"
+        />
+        <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset={null} />
+        {type === 'expense' && (
+          <>
+            <MaterialSearchSelect
+              materials={materials}
+              value={materialFilter}
+              onChange={setMaterialFilter}
+              placeholder="Search Material"
+              width="w-60"
+              testId="category-drilldown-material"
+            />
+            {materialFilter && (
+              <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => setMaterialFilter('')} data-testid="category-drilldown-material-clear">
+                <X className="h-3 w-3 mr-1" /> Clear
+              </Button>
+            )}
+          </>
+        )}
+        <Select value={modeFilter || 'all'} onValueChange={(v) => setModeFilter(v === 'all' ? '' : v)}>
+          <SelectTrigger className="h-9 w-48 text-xs" data-testid="category-drilldown-mode-filter">
+            <SelectValue placeholder="All Payment Modes" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Payment Modes</SelectItem>
+            {DRILLDOWN_MODE_FILTERS.map(k => (
+              <SelectItem key={k} value={k}>{MODE_LABELS[k]}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {modeFilter && (
+          <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => setModeFilter('')} data-testid="category-drilldown-mode-clear">
+            <X className="h-3 w-3 mr-1" /> Clear
+          </Button>
+        )}
+      </div>
+      <DrilldownView
+        title={label}
+        entries={filteredEntries}
+        type={type}
+        onBack={onBack}
+        canDelete={canDelete}
+        onDelete={onDelete}
+      />
+    </div>
+  );
+}
+
 // ============ SUSPENSE DRILLDOWN ============
 function SuspenseDrilldown({ onBack }) {
   const [vendors, setVendors] = useState([]);
@@ -2348,8 +2470,8 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
     // calls the income deletion handler so the same DrilldownView component
     // is reused for both income & expense rows.
     const isIncome = drilldown.category === 'overall_income';
-    return <DrilldownView
-      title={isIncome ? `${drilldown.label} (${drilldown.entries.length})` : `${drilldown.label} (${drilldown.entries.length})`}
+    return <CategoryDrilldownView
+      label={drilldown.label}
       entries={drilldown.entries}
       type={isIncome ? 'income' : 'expense'}
       onBack={() => setDrilldown(null)}
