@@ -11624,6 +11624,77 @@ async def get_contractor_suspense(contractor_id: str, user: User = Depends(get_c
     return {"contractor_id": contractor_id, "balance": balance, "ledger": ledger}
 
 
+# ===== READ-ONLY — labour RABs stranded by a cheque bounce =====
+# Finds every RAB whose funding cheque bounced but which was never reopened,
+# i.e. still reads as Released/approved while no live expense exists. Reports
+# the amount that SHOULD be payable, computed from the bounced leg. WRITES
+# NOTHING - historical rows are reported, never changed.
+@router.get("/admin/labour-bounce-audit")
+async def labour_bounce_audit(user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    from routes.financial import bounced_leg_amount
+
+    bounced = await db.recorded_expenses.find(
+        {"status": "cheque_bounced",
+         "$or": [{"request_type": "labour_stage_payment"}, {"category": "labour"}]},
+        {"_id": 0}).to_list(2000)
+
+    findings = []
+    for e in bounced:
+        req_id = e.get("request_id")
+        if not req_id:
+            continue
+        wo = await db.project_work_orders.find_one(
+            {"stages.payment_requests.request_id": req_id}, {"_id": 0})
+        if not wo:
+            continue
+        pr = stg_name = None
+        for stg in wo.get("stages", []) or []:
+            for cand in stg.get("payment_requests", []) or []:
+                if cand.get("request_id") == req_id:
+                    pr, stg_name = cand, stg.get("name")
+        if not pr:
+            continue
+        # Already handled? Either reopened, or a live replacement exists.
+        reopened = pr.get("reopened_amount")
+        live = await db.recorded_expenses.find_one(
+            {"request_id": req_id,
+             "status": {"$in": ["approved", "accounts_approved", "super_admin_approved"]}},
+            {"_id": 0, "expense_id": 1, "amount": 1})
+        ch = await db.cheques.find_one(
+            {"cheque_id": e.get("bounced_by_cheque_id")}, {"_id": 0}) or {}
+        should_reopen = bounced_leg_amount(e, ch.get("cheque_id"), ch.get("amount"))
+        stranded = (pr.get("status") == "approved") and not live and not reopened
+        findings.append({
+            "project_id": wo.get("project_id"),
+            "contractor_name": wo.get("contractor_name"),
+            "rab_number": pr.get("rab_number"), "request_id": req_id,
+            "stage_name": stg_name,
+            "request_status": pr.get("status"),
+            "bill_amount": float(pr.get("amount") or 0),
+            "bounced_expense_id": e.get("expense_id"),
+            "bounced_amount": float(e.get("amount") or 0),
+            "bounced_at": e.get("bounced_at"), "bounce_reason": e.get("bounce_reason"),
+            "cheque_number": ch.get("cheque_number"), "cheque_status": ch.get("status"),
+            "live_replacement_expense": live,
+            "already_reopened_amount": reopened,
+            "amount_that_should_be_payable": should_reopen,
+            "STRANDED": stranded,
+        })
+    stranded = [f for f in findings if f["STRANDED"]]
+    return {
+        "write_performed": False,
+        "bounced_labour_expenses_examined": len(bounced),
+        "stranded_count": len(stranded),
+        "stranded_total": round(sum(f["amount_that_should_be_payable"] for f in stranded), 2),
+        "stranded": stranded,
+        "all_findings": findings,
+        "note": "STRANDED = request still status 'approved', no live replacement expense, "
+                "and never reopened. These are owed but invisible in every queue.",
+    }
+
+
 # ===== TEMPORARY, READ-ONLY — labour RAB payment history tracer =====
 # Follows one RAB release across every collection it touches: the WO payment
 # request, its payment_record, the recorded_expenses mirrors, the cheques
@@ -11997,6 +12068,23 @@ async def accountant_labour_payments(status: str = "pending", user: User = Depen
     return {"count": len(out), "requests": out}
 
 
+def rab_payable_amount(pr: Dict[str, Any]) -> float:
+    """What a labour RAB currently owes.
+
+    Aug 26 2026 — After a cheque bounce only the failed leg is payable again;
+    suspense / cash / bank legs that settled part of the bill are untouched and
+    must not be re-demanded. `reopened_amount` carries that figure, so it wins
+    over the full bill whenever it is set. Everything else is unaffected.
+    """
+    ro = pr.get("reopened_amount")
+    try:
+        if ro is not None and float(ro) > 0:
+            return float(ro)
+    except (TypeError, ValueError):
+        pass
+    return float(pr.get("amount") or 0)
+
+
 @router.get("/accountant/labour-rab/{request_id}/pay-context")
 async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str, stage_id: str, user: User = Depends(get_current_user)):
     """Returns full bill detail + suspense + active/inactive HDFC cheques for a labour RAB.
@@ -12020,7 +12108,7 @@ async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str,
     if not target_pr or not target_stage:
         raise HTTPException(status_code=404, detail="RAB not found")
 
-    bill_amount = float(target_pr.get("amount", 0) or 0)
+    bill_amount = rab_payable_amount(target_pr)
     contractor_id = wo.get("contractor_id")
     contractor_name = wo.get("contractor_name", "")
     project = await db.projects.find_one({"project_id": wo.get("project_id")}, {"_id": 0, "name": 1, "team": 1}) or {}
@@ -12039,7 +12127,7 @@ async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str,
                         "request_id": pr.get("request_id"),
                         "stage_id": st.get("stage_id"),
                         "stage_name": st.get("name"),
-                        "amount": float(pr.get("amount", 0) or 0),
+                        "amount": rab_payable_amount(pr),
                         "status": pr.get("status"),
                     })
     if not siblings:
@@ -12319,7 +12407,7 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         siblings_refs = [(target_stage, target_pr)]
     is_multi_stage_bill = len(siblings_refs) > 1
 
-    approved_amount = sum(float(pr.get("amount", 0)) for _, pr in siblings_refs)
+    approved_amount = sum(rab_payable_amount(pr) for _, pr in siblings_refs)
 
     # Handle suspense usage
     contractor_id = wo.get("contractor_id")

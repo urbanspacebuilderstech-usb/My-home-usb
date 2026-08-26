@@ -6861,6 +6861,100 @@ class ChequeBounceRequest(BaseModel):
     charges: float = 0
 
 
+def bounced_leg_amount(expense: Dict[str, Any], cheque_id: str, cheque_amount: float) -> float:
+    """How much of an expense was funded by ONE specific cheque.
+
+    Aug 26 2026 — A bounce must reopen only the money that actually failed. A
+    bill part-settled from suspense, cash or bank keeps those legs: they did
+    not bounce. Reopening the full bill would re-demand money already paid and,
+    where suspense funded part of it, invite that credit being spent twice.
+
+    Resolution order, most precise first:
+      1. the payment leg(s) naming this cheque -> their own amounts
+      2. a single-leg cheque payment            -> the expense amount
+      3. the cheque's face value, capped at the expense
+    """
+    legs = expense.get("payment_entries") or expense.get("payment_legs") or []
+    from_legs = 0.0
+    for leg in legs:
+        ids = leg.get("cheque_ids") or ([leg["cheque_id"]] if leg.get("cheque_id") else [])
+        if cheque_id in ids:
+            from_legs += float(leg.get("amount") or 0)
+    if from_legs > 0.005:
+        return round(from_legs, 2)
+    exp_amount = float(expense.get("amount") or 0)
+    method = (expense.get("payment_method") or expense.get("method") or "").lower()
+    if not legs and method == "cheque":
+        return round(exp_amount, 2)
+    return round(min(float(cheque_amount or 0) or exp_amount, exp_amount), 2)
+
+
+async def reopen_labour_rab_after_bounce(rec_exp: Dict[str, Any], cheque: Dict[str, Any],
+                                         reason: str, now: str) -> Optional[Dict[str, Any]]:
+    """Return a bounced labour RAB to the Accountant queue for the bounced
+    amount only. Returns a summary, or None when this is not a labour release.
+
+    The bounce handler already re-queues material bills; labour RABs live in
+    project_work_orders.stages.payment_requests and had no equivalent, so a
+    bounced RAB stayed status="approved" — reading as Released and fully paid
+    while no live expense existed and the contractor was owed the money with
+    nothing in any queue to act on.
+
+    The bounced expense is left as `cheque_bounced` audit history; only the
+    request is reopened, carrying `reopened_amount` so downstream reads offer
+    exactly the failed amount rather than the whole bill.
+    """
+    req_id = rec_exp.get("request_id")
+    rtype = (rec_exp.get("request_type") or rec_exp.get("category") or "").lower()
+    if not req_id or rtype not in ("labour_stage_payment", "labour"):
+        return None
+    wo = await db.project_work_orders.find_one(
+        {"stages.payment_requests.request_id": req_id}, {"_id": 0})
+    if not wo:
+        return None
+    amount = bounced_leg_amount(rec_exp, cheque.get("cheque_id"), cheque.get("amount"))
+    if amount <= 0.005:
+        return None
+
+    target_pr = None
+    for stg in wo.get("stages", []) or []:
+        for pr in stg.get("payment_requests", []) or []:
+            if pr.get("request_id") == req_id:
+                target_pr = pr
+                break
+    if not target_pr:
+        return None
+    prior_approved = float(target_pr.get("approved_amount") or target_pr.get("amount") or 0)
+    history = list(target_pr.get("bounce_history") or [])
+    history.append({
+        "cheque_id": cheque.get("cheque_id"), "cheque_number": cheque.get("cheque_number"),
+        "amount": amount, "reason": reason, "bounced_at": now,
+        "expense_id": rec_exp.get("expense_id"),
+    })
+    await db.project_work_orders.update_one(
+        {"work_order_id": wo.get("work_order_id"),
+         "stages.payment_requests.request_id": req_id},
+        {"$set": {
+            # Back into the Accountant queue (its "pending" filter).
+            "stages.$[s].payment_requests.$[p].status": "planning_approved",
+            # Only the failed money is payable again.
+            "stages.$[s].payment_requests.$[p].reopened_amount": amount,
+            "stages.$[s].payment_requests.$[p].settled_before_bounce": round(max(0.0, prior_approved - amount), 2),
+            "stages.$[s].payment_requests.$[p].bounce_history": history,
+            "stages.$[s].payment_requests.$[p].reopened_after_bounce_at": now,
+            # It is no longer released, so it must not read as released.
+            "stages.$[s].payment_requests.$[p].released_at": None,
+            "stages.$[s].payment_requests.$[p].released_by": None,
+            "stages.$[s].payment_requests.$[p].accountant_approved_at": None,
+            "stages.$[s].payment_requests.$[p].approved_amount": 0,
+        }},
+        array_filters=[{"s.payment_requests.request_id": req_id}, {"p.request_id": req_id}],
+    )
+    return {"request_id": req_id, "rab_number": target_pr.get("rab_number"),
+            "reopened_amount": amount,
+            "settled_before_bounce": round(max(0.0, prior_approved - amount), 2)}
+
+
 @router.post("/accountant/cheques/{cheque_id}/bounce")
 async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User = Depends(get_current_user)):
     """Mark a cheque as bounced and cascade reversal on the linked income/expense."""
@@ -7086,6 +7180,10 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
             # Re-open the approval request row so it appears in the Materials queue again
             req_id = rec_exp.get("approval_id") or rec_exp.get("request_id")
             req_type = rec_exp.get("request_type") or rec_exp.get("expense_type") or rec_exp.get("category")
+            # Aug 26 2026 — Labour RABs are reopened for the bounced leg only.
+            _lab = await reopen_labour_rab_after_bounce(rec_exp, cheque, payload.reason.strip(), now)
+            if _lab:
+                reversal_summary["labour_rab_reopened"] = _lab
             if req_id and req_type == "material":
                 await db.material_expenses.update_one(
                     {"expense_id": req_id},
