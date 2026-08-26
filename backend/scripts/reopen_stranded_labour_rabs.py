@@ -108,6 +108,12 @@ async def find_stranded(db, bounced_leg_amount):
 async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
+    # Separate the two failure modes. Actions logs need a token to read, so
+    # "apply crashed" and "apply ran but the write did not stick" were
+    # indistinguishable from a single red step. --apply now fails only on a
+    # genuine error, and --assert-clean is a second step that fails only if
+    # anything is still stranded.
+    ap.add_argument("--assert-clean", dest="assert_clean", action="store_true")
     args = ap.parse_args()
 
     url, name = os.environ.get("MONGO_URL"), os.environ.get("DB_NAME")
@@ -122,8 +128,13 @@ async def main() -> int:
         rows = await find_stranded(db, F.bounced_leg_amount)
         print("=== Labour RABs stranded by a cheque bounce ===")
         if not rows:
-            print("  none found — nothing to do.")
+            print("  none found - nothing to do.")
             return 0
+        if args.assert_clean:
+            for r in rows:
+                print(f"  STILL STRANDED: {r['rab']} {r['request_id']} owed={r['outstanding']:,.2f}")
+            print(f"  ASSERT FAILED: {len(rows)} still stranded")
+            return 1
         total = round(sum(r["reopen_amount"] for r in rows), 2)
         for r in rows:
             print(f"  {r['rab'] or '?':8} {str(r['contractor'])[:18]:18} bill={r['bill_amount']:>10,.0f} "
@@ -160,7 +171,12 @@ async def main() -> int:
                 "reopened_by": "backfill: bounce predates the reopen fix",
             })
             res = await db.project_work_orders.update_one(
-                {"work_order_id": r["wo_id"], "stages.payment_requests.request_id": pr_id},
+                # Match on the request id alone. Keying the filter on
+                # work_order_id as well meant a work order storing no such
+                # field matched nothing, so the write silently did nothing and
+                # the re-scan still found the RAB stranded. Request ids are
+                # unique, so this is both sufficient and safer.
+                {"stages.payment_requests.request_id": pr_id},
                 {"$set": {
                     "stages.$[s].payment_requests.$[p].status": "planning_approved",
                     "stages.$[s].payment_requests.$[p].reopened_amount": r["reopen_amount"],
@@ -177,12 +193,21 @@ async def main() -> int:
             )
             if res.modified_count:
                 done += 1
+            else:
+                # Say why rather than failing silently — a matched-but-unmodified
+                # write means the filter found the document and the array filters
+                # did not select the element.
+                print(f"  NO-OP {pr_id} — matched={res.matched_count} modified=0 "
+                      f"(wo_id={r['wo_id']!r}). Nothing written for this row.")
 
         remaining = await find_stranded(db, F.bounced_leg_amount)
         print(f"\n  reopened={done}  still stranded after={len(remaining)}")
-        ok = len(remaining) == 0
-        print("  APPLIED AND VERIFIED" if ok else "  VERIFY FAILED — some remain stranded")
-        return 0 if ok else 1
+        for rem in remaining:
+            print(f"  STILL STRANDED: {rem['rab']} {rem['request_id']} owed={rem['outstanding']:,.2f}")
+        # Report, but do not fail here: the dedicated --assert-clean step owns
+        # the pass/fail verdict so a crash and a bad write look different.
+        print("  APPLIED AND VERIFIED" if not remaining else "  APPLIED BUT SOME REMAIN")
+        return 0
     finally:
         cli.close()
 
