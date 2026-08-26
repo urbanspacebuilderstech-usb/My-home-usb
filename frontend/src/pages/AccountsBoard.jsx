@@ -2399,29 +2399,19 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
   const pagedExpenses = filteredExpenses.slice(expensePageStart, expensePageStart + DRILLDOWN_PAGE_SIZE);
 
   // Drilldown click handlers
-  const handleModeClick = (mode) => {
-    if (mode === 'suspense_account') {
-      navigate('/suspense-account');
-      return;
-    }
-    // Petty Cash mode = jump straight to the Petty Cash Management drilldown
-    // so PM-approved requests are visible. The "mode breakdown" view only shows
-    // transactions already paid via cash, which is empty until cash is issued.
-    if (mode === 'petty_cash') {
-      setDrilldown({ type: 'petty_cash_mgmt' });
-      return;
-    }
-    // Show income entries for this mode
+  // Aug 26 2026 — a bucket tile's Expense total (cbBuckets' expFor() above)
+  // = live expense entries for that mode + a manually-entered "Lock Closing
+  // Balance" opening-balance figure, which has no real transaction behind it
+  // (unlike lock income, which is mirrored into a real db.income row — see
+  // _sync_carry_forward_to_cashbook on the backend). Without adding it back
+  // here, a drilldown could never add up to the tile whenever that lock
+  // value is non-zero (reported: Cash DT tile ₹49,98,022 vs drilldown
+  // ₹2,00,000). Shared by the single-mode drilldown (handleModeClick) and
+  // the black "Total" tile (handleTotalClick), so both always reconcile
+  // with the tile(s) they were opened from.
+  const buildModeEntries = (mode) => {
     const modeIncome = incomeEntries.filter(e => classifyMode(e.payment_mode) === mode);
     const modeExpense = allExpenseEntries.filter(e => classifyMode(e.payment_method || e.payment_mode) === mode);
-    // Aug 26 2026 — the tile's own Expense total (cbBuckets' expFor() above)
-    // = this live modeExpense sum + a manually-entered "Lock Closing Balance"
-    // opening-balance figure for the bucket, which has no real transaction
-    // behind it (unlike lock income, which is mirrored into a real db.income
-    // row — see _sync_carry_forward_to_cashbook on the backend). Without this,
-    // the drilldown could never add up to the tile whenever that lock value
-    // is non-zero (reported: Cash DT tile ₹49,98,022 vs drilldown ₹2,00,000).
-    // Inject one synthetic, non-deletable row so they always reconcile.
     const lockKey = MODE_LOCK_KEY[mode];
     const lockExpense = lockKey ? Number((cashbookData?.closing_balance_buckets?.[lockKey] || {}).expense || 0) : 0;
     const modeExpenseWithLock = lockExpense > 0
@@ -2435,7 +2425,41 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
           _isLockRow: true,
         }]
       : modeExpense;
-    setDrilldown({ type: 'mode', mode, incomeEntries: modeIncome, expenseEntries: modeExpenseWithLock, label: MODE_LABELS[mode] });
+    return { income: modeIncome, expense: modeExpenseWithLock };
+  };
+
+  const handleModeClick = (mode) => {
+    if (mode === 'suspense_account') {
+      navigate('/suspense-account');
+      return;
+    }
+    // Petty Cash mode = jump straight to the Petty Cash Management drilldown
+    // so PM-approved requests are visible. The "mode breakdown" view only shows
+    // transactions already paid via cash, which is empty until cash is issued.
+    if (mode === 'petty_cash') {
+      setDrilldown({ type: 'petty_cash_mgmt' });
+      return;
+    }
+    const { income, expense } = buildModeEntries(mode);
+    setDrilldown({ type: 'mode', mode, incomeEntries: income, expenseEntries: expense, label: MODE_LABELS[mode] });
+  };
+
+  // Aug 26 2026 — the black "Total" card sums only the 5 real payment-mode
+  // buckets (cbBuckets: Cash / HDFC Current / HDFC Savings / Cheque / Cash
+  // DT), each already including its own lock-expense addition. Previously
+  // this opened a drilldown built from the RAW incomeEntries/allExpenseEntries
+  // (every mode, including Petty Cash / Miscellaneous / Suspense / Mixed, and
+  // with no lock rows) — so the drilldown's own total never matched the card
+  // it was opened from. Build it the same way, bucket by bucket, so "All
+  // Payment Modes" always reconciles with the Total card's Income/Expense.
+  const handleTotalClick = () => {
+    const combined = DRILLDOWN_MODE_FILTERS.reduce((acc, mode) => {
+      const { income, expense } = buildModeEntries(mode);
+      acc.income.push(...income);
+      acc.expense.push(...expense);
+      return acc;
+    }, { income: [], expense: [] });
+    setDrilldown({ type: 'mode', mode: 'all', incomeEntries: combined.income, expenseEntries: combined.expense, label: 'All Payment Modes (Total)' });
   };
 
   const handleCategoryClick = (catKey) => {
@@ -2766,8 +2790,8 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
               data-testid="cb-bucket-total"
               role="button"
               tabIndex={0}
-              onClick={() => setDrilldown({ type: 'mode', mode: 'all', incomeEntries: incomeEntries, expenseEntries: allExpenseEntries, label: 'All Channels (Total)' })}
-              onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') setDrilldown({ type: 'mode', mode: 'all', incomeEntries: incomeEntries, expenseEntries: allExpenseEntries, label: 'All Channels (Total)' }); }}
+              onClick={handleTotalClick}
+              onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') handleTotalClick(); }}
               title="View all income & expense entries across every channel"
             >
               <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-slate-300 font-semibold mb-2">
