@@ -89,6 +89,15 @@ async def _create_session_and_respond(user_doc: dict, request: Request, response
     session_dict["user_agent"] = request.headers.get("User-Agent", "")[:500]
     await db.user_sessions.insert_one(session_dict)
 
+    # Aug 27 2026 — `last_login` existed on the User model but was never
+    # actually written anywhere, so Settings > Branding > Login Details
+    # (Super Admin) had no real "last login" to show. Set it on every
+    # successful login, regardless of method (password/demo/Google/setup).
+    await db.users.update_one(
+        {"user_id": user_doc["user_id"]},
+        {"$set": {"last_login": session_dict["created_at"]}},
+    )
+
     audit_entry = AuditLogger.create_audit_entry(
         user_id=user_doc["user_id"],
         action=AuditAction.LOGIN,
@@ -229,6 +238,66 @@ async def get_audit_logs(
 
     logs = await db.audit_logs.find(query, {"_id": 0}).sort("timestamp", -1).to_list(limit)
     return logs
+
+
+@router.get("/admin/login-details")
+async def get_login_details(user: User = Depends(get_current_user)):
+    """Settings > Branding > Login Details (Super Admin only).
+
+    "Live" is defined the only way this app can actually know it: an
+    unexpired row in `db.user_sessions` (session cookie's max_age =
+    SecurityConfig.SESSION_EXPIRY_HOURS). There's no websocket/heartbeat
+    presence tracking, so a user who closed the tab without logging out
+    still shows "live" until their session naturally expires — that's an
+    honest limitation of cookie-session auth, not a bug.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+
+    # One row per active session (a user can be "live" on >1 device/tab).
+    active_sessions = await db.user_sessions.find(
+        {"expires_at": {"$gte": now_iso}}, {"_id": 0},
+    ).sort("created_at", -1).to_list(2000)
+
+    # Keep only the most-recent session per user for the "live users" list
+    # (list is already sorted newest-first, so first-seen wins per user_id).
+    live_by_user: dict = {}
+    for s in active_sessions:
+        uid = s.get("user_id")
+        if uid and uid not in live_by_user:
+            live_by_user[uid] = s
+
+    all_users = await db.users.find(
+        {}, {"_id": 0, "password_hash": 0, "totp_secret": 0},
+    ).sort("name", 1).to_list(2000)
+
+    users_out = []
+    for u in all_users:
+        uid = u.get("user_id")
+        sess = live_by_user.get(uid)
+        users_out.append({
+            "user_id": uid,
+            "name": u.get("name"),
+            "email": u.get("email"),
+            "role": u.get("role"),
+            "is_active": u.get("is_active", True),
+            "status": u.get("status"),
+            "last_login": u.get("last_login"),
+            "last_logout": u.get("last_logout"),
+            "is_online": bool(sess),
+            "session_started_at": sess.get("created_at") if sess else None,
+            "ip_address": sess.get("ip_address") if sess else None,
+        })
+
+    return {
+        "live_count": len(live_by_user),
+        "total_users": len(all_users),
+        "users": users_out,
+        "as_of": now_iso,
+    }
 
 
 # ==================== REAL PASSWORD LOGIN ====================
@@ -791,7 +860,30 @@ async def get_me(user: User = Depends(get_current_user)):
 async def logout(request: Request, response: Response):
     session_token = request.cookies.get("session_token")
     if session_token:
+        # Aug 27 2026 — capture who's logging out BEFORE deleting the
+        # session row, so Settings > Branding > Login Details (Super Admin)
+        # can show a real "last logout" time. Previously the session was
+        # just silently deleted with no trace kept anywhere.
+        session_doc = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0, "user_id": 1})
         await db.user_sessions.delete_one({"session_token": session_token})
+        if session_doc and session_doc.get("user_id"):
+            now_iso = datetime.now(timezone.utc).isoformat()
+            client_ip = request.client.host if request.client else "unknown"
+            await db.users.update_one(
+                {"user_id": session_doc["user_id"]},
+                {"$set": {"last_logout": now_iso}},
+            )
+            try:
+                audit_entry = AuditLogger.create_audit_entry(
+                    user_id=session_doc["user_id"],
+                    action=AuditAction.LOGOUT,
+                    resource_type="auth",
+                    ip_address=client_ip,
+                    success=True,
+                )
+                await db.audit_logs.insert_one(audit_entry)
+            except Exception as e:
+                logger.warning("logout audit log failed: %s", e)
     response.delete_cookie("session_token", path="/")
     return {"message": "Logged out"}
 

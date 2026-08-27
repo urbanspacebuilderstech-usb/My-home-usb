@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Building2, LogOut, Settings as SettingsIcon, Users, Package, Truck, Save, Building, ArrowDownRight, GitBranch, Headphones } from 'lucide-react';
+import { Building2, LogOut, Settings as SettingsIcon, Users, Package, Truck, Save, Building, ArrowDownRight, GitBranch, Headphones, Wifi, RefreshCw, Circle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -120,6 +120,23 @@ export default function Settings() {
       toast.error(e?.response?.data?.detail || `Failed to upload ${slot}`);
     } finally {
       try { fileEvt.target.value = ''; } catch (e) { /* ignore */ }
+    }
+  };
+
+  // Aug 27 2026 — Login Details (Super Admin only). Loaded lazily, only
+  // when that tab is opened, and refetched whenever it's reopened so the
+  // live count doesn't go stale while the accountant is on another tab.
+  const [loginDetails, setLoginDetails] = useState(null);
+  const [loginDetailsLoading, setLoginDetailsLoading] = useState(false);
+  const fetchLoginDetails = async () => {
+    setLoginDetailsLoading(true);
+    try {
+      const r = await axios.get(`${API}/admin/login-details`);
+      setLoginDetails(r.data);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to load login details');
+    } finally {
+      setLoginDetailsLoading(false);
     }
   };
 
@@ -274,7 +291,7 @@ export default function Settings() {
         </div>
 
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); if (v === 'login-details') fetchLoginDetails(); }}>
           <TabsList className="mb-4 sm:mb-6 w-full sm:w-auto overflow-x-auto">
             <TabsTrigger value="company" className="gap-1 sm:gap-2 text-xs sm:text-sm">
               <Building className="h-3 w-3 sm:h-4 sm:w-4" /> <span className="hidden sm:inline">Company</span> Profile
@@ -290,6 +307,11 @@ export default function Settings() {
             {user?.role === 'super_admin' && (
               <TabsTrigger value="branding" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-branding-tab">
                 <Building2 className="h-3 w-3 sm:h-4 sm:w-4" /> Branding
+              </TabsTrigger>
+            )}
+            {user?.role === 'super_admin' && (
+              <TabsTrigger value="login-details" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-login-details-tab">
+                <Wifi className="h-3 w-3 sm:h-4 sm:w-4" /> Login Details
               </TabsTrigger>
             )}
           </TabsList>
@@ -623,6 +645,91 @@ export default function Settings() {
                   <p className="text-[11px] text-gray-400 pt-2 border-t">
                     Last updated: {branding?.updated_at ? new Date(branding.updated_at).toLocaleString() : '—'} · Logo v{branding?.logo_version ?? 0} · Favicon v{branding?.favicon_version ?? 0}
                   </p>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+
+          {user?.role === 'super_admin' && (
+            <TabsContent value="login-details">
+              <Card>
+                <CardHeader className="p-4 sm:p-6 flex flex-row items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                      <Wifi className="h-5 w-5 text-emerald-600" /> Login Details
+                    </CardTitle>
+                    <CardDescription className="text-xs sm:text-sm">
+                      Who's logged in right now, and every user's last login / last logout. "Live" means their session cookie hasn't expired yet — closing a tab without logging out still shows Online until it expires naturally.
+                    </CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={fetchLoginDetails} disabled={loginDetailsLoading} data-testid="login-details-refresh">
+                    <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loginDetailsLoading ? 'animate-spin' : ''}`} /> Refresh
+                  </Button>
+                </CardHeader>
+                <CardContent className="p-4 sm:p-6 pt-0">
+                  {!loginDetails ? (
+                    <p className="text-sm text-gray-400 py-8 text-center">{loginDetailsLoading ? 'Loading…' : 'No data yet'}</p>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+                        <div className="rounded-lg border bg-emerald-50 border-emerald-200 p-3">
+                          <p className="text-[10px] uppercase font-semibold text-emerald-700">Live Now</p>
+                          <p className="text-2xl font-extrabold text-emerald-800" data-testid="login-details-live-count">{loginDetails.live_count}</p>
+                        </div>
+                        <div className="rounded-lg border bg-gray-50 p-3">
+                          <p className="text-[10px] uppercase font-semibold text-gray-500">Total Users</p>
+                          <p className="text-2xl font-extrabold text-gray-800">{loginDetails.total_users}</p>
+                        </div>
+                        <div className="rounded-lg border bg-gray-50 p-3 col-span-2 sm:col-span-1">
+                          <p className="text-[10px] uppercase font-semibold text-gray-500">As of</p>
+                          <p className="text-sm font-semibold text-gray-700 mt-1">{new Date(loginDetails.as_of).toLocaleString('en-IN')}</p>
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs" data-testid="login-details-table">
+                          <thead className="bg-gray-50 border-b">
+                            <tr>
+                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Status</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Name</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Email</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Role</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Last Login</th>
+                              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Last Logout</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {(loginDetails.users || [])
+                              .slice()
+                              .sort((a, b) => (Number(b.is_online) - Number(a.is_online)) || (new Date(b.last_login || 0) - new Date(a.last_login || 0)))
+                              .map(u => (
+                              <tr key={u.user_id} className="hover:bg-gray-50" data-testid={`login-details-row-${u.user_id}`}>
+                                <td className="px-3 py-2">
+                                  {u.is_online ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">
+                                      <Circle className="h-2 w-2 fill-emerald-500 text-emerald-500" /> Online
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-gray-500 bg-gray-50 border border-gray-200 px-1.5 py-0.5 rounded-full">
+                                      <Circle className="h-2 w-2 fill-gray-400 text-gray-400" /> Offline
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 font-medium text-gray-800">
+                                  {u.name}
+                                  {u.is_online && u.ip_address && <span className="block text-[10px] text-gray-400 font-normal">{u.ip_address}</span>}
+                                </td>
+                                <td className="px-3 py-2 text-gray-600">{u.email}</td>
+                                <td className="px-3 py-2 text-gray-600 capitalize">{(u.role || '').replace(/_/g, ' ')}</td>
+                                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{u.last_login ? new Date(u.last_login).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{u.last_logout ? new Date(u.last_logout).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
