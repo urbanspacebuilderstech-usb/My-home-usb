@@ -38,6 +38,25 @@ const fmtInr = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFrac
 // Blank sub-entry row template.
 const newRow = () => ({ label: '', amount: '' });
 
+// Aug 27 2026 — Petty Cash / Material Suspense / Labour Suspense money has
+// already left the bank/cash box but isn't a final "expense" yet, so it's a
+// common (legitimate) source of Close Books shortfall — see Suspense A/c
+// tab, which already breaks these three down by the same 5 modes. Mirrors
+// AccountsBoard.jsx's classifyMode / SuspenseAccount.jsx's
+// classifySuspenseMode, trimmed to the 5 modes this dialog tracks.
+const classifySuspenseMode = (raw) => {
+  const m = (raw || '').toString().toLowerCase();
+  if (m.includes('saving')) return 'savings_account';
+  if (m.includes('current') || m.includes('bank') || m.includes('neft') || m.includes('rtgs') || m.includes('imps')) return 'current_account';
+  if (m.includes('cheque') || m.includes('check')) return 'cheque';
+  if (m.includes('transfer')) return 'direct_transfer';
+  return 'cash';
+};
+// Kept in sync with SuspenseAccount.jsx's ACCOUNT_APPROVED_PETTY / backend
+// PETTY_ACTIVE_STATUSES so this matches what the Suspense A/c > Petty Cash
+// tab itself shows.
+const ACCOUNT_APPROVED_PETTY = new Set(['issued', 'partially_spent', 'settled', 'submitted', 'acknowledged', 'payment_done', 'accountant_processing']);
+
 export default function DailyClosingDialog({ open, onClose, date, computed, onSaved }) {
   // Per-mode dynamic sub-entry list. Start with a single blank row so the
   // form is visually consistent even before the accountant adds sources.
@@ -50,6 +69,9 @@ export default function DailyClosingDialog({ open, onClose, date, computed, onSa
   const [existing, setExisting] = useState({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Aug 27 2026 — per-mode Petty Cash + Material Suspense + Labour Suspense
+  // outstanding total, for the "+ Add Suspense" quick-add button below.
+  const [suspenseByMode, setSuspenseByMode] = useState({});
   // Track which date we've already loaded so unsaved edits survive
   // close-and-reopen cycles. We only reset the form when the target date
   // changes or when a save/reset is explicitly triggered.
@@ -107,6 +129,42 @@ export default function DailyClosingDialog({ open, onClose, date, computed, onSa
       }
     })();
   }, [open, date, computed]);
+
+  // Separate from the date-scoped load above — these are current
+  // outstanding balances, not tied to which day is being closed.
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      try {
+        const r = await axios.get(`${API}/suspense/overview`);
+        const d = r.data || {};
+        const breakdown = {};
+        MODES.forEach(m => { breakdown[m.key] = 0; });
+        (d.petty_cash?.all_requests || []).forEach(pc => {
+          if (!ACCOUNT_APPROVED_PETTY.has((pc.status || '').toLowerCase())) return;
+          const key = classifySuspenseMode(pc.payment_mode || pc.mode);
+          breakdown[key] += Number(pc.amount_issued || 0) - Number(pc.amount_spent || 0);
+        });
+        (d.material_suspense?.balances || []).forEach(b => {
+          (b.entries || []).forEach(e => { breakdown[classifySuspenseMode(e.mode)] += Number(e.balance || 0); });
+        });
+        (d.labour_suspense?.balances || []).forEach(b => {
+          (b.entries || []).forEach(e => { breakdown[classifySuspenseMode(e.mode)] += Number(e.balance || 0); });
+        });
+        setSuspenseByMode(breakdown);
+      } catch (e) {
+        // Non-fatal — the "+ Add Suspense" button just stays hidden.
+      }
+    })();
+  }, [open]);
+
+  const addSuspenseSub = (mode) => {
+    const amt = Math.round((suspenseByMode[mode] || 0) * 100) / 100;
+    setSubs(prev => ({
+      ...prev,
+      [mode]: [...(prev[mode] || []), { label: 'Suspense (Petty Cash + Material + Labour)', amount: String(amt) }],
+    }));
+  };
 
   const rows = useMemo(() => MODES.map(m => {
     const list = subs[m.key] || [];
@@ -259,14 +317,27 @@ export default function DailyClosingDialog({ open, onClose, date, computed, onSa
                       ))}
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => addSub(r.key)}
-                      className="mt-2 text-[10px] text-amber-700 hover:text-amber-900 flex items-center gap-1 font-medium"
-                      data-testid={`dc-sub-add-${r.key}`}
-                    >
-                      <Plus className="h-3 w-3" /> Add another source
-                    </button>
+                    <div className="mt-2 flex items-center gap-3 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => addSub(r.key)}
+                        className="text-[10px] text-amber-700 hover:text-amber-900 flex items-center gap-1 font-medium"
+                        data-testid={`dc-sub-add-${r.key}`}
+                      >
+                        <Plus className="h-3 w-3" /> Add another source
+                      </button>
+                      {!!suspenseByMode[r.key] && (
+                        <button
+                          type="button"
+                          onClick={() => addSuspenseSub(r.key)}
+                          className="text-[10px] text-indigo-700 hover:text-indigo-900 flex items-center gap-1 font-medium"
+                          data-testid={`dc-sub-add-suspense-${r.key}`}
+                          title="Petty Cash + Material Suspense + Labour Suspense currently outstanding in this mode (Suspense A/c tab)"
+                        >
+                          <Plus className="h-3 w-3" /> Add Suspense ({fmtInr(suspenseByMode[r.key])})
+                        </button>
+                      )}
+                    </div>
 
                     {/* Total + variance strip */}
                     <div className={`mt-2 border rounded px-2 py-1 text-[11px] font-semibold flex items-center justify-between ${varStyle}`}>
