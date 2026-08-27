@@ -46,8 +46,10 @@ const classifySuspenseMode = (raw) => {
 };
 
 // Petty Cash tab — each tile shows Issued / Spent / Balance for that mode,
-// matching the 3 columns already on the Petty Cash table.
-function PettyModeTiles({ rows }) {
+// matching the 3 columns already on the Petty Cash table. Aug 27 2026 —
+// clickable, same as the Materials/Labour mode tiles: clicking narrows the
+// table below down to just that mode's rows (see pettyModeDrill state).
+function PettyModeTiles({ rows, onSelect }) {
   const breakdown = {};
   SUSPENSE_MODE_BUCKETS.forEach(b => { breakdown[b.key] = { issued: 0, spent: 0 }; });
   rows.forEach(pc => {
@@ -62,7 +64,16 @@ function PettyModeTiles({ rows }) {
         const bal = d.issued - d.spent;
         const Icon = b.Icon;
         return (
-          <div key={b.key} className={`rounded-lg border-l-4 ${b.accent} bg-white p-3 shadow-sm`} data-testid={`petty-mode-${b.key}`}>
+          <div
+            key={b.key}
+            className={`rounded-lg border-l-4 ${b.accent} bg-white p-3 shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all`}
+            data-testid={`petty-mode-${b.key}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => onSelect(b.key, b.label)}
+            onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') onSelect(b.key, b.label); }}
+            title={`View all ${b.label} petty cash entries`}
+          >
             <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-gray-600 font-semibold mb-2">
               <Icon className="h-3 w-3" /> {b.label}
             </div>
@@ -254,6 +265,7 @@ export default function SuspenseAccountPage() {
   // Labour tabs. { key: 'cash'|'current_account'|..., label: 'Cash' } | null
   const [matModeDrill, setMatModeDrill] = useState(null);
   const [labModeDrill, setLabModeDrill] = useState(null);
+  const [pettyModeDrill, setPettyModeDrill] = useState(null);
   const toggleExpanded = (key) => setExpandedSuspense(s => ({ ...s, [key]: !s[key] }));
 
   // Jul 03 2026 — Rich delete confirmation dialog that fetches the cascade
@@ -523,11 +535,28 @@ export default function SuspenseAccountPage() {
               // Filter list is defined once above (`ACCOUNT_APPROVED_PETTY`)
               // and kept in sync with backend `PETTY_ACTIVE_STATUSES`.
               const filteredPetty = visiblePetty;
+              // Aug 27 2026 — clicking a mode tile narrows the same table down
+              // to just that mode's rows (rather than opening a separate
+              // component), since the table already has everything a Petty
+              // Cash drilldown needs (Settle / Timeline / Delete actions).
+              const rows = pettyModeDrill
+                ? filteredPetty.filter(pc => classifySuspenseMode(pc.payment_mode || pc.mode) === pettyModeDrill.key)
+                : filteredPetty;
               return filteredPetty.length === 0 ? (
                 <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No accountant-approved petty cash entries</CardContent></Card>
               ) : (
                 <>
-                <PettyModeTiles rows={filteredPetty} />
+                {pettyModeDrill ? (
+                  <div className="flex items-center gap-2 mb-3" data-testid="petty-mode-drilldown-header">
+                    <Button variant="ghost" size="sm" className="h-8 gap-1" onClick={() => setPettyModeDrill(null)} data-testid="petty-mode-drilldown-back">
+                      <ArrowLeft className="h-4 w-4" /> Back
+                    </Button>
+                    <Badge variant="outline" className="text-xs">{pettyModeDrill.label}</Badge>
+                    <span className="text-xs text-gray-400">({rows.length} {rows.length === 1 ? 'entry' : 'entries'})</span>
+                  </div>
+                ) : (
+                  <PettyModeTiles rows={filteredPetty} onSelect={(key, label) => setPettyModeDrill({ key, label })} />
+                )}
                 <Card><CardContent className="p-0 overflow-x-auto">
                 <table className="w-full text-xs" data-testid="suspense-petty-table">
                   <thead className="bg-gray-50 border-b">
@@ -546,7 +575,10 @@ export default function SuspenseAccountPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {filteredPetty.map((pc, idx) => {
+                    {rows.length === 0 && (
+                      <tr><td colSpan={11} className="px-2 py-8 text-center text-gray-400 text-sm">No entries for this mode</td></tr>
+                    )}
+                    {rows.map((pc, idx) => {
                       const issued = Number(pc.amount_issued || 0);
                       const acApproved = Number(pc.amount_ac_approved || 0);
                       const spent = Number(pc.amount_spent || 0);
