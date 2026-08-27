@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from 'react';
 import axios from 'axios';
-import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, AlertTriangle, Trash2, ChevronDown, ChevronRight, Eye, ArrowDownCircle, ArrowUpCircle, FileText } from 'lucide-react';
+import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, AlertTriangle, Trash2, ChevronDown, ChevronRight, Eye, ArrowDownCircle, ArrowUpCircle, FileText, Landmark, PiggyBank, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +20,99 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 // per user request. No more K/L/Cr compaction — accountants need to see
 // the exact rupee amount on every row.
 const fmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+
+// ============ Payment-mode breakdown (Aug 27 2026) ============
+// Mirrors the Cashbook's "Payment Modes" tile row (Accounts > Cashbook —
+// Cash / HDFC Current / HDFC Savings / Cheque / Cash DT) so Petty Cash /
+// Material Suspense / Labour Suspense show the same mode-wise breakdown
+// instead of only a raw per-row "Mode" column.
+const SUSPENSE_MODE_BUCKETS = [
+  { key: 'cash', label: 'Cash', Icon: Banknote, accent: 'border-l-amber-500' },
+  { key: 'current_account', label: 'HDFC Current', Icon: Landmark, accent: 'border-l-blue-500' },
+  { key: 'savings_account', label: 'HDFC Savings', Icon: PiggyBank, accent: 'border-l-emerald-500' },
+  { key: 'cheque', label: 'Cheque', Icon: FileText, accent: 'border-l-violet-500' },
+  { key: 'direct_transfer', label: 'Cash DT', Icon: TrendingUp, accent: 'border-l-rose-500' },
+];
+// Same fuzzy-fallback ordering as AccountsBoard.jsx's classifyMode, trimmed
+// to the 5 buckets this page tracks (no petty_cash/misc/suspense/multi here
+// — this page IS the petty-cash/suspense data, so those labels don't apply).
+const classifySuspenseMode = (raw) => {
+  const m = (raw || '').toString().toLowerCase();
+  if (m.includes('saving')) return 'savings_account';
+  if (m.includes('current') || m.includes('bank') || m.includes('neft') || m.includes('rtgs') || m.includes('imps')) return 'current_account';
+  if (m.includes('cheque') || m.includes('check')) return 'cheque';
+  if (m.includes('transfer')) return 'direct_transfer';
+  return 'cash';
+};
+
+// Petty Cash tab — each tile shows Issued / Spent / Balance for that mode,
+// matching the 3 columns already on the Petty Cash table.
+function PettyModeTiles({ rows }) {
+  const breakdown = {};
+  SUSPENSE_MODE_BUCKETS.forEach(b => { breakdown[b.key] = { issued: 0, spent: 0 }; });
+  rows.forEach(pc => {
+    const key = classifySuspenseMode(pc.payment_mode || pc.mode);
+    breakdown[key].issued += Number(pc.amount_issued || 0);
+    breakdown[key].spent += Number(pc.amount_spent || 0);
+  });
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mb-4" data-testid="petty-mode-tiles">
+      {SUSPENSE_MODE_BUCKETS.map(b => {
+        const d = breakdown[b.key];
+        const bal = d.issued - d.spent;
+        const Icon = b.Icon;
+        return (
+          <div key={b.key} className={`rounded-lg border-l-4 ${b.accent} bg-white p-3 shadow-sm`} data-testid={`petty-mode-${b.key}`}>
+            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-gray-600 font-semibold mb-2">
+              <Icon className="h-3 w-3" /> {b.label}
+            </div>
+            <div className="flex items-baseline justify-between text-[11px]">
+              <span className="text-amber-700">Issued</span>
+              <span className="font-semibold text-amber-700">{fmt(d.issued)}</span>
+            </div>
+            <div className="flex items-baseline justify-between text-[11px] mt-0.5">
+              <span className="text-red-600">Spent</span>
+              <span className="font-semibold text-red-600">{fmt(d.spent)}</span>
+            </div>
+            <div className="border-t mt-2 pt-1.5 flex items-baseline justify-between text-[11px]">
+              <span className="text-gray-700">Balance</span>
+              <span className={`font-bold ${bal >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmt(bal)}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Materials / Labour tabs — each vendor/contractor's outstanding balance is
+// already split by mode on its own suspense entries (`entries[].mode`), so
+// this sums that across every vendor/contractor per mode.
+function SuspenseBalanceModeTiles({ balances, colorClass, testPrefix }) {
+  const breakdown = {};
+  SUSPENSE_MODE_BUCKETS.forEach(b => { breakdown[b.key] = 0; });
+  (balances || []).forEach(b => {
+    (b.entries || []).forEach(e => {
+      breakdown[classifySuspenseMode(e.mode)] += Number(e.balance || 0);
+    });
+  });
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mb-4" data-testid={`${testPrefix}-mode-tiles`}>
+      {SUSPENSE_MODE_BUCKETS.map(b => {
+        const Icon = b.Icon;
+        return (
+          <div key={b.key} className={`rounded-lg border-l-4 ${b.accent} bg-white p-3 shadow-sm`} data-testid={`${testPrefix}-mode-${b.key}`}>
+            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-gray-600 font-semibold mb-2">
+              <Icon className="h-3 w-3" /> {b.label}
+            </div>
+            <p className={`text-lg font-bold ${colorClass}`}>{fmt(breakdown[b.key])}</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">Suspense balance</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function SuspenseAccountPage() {
   const [user, setUser] = useState(null);
@@ -341,6 +434,8 @@ export default function SuspenseAccountPage() {
               return filteredPetty.length === 0 ? (
                 <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No accountant-approved petty cash entries</CardContent></Card>
               ) : (
+                <>
+                <PettyModeTiles rows={filteredPetty} />
                 <Card><CardContent className="p-0 overflow-x-auto">
                 <table className="w-full text-xs" data-testid="suspense-petty-table">
                   <thead className="bg-gray-50 border-b">
@@ -408,6 +503,7 @@ export default function SuspenseAccountPage() {
                   </tbody>
                 </table>
               </CardContent></Card>
+                </>
               );
             })()}
           </TabsContent>
@@ -416,6 +512,8 @@ export default function SuspenseAccountPage() {
             {(matSus.balances || []).length === 0 ? (
               <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No material suspense balances</CardContent></Card>
             ) : (
+              <>
+              <SuspenseBalanceModeTiles balances={matSus.balances} colorClass="text-blue-700" testPrefix="material" />
               <Card><CardContent className="p-0">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
@@ -483,6 +581,7 @@ export default function SuspenseAccountPage() {
                   </tbody>
                 </table>
               </CardContent></Card>
+              </>
             )}
           </TabsContent>
 
@@ -490,6 +589,8 @@ export default function SuspenseAccountPage() {
             {(labSus.balances || []).length === 0 ? (
               <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No labour suspense balances</CardContent></Card>
             ) : (
+              <>
+              <SuspenseBalanceModeTiles balances={labSus.balances} colorClass="text-purple-700" testPrefix="labour" />
               <Card><CardContent className="p-0">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
@@ -558,6 +659,7 @@ export default function SuspenseAccountPage() {
                   </tbody>
                 </table>
               </CardContent></Card>
+              </>
             )}
           </TabsContent>
         </Tabs>
