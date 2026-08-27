@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from 'react';
 import axios from 'axios';
-import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, AlertTriangle, Trash2, ChevronDown, ChevronRight, Eye, ArrowDownCircle, ArrowUpCircle, FileText, Landmark, PiggyBank, TrendingUp } from 'lucide-react';
+import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, ArrowLeft, AlertTriangle, Trash2, ChevronDown, ChevronRight, Eye, ArrowDownCircle, ArrowUpCircle, FileText, Landmark, PiggyBank, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -87,8 +87,11 @@ function PettyModeTiles({ rows }) {
 
 // Materials / Labour tabs — each vendor/contractor's outstanding balance is
 // already split by mode on its own suspense entries (`entries[].mode`), so
-// this sums that across every vendor/contractor per mode.
-function SuspenseBalanceModeTiles({ balances, colorClass, testPrefix }) {
+// this sums that across every vendor/contractor per mode. Aug 27 2026 —
+// clickable, same as the Cashbook's Payment Modes tiles: clicking a tile
+// opens a flat drilldown of just that mode's entries (see
+// SuspenseModeDrilldown below) instead of only showing the summed total.
+function SuspenseBalanceModeTiles({ balances, colorClass, testPrefix, onSelect }) {
   const breakdown = {};
   SUSPENSE_MODE_BUCKETS.forEach(b => { breakdown[b.key] = 0; });
   (balances || []).forEach(b => {
@@ -101,7 +104,16 @@ function SuspenseBalanceModeTiles({ balances, colorClass, testPrefix }) {
       {SUSPENSE_MODE_BUCKETS.map(b => {
         const Icon = b.Icon;
         return (
-          <div key={b.key} className={`rounded-lg border-l-4 ${b.accent} bg-white p-3 shadow-sm`} data-testid={`${testPrefix}-mode-${b.key}`}>
+          <div
+            key={b.key}
+            className={`rounded-lg border-l-4 ${b.accent} bg-white p-3 shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all`}
+            data-testid={`${testPrefix}-mode-${b.key}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => onSelect(b.key, b.label)}
+            onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') onSelect(b.key, b.label); }}
+            title={`View all ${b.label} suspense entries`}
+          >
             <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-gray-600 font-semibold mb-2">
               <Icon className="h-3 w-3" /> {b.label}
             </div>
@@ -111,6 +123,82 @@ function SuspenseBalanceModeTiles({ balances, colorClass, testPrefix }) {
         );
       })}
     </div>
+  );
+}
+
+// Flattens every vendor's/contractor's suspense entries into one list,
+// keeping only the ones classified into `modeKey`, and tags each row with
+// which vendor/contractor it belongs to (entries don't carry that name on
+// their own — only the parent balance bucket does).
+const flattenSuspenseEntries = (balances, modeKey) => {
+  const rows = [];
+  (balances || []).forEach(b => {
+    (b.entries || []).forEach(e => {
+      if (classifySuspenseMode(e.mode) === modeKey) {
+        rows.push({ ...e, _partyName: b.name });
+      }
+    });
+  });
+  return rows;
+};
+
+// Flat, single-mode drilldown opened by clicking a SuspenseBalanceModeTiles
+// tile. Deliberately not grouped by vendor/contractor (unlike the default
+// tab view) — the point of clicking "Cash" is to see only the Cash entries.
+function SuspenseModeDrilldown({ label, rows, onBack, colorClass, nameHeader, onDelete, canDelete, testId }) {
+  const total = rows.reduce((s, r) => s + Number(r.balance || 0), 0);
+  return (
+    <Card data-testid={testId}>
+      <CardContent className="p-0">
+        <div className="flex items-center justify-between flex-wrap gap-2 px-4 py-3 border-b">
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" className="h-8 gap-1" onClick={onBack} data-testid={`${testId}-back`}>
+              <ArrowLeft className="h-4 w-4" /> Back
+            </Button>
+            <Badge variant="outline" className="text-xs">{label}</Badge>
+            <span className="text-xs text-gray-400">({rows.length} {rows.length === 1 ? 'entry' : 'entries'})</span>
+          </div>
+          <div className="text-sm font-bold">Total: <span className={colorClass}>{fmt(total)}</span></div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase">{nameHeader}</th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase">Description</th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase">Project</th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase">Date</th>
+                <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase">Balance</th>
+                <th className="px-4 py-2.5 w-14"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {rows.length === 0 ? (
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-sm">No entries for this mode</td></tr>
+              ) : rows.map((e, i) => {
+                const dateStr = e.date ? new Date(e.date).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
+                return (
+                  <tr key={e.ledger_id || e.labour_expense_id || i} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm font-medium text-gray-800">{e._partyName}</td>
+                    <td className="px-4 py-3 text-xs text-gray-600 max-w-[220px] truncate" title={e.label || e.description || ''}>{e.label || e.description || '-'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-600">{e.project_name || '-'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{dateStr}</td>
+                    <td className={`px-4 py-3 text-right text-sm font-bold ${colorClass}`}>{fmt(e.balance)}</td>
+                    <td className="px-4 py-3 text-right">
+                      {canDelete && (
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:bg-red-50" onClick={() => onDelete(e)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -162,6 +250,10 @@ export default function SuspenseAccountPage() {
   // (e.g. duplicate ledger writes). Aggregated balances recompute on next load.
   const canDelete = user?.role === 'super_admin';
   const [expandedSuspense, setExpandedSuspense] = useState({}); // key → bool
+  // Aug 27 2026 — which mode tile (if any) is drilled into on the Materials /
+  // Labour tabs. { key: 'cash'|'current_account'|..., label: 'Cash' } | null
+  const [matModeDrill, setMatModeDrill] = useState(null);
+  const [labModeDrill, setLabModeDrill] = useState(null);
   const toggleExpanded = (key) => setExpandedSuspense(s => ({ ...s, [key]: !s[key] }));
 
   // Jul 03 2026 — Rich delete confirmation dialog that fetches the cascade
@@ -509,11 +601,22 @@ export default function SuspenseAccountPage() {
           </TabsContent>
 
           <TabsContent value="materials" className="mt-4">
-            {(matSus.balances || []).length === 0 ? (
+            {matModeDrill ? (
+              <SuspenseModeDrilldown
+                testId="material-mode-drilldown"
+                label={matModeDrill.label}
+                rows={flattenSuspenseEntries(matSus.balances, matModeDrill.key)}
+                onBack={() => setMatModeDrill(null)}
+                colorClass="text-blue-700"
+                nameHeader="Vendor"
+                canDelete={canDelete}
+                onDelete={deleteMaterialEntry}
+              />
+            ) : (matSus.balances || []).length === 0 ? (
               <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No material suspense balances</CardContent></Card>
             ) : (
               <>
-              <SuspenseBalanceModeTiles balances={matSus.balances} colorClass="text-blue-700" testPrefix="material" />
+              <SuspenseBalanceModeTiles balances={matSus.balances} colorClass="text-blue-700" testPrefix="material" onSelect={(key, label) => setMatModeDrill({ key, label })} />
               <Card><CardContent className="p-0">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
@@ -586,11 +689,22 @@ export default function SuspenseAccountPage() {
           </TabsContent>
 
           <TabsContent value="labour" className="mt-4">
-            {(labSus.balances || []).length === 0 ? (
+            {labModeDrill ? (
+              <SuspenseModeDrilldown
+                testId="labour-mode-drilldown"
+                label={labModeDrill.label}
+                rows={flattenSuspenseEntries(labSus.balances, labModeDrill.key)}
+                onBack={() => setLabModeDrill(null)}
+                colorClass="text-purple-700"
+                nameHeader="Contractor"
+                canDelete={canDelete}
+                onDelete={deleteLabourEntry}
+              />
+            ) : (labSus.balances || []).length === 0 ? (
               <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No labour suspense balances</CardContent></Card>
             ) : (
               <>
-              <SuspenseBalanceModeTiles balances={labSus.balances} colorClass="text-purple-700" testPrefix="labour" />
+              <SuspenseBalanceModeTiles balances={labSus.balances} colorClass="text-purple-700" testPrefix="labour" onSelect={(key, label) => setLabModeDrill({ key, label })} />
               <Card><CardContent className="p-0">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
