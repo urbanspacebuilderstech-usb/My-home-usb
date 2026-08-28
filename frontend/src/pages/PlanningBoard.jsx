@@ -278,6 +278,10 @@ export default function PlanningBoard({ embedded = false }) {
   const [invSummaryLoading, setInvSummaryLoading] = useState(false);
   const [invProjectSearch, setInvProjectSearch] = useState('');
   const [invMaterialSearch, setInvMaterialSearch] = useState([]); // array of selected material names (multi-select)
+  // Aug 27 2026 — Payment filter: paid / partial (advance paid, balance
+  // due) / unpaid, derived server-side from each request's own
+  // advance_amount/balance_amount (see site_ops.py's _material_payment_status).
+  const [invPaymentFilter, setInvPaymentFilter] = useState(''); // '' = All
   const [rateBreakdown, setRateBreakdown] = useState({ open: false, projectName: '', materialName: '', requestNumber: '', loading: false, data: null });
   const openRateBreakdown = async (projectId, projectName, materialName, requestNumber = '') => {
     setRateBreakdown({ open: true, projectName, materialName, requestNumber, loading: true, data: null });
@@ -2284,6 +2288,17 @@ export default function PlanningBoard({ embedded = false }) {
                               />
                             );
                           })()}
+                          <Select value={invPaymentFilter || 'all'} onValueChange={(v) => setInvPaymentFilter(v === 'all' ? '' : v)}>
+                            <SelectTrigger className="h-9 w-40 text-sm" data-testid="inv-summary-payment-filter">
+                              <SelectValue placeholder="Payment" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Payments</SelectItem>
+                              <SelectItem value="paid">Paid</SelectItem>
+                              <SelectItem value="partial">Partial (Advance Paid)</SelectItem>
+                              <SelectItem value="unpaid">Unpaid</SelectItem>
+                            </SelectContent>
+                          </Select>
                           <div className="flex items-center gap-1.5">
                             <Label className="text-xs text-gray-500">Start Date</Label>
                             <input
@@ -2314,7 +2329,8 @@ export default function PlanningBoard({ embedded = false }) {
                         const invMaterialSearchLower = invMaterialSearch.map(n => n.toLowerCase());
                         const filteredInvRows = invSummaryRows.filter(r =>
                           (!invProjectSearch || r.project_name.toLowerCase().includes(invProjectSearch.toLowerCase())) &&
-                          (invMaterialSearchLower.length === 0 || invMaterialSearchLower.includes((r.material_name || '').toLowerCase()))
+                          (invMaterialSearchLower.length === 0 || invMaterialSearchLower.includes((r.material_name || '').toLowerCase())) &&
+                          (!invPaymentFilter || r.payment_status === invPaymentFilter)
                         );
                         const totals = filteredInvRows.reduce((acc, r) => {
                           const rate = Number(r.unit_rate) || 0;
@@ -2327,7 +2343,7 @@ export default function PlanningBoard({ embedded = false }) {
                           <p className="text-center text-gray-400 py-10 text-sm">Loading…</p>
                         ) : filteredInvRows.length === 0 ? (
                           <p className="text-center text-gray-400 py-10 text-sm" data-testid="inv-summary-empty">
-                            {invProjectSearch || invMaterialSearch.length > 0 ? 'No matching results.' : 'No inventory recorded yet.'}
+                            {invProjectSearch || invMaterialSearch.length > 0 || invPaymentFilter ? 'No matching results.' : 'No inventory recorded yet.'}
                           </p>
                         ) : (
                           <>
@@ -2351,6 +2367,7 @@ export default function PlanningBoard({ embedded = false }) {
                                   <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
                                   <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Material</th>
                                   <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Request</th>
+                                  <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Payment</th>
                                   <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Unit</th>
                                   <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Unit (Rate)</th>
                                   <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Current SV</th>
@@ -2371,6 +2388,15 @@ export default function PlanningBoard({ embedded = false }) {
                                     <td className="px-3 py-2 font-medium text-gray-900">{row.project_name}</td>
                                     <td className="px-3 py-2 text-gray-700">{row.material_name}</td>
                                     <td className="px-3 py-2 text-gray-500 font-mono text-[11px]">{row.request_number || '—'}</td>
+                                    <td className="px-3 py-2">
+                                      {row.payment_status === 'paid' ? (
+                                        <span className="inline-flex text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">Paid</span>
+                                      ) : row.payment_status === 'partial' ? (
+                                        <span className="inline-flex text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">Partial</span>
+                                      ) : (
+                                        <span className="inline-flex text-[10px] font-semibold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full">Unpaid</span>
+                                      )}
+                                    </td>
                                     <td className="px-3 py-2 text-gray-500">{row.unit || '—'}</td>
                                     <td className="px-3 py-2 text-right text-gray-600">
                                       <span className="inline-flex items-center gap-1 justify-end">

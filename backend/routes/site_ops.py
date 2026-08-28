@@ -817,6 +817,29 @@ async def _inventory_rows_for_projects(project_name_map: Dict[str, str], date_fr
     return rows
 
 
+def _material_payment_status(d: dict) -> str:
+    """paid / partial / unpaid, derived from the material_request's own
+    advance_amount / balance_amount / total_amount — the same fields
+    Pay & Settle itself treats as the actively-maintained source of truth
+    (see financial.py's payment-dialog builder, "The parent's total_amount
+    is the actively-maintained source of truth here"). Works the same way
+    regardless of payment_type (advance/full/credit/post_delivery) — a
+    credit settlement, a balance payment, and a straight full payment all
+    write balance_amount back to 0 on this exact field/collection
+    (procurement.py's credit-settle and verify-delivery balance recompute)."""
+    total = float(d.get("total_amount") or d.get("final_price") or d.get("estimated_price") or 0)
+    advance = float(d.get("advance_amount") or 0)
+    balance = d.get("balance_amount")
+    balance = float(balance) if balance is not None else max(0.0, total - advance)
+    if total <= 0:
+        return "unpaid"  # never priced yet, so nothing's been paid either
+    if balance <= 0.5:
+        return "paid"
+    if advance > 0:
+        return "partial"
+    return "unpaid"
+
+
 async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str], date_from: str, date_to: str) -> list:
     """Per-REQUEST material rollup for Planning's Inventory sub-tab — one row
     per priced material_request rather than one merged row per material, so
@@ -878,6 +901,7 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
                 "receive_date": receive_date,
                 "today_in": 0.0,
                 "today_out": 0.0,
+                "payment_status": _material_payment_status(d),
             })
         for batches in batches_by_material.values():
             batches.sort(key=lambda b: b["receive_date"] or "")
@@ -934,6 +958,7 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
                     "today_out": b["today_out"],
                     "min_threshold": threshold,
                     "is_low_stock": is_low,
+                    "payment_status": b["payment_status"],
                 })
     # Within the same material, exhausted batches (Current Stock 0) sink to
     # the bottom — a request with real stock left is more useful to see
