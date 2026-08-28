@@ -3430,6 +3430,23 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
     eff_discount = float(req.get("discount") or 0)
     new_total = round(max(0.0, eff_qty * eff_unit + eff_transport - eff_discount), 2)
     current_total = float(req.get("total_amount") or req.get("estimated_price") or 0)
+    # Aug 28 2026 — Record what Procurement actually signed off, ALWAYS. These
+    # audit fields used to be written only inside the recompute branch below,
+    # so a verification that left the total unchanged — the common case, since
+    # the dialog pre-fills the SE-reported qty and the assigned unit price and
+    # Procurement usually just confirms them — stamped no qty/price at all and
+    # the Timeline had nothing to show. `_original_*` are the pre-fill values
+    # the dialog opened with, so the pair reads as "what came in → what was
+    # approved". Purely additive: the recompute condition below is untouched.
+    update.update({
+        "procurement_verified_qty": eff_qty,
+        "procurement_verified_unit_price": eff_unit,
+        "procurement_verified_total": new_total,
+        "procurement_original_received_qty": req.get("received_quantity"),
+        "procurement_original_unit_price": req.get("unit_price") or req.get("unit_rate"),
+        "procurement_corrected_qty": qty_changed,
+        "procurement_corrected_price": price_changed,
+    })
     if abs(new_total - current_total) > 0.01:
         advance_paid = float(req.get("advance_paid_amount") or 0)
         new_balance = max(0.0, new_total - advance_paid)
@@ -3437,10 +3454,6 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
             "received_quantity": eff_qty,
             "unit_price": eff_unit,
             "unit_rate": eff_unit,
-            "procurement_corrected_qty": qty_changed,
-            "procurement_corrected_price": price_changed,
-            "procurement_original_received_qty": req.get("received_quantity"),
-            "procurement_original_unit_price": req.get("unit_price") or req.get("unit_rate"),
             "total_amount": new_total,
             "estimated_price": new_total,
             "estimated_cost": new_total,

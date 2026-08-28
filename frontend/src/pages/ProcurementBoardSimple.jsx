@@ -1698,7 +1698,33 @@ function buildTimeline(r) {
     r.dp_copy_image_id && '📷 DP Copy',
     !r.vehicle_front_image_id && !r.vehicle_side_image_id && r.lorry_image_id && '📷 Lorry img',
   ].filter(Boolean).join(' · '));
-  push(r.procurement_verified_at, 'fuchsia', 'Procurement verified delivery', r.procurement_verified_by_name, '');
+  // Aug 28 2026 — Show what Procurement approved at verification: the
+  // Received Qty and Unit Price it signed off, with an "old → new" arrow for
+  // anything it corrected from the figures the Verify dialog opened with.
+  // Rows verified before the backend started stamping these fall back to the
+  // request's current qty/price, so historical entries still read correctly —
+  // but with no `_original_*` to compare against they show no arrow, which is
+  // right: we don't know whether those were corrected.
+  {
+    const vQty = r.procurement_verified_qty ?? r.received_quantity;
+    const vUnit = r.procurement_verified_unit_price ?? r.unit_price ?? r.unit_rate;
+    const oQty = r.procurement_original_received_qty;
+    const oUnit = r.procurement_original_unit_price;
+    const num = (n) => Number(n).toLocaleString('en-IN');
+    const qtyChanged = r.procurement_corrected_qty && oQty != null
+      && Math.abs(Number(oQty || 0) - Number(vQty || 0)) > 0.01;
+    const priceChanged = r.procurement_corrected_price && oUnit != null
+      && Math.abs(Number(oUnit || 0) - Number(vUnit || 0)) > 0.01;
+    push(r.procurement_verified_at, 'fuchsia', 'Procurement verified delivery', r.procurement_verified_by_name, [
+      vQty != null && vQty !== '' &&
+        `Received Qty ${qtyChanged ? `${num(oQty)} → ${num(vQty)}` : num(vQty)}${r.unit ? ` ${r.unit}` : ''}`,
+      vUnit != null && vUnit !== '' &&
+        `Unit Price ${priceChanged ? `₹${num(oUnit)} → ₹${num(vUnit)}` : `₹${num(vUnit)}`}`,
+      r.procurement_verified_total != null && `Total ${fmt(r.procurement_verified_total)}`,
+      r.procurement_verify_invoice_no && `Invoice ${r.procurement_verify_invoice_no}`,
+      (qtyChanged || priceChanged) && '✏️ corrected at verification',
+    ].filter(Boolean).join(' · '));
+  }
   push(r.delivered_at, 'emerald', 'Delivered / closed', '', '');
   push(r.credit_settled_at, 'emerald', 'Credit ledger settled', '', '');
   // Sort ascending; drop any un-parseable timestamps.
