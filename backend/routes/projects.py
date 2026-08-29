@@ -4904,6 +4904,7 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     # Now logs + surfaces the error (Super-Admin/financial-roles-only
     # response) so a recurrence is diagnosable instead of invisible.
     _addition_heal_error = None
+    _addition_heal_debug = None
     try:
         addition_stages = await db.payment_stages.find(
             {"project_id": project_id, "is_addition": True},
@@ -4948,6 +4949,24 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
             label = stage.get("stage_label") or stage.get("stage_name") or ""
             total += approved_by_label_legacy.get(label, 0.0)
             return float(total)
+
+        # TEMP DEBUG (Aug 29 2026) — remove once the Mr Sridhar "Elevation
+        # work" investigation is closed. Dumps every is_addition stage on
+        # this project plus the exact approved_total each one resolves to,
+        # so a stale duplicate/overlapping stage silently winning the last
+        # write can be caught directly instead of guessed at.
+        _addition_heal_debug = [
+            {
+                "stage_id": s.get("stage_id"),
+                "stage_name": s.get("stage_name"),
+                "is_section_addition": s.get("is_section_addition"),
+                "linked_addition_id": s.get("linked_addition_id"),
+                "linked_addition_ids_count": len(s.get("linked_addition_ids") or []),
+                "stored_amount_received": s.get("amount_received"),
+                "computed_approved_total": _approved_for_stage(s),
+            }
+            for s in addition_stages
+        ]
 
         # Single-row addition stages — preserve legacy behavior but use APPROVED total
         single_cost_ids = [s.get("linked_addition_id") for s in addition_stages if s.get("linked_addition_id") and not s.get("is_section_addition")]
@@ -5176,6 +5195,7 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
         # self-heal above threw. Diagnostic only; safe to expose since this
         # endpoint is already gated to financial roles.
         "_addition_heal_error": _addition_heal_error,
+        "_addition_heal_debug": _addition_heal_debug,
     }
 
 
