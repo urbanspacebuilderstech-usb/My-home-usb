@@ -4895,6 +4895,15 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     # still awaiting Accountant approval. The Additional Work section UI
     # must only count money that has been **accountant-approved** so the
     # planner doesn't see premature "Received" figures. Feb 2026.
+    # Aug 29 2026 — was `except Exception: pass`, which made this heal fail
+    # SILENTLY: additional_costs.income_received could get stuck stale
+    # forever with zero trace anywhere (reported: Mr Sridhar "Elevation
+    # work" section stuck at ₹82,798.515 received even though the real,
+    # correctly-linked income for it was ₹1,22,029 — every call to this
+    # endpoint hit whatever was throwing here and just silently gave up).
+    # Now logs + surfaces the error (Super-Admin/financial-roles-only
+    # response) so a recurrence is diagnosable instead of invisible.
+    _addition_heal_error = None
     try:
         addition_stages = await db.payment_stages.find(
             {"project_id": project_id, "is_addition": True},
@@ -5033,9 +5042,16 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
                     set_doc["cre_approved"] = False
                 if set_doc:
                     await db.additional_costs.update_one({"cost_id": cid}, {"$set": set_doc})
-    except Exception:
-        # Auto-heal is best-effort; never fail full-details rendering.
-        pass
+    except Exception as _heal_exc:
+        # Auto-heal is best-effort; never fail full-details rendering — but
+        # DO leave a trace instead of disappearing without one (see Aug 29
+        # 2026 comment above).
+        import traceback
+        logger.warning(
+            "additional_costs income_received self-heal failed for project %s: %s\n%s",
+            project_id, _heal_exc, traceback.format_exc(),
+        )
+        _addition_heal_error = f"{type(_heal_exc).__name__}: {_heal_exc}"
 
     # Locked Project Value (= FE scope_total at last CRE approval) is just a
     # cached copy. Live FE scope_total is the AUTHORITATIVE source — the user
@@ -5155,7 +5171,11 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
             "stages_paid": stages_paid,
             "stages_partial": stages_partial,
             "stages_pending": stages_pending
-        }
+        },
+        # Aug 29 2026 — only present when the additional_costs.income_received
+        # self-heal above threw. Diagnostic only; safe to expose since this
+        # endpoint is already gated to financial roles.
+        "_addition_heal_error": _addition_heal_error,
     }
 
 
