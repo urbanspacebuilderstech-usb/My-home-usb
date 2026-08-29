@@ -4904,7 +4904,6 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     # Now logs + surfaces the error (Super-Admin/financial-roles-only
     # response) so a recurrence is diagnosable instead of invisible.
     _addition_heal_error = None
-    _addition_heal_debug = None
     try:
         addition_stages = await db.payment_stages.find(
             {"project_id": project_id, "is_addition": True},
@@ -4949,24 +4948,6 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
             label = stage.get("stage_label") or stage.get("stage_name") or ""
             total += approved_by_label_legacy.get(label, 0.0)
             return float(total)
-
-        # TEMP DEBUG (Aug 29 2026) — remove once the Mr Sridhar "Elevation
-        # work" investigation is closed. Dumps every is_addition stage on
-        # this project plus the exact approved_total each one resolves to,
-        # so a stale duplicate/overlapping stage silently winning the last
-        # write can be caught directly instead of guessed at.
-        _addition_heal_debug = [
-            {
-                "stage_id": s.get("stage_id"),
-                "stage_name": s.get("stage_name"),
-                "is_section_addition": s.get("is_section_addition"),
-                "linked_addition_id": s.get("linked_addition_id"),
-                "linked_addition_ids_count": len(s.get("linked_addition_ids") or []),
-                "stored_amount_received": s.get("amount_received"),
-                "computed_approved_total": _approved_for_stage(s),
-            }
-            for s in addition_stages
-        ]
 
         # Single-row addition stages — preserve legacy behavior but use APPROVED total
         single_cost_ids = [s.get("linked_addition_id") for s in addition_stages if s.get("linked_addition_id") and not s.get("is_section_addition")]
@@ -5049,8 +5030,26 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
                 # -27,200 balance. A row can never have received more than it
                 # is worth, so clamp it; any genuine surplus belongs to the
                 # section's other rows, not to this one.
+                #
+                # Aug 29 2026 — `min(share, row_total)` silently assumed
+                # row_total is always positive. For a deduction/correction row
+                # (row_total < 0, e.g. Mr Sridhar's "Balcony elevation" −₹34,500
+                # and "cladding work upto 100 sqft" −₹15,000 inside "Elevation
+                # work"), `min()` between a small negative pro-rata share and a
+                # LARGE negative row_total always picks the more-negative
+                # row_total — so a deduction row jumped to its FULL negative
+                # value the instant ANY collection happened, permanently
+                # dragging the section's summed income_received down by the
+                # deduction's whole amount regardless of how much was actually
+                # collected (the section stuck showing ₹82,798.515 received
+                # forever even after a ₹1,22,029 collection, because computing
+                # the correct ₹1,22,029 got clamped straight back down by
+                # −₹49,500 of deductions every single time). A deduction is an
+                # adjustment to what's owed, not something collected — it must
+                # scale with the SAME collection % as every other row, so clamp
+                # toward zero from whichever side row_total is actually on.
                 share = (row_total / grand) * approved_total if grand else 0
-                share = min(share, row_total)
+                share = min(share, row_total) if row_total >= 0 else max(share, row_total)
                 set_doc = {}
                 current_received = r.get("income_received", 0) or 0
                 if abs(share - current_received) > 0.5:
@@ -5195,7 +5194,6 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
         # self-heal above threw. Diagnostic only; safe to expose since this
         # endpoint is already gated to financial roles.
         "_addition_heal_error": _addition_heal_error,
-        "_addition_heal_debug": _addition_heal_debug,
     }
 
 
