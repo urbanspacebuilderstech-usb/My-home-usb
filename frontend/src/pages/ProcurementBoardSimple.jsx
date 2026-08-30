@@ -54,6 +54,9 @@ const MATERIAL_CATEGORIES = ['cement','sand','steel','bricks','aggregate','tiles
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
+// Plain grouped number — for quantities, where `fmt`'s currency symbol and
+// 0-decimal rounding would both be wrong.
+const num = (n) => Number(n).toLocaleString('en-IN');
 
 // Page-level NAV intentionally removed — the three former entries
 // (Dashboard / All Projects / Material Vendors) now live as sub-tabs inside
@@ -1629,14 +1632,23 @@ const SELECTABLE_PAYMENT_MODES = ['advance', 'post_delivery'];
 // planning initial → PM → procurement → planning → accountant → transit →
 // receive → verify → deliver). Every event carries an actor, tone (color)
 // and optional detail line so the Timeline tab reads as an audit trail.
-function buildTimeline(r) {
+function buildTimeline(r, qtyHistory = [], applied = {}) {
   if (!r) return [];
+  // What each step applied, recovered from audit_logs. Used only where the
+  // document has since been overwritten and carries no frozen stamp — i.e.
+  // requests that predate those stamps.
+  const at = (action, field) => (applied?.[action] || {})[field] ?? null;
   const events = [];
   const push = (at, tone, title, actor, detail) => {
     if (!at) return;
     events.push({ at, tone, title, actor: actor || '', detail: detail || '' });
   };
-  push(r.created_at, 'sky', 'Request created', r.site_engineer_name || r.requested_by_name, `Qty ${r.quantity} ${r.unit || ''} · ${r.material_name}${r.brand ? ` · ${r.brand}` : ''}`);
+  // What the SE originally raised. Planning's edit overwrites `quantity` in
+  // place, which made this row report Planning's figure as the SE's request.
+  // `at('planning_initial_approve','quantity')` is what Planning changed it TO,
+  // so it is deliberately not a fallback here — only the frozen original is.
+  const reqQty = r.se_requested_quantity ?? r.quantity;
+  push(r.created_at, 'sky', 'Request created', r.site_engineer_name || r.requested_by_name, `Qty ${reqQty} ${r.unit || ''} · ${r.material_name}${r.brand ? ` · ${r.brand}` : ''}`);
   if (r.is_high_priority && r.priority_updated_at) {
     push(r.priority_updated_at, 'red', 'Marked HIGH PRIORITY', r.priority_updated_by_name, '');
   }
@@ -1645,10 +1657,21 @@ function buildTimeline(r) {
   push(r.planning_initial_resubmitted_at, 'amber', 'SE resubmitted after planning rework', r.site_engineer_name, '');
   push(r.pm_approved_at, 'emerald', 'PM approved', r.pm_approved_by_name, '');
   push(r.pm_rejected_at, 'red', 'PM rejected', r.pm_rejected_by_name, r.pm_rejection_reason);
+  // Values AS ASSIGNED. verify-approve and change-vendor overwrite unit_price /
+  // approved_quantity / total_amount in place, so reading the current document
+  // here showed a later correction as though this person had entered it. Newer
+  // requests carry the frozen `procurement_priced_*`; older ones have only the
+  // current fields, which is the best available answer for them.
+  const pxQty = r.procurement_priced_qty ?? at('assign_vendor', 'approved_quantity') ?? r.approved_quantity;
+  const pxUnit = r.procurement_priced_unit_price ?? at('assign_vendor', 'unit_price') ?? r.unit_price ?? r.unit_rate;
+  const pxTotal = r.procurement_priced_total ?? at('assign_vendor', 'total_amount') ?? r.total_amount ?? r.estimated_price;
   push(r.procurement_priced_at, 'amber', 'Procurement assigned vendor', r.procurement_priced_by_name, [
     r.vendor_name && `Vendor: ${r.vendor_name}`,
-    (r.unit_price || r.unit_rate) && `Unit ₹${Number(r.unit_price || r.unit_rate).toLocaleString('en-IN')}`,
-    (r.total_amount || r.estimated_price) && `Total ${fmt(r.total_amount || r.estimated_price)}`,
+    // The Details tab's "Approved Qty" is set here, but the event never showed
+    // it — leaving a figure on screen that no Timeline entry accounted for.
+    (pxQty ?? null) !== null && `Approved Qty ${num(pxQty)}${r.unit ? ` ${r.unit}` : ''}`,
+    pxUnit && `Unit ₹${Number(pxUnit).toLocaleString('en-IN')}`,
+    pxTotal && `Total ${fmt(pxTotal)}`,
     r.payment_mode && `Mode: ${r.payment_mode}`,
   ].filter(Boolean).join(' · '));
   push(r.procurement_rejected_at, 'red', 'Procurement rejected', r.procurement_rejected_by_name, r.procurement_rejection_reason);
@@ -1676,7 +1699,13 @@ function buildTimeline(r) {
   push(r.revision_requested_at, 'orange', 'Planning sent back for revision', r.revision_requested_by_name, r.revision_remarks);
   push(r.planning_approved_at, 'emerald', 'Planning approved', r.planning_approved_by_name, '');
   push(r.planning_rejected_at, 'red', 'Planning rejected', r.planning_rejected_by_name, r.planning_rejection_reason);
-  push(r.planning_edited_at, 'blue', 'Planning edited price / qty', r.planning_edited_by_name, '');
+  // Say WHAT Planning changed. The row named the editor but showed nothing,
+  // so a qty edit was invisible unless you compared two other rows by eye.
+  push(r.planning_edited_at, 'blue', 'Planning edited price / qty', r.planning_edited_by_name, [
+    r.se_requested_quantity != null && r.quantity != null
+      && Math.abs(Number(r.se_requested_quantity) - Number(r.quantity)) > 0.01
+      && `Qty ${num(r.se_requested_quantity)} → ${num(r.quantity)}${r.unit ? ` ${r.unit}` : ''}`,
+  ].filter(Boolean).join(' · '));
   push(r.accountant_approved_at || r.accounts_at, 'cyan', 'Accountant approved payment', r.accountant_approved_by_name || r.accounts_by, '');
   push(r.payment_requested_at, 'cyan', 'Payment requested to Accountant', r.payment_requested_by, '');
   push(r.paid_at, 'emerald', 'Payment released', r.paid_by, '');
@@ -1691,8 +1720,15 @@ function buildTimeline(r) {
   push(r.balance_paid_at, 'emerald', 'Accountant released balance payment', r.balance_paid_by_name, r.balance_paid_amount ? fmt(r.balance_paid_amount) : '');
   push(r.po_generated_at, 'blue', 'Purchase Order generated', r.generated_by, r.po_id ? `PO: ${r.po_id}` : '');
   push(r.dispatched_at, 'sky', 'Vendor dispatched material', '', '');
+  // What the SE actually reported. verify-approve overwrites `received_quantity`
+  // with Procurement's corrected figure, so this row was crediting the SE with
+  // a number they never entered. `se_reported_quantity` is stamped at receipt;
+  // for rows predating it, the qty Procurement saw when it opened the Verify
+  // dialog is the same value, and only then the current field.
+  const seQty = r.se_reported_quantity ?? at('mark_received', 'received_quantity')
+    ?? r.procurement_original_received_qty ?? r.received_quantity;
   push(r.received_at, 'sky', 'SE received material', r.received_by_name, [
-    r.received_quantity && `Qty ${r.received_quantity} ${r.unit || ''}`,
+    seQty != null && seQty !== '' && `Qty ${num(seQty)} ${r.unit || ''}`.trim(),
     (r.vehicle_front_image_id || r.vehicle_side_image_id) && '📷 Vehicle img',
     r.material_image_id && '📷 Material img',
     r.dp_copy_image_id && '📷 DP Copy',
@@ -1710,7 +1746,6 @@ function buildTimeline(r) {
     const vUnit = r.procurement_verified_unit_price ?? r.unit_price ?? r.unit_rate;
     const oQty = r.procurement_original_received_qty;
     const oUnit = r.procurement_original_unit_price;
-    const num = (n) => Number(n).toLocaleString('en-IN');
     const qtyChanged = r.procurement_corrected_qty && oQty != null
       && Math.abs(Number(oQty || 0) - Number(vQty || 0)) > 0.01;
     const priceChanged = r.procurement_corrected_price && oUnit != null
@@ -1727,6 +1762,20 @@ function buildTimeline(r) {
   }
   push(r.delivered_at, 'emerald', 'Delivered / closed', '', '');
   push(r.credit_settled_at, 'emerald', 'Credit ledger settled', '', '');
+  // Aug 28 2026 — Qty / price changes reconstructed from audit_logs by
+  // /qty-history. The request document keeps only the CURRENT approved_quantity
+  // and unit_price, so a figure could sit in the Details tab with nothing in the
+  // Timeline saying who put it there. These rows name that person. Only genuine
+  // movements come back from the endpoint, so a step that re-confirmed the same
+  // number adds no noise here.
+  (qtyHistory || []).forEach((h) => {
+    const detail = (h.changes || []).map((c) => (
+      c.kind === 'money'
+        ? `${c.label} ₹${num(c.from)} → ₹${num(c.to)}`
+        : `${c.label} ${num(c.from)} → ${num(c.to)}${r.unit ? ` ${r.unit}` : ''}`
+    )).join(' · ');
+    push(h.at, 'blue', h.title || 'Qty / price changed', h.by_name, detail);
+  });
   // Sort ascending; drop any un-parseable timestamps.
   return events
     .map(e => ({ ...e, ts: new Date(e.at).getTime() }))
@@ -1747,7 +1796,26 @@ const TIMELINE_TONE = {
 };
 
 function TimelineView({ item }) {
-  const events = useMemo(() => buildTimeline(item), [item]);
+  // Who changed the qty / price, from audit_logs. Best-effort: if this fails
+  // the Timeline still renders everything it could before, just without the
+  // change rows — it must never block the lifecycle view.
+  const [history, setHistory] = useState({ events: [], applied: {} });
+  const requestId = item?.request_id;
+  useEffect(() => {
+    if (!requestId) { setHistory({ events: [], applied: {} }); return undefined; }
+    let cancelled = false;
+    axios.get(`${API}/procurement-simple/material-requests/${requestId}/qty-history`)
+      .then((r) => {
+        if (cancelled) return;
+        setHistory({ events: r.data?.events || [], applied: r.data?.applied || {} });
+      })
+      .catch(() => { if (!cancelled) setHistory({ events: [], applied: {} }); });
+    return () => { cancelled = true; };
+  }, [requestId]);
+  const events = useMemo(
+    () => buildTimeline(item, history.events, history.applied),
+    [item, history],
+  );
   if (!events.length) {
     return <p className="text-center text-xs text-gray-400 py-10">No lifecycle activity yet.</p>;
   }

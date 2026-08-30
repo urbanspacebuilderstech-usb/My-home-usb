@@ -2685,6 +2685,14 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
         "procurement_priced_by": user.user_id,
         "procurement_priced_by_name": user.name,
         "procurement_priced_at": now,
+        # Aug 28 2026 — Freeze what was assigned HERE. verify-approve and
+        # change-vendor both overwrite unit_price / approved_quantity /
+        # total_amount in place, so the Timeline's "Procurement assigned
+        # vendor" row was showing whatever those later steps left behind
+        # rather than the price this person actually assigned.
+        "procurement_priced_qty": qty,
+        "procurement_priced_unit_price": unit_price,
+        "procurement_priced_total": estimated_price,
         # Procurement-approve also stamps the transit start so SE sees "Collect Material" CTA
         "transit_started_at": now,
         "transit_started_by": user.user_id,
@@ -3588,6 +3596,149 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
     return {"message": "Delivery verified", "status": next_status}
 
 
+# Fields whose changes are worth surfacing on the Timeline, in display order.
+# `approved_quantity` is the one the Details tab shows as "Approved Qty" — the
+# figure that had no Timeline entry at all before this endpoint existed.
+_QTY_HISTORY_FIELDS = [
+    ("approved_quantity", "Approved Qty", "qty"),
+    ("quantity", "Requested Qty", "qty"),
+    ("unit_price", "Unit Price", "money"),
+    ("received_quantity", "Received Qty", "qty"),
+]
+
+# Audit action -> how it should read on the Timeline. Anything not listed still
+# appears, labelled by its raw action, rather than being silently dropped.
+_QTY_HISTORY_ACTIONS = {
+    "assign_vendor": "Procurement set qty / price",
+    "change_vendor": "Vendor change adjusted qty / price",
+    "planning_initial_approve": "Planning edited qty / price",
+    "planning_approve": "Planning approved qty",
+    "verify_approve": "Procurement verified qty / price",
+    "recalculate_amount": "Amount recalculated",
+    "mark_received": "SE reported received qty",
+}
+
+
+@router.get("/procurement-simple/material-requests/{request_id}/qty-history")
+async def material_request_qty_history(request_id: str, user: User = Depends(get_current_user)):
+    """Who changed the qty / price on this request, and when.
+
+    The request document stores only the CURRENT approved_quantity / unit_price,
+    so the Details tab could show an "Approved Qty" that no Timeline entry
+    accounted for — there was no way to tell who entered it. Every one of these
+    transitions already writes an audit_logs row carrying the update payload it
+    applied, so the trail can be reconstructed rather than newly recorded.
+
+    Read-only: reads audit_logs and resolves user names. Writes nothing, and
+    changes no amount. Only transitions that actually MOVED a tracked value are
+    returned, so a step that merely re-confirmed the same figure stays quiet.
+    """
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PLANNING,
+                         UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    logs = await db.audit_logs.find(
+        {"resource_type": "material_request", "resource_id": request_id},
+        {"_id": 0, "timestamp": 1, "user_id": 1, "action": 1, "details": 1},
+    ).sort("timestamp", 1).to_list(500)
+    if not logs:
+        return {"request_id": request_id, "events": []}
+
+    user_ids = list({l.get("user_id") for l in logs if l.get("user_id")})
+    names = {u["user_id"]: u.get("name") for u in await db.users.find(
+        {"user_id": {"$in": user_ids}}, {"_id": 0, "user_id": 1, "name": 1}
+    ).to_list(200)} if user_ids else {}
+
+    return {"request_id": request_id,
+            "events": derive_qty_history_events(req.get("quantity"), logs, names),
+            "applied": derive_applied_snapshots(logs)}
+
+
+# Fields worth recovering per step, beyond the ones diffed above.
+_APPLIED_FIELDS = ["approved_quantity", "quantity", "unit_price", "unit_rate",
+                   "received_quantity", "total_amount", "estimated_price"]
+
+
+def derive_applied_snapshots(logs):
+    """Pure: action -> the values that action actually applied.
+
+    Lets the Timeline show each step's OWN figures on requests that predate the
+    `procurement_priced_*` / `se_reported_quantity` stamps, where the document
+    has since been overwritten by a later correction and no longer remembers
+    what was entered at the time. Last write per action wins, matching the
+    single-shot nature of these transitions.
+    """
+    applied = {}
+    for log in logs:
+        details = log.get("details") or {}
+        action = log.get("action")
+        if not action or not isinstance(details, dict):
+            continue
+        vals = {f: _to_float(details[f]) for f in _APPLIED_FIELDS
+                if f in details and _to_float(details[f]) is not None}
+        if vals:
+            applied.setdefault(action, {}).update(vals)
+    return applied
+
+
+def derive_qty_history_events(requested_quantity, logs, names):
+    """Pure: audit rows -> the qty/price movements worth showing, oldest first.
+
+    Split out from the endpoint so it is directly testable without a database.
+    `logs` must already be sorted oldest-first; `names` maps user_id -> name.
+    """
+    # Baseline: what the SE originally asked for. Without this, the first time
+    # a field appears in an audit payload looks like a change from nothing and
+    # every request would open with a spurious "0 -> n" event.
+    base = _to_float(requested_quantity)
+    prev = {"approved_quantity": base, "quantity": base}
+    events = []
+    for log in logs:
+        details = log.get("details") or {}
+        if not isinstance(details, dict):
+            continue
+        changes = []
+        for field, label, kind in _QTY_HISTORY_FIELDS:
+            if field not in details:
+                continue
+            new_val = _to_float(details.get(field))
+            if new_val is None:
+                continue
+            old_val = prev.get(field)
+            prev[field] = new_val
+            # First-ever value for a field carries no "from", so there is
+            # nothing to compare and nothing meaningful to show as a change.
+            if old_val is None or abs(old_val - new_val) <= 0.01:
+                continue
+            changes.append({"field": field, "label": label, "kind": kind,
+                            "from": old_val, "to": new_val})
+        if not changes:
+            continue
+        action = log.get("action") or ""
+        events.append({
+            "at": log.get("timestamp"),
+            "action": action,
+            "title": _QTY_HISTORY_ACTIONS.get(action, action.replace("_", " ").title() or "Changed"),
+            "by_name": names.get(log.get("user_id")) or "Unknown",
+            "changes": changes,
+        })
+    return events
+
+
+def _to_float(v):
+    """None for anything non-numeric, so a missing/blank field is never
+    mistaken for a real 0 and reported as a change to zero."""
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 @router.post("/procurement-simple/material-requests/{request_id}/recalculate-amount")
 async def recalculate_material_request_amount(request_id: str, user: User = Depends(get_current_user)):
     """Self-service correction for requests verified BEFORE the verify-approve
@@ -3766,6 +3917,13 @@ async def procurement_simple_planning_initial_approve(request_id: str, data: dic
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="Invalid steel_specs payload")
     if edits:
+        # Aug 28 2026 — Preserve what the SE originally asked for the FIRST time
+        # Planning overwrites `quantity`. Without it the Timeline's "Request
+        # created" row rendered Planning's edited figure as the SE's own, and
+        # the "Planning edited price / qty" row had nothing to compare against.
+        if "quantity" in edits and req.get("quantity") is not None \
+                and req.get("se_requested_quantity") is None:
+            edits["se_requested_quantity"] = req.get("quantity")
         edits["planning_edited_at"] = now
         edits["planning_edited_by"] = user.user_id
         edits["planning_edited_by_name"] = user.name
@@ -4328,6 +4486,11 @@ async def procurement_simple_mark_received(request_id: str, data: dict, user: Us
         "received_by": user.user_id,
         "received_by_name": user.name,
         "received_quantity": received_qty,
+        # Aug 28 2026 — Keep what the SE actually reported. verify-approve
+        # overwrites `received_quantity` with Procurement's corrected figure,
+        # so the Timeline's "SE received material" row was rendering the
+        # CORRECTED number as though the SE had reported it.
+        "se_reported_quantity": received_qty,
         "delivery_notes": notes,
     }
 
