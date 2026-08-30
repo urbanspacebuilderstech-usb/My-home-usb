@@ -207,6 +207,46 @@ app.add_middleware(
 )
 
 
+SHEETS_DEFAULT_INTERVAL_HOURS = 1
+
+
+def sheets_config_is_due(config: dict, now: datetime) -> bool:
+    """Whether this auto-sync config is due to run at `now`.
+
+    The scheduler ticks every 60s regardless (configs may have different
+    intervals, so the loop itself must not sleep for any one of them). This
+    decides, per config, whether that tick should do any Google work at all.
+
+    Due when the config has never run, when its stored timestamp is missing or
+    unparseable, or when interval_hours have elapsed since the last ATTEMPT.
+    Stamping attempts rather than successes matters: a config whose sync keeps
+    failing would otherwise stay permanently due and hammer the Google API
+    every 60 seconds - the exact behaviour this is fixing. It still retries,
+    just on its normal interval.
+
+    A missing, non-numeric or non-positive interval_hours falls back to the
+    same 1 hour the API model defaults to; 0 is not a meaningful schedule and
+    must not be read as "every tick".
+    """
+    try:
+        interval = float(config.get("interval_hours") or 0)
+    except (TypeError, ValueError):
+        interval = 0.0
+    if interval <= 0:
+        interval = SHEETS_DEFAULT_INTERVAL_HOURS
+
+    raw = config.get("last_run_at")
+    if not raw:
+        return True  # never run under the scheduler - run now, then on interval
+    try:
+        last = datetime.fromisoformat(str(raw))
+    except (TypeError, ValueError):
+        return True  # unreadable timestamp must not wedge a config off forever
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return (now - last).total_seconds() >= interval * 3600
+
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
@@ -492,10 +532,33 @@ async def startup_init():
                     # Get all auto-sync configs that are enabled
                     configs = await sync_db.sheets_auto_sync.find({"enabled": True}, {"_id": 0}).to_list(50)
 
+                    now = datetime.now(timezone.utc)
+                    due_count = 0
                     for config in configs:
                         user_id = config.get("user_id")
                         if not user_id:
                             continue
+
+                        # Aug 29 2026 — Honour each config's interval_hours. This
+                        # loop ignored it entirely and did the full Google round
+                        # trip for every enabled config every 60 seconds, so an
+                        # interval_hours=1 config was hitting the Sheets API ~60x
+                        # more than configured (and forcing a token refresh each
+                        # time). Checked BEFORE the connected_sheets lookup, the
+                        # token load and any API call, so a config that is not due
+                        # costs nothing beyond this comparison.
+                        if not sheets_config_is_due(config, now):
+                            continue
+                        due_count += 1
+
+                        # Stamp the attempt before doing the work. On success or
+                        # failure this config is now not due for another interval,
+                        # so a persistently failing sync retries on schedule
+                        # instead of every 60 seconds.
+                        await sync_db.sheets_auto_sync.update_one(
+                            {"user_id": user_id},
+                            {"$set": {"last_run_at": now.isoformat()}},
+                        )
 
                         # Get connected sheets for this user
                         connected = await sync_db.connected_sheets.find({"user_id": user_id}, {"_id": 0}).to_list(50)
@@ -688,7 +751,10 @@ async def startup_init():
                             _sheets_client_cache.pop(user_id, None)
 
                     duration = time.monotonic() - cycle_start
-                    logger.info(f"Sheets auto-sync: cycle end, duration={duration:.2f}s, configs={len(configs)}")
+                    logger.info(
+                        f"Sheets auto-sync: cycle end, duration={duration:.2f}s, "
+                        f"configs={len(configs)}, due={due_count}"
+                    )
             except Exception as e:
                 logger.warning(f"Auto-sync loop error: {e}")
 
