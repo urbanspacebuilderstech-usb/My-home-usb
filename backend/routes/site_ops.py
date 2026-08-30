@@ -622,6 +622,45 @@ async def _dlr_dpr_rows_for_projects(project_name_map: Dict[str, str], date_from
     return rows
 
 
+def _goods_total(doc: dict):
+    """The request's own total with transport added back out and discount added
+    back in — i.e. the pure value of the goods, which is what a per-unit rate
+    must multiply back up to. None when the request was never priced."""
+    total = float(doc.get("total_amount") or doc.get("final_price") or doc.get("estimated_price") or 0)
+    if total <= 0:
+        return None
+    return max(0.0, total - float(doc.get("transport_cost") or 0) + float(doc.get("discount") or 0))
+
+
+def reconciled_unit_rate(doc: dict, batch_qty: float, tolerance: float = 0.02) -> float:
+    """Per-unit rate to value `batch_qty` of this request's material.
+
+    `unit_price` is USUALLY a real per-unit figure, but not always: a lump-sum
+    bill entered against Approved Qty 1 leaves the WHOLE bill sitting in
+    unit_price. USB-MR566 (Door frame, Mr Susikar Robert) is exactly that —
+    1,86,600 for the lot — so valuing the 39 nos received at "1,86,600 each"
+    reported 72,77,400 of stock for a 1,86,600 order, 39x the real figure and
+    more than a third of the entire company stock value.
+
+    The request's own total is the authoritative number (it is what the
+    Accountant paid), so when unit_price x batch_qty disagrees with it, the
+    rate implied by that total wins. Stock can then never be valued above what
+    the material actually cost. Transport/discount stay out of the rate by
+    design — folding them in inflates a per-unit figure.
+
+    Genuine per-unit prices are left untouched: they already multiply back to
+    the total, so they fall inside the tolerance and return unchanged.
+    """
+    unit_rate = float(doc.get("unit_price") or doc.get("unit_rate") or 0)
+    goods = _goods_total(doc)
+    if goods is None or batch_qty <= 0 or unit_rate <= 0:
+        return unit_rate
+    # Absolute floor of Re 1 so tiny orders aren't re-derived over rounding.
+    if abs(unit_rate * batch_qty - goods) <= max(1.0, goods * tolerance):
+        return unit_rate
+    return round(goods / batch_qty, 2)
+
+
 async def _material_unit_rate_map(pid: str) -> Dict[str, float]:
     """Unit rate per material for a project — mirrors whichever unit_price
     Procurement most recently approved/assigned for that material (the same
@@ -643,13 +682,25 @@ async def _material_unit_rate_map(pid: str) -> Dict[str, float]:
             "status": {"$nin": ["rejected", "cancelled", "deleted"]},
             "$or": [{"unit_price": {"$gt": 0}}, {"unit_rate": {"$gt": 0}}],
         },
-        {"_id": 0, "material_name": 1, "unit_price": 1, "unit_rate": 1, "updated_at": 1, "created_at": 1},
+        # Aug 29 2026 — quantity/total fields added so the rate can be
+        # reconciled against the request's own total; without them a lump-sum
+        # bill stored in unit_price is served to the SE / PM dashboards as a
+        # per-unit rate, the same defect USB-MR566 exposed on Planning's tab.
+        {"_id": 0, "material_name": 1, "unit_price": 1, "unit_rate": 1,
+         "updated_at": 1, "created_at": 1, "received_quantity": 1,
+         "approved_quantity": 1, "quantity": 1, "total_amount": 1,
+         "final_price": 1, "estimated_price": 1, "transport_cost": 1, "discount": 1},
     ).to_list(2000)
     for d in priced_docs:
         name = d.get("material_name")
         if not name:
             continue
-        unit = float(d.get("unit_price") or d.get("unit_rate") or 0)
+        qty = d.get("received_quantity")
+        if qty is None:
+            qty = d.get("approved_quantity")
+        if qty is None:
+            qty = d.get("quantity")
+        unit = reconciled_unit_rate(d, float(qty or 0))
         if unit <= 0:
             continue
         ts = str(d.get("updated_at") or d.get("created_at") or "")
@@ -875,8 +926,8 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
             # PLUS transport, MINUS discount), so dividing it back by qty
             # baked transport into the "rate" and inflated it (e.g. ₹310/bag
             # showing as ₹320/bag once a ₹500 transport charge got folded in).
-            unit_rate = float(d.get("unit_price") or d.get("unit_rate") or 0)
-            if unit_rate <= 0:
+            stored_rate = float(d.get("unit_price") or d.get("unit_rate") or 0)
+            if stored_rate <= 0:
                 continue
             # Batch qty = what was actually received (received_quantity),
             # falling back to approved/requested qty for requests that
@@ -889,6 +940,10 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
             qty = float(qty or 0)
             if qty <= 0:
                 continue
+            # Aug 29 2026 — Reconcile against the request's own total, so a
+            # lump-sum bill parked in unit_price cannot be multiplied by the
+            # received qty into a stock value many times the real cost.
+            unit_rate = reconciled_unit_rate(d, qty)
             receive_date = str(d.get("received_at") or d.get("delivered_at") or d.get("updated_at") or d.get("created_at") or "")[:10]
             mat = d.get("material_name")
             batches_by_material.setdefault(mat, []).append({
@@ -896,6 +951,7 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
                 "status": d.get("status"),
                 "unit": d.get("unit", ""),
                 "unit_rate": unit_rate,
+                "stored_rate": stored_rate,
                 "qty": qty,
                 "remaining": qty,
                 "receive_date": receive_date,
@@ -949,6 +1005,11 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
                     "request_number": b["request_number"],
                     "status": b["status"],
                     "unit_rate": round(b["unit_rate"], 2),
+                    # Surfaced so the UI can flag a rate that had to be
+                    # re-derived rather than silently showing a different
+                    # number than Procurement's own Unit Price column.
+                    "stored_unit_rate": round(b["stored_rate"], 2),
+                    "rate_reconciled": abs(b["stored_rate"] - b["unit_rate"]) > 0.01,
                     "current_stock": round(b["remaining"], 2),
                     # Current SV = Unit Rate × (remaining) Current Stock — a
                     # clean multiplication, not the stored final_price total
@@ -1261,7 +1322,11 @@ async def get_material_rate_breakdown(
             # would bake transport into the displayed rate. material_expenses
             # has no such field, so it keeps the price÷qty fallback.
             if src_coll == "material_requests":
-                rate_direct = float(d.get("unit_price") or d.get("unit_rate") or 0)
+                # Reconciled against the request's own total for the same
+                # reason the Inventory table is — otherwise this popup would
+                # justify the table's figure with a rate the table no longer
+                # uses, and the two would disagree on screen.
+                rate_direct = reconciled_unit_rate(d, qty)
             else:
                 rate_direct = 0.0
             price = float(d.get("final_price") if d.get("final_price") is not None else (d.get("estimated_price") or 0))

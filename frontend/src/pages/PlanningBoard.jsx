@@ -2401,6 +2401,19 @@ export default function PlanningBoard({ embedded = false }) {
                                     <td className="px-3 py-2 text-right text-gray-600">
                                       <span className="inline-flex items-center gap-1 justify-end">
                                         {row.unit_rate > 0 ? formatCurrency(row.unit_rate) : '—'}
+                                        {/* The stored unit_price was a lump-sum bill, not a
+                                            per-unit rate, so this was re-derived from the
+                                            request's own total. Flagged rather than swapped
+                                            silently — Procurement's Unit Price column still
+                                            shows the raw figure. */}
+                                        {row.rate_reconciled && (
+                                          <span
+                                            className="text-[9px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1 rounded"
+                                            title={`Derived from this request's total. Stored unit price is ${formatCurrency(row.stored_unit_rate)}, which does not match the billed amount.`}
+                                          >
+                                            adj
+                                          </span>
+                                        )}
                                         <button
                                           type="button"
                                           onClick={(e) => { e.stopPropagation(); openRateBreakdown(row.project_id, row.project_name, row.material_name, row.request_number); }}
