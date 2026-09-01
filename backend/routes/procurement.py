@@ -4974,9 +4974,22 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
     # LIVE (not deleted/rejected). Build the live set once from
     # recorded_payments already loaded above.
     _EXCL_STATUS = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    # Aug 31 2026 — SYMMETRIC filtering. `recorded_payments` is pre-narrowed to
+    # approved statuses, so building the live set from it applied a stricter
+    # rule to suspense than the Ledger endpoint does (which uses every material
+    # expense). The two sides of the ledger are not affected equally by that:
+    # a DEBIT links to its `approval_suspense` row, whose status is hardcoded
+    # "approved" and so always survives, while a CREDIT links to the real
+    # payment, whose status varies — so the stricter rule could drop credits
+    # while keeping their debits and manufacture a negative "vendor owes".
+    # Query the same population the Ledger does and apply one shared rule, so
+    # the two views can never disagree and the bias cannot arise.
+    _all_material_exps = await db.recorded_expenses.find(
+        {"category": "material"}, {"_id": 0, "expense_id": 1, "status": 1, "is_deleted": 1}
+    ).to_list(20000)
     _live_expense_ids = {
         (rx.get("expense_id") or "")
-        for rx in recorded_payments
+        for rx in _all_material_exps
         if rx.get("expense_id")
         and (rx.get("status") or "").lower() not in _EXCL_STATUS
         and not rx.get("is_deleted")
@@ -5035,6 +5048,14 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
         if not (b["total_value"] or b["paid_amount"] or b["pending_amount"] or abs(b["suspense_balance"]) > 0.5):
             continue
         b["balance"] = b["total_value"] - b["paid_amount"]
+        # Aug 31 2026 — A negative suspense pool is NOT a receivable. Credits
+        # create the pool and debits consume it, so debits exceeding credits
+        # means credit records are missing, not that the vendor owes money.
+        # Labelling it "vendor owes" hid SHANMUGAM INTERIORS' duplicated
+        # payment for two and a half weeks. Flag it as a data-integrity error
+        # so it reads as something to investigate, not a balance to collect.
+        b["suspense_integrity_error"] = b["suspense_balance"] < -0.5
+        b["suspense_overdrawn_by"] = round(abs(b["suspense_balance"]), 2) if b["suspense_integrity_error"] else 0.0
         rows.append({**b, "_key": key})
     rows.sort(key=lambda r: (r.get("vendor_name") or "").lower())
     return {"count": len(rows), "rows": rows}

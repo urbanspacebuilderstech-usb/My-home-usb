@@ -9230,6 +9230,28 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
                 detail=f"Requested apply_suspense {apply_req:.0f} exceeds vendor credit {max(0.0, existing_suspense):.0f} or payable {remaining_payable_pre:.0f}",
             )
 
+    # Aug 31 2026 — HARD FLOOR: a payment must never drive the vendor's suspense
+    # pool negative. The cap above limits credit_used to what was available when
+    # `existing_suspense` was read; this restates the invariant immediately
+    # before ANY write, so a pool that is already damaged, or that another
+    # payment drained in between, fails loudly here instead of silently writing
+    # a debit with no credit behind it. That silent write is exactly how
+    # SHANMUGAM INTERIORS reached -54,500 and got relabelled "vendor owes":
+    # two submits 1.5s apart each drew 63,600 from a 72,700 pool.
+    # Deliberately placed before the leg inserts below — aborting after those
+    # would leave the payment half-written.
+    if credit_used > 0.5:
+        _pool_now = await _live_vendor_suspense_balance(suspense_type, vendor_name, req)
+        if credit_used > _pool_now + 0.5:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Vendor suspense changed while this payment was open — available "
+                    f"{max(0.0, _pool_now):,.0f}, tried to apply {credit_used:,.0f}. "
+                    f"Refresh the payment dialog and retry."
+                ),
+            )
+
     # Net payable = bill amount minus prior partial payments minus applied suspense
     payable = max(0.0, bill_amount - already_paid - credit_used)
 
@@ -10616,6 +10638,206 @@ async def payment_funding_audit(request_id: str, user: User = Depends(get_curren
             "unknown": "No 'pay' audit entry found for this id — cannot confirm from the audit trail.",
         }.get(verdict),
         "note": "Read-only. Nothing was written.",
+    }
+
+
+# ===== TEMPORARY, READ-ONLY — delete dry-run for one payment leg =====
+# Simulates deleting a single recorded_expense by replaying the exact branches
+# the real delete takes (_reverse_mirror_cheque_and_suspense, then the
+# recompute-from-surviving-legs block), and asserts the outcome. NOTHING IS
+# WRITTEN — there is deliberately no apply endpoint here; the correction is
+# applied through the normal Cashbook delete once these assertions pass.
+@router.get("/admin/expense-delete-dryrun")
+async def expense_delete_dryrun(
+    expense_id: str,
+    expect_vendor_suspense: Optional[float] = None,
+    expect_vendor_paid: Optional[float] = None,
+    user: User = Depends(get_current_user),
+):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    _EXCL = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    _APPROVED = {"approved", "accounts_approved", "super_admin_approved"}
+
+    target = await db.recorded_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail=f"No recorded_expense {expense_id}")
+    vendor = target.get("vendor_name")
+    amount = float(target.get("amount") or 0)
+
+    # ---- 1. Suspense rows this delete would touch (mirrors the real branch) --
+    own_rows = await db.suspense_entries.find({"linked_expense_id": expense_id}, {"_id": 0}).to_list(50)
+    created_excess = any(float(r.get("amount") or 0) > 0.5 for r in own_rows)
+    has_own_debit = any(float(r.get("amount") or 0) < -0.5 for r in own_rows)
+    credit_applied = float(target.get("credit_applied") or 0)
+    is_suspense_funded = (target.get("source") or "") == "approval_suspense" or credit_applied > 0.5
+    stray = None
+    if is_suspense_funded and not has_own_debit:
+        parent_req = target.get("request_id") or target.get("material_request_id")
+        if parent_req:
+            t = round(credit_applied or amount, 2)
+            stray = await db.suspense_entries.find_one(
+                {"linked_request_id": parent_req, "amount": {"$gte": -t - 0.5, "$lte": -t + 0.5}}, {"_id": 0})
+    rows_considered = own_rows + ([stray] if stray else [])
+    to_delete = [r["entry_id"] for r in rows_considered if float(r.get("amount") or 0) < -0.5 and r.get("entry_id")]
+    to_detach = [r["entry_id"] for r in rows_considered if float(r.get("amount") or 0) > 0.5 and r.get("entry_id")]
+    to_insert_credit = round(amount, 2) if created_excess and amount > 0.5 else 0.0
+
+    # ---- 2. Cheques: only ones whose used_for_expense_id IS this row change --
+    cheque_ids = set(target.get("cheque_ids") or [])
+    if target.get("cheque_id"):
+        cheque_ids.add(target["cheque_id"])
+    for leg in (target.get("payment_entries") or []):
+        for c in (leg.get("cheque_ids") or []):
+            cheque_ids.add(c)
+        if leg.get("cheque_id"):
+            cheque_ids.add(leg["cheque_id"])
+    cheques_examined, cheques_changed = [], []
+    for cid in cheque_ids:
+        cq = await db.cheques.find_one({"cheque_id": cid}, {"_id": 0}) or {}
+        owns = cq.get("used_for_expense_id") == expense_id
+        would_change = bool(owns and not created_excess)
+        cheques_examined.append({
+            "cheque_id": cid, "cheque_number": cq.get("cheque_number"),
+            "used_for_expense_id": cq.get("used_for_expense_id"),
+            "owned_by_this_expense": owns, "would_change": would_change,
+            "why": "released" if would_change
+                   else ("kept — its money is still in the vendor suspense pool" if owns
+                         else "untouched — this cheque was swiped by a DIFFERENT expense"),
+        })
+        if would_change:
+            cheques_changed.append(cid)
+
+    # ---- 3. Parent bill after the surviving legs are recomputed --------------
+    parent_id = (target.get("request_id") or target.get("material_request_id")
+                 or target.get("material_expense_id"))
+    siblings = await db.recorded_expenses.find(
+        {"$or": [{"request_id": parent_id}, {"material_request_id": parent_id},
+                 {"material_expense_id": parent_id}]},
+        {"_id": 0, "expense_id": 1, "amount": 1, "status": 1, "created_at": 1},
+    ).to_list(200) if parent_id else []
+    survivors = [s for s in siblings if s.get("expense_id") != expense_id]
+    remaining_paid = round(sum(float(s.get("amount") or 0) for s in survivors
+                               if (s.get("status") or "").lower() not in _EXCL), 2)
+    bill = None
+    if parent_id:
+        bill = await db.material_requests.find_one({"request_id": parent_id}, {"_id": 0})
+        bill_coll = "material_requests"
+        if not bill:
+            bill = await db.material_expenses.find_one(
+                {"$or": [{"expense_id": parent_id}, {"material_expense_id": parent_id}]}, {"_id": 0})
+            bill_coll = "material_expenses"
+    bill_after = None
+    if bill:
+        bill_amt = float(bill.get("final_amount") or bill.get("estimated_cost")
+                         or bill.get("estimated_price") or bill.get("final_price") or 0)
+        if remaining_paid > 0.5:
+            new_rem = max(0.0, bill_amt - remaining_paid)
+            bill_after = {"paid_amount": remaining_paid, "remaining_balance": round(new_rem, 2),
+                          "status": "partially_paid" if new_rem > 0.5 else "paid"}
+        else:
+            bill_after = {"paid_amount": None, "remaining_balance": None,
+                          "status": "pending_accounts_approval (full reset — no surviving legs)"}
+
+    # ---- 4. Vendor-level before/after, using the summary's own filters -------
+    mat_exps = await db.recorded_expenses.find({"category": "material"}, {"_id": 0}).to_list(20000)
+    sus = await db.suspense_entries.find({"type": "material"}, {"_id": 0}).to_list(20000)
+
+    def _vendor_paid(exps):
+        return round(sum(float(r.get("amount") or 0) for r in exps
+                         if (r.get("vendor_name") or "").strip().lower() == (vendor or "").strip().lower()
+                         and (r.get("status") or "").lower() in _APPROVED and not r.get("is_deleted")), 2)
+
+    def _vendor_suspense(exps, entries):
+        live = {r.get("expense_id") for r in exps if r.get("expense_id")
+                and (r.get("status") or "").lower() in _APPROVED
+                and (r.get("status") or "").lower() not in _EXCL and not r.get("is_deleted")}
+        tot = 0.0
+        for e in entries:
+            if (e.get("vendor_name") or "").strip().lower() != (vendor or "").strip().lower():
+                continue
+            a = float(e.get("amount") or 0)
+            if abs(a) < 0.5:
+                continue
+            linked = e.get("linked_expense_id") or e.get("expense_id")
+            if linked and linked not in live:
+                continue
+            tot += a
+        return round(tot, 2)
+
+    paid_before, sus_before = _vendor_paid(mat_exps), _vendor_suspense(mat_exps, sus)
+    # Simulated post-delete world: drop the expense, drop the debit rows,
+    # detach the credit rows, add any reversal credit.
+    exps_after = [r for r in mat_exps if r.get("expense_id") != expense_id]
+    sus_after = []
+    for e in sus:
+        if e.get("entry_id") in to_delete:
+            continue
+        if e.get("entry_id") in to_detach:
+            e = {k: v for k, v in e.items() if k not in ("linked_expense_id", "linked_request_id")}
+        sus_after.append(e)
+    if to_insert_credit:
+        sus_after.append({"entry_id": "se_SIMULATED", "type": "material", "vendor_name": vendor,
+                          "amount": to_insert_credit})
+    paid_after, sus_after_bal = _vendor_paid(exps_after), _vendor_suspense(exps_after, sus_after)
+
+    writes = ([{"collection": "suspense_entries", "op": "delete", "id": i} for i in to_delete]
+              + [{"collection": "suspense_entries", "op": "unset links", "id": i} for i in to_detach]
+              + ([{"collection": "suspense_entries", "op": "insert reversal credit",
+                   "amount": to_insert_credit}] if to_insert_credit else [])
+              + [{"collection": "recorded_expenses", "op": "delete", "id": expense_id}]
+              + ([{"collection": bill_coll, "op": "update", "id": parent_id}] if bill else [])
+              + [{"collection": "cheques", "op": "release", "id": c} for c in cheques_changed])
+
+    def _chk(name, ok, detail):
+        return {"assertion": name, "PASS": bool(ok), "detail": detail}
+
+    survivor_ids = [s.get("expense_id") for s in survivors]
+    checks = [
+        _chk("sibling payment survives", len(survivor_ids) >= 1,
+             f"surviving legs on {parent_id}: {survivor_ids}"),
+        _chk("bill stays paid", bool(bill_after) and bill_after.get("status") == "paid",
+             f"bill {parent_id} -> {bill_after}"),
+        _chk("duplicate suspense debit removed", len(to_delete) == 1,
+             f"suspense_entries deleted: {to_delete}"),
+        _chk("NO cheque changes", len(cheques_changed) == 0,
+             f"cheques examined: {[c['cheque_number'] for c in cheques_examined]}, changed: {cheques_changed}"),
+        _chk("no unrelated collections written",
+             {w["collection"] for w in writes} <= {"suspense_entries", "recorded_expenses",
+                                                   "material_expenses", "material_requests"},
+             f"collections written: {sorted({w['collection'] for w in writes})}"),
+    ]
+    if expect_vendor_suspense is not None:
+        checks.append(_chk(f"vendor suspense becomes {expect_vendor_suspense}",
+                           abs(sus_after_bal - float(expect_vendor_suspense)) < 0.5,
+                           f"{sus_before} -> {sus_after_bal}"))
+    if expect_vendor_paid is not None:
+        checks.append(_chk(f"vendor paid becomes {expect_vendor_paid}",
+                           abs(paid_after - float(expect_vendor_paid)) < 0.5,
+                           f"{paid_before} -> {paid_after}"))
+
+    return {
+        "write_performed": False,
+        "expense_being_deleted": {k: target.get(k) for k in
+                                  ("expense_id", "amount", "status", "source", "description",
+                                   "request_id", "vendor_name", "cheque_number", "credit_applied",
+                                   "leg_index", "leg_count", "created_at")},
+        "surviving_sibling_legs": survivors,
+        "bill": {"id": parent_id, "collection": bill_coll if bill else None,
+                 "before": {k: (bill or {}).get(k) for k in
+                            ("status", "paid_amount", "remaining_balance", "final_amount")},
+                 "after": bill_after},
+        "suspense_effect": {"rows_deleted": to_delete, "rows_detached": to_detach,
+                            "reversal_credit_inserted": to_insert_credit},
+        "cheques": cheques_examined,
+        "vendor_totals": {"vendor": vendor,
+                          "suspense_before": sus_before, "suspense_after": sus_after_bal,
+                          "paid_before": paid_before, "paid_after": paid_after},
+        "documents_that_would_be_written": writes,
+        "assertions": checks,
+        "ALL_ASSERTIONS_PASS": all(c["PASS"] for c in checks),
+        "note": "Read-only simulation. Nothing was written. Apply via the normal Cashbook delete.",
     }
 
 

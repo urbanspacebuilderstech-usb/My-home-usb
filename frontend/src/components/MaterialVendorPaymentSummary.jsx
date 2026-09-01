@@ -146,7 +146,18 @@ export default function MaterialVendorPaymentSummary() {
                         <span className={Number(r.suspense_balance || 0) < -0.5 ? 'text-rose-700' : Number(r.suspense_balance || 0) > 0.5 ? 'text-amber-700' : 'text-gray-400'}>
                           {fmt(r.suspense_balance)}
                         </span>
-                        {Number(r.suspense_balance || 0) < -0.5 && <p className="text-[9px] text-rose-600 font-normal mt-0.5">vendor owes</p>}
+                        {/* A negative pool is not a receivable — credits create it and
+                            debits consume it, so debits exceeding credits means credit
+                            records are missing. Reading it as "vendor owes" hid a
+                            duplicated payment for weeks. Flag it for investigation. */}
+                        {Number(r.suspense_balance || 0) < -0.5 && (
+                          <p
+                            className="text-[9px] text-rose-700 font-semibold mt-0.5 underline decoration-dotted cursor-help"
+                            title={`Data integrity issue — this vendor's suspense is overdrawn by ${fmt(r.suspense_overdrawn_by || Math.abs(Number(r.suspense_balance || 0)))}. Debits exceed credits, which normally means a duplicated payment or a deleted credit. This is NOT money the vendor owes. Open the ledger to investigate.`}
+                          >
+                            ⚠ overdrawn — check ledger
+                          </p>
+                        )}
                         {Number(r.suspense_balance || 0) > 0.5 && <p className="text-[9px] text-amber-600 font-normal mt-0.5">credit avl.</p>}
                       </td>
                       <td className="px-3 py-2 text-right">
