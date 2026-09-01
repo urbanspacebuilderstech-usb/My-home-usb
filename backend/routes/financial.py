@@ -10677,6 +10677,170 @@ def seed_credit_lookalikes(vendor_entries: List[Dict[str, Any]], cheque_number: 
     return out
 
 
+async def _material_vendor_pool(vendor_name: str):
+    """(entries, balance) for one material vendor's suspense pool, using the
+    same live-expense rule the Vendor Summary applies. Shared by the seed-restore
+    dry-run and its apply so the two can never compute a different balance —
+    the apply's post-write verification would be worthless if it used its own
+    arithmetic."""
+    _EXCL = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    want = (vendor_name or "").strip().lower()
+    entries = [e for e in await db.suspense_entries.find({"type": "material"}, {"_id": 0}).to_list(20000)
+               if (e.get("vendor_name") or "").strip().lower() == want]
+    mat = await db.recorded_expenses.find(
+        {"category": "material"}, {"_id": 0, "expense_id": 1, "status": 1, "is_deleted": 1}
+    ).to_list(20000)
+    live = {r["expense_id"] for r in mat if r.get("expense_id")
+            and (r.get("status") or "").lower() not in _EXCL and not r.get("is_deleted")}
+    total = 0.0
+    for e in entries:
+        a = float(e.get("amount") or 0)
+        if abs(a) < 0.5:
+            continue
+        linked = e.get("linked_expense_id") or e.get("expense_id")
+        if linked and linked not in live:
+            continue
+        total += a
+    return entries, round(total, 2)
+
+
+@router.post("/admin/suspense-seed-restore-apply")
+async def suspense_seed_restore_apply(
+    vendor_name: str,
+    cheque_number: str,
+    swipe_expense_id: str,
+    expect_final: float,
+    user: User = Depends(get_current_user),
+):
+    """Insert the ONE missing seed credit proven by the dry-run. Nothing else.
+
+    Every guard the dry-run asserts is re-checked here against live data
+    immediately before writing — the dry-run proves intent, this proves the
+    world still matches it. `expect_final` is mandatory: if the pool has moved
+    since the dry-run, this refuses rather than writing a figure nobody
+    reviewed.
+
+    Idempotency is enforced by an atomic upsert keyed on `guard_key`, not by a
+    check-then-insert: two concurrent calls cannot both insert, which is the
+    same class of race that duplicated SHANMUGAM INTERIORS' payment.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    swipe = await db.recorded_expenses.find_one({"expense_id": swipe_expense_id}, {"_id": 0})
+    if not swipe:
+        raise HTTPException(status_code=404, detail=f"No recorded_expense {swipe_expense_id}")
+    cheque = await db.cheques.find_one({"cheque_number": cheque_number}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail=f"No cheque numbered {cheque_number}")
+
+    # Amount derived from the swipe, never supplied.
+    tendered = round(float(swipe.get("tendered_amount") or 0), 2)
+    applied = round(float(swipe.get("amount") or 0), 2)
+    derived_credit = round(tendered - applied, 2)
+    if derived_credit <= 0.5:
+        raise HTTPException(status_code=400,
+                            detail=f"Swipe {swipe_expense_id} has no excess to restore "
+                                   f"(tendered {tendered:,.2f}, applied {applied:,.2f}).")
+
+    guard_key = _seed_restore_guard_key(cheque_number, swipe_expense_id)
+    entries_before, before = await _material_vendor_pool(vendor_name)
+    if seed_credit_lookalikes(entries_before, cheque_number, swipe_expense_id):
+        raise HTTPException(status_code=409,
+                            detail="A seed credit for this cheque/swipe already exists — refusing "
+                                   "to write a second one.")
+    projected = round(before + derived_credit, 2)
+    if abs(projected - float(expect_final)) > 0.5:
+        raise HTTPException(
+            status_code=409,
+            detail=(f"Pool moved since the dry-run: {before:,.2f} + {derived_credit:,.2f} = "
+                    f"{projected:,.2f}, but {float(expect_final):,.2f} was approved. "
+                    f"Re-run the dry-run and review before applying."),
+        )
+
+    cheque_avail_before = (await cheque_available_map([cheque]))[cheque["cheque_id"]]
+    allocs_before = await db.cheque_allocations.count_documents({"cheque_id": cheque.get("cheque_id")})
+    debits_before = [e for e in entries_before if float(e.get("amount") or 0) < -0.5]
+
+    now = datetime.now(timezone.utc).isoformat()
+    entry_id = f"se_{uuid.uuid4().hex[:10]}"
+    # Atomic: $setOnInsert means a second concurrent call matches the existing
+    # guard_key and writes nothing. This is the ONLY write this endpoint makes.
+    res = await db.suspense_entries.update_one(
+        {"guard_key": guard_key},
+        {"$setOnInsert": {
+            "entry_id": entry_id,
+            "type": "material",
+            "vendor_name": swipe.get("vendor_name") or vendor_name,
+            "amount": derived_credit,
+            "description": (f"Restore {derived_credit:,.0f} missing seed credit — cheque "
+                            f"#{cheque_number} tendered {tendered:,.0f} against a {applied:,.0f} "
+                            f"bill (swipe {swipe_expense_id}); the excess was never written to "
+                            f"the pool."),
+            "source_type": SEED_RESTORE_MARKER,
+            "restores_cheque_number": cheque_number,
+            "restores_swipe_expense_id": swipe_expense_id,
+            "guard_key": guard_key,
+            "created_at": now,
+            "created_by": user.user_id,
+            "created_by_name": user.name,
+        }},
+        upsert=True,
+    )
+    inserted = res.upserted_id is not None
+    written = await db.suspense_entries.find_one({"guard_key": guard_key}, {"_id": 0})
+
+    # Re-read everything from the database — never report the projection.
+    _, after = await _material_vendor_pool(vendor_name)
+    cheque_after = await db.cheques.find_one({"cheque_number": cheque_number}, {"_id": 0})
+    cheque_avail_after = (await cheque_available_map([cheque_after]))[cheque_after["cheque_id"]]
+    allocs_after = await db.cheque_allocations.count_documents({"cheque_id": cheque.get("cheque_id")})
+    entries_after, _ = await _material_vendor_pool(vendor_name)
+    debits_after = [e for e in entries_after if float(e.get("amount") or 0) < -0.5]
+
+    verify = [
+        {"check": "exactly one credit inserted", "PASS": inserted,
+         "detail": f"entry_id {(written or {}).get('entry_id')}"
+                   + ("" if inserted else " (already existed — this run was a no-op)")},
+        {"check": f"vendor suspense = {float(expect_final):,.2f}",
+         "PASS": abs(after - float(expect_final)) < 0.5,
+         "detail": f"{before:,.2f} -> {after:,.2f} (re-read from DB)"},
+        {"check": f"cheque #{cheque_number} available unchanged at 0",
+         "PASS": abs(cheque_avail_after) < 0.5 and abs(cheque_avail_after - cheque_avail_before) < 0.5,
+         "detail": f"{cheque_avail_before:,.2f} -> {cheque_avail_after:,.2f}"},
+        {"check": "cheque allocations unchanged",
+         "PASS": allocs_before == allocs_after,
+         "detail": f"{allocs_before} row(s) -> {allocs_after} row(s)"},
+        {"check": "existing suspense debits unchanged",
+         "PASS": (len(debits_before) == len(debits_after)
+                  and abs(sum(float(d.get("amount") or 0) for d in debits_before)
+                          - sum(float(d.get("amount") or 0) for d in debits_after)) < 0.5),
+         "detail": f"{len(debits_before)} debit(s) totalling "
+                   f"{sum(float(d.get('amount') or 0) for d in debits_before):,.2f} — unchanged"},
+    ]
+    await create_audit_log(user.user_id, "suspense_seed_restore", "suspense_entry",
+                           (written or {}).get("entry_id"),
+                           {"vendor_name": vendor_name, "cheque_number": cheque_number,
+                            "swipe_expense_id": swipe_expense_id, "amount": derived_credit,
+                            "balance_before": before, "balance_after": after,
+                            "newly_inserted": inserted})
+    return {
+        "write_performed": inserted,
+        "idempotent_noop": not inserted,
+        "inserted_entry_id": (written or {}).get("entry_id"),
+        "inserted_record": written,
+        "derived_credit": derived_credit,
+        "vendor_suspense": {"before": before, "after": after},
+        "cheque": {"cheque_number": cheque_number, "available_before": cheque_avail_before,
+                   "available_after": cheque_avail_after,
+                   "allocation_rows_before": allocs_before, "allocation_rows_after": allocs_after},
+        "verification": verify,
+        "ALL_VERIFICATIONS_PASS": all(v["PASS"] for v in verify),
+        "documents_written": ([{"collection": "suspense_entries", "op": "insert",
+                                "entry_id": (written or {}).get("entry_id")}] if inserted else []),
+    }
+
+
 @router.get("/admin/suspense-seed-restore-dryrun")
 async def suspense_seed_restore_dryrun(
     vendor_name: str,

@@ -155,6 +155,46 @@ def test_near_zero_credit_noise_is_not_a_lookalike():
         [credit(0.4, description=f"noise cheque #{CHEQUE}")], CHEQUE, SWIPE) == []
 
 
+# ------------------------------------------------------- apply-time refusals
+# The dry-run proves intent; these are the guards the apply re-checks against
+# live data immediately before writing, so a pool that moved in between is
+# refused rather than written to.
+
+def apply_allowed(before, derived, expect_final, lookalikes=(), tolerance=0.5):
+    """Mirrors the apply endpoint's pre-write guards, in order."""
+    if derived <= tolerance:
+        return "refused: no excess to restore"
+    if lookalikes:
+        return "refused: seed credit already exists"
+    if abs(round(before + derived, 2) - expect_final) > tolerance:
+        return "refused: pool moved since the dry-run"
+    return "allowed"
+
+
+def test_the_approved_correction_is_allowed():
+    assert apply_allowed(-145338.0, 180370.0, 35032.0) == "allowed"
+
+
+def test_pool_moved_since_dryrun_is_refused():
+    """Someone paid from the pool between review and apply."""
+    assert apply_allowed(-160000.0, 180370.0, 35032.0) == "refused: pool moved since the dry-run"
+
+
+def test_existing_seed_credit_is_refused():
+    assert apply_allowed(-145338.0, 180370.0, 35032.0,
+                         lookalikes=[credit(180370.0)]) == "refused: seed credit already exists"
+
+
+def test_swipe_with_no_excess_is_refused():
+    assert apply_allowed(-145338.0, 0.0, -145338.0) == "refused: no excess to restore"
+
+
+def test_guards_are_checked_in_priority_order():
+    """A swipe with no excess is refused on that ground even if the pool also
+    moved — the more fundamental problem is reported first."""
+    assert apply_allowed(-999.0, 0.0, 12345.0) == "refused: no excess to restore"
+
+
 def test_applying_twice_cannot_change_the_balance_twice():
     """The property that matters: run, then run again on the resulting pool."""
     pool = -145338.0
