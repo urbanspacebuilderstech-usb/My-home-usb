@@ -987,6 +987,15 @@ def _material_payment_status(d: dict) -> str:
     balance = float(balance) if balance is not None else max(0.0, total - advance)
     if total <= 0:
         return "unpaid"  # never priced yet, so nothing's been paid either
+    # Aug 29 2026 — self-heal a stale balance_amount left over from a Change
+    # Vendor price bump that predates the write-side fix: balance_amount==0
+    # was computed against the OLD (lower) total, and only the advance
+    # actually paid still covers OLD total, not the new higher one. Only
+    # kicks in when there's a real advance that provably falls short of the
+    # current total — never touches the credit-settlement case (advance=0,
+    # balance=0 there is genuinely fully paid, just via credit not advance).
+    if balance <= 0.5 and advance > 0 and (total - advance) > 0.5:
+        balance = total - advance
     if balance <= 0.5:
         return "paid"
     if advance > 0:

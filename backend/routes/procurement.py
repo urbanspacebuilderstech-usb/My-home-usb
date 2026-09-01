@@ -3053,6 +3053,19 @@ async def procurement_simple_change_vendor(request_id: str, data: dict, user: Us
             "estimated_price": new_total,
             "estimated_cost": new_total,
         })
+        # Aug 29 2026 — total_amount moved, but balance_amount didn't:
+        # a request already on `advance` mode (not switching — that path
+        # sets its own balance_amount below with the NEW advance_amount)
+        # kept whatever balance_amount was computed against the OLD total.
+        # If the old advance happened to fully cover the old total, this
+        # request now reads balance_amount: 0 against a HIGHER total —
+        # Planning's Inventory > Payment column showed it "Paid" when the
+        # accountant still owes the difference; it's actually "Partial".
+        # Re-derive from the advance actually paid so far (unaffected by
+        # this price change) against the new, correct total.
+        if not switching_to_advance:
+            current_advance = float(req.get("advance_amount") or 0)
+            set_fields["balance_amount"] = max(0.0, new_total - current_advance)
     if switching_to_advance:
         # Advance requires Accountant approval BEFORE the new vendor's goods
         # move — same rule as the initial assign-vendor flow. Pull the

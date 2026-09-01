@@ -2330,7 +2330,13 @@ export default function PlanningBoard({ embedded = false }) {
                         const filteredInvRows = invSummaryRows.filter(r =>
                           (!invProjectSearch || r.project_name.toLowerCase().includes(invProjectSearch.toLowerCase())) &&
                           (invMaterialSearchLower.length === 0 || invMaterialSearchLower.includes((r.material_name || '').toLowerCase())) &&
-                          (!invPaymentFilter || r.payment_status === invPaymentFilter)
+                          (!invPaymentFilter || r.payment_status === invPaymentFilter) &&
+                          // Aug 29 2026 — a fully-paid, fully-used row (0 stock) has
+                          // nothing left to track, so it's hidden to declutter the
+                          // list. Unpaid/Partial rows stay visible even at 0 stock —
+                          // money is still owed on them, so Accounts still needs to
+                          // see them regardless of stock level.
+                          !(Number(r.current_stock) === 0 && r.payment_status === 'paid')
                         );
                         const totals = filteredInvRows.reduce((acc, r) => {
                           const rate = Number(r.unit_rate) || 0;
