@@ -10641,6 +10641,187 @@ async def payment_funding_audit(request_id: str, user: User = Depends(get_curren
     }
 
 
+# ===== TEMPORARY, READ-ONLY — missing seed-credit restore dry-run =====
+# Some cheque swipes tendered more than the bill they paid but never wrote the
+# excess into the vendor's suspense pool. Later payments then legitimately drew
+# on credit that was never funded, leaving the pool negative. This proves what a
+# single restoring credit would do, deriving its amount from the swipe's own
+# record (tendered_amount - amount) rather than accepting it as a parameter.
+# NOTHING IS WRITTEN and there is deliberately no apply endpoint alongside it.
+SEED_RESTORE_MARKER = "missing_seed_credit_restoration"
+
+
+def _seed_restore_guard_key(cheque_number: str, swipe_expense_id: str) -> str:
+    """Stable identity for one restoration, so a re-run is a no-op rather than
+    a second credit. Derived from the two things that define it: which cheque
+    was under-credited, and which swipe should have credited it."""
+    return f"seed_restore:{cheque_number}:{swipe_expense_id}"
+
+
+def seed_credit_lookalikes(vendor_entries: List[Dict[str, Any]], cheque_number: str,
+                           swipe_expense_id: str) -> List[Dict[str, Any]]:
+    """Positive entries already attributable to this cheque/swipe, however they
+    were written. Belt-and-braces beside the guard_key: a credit seeded by the
+    ORIGINAL (unfixed) code path, or by an earlier hand repair, carries no guard
+    key, so matching only on that could restore a pool that was already made
+    whole. Debits are never lookalikes — only a credit can be a duplicate seed.
+    """
+    out = []
+    for e in vendor_entries:
+        if float(e.get("amount") or 0) <= 0.5:
+            continue
+        if (e.get("restores_swipe_expense_id") == swipe_expense_id
+                or e.get("linked_expense_id") == swipe_expense_id
+                or (cheque_number and cheque_number in (e.get("description") or ""))):
+            out.append(e)
+    return out
+
+
+@router.get("/admin/suspense-seed-restore-dryrun")
+async def suspense_seed_restore_dryrun(
+    vendor_name: str,
+    cheque_number: str,
+    swipe_expense_id: str,
+    expect_final: Optional[float] = None,
+    user: User = Depends(get_current_user),
+):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    _EXCL = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    want = (vendor_name or "").strip().lower()
+
+    swipe = await db.recorded_expenses.find_one({"expense_id": swipe_expense_id}, {"_id": 0})
+    if not swipe:
+        raise HTTPException(status_code=404, detail=f"No recorded_expense {swipe_expense_id}")
+    cheque = await db.cheques.find_one({"cheque_number": cheque_number}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail=f"No cheque numbered {cheque_number}")
+
+    # Amount is DERIVED, never supplied: what the swipe tendered minus what it
+    # actually paid is, by definition, the excess that should have been credited.
+    tendered = round(float(swipe.get("tendered_amount") or 0), 2)
+    applied = round(float(swipe.get("amount") or 0), 2)
+    derived_credit = round(tendered - applied, 2)
+
+    # ---- Has this already been restored? (idempotency evidence) -------------
+    guard_key = _seed_restore_guard_key(cheque_number, swipe_expense_id)
+    existing_guarded = await db.suspense_entries.find(
+        {"guard_key": guard_key}, {"_id": 0}).to_list(20)
+    # Belt and braces: any positive entry already attributable to this cheque or
+    # swipe, however it was written, counts as "already seeded".
+    vendor_entries = await db.suspense_entries.find(
+        {"type": "material"}, {"_id": 0}).to_list(20000)
+    vendor_entries = [e for e in vendor_entries
+                      if (e.get("vendor_name") or "").strip().lower() == want]
+    lookalike_credits = seed_credit_lookalikes(vendor_entries, cheque_number, swipe_expense_id)
+    already_restored = bool(existing_guarded or lookalike_credits)
+
+    # ---- Cheque state: must not move at all ---------------------------------
+    allocs = await db.cheque_allocations.find(
+        {"cheque_id": cheque.get("cheque_id")}, {"_id": 0}).to_list(200)
+    active_allocs = [a for a in allocs if not a.get("reversed_at")]
+    avail_before = (await cheque_available_map([cheque]))[cheque["cheque_id"]]
+
+    # ---- Vendor pool before / after -----------------------------------------
+    mat_exps = await db.recorded_expenses.find(
+        {"category": "material"}, {"_id": 0, "expense_id": 1, "status": 1, "is_deleted": 1}
+    ).to_list(20000)
+    live_ids = {r["expense_id"] for r in mat_exps if r.get("expense_id")
+                and (r.get("status") or "").lower() not in _EXCL and not r.get("is_deleted")}
+
+    def _bal(entries):
+        t = 0.0
+        for e in entries:
+            a = float(e.get("amount") or 0)
+            if abs(a) < 0.5:
+                continue
+            linked = e.get("linked_expense_id") or e.get("expense_id")
+            if linked and linked not in live_ids:
+                continue
+            t += a
+        return round(t, 2)
+
+    before = _bal(vendor_entries)
+    proposed = {
+        "entry_id": "se_<generated at apply time>",
+        "type": "material",
+        "vendor_name": swipe.get("vendor_name") or vendor_name,
+        "amount": derived_credit,
+        "description": (f"Restore {derived_credit:,.0f} missing seed credit — cheque #{cheque_number} "
+                        f"tendered {tendered:,.0f} against a {applied:,.0f} bill "
+                        f"(swipe {swipe_expense_id}); the excess was never written to the pool."),
+        "source_type": SEED_RESTORE_MARKER,
+        "restores_cheque_number": cheque_number,
+        "restores_swipe_expense_id": swipe_expense_id,
+        "guard_key": guard_key,
+    }
+    after = before if already_restored else round(before + derived_credit, 2)
+
+    debits = [e for e in vendor_entries if float(e.get("amount") or 0) < -0.5]
+    writes = ([] if already_restored else
+              [{"collection": "suspense_entries", "op": "insert", "amount": derived_credit}])
+
+    def _chk(name, ok, detail):
+        return {"assertion": name, "PASS": bool(ok), "detail": detail}
+
+    checks = [
+        _chk(f"cheque #{cheque_number} available stays 0",
+             abs(avail_before) < 0.5,
+             f"available now {avail_before:,.2f}; this operation touches no cheque field"),
+        _chk("no cheque allocation added or changed",
+             not any(w["collection"] == "cheque_allocations" for w in writes),
+             f"{len(active_allocs)} active allocation row(s) totalling "
+             f"{sum(float(a.get('amount') or 0) for a in active_allocs):,.2f} — untouched"),
+        _chk("existing suspense debits untouched",
+             not any(w.get("op") in ("delete", "update") for w in writes),
+             f"{len(debits)} debit(s) totalling "
+             f"{sum(float(d.get('amount') or 0) for d in debits):,.2f} — none read for modification"),
+        _chk("exactly one credit would be created",
+             len(writes) == 1 and not already_restored,
+             f"writes: {writes}" if not already_restored
+             else "ALREADY RESTORED — this run would create nothing (see next assertion)"),
+        _chk("no duplicate seed credit exists yet",
+             not already_restored,
+             f"guard_key matches: {[e.get('entry_id') for e in existing_guarded]}, "
+             f"lookalike credits: {[e.get('entry_id') for e in lookalike_credits]}"),
+        _chk("credit amount is derived from the swipe, not supplied",
+             derived_credit > 0,
+             f"tendered {tendered:,.2f} - applied {applied:,.2f} = {derived_credit:,.2f}"),
+        _chk("only suspense_entries is written",
+             {w["collection"] for w in writes} <= {"suspense_entries"},
+             f"collections: {sorted({w['collection'] for w in writes}) or 'none'}"),
+        _chk("re-running cannot create a duplicate",
+             bool(guard_key),
+             f"guard_key '{guard_key}' is written on the credit; a second run matches it "
+             f"and becomes a no-op"),
+    ]
+    if expect_final is not None:
+        checks.append(_chk(f"final vendor suspense becomes {expect_final}",
+                           abs(after - float(expect_final)) < 0.5,
+                           f"{before:,.2f} -> {after:,.2f}"))
+
+    return {
+        "write_performed": False,
+        "vendor": vendor_name,
+        "swipe": {k: swipe.get(k) for k in
+                  ("expense_id", "amount", "tendered_amount", "status", "source",
+                   "description", "payment_method", "cheque_number", "created_at")},
+        "cheque": {"cheque_id": cheque.get("cheque_id"), "cheque_number": cheque_number,
+                   "face_value": cheque.get("amount"), "available_before": avail_before,
+                   "available_after": avail_before,
+                   "active_allocation_rows": len(active_allocs)},
+        "derived_credit": derived_credit,
+        "already_restored": already_restored,
+        "proposed_entry": proposed,
+        "vendor_suspense": {"before": before, "after": after},
+        "documents_that_would_be_written": writes,
+        "assertions": checks,
+        "ALL_ASSERTIONS_PASS": all(c["PASS"] for c in checks),
+        "note": "Read-only simulation. Nothing was written. No apply endpoint is deployed.",
+    }
+
+
 # ===== TEMPORARY, READ-ONLY — delete dry-run for one payment leg =====
 # Simulates deleting a single recorded_expense by replaying the exact branches
 # the real delete takes (_reverse_mirror_cheque_and_suspense, then the
