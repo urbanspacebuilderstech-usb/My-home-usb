@@ -815,6 +815,105 @@ async def _reverse_material_receipt_inventory(request_id: str, reason: str = "")
     )
 
 
+async def _backfill_missing_inventory_entries(project_id: str) -> None:
+    """Self-heal: `material_inventory` (the daily stock ledger SE's/PM's
+    Inventory tab reads) is normally written as a side effect of receipt
+    confirmation (`POST /site-engineer/material-receipts` — see the
+    "Auto-create / update Daily Inventory entry" block), but that write is
+    best-effort (`except Exception: logger.warning(...)`) — a transient
+    failure there leaves the request correctly marked received in
+    `material_requests` with NO trace in `material_inventory` at all, so
+    the material silently disappears from SE's/PM's ledger view while still
+    showing correctly in Planning's Inventory tab (which reads
+    `material_requests` directly). Reported: USB-MR218 (plumbing material -
+    diverter, Mr Gopinath - nanmangalam) — Paid, 3 units received per
+    Planning's Inventory, absent entirely from the Site Engineer's Daily
+    Inventory Register.
+
+    Finds priced + received requests for this project with no matching
+    `material_inventory` row (matched via `material_request_id`, stamped by
+    the same receipt-confirm flow) and backfills one, mirroring that flow's
+    own opening/received/closing math exactly.
+    """
+    docs = await db.material_requests.find(
+        {"project_id": project_id, "status": {"$nin": ["rejected", "cancelled", "deleted"]}},
+        {"_id": 0, "request_id": 1, "material_name": 1, "unit": 1, "unit_price": 1, "unit_rate": 1,
+         "received_quantity": 1, "approved_quantity": 1, "quantity": 1,
+         "received_at": 1, "delivered_at": 1, "updated_at": 1, "created_at": 1},
+    ).to_list(2000)
+    priced_received = []
+    for d in docs:
+        unit_rate = float(d.get("unit_price") or d.get("unit_rate") or 0)
+        if unit_rate <= 0:
+            continue
+        qty = d.get("received_quantity")
+        if qty is None:
+            qty = d.get("approved_quantity")
+        if qty is None:
+            qty = d.get("quantity")
+        qty = float(qty or 0)
+        if qty <= 0:
+            continue
+        priced_received.append((d, qty))
+    if not priced_received:
+        return
+
+    req_ids = [d["request_id"] for d, _ in priced_received if d.get("request_id")]
+    already_tracked = await db.material_inventory.find(
+        {"material_request_id": {"$in": req_ids}}, {"_id": 0, "material_request_id": 1},
+    ).to_list(2000)
+    tracked_ids = {r.get("material_request_id") for r in already_tracked}
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for d, qty in priced_received:
+        rid = d.get("request_id")
+        if not rid or rid in tracked_ids:
+            continue
+        material_name = d.get("material_name", "")
+        unit = d.get("unit", "")
+        receive_date = str(d.get("received_at") or d.get("delivered_at") or d.get("updated_at") or d.get("created_at") or "")[:10]
+        if not receive_date:
+            continue
+        prior = await db.material_inventory.find_one(
+            {"project_id": project_id, "material_name": material_name, "date": {"$lt": receive_date}},
+            sort=[("date", -1), ("created_at", -1)],
+            projection={"_id": 0, "closing_stock": 1},
+        )
+        opening = float((prior or {}).get("closing_stock") or 0)
+        existing_same_day = await db.material_inventory.find_one(
+            {"project_id": project_id, "material_name": material_name, "date": receive_date},
+            projection={"_id": 0},
+        )
+        if existing_same_day:
+            new_received = float(existing_same_day.get("received") or 0) + qty
+            new_used = float(existing_same_day.get("used") or 0)
+            new_opening = float(existing_same_day.get("opening_stock") or opening)
+            await db.material_inventory.update_one(
+                {"inventory_id": existing_same_day["inventory_id"]},
+                {"$set": {
+                    "received": new_received,
+                    "closing_stock": new_opening + new_received - new_used,
+                    "updated_at": now_iso,
+                }},
+            )
+        else:
+            await db.material_inventory.insert_one({
+                "inventory_id": f"inv_{uuid.uuid4().hex[:8]}",
+                "project_id": project_id,
+                "material_request_id": rid,
+                "material_name": material_name,
+                "unit": unit,
+                "date": receive_date,
+                "opening_stock": opening,
+                "received": qty,
+                "used": 0.0,
+                "closing_stock": opening + qty,
+                "source": "self_heal_backfill",
+                "created_at": now_iso,
+            })
+        tracked_ids.add(rid)
+
+
 async def _inventory_rows_for_projects(project_name_map: Dict[str, str], date_from: str, date_to: str) -> list:
     """Project-wise material stock rollup for the given {project_id:
     project_name} map: current stock balance, unit rate, plus stock-in and
@@ -824,6 +923,10 @@ async def _inventory_rows_for_projects(project_name_map: Dict[str, str], date_fr
     Inventory sub-tab."""
     rows = []
     for pid, pname in project_name_map.items():
+        try:
+            await _backfill_missing_inventory_entries(pid)
+        except Exception as e:
+            logger.warning("Inventory backfill failed for project %s: %s", pid, e)
         # Current (latest) balance per material for this project.
         pipeline = [
             {"$match": {"project_id": pid}},
