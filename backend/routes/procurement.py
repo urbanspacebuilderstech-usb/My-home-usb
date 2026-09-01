@@ -5209,3 +5209,208 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
     # Newest first
     timeline.sort(key=lambda l: (l.get("date") or ""), reverse=True)
     return {"ledger": timeline, "count": len(timeline)}
+
+
+# =====================================================================
+# TEMPORARY read-only diagnostic — vendor suspense trace.
+# Explains a vendor's Suspense figure entry by entry: which suspense_entries
+# the Vendor Summary counts, which the Ledger/Timeline shows, and why the two
+# disagree. Reads only; writes nothing. REMOVE once the investigation closes.
+# =====================================================================
+@router.get("/admin/vendor-suspense-trace")
+async def admin_vendor_suspense_trace(vendor_name: str, user: User = Depends(get_current_user)):
+    """Per-entry proof of a material vendor's Suspense balance.
+
+    Replicates BOTH endpoints' filters verbatim rather than approximating them,
+    so `counted_by_summary` / `shown_in_ledger` are the real behaviour:
+
+      Summary: live set built from recorded_expenses ALREADY narrowed to
+               status in (approved, accounts_approved, super_admin_approved),
+               then minus _EXCL_STATUS and is_deleted.
+      Ledger:  live set built from ALL category=material recorded_expenses,
+               minus the same exclusions - no status narrowing.
+
+    That difference is the thing under investigation, so it is reproduced
+    exactly, not unified here.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Super Admin / Accountant only")
+
+    want = (vendor_name or "").strip().lower()
+    if not want:
+        raise HTTPException(status_code=400, detail="vendor_name is required")
+
+    all_material_exps, suspense_entries, projects_list = await asyncio.gather(
+        db.recorded_expenses.find({"category": "material"}, {"_id": 0}).to_list(20000),
+        db.suspense_entries.find({"type": "material"}, {"_id": 0}).to_list(20000),
+        db.projects.find(
+            {"is_deleted": {"$ne": True}, "deleted": {"$ne": True}, "status": {"$ne": "deleted"}},
+            {"_id": 0, "project_id": 1, "name": 1},
+        ).to_list(2000),
+    )
+    project_map = {p["project_id"]: p.get("name") for p in projects_list}
+    live_project_ids = set(project_map.keys())
+
+    _EXCL = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    _APPROVED = {"approved", "accounts_approved", "super_admin_approved"}
+
+    def _ok(rx):
+        return (rx.get("status") or "").lower() not in _EXCL and not rx.get("is_deleted")
+
+    # Ledger's live set: every material expense, no status narrowing.
+    ledger_live = {rx.get("expense_id") for rx in all_material_exps if rx.get("expense_id") and _ok(rx)}
+    # Summary's live set: the same, but only from already-approved expenses.
+    summary_live = {
+        rx.get("expense_id") for rx in all_material_exps
+        if rx.get("expense_id") and (rx.get("status") or "").lower() in _APPROVED and _ok(rx)
+    }
+    exp_by_id = {rx.get("expense_id"): rx for rx in all_material_exps if rx.get("expense_id")}
+
+    rows, summary_sum, ledger_sum, all_sum = [], 0.0, 0.0, 0.0
+    for se in suspense_entries:
+        if (se.get("vendor_name") or "").strip().lower() != want:
+            continue
+        amt = float(se.get("amount") or 0)
+        all_sum += amt
+        linked = se.get("linked_expense_id") or se.get("expense_id")
+        src = exp_by_id.get(linked) or {}
+        pid = se.get("project_id") or src.get("project_id")
+        project_ok = not se.get("project_id") or se.get("project_id") in live_project_ids
+        noise = abs(amt) < 0.5
+
+        in_summary = bool(
+            se.get("vendor_name") and project_ok and not noise
+            and (not linked or linked in summary_live)
+        )
+        in_ledger = bool(project_ok and not noise and (not linked or linked in ledger_live))
+        if in_summary:
+            summary_sum += amt
+        if in_ledger:
+            ledger_sum += amt
+
+        reason = "counted"
+        if not in_summary:
+            if noise:
+                reason = "excluded: |amount| < 0.5 (float noise)"
+            elif not project_ok:
+                reason = "excluded: project soft-deleted"
+            elif linked and linked not in exp_by_id:
+                reason = "excluded: linked expense NOT FOUND in recorded_expenses"
+            elif linked and linked not in summary_live:
+                st = (src.get("status") or "?").lower()
+                reason = (f"excluded: linked expense status '{st}'"
+                          + (" is in _EXCL_STATUS" if st in _EXCL else " is not an approved status")
+                          + (" / is_deleted" if src.get("is_deleted") else ""))
+        rows.append({
+            "entry_id": se.get("entry_id"),
+            "kind": "credit" if amt > 0 else "debit",
+            "amount": round(amt, 2),
+            "linked_expense_id": linked,
+            "linked_expense_status": src.get("status") if src else ("NOT FOUND" if linked else None),
+            "linked_expense_source": src.get("source"),
+            "linked_expense_is_deleted": bool(src.get("is_deleted")),
+            "cheque_number": src.get("cheque_number") or se.get("cheque_number"),
+            "project": project_map.get(pid) or src.get("project_name") or pid,
+            "counted_by_summary": in_summary,
+            "shown_in_ledger": in_ledger,
+            "why": reason,
+            "description": se.get("description"),
+            "created_at": se.get("created_at"),
+        })
+    rows.sort(key=lambda r: (r.get("created_at") or ""))
+
+    # Orphaned debits: consumed credit whose linked expense is gone/not-approved
+    # on the credit side, so the pool can never net back to >= 0.
+    counted_credits = round(sum(r["amount"] for r in rows if r["counted_by_summary"] and r["amount"] > 0), 2)
+    counted_debits = round(sum(r["amount"] for r in rows if r["counted_by_summary"] and r["amount"] < 0), 2)
+    dropped_credits = [r for r in rows if not r["counted_by_summary"] and r["amount"] > 0]
+
+    return {
+        "vendor_name": vendor_name,
+        "entry_count": len(rows),
+        "entries": rows,
+        "totals": {
+            "summary_suspense_balance": round(summary_sum, 2),   # the figure on the table
+            "ledger_visible_balance": round(ledger_sum, 2),
+            "all_entries_balance": round(all_sum, 2),            # if nothing were filtered
+            "counted_credits": counted_credits,
+            "counted_debits": counted_debits,
+            "credits_dropped_by_summary": round(sum(r["amount"] for r in dropped_credits), 2),
+            "dropped_credit_entry_ids": [r["entry_id"] for r in dropped_credits],
+        },
+        "reads_only": True,
+    }
+
+
+@router.get("/admin/vendor-payment-duplicates")
+async def admin_vendor_payment_duplicates(vendor_name: str, amount: Optional[float] = None,
+                                          user: User = Depends(get_current_user)):
+    """Read-only: material payments for a vendor, grouped to expose duplicates.
+
+    Two recorded_expenses are only genuinely the same payment if they share the
+    request AND the amount AND both are live. A legitimate split payment has
+    distinct leg_index values under one leg_count, so those are reported as
+    legs rather than duplicates instead of being guessed at.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Super Admin / Accountant only")
+
+    want = (vendor_name or "").strip().lower()
+    q: Dict[str, Any] = {"category": "material"}
+    exps = await db.recorded_expenses.find(q, {"_id": 0}).to_list(20000)
+    _EXCL = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+
+    rows = []
+    for rx in exps:
+        if (rx.get("vendor_name") or "").strip().lower() != want:
+            continue
+        amt = float(rx.get("amount") or 0)
+        if amount is not None and abs(amt - float(amount)) > 0.5:
+            continue
+        rows.append({
+            "expense_id": rx.get("expense_id"),
+            "amount": round(amt, 2),
+            "status": rx.get("status"),
+            "is_deleted": bool(rx.get("is_deleted")),
+            "source": rx.get("source"),
+            "description": rx.get("description"),
+            "request_id": rx.get("request_id"),
+            "primary_expense_id": rx.get("primary_expense_id"),
+            "leg_index": rx.get("leg_index"),
+            "leg_count": rx.get("leg_count"),
+            "credit_applied": rx.get("credit_applied"),
+            "cheque_number": rx.get("cheque_number"),
+            "payment_method": rx.get("payment_method"),
+            "project": rx.get("project_name") or rx.get("project_id"),
+            "created_at": rx.get("created_at"),
+            "counts_toward_paid": (rx.get("status") or "").lower() in
+                                  {"approved", "accounts_approved", "super_admin_approved"},
+            "live": (rx.get("status") or "").lower() not in _EXCL and not rx.get("is_deleted"),
+        })
+    rows.sort(key=lambda r: (r.get("created_at") or ""))
+
+    groups: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        k = f"{r['request_id']}|{r['amount']}"
+        g = groups.setdefault(k, {"request_id": r["request_id"], "amount": r["amount"],
+                                  "expense_ids": [], "leg_indexes": [], "live_count": 0,
+                                  "paid_count": 0, "sources": []})
+        g["expense_ids"].append(r["expense_id"])
+        g["leg_indexes"].append(r["leg_index"])
+        g["sources"].append(r["source"])
+        g["live_count"] += 1 if r["live"] else 0
+        g["paid_count"] += 1 if r["counts_toward_paid"] else 0
+
+    findings = []
+    for k, g in groups.items():
+        if len(g["expense_ids"]) < 2:
+            continue
+        distinct_legs = len({i for i in g["leg_indexes"] if i is not None})
+        verdict = ("SPLIT LEGS (legitimate) — distinct leg_index values"
+                   if distinct_legs == len(g["expense_ids"]) and distinct_legs > 1
+                   else "DUPLICATE — same request + same amount, no distinct legs")
+        findings.append({**g, "distinct_leg_indexes": distinct_legs, "verdict": verdict,
+                         "double_counted_in_paid": round(g["amount"] * max(0, g["paid_count"] - 1), 2)})
+
+    return {"vendor_name": vendor_name, "match_count": len(rows), "payments": rows,
+            "duplicate_findings": findings, "reads_only": True}
