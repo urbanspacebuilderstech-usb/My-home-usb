@@ -10830,12 +10830,31 @@ async def suspense_mode_backfill_dryrun(entry_ids: str, payment_mode: str = "che
         {"assertion": "overall suspense total unchanged",
          "PASS": abs(round(sum(before.values()), 2) - round(sum(after.values()), 2)) < 0.01,
          "detail": f"{round(sum(before.values()),2)} -> {round(sum(after.values()),2)}"},
-        {"assertion": f"cash decreases by {moved:,.2f}",
-         "PASS": abs((before.get("cash", 0) - after.get("cash", 0)) - moved) < 0.5,
-         "detail": f"cash {before.get('cash',0):,.2f} -> {after.get('cash',0):,.2f}"},
-        {"assertion": f"cheque increases by {moved:,.2f}",
-         "PASS": abs((after.get("cheque", 0) - before.get("cheque", 0)) - moved) < 0.5,
-         "detail": f"cheque {before.get('cheque',0):,.2f} -> {after.get('cheque',0):,.2f}"},
+        # Assert against the bucket the entries ACTUALLY sit in, not a
+        # hardcoded name. These two moved from cash to unattributed the moment
+        # the canonical classifier shipped, so a hardcoded "cash decreases"
+        # check reported FAIL on a correct operation — worse than no check,
+        # because it trains the reviewer to ignore a red.
+        {"assertion": f"source bucket(s) {sorted({t['current_bucket'] for t in targets})} "
+                      f"decrease by {moved:,.2f} in total",
+         "PASS": abs(sum(before.get(b, 0) - after.get(b, 0)
+                         for b in {t["current_bucket"] for t in targets}) - moved) < 0.5,
+         "detail": "; ".join(f"{b} {before.get(b,0):,.2f} -> {after.get(b,0):,.2f}"
+                             for b in sorted({t["current_bucket"] for t in targets}))},
+        {"assertion": f"destination bucket '{classify_suspense_bucket(payment_mode)}' "
+                      f"increases by {moved:,.2f}",
+         "PASS": abs((after.get(classify_suspense_bucket(payment_mode), 0)
+                      - before.get(classify_suspense_bucket(payment_mode), 0)) - moved) < 0.5,
+         "detail": f"{classify_suspense_bucket(payment_mode)} "
+                   f"{before.get(classify_suspense_bucket(payment_mode),0):,.2f} -> "
+                   f"{after.get(classify_suspense_bucket(payment_mode),0):,.2f}"},
+        {"assertion": "no bucket other than source and destination moves",
+         "PASS": all(abs(after.get(k, 0) - before.get(k, 0)) < 0.5
+                     for k in set(before) | set(after)
+                     if k not in ({t["current_bucket"] for t in targets}
+                                  | {classify_suspense_bucket(payment_mode)})),
+         "detail": "; ".join(f"{k} {before.get(k,0):,.2f} -> {after.get(k,0):,.2f}"
+                             for k in sorted(set(before) | set(after)))},
     ]
     return {
         "write_performed": False,
