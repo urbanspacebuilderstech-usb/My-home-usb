@@ -216,6 +216,40 @@ def classify_payment_mode(mode) -> str:
     return "miscellaneous"
 
 
+# The five tiles the Suspense A/c page renders, plus an explicit home for
+# anything that genuinely has no mode. `classify_payment_mode` answers "cash"
+# for a null, which is right for a payment (something was paid, somehow) but
+# wrong for a suspense entry, where a null means we simply do not know — and
+# 1,97,886 of restorations sat in the CASH tile because of exactly that.
+SUSPENSE_TILE_BUCKETS = {"cash", "current_account", "savings_account", "cheque", "direct_transfer"}
+
+
+def classify_suspense_bucket(mode) -> str:
+    """Which Suspense A/c tile an entry belongs in.
+
+    Delegates to the canonical `classify_payment_mode` so this page can never
+    disagree with the rest of the app again (its old frontend classifier put
+    `cash_dt` in Cash and `upi` in Cash, while the canonical map calls them
+    direct_transfer and current_account). Unknown never silently becomes Cash:
+      - no mode at all            -> "unattributed"
+      - a real mode with no tile  -> "unattributed" (petty_cash, multi, ...)
+    """
+    if mode is None or str(mode).strip() == "":
+        return "unattributed"
+    bucket = classify_payment_mode(mode)
+    return bucket if bucket in SUSPENSE_TILE_BUCKETS else "unattributed"
+
+
+def suspense_bucket_reason(mode) -> str:
+    """Human-readable why, so an Unattributed row explains itself."""
+    if mode is None or str(mode).strip() == "":
+        return "no payment mode recorded on the entry or its linked expense"
+    bucket = classify_payment_mode(mode)
+    if bucket in SUSPENSE_TILE_BUCKETS:
+        return f"mode '{mode}' -> {bucket}"
+    return f"mode '{mode}' classifies as '{bucket}', which has no tile on this page"
+
+
 async def _sync_carry_forward_to_cashbook(buckets: Dict[str, Dict[str, float]], locked_at: str, user_id: str, user_name: str):
     """Reflect Lock Closing Balance bucket-wise INCOME values as Cashbook
     Income entries tagged `source=carry_forward_lock` so they surface
@@ -1972,6 +2006,11 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
                     "vendor_name": m.get("vendor_name") or "Unknown Vendor",
                     "amount": direct_amt,
                     "description": f"Reversal: {m.get('description') or 'material bill'} sent back to Approvals from Cashbook",
+                    # Sep 2 2026 — Carry the reversed expense's own mode. This
+                    # entry deliberately has no linked_expense_id (the expense it
+                    # came from is being deleted), so without this it resolved to
+                    # null and the Suspense A/c tiles filed it under Cash.
+                    "payment_mode": m.get("payment_method") or m.get("payment_mode"),
                     "source_type": "expense_delete_reversal",
                     "reversed_expense_id": exp_id,
                     "created_at": now_iso,
@@ -3534,7 +3573,14 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
             "label": src.get("description") or "Material suspense",
             "project_id": pid,
             "project_name": src.get("project_name") or project_map.get(pid, ""),
-            "mode": src.get("payment_method"),
+            # Sep 2 2026 — Prefer the mode stored ON the entry; fall back to the
+            # linked expense only for rows written before that was persisted.
+            # `mode_bucket` is classified server-side with the canonical map so
+            # the tiles cannot disagree with the rest of the app, and a genuinely
+            # unknown mode becomes "unattributed" rather than silently "cash".
+            "mode": se.get("payment_mode") or src.get("payment_method"),
+            "mode_bucket": classify_suspense_bucket(se.get("payment_mode") or src.get("payment_method")),
+            "mode_reason": suspense_bucket_reason(se.get("payment_mode") or src.get("payment_method")),
             "status": src.get("status"),
             "date": se.get("created_at") or src.get("created_at"),
             "amount": amt,
@@ -3594,7 +3640,11 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
             "label": src.get("description") or "Labour suspense",
             "project_id": pid,
             "project_name": src.get("project_name") or project_map.get(pid, ""),
-            "mode": src.get("payment_method") or ("cheque" if row.get("cheque_no") else None),
+            "mode": (row.get("payment_mode") or src.get("payment_method")
+                     or ("cheque" if row.get("cheque_no") else None)),
+            "mode_bucket": classify_suspense_bucket(
+                row.get("payment_mode") or src.get("payment_method")
+                or ("cheque" if row.get("cheque_no") else None)),
             "status": src.get("status"),
             "date": row.get("date") or src.get("created_at"),
             "amount": signed,
@@ -9573,6 +9623,10 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             **_suspense_key(),
             "amount": -credit_used,
             "description": f"Suspense applied to {req_type} bill (request {request_id})",
+            # Sep 2 2026 — see the credit insert below. `inherited_method` is the
+            # FIFO-resolved mode of the money this debit is spending, which is
+            # exactly what the tile should show.
+            "payment_mode": inherited_method,
             "linked_expense_id": suspense_expense_id,
             "linked_request_id": request_id,
             "created_at": now,
@@ -9585,6 +9639,12 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             **_suspense_key(),
             "amount": new_suspense_credit,
             "description": f"Excess from cheque(s) {', '.join(cheque_numbers_used)} on {req_type} bill ({request_id})",
+            # Sep 2 2026 — Persist the mode ON the entry. The Suspense A/c tiles
+            # used to derive it by joining back to linked_expense_id, so any
+            # entry without that join (delete reversals, detached credits,
+            # manual restorations) resolved to null and fell into Cash. Excess
+            # can only arise from a cheque leg, hence "cheque" when one was used.
+            "payment_mode": "cheque" if cheque_ids_used_all else (legs[0].get("method") if legs else None),
             "linked_expense_id": primary_expense_id,
             "linked_request_id": request_id,  # so pullback cleanup can match by parent bill id
             "linked_cheque_ids": cheque_ids_used_all,
@@ -10693,6 +10753,105 @@ def classify_suspense_mode(raw: Optional[str]) -> str:
     if "transfer" in m:
         return "direct_transfer"
     return "cash"
+
+
+@router.get("/admin/suspense-mode-backfill-dryrun")
+async def suspense_mode_backfill_dryrun(entry_ids: str, payment_mode: str = "cheque",
+                                        user: User = Depends(get_current_user)):
+    """READ-ONLY: what stamping `payment_mode` on named legacy entries would do.
+
+    Only ever sets that one field. Amount, vendor, balance, links and every
+    other field are left exactly as they are — proven below by diffing the
+    simulated document against the real one.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    wanted = [e.strip() for e in (entry_ids or "").split(",") if e.strip()]
+    if not wanted:
+        raise HTTPException(status_code=400, detail="entry_ids is required (comma-separated)")
+
+    _EXCL = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    entries = await db.suspense_entries.find({"type": "material"}, {"_id": 0}).to_list(20000)
+    mat = await db.recorded_expenses.find({"category": "material"}, {"_id": 0}).to_list(20000)
+    live = {r["expense_id"] for r in mat if r.get("expense_id")
+            and (r.get("status") or "").lower() not in _EXCL and not r.get("is_deleted")}
+    by_id = {r["expense_id"]: r for r in mat if r.get("expense_id")}
+
+    def tiles(rows, override=None):
+        out = {}
+        for se in rows:
+            linked = se.get("linked_expense_id") or se.get("expense_id")
+            if linked and linked not in live:
+                continue
+            amt = float(se.get("amount") or 0)
+            if amt == 0:
+                continue
+            mode = se.get("payment_mode") or (by_id.get(linked) or {}).get("payment_method")
+            if override and se.get("entry_id") in override:
+                mode = override[se["entry_id"]]
+            b = classify_suspense_bucket(mode)
+            out[b] = round(out.get(b, 0.0) + amt, 2)
+        return out
+
+    before = tiles(entries)
+    override = {e: payment_mode for e in wanted}
+    after = tiles(entries, override)
+
+    targets, missing, field_diffs = [], [], []
+    for eid in wanted:
+        se = next((e for e in entries if e.get("entry_id") == eid), None)
+        if not se:
+            missing.append(eid)
+            continue
+        sim = {**se, "payment_mode": payment_mode}
+        changed = [k for k in set(list(se.keys()) + list(sim.keys()))
+                   if se.get(k) != sim.get(k)]
+        field_diffs.append({"entry_id": eid, "fields_that_change": changed})
+        linked = se.get("linked_expense_id") or se.get("expense_id")
+        cur_mode = se.get("payment_mode") or (by_id.get(linked) or {}).get("payment_method")
+        targets.append({
+            "entry_id": eid, "vendor_name": se.get("vendor_name"),
+            "amount": float(se.get("amount") or 0),
+            "current_payment_mode": se.get("payment_mode"),
+            "current_bucket": classify_suspense_bucket(cur_mode),
+            "new_payment_mode": payment_mode,
+            "new_bucket": classify_suspense_bucket(payment_mode),
+            "evidence": se.get("restores_cheque_number") or se.get("description"),
+        })
+
+    moved = round(sum(t["amount"] for t in targets), 2)
+    checks = [
+        {"assertion": "all named entries exist", "PASS": not missing,
+         "detail": f"missing: {missing}" if missing else f"found {len(targets)}"},
+        {"assertion": "only payment_mode changes on each entry",
+         "PASS": all(d["fields_that_change"] == ["payment_mode"] for d in field_diffs),
+         "detail": str(field_diffs)},
+        {"assertion": "overall suspense total unchanged",
+         "PASS": abs(round(sum(before.values()), 2) - round(sum(after.values()), 2)) < 0.01,
+         "detail": f"{round(sum(before.values()),2)} -> {round(sum(after.values()),2)}"},
+        {"assertion": f"cash decreases by {moved:,.2f}",
+         "PASS": abs((before.get("cash", 0) - after.get("cash", 0)) - moved) < 0.5,
+         "detail": f"cash {before.get('cash',0):,.2f} -> {after.get('cash',0):,.2f}"},
+        {"assertion": f"cheque increases by {moved:,.2f}",
+         "PASS": abs((after.get("cheque", 0) - before.get("cheque", 0)) - moved) < 0.5,
+         "detail": f"cheque {before.get('cheque',0):,.2f} -> {after.get('cheque',0):,.2f}"},
+    ]
+    return {
+        "write_performed": False,
+        "targets": targets,
+        "tile_totals_before": before,
+        "tile_totals_after": after,
+        "total_before": round(sum(before.values()), 2),
+        "total_after": round(sum(after.values()), 2),
+        "amount_moved": moved,
+        "documents_that_would_be_written": [
+            {"collection": "suspense_entries", "op": "set payment_mode", "entry_id": t["entry_id"]}
+            for t in targets],
+        "assertions": checks,
+        "ALL_ASSERTIONS_PASS": all(c["PASS"] for c in checks),
+        "note": "Read-only. Nothing was written. No apply endpoint is deployed.",
+    }
 
 
 @router.get("/admin/suspense-mode-audit")

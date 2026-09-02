@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from 'react';
 import axios from 'axios';
-import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, ArrowLeft, AlertTriangle, Trash2, ChevronDown, ChevronRight, Eye, ArrowDownCircle, ArrowUpCircle, FileText, Landmark, PiggyBank, TrendingUp } from 'lucide-react';
+import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, ArrowLeft, AlertTriangle, Trash2, ChevronDown, ChevronRight, Eye, ArrowDownCircle, ArrowUpCircle, FileText, Landmark, PiggyBank, TrendingUp, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -32,18 +32,57 @@ const SUSPENSE_MODE_BUCKETS = [
   { key: 'savings_account', label: 'HDFC Savings', Icon: PiggyBank, accent: 'border-l-emerald-500' },
   { key: 'cheque', label: 'Cheque', Icon: FileText, accent: 'border-l-violet-500' },
   { key: 'direct_transfer', label: 'Cash DT', Icon: TrendingUp, accent: 'border-l-rose-500' },
+  // Sep 2 2026 — Explicit home for entries with no recorded mode. Previously
+  // these fell through to Cash, which put 1,97,886 of cheque-funded
+  // restorations in the Cash tile and made it read as real cash suspense.
+  { key: 'unattributed', label: 'Unattributed', Icon: HelpCircle, accent: 'border-l-gray-400' },
 ];
-// Same fuzzy-fallback ordering as AccountsBoard.jsx's classifyMode, trimmed
-// to the 5 buckets this page tracks (no petty_cash/misc/suspense/multi here
-// — this page IS the petty-cash/suspense data, so those labels don't apply).
+// Mirrors backend `_PAYMENT_MODE_MAP` (financial.py). The old classifier here
+// guessed by keyword and disagreed with the canonical map on real values —
+// `cash_dt` is direct_transfer but contains no "transfer", so it landed in
+// Cash and the Cash DT tile could never populate; `upi` is current_account but
+// matched nothing and also landed in Cash.
+const SUSPENSE_MODE_MAP = {
+  cash: 'cash',
+  bank_transfer: 'current_account', neft: 'current_account', rtgs: 'current_account',
+  imps: 'current_account', escrow: 'current_account', upi: 'current_account',
+  current_account: 'current_account', hdfc_current: 'current_account',
+  savings: 'savings_account', savings_account: 'savings_account', hdfc_savings: 'savings_account',
+  cheque: 'cheque',
+  direct_transfer: 'direct_transfer', dt: 'direct_transfer', cash_dt: 'direct_transfer',
+};
+const TILE_KEYS = new Set(['cash', 'current_account', 'savings_account', 'cheque', 'direct_transfer']);
+
+// Unknown must never silently become Cash — that is what hid the problem.
+// A blank mode is "unattributed"; so is a real mode this page has no tile for
+// (petty_cash / miscellaneous / suspense_account / multi).
 const classifySuspenseMode = (raw) => {
-  const m = (raw || '').toString().toLowerCase();
-  if (m.includes('saving')) return 'savings_account';
+  if (raw === null || raw === undefined || String(raw).trim() === '') return 'unattributed';
+  const m = String(raw).toLowerCase().trim().replace(/\s+/g, '_');
+  if (SUSPENSE_MODE_MAP[m]) return SUSPENSE_MODE_MAP[m];
+  // Same fuzzy fallback order as the backend, so an alias variant
+  // ("sbi_current", "hdfc savings a/c") still lands correctly.
+  if (m.includes('savings')) return 'savings_account';
   if (m.includes('current') || m.includes('bank') || m.includes('neft') || m.includes('rtgs') || m.includes('imps')) return 'current_account';
   if (m.includes('cheque') || m.includes('check')) return 'cheque';
+  // petty/suspense MUST be tested before the bare 'cash' check — "petty_cash"
+  // contains "cash", so testing cash first classified it as Cash while the
+  // backend calls it petty_cash. Same order as classify_payment_mode.
+  if (m.includes('petty')) return 'unattributed';
+  if (m.includes('suspense')) return 'unattributed';
   if (m.includes('transfer')) return 'direct_transfer';
-  return 'cash';
+  if (m.includes('cash')) return 'cash';
+  return 'unattributed';
 };
+
+// The API now classifies server-side with the canonical map; trust that when
+// present so the two can never drift, and fall back to the local mirror for
+// responses predating it.
+const suspenseBucketOf = (entry) => (
+  TILE_KEYS.has(entry?.mode_bucket) || entry?.mode_bucket === 'unattributed'
+    ? entry.mode_bucket
+    : classifySuspenseMode(entry?.mode)
+);
 
 // Petty Cash tab — each tile shows Issued / Spent / Balance for that mode,
 // matching the 3 columns already on the Petty Cash table. Aug 27 2026 —
@@ -58,7 +97,7 @@ function PettyModeTiles({ rows, onSelect }) {
     breakdown[key].spent += Number(pc.amount_spent || 0);
   });
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mb-4" data-testid="petty-mode-tiles">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 mb-4" data-testid="petty-mode-tiles">
       {SUSPENSE_MODE_BUCKETS.map(b => {
         const d = breakdown[b.key];
         const bal = d.issued - d.spent;
@@ -107,11 +146,11 @@ function SuspenseBalanceModeTiles({ balances, colorClass, testPrefix, onSelect }
   SUSPENSE_MODE_BUCKETS.forEach(b => { breakdown[b.key] = 0; });
   (balances || []).forEach(b => {
     (b.entries || []).forEach(e => {
-      breakdown[classifySuspenseMode(e.mode)] += Number(e.balance || 0);
+      breakdown[suspenseBucketOf(e)] += Number(e.balance || 0);
     });
   });
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mb-4" data-testid={`${testPrefix}-mode-tiles`}>
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 mb-4" data-testid={`${testPrefix}-mode-tiles`}>
       {SUSPENSE_MODE_BUCKETS.map(b => {
         const Icon = b.Icon;
         return (
@@ -145,7 +184,7 @@ const flattenSuspenseEntries = (balances, modeKey) => {
   const rows = [];
   (balances || []).forEach(b => {
     (b.entries || []).forEach(e => {
-      if (classifySuspenseMode(e.mode) === modeKey) {
+      if (suspenseBucketOf(e) === modeKey) {
         rows.push({ ...e, _partyName: b.name });
       }
     });
