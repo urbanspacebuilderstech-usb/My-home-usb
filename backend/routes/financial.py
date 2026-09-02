@@ -11061,12 +11061,38 @@ async def suspense_mode_audit(user: User = Depends(get_current_user)):
     misfiled_into_cash = round(sum(r["amount"] for r in unattributed
                                    if r["tile_bucket"] == "cash"), 2)
     recoverable = [r for r in unattributed if r.get("cheque_hint")]
+    # Sep 2 2026 — An entry lands in the Unattributed tile for TWO different
+    # reasons, and only one of them was being listed. `unattributed_entries`
+    # holds rows with no mode at all; rows with a REAL mode that simply has no
+    # tile here (petty_cash / miscellaneous / suspense_account / multi) were
+    # counted in the tile total but appeared in no list, so the tile could read
+    # -18,963 while every list came back empty. List them, and break the tile
+    # down by the raw mode driving it.
+    non_tile = [r for r in rows
+                if r["tile_bucket"] == "unattributed" and r["attribution_is_real"]]
+    by_mode: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        if r["tile_bucket"] != "unattributed":
+            continue
+        k = str(r["resolved_mode"]) if r["attribution_is_real"] else "(no mode recorded)"
+        b = by_mode.setdefault(k, {"amount": 0.0, "count": 0,
+                                   "classifies_as": classify_payment_mode(r["resolved_mode"])
+                                   if r["attribution_is_real"] else None})
+        b["amount"] = round(b["amount"] + r["amount"], 2)
+        b["count"] += 1
     return {
         "write_performed": False,
         "entry_count": len(rows),
         "tile_totals": buckets,
         "total_material_suspense": round(sum(buckets.values()), 2),
-        "unattributed_count": len(unattributed),
+        "unattributed_tile_total": buckets.get("unattributed", 0.0),
+        "unattributed_breakdown_by_mode": by_mode,
+        "entries_with_no_mode_at_all": len(unattributed),
+        "entries_with_a_real_mode_but_no_tile": len(non_tile),
+        "non_tile_mode_entries": [
+            {k: r[k] for k in ("entry_id", "vendor_name", "amount", "kind",
+                               "resolved_mode", "why", "description", "created_at")}
+            for r in non_tile],
         "amount_defaulted_into_CASH_without_a_real_mode": misfiled_into_cash,
         "recoverable_from_a_cheque_hint": [
             {"entry_id": r["entry_id"], "vendor_name": r["vendor_name"],
