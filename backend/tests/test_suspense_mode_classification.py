@@ -141,6 +141,63 @@ def test_backfilling_the_two_entries_moves_exactly_197886_to_cheque():
     assert round(sum(before.values()), 2) == round(sum(after.values()), 2)
 
 
+# ------------------------------------------------- backfill apply guards
+
+def backfill_allowed(targets_existing_modes, payment_mode, moved, expect_moved,
+                     dest_after, expect_dest_after, tolerance=0.5):
+    """Mirrors the apply endpoint's pre-write refusals, in order."""
+    if classify_suspense_bucket(payment_mode) == "unattributed":
+        return "refused: mode resolves to nothing"
+    if any((m or "").strip() for m in targets_existing_modes):
+        return "refused: entry already has a payment_mode"
+    if abs(moved - expect_moved) > tolerance:
+        return "refused: amount differs from what was approved"
+    if abs(dest_after - expect_dest_after) > tolerance:
+        return "refused: destination total differs from what was approved"
+    return "allowed"
+
+
+def test_the_approved_backfill_is_allowed():
+    assert backfill_allowed([None, None], "cheque", 197886.0, 197886.0,
+                            166221.41, 166221.41) == "allowed"
+
+
+def test_backfilling_a_mode_that_resolves_to_nothing_is_refused():
+    """Stamping 'multi' or junk would move money into Unattributed — pointless
+    and misleading, so it is blocked outright."""
+    for bad in ("multi", "petty_cash", "???", ""):
+        assert backfill_allowed([None, None], bad, 1.0, 1.0, 1.0, 1.0) == \
+            "refused: mode resolves to nothing", bad
+
+
+def test_entry_with_an_existing_mode_is_never_overwritten():
+    assert backfill_allowed([None, "cash"], "cheque", 197886.0, 197886.0,
+                            166221.41, 166221.41) == "refused: entry already has a payment_mode"
+
+
+def test_amount_drift_since_the_dryrun_is_refused():
+    assert backfill_allowed([None, None], "cheque", 200000.0, 197886.0,
+                            166221.41, 166221.41) == "refused: amount differs from what was approved"
+
+
+def test_destination_drift_since_the_dryrun_is_refused():
+    assert backfill_allowed([None, None], "cheque", 197886.0, 197886.0,
+                            170000.0, 166221.41) == \
+        "refused: destination total differs from what was approved"
+
+
+def test_rerun_is_a_noop_because_the_filter_requires_an_unset_mode():
+    """After the first run both entries carry 'cheque', so the update filter
+    (payment_mode absent/null/blank) matches nothing."""
+    def matches(mode):
+        return mode is None or mode == "" or "payment_mode_absent" == mode
+    assert matches(None) is True
+    assert matches("cheque") is False
+    # and the guard above refuses a second attempt anyway
+    assert backfill_allowed(["cheque", "cheque"], "cheque", 197886.0, 197886.0,
+                            166221.41, 166221.41) == "refused: entry already has a payment_mode"
+
+
 def test_total_is_invariant_under_reclassification():
     """Reclassifying can only move money between tiles, never create or destroy
     it — the property that makes this correction safe."""

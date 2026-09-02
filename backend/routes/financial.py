@@ -10755,6 +10755,138 @@ def classify_suspense_mode(raw: Optional[str]) -> str:
     return "cash"
 
 
+@router.post("/admin/suspense-mode-backfill-apply")
+async def suspense_mode_backfill_apply(
+    entry_ids: str,
+    payment_mode: str,
+    expect_moved: float,
+    expect_destination_after: float,
+    user: User = Depends(get_current_user),
+):
+    """Stamp `payment_mode` on named legacy suspense entries. Nothing else.
+
+    Sets exactly one field — no amount, vendor, balance, link or marker is
+    touched, so the entries stay byte-identical apart from the mode.
+
+    Idempotency is structural: the update filter requires payment_mode to be
+    absent/null/blank, so a second run matches nothing rather than relying on a
+    check-then-write. It also means an entry that already has a real mode can
+    never be silently overwritten by this endpoint.
+
+    Both expectations are mandatory and re-verified against live data before
+    writing, so a pool that moved since the dry-run is refused.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    wanted = [e.strip() for e in (entry_ids or "").split(",") if e.strip()]
+    if not wanted:
+        raise HTTPException(status_code=400, detail="entry_ids is required")
+    dest = classify_suspense_bucket(payment_mode)
+    if dest == "unattributed":
+        raise HTTPException(status_code=400,
+                            detail=f"payment_mode '{payment_mode}' classifies as unattributed — "
+                                   f"refusing to backfill a mode that resolves to nothing.")
+
+    _EXCL = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+
+    async def snapshot(override=None):
+        entries = await db.suspense_entries.find({"type": "material"}, {"_id": 0}).to_list(20000)
+        mat = await db.recorded_expenses.find(
+            {"category": "material"}, {"_id": 0, "expense_id": 1, "status": 1,
+                                       "is_deleted": 1, "payment_method": 1}).to_list(20000)
+        live = {r["expense_id"] for r in mat if r.get("expense_id")
+                and (r.get("status") or "").lower() not in _EXCL and not r.get("is_deleted")}
+        by_id = {r["expense_id"]: r for r in mat if r.get("expense_id")}
+        out = {}
+        for se in entries:
+            linked = se.get("linked_expense_id") or se.get("expense_id")
+            if linked and linked not in live:
+                continue
+            amt = float(se.get("amount") or 0)
+            if amt == 0:
+                continue
+            mode = se.get("payment_mode") or (by_id.get(linked) or {}).get("payment_method")
+            if override and se.get("entry_id") in override:
+                mode = override[se["entry_id"]]
+            b = classify_suspense_bucket(mode)
+            out[b] = round(out.get(b, 0.0) + amt, 2)
+        return entries, out
+
+    entries, before = await snapshot()
+    found = {e["entry_id"]: e for e in entries if e.get("entry_id") in wanted}
+    missing = [e for e in wanted if e not in found]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Entries not found: {missing}")
+    already = [e for e, d in found.items() if (d.get("payment_mode") or "").strip()]
+    if already:
+        raise HTTPException(status_code=409,
+                            detail=f"Already carry a payment_mode, refusing to overwrite: {already}")
+
+    _, projected = await snapshot({e: payment_mode for e in wanted})
+    moved = round(sum(float(found[e].get("amount") or 0) for e in wanted), 2)
+    if abs(moved - float(expect_moved)) > 0.5:
+        raise HTTPException(status_code=409,
+                            detail=f"Amount to move is {moved:,.2f}, but {float(expect_moved):,.2f} "
+                                   f"was approved. Re-run the dry-run.")
+    if abs(projected.get(dest, 0) - float(expect_destination_after)) > 0.5:
+        raise HTTPException(status_code=409,
+                            detail=f"'{dest}' would become {projected.get(dest,0):,.2f}, but "
+                                   f"{float(expect_destination_after):,.2f} was approved. "
+                                   f"Re-run the dry-run.")
+    if abs(round(sum(before.values()), 2) - round(sum(projected.values()), 2)) > 0.01:
+        raise HTTPException(status_code=409, detail="Total would change — refusing.")
+
+    # ONLY payment_mode. The filter requiring it to be unset is what makes a
+    # re-run a no-op and prevents overwriting an entry that already has one.
+    res = await db.suspense_entries.update_many(
+        {"entry_id": {"$in": wanted},
+         "$or": [{"payment_mode": {"$exists": False}}, {"payment_mode": None}, {"payment_mode": ""}]},
+        {"$set": {"payment_mode": payment_mode}},
+    )
+    after_entries, after = await snapshot()          # re-read, never report the projection
+    written = [{k: v for k, v in e.items() if k in
+                ("entry_id", "vendor_name", "amount", "payment_mode")}
+               for e in after_entries if e.get("entry_id") in wanted]
+
+    verify = [
+        {"check": f"{len(wanted)} entries stamped", "PASS": res.modified_count == len(wanted),
+         "detail": f"matched={res.matched_count} modified={res.modified_count}"},
+        {"check": f"'{dest}' = {float(expect_destination_after):,.2f}",
+         "PASS": abs(after.get(dest, 0) - float(expect_destination_after)) < 0.5,
+         "detail": f"{before.get(dest,0):,.2f} -> {after.get(dest,0):,.2f} (re-read)"},
+        {"check": "overall suspense total unchanged",
+         "PASS": abs(round(sum(before.values()), 2) - round(sum(after.values()), 2)) < 0.01,
+         "detail": f"{round(sum(before.values()),2)} -> {round(sum(after.values()),2)}"},
+        {"check": "amounts unchanged on every stamped entry",
+         "PASS": all(abs(float(w["amount"]) - float(found[w["entry_id"]].get("amount") or 0)) < 0.01
+                     for w in written),
+         "detail": str([(w["entry_id"], w["amount"]) for w in written])},
+        {"check": "no bucket other than source and destination moved",
+         "PASS": all(abs(after.get(k, 0) - before.get(k, 0)) < 0.5
+                     for k in set(before) | set(after)
+                     if k not in {dest} | {classify_suspense_bucket(None)}),
+         "detail": "; ".join(f"{k} {before.get(k,0):,.2f} -> {after.get(k,0):,.2f}"
+                             for k in sorted(set(before) | set(after)))},
+    ]
+    await create_audit_log(user.user_id, "suspense_mode_backfill", "suspense_entry", ",".join(wanted),
+                           {"payment_mode": payment_mode, "moved": moved,
+                            "tiles_before": before, "tiles_after": after,
+                            "modified_count": res.modified_count})
+    return {
+        "write_performed": res.modified_count > 0,
+        "idempotent_noop": res.modified_count == 0,
+        "entries": written,
+        "tile_totals_before": before,
+        "tile_totals_after": after,
+        "amount_moved": moved,
+        "documents_written": [{"collection": "suspense_entries", "op": "set payment_mode",
+                               "entry_id": e} for e in wanted] if res.modified_count else [],
+        "verification": verify,
+        "ALL_VERIFICATIONS_PASS": all(v["PASS"] for v in verify),
+    }
+
+
 @router.get("/admin/suspense-mode-backfill-dryrun")
 async def suspense_mode_backfill_dryrun(entry_ids: str, payment_mode: str = "cheque",
                                         user: User = Depends(get_current_user)):
