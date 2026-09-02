@@ -10677,6 +10677,103 @@ def seed_credit_lookalikes(vendor_entries: List[Dict[str, Any]], cheque_number: 
     return out
 
 
+def classify_suspense_mode(raw: Optional[str]) -> str:
+    """Byte-for-byte mirror of SuspenseAccount.jsx's classifySuspenseMode, so an
+    audit reports the bucket the UI actually renders rather than a second
+    opinion. Note the final fall-through: anything unrecognised — including
+    None — becomes 'cash', which is precisely why unattributed entries pile
+    into the CASH tile."""
+    m = (raw or "").strip().lower()
+    if "saving" in m:
+        return "savings_account"
+    if any(k in m for k in ("current", "bank", "neft", "rtgs", "imps")):
+        return "current_account"
+    if "cheque" in m or "check" in m:
+        return "cheque"
+    if "transfer" in m:
+        return "direct_transfer"
+    return "cash"
+
+
+@router.get("/admin/suspense-mode-audit")
+async def suspense_mode_audit(user: User = Depends(get_current_user)):
+    """READ-ONLY: why each material suspense entry lands in the mode tile it does.
+
+    The tiles classify on `entry.mode`, which /suspense/overview resolves ONLY
+    by joining to the entry's linked recorded_expense. Several legitimate entry
+    types carry no linked expense by design (delete-reversal credits, credits
+    detached when their originating expense was deleted, manual restorations),
+    so the join yields nothing, mode comes back null, and the UI's fall-through
+    files them under CASH. This lists every entry with its resolved mode, the
+    bucket it lands in, and whether that attribution is real or a fallback.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    _EXCL = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    entries = await db.suspense_entries.find({"type": "material"}, {"_id": 0}).to_list(20000)
+    mat = await db.recorded_expenses.find({"category": "material"}, {"_id": 0}).to_list(20000)
+    live = {r["expense_id"] for r in mat if r.get("expense_id")
+            and (r.get("status") or "").lower() not in _EXCL and not r.get("is_deleted")}
+    by_id = {r["expense_id"]: r for r in mat if r.get("expense_id")}
+
+    rows, buckets, unattributed = [], {}, []
+    for se in entries:
+        linked = se.get("linked_expense_id") or se.get("expense_id")
+        if linked and linked not in live:
+            continue                      # same drop /suspense/overview applies
+        amt = float(se.get("amount") or 0)
+        if amt == 0:
+            continue
+        src = by_id.get(linked) or {}
+        mode = src.get("payment_method")
+        bucket = classify_suspense_mode(mode)
+        real = bool(mode)
+        if not real:
+            reason = ("no linked_expense_id — entry carries no join to any payment"
+                      if not linked else
+                      ("linked expense not found" if linked not in by_id
+                       else "linked expense has no payment_method"))
+        else:
+            reason = f"resolved from linked expense payment_method='{mode}'"
+        buckets[bucket] = round(buckets.get(bucket, 0.0) + amt, 2)
+        row = {
+            "entry_id": se.get("entry_id"), "vendor_name": se.get("vendor_name"),
+            "amount": round(amt, 2), "kind": "credit" if amt > 0 else "debit",
+            "linked_expense_id": linked, "resolved_mode": mode,
+            "tile_bucket": bucket, "attribution_is_real": real, "why": reason,
+            "source_type": se.get("source_type"),
+            "cheque_hint": (src.get("cheque_number")
+                            or se.get("restores_cheque_number")
+                            or (se.get("linked_cheque_ids") or [None])[0]),
+            "description": se.get("description"), "created_at": se.get("created_at"),
+        }
+        rows.append(row)
+        if not real:
+            unattributed.append(row)
+    rows.sort(key=lambda r: (r.get("created_at") or ""))
+
+    misfiled_into_cash = round(sum(r["amount"] for r in unattributed
+                                   if r["tile_bucket"] == "cash"), 2)
+    recoverable = [r for r in unattributed if r.get("cheque_hint")]
+    return {
+        "write_performed": False,
+        "entry_count": len(rows),
+        "tile_totals": buckets,
+        "total_material_suspense": round(sum(buckets.values()), 2),
+        "unattributed_count": len(unattributed),
+        "amount_defaulted_into_CASH_without_a_real_mode": misfiled_into_cash,
+        "recoverable_from_a_cheque_hint": [
+            {"entry_id": r["entry_id"], "vendor_name": r["vendor_name"],
+             "amount": r["amount"], "cheque_hint": r["cheque_hint"], "why": r["why"]}
+            for r in recoverable
+        ],
+        "unattributed_entries": unattributed,
+        "entries": rows,
+        "note": "Read-only. Nothing was written. Totals here must match the tiles exactly.",
+    }
+
+
 async def _material_vendor_pool(vendor_name: str):
     """(entries, balance) for one material vendor's suspense pool, using the
     same live-expense rule the Vendor Summary applies. Shared by the seed-restore
