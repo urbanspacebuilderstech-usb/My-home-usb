@@ -10737,24 +10737,6 @@ def seed_credit_lookalikes(vendor_entries: List[Dict[str, Any]], cheque_number: 
     return out
 
 
-def classify_suspense_mode(raw: Optional[str]) -> str:
-    """Byte-for-byte mirror of SuspenseAccount.jsx's classifySuspenseMode, so an
-    audit reports the bucket the UI actually renders rather than a second
-    opinion. Note the final fall-through: anything unrecognised — including
-    None — becomes 'cash', which is precisely why unattributed entries pile
-    into the CASH tile."""
-    m = (raw or "").strip().lower()
-    if "saving" in m:
-        return "savings_account"
-    if any(k in m for k in ("current", "bank", "neft", "rtgs", "imps")):
-        return "current_account"
-    if "cheque" in m or "check" in m:
-        return "cheque"
-    if "transfer" in m:
-        return "direct_transfer"
-    return "cash"
-
-
 @router.post("/admin/suspense-mode-backfill-apply")
 async def suspense_mode_backfill_apply(
     entry_ids: str,
@@ -11036,16 +11018,29 @@ async def suspense_mode_audit(user: User = Depends(get_current_user)):
         if amt == 0:
             continue
         src = by_id.get(linked) or {}
-        mode = src.get("payment_method")
-        bucket = classify_suspense_mode(mode)
+        # Sep 2 2026 — Prefer the mode now stored ON the entry, and classify
+        # with the canonical `classify_suspense_bucket`. This audit previously
+        # read only the linked expense and used the old cash-fall-through
+        # classifier, so after the mode fix shipped it would have reported
+        # buckets contradicting the tiles it exists to explain.
+        stored = se.get("payment_mode")
+        mode = stored or src.get("payment_method")
+        bucket = classify_suspense_bucket(mode)
         real = bool(mode)
         if not real:
             reason = ("no linked_expense_id — entry carries no join to any payment"
                       if not linked else
                       ("linked expense not found" if linked not in by_id
                        else "linked expense has no payment_method"))
+        elif stored:
+            reason = f"stored on the entry: payment_mode='{stored}' -> {bucket}"
         else:
-            reason = f"resolved from linked expense payment_method='{mode}'"
+            reason = f"resolved from linked expense payment_method='{mode}' -> {bucket}"
+        # A real mode can still be unattributed when it has no tile here
+        # (petty_cash / miscellaneous / suspense_account / multi) — that is a
+        # different situation from "we do not know", so say which it is.
+        if real and bucket == "unattributed":
+            reason += " (classifies outside this page's five tiles)"
         buckets[bucket] = round(buckets.get(bucket, 0.0) + amt, 2)
         row = {
             "entry_id": se.get("entry_id"), "vendor_name": se.get("vendor_name"),
