@@ -597,15 +597,28 @@ function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack,
       const s = String(v).replace(/"/g, '""');
       return /[",\n]/.test(s) ? `"${s}"` : s;
     };
-    const header = ['S.No', 'Date', 'Description', 'Project', 'Mode', 'Amount'];
+    // Sep 5 2026 — The export built its own column list and omitted Transaction
+    // Id and Vendor, so the downloaded file did not match the table it came
+    // from. Mirror the on-screen columns exactly, including that Vendor is an
+    // expense-only column there (an income file would otherwise carry an
+    // always-empty column).
+    const isExpense = String(type).toLowerCase() === 'expense';
+    const header = ['S.No', 'Date', 'Description', 'Project', 'Transaction Id', 'Mode',
+                    ...(isExpense ? ['Vendor'] : []), 'Amount'];
     const dataLines = rows.map((r, idx) => {
-      const dRaw = r.created_at || r.date || r.payment_date || r.expected_at || '';
+      // Same precedence as the table (payment_date first). The export used to
+      // prefer created_at, so a row carrying both could show one date on
+      // screen and a different one in the file.
+      const dRaw = r.payment_date || r.created_at || r.date || r.expected_at || '';
       const d = dRaw ? new Date(dRaw).toLocaleDateString('en-GB') : '';
       const desc = r.description || r.narration || r.category || r.expense_type || '';
       const proj = r.project_name || '';
+      const txn = getTransactionId(r, String(type).toLowerCase()) || '';
       const mode = (r.payment_mode || r.payment_method || '').toString().replace(/_/g, ' ');
+      const vendor = r.vendor_name || '';
       const amt = Number(r.amount || 0);
-      return [idx + 1, d, desc, proj, mode, amt].map(csvEscape).join(',');
+      return [idx + 1, d, desc, proj, txn, mode, ...(isExpense ? [vendor] : []), amt]
+        .map(csvEscape).join(',');
     });
     const csv = '\uFEFF' + [header.join(','), ...dataLines].join('\n');
     const filename = `${label.replace(/[^a-z0-9]/gi, '_')}_${type}_${new Date().toISOString().slice(0, 10)}.csv`;
