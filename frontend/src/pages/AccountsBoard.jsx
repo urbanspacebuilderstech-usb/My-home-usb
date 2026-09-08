@@ -5505,6 +5505,325 @@ function ApprovalExpenseTable({ items, type, idField, amountField, altAmountFiel
 }
 
 
+// ============ PROJECT WISE > MATERIAL sub-tab ============
+// Aug 29 2026 — Same project-list shape as the Overview sub-tab, but pulls
+// from Planning's own /planning/inventory-summary (now also opened to
+// Accountant/Super Admin) so this never drifts from Planning's Inventory
+// tab — one project-wise material rollup, not a second parallel formula.
+function ProjectWiseMaterialTab({ dateFrom, dateTo, setDateFrom, setDateTo }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (dateFrom) params.append('start_date', dateFrom);
+        if (dateTo) params.append('end_date', dateTo);
+        const res = await axios.get(`${API}/planning/inventory-summary?${params}`);
+        if (cancelled) return;
+        // Roll the per-request rows up to one row per project: Total
+        // Material Value = sum of Current SV (current stock value) across
+        // every material; Today Stock Out Value = sum of today_out × rate.
+        const byProject = {};
+        (res.data?.rows || []).forEach(r => {
+          const key = r.project_id;
+          if (!byProject[key]) byProject[key] = { project_id: r.project_id, project_name: r.project_name, total_value: 0, today_out_value: 0 };
+          const rate = Number(r.unit_rate) || 0;
+          byProject[key].total_value += r.current_sv != null ? Number(r.current_sv) || 0 : (Number(r.current_stock) || 0) * rate;
+          byProject[key].today_out_value += (Number(r.today_out) || 0) * rate;
+        });
+        setRows(Object.values(byProject).sort((a, b) => (a.project_name || '').localeCompare(b.project_name || '')));
+      } catch {
+        if (!cancelled) setRows([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dateFrom, dateTo]);
+
+  const filtered = rows.filter(r => !search || (r.project_name || '').toLowerCase().includes(search.toLowerCase()));
+  const totals = filtered.reduce((acc, r) => { acc.total += r.total_value; acc.out += r.today_out_value; return acc; }, { total: 0, out: 0 });
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardContent className="p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <CashbookDateFilter dateFrom={dateFrom} dateTo={dateTo} setDateFrom={setDateFrom} setDateTo={setDateTo} testIdPrefix="pwmaterial" accent="amber" />
+            {loading && <RefreshCw className="h-4 w-4 animate-spin text-amber-600" />}
+            <div className="relative ml-auto w-full sm:w-72">
+              <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search project name..."
+                data-testid="pw-material-search"
+                className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full text-sm" data-testid="pw-material-table">
+            <thead className="bg-gray-50 border-y">
+              <tr>
+                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
+                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Total Material Value</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Today Material Stock Out Value</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {filtered.length === 0 ? (
+                <tr><td colSpan={4} className="px-3 py-8 text-center text-gray-400 text-sm">{loading ? 'Loading…' : 'No data'}</td></tr>
+              ) : filtered.map((r, idx) => (
+                <tr key={r.project_id} className="hover:bg-gray-50" data-testid={`pw-material-row-${idx}`}>
+                  <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
+                  <td className="px-3 py-2 font-medium text-gray-900">{r.project_name}</td>
+                  <td className="px-3 py-2 text-right text-indigo-700 font-semibold">{fmtFull(r.total_value)}</td>
+                  <td className="px-3 py-2 text-right text-red-700 font-semibold">{fmtFull(r.today_out_value)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="bg-gray-50 border-t font-semibold">
+              <tr>
+                <td className="px-3 py-2" colSpan={2}>Total</td>
+                <td className="px-3 py-2 text-right">{fmtFull(totals.total)}</td>
+                <td className="px-3 py-2 text-right">{fmtFull(totals.out)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============ PROJECT WISE > LABOUR sub-tab ============
+function ProjectWiseLabourTab({ dateFrom, dateTo, setDateFrom, setDateTo }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (dateFrom) params.append('start_date', dateFrom);
+        if (dateTo) params.append('end_date', dateTo);
+        const res = await axios.get(`${API}/accountant/project-wise/labour-summary?${params}`);
+        if (!cancelled) setRows(res.data?.rows || []);
+      } catch {
+        if (!cancelled) setRows([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dateFrom, dateTo]);
+
+  const filtered = rows.filter(r => !search || (r.project_name || '').toLowerCase().includes(search.toLowerCase()));
+  const totals = filtered.reduce((acc, r) => {
+    acc.workers += r.total_workers || 0;
+    acc.skilledCount += r.skilled_count || 0;
+    acc.skilledAmount += r.skilled_amount || 0;
+    acc.unskilledCount += r.unskilled_count || 0;
+    acc.unskilledAmount += r.unskilled_amount || 0;
+    return acc;
+  }, { workers: 0, skilledCount: 0, skilledAmount: 0, unskilledCount: 0, unskilledAmount: 0 });
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardContent className="p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <CashbookDateFilter dateFrom={dateFrom} dateTo={dateTo} setDateFrom={setDateFrom} setDateTo={setDateTo} testIdPrefix="pwlabour" accent="amber" />
+            {loading && <RefreshCw className="h-4 w-4 animate-spin text-amber-600" />}
+            <div className="relative ml-auto w-full sm:w-72">
+              <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search project name..."
+                data-testid="pw-labour-search"
+                className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full text-sm" data-testid="pw-labour-table">
+            <thead className="bg-gray-50 border-y">
+              <tr>
+                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
+                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Total Workers</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Skilled</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Skilled Amount</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Unskilled</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Unskilled Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {filtered.length === 0 ? (
+                <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400 text-sm">{loading ? 'Loading…' : 'No data'}</td></tr>
+              ) : filtered.map((r, idx) => (
+                <tr key={r.project_id} className="hover:bg-gray-50" data-testid={`pw-labour-row-${idx}`}>
+                  <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
+                  <td className="px-3 py-2 font-medium text-gray-900">{r.project_name}</td>
+                  <td className="px-3 py-2 text-right font-semibold">{r.total_workers || 0}</td>
+                  <td className="px-3 py-2 text-right text-blue-700">{r.skilled_count || 0}</td>
+                  <td className="px-3 py-2 text-right text-blue-700">{fmtFull(r.skilled_amount)}</td>
+                  <td className="px-3 py-2 text-right text-amber-700">{r.unskilled_count || 0}</td>
+                  <td className="px-3 py-2 text-right text-amber-700">{fmtFull(r.unskilled_amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="bg-gray-50 border-t font-semibold">
+              <tr>
+                <td className="px-3 py-2" colSpan={2}>Total</td>
+                <td className="px-3 py-2 text-right">{totals.workers}</td>
+                <td className="px-3 py-2 text-right">{totals.skilledCount}</td>
+                <td className="px-3 py-2 text-right">{fmtFull(totals.skilledAmount)}</td>
+                <td className="px-3 py-2 text-right">{totals.unskilledCount}</td>
+                <td className="px-3 py-2 text-right">{fmtFull(totals.unskilledAmount)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============ PROJECT WISE > PETTY CASH sub-tab ============
+// Client-side only — reuses the SAME expense_entries the Overview sub-tab
+// already fetched (no extra API call), filtered to expense_type/category
+// "petty_cash" and grouped by project.
+function ProjectWisePettyCashTab({ expenseEntries, loading }) {
+  const [search, setSearch] = useState('');
+  const [viewProject, setViewProject] = useState(null); // { project_id, project_name, total, rows }
+
+  const byProject = React.useMemo(() => {
+    const map = {};
+    (expenseEntries || []).forEach(e => {
+      if (e.expense_type !== 'petty_cash' && e.category !== 'petty_cash') return;
+      const pid = e.project_id;
+      if (!pid) return;
+      if (!map[pid]) map[pid] = { project_id: pid, project_name: e.project_name || 'Unknown', total: 0, rows: [] };
+      map[pid].total += Number(e.amount) || 0;
+      map[pid].rows.push(e);
+    });
+    return Object.values(map).sort((a, b) => (a.project_name || '').localeCompare(b.project_name || ''));
+  }, [expenseEntries]);
+
+  const filtered = byProject.filter(r => !search || (r.project_name || '').toLowerCase().includes(search.toLowerCase()));
+  const grandTotal = filtered.reduce((s, r) => s + r.total, 0);
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardContent className="p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {loading && <RefreshCw className="h-4 w-4 animate-spin text-amber-600" />}
+            <div className="relative ml-auto w-full sm:w-72">
+              <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search project name..."
+                data-testid="pw-pettycash-search"
+                className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full text-sm" data-testid="pw-pettycash-table">
+            <thead className="bg-gray-50 border-y">
+              <tr>
+                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
+                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Total Petty Cash Used</th>
+                <th className="px-3 py-2 text-center text-[10px] font-semibold text-gray-500 uppercase">View</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {filtered.length === 0 ? (
+                <tr><td colSpan={4} className="px-3 py-8 text-center text-gray-400 text-sm">{loading ? 'Loading…' : 'No petty cash entries in this period'}</td></tr>
+              ) : filtered.map((r, idx) => (
+                <tr key={r.project_id} className="hover:bg-gray-50" data-testid={`pw-pettycash-row-${idx}`}>
+                  <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
+                  <td className="px-3 py-2 font-medium text-gray-900">{r.project_name}</td>
+                  <td className="px-3 py-2 text-right text-red-700 font-semibold">{fmtFull(r.total)}</td>
+                  <td className="px-3 py-2 text-center">
+                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setViewProject(r)} data-testid={`pw-pettycash-view-${idx}`}>
+                      <Eye className="h-3.5 w-3.5" /> View
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="bg-gray-50 border-t font-semibold">
+              <tr>
+                <td className="px-3 py-2" colSpan={2}>Total</td>
+                <td className="px-3 py-2 text-right">{fmtFull(grandTotal)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </CardContent>
+      </Card>
+
+      <Dialog open={!!viewProject} onOpenChange={(o) => !o && setViewProject(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="pw-pettycash-detail-dialog">
+          <DialogHeader>
+            <DialogTitle>{viewProject?.project_name} — Petty Cash Entries</DialogTitle>
+          </DialogHeader>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase">Date</th>
+                  <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase">Description</th>
+                  <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase">Mode</th>
+                  <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {(viewProject?.rows || []).map((e, i) => (
+                  <tr key={e.expense_id || i}>
+                    <td className="px-2 py-1.5 text-gray-600 whitespace-nowrap">{e.created_at ? new Date(e.created_at).toLocaleDateString('en-GB') : '—'}</td>
+                    <td className="px-2 py-1.5 text-gray-700">{e.description || e.vendor_name || '—'}</td>
+                    <td className="px-2 py-1.5 text-gray-500">{(e.payment_method || e.payment_mode || '').replace(/_/g, ' ')}</td>
+                    <td className="px-2 py-1.5 text-right font-semibold text-red-700">{fmtFull(e.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 // ============ PROJECT SUMMARY TAB ============
 function ProjectSummaryTab({ overview, userRole, onRefresh }) {
   const navigate = useNavigate();
@@ -5550,6 +5869,32 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
 
   // Feb 19 2026 — Project-name search box (case-insensitive, trim-safe).
   const [projSearch, setProjSearch] = useState('');
+
+  // Aug 29 2026 — Overview | Material | Labour | Petty Cash sub-tabs.
+  // Material/Labour/Petty Cash share this same date range so switching
+  // sub-tabs doesn't reset "respective to the date filter".
+  const [pwSubTab, setPwSubTab] = useState('overview');
+  const pwSubTabBar = (
+    <div className="flex items-center gap-1 border-b mb-1" data-testid="project-wise-subtabs">
+      {[
+        { k: 'overview', label: 'Overview' },
+        { k: 'material', label: 'Material' },
+        { k: 'labour', label: 'Labour' },
+        { k: 'petty_cash', label: 'Petty Cash' },
+      ].map(t => (
+        <button
+          key={t.k}
+          onClick={() => setPwSubTab(t.k)}
+          data-testid={`pw-subtab-${t.k}`}
+          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            pwSubTab === t.k ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -5637,8 +5982,34 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
       }
     : (overview?.totals || {});
 
+  if (pwSubTab === 'material') {
+    return (
+      <div className="space-y-4" data-testid="project-summary-tab">
+        {pwSubTabBar}
+        <ProjectWiseMaterialTab dateFrom={projDateFrom} dateTo={projDateTo} setDateFrom={setProjDateFrom} setDateTo={setProjDateTo} />
+      </div>
+    );
+  }
+  if (pwSubTab === 'labour') {
+    return (
+      <div className="space-y-4" data-testid="project-summary-tab">
+        {pwSubTabBar}
+        <ProjectWiseLabourTab dateFrom={projDateFrom} dateTo={projDateTo} setDateFrom={setProjDateFrom} setDateTo={setProjDateTo} />
+      </div>
+    );
+  }
+  if (pwSubTab === 'petty_cash') {
+    return (
+      <div className="space-y-4" data-testid="project-summary-tab">
+        {pwSubTabBar}
+        <ProjectWisePettyCashTab expenseEntries={filteredData?.expense_entries || []} loading={fLoading} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4" data-testid="project-summary-tab">
+      {pwSubTabBar}
       {/* Unified Date / Month / Year Filter + Project Search */}
       <Card>
         <CardContent className="p-3">

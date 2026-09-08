@@ -1303,8 +1303,12 @@ async def get_planning_inventory_summary(
     """Project-wise material rollup across every project visible to this
     Planning user — one row per priced material_request (not merged per
     material), so a material collected multiple times shows each collection
-    as its own line with its own rate/qty/value."""
-    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+    as its own line with its own rate/qty/value.
+
+    Aug 29 2026 — also opened to Accountant/Super Admin so Accounts >
+    Project Wise > Material can reuse this exact endpoint (same numbers as
+    Planning's own Inventory tab) instead of a second parallel formula."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
 
     date_from, date_to = _resolve_date_range(date, start_date, end_date)

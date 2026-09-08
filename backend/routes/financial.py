@@ -6688,6 +6688,89 @@ async def get_cashbook_filtered(
     }
 
 
+# Aug 29 2026 — Project Wise > Labour sub-tab. Mirrors site_ops.py's
+# `_dlr_skill_bucket` (kept as a local copy to avoid a cross-module import
+# for one 12-line classifier) — same skilled/semi_skilled/unskilled mapping
+# DLR entries already store, just also accumulating each entry's own
+# `total_cost` per bucket (folding semi_skilled into unskilled, since this
+# report only has two amount columns) instead of only the blended per-DLR
+# total the DLR & DPR tab uses.
+def _labour_skill_bucket(t):
+    if not t:
+        return "skilled"
+    s = str(t).strip().lower()
+    if s in ("unskilled",) or s in ("helper", "labour", "coolie", "labourer", "mazdoor"):
+        return "unskilled"
+    if "semi" in s or s in ("painter helper",):
+        return "semi_skilled"
+    return "skilled"
+
+
+@router.get("/accountant/project-wise/labour-summary")
+async def get_project_wise_labour_summary(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Project Wise > Labour tab: one row per real project — total worker
+    count, and skilled/unskilled headcount + cost, for the selected date
+    range. "Unskilled" folds in semi_skilled — this report has only two
+    amount columns, unlike the DLR & DPR tab's three-way breakdown."""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Same "real project" scope as Cashbook / Project Wise's own project list.
+    projects_list = await db.projects.find(
+        {
+            "planning_status": {"$in": ["new", "active", "delivered"]},
+            "name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "RE - Mr. Joseph Vijay", "RE - Mr. Joseph Vijay ", "RE-Mr. Joseph Vijay", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]},
+        },
+        {"_id": 0, "project_id": 1, "name": 1},
+    ).to_list(5000)
+    project_map = {p["project_id"]: p.get("name", "Unknown") for p in projects_list}
+
+    q: Dict[str, Any] = {"project_id": {"$in": list(project_map.keys())}}
+    if start_date or end_date:
+        q["date"] = {}
+        if start_date:
+            q["date"]["$gte"] = start_date
+        if end_date:
+            q["date"]["$lte"] = end_date
+    dlrs = await db.daily_labour_reports.find(q, {"_id": 0}).to_list(20000)
+
+    agg: Dict[str, Dict[str, Any]] = {
+        pid: {
+            "project_id": pid, "project_name": name,
+            "total_workers": 0,
+            "skilled_count": 0, "skilled_amount": 0.0,
+            "unskilled_count": 0, "unskilled_amount": 0.0,
+        }
+        for pid, name in project_map.items()
+    }
+    for d in dlrs:
+        pid = d.get("project_id")
+        row = agg.get(pid)
+        if not row:
+            continue
+        for e in (d.get("entries") or []):
+            bucket = _labour_skill_bucket(e.get("type"))
+            cnt = int(e.get("count") or 0)
+            cost = float(e.get("total_cost") or 0)
+            row["total_workers"] += cnt
+            if bucket == "skilled":
+                row["skilled_count"] += cnt
+                row["skilled_amount"] += cost
+            else:
+                row["unskilled_count"] += cnt
+                row["unskilled_amount"] += cost
+
+    rows = sorted(agg.values(), key=lambda r: r["project_name"].lower())
+    for r in rows:
+        r["skilled_amount"] = round(r["skilled_amount"], 2)
+        r["unskilled_amount"] = round(r["unskilled_amount"], 2)
+    return {"rows": rows}
+
+
 # ==================== SMART CHEQUE PAYMENT ====================
 
 @router.get("/accountant/vendor-suspense/{vendor_name}")
