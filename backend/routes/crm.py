@@ -644,6 +644,74 @@ async def get_sales_masterview_summary(
     }
 
 
+@router.get("/crm/sales-masterview/rows")
+async def get_sales_masterview_rows(
+    category: str,  # leads | appointments | proposals | sales
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Row-level drill-down for a Sales Masterview card — the exact same
+    leads /crm/sales-masterview/summary counted, as real records (not just
+    a number), so this view never drifts from what Pre-Sales CRM / Sales
+    CRM themselves show for that lead."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if category not in ("leads", "appointments", "proposals", "sales"):
+        raise HTTPException(status_code=400, detail="category must be one of leads/appointments/proposals/sales")
+
+    def _in_range(v):
+        d = _to_date_str(v)
+        if not d:
+            return False
+        if start_date and d < start_date:
+            return False
+        if end_date and d > end_date:
+            return False
+        return True
+
+    all_leads = await db.leads.find({}, {"_id": 0}).to_list(50000)
+    stage_docs = await db.lead_stages.find({}, {"_id": 0, "stage_id": 1, "name": 1}).to_list(200)
+    stage_name_map = {s["stage_id"]: s.get("name") for s in stage_docs}
+    user_docs = await db.users.find({}, {"_id": 0, "user_id": 1, "name": 1}).to_list(2000)
+    user_name_map = {u["user_id"]: u.get("name") for u in user_docs}
+
+    def _row(l, when):
+        return {
+            "lead_id": l.get("lead_id"),
+            "name": l.get("name"),
+            "phone": l.get("phone"),
+            "email": l.get("email"),
+            "source": l.get("source"),
+            "stage_type": l.get("stage_type"),
+            "current_stage_id": l.get("current_stage_id"),
+            "current_stage_name": stage_name_map.get(l.get("current_stage_id"), l.get("current_stage_id")),
+            "assigned_to_name": user_name_map.get(l.get("assigned_to")) if l.get("assigned_to") else None,
+            "re_project_id": l.get("re_project_id"),
+            "when": when if isinstance(when, str) else (_to_date_str(when) or ""),
+        }
+
+    rows = []
+    if category == "leads":
+        for l in all_leads:
+            if l.get("stage_type") == "pre_sales" and _in_range(l.get("created_at")):
+                rows.append(_row(l, l.get("created_at")))
+    else:
+        target_stage = {
+            "appointments": "stg_appointment",
+            "proposals": "stg_re_to_client",
+            "sales": "stg_payment_collect",
+        }[category]
+        for l in all_leads:
+            for h in (l.get("stage_history") or []):
+                if h.get("stage_id") == target_stage and _in_range(h.get("moved_at")):
+                    rows.append(_row(l, h.get("moved_at")))
+                    break
+
+    rows.sort(key=lambda r: r.get("when") or "", reverse=True)
+    return {"category": category, "rows": rows, "count": len(rows)}
+
+
 # ==================== CRM A (PRE-SALES) ENDPOINTS ====================
 
 @router.get("/crm/pre-sales/dashboard")

@@ -208,6 +208,15 @@ export default function CRMPreSales() {
     fetchData();
   }, []);
 
+  // Aug 29 2026 — deep-link from Sales Masterview's row drill-down
+  // (?lead=<id>) straight into that lead's detail dialog. openLeadDetail
+  // only strictly needs lead_id — it fetches the full record itself.
+  useEffect(() => {
+    const leadId = new URLSearchParams(window.location.search).get('lead');
+    if (leadId) openLeadDetail({ lead_id: leadId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const fetchData = async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true);
