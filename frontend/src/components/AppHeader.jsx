@@ -16,8 +16,10 @@ const ROLE_NAV = {
     { label: 'Sales', path: '/sales-board' },
     { label: 'Marketing Board', path: '/marketing-board' },
     { label: 'HR', path: '/hr-portal' },
-    { label: 'Users', path: '/users' },
-    { label: 'User App', path: '/user-app' },
+    // Aug 29 2026 — "Users" moved to HR Portal's own Users tab (next to
+    // Roles & Credentials), "User App" moved to Settings' User App tab
+    // (next to CRE Module) — both routes still exist standalone, just no
+    // longer linked from the top nav. See HRPortal.jsx / Settings.jsx.
     { label: 'Settings', path: '/settings' },
   ],
   accountant: [

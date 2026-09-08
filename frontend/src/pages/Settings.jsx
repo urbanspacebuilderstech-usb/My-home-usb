@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Building2, LogOut, Settings as SettingsIcon, Users, Package, Truck, Save, Building, ArrowDownRight, GitBranch, Headphones, Wifi, RefreshCw, Circle } from 'lucide-react';
+import { Building2, LogOut, Settings as SettingsIcon, Users, Package, Truck, Save, Building, ArrowDownRight, GitBranch, Headphones, Wifi, RefreshCw, Circle, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -305,6 +305,11 @@ export default function Settings() {
               </TabsTrigger>
             )}
             {user?.role === 'super_admin' && (
+              <TabsTrigger value="user-app" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-user-app-tab">
+                <Smartphone className="h-3 w-3 sm:h-4 sm:w-4" /> User App
+              </TabsTrigger>
+            )}
+            {user?.role === 'super_admin' && (
               <TabsTrigger value="branding" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-branding-tab">
                 <Building2 className="h-3 w-3 sm:h-4 sm:w-4" /> Branding
               </TabsTrigger>
@@ -584,6 +589,28 @@ export default function Settings() {
                   <p className="text-[11px] text-gray-400 pt-2 border-t">
                     Settings are saved instantly. CRE users will see the change on their next page load.
                   </p>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+
+          {/* Aug 29 2026 — moved here from the top-nav "User App" item, right
+              after CRE Module. Embeds the existing /user-app page unchanged
+              (same iframe + ?embedded=1 pattern used to host Accounts Board
+              inside Finance Board) rather than duplicating its logic —
+              AppHeader auto-suppresses its own header when it detects
+              embedded=1 / being inside an iframe. */}
+          {user?.role === 'super_admin' && (
+            <TabsContent value="user-app">
+              <Card>
+                <CardContent className="p-0">
+                  <iframe
+                    src="/user-app?embedded=1"
+                    title="User App"
+                    className="w-full border-0 rounded-lg"
+                    style={{ height: 'calc(100vh - 260px)', minHeight: 500 }}
+                    data-testid="settings-user-app-iframe"
+                  />
                 </CardContent>
               </Card>
             </TabsContent>

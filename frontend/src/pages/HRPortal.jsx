@@ -17,7 +17,7 @@ import {
   Shield, Key, UserCheck, ChevronDown, ChevronUp, X, Check,
   Clock, MapPin, CheckCircle2, XCircle, ChevronLeft, ChevronRight,
   Download, Calculator, Settings, AlertCircle, Timer, TrendingUp,
-  UserX, Laptop, RefreshCcw
+  UserX, Laptop, RefreshCcw, UserCog
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -632,6 +632,7 @@ export default function HRPortal() {
             <TabsTrigger value="dashboard" data-testid="tab-dashboard"><TrendingUp className="h-4 w-4 mr-1" />Dashboard</TabsTrigger>
             <TabsTrigger value="employees" data-testid="tab-employees"><Users className="h-4 w-4 mr-1" />Employees</TabsTrigger>
             <TabsTrigger value="credentials" data-testid="tab-credentials"><Shield className="h-4 w-4 mr-1" />Roles & Credentials</TabsTrigger>
+            <TabsTrigger value="users" data-testid="tab-users"><UserCog className="h-4 w-4 mr-1" />Users</TabsTrigger>
             <TabsTrigger value="attendance" data-testid="tab-attendance"><Calendar className="h-4 w-4 mr-1" />Attendance</TabsTrigger>
             <TabsTrigger value="leave" data-testid="tab-leave"><FileText className="h-4 w-4 mr-1" />Leave</TabsTrigger>
             <TabsTrigger value="payroll" data-testid="tab-payroll"><Calculator className="h-4 w-4 mr-1" />Payroll</TabsTrigger>
@@ -953,6 +954,23 @@ export default function HRPortal() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* ===== USERS TAB ===== */}
+          {/* Aug 29 2026 — moved here from the top-nav "Users" item, next to
+              Roles & Credentials. Embeds the existing /users page unchanged
+              (same iframe + ?embedded=1 pattern already used to host
+              Accounts Board inside Finance Board) rather than duplicating
+              its logic — AppHeader auto-suppresses its own header when it
+              detects embedded=1 / being inside an iframe. */}
+          <TabsContent value="users">
+            <iframe
+              src="/users?embedded=1"
+              title="Users"
+              className="w-full border-0"
+              style={{ height: 'calc(100vh - 220px)', minHeight: 500 }}
+              data-testid="hr-users-iframe"
+            />
           </TabsContent>
 
           {/* ===== ATTENDANCE TAB ===== */}
