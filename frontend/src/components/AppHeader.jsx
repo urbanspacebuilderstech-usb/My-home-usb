@@ -13,6 +13,7 @@ const ROLE_NAV = {
   super_admin: [
     { label: 'Finance Board', path: '/finance-board' },
     { label: 'Planning', path: '/planning-board' },
+    { label: 'Sales', path: '/sales-board' },
     { label: 'Marketing Board', path: '/marketing-board' },
     { label: 'HR', path: '/hr-portal' },
     { label: 'Users', path: '/users' },
@@ -105,14 +106,20 @@ const ROLE_SUB_MENUS = {
       { label: 'Vendors', path: '/vendor-management' },
       { label: 'Contractors', path: '/contractor-management' },
     ],
+    // Aug 29 2026 — Pre-Sales CRM / Sales CRM moved under the new /sales-board
+    // sub-menu below (a page's route can only resolve to ONE sub-menu row —
+    // see getModuleKey/buildPathMap — so they can't stay listed in both).
     '/marketing-board': [
       { label: 'Marketing Board', path: '/marketing-board' },
       { label: 'CRE Board', path: '/cre-board' },
-      { label: 'Pre-Sales CRM', path: '/crm-pre-sales' },
-      { label: 'Sales CRM', path: '/crm-sales' },
       { label: 'RE Projects', path: '/crm/re-projects' },
       { label: 'Custom Fields', path: '/crm/custom-fields' },
       { label: 'CSV Import', path: '/crm/import-csv' },
+    ],
+    '/sales-board': [
+      { label: 'Sales Masterview', path: '/sales-board' },
+      { label: 'Pre Sales', path: '/crm-pre-sales' },
+      { label: 'Sales', path: '/crm-sales' },
     ],
     '/gm-dashboard': [
       { label: 'GM Command Center', path: '/gm-dashboard' },

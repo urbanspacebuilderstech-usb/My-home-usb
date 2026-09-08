@@ -550,6 +550,100 @@ async def migrate_stages(user: User = Depends(get_current_user)):
     return {"message": "Migration complete", "added": added, "fixed": fixed, "retired": retired}
 
 
+# ==================== SALES MASTERVIEW ====================
+# Aug 29 2026 — new top-level "Sales" nav section (Super Admin), sitting
+# between Planning and Marketing Board. Sub-tabs: Sales Masterview (this
+# endpoint) | Pre Sales (existing /crm-pre-sales) | Sales (existing
+# /crm-sales) — the latter two are just navigation into the pages that
+# already exist, not new pages.
+
+def _to_date_str(v):
+    """`created_at`/`moved_at` are a mix of native BSON datetime and
+    isoformat() strings across this collection (organic drift over many
+    endpoints) — normalize both to 'YYYY-MM-DD' so date-range comparisons
+    never silently miss one type."""
+    if not v:
+        return None
+    if isinstance(v, str):
+        return v[:10]
+    try:
+        return v.strftime("%Y-%m-%d")
+    except Exception:
+        return None
+
+
+@router.get("/crm/sales-masterview/summary")
+async def get_sales_masterview_summary(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Sales Masterview summary cards: Leads | Appointment | Proposal | Sales.
+    Caller resolves Today/Yesterday/This Week/This Month into concrete
+    start_date/end_date (both 'YYYY-MM-DD', inclusive).
+
+    - Leads       = new Pre-Sales leads CREATED in range (where leads
+                    originate).
+    - Appointment = Pre-Sales leads whose stage_history shows they reached
+                    "Appointment Booked" (stg_appointment) in range — via
+                    stage_history rather than current_stage_id, so a lead
+                    that has since moved further along the pipeline still
+                    counts for the day it was actually booked.
+    - Proposal    = "RE - Client Data" — Sales leads whose stage_history
+                    shows the RE proposal reached "RE - Client"
+                    (stg_re_to_client) in range.
+    - Sales       = "Deal Close" — Sales leads whose stage_history shows
+                    they reached stg_payment_collect in range.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    def _in_range(v):
+        d = _to_date_str(v)
+        if not d:
+            return False
+        if start_date and d < start_date:
+            return False
+        if end_date and d > end_date:
+            return False
+        return True
+
+    all_leads = await db.leads.find(
+        {}, {"_id": 0, "lead_id": 1, "stage_type": 1, "created_at": 1, "stage_history": 1},
+    ).to_list(50000)
+
+    leads_count = 0
+    appointment_count = 0
+    proposal_count = 0
+    sales_count = 0
+    for l in all_leads:
+        if l.get("stage_type") == "pre_sales" and _in_range(l.get("created_at")):
+            leads_count += 1
+        seen = set()
+        for h in (l.get("stage_history") or []):
+            sid = h.get("stage_id")
+            if sid in seen or not _in_range(h.get("moved_at")):
+                continue
+            if sid == "stg_appointment":
+                appointment_count += 1
+                seen.add(sid)
+            elif sid == "stg_re_to_client":
+                proposal_count += 1
+                seen.add(sid)
+            elif sid == "stg_payment_collect":
+                sales_count += 1
+                seen.add(sid)
+
+    return {
+        "leads": leads_count,
+        "appointments": appointment_count,
+        "proposals": proposal_count,
+        "sales": sales_count,
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+
+
 # ==================== CRM A (PRE-SALES) ENDPOINTS ====================
 
 @router.get("/crm/pre-sales/dashboard")
