@@ -73,38 +73,52 @@ export default function SuperAdminDashboard() {
     setDLoading(true);
     const dateParams = new URLSearchParams({ start_date: range.start, end_date: range.end });
 
-    const results = await Promise.allSettled([
-      axios.get(`${API}/accountant/cashbook-filtered?${dateParams}`),
-      axios.get(`${API}/planning/inventory-summary?${dateParams}`),
-      axios.get(`${API}/dashboard/labour-summary?${dateParams}`),
-      axios.get(`${API}/crm/sales-masterview/summary?${dateParams}`),
-      axios.get(`${API}/dashboard/projects-overview`),
-      axios.get(`${API}/dashboard/hr-summary?date=${range.end}`),
-    ]);
-    const [cbRes, matRes, labRes, lapsRes, projRes, hrRes] = results;
+    // Aug 29 2026 — every setter (including the final setDLoading(false))
+    // now lives in try/finally: a bug or a rejected request used to leave
+    // dLoading stuck true forever, which is why every card showed "…"
+    // permanently instead of falling back to real numbers or a visible
+    // failure. Promise.allSettled already isolates one endpoint's failure
+    // from the others; this isolates the RENDER logic the same way.
+    try {
+      const results = await Promise.allSettled([
+        axios.get(`${API}/accountant/cashbook-filtered?${dateParams}`),
+        axios.get(`${API}/planning/inventory-summary?${dateParams}`),
+        axios.get(`${API}/dashboard/labour-summary?${dateParams}`),
+        axios.get(`${API}/crm/sales-masterview/summary?${dateParams}`),
+        axios.get(`${API}/dashboard/projects-overview`),
+        axios.get(`${API}/dashboard/hr-summary?date=${range.end}`),
+      ]);
+      const [cbRes, matRes, labRes, lapsRes, projRes, hrRes] = results;
 
-    setCashbook(cbRes.status === 'fulfilled' ? cbRes.value.data : null);
+      setCashbook(cbRes.status === 'fulfilled' ? cbRes.value.data : null);
+      if (cbRes.status === 'rejected') console.error('cashbook-filtered failed:', cbRes.reason);
 
-    if (matRes.status === 'fulfilled') {
-      const rows = matRes.value.data?.rows || [];
-      const agg = rows.reduce((acc, r) => {
-        const rate = Number(r.unit_rate) || 0;
-        acc.total_value += r.current_sv != null ? Number(r.current_sv) || 0 : (Number(r.current_stock) || 0) * rate;
-        acc.today_in += (Number(r.today_in) || 0) * rate;
-        acc.today_out += (Number(r.today_out) || 0) * rate;
-        return acc;
-      }, { total_value: 0, today_in: 0, today_out: 0 });
-      setMaterials(agg);
-    } else {
-      setMaterials(null);
+      if (matRes.status === 'fulfilled') {
+        const rows = matRes.value.data?.rows || [];
+        const agg = rows.reduce((acc, r) => {
+          const rate = Number(r.unit_rate) || 0;
+          acc.total_value += r.current_sv != null ? Number(r.current_sv) || 0 : (Number(r.current_stock) || 0) * rate;
+          acc.today_in += (Number(r.today_in) || 0) * rate;
+          acc.today_out += (Number(r.today_out) || 0) * rate;
+          return acc;
+        }, { total_value: 0, today_in: 0, today_out: 0 });
+        setMaterials(agg);
+      } else {
+        setMaterials(null);
+        console.error('inventory-summary failed:', matRes.reason);
+      }
+
+      setLabour(labRes.status === 'fulfilled' ? labRes.value.data : null);
+      if (labRes.status === 'rejected') console.error('labour-summary failed:', labRes.reason);
+      setLaps(lapsRes.status === 'fulfilled' ? lapsRes.value.data : null);
+      if (lapsRes.status === 'rejected') console.error('sales-masterview/summary failed:', lapsRes.reason);
+      setProjectsOverview(projRes.status === 'fulfilled' ? projRes.value.data : null);
+      if (projRes.status === 'rejected') console.error('projects-overview failed:', projRes.reason);
+      setHr(hrRes.status === 'fulfilled' ? hrRes.value.data : null);
+      if (hrRes.status === 'rejected') console.error('hr-summary failed:', hrRes.reason);
+    } finally {
+      setDLoading(false);
     }
-
-    setLabour(labRes.status === 'fulfilled' ? labRes.value.data : null);
-    setLaps(lapsRes.status === 'fulfilled' ? lapsRes.value.data : null);
-    setProjectsOverview(projRes.status === 'fulfilled' ? projRes.value.data : null);
-    setHr(hrRes.status === 'fulfilled' ? hrRes.value.data : null);
-
-    setDLoading(false);
   }, [range]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
