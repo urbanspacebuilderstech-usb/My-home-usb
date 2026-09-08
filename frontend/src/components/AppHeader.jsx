@@ -11,6 +11,7 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const ROLE_NAV = {
   super_admin: [
+    { label: 'Dashboard', path: '/super-admin-dashboard' },
     { label: 'Finance Board', path: '/finance-board' },
     { label: 'Planning', path: '/planning-board' },
     { label: 'Sales', path: '/sales-board' },

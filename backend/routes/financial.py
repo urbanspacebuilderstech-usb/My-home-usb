@@ -6771,6 +6771,52 @@ async def get_project_wise_labour_summary(
     return {"rows": rows}
 
 
+@router.get("/dashboard/labour-summary")
+async def get_dashboard_labour_summary(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Super Admin Dashboard > Labour card: firm-wide totals for the date
+    range, kept as three real buckets (Skilled / Semi-Skilled / Unskilled)
+    — unlike Project Wise > Labour, which folds semi_skilled into
+    Unskilled since that report only has two amount columns."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    q: Dict[str, Any] = {}
+    if start_date or end_date:
+        q["date"] = {}
+        if start_date:
+            q["date"]["$gte"] = start_date
+        if end_date:
+            q["date"]["$lte"] = end_date
+    dlrs = await db.daily_labour_reports.find(q, {"_id": 0, "entries": 1}).to_list(20000)
+
+    buckets = {
+        "skilled": {"count": 0, "amount": 0.0},
+        "semi_skilled": {"count": 0, "amount": 0.0},
+        "unskilled": {"count": 0, "amount": 0.0},
+    }
+    for d in dlrs:
+        for e in (d.get("entries") or []):
+            b = _labour_skill_bucket(e.get("type"))
+            buckets[b]["count"] += int(e.get("count") or 0)
+            buckets[b]["amount"] += float(e.get("total_cost") or 0)
+
+    total_count = sum(b["count"] for b in buckets.values())
+    total_amount = sum(b["amount"] for b in buckets.values())
+    for b in buckets.values():
+        b["amount"] = round(b["amount"], 2)
+
+    return {
+        "total": {"count": total_count, "amount": round(total_amount, 2)},
+        "skilled": buckets["skilled"],
+        "semi_skilled": buckets["semi_skilled"],
+        "unskilled": buckets["unskilled"],
+    }
+
+
 # ==================== SMART CHEQUE PAYMENT ====================
 
 @router.get("/accountant/vendor-suspense/{vendor_name}")

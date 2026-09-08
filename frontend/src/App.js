@@ -71,6 +71,7 @@ import UserApp from '@/pages/UserApp';
 import CRMPreSales from '@/pages/CRMPreSales';
 import CRMSales from '@/pages/CRMSales';
 import SalesBoard from '@/pages/SalesBoard';
+import SuperAdminDashboard from '@/pages/SuperAdminDashboard';
 import REProjectsPage from '@/pages/REProjectsPage';
 import CustomFieldsBuilder from '@/pages/CustomFieldsBuilder';
 import CSVImportPage from '@/pages/CSVImportPage';
@@ -216,6 +217,7 @@ function AppRouter() {
       <Route path="/architect-dashboard" element={<ProtectedRoute><ArchitectDashboard /></ProtectedRoute>} />
       <Route path="/workflow-master" element={<ProtectedRoute><WorkflowMasterPage /></ProtectedRoute>} />
       <Route path="/sales-board" element={<ProtectedRoute><SalesBoard /></ProtectedRoute>} />
+      <Route path="/super-admin-dashboard" element={<ProtectedRoute><SuperAdminDashboard /></ProtectedRoute>} />
       <Route path="/marketing-board" element={<ProtectedRoute><MarketingBoard /></ProtectedRoute>} />
       <Route path="/marketing-projects" element={<ProtectedRoute><MarketingProjectsBoard /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />

@@ -1233,6 +1233,28 @@ async def get_hr_dashboard(user: User = Depends(get_current_user)):
     }
 
 
+@router.get("/dashboard/hr-summary")
+async def get_dashboard_hr_summary(date: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Super Admin Dashboard > HR card: Total Employees / Present / Absent
+    as of a given date ('YYYY-MM-DD', defaults to today). Same
+    present/absent math as /hr/dashboard, just parameterized instead of
+    hardcoded to today — the Dashboard's date filter passes its selected
+    range's end date here (attendance is a per-day snapshot, not a range
+    sum, so "present" for a range means "present on its last day")."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+
+    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    total_staff = await db.staff.count_documents({"status": "active"})
+    present = await db.attendance.count_documents({"date": target_date, "status": {"$in": ["present", "wfh"]}})
+    absent = max(0, total_staff - present)
+    return {
+        "date": target_date,
+        "total_staff": total_staff,
+        "present": present,
+        "absent": absent,
+    }
+
 
 # ==================== LEFT/TERMINATED EMPLOYEES ====================
 

@@ -249,6 +249,36 @@ async def admin_lookup_by_number(prefix: str, number: str, user: User = Depends(
 
 
 
+@router.get("/dashboard/projects-overview")
+async def get_dashboard_projects_overview(user: User = Depends(get_current_user)):
+    """Super Admin Dashboard > Projects Overview card: Total / New / Ongoing
+    / Completed, by planning_status (new/active/delivered — the same 3
+    states Cashbook's own "real project" scope uses). Status is a current
+    snapshot, not a date-ranged figure, so this ignores the page's date
+    filter by design — a project doesn't have a "New" or "Completed"
+    count for last Tuesday."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+
+    counts_raw = await db.projects.aggregate([
+        {"$match": {
+            "is_deleted": {"$ne": True},
+            "planning_status": {"$in": ["new", "active", "delivered"]},
+        }},
+        {"$group": {"_id": "$planning_status", "count": {"$sum": 1}}},
+    ]).to_list(10)
+    counts = {c["_id"]: c["count"] for c in counts_raw}
+    new_count = counts.get("new", 0)
+    ongoing_count = counts.get("active", 0)
+    completed_count = counts.get("delivered", 0)
+    return {
+        "total": new_count + ongoing_count + completed_count,
+        "new": new_count,
+        "ongoing": ongoing_count,
+        "completed": completed_count,
+    }
+
+
 @router.get("/projects")
 async def get_projects(include_deleted: bool = False, planning_person_id: Optional[str] = None, user: User = Depends(get_current_user)):
     # IDOR Fix: Role-based project filtering
