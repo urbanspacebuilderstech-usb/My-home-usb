@@ -4282,6 +4282,46 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
         if isinstance(entry.get("created_at"), str):
             entry["created_at"] = datetime.fromisoformat(entry["created_at"])
 
+    # ── SELF-HEAL: amount_received must equal the sum of every APPROVED
+    # income actually linked to this stage via payment_stage_id ──────────
+    # Sep 10 2026 — this is the SAME derivation _resync_payment_stage_from_
+    # incomes (projects.py) already does, but that one only ever ran when
+    # the Super-Admin-only stage detail popup (the eye icon) was opened —
+    # the Payment Schedule LIST here just trusted whatever amount_received
+    # happened to be already stored. Reported: "Anbu Final Test" stage
+    # showed as fully Collected in the list (stale amount_received) while
+    # the real approved income only covered ₹10,000 of the ₹15,000 —
+    # opening the eye-icon popup silently fixed it (as a side effect of
+    # that OTHER endpoint's own heal), and only THEN did the list agree.
+    # Doing the same derivation here means the list is never stale to
+    # begin with — reusing income_entries already fetched above instead of
+    # a second query per stage.
+    EXCLUDED_INC_STATUSES = {"rejected", "accountant_rejected", "under_correction", "pending_approval", "cheque_bounced"}
+    income_by_stage_id: Dict[str, float] = {}
+    for e in income_entries:
+        sid = e.get("payment_stage_id")
+        if not sid:
+            continue
+        if (e.get("status") or "approved") in EXCLUDED_INC_STATUSES:
+            continue
+        income_by_stage_id[sid] = income_by_stage_id.get(sid, 0.0) + float(e.get("amount") or 0)
+
+    for stage in payment_stages:
+        sid = stage.get("stage_id")
+        if not sid or sid not in income_by_stage_id:
+            continue
+        true_received = income_by_stage_id[sid]
+        stage_amount = float(stage.get("amount") or 0)
+        current_received = float(stage.get("amount_received") or 0)
+        if abs(true_received - current_received) > 0.5:
+            new_status = "paid" if stage_amount > 0 and true_received >= stage_amount - 0.5 else ("partial" if true_received > 0 else "pending")
+            stage["amount_received"] = true_received
+            stage["status"] = new_status
+            await db.payment_stages.update_one(
+                {"stage_id": sid},
+                {"$set": {"amount_received": true_received, "status": new_status}},
+            )
+
     # ── SELF-HEAL: amount_received must include the linked advance income ──
     # When CRE convert-deal creates Stage 01 with `linked_income_id` pointing at
     # the RE advance, that advance is sometimes NOT counted in the stage's
