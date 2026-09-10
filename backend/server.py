@@ -288,6 +288,13 @@ async def startup_init():
     await _safe_index(startup_db.user_sessions, [("user_id", 1)])
     await _safe_index(startup_db.users, [("email", 1)])
     await _safe_index(startup_db.users, [("role", 1), ("is_active", 1)])
+    # Sep 10 2026 — Settings > Admin Login History reads audit_logs filtered by
+    # resource_type + action and sorted by timestamp. audit_logs only grows, and
+    # the only index declarations for it live in seed_comprehensive.py, which
+    # does not run against an existing database — so this query would collection
+    # -scan and sort in memory. Additive and idempotent; changes no behaviour.
+    await _safe_index(startup_db.audit_logs, [("resource_type", 1), ("action", 1), ("timestamp", -1)])
+    await _safe_index(startup_db.audit_logs, [("user_id", 1), ("timestamp", -1)])
     await _safe_index(startup_db.cheques, [("cheque_type", 1), ("is_opened", 1), ("status", 1)])
     await _safe_index(startup_db.recorded_expenses, [("project_id", 1), ("created_at", -1)])
     await _safe_index(startup_db.income, [("status", 1), ("payment_mode", 1)])

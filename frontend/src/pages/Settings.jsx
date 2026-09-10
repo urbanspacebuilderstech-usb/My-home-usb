@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Building2, LogOut, Settings as SettingsIcon, Users, Package, Truck, Save, Building, ArrowDownRight, GitBranch, Headphones, Wifi, RefreshCw, Circle, Smartphone } from 'lucide-react';
+import { Building2, LogOut, Settings as SettingsIcon, Users, Package, Truck, Save, Building, ArrowDownRight, GitBranch, Headphones, Wifi, RefreshCw, Circle, Smartphone, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -138,6 +138,48 @@ export default function Settings() {
     } finally {
       setLoginDetailsLoading(false);
     }
+  };
+
+  // Sep 10 2026 — Admin Login History (Super Admin only). Reads audit_logs,
+  // which has stamped an entry on every login and every failed attempt all
+  // along, so this shows real history rather than starting from today.
+  const [adminHistory, setAdminHistory] = useState(null);
+  const [adminHistoryLoading, setAdminHistoryLoading] = useState(false);
+  const [adminHistoryDays, setAdminHistoryDays] = useState(0); // 0 = all time
+  const [adminHistoryFailed, setAdminHistoryFailed] = useState(true);
+  const fetchAdminHistory = async (days = adminHistoryDays, withFailed = adminHistoryFailed) => {
+    setAdminHistoryLoading(true);
+    try {
+      const r = await axios.get(`${API}/admin/superadmin-login-history`, {
+        params: { days, include_failed: withFailed, limit: 500 },
+      });
+      setAdminHistory(r.data);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to load admin login history');
+    } finally {
+      setAdminHistoryLoading(false);
+    }
+  };
+  const fmtStamp = (s) => {
+    if (!s) return '—';
+    try {
+      return new Date(s).toLocaleString('en-IN', {
+        day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+      });
+    } catch { return s; }
+  };
+  // Long UA strings are unreadable in a table cell; show the recognisable part
+  // and keep the full string on hover rather than truncating information away.
+  const shortDevice = (ua) => {
+    if (!ua) return '—';
+    const os = /Windows/i.test(ua) ? 'Windows' : /Android/i.test(ua) ? 'Android'
+      : /iPhone|iPad|iOS/i.test(ua) ? 'iOS' : /Mac OS X|Macintosh/i.test(ua) ? 'macOS'
+      : /Linux/i.test(ua) ? 'Linux' : '';
+    const br = /Edg\//i.test(ua) ? 'Edge' : /OPR\/|Opera/i.test(ua) ? 'Opera'
+      : /Chrome\//i.test(ua) ? 'Chrome' : /Firefox\//i.test(ua) ? 'Firefox'
+      : /Safari\//i.test(ua) ? 'Safari' : '';
+    return [br, os].filter(Boolean).join(' · ') || ua.slice(0, 28);
   };
 
   useEffect(() => {
@@ -291,7 +333,7 @@ export default function Settings() {
         </div>
 
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); if (v === 'login-details') fetchLoginDetails(); }}>
+        <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); if (v === 'login-details') fetchLoginDetails(); if (v === 'admin-login-history') fetchAdminHistory(); }}>
           <TabsList className="mb-4 sm:mb-6 w-full sm:w-auto overflow-x-auto">
             <TabsTrigger value="company" className="gap-1 sm:gap-2 text-xs sm:text-sm">
               <Building className="h-3 w-3 sm:h-4 sm:w-4" /> <span className="hidden sm:inline">Company</span> Profile
@@ -317,6 +359,11 @@ export default function Settings() {
             {user?.role === 'super_admin' && (
               <TabsTrigger value="login-details" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-login-details-tab">
                 <Wifi className="h-3 w-3 sm:h-4 sm:w-4" /> Login Details
+              </TabsTrigger>
+            )}
+            {user?.role === 'super_admin' && (
+              <TabsTrigger value="admin-login-history" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-admin-login-history-tab">
+                <ShieldCheck className="h-3 w-3 sm:h-4 sm:w-4" /> Admin Login History
               </TabsTrigger>
             )}
           </TabsList>
@@ -750,6 +797,155 @@ export default function Settings() {
                                 <td className="px-3 py-2 text-gray-600 capitalize">{(u.role || '').replace(/_/g, ' ')}</td>
                                 <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{u.last_login ? new Date(u.last_login).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                                 <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{u.last_logout ? new Date(u.last_logout).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+
+          {user?.role === 'super_admin' && (
+            <TabsContent value="admin-login-history">
+              <Card>
+                <CardHeader className="p-4 sm:p-6 flex flex-row items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                      <ShieldCheck className="h-5 w-5 text-indigo-600" /> Super Admin Login History
+                    </CardTitle>
+                    <CardDescription className="text-xs sm:text-sm">
+                      Every Super Admin sign-in on record — date, time, IP address, method and device — plus failed attempts. Reconstructed from the audit log, so it covers history already recorded, not only from today.
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Select
+                      value={String(adminHistoryDays)}
+                      onValueChange={(v) => { setAdminHistoryDays(Number(v)); fetchAdminHistory(Number(v), adminHistoryFailed); }}
+                    >
+                      <SelectTrigger className="h-8 w-[130px] text-xs" data-testid="admin-history-range"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">All time</SelectItem>
+                        <SelectItem value="7">Last 7 days</SelectItem>
+                        <SelectItem value="30">Last 30 days</SelectItem>
+                        <SelectItem value="90">Last 90 days</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <label className="flex items-center gap-1.5 text-[11px] text-gray-600 cursor-pointer">
+                      <Switch
+                        checked={adminHistoryFailed}
+                        onCheckedChange={(v) => { setAdminHistoryFailed(v); fetchAdminHistory(adminHistoryDays, v); }}
+                        data-testid="admin-history-failed-toggle"
+                      />
+                      Failed attempts
+                    </label>
+                    <Button variant="outline" size="sm" onClick={() => fetchAdminHistory()} disabled={adminHistoryLoading} data-testid="admin-history-refresh">
+                      <RefreshCw className={`h-3.5 w-3.5 mr-1 ${adminHistoryLoading ? 'animate-spin' : ''}`} /> Refresh
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-4 sm:p-6 pt-0">
+                  {!adminHistory ? (
+                    <p className="text-sm text-gray-400 py-8 text-center">{adminHistoryLoading ? 'Loading…' : 'No data yet'}</p>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mb-4">
+                        {[
+                          { label: 'Total Logins', value: adminHistory.summary?.total_logins ?? 0, cls: 'border-l-emerald-500 text-emerald-700' },
+                          { label: 'Failed Attempts', value: adminHistory.summary?.failed_attempts ?? 0, cls: 'border-l-rose-500 text-rose-700' },
+                          { label: 'Distinct IPs', value: adminHistory.summary?.distinct_ip_count ?? 0, cls: 'border-l-indigo-500 text-indigo-700' },
+                          { label: 'Super Admins', value: adminHistory.summary?.super_admin_count ?? 0, cls: 'border-l-amber-500 text-amber-700' },
+                          { label: 'Showing', value: adminHistory.count ?? 0, cls: 'border-l-gray-400 text-gray-700' },
+                        ].map((t) => (
+                          <div key={t.label} className={`rounded-lg border-l-4 bg-white p-3 shadow-sm ${t.cls.split(' ')[0]}`}>
+                            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">{t.label}</p>
+                            <p className={`text-lg font-bold ${t.cls.split(' ')[1]}`}>{t.value}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <p className="text-[11px] text-gray-500 mb-3">
+                        First recorded login: <strong>{fmtStamp(adminHistory.summary?.first_login)}</strong> · Most recent: <strong>{fmtStamp(adminHistory.summary?.last_login)}</strong> · Range: {adminHistory.scope}
+                      </p>
+
+                      {adminHistory.ip_accuracy_note && (
+                        <div className="flex items-start gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 mb-4">
+                          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 mt-0.5 shrink-0" />
+                          <p className="text-[11px] text-amber-800">{adminHistory.ip_accuracy_note}</p>
+                        </div>
+                      )}
+
+                      {(adminHistory.per_admin || []).length > 0 && (
+                        <div className="mb-5">
+                          <p className="text-xs font-semibold text-gray-700 mb-1.5">Per Super Admin</p>
+                          <div className="overflow-x-auto border rounded">
+                            <table className="w-full text-xs">
+                              <thead className="bg-gray-50">
+                                <tr>
+                                  <th className="text-left px-3 py-2 font-medium text-gray-500">Name</th>
+                                  <th className="text-left px-3 py-2 font-medium text-gray-500">Email</th>
+                                  <th className="text-right px-3 py-2 font-medium text-gray-500">Logins</th>
+                                  <th className="text-right px-3 py-2 font-medium text-gray-500">Distinct IPs</th>
+                                  <th className="text-left px-3 py-2 font-medium text-gray-500">First Login</th>
+                                  <th className="text-left px-3 py-2 font-medium text-gray-500">Last Login</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y">
+                                {adminHistory.per_admin.map((a) => (
+                                  <tr key={a.user_id} className="hover:bg-gray-50">
+                                    <td className="px-3 py-2 font-medium">{a.name || '—'}</td>
+                                    <td className="px-3 py-2 text-gray-600">{a.email || '—'}</td>
+                                    <td className="px-3 py-2 text-right font-bold text-emerald-700">{a.login_count}</td>
+                                    <td className="px-3 py-2 text-right">{a.distinct_ips}</td>
+                                    <td className="px-3 py-2 text-gray-600">{fmtStamp(a.first_login)}</td>
+                                    <td className="px-3 py-2 text-gray-600">{fmtStamp(a.last_login)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      <p className="text-xs font-semibold text-gray-700 mb-1.5">Full event log ({adminHistory.count})</p>
+                      <div className="overflow-x-auto border rounded max-h-[520px] overflow-y-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-gray-50 sticky top-0">
+                            <tr>
+                              <th className="text-left px-3 py-2 font-medium text-gray-500">#</th>
+                              <th className="text-left px-3 py-2 font-medium text-gray-500">Date &amp; Time</th>
+                              <th className="text-left px-3 py-2 font-medium text-gray-500">Event</th>
+                              <th className="text-left px-3 py-2 font-medium text-gray-500">Name</th>
+                              <th className="text-left px-3 py-2 font-medium text-gray-500">Email</th>
+                              <th className="text-left px-3 py-2 font-medium text-gray-500">IP Address</th>
+                              <th className="text-left px-3 py-2 font-medium text-gray-500">Method</th>
+                              <th className="text-left px-3 py-2 font-medium text-gray-500">Device</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {(adminHistory.events || []).length === 0 ? (
+                              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No login events recorded in this range.</td></tr>
+                            ) : adminHistory.events.map((e, i) => (
+                              <tr key={e.audit_id || i} className="hover:bg-gray-50">
+                                <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                                <td className="px-3 py-2 whitespace-nowrap">{fmtStamp(e.timestamp)}</td>
+                                <td className="px-3 py-2">
+                                  <span className={`inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${
+                                    e.action === 'login' ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                                    : e.action === 'logout' ? 'text-gray-600 bg-gray-50 border-gray-200'
+                                    : 'text-rose-700 bg-rose-50 border-rose-200'}`}>
+                                    {e.action === 'login' ? 'Login' : e.action === 'logout' ? 'Logout' : 'Failed'}
+                                  </span>
+                                  {e.reason && <span className="ml-1 text-[10px] text-rose-600">{e.reason}</span>}
+                                </td>
+                                <td className="px-3 py-2 font-medium">{e.name || '—'}</td>
+                                <td className="px-3 py-2 text-gray-600">{e.email || '—'}</td>
+                                <td className="px-3 py-2 font-mono text-[11px]">{e.ip_address}</td>
+                                <td className="px-3 py-2 text-gray-600">{e.method || '—'}</td>
+                                <td className="px-3 py-2 text-gray-600" title={e.user_agent || ''}>{shortDevice(e.user_agent)}</td>
                               </tr>
                             ))}
                           </tbody>

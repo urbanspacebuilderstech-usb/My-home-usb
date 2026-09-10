@@ -4,7 +4,7 @@ Includes: Real password login, forgot/reset password, user invitation, demo logi
 """
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 import uuid
@@ -70,7 +70,13 @@ async def get_setup_status():
 
 async def _create_session_and_respond(user_doc: dict, request: Request, response: Response, login_method: str):
     """Shared session creation logic for all login methods"""
-    client_ip = request.client.host if request.client else "unknown"
+    # Sep 10 2026 — Was `request.client.host`, which behind nginx/Cloudflare is
+    # the PROXY's address, not the user's. Every SUCCESSFUL login therefore
+    # recorded something like 127.0.0.1 in both user_sessions.ip_address and the
+    # audit log, while FAILED logins already used _real_client_ip and recorded
+    # the true address. Use the same resolver on both paths so the Admin Login
+    # History is actually usable for tracking.
+    client_ip = _real_client_ip(request)
 
     session_token = SessionManager.generate_session_token()
     expires_at = SessionManager.get_session_expiry()
@@ -102,7 +108,11 @@ async def _create_session_and_respond(user_doc: dict, request: Request, response
         user_id=user_doc["user_id"],
         action=AuditAction.LOGIN,
         resource_type="auth",
-        details={"method": login_method},
+        # Sep 10 2026 — carry the device string into the audit row too. It was
+        # only ever stored on user_sessions, which is deleted on logout, so a
+        # historical login had no device information left to show.
+        details={"method": login_method,
+                 "user_agent": request.headers.get("User-Agent", "")[:300]},
         ip_address=client_ip,
         success=True
     )
@@ -238,6 +248,126 @@ async def get_audit_logs(
 
     logs = await db.audit_logs.find(query, {"_id": 0}).sort("timestamp", -1).to_list(limit)
     return logs
+
+
+@router.get("/admin/superadmin-login-history")
+async def get_superadmin_login_history(
+    days: int = 0,
+    limit: int = 500,
+    include_failed: bool = True,
+    user: User = Depends(get_current_user),
+):
+    """Settings > Admin Login History (Super Admin only).
+
+    Every Super Admin sign-in ever recorded: when, from which IP, by which
+    method, on what device — reconstructed from `audit_logs`, which has
+    stamped an entry on every successful login (and every failed attempt)
+    all along. Nothing new is recorded to build this; it reads history that
+    already exists.
+
+    `days=0` (default) means the full history. Failed attempts are included
+    by default because they are the half that matters for security review.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+
+    admins = await db.users.find(
+        {"role": "super_admin"},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "is_active": 1},
+    ).to_list(200)
+    admin_by_id = {a["user_id"]: a for a in admins if a.get("user_id")}
+    admin_emails = {(a.get("email") or "").strip().lower() for a in admins if a.get("email")}
+
+    actions = [AuditAction.LOGIN, AuditAction.LOGOUT]
+    if include_failed:
+        actions.append(AuditAction.LOGIN_FAILED)
+    query: Dict[str, Any] = {"resource_type": "auth", "action": {"$in": actions}}
+    if days and days > 0:
+        since = (datetime.now(timezone.utc) - timedelta(days=int(days))).isoformat()
+        query["timestamp"] = {"$gte": since}
+
+    raw = await db.audit_logs.find(query, {"_id": 0}).sort("timestamp", -1).to_list(5000)
+
+    rows = []
+    for a in raw:
+        uid = a.get("user_id")
+        details = a.get("details") if isinstance(a.get("details"), dict) else {}
+        who = admin_by_id.get(uid)
+        # A failed attempt is logged with user_id "unknown" (the account is not
+        # resolved yet), so match it to an admin by the email that was tried —
+        # otherwise every failed Super Admin login would be invisible here.
+        attempted = (details.get("email") or details.get("attempted_email") or "").strip().lower()
+        if not who and attempted and attempted in admin_emails:
+            who = next((a2 for a2 in admins if (a2.get("email") or "").strip().lower() == attempted), None)
+        if not who:
+            continue                      # not a Super Admin event
+        rows.append({
+            "audit_id": a.get("audit_id"),
+            "timestamp": a.get("timestamp"),
+            "action": a.get("action"),
+            "success": bool(a.get("success")),
+            "user_id": who.get("user_id"),
+            "name": who.get("name"),
+            "email": who.get("email"),
+            "ip_address": a.get("ip_address") or "unknown",
+            "method": details.get("method"),
+            "user_agent": details.get("user_agent"),
+            "reason": details.get("reason"),
+        })
+    rows = rows[:max(1, min(int(limit or 500), 5000))]
+
+    logins = [r for r in rows if r["action"] == AuditAction.LOGIN]
+    failed = [r for r in rows if r["action"] == AuditAction.LOGIN_FAILED]
+    ip_counts: Dict[str, int] = {}
+    for r in logins:
+        ip_counts[r["ip_address"]] = ip_counts.get(r["ip_address"], 0) + 1
+    per_admin: Dict[str, Dict[str, Any]] = {}
+    for r in logins:
+        b = per_admin.setdefault(r["user_id"], {
+            "user_id": r["user_id"], "name": r["name"], "email": r["email"],
+            "login_count": 0, "first_login": None, "last_login": None, "ips": set()})
+        b["login_count"] += 1
+        b["ips"].add(r["ip_address"])
+        ts = r["timestamp"]
+        if ts:
+            if not b["last_login"] or ts > b["last_login"]:
+                b["last_login"] = ts
+            if not b["first_login"] or ts < b["first_login"]:
+                b["first_login"] = ts
+
+    return {
+        "scope": "all time" if not days else f"last {int(days)} days",
+        "summary": {
+            "total_logins": len(logins),
+            "failed_attempts": len(failed),
+            "distinct_ip_count": len(ip_counts),
+            "first_login": min((r["timestamp"] for r in logins if r["timestamp"]), default=None),
+            "last_login": max((r["timestamp"] for r in logins if r["timestamp"]), default=None),
+            "super_admin_count": len(admins),
+        },
+        # Build each row explicitly: `{**b, ...: len(b.pop("ips"))}` spreads b
+        # BEFORE the pop runs, so the raw set survived into the response and
+        # FastAPI cannot serialize a set — a guaranteed 500.
+        "per_admin": sorted(
+            [{"user_id": b["user_id"], "name": b["name"], "email": b["email"],
+              "login_count": b["login_count"], "first_login": b["first_login"],
+              "last_login": b["last_login"], "distinct_ips": len(b["ips"])}
+             for b in per_admin.values()],
+            key=lambda x: x["login_count"], reverse=True),
+        "top_ips": sorted(
+            [{"ip_address": k, "login_count": v} for k, v in ip_counts.items()],
+            key=lambda x: x["login_count"], reverse=True)[:20],
+        "events": rows,
+        "count": len(rows),
+        # Stated plainly so the figures are not over-trusted: successful logins
+        # recorded the proxy address until the Sep 10 2026 fix, so older rows
+        # can read 127.0.0.1 even though the user was remote.
+        "ip_accuracy_note": (
+            "Successful logins before 10 Sep 2026 recorded the server/proxy address "
+            "rather than the real client IP. Entries from that date onward resolve "
+            "the true address via Cloudflare / X-Forwarded-For."
+        ),
+    }
 
 
 @router.get("/admin/login-details")
