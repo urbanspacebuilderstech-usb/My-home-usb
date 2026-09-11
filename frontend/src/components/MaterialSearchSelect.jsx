@@ -26,6 +26,8 @@ export default function MaterialSearchSelect({
   width = 'w-64',
   accent = 'red',
   multiple = false,
+  allLabel = 'All Materials',
+  noun = 'material',
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -89,7 +91,7 @@ export default function MaterialSearchSelect({
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
             <Input
               autoFocus
-              placeholder="Search material..."
+              placeholder={`Search ${noun}...`}
               value={query}
               onChange={e => setQuery(e.target.value)}
               className="pl-8 h-8 text-xs"
@@ -117,10 +119,10 @@ export default function MaterialSearchSelect({
             data-testid={`${testId}-all`}
           >
             <Check className={`h-3.5 w-3.5 ${selectedNames.length === 0 ? 'opacity-100' : 'opacity-0'}`} />
-            All Materials
+            {allLabel}
           </button>
           {filtered.length === 0 ? (
-            <p className="px-3 py-3 text-xs text-gray-400 text-center">No materials found</p>
+            <p className="px-3 py-3 text-xs text-gray-400 text-center">No {noun}s found</p>
           ) : filtered.map(m => (
             <button
               key={m.name}

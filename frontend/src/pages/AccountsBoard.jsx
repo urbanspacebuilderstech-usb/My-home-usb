@@ -528,6 +528,7 @@ function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack,
   const [projectFilter, setProjectFilter] = useState('');
   const [dateRange, setDateRange] = useState(null); // { from, to }
   const [materialFilter, setMaterialFilter] = useState('');
+  const [vendorFilter, setVendorFilter] = useState('');
   const [modeFilter, setModeFilter] = useState('');
 
   // Build unique project list from all entries in this bucket
@@ -586,9 +587,25 @@ function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack,
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [projectDateFilteredExpense]);
 
-  const filteredExpense = materialFilter
-    ? projectDateFilteredExpense.filter(e => (e.material_name || e.description || '').trim().toLowerCase() === materialFilter.toLowerCase())
-    : projectDateFilteredExpense;
+  // Vendors available under the current project/date filters — same grouping
+  // pattern as `materials` above, keyed by vendor_name instead.
+  const vendors = React.useMemo(() => {
+    const map = new Map();
+    projectDateFilteredExpense.forEach(e => {
+      const name = (e.vendor_name || '').trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (!map.has(key)) map.set(key, { name, count: 0, amount: 0 });
+      const v = map.get(key);
+      v.count += 1;
+      v.amount += Number(e.amount || 0);
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [projectDateFilteredExpense]);
+
+  const filteredExpense = projectDateFilteredExpense
+    .filter(e => !materialFilter || (e.material_name || e.description || '').trim().toLowerCase() === materialFilter.toLowerCase())
+    .filter(e => !vendorFilter || (e.vendor_name || '').trim().toLowerCase() === vendorFilter.toLowerCase());
 
   // ---- CSV export (opens in Excel) ----
   const downloadCsv = (rows, type) => {
@@ -659,6 +676,21 @@ function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack,
         />
         {materialFilter && (
           <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => setMaterialFilter('')} data-testid="mode-drilldown-material-clear">
+            <X className="h-3 w-3 mr-1" /> Clear
+          </Button>
+        )}
+        <MaterialSearchSelect
+          materials={vendors}
+          value={vendorFilter}
+          onChange={setVendorFilter}
+          placeholder="Search Vendor"
+          width="w-60"
+          testId="mode-drilldown-vendor"
+          allLabel="All Vendors"
+          noun="vendor"
+        />
+        {vendorFilter && (
+          <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => setVendorFilter('')} data-testid="mode-drilldown-vendor-clear">
             <X className="h-3 w-3 mr-1" /> Clear
           </Button>
         )}
