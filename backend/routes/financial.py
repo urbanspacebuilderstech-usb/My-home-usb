@@ -905,6 +905,42 @@ async def _enrich_expense_uploads(all_expenses: List[Dict[str, Any]]) -> None:
                 e[f] = parent[f]
 
 
+async def _resolve_rab_numbers(all_expenses: List[Dict[str, Any]]) -> None:
+    """Sep 11 2026 — labour/contractor and vendor bills raised through the
+    RAB (Running Account Bill) workflow carry `request_id` pointing at a
+    `payment_requests` row nested under `project_work_orders.stages[]`,
+    where the human-readable `rab_number` (e.g. "RAB-01") actually lives —
+    it was never denormalized onto the recorded_expenses/labour_expenses
+    row itself. Resolve it here, mirroring the material MR-number join
+    above, so the Expense table's Material Id column can show "RAB-01" for
+    these rows the same way it shows the material request's "USB-MR034"
+    for material rows.
+    """
+    targets = [
+        e for e in all_expenses
+        if e.get("expense_type") != "material"
+        and not e.get("rab_number")
+        and e.get("request_id")
+    ]
+    if not targets:
+        return
+    req_ids = list({e["request_id"] for e in targets})
+    wos = await db.project_work_orders.find(
+        {"stages.payment_requests.request_id": {"$in": req_ids}},
+        {"_id": 0, "stages": 1},
+    ).to_list(5000)
+    rab_map: Dict[str, str] = {}
+    for wo in wos:
+        for stage in (wo.get("stages") or []):
+            for pr in (stage.get("payment_requests") or []):
+                if pr.get("request_id") and pr.get("rab_number"):
+                    rab_map[pr["request_id"]] = pr["rab_number"]
+    for e in targets:
+        num = rab_map.get(e["request_id"])
+        if num:
+            e["rab_number"] = num
+
+
 @router.get("/accountant/overview")
 async def get_accountant_overview(user: User = Depends(get_current_user)):
     """Comprehensive accountant overview: income/expense by payment mode, project-wise
@@ -1002,6 +1038,7 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
     await _resolve_cheque_numbers(all_expenses)
     await _resolve_labour_suspense_cheque_numbers(all_expenses)
     await _enrich_expense_uploads(all_expenses)
+    await _resolve_rab_numbers(all_expenses)
 
     # Petty cash totals
     petty_total_issued = sum(pc.get("amount_issued", 0) for pc in petty_cash_list)
@@ -6484,6 +6521,7 @@ async def get_cashbook_filtered(
     await _resolve_labour_suspense_cheque_numbers(all_expenses)
 
     await _enrich_expense_uploads(all_expenses)
+    await _resolve_rab_numbers(all_expenses)
 
     # Feb 22 2026 — The headline Total Income / Total Expense KPI cards must
     # match the Project Wise table's bottom Total. The table is built ONLY

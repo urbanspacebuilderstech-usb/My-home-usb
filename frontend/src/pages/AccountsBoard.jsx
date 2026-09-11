@@ -313,6 +313,17 @@ function getTransactionId(e, type) {
   return legIds.join(', ');
 }
 
+// Sep 11 2026 — Material Id column: a material expense shows the parent
+// material request's USB-MR number (e.g. "USB-MR1382"); a labour/contractor
+// or vendor bill raised through the RAB workflow shows its RAB number
+// (e.g. "RAB-01") instead. Both are resolved server-side onto the expense
+// row (`request_number` / `rab_number`) — see _enrich_expense_uploads /
+// _resolve_rab_numbers in financial.py.
+function getMaterialId(e) {
+  if (e.expense_type === 'material') return e.request_number || '';
+  return e.rab_number || '';
+}
+
 // Aug 17 2026 — Every image the Site Engineer attached to one cashbook
 // expense row, in one flat list for the Transaction Details viewer.
 //   • Petty cash / Record-Expense rows carry `item_bills[]` (one entry per
@@ -453,6 +464,7 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
                   <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
                   <th className="text-left px-3 py-2 font-medium text-gray-500">Transaction Id</th>
                   <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
+                  {type === 'expense' && <th className="text-left px-3 py-2 font-medium text-gray-500">Material Id</th>}
                   {type === 'expense' && <th className="text-left px-3 py-2 font-medium text-gray-500">Vendor</th>}
                   <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
                   {canDelete && <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>}
@@ -460,7 +472,7 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
               </thead>
               <tbody className="divide-y">
                 {entries.length === 0 ? (
-                  <tr><td colSpan={(type === 'expense' ? 8 : 7) + (canDelete ? 1 : 0)} className="px-4 py-8 text-center text-gray-400">No entries found</td></tr>
+                  <tr><td colSpan={(type === 'expense' ? 9 : 7) + (canDelete ? 1 : 0)} className="px-4 py-8 text-center text-gray-400">No entries found</td></tr>
                 ) : pageEntries.map((e, i) => (
                   <tr key={pageStart + i} className="hover:bg-gray-50">
                     <td className="px-3 py-2 text-gray-400">{pageStart + i + 1}</td>
@@ -480,6 +492,7 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
                         {MODE_LABELS[classifyMode(e.payment_mode || e.payment_method)] || 'Cash'}
                       </Badge>
                     </td>
+                    {type === 'expense' && <td className="px-3 py-2 text-gray-600">{getMaterialId(e) || '-'}</td>}
                     {type === 'expense' && <td className="px-3 py-2 text-gray-600">{e.vendor_name || '-'}</td>}
                     <td className={`px-3 py-2 text-right font-bold ${type === 'income' ? 'text-green-700' : 'text-red-600'}`}>
                       <MaskedValue value={e.amount} className={type === 'income' ? 'text-green-700' : 'text-red-600'} />
@@ -621,7 +634,7 @@ function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack,
     // always-empty column).
     const isExpense = String(type).toLowerCase() === 'expense';
     const header = ['S.No', 'Date', 'Description', 'Project', 'Transaction Id', 'Mode',
-                    ...(isExpense ? ['Vendor'] : []), 'Amount'];
+                    ...(isExpense ? ['Material Id', 'Vendor'] : []), 'Amount'];
     const dataLines = rows.map((r, idx) => {
       // Same precedence as the table (payment_date first). The export used to
       // prefer created_at, so a row carrying both could show one date on
@@ -632,9 +645,10 @@ function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack,
       const proj = r.project_name || '';
       const txn = getTransactionId(r, String(type).toLowerCase()) || '';
       const mode = (r.payment_mode || r.payment_method || '').toString().replace(/_/g, ' ');
+      const materialId = getMaterialId(r) || '';
       const vendor = r.vendor_name || '';
       const amt = Number(r.amount || 0);
-      return [idx + 1, d, desc, proj, txn, mode, ...(isExpense ? [vendor] : []), amt]
+      return [idx + 1, d, desc, proj, txn, mode, ...(isExpense ? [materialId, vendor] : []), amt]
         .map(csvEscape).join(',');
     });
     const csv = '\uFEFF' + [header.join(','), ...dataLines].join('\n');
