@@ -131,7 +131,7 @@ export default function PriorityBoard() {
                   {loading && !data ? '…' : count}
                 </span>
                 {VALUE_TABS.has(t.key) && (
-                  <span className="text-[10px] sm:text-xs font-semibold opacity-90 mt-0.5 leading-tight" data-testid={`priority-tab-value-${t.key}`}>
+                  <span className="text-sm sm:text-lg font-bold opacity-95 mt-1 leading-tight" data-testid={`priority-tab-value-${t.key}`}>
                     {loading && !data ? '' : formatINRShort(data?.amounts?.[t.key])}
                   </span>
                 )}
