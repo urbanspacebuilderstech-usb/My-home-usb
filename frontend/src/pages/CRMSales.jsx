@@ -141,7 +141,15 @@ export default function CRMSales() {
   const [selectedREProject, setSelectedREProject] = useState(null);
   const [reRevisions, setReRevisions] = useState([]);
   const [editDialog, setEditDialog] = useState(false);
-  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', alternative_phone: '', source: 'other', address: '', city: '', state: '', pincode: '', notes: '', client_category: '', client_category_value: '', custom_fields: {} });
+  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', alternative_phone: '', source: 'other', address: '', city: '', state: '', pincode: '', notes: '', client_category: '', client_category_value: '', client_type: '', client_category_conditions: [], custom_fields: {} });
+  // Sep 15 2026 — Client Follow Up Funnel checklist (served by the backend so the
+  // form and the validation share one list). `priorityTouched` marks a deliberate
+  // pick/re-confirm, which is the only thing that restarts the drop clock.
+  const [funnel, setFunnel] = useState(null);
+  const [priorityTouched, setPriorityTouched] = useState(false);
+  useEffect(() => {
+    axios.get(`${API}/crm/client-funnel-conditions`).then(r => setFunnel(r.data)).catch(() => {});
+  }, []);
   const [customFields, setCustomFields] = useState([]);
   const [summary, setSummary] = useState('');
   const [followUpForm, setFollowUpForm] = useState({ date: '', note: '' });
@@ -1005,15 +1013,23 @@ export default function CRMSales() {
       notes: lead.notes || '',
       client_category: lead.client_category || '',
       client_category_value: lead.client_category_value || '',
+      client_type: lead.client_type || '',
+      client_category_conditions: lead.client_category_conditions || [],
       custom_fields: lead.custom_fields || {}
     });
+    setPriorityTouched(false);
     setEditDialog(true);
   };
 
   const handleUpdateLead = async () => {
     if (!editForm.name.trim()) { toast.error('Name is required'); return; }
+    const tierChanged = (editForm.client_category || '') !== (selectedLead?.client_category || '');
+    if (['P1', 'P2', 'P3'].includes(editForm.client_category) && (tierChanged || priorityTouched)) {
+      if (!editForm.client_type) { toast.error('Choose Client Type (Local Resident or NRI) for this priority'); return; }
+      if (!(editForm.client_category_conditions || []).length) { toast.error(`Tick at least one ${editForm.client_category} condition`); return; }
+    }
     try {
-      await axios.patch(`${API}/crm/leads/${selectedLead.lead_id}`, editForm);
+      await axios.patch(`${API}/crm/leads/${selectedLead.lead_id}`, { ...editForm, confirm_priority: tierChanged || priorityTouched });
       toast.success('Lead updated');
       setEditDialog(false);
       fetchData(false);
@@ -2309,6 +2325,18 @@ export default function CRMSales() {
                             <span className="text-gray-700">{selectedLead.client_category_value}</span>
                           )}
                         </p>
+                        {selectedLead.client_category_auto_lowered && (
+                          <p className="text-[11px] text-amber-700 mt-1">
+                            ↓ Auto-lowered from {selectedLead.client_category_auto_lowered_from} (not re-confirmed in time)
+                          </p>
+                        )}
+                        {(selectedLead.client_category_conditions || []).length > 0 && (
+                          <ul className="mt-1 space-y-0.5">
+                            {selectedLead.client_category_conditions.map(c => (
+                              <li key={c} className="text-[11px] text-gray-600">✓ {c}</li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2680,11 +2708,15 @@ export default function CRMSales() {
                 <Label className="text-xs">Client Category</Label>
                 <Select
                   value={editForm.client_category || ''}
-                  onValueChange={(v) => setEditForm({
-                    ...editForm,
-                    client_category: v === '__none__' ? '' : v,
-                    client_category_value: v === '__none__' ? '' : editForm.client_category_value,
-                  })}
+                  onValueChange={(v) => {
+                    setPriorityTouched(true);
+                    setEditForm({
+                      ...editForm,
+                      client_category: v === '__none__' ? '' : v,
+                      client_category_value: v === '__none__' ? '' : editForm.client_category_value,
+                      client_category_conditions: v === editForm.client_category ? editForm.client_category_conditions : [],
+                    });
+                  }}
                 >
                   <SelectTrigger className="text-sm h-9" data-testid="edit-client-category">
                     <SelectValue placeholder="Select priority" />
@@ -2714,6 +2746,68 @@ export default function CRMSales() {
                 />
               </div>
             </div>
+
+            {/* Client Follow Up Funnel — the priority must be justified by the
+                conditions for that tier (Local Resident vs NRI lists differ). */}
+            {['P1', 'P2', 'P3'].includes(editForm.client_category) && (
+              <div className="col-span-2 rounded-lg border border-gray-200 bg-gray-50 p-3" data-testid="edit-priority-checklist">
+                <div className="flex flex-wrap items-center gap-3 mb-2">
+                  <Label className="text-xs">Client Type *</Label>
+                  {Object.entries(funnel?.client_types || { local: 'Local Resident', nri: 'Non Resident of India (NRI)' }).map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                      <input
+                        type="radio"
+                        name="client_type"
+                        checked={editForm.client_type === key}
+                        onChange={() => {
+                          setPriorityTouched(true);
+                          setEditForm({ ...editForm, client_type: key, client_category_conditions: editForm.client_type === key ? editForm.client_category_conditions : [] });
+                        }}
+                        data-testid={`edit-client-type-${key}`}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+                {!editForm.client_type ? (
+                  <p className="text-xs text-gray-500">Choose Client Type to see the {editForm.client_category} conditions.</p>
+                ) : !funnel ? (
+                  <p className="text-xs text-gray-400">Loading conditions…</p>
+                ) : (
+                  <>
+                    <p className="text-xs font-medium text-gray-700 mb-1.5">
+                      Tick the {editForm.client_category} condition(s) that apply *
+                    </p>
+                    <div className="space-y-1.5">
+                      {(funnel.conditions?.[editForm.client_type]?.[editForm.client_category] || []).map(cond => {
+                        const checked = (editForm.client_category_conditions || []).includes(cond);
+                        return (
+                          <label key={cond} className="flex items-start gap-2 text-xs cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={checked}
+                              onChange={() => {
+                                setPriorityTouched(true);
+                                const cur = editForm.client_category_conditions || [];
+                                setEditForm({
+                                  ...editForm,
+                                  client_category_conditions: checked ? cur.filter(c => c !== cond) : [...cur, cond],
+                                });
+                              }}
+                            />
+                            <span className="text-gray-700">{cond}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-gray-500 mt-2">
+                      Saving with a condition ticked re-confirms this priority. If it isn't re-confirmed for {funnel.decay_days || 60} days, it drops one level automatically (P1 → P2 → P3).
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Custom Fields */}
             {customFields.length > 0 && (

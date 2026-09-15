@@ -767,3 +767,20 @@ async def startup_init():
 
     asyncio.create_task(sheets_auto_sync_loop())
     logger.info("Background Google Sheets auto-sync started (1-min interval)")
+
+    # Sep 15 2026 — Client priority funnel: a P1/P2 nobody re-confirms drops one
+    # level after PRIORITY_DECAY_DAYS. Every 6 hours is plenty for a day-granular
+    # rule; the function is idempotent and guarded against concurrent edits.
+    async def priority_decay_loop():
+        from routes.crm import decay_client_priorities
+        await asyncio.sleep(120)
+        while True:
+            try:
+                result = await decay_client_priorities()
+                if result.get("lowered") or result.get("clocks_started"):
+                    logger.info(f"Priority decay: {result}")
+            except Exception as e:
+                logger.warning(f"Priority decay loop error: {e}")
+            await asyncio.sleep(6 * 3600)
+
+    asyncio.create_task(priority_decay_loop())

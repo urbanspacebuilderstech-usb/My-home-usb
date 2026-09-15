@@ -179,7 +179,7 @@ export default function PriorityBoard() {
                 <th className="px-3 py-3 font-semibold">Pipeline</th>
                 <th className="px-3 py-3 font-semibold">Stage</th>
                 <th className="px-3 py-3 font-semibold">
-                  {active === 'long_rnr' ? 'RNR Attempts' : active === 'declined' ? 'Reason' : 'Priority Note'}
+                  {active === 'long_rnr' ? 'RNR Attempts' : active === 'declined' ? 'Reason' : 'Conditions'}
                 </th>
                 <th className="px-3 py-3 font-semibold">Assigned To</th>
                 <th className="px-3 py-3 font-semibold">
@@ -212,10 +212,28 @@ export default function PriorityBoard() {
                   <td className="px-3 py-3 text-gray-700">
                     {active === 'long_rnr' ? (
                       <span className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded-full bg-purple-50 border border-purple-200 text-xs font-bold text-purple-700">{l.rnr_count || 0}</span>
+                    ) : active === 'declined' ? (
+                      <span className="block truncate" title={l.lost_reason || ''}>{l.lost_reason || '—'}</span>
                     ) : (
-                      <span className="block truncate" title={(active === 'declined' ? l.lost_reason : l.client_category_value) || ''}>
-                        {(active === 'declined' ? l.lost_reason : l.client_category_value) || '—'}
-                      </span>
+                      // Funnel conditions that justify the tier; older leads set
+                      // before the checklist fall back to their free-text note.
+                      <div className="min-w-0">
+                        {l.client_category_auto_lowered && (
+                          <span className="inline-block text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 mr-1 mb-0.5"
+                                title="Not re-confirmed in time, so it dropped a level">
+                            ↓ from {l.client_category_auto_lowered_from}
+                          </span>
+                        )}
+                        {(l.client_category_conditions || []).length > 0 ? (
+                          <span className="block truncate" title={l.client_category_conditions.join(' | ')}>
+                            {l.client_category_conditions.join(' · ')}
+                          </span>
+                        ) : (
+                          <span className="block truncate text-gray-400" title={l.client_category_value || ''}>
+                            {l.client_category_value ? `Note: ${l.client_category_value}` : 'No conditions yet'}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </td>
                   <td className="px-3 py-3 text-gray-700 truncate" title={l.assigned_to_name || ''}>{l.assigned_to_name || '—'}</td>

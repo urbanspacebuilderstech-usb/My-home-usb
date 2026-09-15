@@ -573,6 +573,152 @@ def _to_date_str(v):
 
 
 PRIORITY_TIERS = ("P1", "P2", "P3")
+
+# Sep 15 2026 — "Client Follow Up Funnel System – Sales" (company PDF).
+# A salesperson still PICKS P1/P2/P3, but must tick which of these conditions
+# applies, so every priority carries its justification. Single source of truth:
+# the edit form fetches this list rather than keeping a copy.
+CLIENT_TYPES = {"local": "Local Resident", "nri": "Non Resident of India (NRI)"}
+CLIENT_FUNNEL_CONDITIONS = {
+    "local": {
+        "P3": [
+            "Office visits / G meets / home visits",
+            "Rough estimation discussion over the phone",
+            "Estimation revisions over the phone",
+        ],
+        "P2": [
+            "Second / third office visit for estimation discussion",
+            "Office visit for architect discussion",
+            "Site visits",
+        ],
+        "P1": [
+            "Second office visit for architect discussion",
+            "Office visit for negotiations",
+            "Office visit to meet the management team",
+            "Office visit to discuss payments / agreements / on-board process",
+        ],
+    },
+    "nri": {
+        "P3": [
+            "G meets / video conference",
+            "Rough estimation discussion over the phone",
+            "Estimation revision over the phone",
+        ],
+        "P2": [
+            "Discussion with architects through G meets",
+            "Site visits through video call",
+        ],
+        "P1": [
+            "Second architect discussion",
+            "Negotiation meetings",
+            "Meeting with management team",
+            "Meeting about payment terms / agreements / on-board process",
+        ],
+    },
+}
+# A priority that nobody re-confirms drops one level after this many days.
+PRIORITY_DECAY_DAYS = 60
+_PRIORITY_DOWN = {"P1": "P2", "P2": "P3"}          # P3 is the floor
+
+
+def validate_priority_conditions(client_type, tier, conditions) -> List[str]:
+    """Clean and validate the ticked conditions for a priority. Raises
+    ValueError with a user-facing message when the pick isn't justified."""
+    if tier not in PRIORITY_TIERS:
+        raise ValueError("Priority must be P1, P2 or P3")
+    if client_type not in CLIENT_FUNNEL_CONDITIONS:
+        raise ValueError("Choose Client Type (Local Resident or NRI) before setting a priority")
+    allowed = CLIENT_FUNNEL_CONDITIONS[client_type][tier]
+    picked, seen = [], set()
+    for c in (conditions or []):
+        c = (c or "").strip()
+        if c and c not in seen:
+            if c not in allowed:
+                raise ValueError(f"'{c}' is not a {tier} condition for {CLIENT_TYPES[client_type]}")
+            picked.append(c)
+            seen.add(c)
+    if not picked:
+        raise ValueError(f"Tick at least one {tier} condition to justify this priority")
+    return picked
+
+
+def priority_decay_due(lead: dict, now: datetime, days: int = PRIORITY_DECAY_DAYS) -> Optional[str]:
+    """The tier this lead should drop to now, or None if it stays.
+
+    Only active sales leads drop; onboarded, lost and moved-to-planning leads
+    keep whatever they had. The clock is `client_category_set_at` — set when a
+    salesperson picks or re-confirms the priority, and reset by each drop so
+    the next one takes another full period.
+    """
+    tier = (lead.get("client_category") or "").strip().upper()
+    if lead.get("stage_type") != "sales" or tier not in _PRIORITY_DOWN:
+        return None
+    if (lead.get("current_stage_id") or "") in ("stg_project_onboarded", "stg_lost") \
+            or lead.get("onboarding_status") == "moved_to_planning":
+        return None
+    set_at = lead.get("client_category_set_at")
+    if not set_at:
+        return None                      # no clock yet — it gets started, not dropped
+    try:
+        ts = set_at if isinstance(set_at, datetime) else datetime.fromisoformat(str(set_at))
+    except (TypeError, ValueError):
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return _PRIORITY_DOWN[tier] if (now - ts) >= timedelta(days=days) else None
+
+
+async def decay_client_priorities(now: Optional[datetime] = None) -> Dict[str, int]:
+    """Drop un-reconfirmed priorities one level. Safe to run repeatedly: each
+    drop resets the clock, and every write is guarded on the exact tier and
+    timestamp it read, so a salesperson editing at the same moment wins."""
+    now = now or datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+
+    # Existing tiered leads have no clock. Start it now rather than treating
+    # them as overdue — otherwise every older P1 would drop the day this ships.
+    started = await db.leads.update_many(
+        {"stage_type": "sales", "client_category": {"$in": list(PRIORITY_TIERS)},
+         "client_category_set_at": {"$exists": False}},
+        {"$set": {"client_category_set_at": now_iso}},
+    )
+
+    cutoff = (now - timedelta(days=PRIORITY_DECAY_DAYS)).isoformat()
+    due = await db.leads.find(
+        {"stage_type": "sales", "client_category": {"$in": list(_PRIORITY_DOWN)},
+         "client_category_set_at": {"$lte": cutoff}},
+        {"_id": 0, "lead_id": 1, "stage_type": 1, "client_category": 1,
+         "client_category_set_at": 1, "current_stage_id": 1, "onboarding_status": 1,
+         "client_category_conditions": 1},
+    ).to_list(5000)
+
+    lowered = 0
+    for lead in due:
+        new_tier = priority_decay_due(lead, now)
+        if not new_tier:
+            continue
+        old_tier = lead["client_category"]
+        res = await db.leads.update_one(
+            {"lead_id": lead["lead_id"], "client_category": old_tier,
+             "client_category_set_at": lead["client_category_set_at"]},
+            {"$set": {"client_category": new_tier, "client_category_set_at": now_iso,
+                      "client_category_conditions": [],
+                      "client_category_auto_lowered": True,
+                      "client_category_auto_lowered_from": old_tier},
+             "$push": {"client_category_history": {
+                 "from": old_tier, "to": new_tier, "at": now_iso, "source": "auto_decay",
+                 "reason": f"No re-confirmation for {PRIORITY_DECAY_DAYS} days",
+                 "previous_conditions": lead.get("client_category_conditions") or []}}},
+        )
+        lowered += res.modified_count
+    return {"clocks_started": started.modified_count, "lowered": lowered}
+
+
+@router.get("/crm/client-funnel-conditions")
+async def get_client_funnel_conditions(user: User = Depends(get_current_user)):
+    """The priority checklist the Sales lead form shows."""
+    return {"client_types": CLIENT_TYPES, "conditions": CLIENT_FUNNEL_CONDITIONS,
+            "decay_days": PRIORITY_DECAY_DAYS}
 # Same exclusions Sales CRM applies to its P1/P2/P3 chips (CRMSales.jsx
 # getLeadsByStage) — a priority tier is meant to surface ACTIVE pipeline only,
 # so the two screens must never count the same tier differently.
@@ -626,7 +772,9 @@ async def get_priority_board(rnr_min: int = 3, user: User = Depends(get_current_
          "stage_type": 1, "current_stage_id": 1, "current_stage_name": 1,
          "client_category": 1, "client_category_value": 1, "onboarding_status": 1,
          "rnr_count": 1, "last_rnr_at": 1, "lost_reason": 1, "lost_at": 1,
-         "assigned_to": 1, "assigned_to_name": 1, "created_at": 1, "updated_at": 1},
+         "assigned_to": 1, "assigned_to_name": 1, "created_at": 1, "updated_at": 1,
+         "client_type": 1, "client_category_conditions": 1, "client_category_set_at": 1,
+         "client_category_auto_lowered": 1, "client_category_auto_lowered_from": 1},
     ).to_list(10000)
 
     # Leads don't reliably carry current_stage_name — Sales CRM resolves the
@@ -1641,6 +1789,12 @@ class LeadUpdateInput(BaseModel):
     # Sales-only: client priority tier + the salesperson's note on why
     client_category: Optional[str] = None        # "P1" | "P2" | "P3" | ""
     client_category_value: Optional[str] = None  # free-text reason / qualifier
+    # Funnel checklist (CLIENT_FUNNEL_CONDITIONS): which conditions justify the
+    # tier. `confirm_priority` marks a deliberate pick/re-confirm, which is what
+    # resets the drop clock — an unrelated edit (e.g. phone) must not.
+    client_type: Optional[str] = None             # "local" | "nri"
+    client_category_conditions: Optional[List[str]] = None
+    confirm_priority: Optional[bool] = None
 
 
 # ==================== PROJECT ONBOARDING FLOW ====================
@@ -2581,11 +2735,52 @@ async def update_lead(lead_id: str, data: LeadUpdateInput, user: User = Depends(
     # Validate client_category
     if "client_category" in raw and raw["client_category"] not in (None, "", "P1", "P2", "P3"):
         raise HTTPException(status_code=400, detail="client_category must be P1, P2, P3, or empty")
-    
+
+    # Sep 15 2026 — Funnel checklist. Picking a NEW priority, or deliberately
+    # re-confirming one, requires the ticked conditions and restarts the drop
+    # clock. An unrelated edit on an existing lead (same tier, no confirm) is
+    # left alone, so older P1/P2/P3 leads without a checklist stay editable.
+    confirm = bool(raw.pop("confirm_priority", False))
+    push_history = None
+    now = datetime.now(timezone.utc)
+    if "client_category" in raw:
+        old_tier = (lead.get("client_category") or "").strip().upper()
+        new_tier = (raw.get("client_category") or "").strip().upper()
+        client_type = raw.get("client_type") or lead.get("client_type")
+        if new_tier in PRIORITY_TIERS and (new_tier != old_tier or confirm):
+            try:
+                conditions = validate_priority_conditions(
+                    client_type, new_tier, raw.get("client_category_conditions"))
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            raw.update({
+                "client_category": new_tier, "client_type": client_type,
+                "client_category_conditions": conditions,
+                "client_category_set_at": now.isoformat(),
+                "client_category_set_by": user.user_id,
+                "client_category_set_by_name": user.name,
+                "client_category_auto_lowered": False,
+            })
+            push_history = {"from": old_tier or None, "to": new_tier, "at": now.isoformat(),
+                            "source": "manual", "by": user.user_id, "by_name": user.name,
+                            "conditions": conditions}
+        elif not new_tier and old_tier:
+            raw["client_category_conditions"] = []
+            push_history = {"from": old_tier, "to": None, "at": now.isoformat(),
+                            "source": "manual", "by": user.user_id, "by_name": user.name}
+        else:
+            # Same tier, not confirming: conditions can't be swapped silently.
+            raw.pop("client_category_conditions", None)
+    else:
+        raw.pop("client_category_conditions", None)
+
     update_data = {k: v for k, v in raw.items() if v is not None}
-    update_data["updated_at"] = datetime.now(timezone.utc)
-    
-    await db.leads.update_one({"lead_id": lead_id}, {"$set": update_data})
+    update_data["updated_at"] = now
+
+    update_ops = {"$set": update_data}
+    if push_history:
+        update_ops["$push"] = {"client_category_history": push_history}
+    await db.leads.update_one({"lead_id": lead_id}, update_ops)
     
     return {"message": "Lead updated successfully"}
 
