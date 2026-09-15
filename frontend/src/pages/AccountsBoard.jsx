@@ -324,6 +324,15 @@ function getMaterialId(e) {
   return e.rab_number || '';
 }
 
+// Sep 15 2026 — Cheque number shown under the "Cheque" mode badge. Expense
+// rows get `cheque_number` resolved server-side (_resolve_cheque_numbers in
+// financial.py); income rows carry it either top-level (set via the manual
+// Edit Income form, PATCH /income/{id}) or nested under `verification`
+// (set when the accountant first reviews/approves the income).
+function getChequeNumber(e) {
+  return e.cheque_number || e.verification?.cheque_number || '';
+}
+
 // Sep 15 2026 — Petty Cash "SE Name" column. Two different creation paths
 // land in recorded_expenses under category="petty_cash":
 //   • SE Direct Expense (source="site_engineer_direct", the common case —
@@ -503,6 +512,11 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
                       <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(e.payment_mode || e.payment_method)]}`}>
                         {MODE_LABELS[classifyMode(e.payment_mode || e.payment_method)] || 'Cash'}
                       </Badge>
+                      {classifyMode(e.payment_mode || e.payment_method) === 'cheque' && getChequeNumber(e) && (
+                        <span className="block text-[10px] text-gray-400 font-normal mt-0.5">
+                          #{String(getChequeNumber(e)).slice(-4)}
+                        </span>
+                      )}
                     </td>
                     {type === 'expense' && <td className="px-3 py-2 text-gray-600">{getMaterialId(e) || '-'}</td>}
                     {type === 'expense' && <td className="px-3 py-2 text-gray-600">{e.vendor_name || '-'}</td>}
