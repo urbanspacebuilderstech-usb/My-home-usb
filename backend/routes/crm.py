@@ -629,12 +629,24 @@ async def get_priority_board(rnr_min: int = 3, user: User = Depends(get_current_
          "assigned_to": 1, "assigned_to_name": 1, "created_at": 1, "updated_at": 1},
     ).to_list(10000)
 
+    # Leads don't reliably carry current_stage_name — Sales CRM resolves the
+    # name from lead_stages by stage_id, so do the same here. Keyed by
+    # (stage_type, stage_id) with a stage_id-only fallback.
+    stage_docs = await db.lead_stages.find(
+        {}, {"_id": 0, "stage_id": 1, "stage_type": 1, "name": 1}).to_list(500)
+    stage_by_type = {(s.get("stage_type"), s.get("stage_id")): s.get("name") for s in stage_docs}
+    stage_by_id = {s.get("stage_id"): s.get("name") for s in stage_docs}
+
     buckets: Dict[str, list] = {"P3": [], "P2": [], "P1": [], "long_rnr": [], "declined": []}
     for d in docs:
         b = priority_bucket(d, rnr_min)
         if b:
             if isinstance(d.get("lost_at"), datetime):
                 d["lost_at"] = d["lost_at"].isoformat()
+            sid = d.get("current_stage_id")
+            d["current_stage_name"] = (d.get("current_stage_name")
+                                       or stage_by_type.get((d.get("stage_type"), sid))
+                                       or stage_by_id.get(sid) or "")
             buckets[b].append(d)
 
     for k, rows in buckets.items():
