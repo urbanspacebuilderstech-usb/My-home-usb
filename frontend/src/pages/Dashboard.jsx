@@ -78,7 +78,7 @@ export default function Dashboard() {
       if (role !== 'super_admin') {
         const roleRoutes = {
           site_engineer: '/site-engineer', sr_site_engineer: '/site-engineer',
-          pre_sales: '/crm-pre-sales', sales: '/crm-sales', sales_head: '/sales-board',
+          pre_sales: '/crm-pre-sales', sales: '/crm-sales', sales_head: '/priority-board',
           general_manager: '/gm-dashboard', accountant: '/accounts-board',
           planning: '/planning-board', planning_person: '/planning-board', procurement: '/procurement-board-v2',
           cre: '/cre-board', project_manager: '/pm-dashboard', associate_pm: '/pm-dashboard',

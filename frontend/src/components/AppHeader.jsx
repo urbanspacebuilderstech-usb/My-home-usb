@@ -73,6 +73,7 @@ const ROLE_NAV = {
   // Same destinations as Sales; the backend decides that a Sales Head sees
   // the whole pipeline rather than only their own leads.
   sales_head: [
+    { label: 'Priority Board', path: '/priority-board' },
     { label: 'Sales Masterview', path: '/sales-board' },
     { label: 'Pre Sales', path: '/crm-pre-sales' },
     { label: 'Sales', path: '/crm-sales' },

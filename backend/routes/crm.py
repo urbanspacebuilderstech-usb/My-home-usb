@@ -572,6 +572,86 @@ def _to_date_str(v):
         return None
 
 
+PRIORITY_TIERS = ("P1", "P2", "P3")
+# Same exclusions Sales CRM applies to its P1/P2/P3 chips (CRMSales.jsx
+# getLeadsByStage) — a priority tier is meant to surface ACTIVE pipeline only,
+# so the two screens must never count the same tier differently.
+_PRIORITY_EXCLUDED_STAGES = ("stg_project_onboarded", "stg_lost")
+_LOST_STAGES = ("stg_lost", "stg_pre_lost")
+
+
+def priority_bucket(lead: dict, rnr_min: int) -> Optional[str]:
+    """Which Priority Board tab a lead belongs in, or None.
+
+    P1 / P2 / P3 - sales leads by client_category, excluding onboarded, lost
+                   and moved-to-planning (identical to the Sales CRM chips).
+    long_rnr     - pre-sales leads sitting in RNR with rnr_count >= rnr_min.
+                   RNR only exists in the pre-sales pipeline.
+    declined     - leads in a Lost stage, in either pipeline.
+
+    Checked in that order, so a lost lead that still carries a P1 category is
+    reported as declined rather than inflating an active priority tier.
+    """
+    stage = lead.get("current_stage_id") or ""
+    if stage in _LOST_STAGES:
+        return "declined"
+    if lead.get("stage_type") == "pre_sales" and stage == "stg_rnr" \
+            and int(lead.get("rnr_count") or 0) >= rnr_min:
+        return "long_rnr"
+    cat = (lead.get("client_category") or "").strip().upper()
+    if lead.get("stage_type") == "sales" and cat in PRIORITY_TIERS \
+            and stage not in _PRIORITY_EXCLUDED_STAGES \
+            and lead.get("onboarding_status") != "moved_to_planning":
+        return cat
+    return None
+
+
+@router.get("/crm/priority-board")
+async def get_priority_board(rnr_min: int = 3, user: User = Depends(get_current_user)):
+    """Sales Head's Priority Board: P3 | P2 | P1 | Long RNR | Declined."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales_head"]:
+        raise HTTPException(status_code=403, detail="Sales Head access required")
+    rnr_min = max(1, min(int(rnr_min or 3), 50))
+
+    # One query for all five tabs; bucketing happens in priority_bucket so the
+    # rules live in exactly one place.
+    docs = await db.leads.find(
+        {"$or": [
+            {"stage_type": "sales", "client_category": {"$in": list(PRIORITY_TIERS)}},
+            {"stage_type": "pre_sales", "current_stage_id": "stg_rnr",
+             "rnr_count": {"$gte": rnr_min}},
+            {"current_stage_id": {"$in": list(_LOST_STAGES)}},
+        ]},
+        {"_id": 0, "lead_id": 1, "name": 1, "phone": 1, "city": 1, "source": 1,
+         "stage_type": 1, "current_stage_id": 1, "current_stage_name": 1,
+         "client_category": 1, "client_category_value": 1, "onboarding_status": 1,
+         "rnr_count": 1, "last_rnr_at": 1, "lost_reason": 1, "lost_at": 1,
+         "assigned_to": 1, "assigned_to_name": 1, "created_at": 1, "updated_at": 1},
+    ).to_list(10000)
+
+    buckets: Dict[str, list] = {"P3": [], "P2": [], "P1": [], "long_rnr": [], "declined": []}
+    for d in docs:
+        b = priority_bucket(d, rnr_min)
+        if b:
+            if isinstance(d.get("lost_at"), datetime):
+                d["lost_at"] = d["lost_at"].isoformat()
+            buckets[b].append(d)
+
+    for k, rows in buckets.items():
+        if k == "long_rnr":
+            rows.sort(key=lambda r: (int(r.get("rnr_count") or 0), str(r.get("last_rnr_at") or "")),
+                      reverse=True)
+        else:
+            rows.sort(key=lambda r: str(r.get("updated_at") or r.get("created_at") or ""), reverse=True)
+        mask_leads_phone(rows, user.role)
+
+    return {
+        "rnr_min": rnr_min,
+        "counts": {k: len(v) for k, v in buckets.items()},
+        "leads": buckets,
+    }
+
+
 @router.get("/crm/sales-masterview/summary")
 async def get_sales_masterview_summary(
     start_date: Optional[str] = None,

@@ -71,6 +71,7 @@ import UserApp from '@/pages/UserApp';
 import CRMPreSales from '@/pages/CRMPreSales';
 import CRMSales from '@/pages/CRMSales';
 import SalesBoard from '@/pages/SalesBoard';
+import PriorityBoard from '@/pages/PriorityBoard';
 import SuperAdminDashboard from '@/pages/SuperAdminDashboard';
 import REProjectsPage from '@/pages/REProjectsPage';
 import CustomFieldsBuilder from '@/pages/CustomFieldsBuilder';
@@ -217,6 +218,7 @@ function AppRouter() {
       <Route path="/architect-dashboard" element={<ProtectedRoute><ArchitectDashboard /></ProtectedRoute>} />
       <Route path="/workflow-master" element={<ProtectedRoute><WorkflowMasterPage /></ProtectedRoute>} />
       <Route path="/sales-board" element={<ProtectedRoute><SalesBoard /></ProtectedRoute>} />
+      <Route path="/priority-board" element={<ProtectedRoute><PriorityBoard /></ProtectedRoute>} />
       <Route path="/super-admin-dashboard" element={<ProtectedRoute><SuperAdminDashboard /></ProtectedRoute>} />
       <Route path="/marketing-board" element={<ProtectedRoute><MarketingBoard /></ProtectedRoute>} />
       <Route path="/marketing-projects" element={<ProtectedRoute><MarketingProjectsBoard /></ProtectedRoute>} />
@@ -232,7 +234,7 @@ function getRoleRedirect(role) {
     sr_site_engineer: '/site-engineer',
     pre_sales: '/crm-pre-sales',
     sales: '/crm-sales',
-    sales_head: '/sales-board',
+    sales_head: '/priority-board',
     general_manager: '/gm-dashboard',
     accountant: '/accounts-board',
     planning: '/planning-board',
