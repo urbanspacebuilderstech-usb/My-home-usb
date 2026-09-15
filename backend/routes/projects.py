@@ -6897,7 +6897,7 @@ async def section_gm_approve(project_id: str, section_id: str, user: User = Depe
 
 @router.get("/cre/additional-costs")
 async def cre_additional_costs_queue(user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.CRE, UserRole.SALES_HEAD, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="CRE only")
     # Scope: CRE sees rows on projects they're assigned to (team.cre == user_id) or
     # projects they created. Super Admin sees everything.

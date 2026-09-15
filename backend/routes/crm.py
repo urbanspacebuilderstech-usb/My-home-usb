@@ -717,7 +717,7 @@ async def get_sales_masterview_rows(
 @router.get("/crm/pre-sales/dashboard")
 async def get_pre_sales_dashboard(user: User = Depends(get_current_user)):
     """Get Pre-Sales dashboard with stage counts - filtered by assigned user for non-admins"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     
     stages = await get_default_pre_sales_stages()
@@ -764,7 +764,7 @@ async def get_pre_sales_leads(
     user: User = Depends(get_current_user)
 ):
     """Get Pre-Sales leads with filters - filtered by assigned user for non-admins"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     
     # Auto-redistribute stale RNR leads (14+ days from last RNR attempt)
@@ -938,7 +938,7 @@ class LeadCreate(BaseModel):
 @router.post("/crm/pre-sales/leads")
 async def create_pre_sales_lead(data: LeadCreate, user: User = Depends(get_current_user)):
     """Create a new Pre-Sales lead"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     
     # Get default first stage
@@ -1107,7 +1107,7 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         raise HTTPException(status_code=404, detail="Lead not found")
     
     # Check role based on stage type
-    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Sales access required")
@@ -1564,7 +1564,7 @@ class AdvanceCollectionRequest(BaseModel):
 @router.post("/crm/leads/{lead_id}/rnr-log")
 async def log_rnr_attempt(lead_id: str, user: User = Depends(get_current_user)):
     """Log an RNR (Ring Not Responding) attempt for a lead in RNR stage"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
@@ -2461,7 +2461,7 @@ async def get_lead_detail(lead_id: str, user: User = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Lead not found")
     
     # Role-based access check
-    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Sales access required")
@@ -2477,7 +2477,7 @@ async def update_lead(lead_id: str, data: LeadUpdateInput, user: User = Depends(
         raise HTTPException(status_code=404, detail="Lead not found")
     
     # Role-based access check
-    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Sales access required")
@@ -2632,7 +2632,7 @@ async def add_lead_remark(lead_id: str, data: LeadRemarkInput, user: User = Depe
         raise HTTPException(status_code=404, detail="Lead not found")
     
     # Role-based access check
-    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Sales access required")
@@ -2669,7 +2669,7 @@ async def schedule_follow_up(lead_id: str, data: LeadFollowUpInput, user: User =
         raise HTTPException(status_code=404, detail="Lead not found")
     
     # Role-based access check
-    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Sales access required")

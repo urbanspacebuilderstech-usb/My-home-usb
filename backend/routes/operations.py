@@ -102,7 +102,7 @@ async def generate_project_code():
 @router.get("/cre/dashboard")
 async def get_cro_dashboard(user: User = Depends(get_current_user)):
     """Get CRE dashboard data"""
-    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.CRE, UserRole.SALES_HEAD, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
     import asyncio
@@ -154,7 +154,7 @@ async def get_cre_new_deals(user: User = Depends(get_current_user)):
     (projects auto-arrived from accountant approval). This endpoint is kept for
     backward compatibility but returns an empty list.
     """
-    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.CRE, UserRole.SALES_HEAD, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     return []
 
@@ -831,7 +831,7 @@ async def move_project_to_drawing(project_id: str, user: User = Depends(get_curr
 @router.get("/cre/payment-requests")
 async def get_cro_payment_requests(user: User = Depends(get_current_user)):
     """Get all payment stages that are requested for collection by CRO"""
-    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.CRE, UserRole.SALES_HEAD, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
     # Get all payment stages with workflow_status = 'requested'
@@ -1157,7 +1157,7 @@ async def get_all_cro_projects(
     user: User = Depends(get_current_user)
 ):
     """Get all projects with filters for CRO"""
-    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.CRE, UserRole.SALES_HEAD, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
     query = {}
@@ -1202,7 +1202,7 @@ async def get_all_cro_projects(
 @router.get("/cre/additional-payment-requests")
 async def get_cre_additional_payment_requests(user: User = Depends(get_current_user)):
     """Get additional cost items that have payment requested - for CRE to collect"""
-    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.CRE, UserRole.SALES_HEAD, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
     match_clause = {"payment_requested": True, "status": {"$ne": "paid"}}
@@ -1244,7 +1244,7 @@ async def get_cre_additional_payment_requests(user: User = Depends(get_current_u
 @router.get("/cre/income-collected")
 async def get_cre_income_collected(user: User = Depends(get_current_user)):
     """Get all income records (payment ledger) for CRE dashboard"""
-    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.CRE, UserRole.SALES_HEAD, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
     income_query = {}
@@ -1267,7 +1267,7 @@ async def get_cre_income_collected(user: User = Depends(get_current_user)):
 @router.get("/cre/pending-approvals")
 async def get_cre_pending_approvals(user: User = Depends(get_current_user)):
     """Get projects with verified advance (ready to send to planning) and pending income approvals"""
-    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.CRE, UserRole.SALES_HEAD, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
     # Projects where advance is verified by accountant — CRE can send to planning.

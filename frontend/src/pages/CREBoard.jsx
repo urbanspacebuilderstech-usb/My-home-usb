@@ -348,7 +348,7 @@ export default function CREBoard() {
     try {
       if (showLoader) setLoading(true);
       const userRes = await axios.get(`${API}/auth/me`);
-      if (!['cre', 'super_admin'].includes(userRes.data.role)) {
+      if (!['cre', 'super_admin', 'sales_head'].includes(userRes.data.role)) {
         toast.error('Access denied. Only CRE can access this page.');
         window.location.href = '/dashboard';
         return;

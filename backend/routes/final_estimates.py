@@ -672,7 +672,7 @@ async def get_fe_total(project_id: str, user: User = Depends(get_current_user)):
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/cre/final-estimates")
 async def list_cre_final_estimates(user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.CRE, UserRole.SALES_HEAD, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE can access this")
 
     # Surface every project whose FE has been touched (excludes drafts).
