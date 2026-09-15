@@ -60,7 +60,7 @@ class GenerateQuoteLinkRequest(BaseModel):
 
 @router.post("/leads/{lead_id}/generate-quote-link")
 async def generate_quote_link(lead_id: str, data: GenerateQuoteLinkRequest, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES]:
         raise HTTPException(status_code=403, detail="Only Sales can generate a quote link")
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
@@ -138,7 +138,7 @@ async def generate_quote_link(lead_id: str, data: GenerateQuoteLinkRequest, user
 @router.get("/leads/{lead_id}/quote-link")
 async def get_active_quote_link(lead_id: str, user: User = Depends(get_current_user)):
     """Return the current active link + Live/Expired status for the lead header chip."""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES, UserRole.PROJECT_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES, UserRole.PROJECT_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
     link = await db.quote_links.find_one({"lead_id": lead_id, "is_revoked": {"$ne": True}}, {"_id": 0}, sort=[("created_at", -1)])
     if not link:
@@ -307,7 +307,7 @@ class RegenerateReReq(BaseModel):
 
 @router.post("/leads/{lead_id}/regenerate-re")
 async def regenerate_re(lead_id: str, data: RegenerateReReq, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES]:
         raise HTTPException(status_code=403, detail="Only Sales can regenerate RE")
     if not (data.remarks or "").strip():
         raise HTTPException(status_code=400, detail="Remarks are required")
@@ -387,7 +387,7 @@ async def regenerate_re(lead_id: str, data: RegenerateReReq, user: User = Depend
 
 @router.get("/leads/{lead_id}/timeline")
 async def get_lead_timeline(lead_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES, UserRole.PROJECT_MANAGER, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT, UserRole.CRE]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES, UserRole.PROJECT_MANAGER, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT, UserRole.CRE]:
         raise HTTPException(status_code=403, detail="Permission denied")
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:

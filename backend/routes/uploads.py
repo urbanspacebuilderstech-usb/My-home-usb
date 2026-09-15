@@ -42,6 +42,7 @@ def _can_upload(user: User) -> bool:
     return user.role in [
         UserRole.SUPER_ADMIN,
         UserRole.SALES,
+        UserRole.SALES_HEAD,
         UserRole.PRE_SALES,
         UserRole.MARKETING_HEAD,
     ]
@@ -106,7 +107,7 @@ async def upload_pdf(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
 ):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     ext = Path(file.filename or "").suffix.lower()

@@ -196,7 +196,7 @@ async def convert_deal_to_project(
     user: User = Depends(get_current_user)
 ):
     """Convert a closed deal to a project with advance collection"""
-    if user.role not in [UserRole.CRE, UserRole.SALES, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.CRE, UserRole.SALES, UserRole.SALES_HEAD, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE or Sales can convert deals")
     
     if not data.accountant_confirmed:
@@ -446,7 +446,7 @@ async def convert_re_project_to_project(
     user: User = Depends(get_current_user)
 ):
     """Convert a GM-approved RE project directly to a project (without sales lead)"""
-    if user.role not in [UserRole.CRE, UserRole.SALES, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.CRE, UserRole.SALES, UserRole.SALES_HEAD, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE or Sales can convert RE projects")
     
     if not data.accountant_confirmed:
@@ -6630,7 +6630,7 @@ async def admin_quick_create_project(data: QuickCreateProjectInput, user: User =
     Lead (Pre-Sales) → marks as booked/converted → Project → seeds Stages from template.
     Useful for backfilling legacy projects or fast-tracking VIP deals.
     """
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SALES]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SALES, UserRole.SALES_HEAD]:
         raise HTTPException(status_code=403, detail="Only Super Admin, Planning or Sales can use this")
 
     if not data.name.strip() or not data.project_name.strip():

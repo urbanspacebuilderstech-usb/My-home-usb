@@ -18,6 +18,7 @@ function getRoleRedirect(role) {
     sr_site_engineer: '/site-engineer',
     pre_sales: '/crm-pre-sales',
     sales: '/crm-sales',
+    sales_head: '/crm-sales',
     general_manager: '/gm-dashboard',
     accountant: '/accounts-board',
     planning: '/planning-board',

@@ -66,7 +66,7 @@ export default function AdminAddProject() {
       try {
         const me = await axios.get(`${API}/auth/me`);
         const role = me.data?.role;
-        if (!['super_admin', 'planning', 'sales'].includes(role)) {
+        if (!['super_admin', 'planning', 'sales', 'sales_head'].includes(role)) {
           toast.error('You do not have permission to access this page');
           navigate('/dashboard');
           return;

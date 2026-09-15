@@ -41,7 +41,7 @@ class CreateProspectUserRequest(BaseModel):
 
 @router.post("/leads/{lead_id}/create-prospect-user")
 async def create_prospect_user(lead_id: str, data: CreateProspectUserRequest, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES]:
         raise HTTPException(status_code=403, detail="Only Sales can create a prospect")
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
@@ -269,7 +269,7 @@ class ShowcaseProjectIn(BaseModel):
 
 
 def _can_manage_user_app(user: User) -> bool:
-    return user.role in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]
+    return user.role in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]
 
 
 # Testimonials

@@ -66,6 +66,7 @@ const ALL_ROLES = [
   { value: 'hr', label: 'HR' },
   { value: 'pre_sales', label: 'Pre-Sales' },
   { value: 'sales', label: 'Sales' },
+  { value: 'sales_head', label: 'Sales Head' },
   { value: 'marketing_head', label: 'Marketing Head' },
   { value: 'drawlead_marketing', label: 'Drawlead Marketing' },
   { value: 'architect', label: 'Architect' },

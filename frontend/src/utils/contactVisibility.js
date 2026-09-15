@@ -4,7 +4,7 @@
  * - Everyone else: Only after project converted + payment approved by accountant
  */
 
-const PRIVILEGED_ROLES = ['super_admin', 'sales', 'pre_sales'];
+const PRIVILEGED_ROLES = ['super_admin', 'sales', 'sales_head', 'pre_sales'];
 
 export function canViewContact(userRole) {
   return PRIVILEGED_ROLES.includes(userRole);

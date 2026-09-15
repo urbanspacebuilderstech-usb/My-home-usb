@@ -40,7 +40,7 @@ def mask_phone(phone: str) -> str:
 
 def mask_leads_phone(leads: list, user_role: str) -> list:
     """Mask phone numbers for non-sales/pre-sales users"""
-    if user_role in [UserRole.SUPER_ADMIN, "sales", "pre_sales", "cre"]:
+    if user_role in [UserRole.SUPER_ADMIN, "sales", "sales_head", "pre_sales", "cre"]:
         return leads
     for lead in leads:
         if lead.get("phone"):
@@ -595,7 +595,7 @@ async def get_sales_masterview_summary(
     - Sales       = "Deal Close" — Sales leads whose stage_history shows
                     they reached stg_payment_collect in range.
     """
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Access denied")
 
     def _in_range(v):
@@ -655,7 +655,7 @@ async def get_sales_masterview_rows(
     leads /crm/sales-masterview/summary counted, as real records (not just
     a number), so this view never drifts from what Pre-Sales CRM / Sales
     CRM themselves show for that lead."""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Access denied")
     if category not in ("leads", "appointments", "proposals", "sales"):
         raise HTTPException(status_code=400, detail="category must be one of leads/appointments/proposals/sales")
@@ -1006,7 +1006,7 @@ class AdminLeadCreate(BaseModel):
 @router.post("/crm/leads")
 async def create_lead_admin(data: AdminLeadCreate, user: User = Depends(get_current_user)):
     """Create a new lead - Super Admin, Sales, Pre-Sales"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Sales/Pre-Sales/Admin access required")
     
     stage_type = LeadStageType.PRE_SALES if data.stage_type == "pre_sales" else LeadStageType.SALES
@@ -1109,7 +1109,7 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
     # Check role based on stage type
     if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
-    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     # Get the target stage
@@ -1605,7 +1605,7 @@ async def log_rnr_attempt(lead_id: str, user: User = Depends(get_current_user)):
 @router.post("/crm/leads/{lead_id}/collect-advance")
 async def collect_advance_payment(lead_id: str, data: AdvanceCollectionRequest, user: User = Depends(get_current_user)):
     """CRE/Sales collects advance payment from client at Project Onboarded stage"""
-    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "sales_head", "cre"]:
         raise HTTPException(status_code=403, detail="Sales/CRE access required")
     
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
@@ -1644,7 +1644,7 @@ async def collect_advance_payment(lead_id: str, data: AdvanceCollectionRequest, 
 @router.post("/crm/leads/{lead_id}/send-to-accountant")
 async def send_to_accountant(lead_id: str, user: User = Depends(get_current_user)):
     """CRE/Sales sends advance payment for accountant verification"""
-    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "sales_head", "cre"]:
         raise HTTPException(status_code=403, detail="Sales/CRE access required")
     
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
@@ -1806,7 +1806,7 @@ async def resubmit_lead_advance(lead_id: str, data: ResubmitAdvanceRequest, user
     lead back into the Accountant Approval kanban column. The previously
     rejected income row stays in `status: rejected` for audit history.
     """
-    if user.role not in [UserRole.CRE, UserRole.SALES, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.CRE, UserRole.SALES, UserRole.SALES_HEAD, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Sales or CRE can resubmit advance")
 
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
@@ -2025,7 +2025,7 @@ class MoveToPlanning(BaseModel):
 @router.post("/crm/leads/{lead_id}/move-to-planning")
 async def move_to_planning(lead_id: str, data: MoveToPlanning, user: User = Depends(get_current_user)):
     """CRE moves the onboarded project to Planning with project description"""
-    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "sales_head", "cre"]:
         raise HTTPException(status_code=403, detail="Sales/CRE access required")
     
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
@@ -2158,7 +2158,7 @@ async def move_to_planning(lead_id: str, data: MoveToPlanning, user: User = Depe
 @router.get("/crm/sales-overview")
 async def get_sales_overview(user: User = Depends(get_current_user)):
     """Get sales overview stats including deal closed count and advance collected"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, "sales", "cre", UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, "sales", "sales_head", "cre", UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Count deals at Deal Close (payment_collect) or later stages
@@ -2463,7 +2463,7 @@ async def get_lead_detail(lead_id: str, user: User = Depends(get_current_user)):
     # Role-based access check
     if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
-    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     return lead
@@ -2479,7 +2479,7 @@ async def update_lead(lead_id: str, data: LeadUpdateInput, user: User = Depends(
     # Role-based access check
     if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
-    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     # Keep empty-string explicit (so blanking a field actually persists) for free-text
@@ -2518,7 +2518,7 @@ async def reassign_lead(lead_id: str, data: LeadReassignInput, user: User = Depe
     
     # Role gate: super_admin, CRE, sales/pre_sales (peer-to-peer) or current owner
     role_str = user.role if isinstance(user.role, str) else getattr(user.role, "value", str(user.role))
-    if role_str not in ("super_admin", "cre", "sales", "pre_sales") and lead.get("assigned_to") != user.user_id:
+    if role_str not in ("super_admin", "cre", "sales", "sales_head", "pre_sales") and lead.get("assigned_to") != user.user_id:
         raise HTTPException(status_code=403, detail="Not permitted to reassign this lead")
     
     new_owner = await db.users.find_one({"user_id": data.new_owner_user_id}, {"_id": 0})
@@ -2532,7 +2532,7 @@ async def reassign_lead(lead_id: str, data: LeadReassignInput, user: User = Depe
     new_owner_role = new_owner.get("role")
     if lead.get("stage_type") == "pre_sales" and new_owner_role not in ("pre_sales", "super_admin", "cre"):
         raise HTTPException(status_code=400, detail=f"Target user role '{new_owner_role}' cannot own pre-sales leads")
-    if lead.get("stage_type") == "sales" and new_owner_role not in ("sales", "super_admin", "cre"):
+    if lead.get("stage_type") == "sales" and new_owner_role not in ("sales", "sales_head", "super_admin", "cre"):
         raise HTTPException(status_code=400, detail=f"Target user role '{new_owner_role}' cannot own sales leads")
     if data.new_owner_user_id == lead.get("assigned_to"):
         raise HTTPException(status_code=400, detail="Target user already owns this lead")
@@ -2586,7 +2586,7 @@ async def get_reassign_targets(stage_type: str = "sales", user: User = Depends(g
     SUPER_ADMIN-only /api/users endpoint.
     """
     role_str = user.role if isinstance(user.role, str) else getattr(user.role, "value", str(user.role))
-    if role_str not in ("super_admin", "cre", "sales", "pre_sales"):
+    if role_str not in ("super_admin", "cre", "sales", "sales_head", "pre_sales"):
         raise HTTPException(status_code=403, detail="Permission denied")
     
     allowed_roles = ["pre_sales", "super_admin", "cre"] if stage_type == "pre_sales" else ["sales", "super_admin", "cre"]
@@ -2634,7 +2634,7 @@ async def add_lead_remark(lead_id: str, data: LeadRemarkInput, user: User = Depe
     # Role-based access check
     if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
-    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     # Get user name for display
@@ -2671,7 +2671,7 @@ async def schedule_follow_up(lead_id: str, data: LeadFollowUpInput, user: User =
     # Role-based access check
     if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
-    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     follow_up = {
@@ -2755,7 +2755,7 @@ async def close_follow_up_by_index(lead_id: str, index: int, data: FollowUpClose
 @router.get("/crm/sales/dashboard")
 async def get_sales_dashboard(user: User = Depends(get_current_user)):
     """Get Sales dashboard with stage counts. Accountant has read-only access."""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head", UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Sales/Accountant access required")
 
     stages = await get_default_sales_stages()
@@ -2815,7 +2815,7 @@ async def get_sales_leads(
     Accountants are also allowed read-access so they can see leads parked at
     'Accountant Approval' and act on the in-card Verify/Reject buttons.
     """
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head", UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Sales/Accountant access required")
     
     # Auto-move leads with due follow-ups to the Follow-up stage
@@ -2964,7 +2964,7 @@ class StageCreate(BaseModel):
 @router.post("/crm/stages")
 async def create_stage(data: StageCreate, user: User = Depends(get_current_user)):
     """Create a new lead stage"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Get max order for this stage type
@@ -3271,7 +3271,7 @@ async def get_re_projects(
     user: User = Depends(get_current_user)
 ):
     """Get all RE projects"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.CRE, "sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.CRE, "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     query = {}
@@ -3326,7 +3326,7 @@ async def start_re_work(re_project_id: str, user: User = Depends(get_current_use
 @router.get("/crm/re-projects/search")
 async def search_re_projects(q: str, user: User = Depends(get_current_user)):
     """Search RE projects by RE number (USB-RE0001) or project name"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, "sales", "cre"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, "sales", "sales_head", "cre"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     query = {"$or": [
@@ -3341,7 +3341,7 @@ async def search_re_projects(q: str, user: User = Depends(get_current_user)):
 @router.get("/crm/re-projects/by-number/{re_number}")
 async def get_re_revisions(re_number: str, user: User = Depends(get_current_user)):
     """Get all revisions for an RE number"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, "sales", "cre"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, "sales", "sales_head", "cre"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     projects = await db.re_projects.find(
@@ -3682,7 +3682,7 @@ class SendToClientRequest(BaseModel):
 @router.post("/crm/re-projects/{re_project_id}/send-to-client")
 async def send_re_to_client(re_project_id: str, data: SendToClientRequest = SendToClientRequest(), user: User = Depends(get_current_user)):
     """Sales sends RE to client after GM approval"""
-    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "sales_head", "cre"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
@@ -3710,7 +3710,7 @@ class ClientFeedbackRequest(BaseModel):
 @router.post("/crm/re-projects/{re_project_id}/client-feedback")
 async def add_client_feedback(re_project_id: str, data: ClientFeedbackRequest, user: User = Depends(get_current_user)):
     """Sales adds client feedback/suggestions for this RE revision"""
-    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "sales_head", "cre"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
@@ -3750,7 +3750,7 @@ async def add_client_feedback(re_project_id: str, data: ClientFeedbackRequest, u
 @router.post("/crm/re-projects/{re_project_id}/client-approve")
 async def client_approve_re(re_project_id: str, user: User = Depends(get_current_user)):
     """Sales marks RE as client-approved"""
-    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "sales_head", "cre"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
@@ -3778,7 +3778,7 @@ class RevisionRequest(BaseModel):
 @router.post("/crm/re-projects/{re_project_id}/request-revision")
 async def request_re_revision(re_project_id: str, data: RevisionRequest = RevisionRequest(), user: User = Depends(get_current_user)):
     """Sales/CRE requests a revision on an RE - notifies Planning to create the duplicate"""
-    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "sales_head", "cre"]:
         raise HTTPException(status_code=403, detail="Sales/CRE access required")
     
     project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
@@ -3825,7 +3825,7 @@ class SalesRevisionReq(BaseModel):
 @router.post("/crm/leads/{lead_id}/re-client-approve")
 async def re_client_approve(lead_id: str, user: User = Depends(get_current_user)):
     """Sales marks the RE-Client stage as APPROVED → moves lead to Negotiation and marks RE client-approved."""
-    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "sales_head", "cre"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
@@ -3863,7 +3863,7 @@ async def re_client_approve(lead_id: str, user: User = Depends(get_current_user)
 @router.post("/crm/leads/{lead_id}/re-client-revision")
 async def re_client_revision(lead_id: str, data: SalesRevisionReq = SalesRevisionReq(), user: User = Depends(get_current_user)):
     """Sales requests REVISION from RE-Client → creates next revision (RE1..) and moves lead back to RE-Request."""
-    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "sales_head", "cre"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
@@ -5907,7 +5907,7 @@ class ExportLeadsRequest(BaseModel):
 @router.post("/sheets/export")
 async def export_leads_to_sheet(data: ExportLeadsRequest, user: User = Depends(get_current_user)):
     """Export CRM leads to a Google Sheet"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Sales/Admin access required")
     
     creds = await get_sheets_credentials(user.user_id)
@@ -6055,7 +6055,7 @@ async def get_auto_sync_config(user: User = Depends(get_current_user)):
 @router.post("/sheets/auto-sync/run")
 async def run_auto_sync(user: User = Depends(get_current_user)):
     """Sync all connected sheets — discovers NEW tabs and imports NEW rows"""
-    if user.role not in [UserRole.SUPER_ADMIN, "pre_sales", "sales", UserRole.CRE]:
+    if user.role not in [UserRole.SUPER_ADMIN, "pre_sales", "sales", "sales_head", UserRole.CRE]:
         raise HTTPException(status_code=403, detail="Access required")
     
     # For non-admins, use admin's connected sheets and credentials
@@ -6462,7 +6462,7 @@ async def create_re_template(data: RETemplateCreate, user: User = Depends(get_cu
 
 @router.get("/crm/re-templates")
 async def get_re_templates(user: User = Depends(get_current_user)):
-    if user.role not in ["planning", "planning_person", "super_admin", "general_manager", "cre", "sales"]:
+    if user.role not in ["planning", "planning_person", "super_admin", "general_manager", "cre", "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Access denied")
     templates = await db.re_templates.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
     return templates

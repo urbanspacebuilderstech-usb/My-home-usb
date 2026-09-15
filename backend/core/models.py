@@ -24,6 +24,10 @@ class UserRole(str, Enum):
     CLIENT = "client"
     PRE_SALES = "pre_sales"  # CRM Pre-Sales
     SALES = "sales"  # CRM Sales
+    # Head of Sales. Same access as SALES, but NOT scoped to their own leads —
+    # the own-lead filters test `role == "sales"`, so a Sales Head sees the whole
+    # sales pipeline. Mirrors PLANNING (head, sees all) vs PLANNING_PERSON.
+    SALES_HEAD = "sales_head"
     MARKETING_HEAD = "marketing_head"  # Marketing Head
     DRAWLEAD_MARKETING = "drawlead_marketing"  # Drawlead IT Marketing — read-only All Projects view
     ARCHITECT = "architect"  # Architect / Design Team

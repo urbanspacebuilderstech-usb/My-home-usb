@@ -232,6 +232,7 @@ function getRoleRedirect(role) {
     sr_site_engineer: '/site-engineer',
     pre_sales: '/crm-pre-sales',
     sales: '/crm-sales',
+    sales_head: '/crm-sales',
     general_manager: '/gm-dashboard',
     accountant: '/accounts-board',
     planning: '/planning-board',
@@ -352,7 +353,7 @@ function ProtectedRoute({ children }) {
         planning_person: 'Planning Person',
         procurement: 'Procurement', site_engineer: 'Site Engineer', sr_site_engineer: 'Sr. Site Engineer',
         pre_sales: 'Pre Sales', sales: 'Sales', architect: 'Architect',
-        marketing_head: 'Marketing Head', drawlead_marketing: 'Drawlead Marketing', client: 'Client', vendor: 'Vendor',
+        marketing_head: 'Marketing Head', sales_head: 'Sales Head', drawlead_marketing: 'Drawlead Marketing', client: 'Client', vendor: 'Vendor',
       };
       document.title = `${roleLabels[user.role] || user.role} | My Home USB`;
     }

@@ -70,6 +70,12 @@ const ROLE_NAV = {
     { label: 'Sales CRM', path: '/crm-sales' },
     { label: 'User App', path: '/user-app' },
   ],
+  // Same destinations as Sales; the backend decides that a Sales Head sees
+  // the whole pipeline rather than only their own leads.
+  sales_head: [
+    { label: 'Sales CRM', path: '/crm-sales' },
+    { label: 'User App', path: '/user-app' },
+  ],
   site_engineer: [
     { label: 'Dashboard', path: '/site-engineer' },
   ],

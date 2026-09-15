@@ -3048,7 +3048,7 @@ async def resubmit_rejected_income(income_id: str, data: IncomeResubmitRequest, 
     if inc.get("status") != "rejected":
         raise HTTPException(status_code=400, detail=f"Only rejected entries can be resubmitted (current status={inc.get('status')})")
     # Allow originator OR admin/CRE/Sales roles to resubmit
-    allowed = (inc.get("created_by") == user.user_id) or (user.role in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.SALES, UserRole.ACCOUNTANT])
+    allowed = (inc.get("created_by") == user.user_id) or (user.role in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.SALES, UserRole.SALES_HEAD, UserRole.ACCOUNTANT])
     if not allowed:
         raise HTTPException(status_code=403, detail="Only the originator (or Admin/CRE/Sales) can resubmit this entry")
 
@@ -4169,7 +4169,7 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
         raise HTTPException(status_code=404, detail="Project not found")
     
     # Hide client contact info for roles other than sales, pre_sales, cre, super_admin
-    if user.role not in [UserRole.SALES, UserRole.PRE_SALES, UserRole.CRE, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES, UserRole.CRE, UserRole.SUPER_ADMIN]:
         project.pop("client_phone", None)
         project.pop("client_email", None)
     
@@ -10279,7 +10279,7 @@ async def assign_dt(income_id: str, data: DTAssign, user: User = Depends(get_cur
 @router.get("/dt/{income_id}")
 async def get_dt_detail(income_id: str, user: User = Depends(get_current_user)):
     """Get DT income with linked items + bank details (auto-fetched per item)."""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.CRE, UserRole.SALES]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.CRE, UserRole.SALES, UserRole.SALES_HEAD]:
         raise HTTPException(status_code=403, detail="Permission denied")
     inc = await db.income.find_one({"income_id": income_id}, {"_id": 0})
     if not inc:
@@ -10332,7 +10332,7 @@ class DTReceipt(BaseModel):
 @router.post("/dt/{income_id}/receive")
 async def cre_mark_dt_received(income_id: str, data: DTReceipt, user: User = Depends(get_current_user)):
     """CRE updates received amount per item & submits to Accountant for final approval."""
-    if user.role not in [UserRole.CRE, UserRole.SALES, UserRole.SUPER_ADMIN]:
+    if user.role not in [UserRole.CRE, UserRole.SALES, UserRole.SALES_HEAD, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE/Sales can mark received")
     inc = await db.income.find_one({"income_id": income_id}, {"_id": 0})
     if not inc:

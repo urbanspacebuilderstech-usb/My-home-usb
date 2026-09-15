@@ -121,7 +121,7 @@ async def delete_home_package(package_id: str, user: User = Depends(get_current_
 
 @router.post("/leads/{lead_id}/generate-package-link")
 async def generate_package_link(lead_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES]:
         raise HTTPException(status_code=403, detail="Only Sales/Pre-Sales can generate a package link")
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
@@ -186,7 +186,7 @@ async def generate_package_link(lead_id: str, user: User = Depends(get_current_u
 
 @router.get("/leads/{lead_id}/package-link")
 async def get_active_package_link(lead_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES, UserRole.PROJECT_MANAGER, UserRole.GENERAL_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES, UserRole.PROJECT_MANAGER, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
     link = await db.package_links.find_one({"lead_id": lead_id, "is_revoked": {"$ne": True}}, {"_id": 0}, sort=[("created_at", -1)])
     if not link:
@@ -202,7 +202,7 @@ class GreetingUpdate(BaseModel):
 @router.patch("/leads/{lead_id}/package-link/greeting")
 async def update_package_link_greeting(lead_id: str, data: GreetingUpdate, user: User = Depends(get_current_user)):
     """Save a custom greeting (used when the sales person shares the link)."""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES]:
         raise HTTPException(status_code=403, detail="Permission denied")
     res = await db.package_links.update_one(
         {"lead_id": lead_id, "is_revoked": {"$ne": True}},
@@ -222,7 +222,7 @@ async def get_generic_package_link(user: User = Depends(get_current_user)):
     """Returns a stable, non-customer-specific package link ('Portfolio + Packages')
     that admins can share on WhatsApp/social/marketing posts. It has no lead
     attached and never expires or moves anyone's stage."""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]:
         raise HTTPException(status_code=403, detail="Permission denied")
     existing = await db.package_links.find_one({"is_generic": True, "is_revoked": {"$ne": True}}, {"_id": 0}, sort=[("created_at", -1)])
     if existing:
@@ -373,7 +373,7 @@ class MasterBrochureReq(BaseModel):
 
 @router.get("/user-app/master-brochure")
 async def get_master_brochure(user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]:
         raise HTTPException(status_code=403, detail="Permission denied")
     doc = await db.app_settings.find_one({"key": "master_package_brochure"}, {"_id": 0})
     return doc or {"key": "master_package_brochure", "filename": None}
@@ -381,7 +381,7 @@ async def get_master_brochure(user: User = Depends(get_current_user)):
 
 @router.put("/user-app/master-brochure")
 async def set_master_brochure(data: MasterBrochureReq, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]:
         raise HTTPException(status_code=403, detail="Permission denied")
     now = datetime.now(timezone.utc).isoformat()
     payload = {
@@ -403,7 +403,7 @@ async def set_master_brochure(data: MasterBrochureReq, user: User = Depends(get_
 
 @router.delete("/user-app/master-brochure")
 async def clear_master_brochure(user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]:
         raise HTTPException(status_code=403, detail="Permission denied")
     await db.app_settings.update_one(
         {"key": "master_package_brochure"},
