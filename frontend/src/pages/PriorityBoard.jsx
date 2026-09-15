@@ -19,6 +19,16 @@ const TABS = [
   { key: 'declined', label: 'Declined', color: '#6b7280', hint: 'Lost' },
 ];
 
+// Same short formatter as Sales CRM's chips: ₹12k / ₹45.00L / ₹3.43Cr.
+const formatINRShort = (n) => {
+  const v = Number(n) || 0;
+  if (v >= 10000000) return `₹${(v / 10000000).toFixed(v >= 100000000 ? 0 : 2)}Cr`;
+  if (v >= 100000) return `₹${(v / 100000).toFixed(v >= 1000000 ? 1 : 2)}L`;
+  if (v >= 1000) return `₹${(v / 1000).toFixed(0)}k`;
+  return `₹${v.toFixed(0)}`;
+};
+const VALUE_TABS = new Set(['P1', 'P2', 'P3']);
+
 const cleanPhone = (p) => (p ? String(p).replace(/^p:/i, '').trim() : '—');
 
 const fmtDate = (s) => {
@@ -120,6 +130,11 @@ export default function PriorityBoard() {
                 <span className="text-base sm:text-xl font-bold mt-0.5 leading-tight">
                   {loading && !data ? '…' : count}
                 </span>
+                {VALUE_TABS.has(t.key) && (
+                  <span className="text-[10px] sm:text-xs font-semibold opacity-90 mt-0.5 leading-tight" data-testid={`priority-tab-value-${t.key}`}>
+                    {loading && !data ? '' : formatINRShort(data?.amounts?.[t.key])}
+                  </span>
+                )}
               </button>
             );
           })}

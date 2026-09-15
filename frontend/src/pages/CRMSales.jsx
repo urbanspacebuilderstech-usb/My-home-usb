@@ -1226,7 +1226,10 @@ export default function CRMSales() {
     if (unit.startsWith('cr')) return num * 10000000;
     if (unit.startsWith('l') || unit.startsWith('lak')) return num * 100000;
     if (unit.startsWith('k') || unit.startsWith('thou')) return num * 1000;
-    return num;
+    // A bare number under 1,000 is lakhs: "65" means ₹65 L, not ₹65. Reading it as
+    // rupees made the P1 chip total five construction deals as ₹343. Must match
+    // crm.py parse_amount_text so this chip and the Priority Board agree.
+    return num < 1000 ? num * 100000 : num;
   };
   const getLeadAmount = (lead) => {
     if (!lead) return 0;

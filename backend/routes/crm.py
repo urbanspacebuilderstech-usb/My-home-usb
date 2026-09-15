@@ -714,6 +714,62 @@ async def decay_client_priorities(now: Optional[datetime] = None) -> Dict[str, i
     return {"clocks_started": started.modified_count, "lowered": lowered}
 
 
+# Below this, a bare number (no unit) is read as LAKHS. Salespeople type deal
+# sizes like "65" meaning ₹65 L; reading it as ₹65 made Sales CRM's P1 chip
+# total five construction deals as ₹343. No real deal is under ₹1,000, and
+# nobody writes 1000+ meaning lakhs (they write "10 Cr"), so above it a bare
+# number stays rupees.
+BARE_NUMBER_LAKHS_BELOW = 1000
+_AMOUNT_RE = re.compile(r'(\d+(?:\.\d+)?)\s*(cr|crore|crores|l|lak|lakh|lakhs|k|thousand|thousands)?',
+                        re.IGNORECASE)
+
+
+def parse_amount_text(raw) -> float:
+    """₹ amount from free text — "65", "50L", "1.2 Cr", "₹45,00,000", "50L - 1Cr".
+    Mirrors CRMSales.jsx parseAmountFromText, so the two screens agree."""
+    if raw is None or raw == "":
+        return 0.0
+    s = re.sub(r'[₹,\s]', '', str(raw).lower())
+    m = _AMOUNT_RE.search(s)
+    if not m:
+        return 0.0
+    try:
+        num = float(m.group(1))
+    except ValueError:
+        return 0.0
+    if num <= 0:
+        return 0.0
+    unit = (m.group(2) or "").lower()
+    if unit.startswith("cr"):
+        return num * 10_000_000
+    if unit.startswith("l"):
+        return num * 100_000
+    if unit.startswith("k") or unit.startswith("thou"):
+        return num * 1_000
+    return num * 100_000 if num < BARE_NUMBER_LAKHS_BELOW else num
+
+
+def lead_deal_amount(lead: dict) -> float:
+    """The most meaningful deal size for a lead, in the same order Sales CRM
+    uses for its chip totals: the salesperson's priority note, then advance,
+    RE total / quoted amount, a direct amount, and finally a budget field."""
+    from_note = parse_amount_text(lead.get("client_category_value"))
+    if from_note > 0:
+        return from_note
+    adv = (lead.get("advance_payment") or {}).get("advance_amount") if isinstance(lead.get("advance_payment"), dict) else None
+
+    def num(v):
+        try:
+            return float(v or 0)
+        except (TypeError, ValueError):
+            return 0.0
+    cf = lead.get("custom_fields") if isinstance(lead.get("custom_fields"), dict) else {}
+    return (num(adv)
+            or num(lead.get("re_total_amount")) or num(lead.get("quoted_amount"))
+            or num(lead.get("amount")) or num(lead.get("total_amount")) or num(lead.get("deal_amount"))
+            or parse_amount_text(cf.get("budget") or cf.get("Budget") or cf.get("cf_budget")))
+
+
 @router.get("/crm/client-funnel-conditions")
 async def get_client_funnel_conditions(user: User = Depends(get_current_user)):
     """The priority checklist the Sales lead form shows."""
@@ -774,7 +830,10 @@ async def get_priority_board(rnr_min: int = 3, user: User = Depends(get_current_
          "rnr_count": 1, "last_rnr_at": 1, "lost_reason": 1, "lost_at": 1,
          "assigned_to": 1, "assigned_to_name": 1, "created_at": 1, "updated_at": 1,
          "client_type": 1, "client_category_conditions": 1, "client_category_set_at": 1,
-         "client_category_auto_lowered": 1, "client_category_auto_lowered_from": 1},
+         "client_category_auto_lowered": 1, "client_category_auto_lowered_from": 1,
+         # deal-size inputs for lead_deal_amount
+         "advance_payment": 1, "re_total_amount": 1, "quoted_amount": 1, "amount": 1,
+         "total_amount": 1, "deal_amount": 1, "custom_fields": 1},
     ).to_list(10000)
 
     # Leads don't reliably carry current_stage_name — Sales CRM resolves the
@@ -805,9 +864,22 @@ async def get_priority_board(rnr_min: int = 3, user: User = Depends(get_current_
             rows.sort(key=lambda r: str(r.get("updated_at") or r.get("created_at") or ""), reverse=True)
         mask_leads_phone(rows, user.role)
 
+    # Total deal value per tab, from the same per-lead amount Sales CRM's chips
+    # use. custom_fields was only needed for that, so it isn't sent back.
+    amounts: Dict[str, float] = {}
+    for k, rows in buckets.items():
+        total = 0.0
+        for r in rows:
+            r["deal_amount"] = round(lead_deal_amount(r), 2)
+            total += r["deal_amount"]
+            for f in ("custom_fields", "advance_payment"):
+                r.pop(f, None)
+        amounts[k] = round(total, 2)
+
     return {
         "rnr_min": rnr_min,
         "counts": {k: len(v) for k, v in buckets.items()},
+        "amounts": amounts,
         "leads": buckets,
     }
 
