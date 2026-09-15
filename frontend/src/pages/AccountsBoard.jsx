@@ -324,6 +324,18 @@ function getMaterialId(e) {
   return e.rab_number || '';
 }
 
+// Sep 15 2026 — Petty Cash "SE Name" column. Two different creation paths
+// land in recorded_expenses under category="petty_cash":
+//   • SE Direct Expense (source="site_engineer_direct", the common case —
+//     the SE bought something and `recorded_by_name` IS the SE).
+//   • Accountant "Issue" event (cash handed OUT to the SE) — recorded_by_name
+//     there is the accountant who issued it, but vendor_name was stamped
+//     with the SE's own name at issue time, so fall back to that.
+function getSEName(e) {
+  if (e.source === 'site_engineer_direct') return e.recorded_by_name || '-';
+  return e.requested_by_name || e.vendor_name || e.recorded_by_name || '-';
+}
+
 // Aug 17 2026 — Every image the Site Engineer attached to one cashbook
 // expense row, in one flat list for the Transaction Details viewer.
 //   • Petty cash / Record-Expense rows carry `item_bills[]` (one entry per
@@ -2298,6 +2310,8 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
   const [editIncomeForm, setEditIncomeForm] = useState({ payment_mode: 'cash', reference_number: '', cheque_number: '', bank_name: '' });
   const [savingIncomeEdit, setSavingIncomeEdit] = useState(false);
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
+  const [billSubmitDialog, setBillSubmitDialog] = useState({ open: false, entry: null });
+  const [billNote, setBillNote] = useState('');
   const [mobileExpenseDialog, setMobileExpenseDialog] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [submittingExpense, setSubmittingExpense] = useState(false);
@@ -2418,6 +2432,26 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
       onRefresh && onRefresh();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to send back');
+    }
+  };
+
+  // Sep 15 2026 — Petty Cash "Bill" column: tracks whether the SE's paper
+  // bill has physically reached Accounts (independent of any digital
+  // item_bills[] photo). Defaults "Pending"; the accountant clicks it, a
+  // popup confirms, and the row flips to "Submitted".
+  const handleMarkBillSubmitted = async () => {
+    const entry = billSubmitDialog.entry;
+    const recordId = entry?.expense_id || entry?.request_id;
+    if (!recordId) { toast.error('Missing expense id'); return; }
+    try {
+      await axios.patch(`${API}/accountant/petty-cash-expense/${recordId}/bill-submitted`, { note: billNote.trim() || null });
+      toast.success('Bill marked as submitted');
+      setBillSubmitDialog({ open: false, entry: null });
+      setBillNote('');
+      fetchCashbook();
+      onRefresh && onRefresh();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to mark bill as submitted');
     }
   };
 
@@ -3128,6 +3162,12 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                       <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-500">Vendor</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
+                      {expenseSubTab === 'petty_cash' && (
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">SE Name</th>
+                      )}
+                      {expenseSubTab === 'petty_cash' && (
+                        <th className="text-center px-3 py-2 font-medium text-gray-500">Bill</th>
+                      )}
                       <th className="text-center px-3 py-2 font-medium text-gray-500">Source</th>
                       <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>
                     </tr>
@@ -3185,6 +3225,12 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                             </SelectContent>
                           </Select>
                         </td>
+                        {expenseSubTab === 'petty_cash' && (
+                          <td className="px-1 py-1.5 text-center text-[10px] text-gray-400">—</td>
+                        )}
+                        {expenseSubTab === 'petty_cash' && (
+                          <td className="px-1 py-1.5 text-center text-[10px] text-gray-400">—</td>
+                        )}
                         <td className="px-1 py-1.5 text-center text-[10px] text-gray-400">Manual</td>
                         <td className="px-1 py-1.5 text-center">
                           <div className="flex items-center gap-1 justify-center">
@@ -3222,6 +3268,26 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                         <td className="px-3 py-2 text-right font-bold text-red-600"><MaskedValue value={entry.amount} className="text-red-600" /></td>
                         <td className="px-3 py-2 text-gray-600">{entry.vendor_name || '-'}</td>
                         <td className="px-3 py-2 font-medium">{entry.project_name || 'N/A'}</td>
+                        {expenseSubTab === 'petty_cash' && (
+                          <td className="px-3 py-2 text-gray-600" data-testid={`expense-se-name-${i}`}>{getSEName(entry)}</td>
+                        )}
+                        {expenseSubTab === 'petty_cash' && (
+                          <td className="px-3 py-2 text-center" data-testid={`expense-bill-${i}`}>
+                            {entry.bill_status === 'submitted' ? (
+                              <Badge className="bg-green-100 text-green-700 text-[10px]" data-testid={`expense-bill-submitted-${i}`}>Submitted</Badge>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 text-[10px] px-2 border-amber-300 text-amber-700 hover:bg-amber-50"
+                                onClick={() => setBillSubmitDialog({ open: true, entry })}
+                                data-testid={`expense-bill-pending-btn-${entry.expense_id || entry.request_id || i}`}
+                              >
+                                Pending
+                              </Button>
+                            )}
+                          </td>
+                        )}
                         <td className="px-3 py-2 text-center" data-testid={`expense-source-${i}`}>
                           <Badge className={entry.source === 'approval' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}>
                             {entry.source === 'approval' ? 'Approval' : 'Manual'}
@@ -3270,7 +3336,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                       </tr>
                     ))}
                     {filteredExpenses.length === 0 && (
-                      <tr><td colSpan={expenseSubTab === 'material' ? 10 : 9} className="text-center py-8 text-gray-400">No expense entries found</td></tr>
+                      <tr><td colSpan={9 + (expenseSubTab === 'material' ? 1 : 0) + (expenseSubTab === 'petty_cash' ? 2 : 0)} className="text-center py-8 text-gray-400">No expense entries found</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -3292,6 +3358,29 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
           <IndirectExpenseSection userRole={userRole} />
         </TabsContent>
       </Tabs>
+      <Dialog open={billSubmitDialog.open} onOpenChange={(o) => { setBillSubmitDialog({ open: o, entry: o ? billSubmitDialog.entry : null }); if (!o) setBillNote(''); }}>
+        <DialogContent className="max-w-sm" data-testid="bill-submit-dialog">
+          <DialogHeader><DialogTitle>Mark Bill as Submitted</DialogTitle></DialogHeader>
+          {billSubmitDialog.entry && (
+            <div className="space-y-3">
+              <Card className="bg-amber-50 border-amber-200"><CardContent className="p-3 text-xs space-y-1">
+                <p><span className="text-gray-500">SE:</span> <span className="font-semibold">{getSEName(billSubmitDialog.entry)}</span></p>
+                <p><span className="text-gray-500">Vendor:</span> {billSubmitDialog.entry.vendor_name || '-'}</p>
+                <p><span className="text-gray-500">Project:</span> {billSubmitDialog.entry.project_name || 'N/A'}</p>
+                <p><span className="text-gray-500">Amount:</span> <span className="font-bold text-amber-700">{fmtFull(billSubmitDialog.entry.amount)}</span></p>
+              </CardContent></Card>
+              <div>
+                <Label className="text-xs">Note (optional)</Label>
+                <Textarea value={billNote} onChange={e => setBillNote(e.target.value)} rows={2} placeholder="e.g., bill number, remarks" data-testid="bill-submit-note" />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setBillSubmitDialog({ open: false, entry: null }); setBillNote(''); }}>Cancel</Button>
+            <Button className="bg-green-600 hover:bg-green-700" onClick={handleMarkBillSubmitted} data-testid="bill-submit-confirm-btn">Submit</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={viewDialog} onOpenChange={(o) => { setViewDialog(o); if (!o) { setEditingIncome(false); setEntryPhotoPreview({ open: false, index: 0 }); } }}>
         <DialogContent
           // While the image lightbox is up it owns Escape and every click —

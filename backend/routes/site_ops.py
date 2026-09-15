@@ -3824,6 +3824,37 @@ async def send_petty_cash_for_correction(petty_cash_id: str, data: PettyCashCorr
     return result
 
 
+class PettyBillSubmitInput(BaseModel):
+    note: Optional[str] = None
+
+
+@router.patch("/accountant/petty-cash-expense/{expense_id}/bill-submitted")
+async def mark_petty_cash_bill_submitted(expense_id: str, data: PettyBillSubmitInput, user: User = Depends(get_current_user)):
+    """Sep 15 2026 — Accounts > Expense > Petty Cash "Bill" column. A petty
+    cash bill (the SE's physical/paper bill for a Plumbing/Civil/Tarpalin…
+    purchase) defaults to "Pending" until the accountant has it in hand;
+    clicking the button opens a popup that flips it to "Submitted" here.
+    This is independent of the digital `item_bills[]` photo the SE may have
+    already uploaded — it tracks the paper trail, not the photo.
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can mark a bill as submitted")
+    exp = await db.recorded_expenses.find_one({"expense_id": expense_id}, {"_id": 0, "expense_id": 1})
+    if not exp:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.recorded_expenses.update_one(
+        {"expense_id": expense_id},
+        {"$set": {
+            "bill_status": "submitted",
+            "bill_submitted_by": user.user_id,
+            "bill_submitted_by_name": user.name,
+            "bill_submitted_at": now,
+            "bill_submitted_note": data.note,
+        }}
+    )
+    return {"message": "Bill marked as submitted", "expense_id": expense_id, "bill_status": "submitted"}
+
 
 # ============ PETTY CASH - PM APPROVAL ============
 
