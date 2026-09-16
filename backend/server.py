@@ -349,6 +349,47 @@ async def startup_init():
     await _safe_index(startup_db.direct_expenses, [("created_at", -1)])
     await _safe_index(startup_db.material_expenses, [("created_at", -1)])
     await _safe_index(startup_db.labour_expenses, [("created_at", -1)])
+
+    # ── Sep 16 2026 — Primary-key indexes (the single biggest slowdown) ──────
+    # Counted against the real query shapes in routes/: these exact lookups run
+    # 105x (request_id), 56x (stage_id), 54x (work_order_id), 36x (cheque_id),
+    # 31x (expense_id) in the code, and users.user_id runs on EVERY
+    # authenticated request via get_current_user — yet none of them had an
+    # index, so each one read the whole collection. Plain non-unique indexes:
+    # create_index is a no-op when the index already exists, and non-unique
+    # cannot fail on existing duplicate data.
+    await _safe_index(startup_db.users, [("user_id", 1)])
+    await _safe_index(startup_db.material_requests, [("request_id", 1)])
+    await _safe_index(startup_db.recorded_expenses, [("expense_id", 1)])
+    await _safe_index(startup_db.recorded_expenses, [("request_id", 1)])
+    await _safe_index(startup_db.cheques, [("cheque_id", 1)])
+    await _safe_index(startup_db.cheques, [("cheque_number", 1)])
+    await _safe_index(startup_db.payment_stages, [("stage_id", 1)])
+    await _safe_index(startup_db.payment_stages, [("project_id", 1)])
+    await _safe_index(startup_db.project_work_orders, [("work_order_id", 1)])
+    await _safe_index(startup_db.project_work_orders, [("project_id", 1)])
+    await _safe_index(startup_db.project_work_orders, [("stages.payment_requests.request_id", 1)])
+    await _safe_index(startup_db.work_orders, [("work_order_id", 1)])
+    await _safe_index(startup_db.labour_expenses, [("labour_expense_id", 1)])
+    await _safe_index(startup_db.vendor_credit_ledger, [("ledger_id", 1)])
+    await _safe_index(startup_db.google_sheets_tokens, [("user_id", 1)])
+    await _safe_index(startup_db.sheets_auto_sync, [("user_id", 1)])
+    await _safe_index(startup_db.connected_sheets, [("user_id", 1)])
+    await _safe_index(startup_db.lead_stages, [("stage_type", 1), ("stage_id", 1)])
+
+    # Filters that scan today. material_inventory is the worst: the Planning
+    # Inventory rollup runs one of these PER PROJECT, so an unindexed
+    # collection is re-scanned ~59 times for a single page.
+    await _safe_index(startup_db.material_inventory, [("project_id", 1), ("material_name", 1), ("date", 1)])
+    await _safe_index(startup_db.material_inventory, [("project_id", 1), ("used", 1)])
+    await _safe_index(startup_db.inventory_thresholds, [("project_id", 1)])
+    await _safe_index(startup_db.suspense_entries, [("type", 1), ("vendor_name", 1)])
+    await _safe_index(startup_db.suspense_entries, [("linked_expense_id", 1)])
+    await _safe_index(startup_db.suspense_entries, [("linked_request_id", 1)])
+    await _safe_index(startup_db.daily_labour_reports, [("project_id", 1), ("date", 1)])
+    await _safe_index(startup_db.daily_labour_reports, [("work_order_id", 1), ("date", 1)])
+    await _safe_index(startup_db.attendance, [("date", 1), ("staff_id", 1)])
+    await _safe_index(startup_db.material_expenses, [("source_request_id", 1)])
     # Aug 18 2026 — `_backfill_item_bills` (site_ops) resolves SE-uploaded
     # bills for legacy recorded_expenses rows via
     # `direct_expenses.find({"expense_id": {"$in": [...]}})`. It runs on the

@@ -1020,14 +1020,41 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
     date, and Today Out is however much of THIS batch got consumed within
     the selected date range (Today In stays the batch's own received qty
     when its receive date falls in range)."""
+    # Sep 16 2026 — Fetch once for ALL projects instead of per project. This
+    # ran three queries inside the loop, so ~59 projects meant ~178 round trips
+    # and the Inventory tab took over a minute. Same data, same maths, three
+    # queries total. Grouping happens in Python below.
     rows = []
+    pids = list(project_name_map.keys())
+    if not pids:
+        return rows
+
+    all_requests = await db.material_requests.find(
+        {"project_id": {"$in": pids}, "status": {"$nin": ["rejected", "cancelled", "deleted"]}},
+        {"_id": 0},
+    ).to_list(20000)
+    all_thresholds = await db.inventory_thresholds.find(
+        {"project_id": {"$in": pids}}, {"_id": 0}).to_list(5000)
+    # Sorted once here so each project's slice keeps the oldest-first order the
+    # FIFO depletion below depends on.
+    all_consumption = await db.material_inventory.find(
+        {"project_id": {"$in": pids}, "used": {"$gt": 0}},
+        {"_id": 0, "project_id": 1, "material_name": 1, "date": 1, "used": 1},
+    ).sort("date", 1).to_list(50000)
+
+    requests_by_project: Dict[str, list] = {}
+    for d in all_requests:
+        requests_by_project.setdefault(d.get("project_id"), []).append(d)
+    thresholds_by_project: Dict[str, dict] = {}
+    for t in all_thresholds:
+        thresholds_by_project.setdefault(t.get("project_id"), {})[t.get("material_name", "")] = t.get("min_threshold", 0)
+    consumption_by_project: Dict[str, list] = {}
+    for c in all_consumption:
+        consumption_by_project.setdefault(c.get("project_id"), []).append(c)
+
     for pid, pname in project_name_map.items():
-        docs = await db.material_requests.find(
-            {"project_id": pid, "status": {"$nin": ["rejected", "cancelled", "deleted"]}},
-            {"_id": 0},
-        ).to_list(2000)
-        threshold_docs = await db.inventory_thresholds.find({"project_id": pid}, {"_id": 0}).to_list(500)
-        thresholds = {t.get("material_name", ""): t.get("min_threshold", 0) for t in threshold_docs}
+        docs = requests_by_project.get(pid, [])
+        thresholds = thresholds_by_project.get(pid, {})
 
         # Build FIFO supply batches per material from priced, received requests.
         batches_by_material: Dict[str, list] = {}
@@ -1080,10 +1107,7 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
         # Deplete batches oldest-first against every consumption event ever
         # logged (not just the selected range — a row's Current Stock must
         # reflect ALL consumption to date, only Today Out is range-scoped).
-        consumption_docs = await db.material_inventory.find(
-            {"project_id": pid, "used": {"$gt": 0}},
-            {"_id": 0, "material_name": 1, "date": 1, "used": 1},
-        ).sort("date", 1).to_list(5000)
+        consumption_docs = consumption_by_project.get(pid, [])
         for c in consumption_docs:
             mat = c.get("material_name")
             batches = batches_by_material.get(mat)
