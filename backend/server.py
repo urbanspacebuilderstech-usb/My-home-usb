@@ -396,6 +396,15 @@ async def startup_init():
     await _safe_index(startup_db.daily_labour_reports, [("work_order_id", 1), ("date", 1)])
     await _safe_index(startup_db.attendance, [("date", 1), ("staff_id", 1)])
     await _safe_index(startup_db.material_expenses, [("source_request_id", 1)])
+    # Sep 16 2026 — Finance Board > Cashflow Engine. `cashflow_ledger` had no
+    # index at all, so every read of it was a full collection scan: the two
+    # summary aggregations, the Income/Expense ledger tabs (which also sorted
+    # `created_at` in memory), and the idempotency check that runs on EVERY
+    # income and expense approval.
+    await _safe_index(startup_db.cashflow_ledger, [("source_id", 1), ("kind", 1)])
+    await _safe_index(startup_db.cashflow_ledger, [("kind", 1), ("created_at", -1)])
+    await _safe_index(startup_db.cashflow_ledger, [("project_id", 1), ("kind", 1)])
+    await _safe_index(startup_db.project_carry_forwards, [("project_id", 1)])
     # Aug 18 2026 — `_backfill_item_bills` (site_ops) resolves SE-uploaded
     # bills for legacy recorded_expenses rows via
     # `direct_expenses.find({"expense_id": {"$in": [...]}})`. It runs on the

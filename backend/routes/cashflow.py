@@ -153,11 +153,24 @@ async def get_config(user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
     glob = await _get_global_split()
-    overrides_cursor = db.cashflow_config.find({"_id": {"$regex": "^project:"}}, {"_id": 1, "direct_pct": 1, "indirect_pct": 1, "updated_by_name": 1, "updated_at": 1})
+    override_docs = await db.cashflow_config.find(
+        {"_id": {"$regex": "^project:"}},
+        {"_id": 1, "direct_pct": 1, "indirect_pct": 1, "updated_by_name": 1, "updated_at": 1},
+    ).to_list(5000)
+
+    # Sep 16 2026 - one projects.find_one per override used to run here, in
+    # sequence. Resolve them all in a single query instead; a project that no
+    # longer exists still yields {} exactly as find_one returned None before.
+    _pids = [d["_id"].split(":", 1)[1] for d in override_docs]
+    _projs = await db.projects.find(
+        {"project_id": {"$in": _pids}}, {"_id": 0, "project_id": 1, "name": 1, "client_name": 1}
+    ).to_list(5000) if _pids else []
+    _proj_by_id = {p["project_id"]: p for p in _projs}
+
     overrides: List[Dict[str, Any]] = []
-    async for d in overrides_cursor:
+    for d in override_docs:
         pid = d["_id"].split(":", 1)[1]
-        proj = await db.projects.find_one({"project_id": pid}, {"_id": 0, "name": 1, "client_name": 1})
+        proj = _proj_by_id.get(pid)
         overrides.append({
             "project_id": pid,
             "project_name": (proj or {}).get("name", ""),
@@ -287,6 +300,47 @@ async def get_summary(
 
     is_date_filtered = bool(date_from or date_to)
 
+    # Sep 16 2026 - this endpoint used to resolve the Direct/Indirect split
+    # one project at a time. `_get_effective_split()` is a find_one (plus a
+    # second one for the global fallback), and the per-project loop below
+    # called it AND a separate has_override find_one for every row - about
+    # three sequential round trips per project, ~250 for a 60-project board,
+    # each waiting for the one before it. That was the bulk of the Cashflow
+    # Engine's load time.
+    #
+    # `cashflow_config` is tiny (one global doc plus one per overridden
+    # project), so it is read once here and every lookup below is served from
+    # memory. The resolution order is unchanged: project override first, then
+    # the global default.
+    _cfg_docs = await db.cashflow_config.find(
+        {}, {"_id": 1, "direct_pct": 1, "indirect_pct": 1}
+    ).to_list(5000)
+    _cfg_by_id = {d["_id"]: d for d in _cfg_docs}
+
+    if "global" in _cfg_by_id:
+        _g = _cfg_by_id["global"]
+        _global_split = {
+            "direct_pct": float(_g.get("direct_pct", 85.0)),
+            "indirect_pct": float(_g.get("indirect_pct", 15.0)),
+        }
+    else:
+        # Preserves _get_global_split()'s seed-on-first-read upsert.
+        _global_split = await _get_global_split()
+
+    def _split_cached(pid: Optional[str]) -> Dict[str, float]:
+        """In-memory twin of _get_effective_split()."""
+        if pid:
+            override = _cfg_by_id.get(f"project:{pid}")
+            if override:
+                return {
+                    "direct_pct": float(override["direct_pct"]),
+                    "indirect_pct": float(override["indirect_pct"]),
+                }
+        return dict(_global_split)
+
+    def _has_override_cached(pid: Optional[str]) -> bool:
+        return bool(pid) and f"project:{pid}" in _cfg_by_id
+
     match: Dict[str, Any] = {}
     if project_id:
         match["project_id"] = project_id
@@ -405,7 +459,7 @@ async def get_summary(
                 pid = cf.get("project_id")
                 if pid not in agg:
                     continue
-                sp = await _get_effective_split(pid)
+                sp = _split_cached(pid)
                 dp = float(sp.get("direct_pct", 85.0)) / 100.0
                 ip = float(sp.get("indirect_pct", 15.0)) / 100.0
                 # Income CF — split by the project's effective ratio.
@@ -437,10 +491,8 @@ async def get_summary(
             v["indirect_balance"] = round(v["indirect_in"] - v["indirect_out"], 2)
             v["net"] = round(v["direct_balance"] + v["indirect_balance"], 2)
             # Attach effective split + override flag so the UI can show "85% / 15% (Override)" per row
-            split = await _get_effective_split(v["project_id"])
-            override = await db.cashflow_config.find_one({"_id": f"project:{v['project_id']}"}, {"_id": 1})
-            v["effective_split"] = split
-            v["has_override"] = bool(override)
+            v["effective_split"] = _split_cached(v["project_id"])
+            v["has_override"] = _has_override_cached(v["project_id"])
             per_project.append(v)
         per_project.sort(key=lambda x: -(x["net"] or 0))
 
@@ -466,9 +518,9 @@ async def get_summary(
         "indirect_balance": round(indirect_in - indirect_out, 2),
         "net": round((direct_in - direct_out) + (indirect_in - indirect_out), 2),
         "per_project": per_project,
-        "effective_split": await _get_effective_split(project_id) if project_id else await _get_global_split(),
-        "has_override": bool(await db.cashflow_config.find_one({"_id": f"project:{project_id}"}, {"_id": 1})) if project_id else False,
-        "global_split": await _get_global_split(),
+        "effective_split": _split_cached(project_id) if project_id else dict(_global_split),
+        "has_override": _has_override_cached(project_id) if project_id else False,
+        "global_split": dict(_global_split),
         "date_from": date_from,
         "date_to": date_to,
         "carry_forward_included": not is_date_filtered,
