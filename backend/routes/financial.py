@@ -584,32 +584,51 @@ async def list_carry_forward_projects(user: User = Depends(get_current_user)):
     cf_docs = await db.project_carry_forwards.find({}, {"_id": 0}).to_list(1000)
     cf_map = {d.get("project_id"): d for d in cf_docs}
 
-    rows = []
-    for p in projects:
-        try:
-            row = await _compute_project_carry_forward_row(p, cf_map.get(p["project_id"]))
-            rows.append(row)
-        except Exception as e:
-            # Don't fail the whole list if one project's aggregation throws —
-            # surface a minimal row so the table still loads. Feb 12 2026.
-            import logging
-            logging.getLogger("financial").warning(
-                "carry_forward row failed for %s: %s", p.get("project_id"), e,
-            )
-            rows.append({
-                "project_id": p.get("project_id"),
-                "project_name": p.get("name"),
-                "project_value": float(p.get("original_estimate") or p.get("total_value") or 0),
-                "total_income": 0, "income_adjustment": 0, "income_carry_forward": 0, "grand_income": 0,
-                "material_expense": 0, "work_order_expense": 0, "petty_cash_expense": 0,
-                "direct_expense_total": 0,
-                "material_carry_forward": 0, "labour_carry_forward": 0,
-                "petty_cash_carry_forward": 0, "indirect_carry_forward": 0,
-                "direct_carry_forward": 0, "expense_carry_forward": 0,
-                "expense_adjustment": 0, "grand_expense": 0,
-                "difference": 0,
-                "note": "(computation failed — see backend logs)",
-            })
+    # Sep 16 2026 — this loop awaited one project at a time, and a single row
+    # is expensive: _compute_project_carry_forward_row -> expense_engine's
+    # fetch_expense_source_docs reads FIVE collections (recorded_expenses,
+    # labour_expenses, material_requests, material_expenses, direct_expenses),
+    # each with its own sort. At ~60 projects that is roughly 300 round trips
+    # end to end, every one of them waiting for the previous to come back —
+    # which is what left this page spinning.
+    #
+    # The rows are independent of each other, so they are now computed
+    # concurrently. Nothing about an individual row changes: the same function
+    # receives the same arguments, the same per-project try/except fallback
+    # applies, and asyncio.gather returns results in input order, so the
+    # name-sorted table comes out identical. Only the waiting overlaps.
+    #
+    # Concurrency is capped rather than unbounded: firing ~300 queries at once
+    # would spike MongoDB's memory, and this box is already tight on RAM.
+    _CF_ROW_CONCURRENCY = 8
+    _cf_sem = asyncio.Semaphore(_CF_ROW_CONCURRENCY)
+
+    async def _carry_forward_row(p):
+        async with _cf_sem:
+            try:
+                return await _compute_project_carry_forward_row(p, cf_map.get(p["project_id"]))
+            except Exception as e:
+                # Don't fail the whole list if one project's aggregation throws —
+                # surface a minimal row so the table still loads. Feb 12 2026.
+                logger.warning(
+                    "carry_forward row failed for %s: %s", p.get("project_id"), e,
+                )
+                return {
+                    "project_id": p.get("project_id"),
+                    "project_name": p.get("name"),
+                    "project_value": float(p.get("original_estimate") or p.get("total_value") or 0),
+                    "total_income": 0, "income_adjustment": 0, "income_carry_forward": 0, "grand_income": 0,
+                    "material_expense": 0, "work_order_expense": 0, "petty_cash_expense": 0,
+                    "direct_expense_total": 0,
+                    "material_carry_forward": 0, "labour_carry_forward": 0,
+                    "petty_cash_carry_forward": 0, "indirect_carry_forward": 0,
+                    "direct_carry_forward": 0, "expense_carry_forward": 0,
+                    "expense_adjustment": 0, "grand_expense": 0,
+                    "difference": 0,
+                    "note": "(computation failed — see backend logs)",
+                }
+
+    rows = list(await asyncio.gather(*(_carry_forward_row(p) for p in projects)))
 
     totals = {
         "project_value": sum(r["project_value"] for r in rows),

@@ -405,6 +405,17 @@ async def startup_init():
     await _safe_index(startup_db.cashflow_ledger, [("kind", 1), ("created_at", -1)])
     await _safe_index(startup_db.cashflow_ledger, [("project_id", 1), ("kind", 1)])
     await _safe_index(startup_db.project_carry_forwards, [("project_id", 1)])
+    # Sep 16 2026 — expense_engine.fetch_expense_source_docs() reads these five
+    # collections filtered by project_id and sorted by created_at. It is the
+    # per-project unit behind Carry Forward, Project Wise and the cashbook, so
+    # it runs once per project per page. recorded_expenses already had the
+    # matching compound index; direct_expenses had NO project_id index at all
+    # (a full collection scan on every call), and the other three could filter
+    # on project_id but still had to sort created_at in memory.
+    await _safe_index(startup_db.direct_expenses, [("project_id", 1), ("created_at", -1)])
+    await _safe_index(startup_db.labour_expenses, [("project_id", 1), ("created_at", -1)])
+    await _safe_index(startup_db.material_requests, [("project_id", 1), ("created_at", -1)])
+    await _safe_index(startup_db.material_expenses, [("project_id", 1), ("created_at", -1)])
     # Aug 18 2026 — `_backfill_item_bills` (site_ops) resolves SE-uploaded
     # bills for legacy recorded_expenses rows via
     # `direct_expenses.find({"expense_id": {"$in": [...]}})`. It runs on the
