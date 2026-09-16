@@ -18,6 +18,7 @@ import logging
 from bson import ObjectId
 
 from core.database import db, fs
+from core.fastjson import fast_json
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
 from core.models import *
 from security import InputValidator
@@ -1112,7 +1113,7 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
 
     project_list_sorted = sorted(project_wise.values(), key=lambda x: (-x["income"], x["project_name"]))
     
-    return {
+    return fast_json({
         "income_by_mode": income_by_mode,
         "expense_by_mode": expense_by_mode,
         # Aug 3 2026 — Dropped the [:200] truncation (same bug class fixed on
@@ -1137,7 +1138,7 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
             "total_expense": expense_by_mode["total"],
             "net_balance": income_by_mode["total"] - expense_by_mode["total"]
         }
-    }
+    })
 
 
 @router.get("/income")
@@ -3691,7 +3692,7 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
         })
     labour_suspense = {k: v for k, v in labour_suspense.items() if abs(v["balance"]) > 0.5}
     
-    return {
+    return fast_json({
         "petty_cash": {
             "active_requests": petty_active,
             "total_issued": petty_total_issued,
@@ -3714,7 +3715,7 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
             + sum(b["balance"] for b in labour_suspense.values())
         ),
         "projects": projects_list,
-    }
+    })
 
 
 # ── Super Admin destructive cleanup for suspense entries ─────────────────────
@@ -6714,7 +6715,7 @@ async def get_cashbook_filtered(
         {"_id": CLOSING_BALANCE_DOC_ID}, {"_id": 0, "buckets": 1, "locked_at": 1}
     ) or {}
 
-    return {
+    return fast_json({
         # Feb 26 2026 — Drop the [:500] truncation on incomes so the
         # bucket-card drilldown ("Cash — Breakdown" etc.) sums to the
         # SAME number as the card's headline. Total income docs are
@@ -6763,7 +6764,7 @@ async def get_cashbook_filtered(
         # (Opening Balance)" row (see handleModeClick/ModeDrilldownView) can
         # show a real date instead of "Invalid Date".
         "closing_balance_locked_at": _cb_lock_doc.get("locked_at"),
-    }
+    })
 
 
 # Aug 29 2026 — Project Wise > Labour sub-tab. Mirrors site_ops.py's

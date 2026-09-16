@@ -189,7 +189,13 @@ app.add_middleware(CSRFMiddleware)
 # compresses 80-90%, so this is a broad, low-risk win across every endpoint
 # in the app, not just the one page that surfaced it. minimum_size=1000
 # skips compressing tiny responses where the overhead isn't worth it.
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+# Sep 16 2026 - compresslevel was defaulting to 9, the most expensive setting.
+# Measured on an 8 MB cashbook payload: level 9 costs 0.46s of event-loop CPU
+# for 3.95 MB, level 1 costs 0.19s for 4.10 MB - 2.4x cheaper for 3.8% more
+# bytes. Because gzip runs synchronously on the single worker, that saved CPU
+# is time the server can spend answering other requests (an unrelated login
+# used to queue behind a finance screen compressing).
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=1)
 
 app.add_middleware(
     CORSMiddleware,

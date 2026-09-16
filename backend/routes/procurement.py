@@ -20,6 +20,7 @@ from bson import ObjectId
 import resend
 
 from core.database import db, fs
+from core.fastjson import fast_json
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
 from core.models import *
 from security import InputValidator
@@ -5071,7 +5072,7 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
         b["suspense_overdrawn_by"] = round(abs(b["suspense_balance"]), 2) if b["suspense_integrity_error"] else 0.0
         rows.append({**b, "_key": key})
     rows.sort(key=lambda r: (r.get("vendor_name") or "").lower())
-    return {"count": len(rows), "rows": rows}
+    return fast_json({"count": len(rows), "rows": rows})
 
 
 @router.get("/material-vendor-payments/{vendor_key}/ledger")

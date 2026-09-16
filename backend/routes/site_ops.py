@@ -26,6 +26,7 @@ except ImportError:
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "noreply@myhomeusb.com")
 
 from core.database import db, fs
+from core.fastjson import fast_json
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
 from core.models import *
 from core.counters import next_seq
@@ -533,7 +534,7 @@ async def get_site_engineer_projects(user: User = Depends(get_current_user)):
             project["assignment_id"] = a["assignment_id"]
             projects.append(project)
 
-    return projects
+    return fast_json(projects)
 
 
 def _dlr_skill_bucket(t):
@@ -1222,7 +1223,7 @@ async def get_site_engineer_inventory_summary(
     }, {"_id": 0}).to_list(50)
     project_name_map = await _assigned_project_name_map([a["project_id"] for a in assignments])
     rows = await _inventory_rows_for_projects(project_name_map, date_from, date_to)
-    return {"date_from": date_from, "date_to": date_to, "rows": rows}
+    return fast_json({"date_from": date_from, "date_to": date_to, "rows": rows})
 
 
 async def _pm_project_name_map(user: User) -> Dict[str, str]:
@@ -1274,7 +1275,7 @@ async def get_pm_inventory_summary(
     date_from, date_to = _resolve_date_range(date, start_date, end_date)
     project_name_map = await _pm_project_name_map(user)
     rows = await _inventory_rows_for_projects(project_name_map, date_from, date_to)
-    return {"date_from": date_from, "date_to": date_to, "rows": rows}
+    return fast_json({"date_from": date_from, "date_to": date_to, "rows": rows})
 
 
 async def _planning_project_name_map(user: User) -> Dict[str, str]:
@@ -1338,7 +1339,7 @@ async def get_planning_inventory_summary(
     date_from, date_to = _resolve_date_range(date, start_date, end_date)
     project_name_map = await _planning_project_name_map(user)
     rows = await _inventory_request_rows_for_projects(project_name_map, date_from, date_to)
-    return {"date_from": date_from, "date_to": date_to, "rows": rows}
+    return fast_json({"date_from": date_from, "date_to": date_to, "rows": rows})
 
 
 async def _fifo_scoped_consumption(project_id: str, material_name: str, target_request_number: str) -> list:

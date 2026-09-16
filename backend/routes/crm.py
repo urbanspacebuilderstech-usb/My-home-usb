@@ -20,6 +20,7 @@ import json
 import re
 
 from core.database import db, fs
+from core.fastjson import fast_json
 from bson import ObjectId as _ObjectId
 from core.deps import get_current_user, create_notification, create_audit_log
 from core.models import UserRole, User
@@ -946,14 +947,14 @@ async def get_sales_masterview_summary(
                 sales_count += 1
                 seen.add(sid)
 
-    return {
+    return fast_json({
         "leads": leads_count,
         "appointments": appointment_count,
         "proposals": proposal_count,
         "sales": sales_count,
         "start_date": start_date,
         "end_date": end_date,
-    }
+    })
 
 
 @router.get("/crm/sales-masterview/rows")
@@ -1021,7 +1022,7 @@ async def get_sales_masterview_rows(
                     break
 
     rows.sort(key=lambda r: r.get("when") or "", reverse=True)
-    return {"category": category, "rows": rows, "count": len(rows)}
+    return fast_json({"category": category, "rows": rows, "count": len(rows)})
 
 
 # ==================== CRM A (PRE-SALES) ENDPOINTS ====================

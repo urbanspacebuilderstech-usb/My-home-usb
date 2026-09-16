@@ -20,6 +20,7 @@ import resend
 from bson import ObjectId
 
 from core.database import db, fs
+from core.fastjson import fast_json
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
 from core.models import *
 from core.counters import next_seq, backfill_collection
@@ -426,7 +427,7 @@ async def get_projects(include_deleted: bool = False, planning_person_id: Option
         proj["receivable"] = max(0.0, proj["grand_total"] - proj["total_income"])
         proj["pending_dues"] = pending_dues_by_project.get(proj["project_id"], 0)
     
-    return projects
+    return fast_json(projects)
 
 
 # Build a {role -> [{user_id, name, project_ids}]} map so the Accountant
@@ -2137,7 +2138,7 @@ async def get_admin_dashboard_summary(user: User = Depends(get_current_user)):
             "expenses": expenses_total, "cash_in_book": cash_in_book
         })
     
-    return {"totals": totals, "projects": project_summaries}
+    return fast_json({"totals": totals, "projects": project_summaries})
 
 
 @router.get("/admin/financial-overview")

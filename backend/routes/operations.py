@@ -2339,8 +2339,8 @@ async def get_monthly_schedule(
             "collected_count": collected_count,
         },
     }
-    from fastapi.responses import JSONResponse
-    return JSONResponse(
+    from core.fastjson import ORJSONResponse
+    return ORJSONResponse(
         content=payload,
         headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
