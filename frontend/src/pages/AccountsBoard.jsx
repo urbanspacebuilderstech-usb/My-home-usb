@@ -5522,8 +5522,8 @@ function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint, onDelete
                       {tab === 'dt' ? dtStatusBadge(entry.dt_status) : (getTransactionId(entry, 'income') || '-')}
                     </td>
                     <td className="px-3 py-2 text-right font-bold text-green-700"><MaskedValue value={entry.amount} className="text-green-700" /></td>
-                    <td className="px-3 py-2 text-center">
-                      <div className="flex items-center justify-center gap-1 flex-wrap">
+                    <td className="px-3 py-2 text-center whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-1">
                         {tab === 'dt' && (!entry.dt_status || entry.dt_status === 'new') && (
                           <Button
                             size="sm"
