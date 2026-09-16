@@ -1966,10 +1966,65 @@ async def get_monthly_schedule(
             return d.month, d.year
         return None, None
 
+    # Sep 16 2026 - CRE Board > Payment Schedule opens on "All Months", which
+    # takes the unfiltered branch below and reads EVERY payment stage in the
+    # system. Two things made that slow, neither of them the query logic:
+    #
+    #   * whole documents were fetched when this function reads ~26 fields,
+    #     so most of the BSON pulled over the wire and decoded into Python
+    #     dicts was never looked at;
+    #   * the reads ran one after another even where nothing connected them.
+    #
+    # The projections below are the exact field sets this function reads
+    # (confirmed by walking every `.get("x")` / `["x"]` access in the body and
+    # its nested helpers). The raw stage document is never spread into the
+    # response - every row is built from an explicit key list - so narrowing
+    # the fetch cannot change a single value the client receives.
+    STAGE_FIELDS = {
+        "_id": 0, "stage_id": 1, "project_id": 1, "stage_name": 1, "stage_label": 1,
+        "amount": 1, "amount_received": 1, "percentage": 1, "status": 1,
+        "workflow_status": 1, "category": 1, "kind": 1, "due_date": 1,
+        "expected_payment_date": 1, "requested_at": 1, "payment_requested_at": 1,
+        "paid_at": 1, "collected_at": 1, "created_at": 1, "updated_at": 1,
+        "is_addition": 1, "is_section_addition": 1, "linked_addition_id": 1,
+        "contractor_id": 1, "vendor_id": 1, "rab_number": 1, "rab_request_id": 1,
+    }
+    MANUAL_FIELDS = {
+        "_id": 0, "entry_id": 1, "stage_id": 1, "month": 1, "year": 1,
+        "is_hidden": 1, "is_carryover": 1, "is_addition": 1, "amount": 1,
+        "amount_received": 1, "stage_status": 1, "workflow_status": 1,
+        "expected_payment_date": 1, "project_name": 1, "added_by": 1, "added_at": 1,
+    }
+
+    # The pending-approval rollup filters on status/category only - it depends
+    # on nothing computed below - so it is started here and awaited alongside
+    # the other independent reads instead of costing its own serial round trip
+    # further down.
+    pending_income_task = db.income.aggregate([
+        {"$match": {"status": "pending_approval", "category": "payment_collection"}},
+        {"$group": {
+            "_id": {"project_id": "$project_id", "stage": "$stage"},
+            "total": {"$sum": "$amount"},
+            "count": {"$sum": 1},
+        }},
+    ]).to_list(5000)
+
     # 1. Hydrate Planning's manual "added to month" entries (NON-carryover only)
-    raw_manual = await db.monthly_schedule_entries.find(
-        {"is_carryover": {"$ne": True}}, {"_id": 0}
+    manual_task = db.monthly_schedule_entries.find(
+        {"is_carryover": {"$ne": True}}, MANUAL_FIELDS
     ).to_list(20000)
+
+    if all_months:
+        # Nothing in this branch's stage query depends on the manual entries,
+        # so all three reads overlap instead of running back to back.
+        raw_manual, all_months_stages, pending_inc = await asyncio.gather(
+            manual_task,
+            db.payment_stages.find({}, STAGE_FIELDS).to_list(50000),
+            pending_income_task,
+        )
+    else:
+        all_months_stages = None
+        raw_manual, pending_inc = await asyncio.gather(manual_task, pending_income_task)
     # Hide markers are scoped to a specific (stage_id, month, year). Keep them
     # separately so we can suppress those stages in just that month.
     hide_keys = {(e["stage_id"], e.get("month"), e.get("year")) for e in raw_manual if e.get("is_hidden") and e.get("stage_id")}
@@ -1983,7 +2038,7 @@ async def get_monthly_schedule(
     #    planned date silently disappear from the Payment Schedule.
     candidate_stage_ids = set(manual_by_stage.keys())
     if all_months:
-        stages_cursor = await db.payment_stages.find({}, {"_id": 0}).to_list(50000)
+        stages_cursor = all_months_stages
     else:
         stage_query_or = [
             {"stage_id": {"$in": list(candidate_stage_ids)}} if candidate_stage_ids else None,
@@ -2001,7 +2056,7 @@ async def get_monthly_schedule(
         ]
         stage_query_or = [q for q in stage_query_or if q]
         stages_cursor = await db.payment_stages.find(
-            {"$or": stage_query_or}, {"_id": 0}
+            {"$or": stage_query_or}, STAGE_FIELDS
         ).to_list(20000) if stage_query_or else []
 
     # Payment Schedule view is for **client income collection only**.
@@ -2219,14 +2274,7 @@ async def get_monthly_schedule(
 
     pending_by_stage = {}
     if matching_stages:
-        pending_inc = await db.income.aggregate([
-            {"$match": {"status": "pending_approval", "category": "payment_collection"}},
-            {"$group": {
-                "_id": {"project_id": "$project_id", "stage": "$stage"},
-                "total": {"$sum": "$amount"},
-                "count": {"$sum": 1},
-            }},
-        ]).to_list(5000)
+        # Already fetched above, in parallel with the stage reads.
         for item in pending_inc:
             key = (item["_id"]["project_id"], item["_id"]["stage"])
             pending_by_stage[key] = {"total": item["total"], "count": item["count"]}
