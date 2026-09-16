@@ -15,6 +15,7 @@ import json
 import asyncio
 import logging
 import secrets
+import time
 from bson import ObjectId
 
 from core.database import db, fs
@@ -1996,6 +1997,31 @@ async def get_monthly_schedule(
         "expected_payment_date": 1, "project_name": 1, "added_by": 1, "added_at": 1,
     }
 
+    # `_is_vendor_or_labour_row` further down discards every vendor/labour-side
+    # stage AFTER it has been fetched and decoded. Every RAB release writes one
+    # of those, so they can outnumber the client stages this screen actually
+    # shows. Excluding them in the query means they are never pulled over the
+    # wire at all.
+    #
+    # Only the four unambiguous ID fields are pushed down. `category` / `kind`
+    # are compared case-insensitively in Python, which a plain Mongo equality
+    # cannot reproduce safely, so those stay where they are. Each clause keeps
+    # exactly what Python's falsy test keeps - field absent, null, or empty
+    # string - so this can never drop a row the Python filter would have kept,
+    # and that filter still runs afterwards as the authority.
+    CLIENT_ROWS_ONLY = {
+        "$and": [
+            {"$or": [{f: {"$exists": False}}, {f: None}, {f: ""}]}
+            for f in ("rab_request_id", "rab_number", "contractor_id", "vendor_id")
+        ]
+    }
+
+    # Timing breakdown for this endpoint is logged at the end. It is the screen
+    # users report as slow, and without per-phase numbers it is guesswork
+    # whether the cost is the database, this function's own processing, or the
+    # request simply queueing behind others on a single worker.
+    _t0 = time.perf_counter()
+
     # The pending-approval rollup filters on status/category only - it depends
     # on nothing computed below - so it is started here and awaited alongside
     # the other independent reads instead of costing its own serial round trip
@@ -2019,7 +2045,7 @@ async def get_monthly_schedule(
         # so all three reads overlap instead of running back to back.
         raw_manual, all_months_stages, pending_inc = await asyncio.gather(
             manual_task,
-            db.payment_stages.find({}, STAGE_FIELDS).to_list(50000),
+            db.payment_stages.find(CLIENT_ROWS_ONLY, STAGE_FIELDS).to_list(50000),
             pending_income_task,
         )
     else:
@@ -2056,7 +2082,7 @@ async def get_monthly_schedule(
         ]
         stage_query_or = [q for q in stage_query_or if q]
         stages_cursor = await db.payment_stages.find(
-            {"$or": stage_query_or}, STAGE_FIELDS
+            {"$and": [CLIENT_ROWS_ONLY, {"$or": stage_query_or}]}, STAGE_FIELDS
         ).to_list(20000) if stage_query_or else []
 
     # Payment Schedule view is for **client income collection only**.
@@ -2073,6 +2099,8 @@ async def get_monthly_schedule(
         if stage.get("rab_request_id") or stage.get("rab_number") or stage.get("contractor_id") or stage.get("vendor_id"):
             return True
         return False
+    _t_db = time.perf_counter()
+    _n_fetched = len(stages_cursor)
     stages_cursor = [s for s in stages_cursor if not _is_vendor_or_labour_row(s)]
 
     # 3. Classify each stage into a single effective month
@@ -2387,6 +2415,14 @@ async def get_monthly_schedule(
             "collected_count": collected_count,
         },
     }
+    _t_end = time.perf_counter()
+    logger.info(
+        "monthly-schedule all_months=%s db=%.3fs process=%.3fs total=%.3fs "
+        "stages_fetched=%d stages_kept=%d manual=%d rows=%d",
+        bool(all_months), _t_db - _t0, _t_end - _t_db, _t_end - _t0,
+        _n_fetched, len(stages_cursor), len(raw_manual), len(enriched),
+    )
+
     from core.fastjson import ORJSONResponse
     return ORJSONResponse(
         content=payload,

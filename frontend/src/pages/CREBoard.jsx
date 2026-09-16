@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
@@ -289,18 +289,36 @@ export default function CREBoard() {
   // every month so the badge counts reflect the whole pipeline.
   // Cache-buster `_=timestamp` defeats any browser/CDN/proxy HTTP cache
   // (the backend also returns Cache-Control: no-store).
+  // Sep 16 2026 — Prev / Next / This Month each trigger a fresh schedule fetch,
+  // and this is a heavy call. Clicking through several months used to leave
+  // every earlier request running: on a single backend worker the request the
+  // user is actually waiting for queued behind requests whose results were
+  // already stale, so the more you clicked the slower it got. Aborting the
+  // superseded request frees the server immediately, and also removes the
+  // out-of-order race where a slower earlier response could overwrite the
+  // newer month's data.
+  const psAbortRef = useRef(null);
+
   const fetchPaymentSchedule = async (m = psMonth, y = psYear) => {
+    if (psAbortRef.current) psAbortRef.current.abort();
+    const controller = new AbortController();
+    psAbortRef.current = controller;
+
     setPsLoading(true);
     try {
       const params = psAllMonths
         ? { all_months: true, _: Date.now() }
         : { month: m, year: y, _: Date.now() };
-      const r = await axios.get(`${API}/planning/monthly-schedule`, { params });
+      const r = await axios.get(`${API}/planning/monthly-schedule`, { params, signal: controller.signal });
       setPsData(r.data || { entries: [], summary: {} });
     } catch (err) {
+      // A superseded request is expected, not an error — stay silent and let
+      // the newer request own the spinner.
+      if (axios.isCancel?.(err) || err.code === 'ERR_CANCELED' || err.name === 'CanceledError') return;
       toast.error(err.response?.data?.detail || 'Failed to load payment schedule');
     } finally {
-      setPsLoading(false);
+      // Only the newest request may clear the spinner.
+      if (psAbortRef.current === controller) setPsLoading(false);
     }
   };
   useEffect(() => { fetchPaymentSchedule(psMonth, psYear); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [psMonth, psYear, psAllMonths]);
