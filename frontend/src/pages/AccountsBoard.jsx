@@ -5503,9 +5503,23 @@ function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint, onDelete
                       <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(entry.payment_mode)]}`}>
                         {MODE_LABELS[classifyMode(entry.payment_mode)] || entry.payment_mode}
                       </Badge>
+                      {classifyMode(entry.payment_mode) === 'cheque' && getChequeNumber(entry) && (
+                        <span className="block text-[10px] text-gray-400 font-normal mt-0.5">
+                          #{String(getChequeNumber(entry)).slice(-4)}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 font-mono text-[10px]">
-                      {tab === 'dt' ? dtStatusBadge(entry.dt_status) : (entry.reference_number || entry.cheque_number || 'Cash')}
+                      {/* Sep 16 2026 — this used to fall back to the literal
+                          string "Cash" whenever no reference/cheque number
+                          was on the row, so an HDFC CURRENT or Cheque entry
+                          with no ref still showed "Cash" in this column
+                          right next to its (correct) Mode badge — reading as
+                          a real transaction id when it wasn't one. Reuse the
+                          same getTransactionId() precedence as the Payment
+                          Modes drilldown (verification.transaction_id →
+                          reference_number) and fall back to a plain '-'. */}
+                      {tab === 'dt' ? dtStatusBadge(entry.dt_status) : (getTransactionId(entry, 'income') || '-')}
                     </td>
                     <td className="px-3 py-2 text-right font-bold text-green-700"><MaskedValue value={entry.amount} className="text-green-700" /></td>
                     <td className="px-3 py-2 text-center">
