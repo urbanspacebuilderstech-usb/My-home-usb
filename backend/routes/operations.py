@@ -2103,6 +2103,50 @@ async def get_monthly_schedule(
     _n_fetched = len(stages_cursor)
     stages_cursor = [s for s in stages_cursor if not _is_vendor_or_labour_row(s)]
 
+    # Sep 17 2026 — self-heal `amount_received`/`status` from the actually-
+    # linked income rows before classifying anything below. This grid read
+    # `stage.get("amount_received")` straight off the stored payment_stages
+    # document — the SAME field `_resync_payment_stage_from_incomes`
+    # (projects.py) already recomputes, but that only ever ran when the
+    # Super-Admin-only "eye icon" stage detail popup was opened. Reported:
+    # Mr Devanathan's "Additional basement height" stage showed Received
+    # ₹79,985 / Balance ₹2,43,830 here while the popup (which self-heals as
+    # a side effect of its own fetch) showed the true ₹3,25,815 / ₹0 — and
+    # only opening the popup fixed the list, "sometimes" from the user's
+    # perspective. Bulk version so a busy schedule doesn't cost one query
+    # per stage: one grouped income read covers every stage on this page.
+    EXCLUDED_INC_STATUSES = {"rejected", "accountant_rejected", "under_correction", "pending_approval", "cheque_bounced"}
+    _stage_ids_for_heal = [s["stage_id"] for s in stages_cursor if s.get("stage_id")]
+    if _stage_ids_for_heal:
+        _income_rows_for_heal = await db.income.find(
+            {"payment_stage_id": {"$in": _stage_ids_for_heal}},
+            {"_id": 0, "payment_stage_id": 1, "amount": 1, "status": 1},
+        ).to_list(20000)
+        _received_by_stage: Dict[str, float] = {}
+        for _inc in _income_rows_for_heal:
+            if (_inc.get("status") or "approved") in EXCLUDED_INC_STATUSES:
+                continue
+            _sid = _inc.get("payment_stage_id")
+            _received_by_stage[_sid] = _received_by_stage.get(_sid, 0.0) + float(_inc.get("amount") or 0)
+
+        _now_iso = datetime.now(timezone.utc).isoformat()
+        for stage in stages_cursor:
+            _sid = stage.get("stage_id")
+            if _sid not in _received_by_stage:
+                continue
+            _true_received = _received_by_stage[_sid]
+            _current_received = float(stage.get("amount_received") or 0)
+            if abs(_true_received - _current_received) < 0.5:
+                continue
+            _stage_amount = float(stage.get("amount") or 0)
+            _new_status = "paid" if _stage_amount > 0 and _true_received >= _stage_amount - 0.5 else ("partial" if _true_received > 0 else "pending")
+            stage["amount_received"] = _true_received
+            stage["status"] = _new_status
+            await db.payment_stages.update_one(
+                {"stage_id": _sid},
+                {"$set": {"amount_received": _true_received, "status": _new_status, "updated_at": _now_iso}},
+            )
+
     # 3. Classify each stage into a single effective month
     # NEW (Feb 2026): A **partially-collected** past-due stage is split into TWO
     # virtual rows:
