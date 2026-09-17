@@ -157,6 +157,8 @@ export default function CRMSales() {
   const [remarkForm, setRemarkForm] = useState('');
   const [detailTab, setDetailTab] = useState('overview');
   const [leadDetail, setLeadDetail] = useState(null);
+  const [summaryPanel, setSummaryPanel] = useState(null);
+  const [summaryPanelLoading, setSummaryPanelLoading] = useState(false);
   const [apptDialog, setApptDialog] = useState(false);
   const [apptForm, setApptForm] = useState({ date: '', time: '', type: '' });
   
@@ -497,6 +499,7 @@ export default function CRMSales() {
       toast.success('Office visit scheduled');
       setOfficeVisitDialog(false);
       fetchData(false);
+      if (selectedLead?.lead_id === officeVisitLeadId) fetchSummaryPanel(officeVisitLeadId);
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to schedule office visit');
     }
@@ -761,6 +764,7 @@ export default function CRMSales() {
       toast.success('Site visit assigned to Sr. Engineer');
       setClientLandDialog(false);
       fetchData(false);
+      if (selectedLead?.lead_id === clientLandLead.lead_id) fetchSummaryPanel(clientLandLead.lead_id);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to assign');
     }
@@ -792,6 +796,7 @@ export default function CRMSales() {
       toast.success('Site visit assigned');
       setOngoingProjectDialog(false);
       fetchData(false);
+      if (selectedLead?.lead_id === ongoingProjectLead.lead_id) fetchSummaryPanel(ongoingProjectLead.lead_id);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to assign');
     }
@@ -911,12 +916,28 @@ export default function CRMSales() {
     }
   };
 
+  // Sep 17 2026 — backs the Summary tab's Office Visit / RE-Request / Client
+  // Site Visit / Client Project Visit history grid.
+  const fetchSummaryPanel = async (leadId) => {
+    setSummaryPanelLoading(true);
+    try {
+      const res = await axios.get(`${API}/crm/leads/${leadId}/summary-panel`);
+      setSummaryPanel(res.data);
+    } catch {
+      setSummaryPanel(null);
+    } finally {
+      setSummaryPanelLoading(false);
+    }
+  };
+
   const openLeadDetail = async (lead) => {
     setSelectedLead(lead);
     setDetailTab('overview');
     setViewLeadDialog(true);
     setQuoteLink({ status: 'none', link: null });
     setLinkedREPlanner('');
+    setSummaryPanel(null);
+    fetchSummaryPanel(lead.lead_id);
     // Fetch full lead detail
     try {
       const res = await axios.get(`${API}/crm/leads/${lead.lead_id}`);
@@ -2179,8 +2200,8 @@ export default function CRMSales() {
               <Tabs value={detailTab} onValueChange={setDetailTab}>
                 <TabsList className="w-full grid grid-cols-5">
                   <TabsTrigger value="overview" className="text-xs" data-testid="tab-overview">Overview</TabsTrigger>
-                  <TabsTrigger value="timeline" className="text-xs" data-testid="tab-timeline">Timeline</TabsTrigger>
                   <TabsTrigger value="summary" className="text-xs" data-testid="tab-summary">Summary</TabsTrigger>
+                  <TabsTrigger value="timeline" className="text-xs" data-testid="tab-timeline">Timeline</TabsTrigger>
                   <TabsTrigger value="followups" className="text-xs" data-testid="tab-followups">Follow-ups</TabsTrigger>
                   <TabsTrigger value="remarks" className="text-xs" data-testid="tab-remarks">Remarks</TabsTrigger>
                 </TabsList>
@@ -2608,6 +2629,121 @@ export default function CRMSales() {
                   </div>
                   <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={handleSaveSummary} data-testid="save-summary-btn">Save Summary</Button>
                   {selectedLead.notes && (<div className="bg-gray-50 rounded-lg p-3"><Label className="text-xs text-gray-500 block mb-1">Notes</Label><p className="text-sm">{selectedLead.notes}</p></div>)}
+
+                  {/* Sep 17 2026 — Office Visit / RE-Request / Client Site Visit /
+                      Client Project Visit history, each as a dated log instead of
+                      only the latest occurrence (GET /crm/leads/{id}/summary-panel). */}
+                  <div className="pt-2 border-t">
+                    {summaryPanelLoading ? (
+                      <div className="flex items-center justify-center py-6 text-gray-400 text-xs gap-1.5">
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Loading history...
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="summary-history-grid">
+                        {/* Office Visit */}
+                        <div className="border rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-semibold text-sky-700">Office Visit</p>
+                            <Badge className="bg-sky-100 text-sky-700 text-[10px]" data-testid="summary-office-visit-count">{summaryPanel?.office_visits?.length || 0}</Badge>
+                          </div>
+                          {(!summaryPanel?.office_visits || summaryPanel.office_visits.length === 0) ? (
+                            <p className="text-xs text-gray-400">No office visits yet</p>
+                          ) : (
+                            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                              {summaryPanel.office_visits.map((v, i) => (
+                                <div key={i} className="text-xs bg-sky-50 rounded p-1.5">
+                                  <span className="font-medium">#{i + 1}</span>{' '}
+                                  {v.date ? new Date(v.date).toLocaleDateString('en-IN') : '-'}{v.time ? ` ${v.time}` : ''}
+                                  {v.location && <span className="text-gray-500"> · {v.location}</span>}
+                                  {v.remarks && <p className="text-gray-500 mt-0.5">{v.remarks}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* RE-Request */}
+                        <div className="border rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-semibold text-amber-700">RE-Request</p>
+                            <Badge className="bg-amber-100 text-amber-700 text-[10px]" data-testid="summary-re-request-count">{summaryPanel?.re_requests?.length || 0}</Badge>
+                          </div>
+                          {(!summaryPanel?.re_requests || summaryPanel.re_requests.length === 0) ? (
+                            <p className="text-xs text-gray-400">No RE request yet</p>
+                          ) : (
+                            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                              {summaryPanel.re_requests.map((r) => (
+                                <div key={r.re_project_id} className="text-xs bg-amber-50 rounded p-1.5 flex items-center justify-between gap-2">
+                                  <span className="font-medium">{r.label}</span>
+                                  <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700">{r.status_label}</Badge>
+                                  <span className="text-gray-500 text-[10px] whitespace-nowrap">
+                                    {r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN') : ''}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Client Site Visit */}
+                        <div className="border rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-semibold text-purple-700">Client Site Visit</p>
+                            <div className="flex items-center gap-1.5">
+                              <Badge className="bg-purple-100 text-purple-700 text-[10px]" data-testid="summary-client-site-visit-count">{summaryPanel?.client_site_visits?.length || 0}</Badge>
+                              <Button size="sm" variant="outline" className="h-6 text-[10px] px-2 border-purple-300 text-purple-700 hover:bg-purple-50"
+                                onClick={() => openClientLandVisit(selectedLead)} data-testid="summary-request-client-site-visit-btn">
+                                + Request
+                              </Button>
+                            </div>
+                          </div>
+                          {(!summaryPanel?.client_site_visits || summaryPanel.client_site_visits.length === 0) ? (
+                            <p className="text-xs text-gray-400">No site visit yet</p>
+                          ) : (
+                            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                              {summaryPanel.client_site_visits.map((v, i) => (
+                                <div key={i} className="text-xs bg-purple-50 rounded p-1.5">
+                                  <span className="font-medium">#{i + 1}</span>{' '}
+                                  {v.visit_date ? new Date(v.visit_date).toLocaleDateString('en-IN') : '-'}
+                                  {v.sr_engineer_name && <span className="text-gray-500"> · {v.sr_engineer_name}</span>}
+                                  {v.notes && <p className="text-gray-500 mt-0.5">{v.notes}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Client Project Visit */}
+                        <div className="border rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-semibold text-violet-700">Client Project Visit</p>
+                            <div className="flex items-center gap-1.5">
+                              <Badge className="bg-violet-100 text-violet-700 text-[10px]" data-testid="summary-client-project-visit-count">{summaryPanel?.client_project_visits?.length || 0}</Badge>
+                              <Button size="sm" variant="outline" className="h-6 text-[10px] px-2 border-violet-300 text-violet-700 hover:bg-violet-50"
+                                onClick={() => openOngoingProjectVisit(selectedLead)} data-testid="summary-request-client-project-visit-btn">
+                                + Request
+                              </Button>
+                            </div>
+                          </div>
+                          {(!summaryPanel?.client_project_visits || summaryPanel.client_project_visits.length === 0) ? (
+                            <p className="text-xs text-gray-400">No project visit yet</p>
+                          ) : (
+                            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                              {summaryPanel.client_project_visits.map((v, i) => (
+                                <div key={i} className="text-xs bg-violet-50 rounded p-1.5">
+                                  <span className="font-medium">#{i + 1}</span>{' '}
+                                  {v.visit_date ? new Date(v.visit_date).toLocaleDateString('en-IN') : '-'}
+                                  {(v.site_engineer_name) && <span className="text-gray-500"> · {v.site_engineer_name}</span>}
+                                  {v.project_name && <span className="text-gray-500"> · {v.project_name}</span>}
+                                  {v.notes && <p className="text-gray-500 mt-0.5">{v.notes}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </TabsContent>
                 
                 {/* Follow-ups Tab */}

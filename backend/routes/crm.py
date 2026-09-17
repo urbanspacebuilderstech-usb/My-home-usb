@@ -1582,7 +1582,40 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
             "scheduled_at": datetime.now(timezone.utc).isoformat()
         }
         update["office_visit"] = office_visit_data
-        
+        # Sep 17 2026 — this field used to get overwritten every visit, so the
+        # Summary tab could only ever show the LATEST office visit, not "how
+        # many times". Keep a full history alongside it.
+        office_visits_history = lead.get("office_visits") or ([lead["office_visit"]] if lead.get("office_visit") else [])
+        office_visits_history.append(office_visit_data)
+        update["office_visits"] = office_visits_history
+
+        # Sep 17 2026 — Sales Head reported a lead reaching Office Visit
+        # didn't show up in the P3 count. P1/P2/P3 stays the existing
+        # manual-pick + checklist system (Priority Board / Edit Lead) —
+        # this does not replace it — but Office Visit IS itself the first
+        # condition on that P3 checklist ("Office visits / G meets / home
+        # visits"), so auto-apply it the first time a lead reaches this
+        # stage. A lead that already has a manually-set tier is left alone;
+        # the salesperson can still re-open Edit Lead to change client_type
+        # or upgrade to P2/P1 as usual.
+        if not lead.get("client_category"):
+            now_iso = datetime.now(timezone.utc).isoformat()
+            auto_client_type = lead.get("client_type") or "local"
+            auto_condition = CLIENT_FUNNEL_CONDITIONS[auto_client_type]["P3"][0]
+            update["client_category"] = "P3"
+            update["client_type"] = auto_client_type
+            update["client_category_conditions"] = [auto_condition]
+            update["client_category_set_at"] = now_iso
+            update["client_category_set_by"] = "system"
+            update["client_category_set_by_name"] = "Auto (Office Visit)"
+            update["client_category_auto_lowered"] = False
+            cat_history = lead.get("client_category_history", [])
+            cat_history.append({
+                "from": None, "to": "P3", "at": now_iso, "source": "auto_office_visit",
+                "conditions": [auto_condition],
+            })
+            update["client_category_history"] = cat_history
+
         # Sync to Pre-Sales lead — move the original pre-sales lead to "Office Visit" stage
         pre_sales_lead_id = lead.get("transferred_from_lead_id")
         if pre_sales_lead_id:
@@ -2625,16 +2658,23 @@ async def assign_site_visit(lead_id: str, data: AssignSiteVisitInput, user: User
         "action": f"site_visit_{data.visit_type}"
     })
     
+    # Sep 17 2026 — site_visit_data used to get overwritten every visit, so
+    # the Summary tab could only ever show the latest Client Site / Client
+    # Project visit, not a countable history. Keep a full list alongside it.
+    site_visits_history = lead.get("site_visits") or ([lead["site_visit_data"]] if lead.get("site_visit_data") else [])
+    site_visits_history.append(site_visit_data)
+
     await db.leads.update_one(
         {"lead_id": lead_id},
         {"$set": {
             "current_stage_id": target_stage,
             "site_visit_data": site_visit_data,
+            "site_visits": site_visits_history,
             "stage_history": stage_history,
             "updated_at": now
         }}
     )
-    
+
     # Notify the assigned engineer
     engineer_id = site_visit_data.get("sr_engineer_id") or site_visit_data.get("site_engineer_id")
     if engineer_id:
@@ -2797,8 +2837,89 @@ async def get_lead_detail(lead_id: str, user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Sales access required")
-    
+
     return lead
+
+
+# Sep 17 2026 — human-readable label for the RE-Request history shown in the
+# Sales lead popup's Summary tab ("RE1 — With Planning", "RE2 — With GM", …).
+RE_STAGE_LABELS = {
+    "re_requested": "With Planning",
+    "re_in_progress": "With Planning",
+    "re_submitted": "With GM",
+    "re_approved": "GM Approved",
+    "re_rejected": "Rejected — Revise",
+    "sent_to_client": "Sent to Client",
+    "client_feedback": "Client Feedback",
+    "client_approved": "Client Approved",
+    "deal_closed": "Deal Closed",
+    "converted": "Converted",
+}
+
+
+@router.get("/crm/leads/{lead_id}/summary-panel")
+async def get_lead_summary_panel(lead_id: str, user: User = Depends(get_current_user)):
+    """Backs the Sales lead popup's Summary tab: Office Visit / RE-Request /
+    Client Site Visit / Client Project Visit, each as a dated history instead
+    of just the latest occurrence.
+
+    Three of these were only ever stored as a single latest-value field
+    (`office_visit`, `site_visit_data`) — overwritten every time, so there
+    was no way to show "how many times". `update_lead_stage` and
+    `assign_site_visit` now ALSO append to `office_visits` / `site_visits`
+    arrays going forward; older leads that only have the singular field fall
+    back to a one-entry list here so they still render something.
+
+    RE-Request history comes from the `re_projects` chain
+    (parent_re_number / re_number), independent of any array on the lead —
+    revisions were already full documents, just never listed together.
+    """
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales_head"]:
+        raise HTTPException(status_code=403, detail="Pre-Sales access required")
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head"]:
+        raise HTTPException(status_code=403, detail="Sales access required")
+
+    office_visits = lead.get("office_visits") or ([lead["office_visit"]] if lead.get("office_visit") else [])
+
+    re_requests = []
+    re_project_id = lead.get("re_project_id")
+    if re_project_id:
+        current = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+        if current:
+            root = current.get("parent_re_number") or current.get("re_number")
+            chain = (
+                await db.re_projects.find(
+                    {"$or": [{"re_number": root}, {"parent_re_number": root}]}, {"_id": 0}
+                ).sort("revision", 1).to_list(50)
+                if root else [current]
+            )
+            for p in chain:
+                status = p.get("status") or "re_requested"
+                re_requests.append({
+                    "label": f"RE{(p.get('revision') or 0) + 1}",
+                    "re_project_id": p.get("re_project_id"),
+                    "status": status,
+                    "status_label": RE_STAGE_LABELS.get(status, str(status).replace("_", " ").title()),
+                    "created_at": p.get("created_at"),
+                    "submitted_at": p.get("submitted_at"),
+                    "gm_approved_at": p.get("gm_approved_at"),
+                    "sent_to_client_at": p.get("sent_to_client_at"),
+                    "revision_reason": p.get("revision_reason"),
+                })
+
+    site_visits = lead.get("site_visits") or ([lead["site_visit_data"]] if lead.get("site_visit_data") else [])
+    client_site_visits = [v for v in site_visits if v.get("visit_type") == "client_land"]
+    client_project_visits = [v for v in site_visits if v.get("visit_type") == "ongoing_project"]
+
+    return {
+        "office_visits": office_visits,
+        "re_requests": re_requests,
+        "client_site_visits": client_site_visits,
+        "client_project_visits": client_project_visits,
+    }
 
 
 @router.patch("/crm/leads/{lead_id}")
