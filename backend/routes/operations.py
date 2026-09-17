@@ -2434,6 +2434,108 @@ async def get_monthly_schedule(
     )
 
 
+@router.get("/admin/monthly-schedule-timing")
+async def monthly_schedule_timing(user: User = Depends(get_current_user)):
+    """TEMPORARY read-only diagnostic for the CRE Payment Schedule slowness.
+
+    Sep 17 2026 — measures, rather than guesses, where /planning/monthly-schedule
+    spends its time: collection sizes, per-query wall time, and MongoDB's own
+    executionStats (docsExamined vs nReturned, and whether the plan is a
+    COLLSCAN or an IXSCAN) for the exact queries that endpoint runs.
+
+    Reads only. Runs no writes and changes nothing. Delete once the Payment
+    Schedule is fast.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    CLIENT_ROWS_ONLY = {
+        "$and": [
+            {"$or": [{f: {"$exists": False}}, {f: None}, {f: ""}]}
+            for f in ("rab_request_id", "rab_number", "contractor_id", "vendor_id")
+        ]
+    }
+    STAGE_FIELDS = {
+        "_id": 0, "stage_id": 1, "project_id": 1, "stage_name": 1, "stage_label": 1,
+        "amount": 1, "amount_received": 1, "percentage": 1, "status": 1,
+        "workflow_status": 1, "category": 1, "kind": 1, "due_date": 1,
+        "expected_payment_date": 1, "requested_at": 1, "payment_requested_at": 1,
+        "paid_at": 1, "collected_at": 1, "created_at": 1, "updated_at": 1,
+        "is_addition": 1, "is_section_addition": 1, "linked_addition_id": 1,
+        "contractor_id": 1, "vendor_id": 1, "rab_number": 1, "rab_request_id": 1,
+    }
+
+    out: Dict[str, Any] = {"counts": {}, "timings_seconds": {}, "plans": {}}
+
+    async def timed(label, coro):
+        t = time.perf_counter()
+        res = await coro
+        out["timings_seconds"][label] = round(time.perf_counter() - t, 3)
+        return res
+
+    out["counts"]["payment_stages_total"] = await timed(
+        "count_payment_stages_total", db.payment_stages.count_documents({}))
+    out["counts"]["payment_stages_client_only"] = await timed(
+        "count_payment_stages_client_only", db.payment_stages.count_documents(CLIENT_ROWS_ONLY))
+    out["counts"]["monthly_schedule_entries_total"] = await timed(
+        "count_manual_entries", db.monthly_schedule_entries.count_documents({}))
+    out["counts"]["monthly_schedule_entries_non_carryover"] = await timed(
+        "count_manual_non_carryover",
+        db.monthly_schedule_entries.count_documents({"is_carryover": {"$ne": True}}))
+
+    stages = await timed(
+        "fetch_stages_all_months",
+        db.payment_stages.find(CLIENT_ROWS_ONLY, STAGE_FIELDS).to_list(50000))
+    out["counts"]["stages_fetched"] = len(stages)
+
+    # How much of that fetch is the filter vs the sheer document count?
+    unfiltered = await timed(
+        "fetch_stages_unfiltered_comparison",
+        db.payment_stages.find({}, STAGE_FIELDS).to_list(50000))
+    out["counts"]["stages_unfiltered"] = len(unfiltered)
+
+    async def plan(label, coll, filt):
+        try:
+            res = await db.command({
+                "explain": {"find": coll, "filter": filt},
+                "verbosity": "executionStats",
+            })
+            ex = res.get("executionStats", {})
+            win = res.get("queryPlanner", {}).get("winningPlan", {})
+            def stage_names(node, acc=None):
+                acc = acc if acc is not None else []
+                if isinstance(node, dict):
+                    if node.get("stage"):
+                        acc.append(node["stage"])
+                    for k in ("inputStage", "queryPlan"):
+                        if node.get(k):
+                            stage_names(node[k], acc)
+                return acc
+            out["plans"][label] = {
+                "plan": " -> ".join(stage_names(win)) or "(unknown)",
+                "docsExamined": ex.get("totalDocsExamined"),
+                "keysExamined": ex.get("totalKeysExamined"),
+                "nReturned": ex.get("nReturned"),
+                "executionTimeMillis": ex.get("executionTimeMillis"),
+            }
+        except Exception as e:  # explain is best-effort, never break the report
+            out["plans"][label] = {"error": f"{type(e).__name__}: {e}"}
+
+    await plan("payment_stages_client_only", "payment_stages", CLIENT_ROWS_ONLY)
+    await plan("payment_stages_unfiltered", "payment_stages", {})
+    await plan("manual_entries", "monthly_schedule_entries", {"is_carryover": {"$ne": True}})
+
+    try:
+        idx = await db.payment_stages.index_information()
+        out["payment_stages_indexes"] = sorted(idx.keys())
+    except Exception as e:
+        out["payment_stages_indexes"] = f"{type(e).__name__}: {e}"
+
+    out["timings_seconds"]["TOTAL_measured"] = round(
+        sum(v for k, v in out["timings_seconds"].items()), 3)
+    return out
+
+
 @router.get("/planning/monthly-schedule/available-stages")
 async def get_available_stages_for_schedule(
     month: int = Query(..., ge=1, le=12),
