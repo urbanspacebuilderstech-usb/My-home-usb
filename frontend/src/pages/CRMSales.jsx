@@ -1696,7 +1696,14 @@ export default function CRMSales() {
                 >
                   All ({leads.length})
                 </button>
-                {stages.map(stage => (
+                {/* Sep 17 2026 — same trimmed set as the summary cards and
+                    Move-to-Stage row: New Appointment | Office Visit |
+                    Follow-up | RE-Request | Client Site Visit | Client
+                    Project Visit | Project Onboarded | RNR | Lost.
+                    RE-Planning/RE-Client/Deal Close/Accountant Approval stay
+                    valid stages (leads already on them keep working) but
+                    don't get their own tab here. */}
+                {stages.filter(s => !['stg_accountant_approval', 'stg_re_from_planning', 'stg_re_to_client', 'stg_payment_collect'].includes(s.stage_id)).map(stage => (
                   <button
                     key={stage.stage_id}
                     className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
