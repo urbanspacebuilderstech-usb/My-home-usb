@@ -2536,6 +2536,104 @@ async def monthly_schedule_timing(user: User = Depends(get_current_user)):
     return out
 
 
+@router.get("/admin/runtime-health")
+async def runtime_health(user: User = Depends(get_current_user)):
+    """TEMPORARY read-only diagnostic: is the PROCESS or the HOST the bottleneck?
+
+    Sep 17 2026 - /admin/monthly-schedule-timing proved the database is not the
+    problem (1,576 payment stages, 513 schedule entries, 0.035s for every read
+    that endpoint makes). Yet /api/branding - a single small document - swings
+    between 0.4s and 4.5s. That points at the Python process, not the data.
+
+    This measures the three things that would explain it and that cannot be
+    seen from outside:
+
+      * event loop lag - asyncio.sleep(0.05) is timed 20 times. On an idle
+        loop the overshoot is ~0ms. Large overshoot means the single worker is
+        blocked or saturated and every request is queueing behind something.
+      * host memory and load, read straight from /proc - the same numbers
+        `free -h` and `uptime` would print.
+      * this process's own memory and thread count.
+
+    Reads only. No writes, no data changes. Delete once the cause is fixed.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    out: Dict[str, Any] = {}
+
+    # ---- event loop lag -------------------------------------------------
+    SLEEP = 0.05
+    lags = []
+    for _ in range(20):
+        t = time.perf_counter()
+        await asyncio.sleep(SLEEP)
+        lags.append(round((time.perf_counter() - t - SLEEP) * 1000, 1))
+    lags_sorted = sorted(lags)
+    out["event_loop_lag_ms"] = {
+        "max": max(lags),
+        "median": lags_sorted[len(lags_sorted) // 2],
+        "avg": round(sum(lags) / len(lags), 1),
+        "samples": lags,
+        "reading": ("BLOCKED - requests are queueing behind something"
+                    if max(lags) > 250 else
+                    "busy" if max(lags) > 50 else "idle/healthy"),
+    }
+
+    # ---- how fast is Mongo right now, for comparison ---------------------
+    try:
+        t = time.perf_counter()
+        await db.command("ping")
+        out["mongo_ping_ms"] = round((time.perf_counter() - t) * 1000, 1)
+    except Exception as e:
+        out["mongo_ping_ms"] = f"{type(e).__name__}: {e}"
+
+    # ---- host memory / load (same numbers as `free -h` and `uptime`) -----
+    def _read_lines(path):
+        try:
+            with open(path, "r") as f:
+                return f.read().splitlines()
+        except Exception:
+            return []
+
+    meminfo = _read_lines("/proc/meminfo")
+    if meminfo:
+        want = ("MemTotal", "MemFree", "MemAvailable", "Cached",
+                "SwapTotal", "SwapFree")
+        mem: Dict[str, Any] = {}
+        for line in meminfo:
+            key = line.split(":")[0]
+            if key in want:
+                kb = int("".join(ch for ch in line if ch.isdigit()) or 0)
+                mem[key + "_MB"] = round(kb / 1024)
+        if mem.get("MemTotal_MB") and mem.get("MemAvailable_MB") is not None:
+            mem["used_pct"] = round(
+                100 * (1 - mem["MemAvailable_MB"] / mem["MemTotal_MB"]))
+        if mem.get("SwapTotal_MB"):
+            mem["swap_used_MB"] = mem["SwapTotal_MB"] - mem.get("SwapFree_MB", 0)
+        out["host_memory"] = mem
+    else:
+        out["host_memory"] = "unavailable (not Linux?)"
+
+    loadavg = " ".join(_read_lines("/proc/loadavg")).split()
+    if loadavg:
+        out["host_load"] = {
+            "1min": loadavg[0], "5min": loadavg[1], "15min": loadavg[2],
+            "running_procs": loadavg[3] if len(loadavg) > 3 else None,
+            "cpu_count": os.cpu_count(),
+        }
+
+    # ---- this worker process --------------------------------------------
+    proc: Dict[str, Any] = {"pid": os.getpid()}
+    for line in _read_lines("/proc/self/status"):
+        if line.startswith(("VmRSS", "Threads")):
+            k, _, v = line.partition(":")
+            proc[k] = v.strip()
+    out["this_worker"] = proc
+
+    return out
+
+
 @router.get("/planning/monthly-schedule/available-stages")
 async def get_available_stages_for_schedule(
     month: int = Query(..., ge=1, le=12),
