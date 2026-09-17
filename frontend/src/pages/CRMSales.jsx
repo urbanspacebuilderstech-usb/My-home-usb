@@ -1866,52 +1866,26 @@ export default function CRMSales() {
                       </td>
                       <td className="px-2 py-2 text-center">
                         <div className="flex items-center gap-1 justify-center">
-                          {/* Follow-up Record / New buttons */}
-                          {lead.current_stage_id === 'stg_sales_followup' && (
-                            <>
-                              {(lead.follow_ups || []).some(f => !f.completed) ? (
-                                <>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-7 px-1.5 text-[10px] text-green-600 border-green-300 hover:bg-green-50"
-                                    data-testid={`record-followup-btn-${lead.lead_id}`}
-                                    onClick={(e) => { e.stopPropagation(); openLeadDetail(lead); }}
-                                  >
-                                    Record
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-7 px-1.5 text-[10px] text-amber-600 border-amber-300 hover:bg-amber-50"
-                                    data-testid={`new-followup-btn-${lead.lead_id}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setQuickFollowupLeadId(lead.lead_id);
-                                      setQuickFollowupForm({ date: '', time: '', remarks: '' });
-                                      setQuickFollowupDialog(true);
-                                    }}
-                                  >
-                                    New
-                                  </Button>
-                                </>
-                              ) : (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 px-1.5 text-[10px] text-amber-600 border-amber-300 hover:bg-amber-50"
-                                  data-testid={`followup-btn-${lead.lead_id}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setQuickFollowupLeadId(lead.lead_id);
-                                    setQuickFollowupForm({ date: '', time: '', remarks: '' });
-                                    setQuickFollowupDialog(true);
-                                  }}
-                                >
-                                  <Calendar className="h-3 w-3 mr-0.5" /> Follow-up
-                                </Button>
-                              )}
-                            </>
+                          {/* Sep 17 2026 — the "Record"/"New" pair (shown
+                              when the lead already has a pending follow-up)
+                              was removed per Sales Head request. The plain
+                              "Follow-up" quick-schedule button (shown when
+                              there's no pending follow-up yet) stays. */}
+                          {lead.current_stage_id === 'stg_sales_followup' && !(lead.follow_ups || []).some(f => !f.completed) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-1.5 text-[10px] text-amber-600 border-amber-300 hover:bg-amber-50"
+                              data-testid={`followup-btn-${lead.lead_id}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setQuickFollowupLeadId(lead.lead_id);
+                                setQuickFollowupForm({ date: '', time: '', remarks: '' });
+                                setQuickFollowupDialog(true);
+                              }}
+                            >
+                              <Calendar className="h-3 w-3 mr-0.5" /> Follow-up
+                            </Button>
                           )}
                           {/* RE-Client / RE-Planning stage action buttons */}
                           {['stg_re_to_client', 'stg_re_from_planning'].includes(lead.current_stage_id) && (
