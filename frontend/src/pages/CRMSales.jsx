@@ -124,6 +124,144 @@ const RE_STATUS_CONFIG = {
   converted: { label: 'Converted', color: 'bg-teal-100 text-teal-700', icon: Building2 }
 };
 
+// Sep 17 2026 — shared by openLeadDetail and openEditDialog so editForm
+// (which now also backs the Summary tab's Client Category editor) is always
+// in sync with the currently-open lead, not just when the separate Edit
+// Lead dialog has been opened.
+const buildEditFormFromLead = (lead) => ({
+  name: lead.name || '',
+  email: lead.email || '',
+  phone: lead.phone || '',
+  alternative_phone: lead.alternative_phone || '',
+  source: lead.source || 'other',
+  address: lead.address || '',
+  city: lead.city || '',
+  state: lead.state || '',
+  pincode: lead.pincode || '',
+  notes: lead.notes || '',
+  client_category: lead.client_category || '',
+  client_category_value: lead.client_category_value || '',
+  client_type: lead.client_type || '',
+  client_category_conditions: lead.client_category_conditions || [],
+  custom_fields: lead.custom_fields || {},
+});
+
+// Sep 17 2026 — Client Category (P1/P2/P3) picker + Value + the priority-
+// justifying checklist. Shared between the Edit Lead dialog and the lead
+// popup's Summary tab so both stay in sync with the same edit form state
+// instead of two copies of this JSX drifting apart.
+function ClientCategoryEditor({ editForm, setEditForm, setPriorityTouched, funnel }) {
+  return (
+    <>
+      <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-3">
+        <div>
+          <Label className="text-xs">Client Category</Label>
+          <Select
+            value={editForm.client_category || ''}
+            onValueChange={(v) => {
+              setPriorityTouched(true);
+              setEditForm({
+                ...editForm,
+                client_category: v === '__none__' ? '' : v,
+                client_category_value: v === '__none__' ? '' : editForm.client_category_value,
+                client_category_conditions: v === editForm.client_category ? editForm.client_category_conditions : [],
+              });
+            }}
+          >
+            <SelectTrigger className="text-sm h-9" data-testid="edit-client-category">
+              <SelectValue placeholder="Select priority" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">— None —</SelectItem>
+              <SelectItem value="P1">P1 (Hot)</SelectItem>
+              <SelectItem value="P2">P2 (Warm)</SelectItem>
+              <SelectItem value="P3">P3 (Cold)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs">{editForm.client_category ? `${editForm.client_category} Value` : 'Value'}</Label>
+          <Input
+            value={editForm.client_category_value}
+            onChange={(e) => setEditForm({...editForm, client_category_value: e.target.value})}
+            placeholder={
+              editForm.client_category === 'P1' ? 'Enter P1 reason / budget / timeline...' :
+              editForm.client_category === 'P2' ? 'Enter P2 reason / budget / timeline...' :
+              editForm.client_category === 'P3' ? 'Enter P3 reason / budget / timeline...' :
+              'Pick a category first to add a value'
+            }
+            disabled={!editForm.client_category}
+            className="text-sm"
+            data-testid="edit-client-category-value"
+          />
+        </div>
+      </div>
+
+      {/* Client Follow Up Funnel — the priority must be justified by the
+          conditions for that tier (Local Resident vs NRI lists differ). */}
+      {['P1', 'P2', 'P3'].includes(editForm.client_category) && (
+        <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3" data-testid="edit-priority-checklist">
+          <div className="flex flex-wrap items-center gap-3 mb-2">
+            <Label className="text-xs">Client Type *</Label>
+            {Object.entries(funnel?.client_types || { local: 'Local Resident', nri: 'Non Resident of India (NRI)' }).map(([key, label]) => (
+              <label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                <input
+                  type="radio"
+                  name="client_type"
+                  checked={editForm.client_type === key}
+                  onChange={() => {
+                    setPriorityTouched(true);
+                    setEditForm({ ...editForm, client_type: key, client_category_conditions: editForm.client_type === key ? editForm.client_category_conditions : [] });
+                  }}
+                  data-testid={`edit-client-type-${key}`}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          {!editForm.client_type ? (
+            <p className="text-xs text-gray-500">Choose Client Type to see the {editForm.client_category} conditions.</p>
+          ) : !funnel ? (
+            <p className="text-xs text-gray-400">Loading conditions…</p>
+          ) : (
+            <>
+              <p className="text-xs font-medium text-gray-700 mb-1.5">
+                Tick the {editForm.client_category} condition(s) that apply *
+              </p>
+              <div className="space-y-1.5">
+                {(funnel.conditions?.[editForm.client_type]?.[editForm.client_category] || []).map(cond => {
+                  const checked = (editForm.client_category_conditions || []).includes(cond);
+                  return (
+                    <label key={cond} className="flex items-start gap-2 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={checked}
+                        onChange={() => {
+                          setPriorityTouched(true);
+                          const cur = editForm.client_category_conditions || [];
+                          setEditForm({
+                            ...editForm,
+                            client_category_conditions: checked ? cur.filter(c => c !== cond) : [...cur, cond],
+                          });
+                        }}
+                      />
+                      <span className="text-gray-700">{cond}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-gray-500 mt-2">
+                Saving with a condition ticked re-confirms this priority. If it isn't re-confirmed for {funnel.decay_days || 60} days, it drops one level automatically (P1 → P2 → P3).
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function CRMSales() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -152,7 +290,6 @@ export default function CRMSales() {
     axios.get(`${API}/crm/client-funnel-conditions`).then(r => setFunnel(r.data)).catch(() => {});
   }, []);
   const [customFields, setCustomFields] = useState([]);
-  const [summary, setSummary] = useState('');
   const [followUpForm, setFollowUpForm] = useState({ date: '', note: '' });
   const [remarkForm, setRemarkForm] = useState('');
   const [detailTab, setDetailTab] = useState('overview');
@@ -938,11 +1075,16 @@ export default function CRMSales() {
     setLinkedREPlanner('');
     setSummaryPanel(null);
     fetchSummaryPanel(lead.lead_id);
+    // Sep 17 2026 — editForm now also backs the Summary tab's Client
+    // Category editor, so it needs to be populated whenever the lead popup
+    // opens, not only when the separate Edit Lead dialog is opened.
+    setEditForm(buildEditFormFromLead(lead));
+    setPriorityTouched(false);
     // Fetch full lead detail
     try {
       const res = await axios.get(`${API}/crm/leads/${lead.lead_id}`);
       setLeadDetail(res.data);
-      setSummary(res.data.summary || '');
+      setEditForm(buildEditFormFromLead(res.data));
       // Feb 28 2026 — Pull the linked RE's planner name so the
       // "RE Sent to Client" banner can show "Prepared by <name>".
       const reId = res.data?.re_project_id || lead.re_project_id;
@@ -954,7 +1096,6 @@ export default function CRMSales() {
       }
     } catch {
       setLeadDetail(lead);
-      setSummary(lead.summary || '');
     }
     // Fetch the active quote link (for the Live/Expired chip)
     fetchQuoteLink(lead.lead_id);
@@ -1022,23 +1163,7 @@ export default function CRMSales() {
   };
 
   const openEditDialog = (lead) => {
-    setEditForm({
-      name: lead.name || '',
-      email: lead.email || '',
-      phone: lead.phone || '',
-      alternative_phone: lead.alternative_phone || '',
-      source: lead.source || 'other',
-      address: lead.address || '',
-      city: lead.city || '',
-      state: lead.state || '',
-      pincode: lead.pincode || '',
-      notes: lead.notes || '',
-      client_category: lead.client_category || '',
-      client_category_value: lead.client_category_value || '',
-      client_type: lead.client_type || '',
-      client_category_conditions: lead.client_category_conditions || [],
-      custom_fields: lead.custom_fields || {}
-    });
+    setEditForm(buildEditFormFromLead(lead));
     setPriorityTouched(false);
     setEditDialog(true);
   };
@@ -1061,15 +1186,6 @@ export default function CRMSales() {
       setSelectedLead(res.data);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update');
-    }
-  };
-
-  const handleSaveSummary = async () => {
-    try {
-      await axios.patch(`${API}/crm/leads/${selectedLead.lead_id}`, { summary });
-      toast.success('Summary saved');
-    } catch (error) {
-      toast.error('Failed to save summary');
     }
   };
 
@@ -2623,12 +2739,16 @@ export default function CRMSales() {
 
                 {/* Summary Tab */}
                 <TabsContent value="summary" className="space-y-3 mt-3">
-                  <div>
-                    <Label className="text-xs text-gray-500 mb-1 block">Lead Summary</Label>
-                    <textarea value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="Write a summary about this lead..." className="w-full rounded-md border p-3 text-sm min-h-[120px] resize-y focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500" data-testid="lead-summary-input" />
+                  {/* Sep 17 2026 — Client Category (P1/P2/P3) + Value + the
+                      priority-justifying checklist, moved here from the
+                      separate Edit Lead dialog (still also editable there)
+                      so the salesperson can set/confirm priority without
+                      leaving the Summary tab. Replaces the free-text "Lead
+                      Summary" box, which was unused. */}
+                  <div className="border rounded-lg p-3">
+                    <ClientCategoryEditor editForm={editForm} setEditForm={setEditForm} setPriorityTouched={setPriorityTouched} funnel={funnel} />
+                    <Button size="sm" className="mt-3 bg-emerald-600 hover:bg-emerald-700" onClick={handleUpdateLead} data-testid="save-client-category-btn">Save Priority</Button>
                   </div>
-                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={handleSaveSummary} data-testid="save-summary-btn">Save Summary</Button>
-                  {selectedLead.notes && (<div className="bg-gray-50 rounded-lg p-3"><Label className="text-xs text-gray-500 block mb-1">Notes</Label><p className="text-sm">{selectedLead.notes}</p></div>)}
 
                   {/* Sep 17 2026 — Office Visit / RE-Request / Client Site Visit /
                       Client Project Visit history, each as a dated log instead of
@@ -2891,112 +3011,12 @@ export default function CRMSales() {
               <textarea value={editForm.notes} onChange={(e) => setEditForm({...editForm, notes: e.target.value})} className="w-full rounded-md border p-2 text-sm min-h-[60px]" data-testid="edit-notes" />
             </div>
 
-            {/* Client Category — priority tier (P1/P2/P3) + free-text qualifier */}
-            <div className="col-span-2 grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-3 pt-1">
-              <div>
-                <Label className="text-xs">Client Category</Label>
-                <Select
-                  value={editForm.client_category || ''}
-                  onValueChange={(v) => {
-                    setPriorityTouched(true);
-                    setEditForm({
-                      ...editForm,
-                      client_category: v === '__none__' ? '' : v,
-                      client_category_value: v === '__none__' ? '' : editForm.client_category_value,
-                      client_category_conditions: v === editForm.client_category ? editForm.client_category_conditions : [],
-                    });
-                  }}
-                >
-                  <SelectTrigger className="text-sm h-9" data-testid="edit-client-category">
-                    <SelectValue placeholder="Select priority" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">— None —</SelectItem>
-                    <SelectItem value="P1">P1 (Hot)</SelectItem>
-                    <SelectItem value="P2">P2 (Warm)</SelectItem>
-                    <SelectItem value="P3">P3 (Cold)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">{editForm.client_category ? `${editForm.client_category} Value` : 'Value'}</Label>
-                <Input
-                  value={editForm.client_category_value}
-                  onChange={(e) => setEditForm({...editForm, client_category_value: e.target.value})}
-                  placeholder={
-                    editForm.client_category === 'P1' ? 'Enter P1 reason / budget / timeline...' :
-                    editForm.client_category === 'P2' ? 'Enter P2 reason / budget / timeline...' :
-                    editForm.client_category === 'P3' ? 'Enter P3 reason / budget / timeline...' :
-                    'Pick a category first to add a value'
-                  }
-                  disabled={!editForm.client_category}
-                  className="text-sm"
-                  data-testid="edit-client-category-value"
-                />
-              </div>
+            {/* Client Category — priority tier (P1/P2/P3) + free-text
+                qualifier + funnel checklist. Same component also renders
+                in the Summary tab so both stay in sync. */}
+            <div className="col-span-2">
+              <ClientCategoryEditor editForm={editForm} setEditForm={setEditForm} setPriorityTouched={setPriorityTouched} funnel={funnel} />
             </div>
-
-            {/* Client Follow Up Funnel — the priority must be justified by the
-                conditions for that tier (Local Resident vs NRI lists differ). */}
-            {['P1', 'P2', 'P3'].includes(editForm.client_category) && (
-              <div className="col-span-2 rounded-lg border border-gray-200 bg-gray-50 p-3" data-testid="edit-priority-checklist">
-                <div className="flex flex-wrap items-center gap-3 mb-2">
-                  <Label className="text-xs">Client Type *</Label>
-                  {Object.entries(funnel?.client_types || { local: 'Local Resident', nri: 'Non Resident of India (NRI)' }).map(([key, label]) => (
-                    <label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer">
-                      <input
-                        type="radio"
-                        name="client_type"
-                        checked={editForm.client_type === key}
-                        onChange={() => {
-                          setPriorityTouched(true);
-                          setEditForm({ ...editForm, client_type: key, client_category_conditions: editForm.client_type === key ? editForm.client_category_conditions : [] });
-                        }}
-                        data-testid={`edit-client-type-${key}`}
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-                {!editForm.client_type ? (
-                  <p className="text-xs text-gray-500">Choose Client Type to see the {editForm.client_category} conditions.</p>
-                ) : !funnel ? (
-                  <p className="text-xs text-gray-400">Loading conditions…</p>
-                ) : (
-                  <>
-                    <p className="text-xs font-medium text-gray-700 mb-1.5">
-                      Tick the {editForm.client_category} condition(s) that apply *
-                    </p>
-                    <div className="space-y-1.5">
-                      {(funnel.conditions?.[editForm.client_type]?.[editForm.client_category] || []).map(cond => {
-                        const checked = (editForm.client_category_conditions || []).includes(cond);
-                        return (
-                          <label key={cond} className="flex items-start gap-2 text-xs cursor-pointer">
-                            <input
-                              type="checkbox"
-                              className="mt-0.5"
-                              checked={checked}
-                              onChange={() => {
-                                setPriorityTouched(true);
-                                const cur = editForm.client_category_conditions || [];
-                                setEditForm({
-                                  ...editForm,
-                                  client_category_conditions: checked ? cur.filter(c => c !== cond) : [...cur, cond],
-                                });
-                              }}
-                            />
-                            <span className="text-gray-700">{cond}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                    <p className="text-[10px] text-gray-500 mt-2">
-                      Saving with a condition ticked re-confirms this priority. If it isn't re-confirmed for {funnel.decay_days || 60} days, it drops one level automatically (P1 → P2 → P3).
-                    </p>
-                  </>
-                )}
-              </div>
-            )}
 
             {/* Custom Fields */}
             {customFields.length > 0 && (
