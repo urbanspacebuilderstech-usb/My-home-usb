@@ -387,16 +387,27 @@ async def get_default_sales_stages():
     stage_updates = [
         ("stg_new_appt",           "New Appointment",    1,  "#6366f1", False),
         ("stg_sales_office_visit", "Office Visit",       2,  "#0ea5e9", False),
-        ("stg_sales_followup",     "Followup",           3,  "#f59e0b", False),
+        ("stg_sales_followup",     "Follow-up",          3,  "#f59e0b", False),
         ("stg_re_requested",       "RE - Request",       4,  "#f59e0b", False),
         ("stg_re_from_planning",   "RE - Planning",      5,  "#10b981", False),
         ("stg_re_to_client",       "RE - Client",        6,  "#84cc16", False),
-        ("stg_sv_client_land",     "Client Land Visit",  7,  "#a855f7", False),
-        ("stg_sv_our_projects",    "Our Projects Visit", 8,  "#7c3aed", False),
+        # Sep 17 2026 — renamed per Sales Head request; stage_id kept unchanged
+        # so existing leads parked here keep resolving correctly.
+        ("stg_sv_client_land",     "Client Site Visit",  7,  "#a855f7", False),
+        ("stg_sv_our_projects",    "Client Project Visit", 8, "#7c3aed", False),
         ("stg_payment_collect",    "Deal Close",         9,  "#22c55e", False),
         ("stg_accountant_approval","Accountant Approval",10, "#f97316", False),  # hidden in UI
         ("stg_project_onboarded",  "Project Onboarded",  11, "#059669", True),
-        ("stg_lost",               "Lost",               12, "#ef4444", True),
+        # RNR (Ring No Response) — new stage, sits between Project Onboarded
+        # and Lost in the Move-to-Stage button row per Sales Head's requested
+        # order; not a pipeline-progression stage, just a status bucket.
+        # stage_id is "stg_sales_rnr" (not "stg_rnr") because pre_sales
+        # already owns "stg_rnr" as its own distinct stage — stage_id is
+        # expected to be globally unique across lead_stages (see how every
+        # other sales stage mirrors a pre_sales one under a "stg_sales_"
+        # prefix, e.g. stg_office_visit vs stg_sales_office_visit).
+        ("stg_sales_rnr",          "RNR",                12, "#78716c", False),
+        ("stg_lost",               "Lost",               13, "#ef4444", True),
     ]
     for sid, name, order, color, is_final in stage_updates:
         await db.lead_stages.update_one(
@@ -422,16 +433,17 @@ async def get_default_sales_stages():
         default_stages = [
             {"stage_id": "stg_new_appt", "name": "New Appointment", "stage_type": "sales", "order": 1, "color": "#6366f1", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_sales_office_visit", "name": "Office Visit", "stage_type": "sales", "order": 2, "color": "#0ea5e9", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_sales_followup", "name": "Followup", "stage_type": "sales", "order": 3, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_sales_followup", "name": "Follow-up", "stage_type": "sales", "order": 3, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_re_requested", "name": "RE - Request", "stage_type": "sales", "order": 4, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_re_from_planning", "name": "RE - Planning", "stage_type": "sales", "order": 5, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_re_to_client", "name": "RE - Client", "stage_type": "sales", "order": 6, "color": "#84cc16", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_sv_client_land", "name": "Client Land Visit", "stage_type": "sales", "order": 7, "color": "#a855f7", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_sv_our_projects", "name": "Our Projects Visit", "stage_type": "sales", "order": 8, "color": "#7c3aed", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_sv_client_land", "name": "Client Site Visit", "stage_type": "sales", "order": 7, "color": "#a855f7", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_sv_our_projects", "name": "Client Project Visit", "stage_type": "sales", "order": 8, "color": "#7c3aed", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_payment_collect", "name": "Deal Close", "stage_type": "sales", "order": 9, "color": "#22c55e", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_accountant_approval", "name": "Accountant Approval", "stage_type": "sales", "order": 10, "color": "#f97316", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "stage_type": "sales", "order": 11, "color": "#059669", "is_final": True, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_lost", "name": "Lost", "stage_type": "sales", "order": 12, "color": "#ef4444", "is_final": True, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_sales_rnr", "name": "RNR", "stage_type": "sales", "order": 12, "color": "#78716c", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_lost", "name": "Lost", "stage_type": "sales", "order": 13, "color": "#ef4444", "is_final": True, "is_active": True, "created_by": "system"},
         ]
         for stage in default_stages:
             stage["created_at"] = datetime.now(timezone.utc)
@@ -515,16 +527,17 @@ async def migrate_stages(user: User = Depends(get_current_user)):
     expected_sales = [
         {"stage_id": "stg_new_appt", "name": "New Appointment", "order": 1, "color": "#6366f1", "is_final": False},
         {"stage_id": "stg_sales_office_visit", "name": "Office Visit", "order": 2, "color": "#0ea5e9", "is_final": False},
-        {"stage_id": "stg_sales_followup", "name": "Followup", "order": 3, "color": "#f59e0b", "is_final": False},
+        {"stage_id": "stg_sales_followup", "name": "Follow-up", "order": 3, "color": "#f59e0b", "is_final": False},
         {"stage_id": "stg_re_requested", "name": "RE - Request", "order": 4, "color": "#f59e0b", "is_final": False},
         {"stage_id": "stg_re_from_planning", "name": "RE - Planning", "order": 5, "color": "#10b981", "is_final": False},
         {"stage_id": "stg_re_to_client", "name": "RE - Client", "order": 6, "color": "#84cc16", "is_final": False},
-        {"stage_id": "stg_sv_client_land", "name": "Client Land Visit", "order": 7, "color": "#a855f7", "is_final": False},
-        {"stage_id": "stg_sv_our_projects", "name": "Our Projects Visit", "order": 8, "color": "#7c3aed", "is_final": False},
+        {"stage_id": "stg_sv_client_land", "name": "Client Site Visit", "order": 7, "color": "#a855f7", "is_final": False},
+        {"stage_id": "stg_sv_our_projects", "name": "Client Project Visit", "order": 8, "color": "#7c3aed", "is_final": False},
         {"stage_id": "stg_payment_collect", "name": "Deal Close", "order": 9, "color": "#22c55e", "is_final": False},
         {"stage_id": "stg_accountant_approval", "name": "Accountant Approval", "order": 10, "color": "#f97316", "is_final": False},
         {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "order": 11, "color": "#059669", "is_final": True},
-        {"stage_id": "stg_lost", "name": "Lost", "order": 12, "color": "#ef4444", "is_final": True},
+        {"stage_id": "stg_sales_rnr", "name": "RNR", "order": 12, "color": "#78716c", "is_final": False},
+        {"stage_id": "stg_lost", "name": "Lost", "order": 13, "color": "#ef4444", "is_final": True},
     ]
     
     for stage_type, stages_list in [("pre_sales", expected_pre_sales), ("sales", expected_sales)]:

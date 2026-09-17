@@ -48,7 +48,8 @@ import {
   Users,
   Smartphone,
   AlertCircle,
-  ArrowUpDown
+  ArrowUpDown,
+  Wallet
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
@@ -1281,7 +1282,7 @@ export default function CRMSales() {
         {/* All Stages Summary — matches Pre-Sales style, wraps to 2 rows */}
         {stages.length > 0 && (
           <div className="mb-6">
-            <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-2 sm:gap-3" data-testid="sales-stages-summary">
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-2 sm:gap-3" data-testid="sales-stages-summary">
               <button
                 onClick={() => setActiveStage('all')}
                 data-testid="stage-chip-all"
@@ -1291,62 +1292,50 @@ export default function CRMSales() {
                 <span className="text-[9px] sm:text-[10px] font-medium opacity-90 truncate w-full text-center">All Leads</span>
                 <span className="text-base sm:text-xl font-bold mt-0.5 leading-tight">{filteredLeads.length}</span>
               </button>
-              {stages.map((stage) => {
-                const stageLeads = getLeadsByStage(stage.stage_id);
-                const count = stageLeads.length;
-                const isActive = activeStage === stage.stage_id;
-                return (
-                  <button
-                    key={stage.stage_id}
-                    onClick={() => setActiveStage(stage.stage_id)}
-                    data-testid={`stage-chip-${stage.stage_id}`}
-                    className={`flex flex-col items-center justify-center rounded-2xl px-1.5 py-2.5 sm:py-3 shadow-sm border transition-all hover:shadow-md hover:-translate-y-0.5 ${isActive ? 'ring-2' : ''}`}
-                    style={{
-                      backgroundColor: isActive ? stage.color : stage.color + '15',
-                      borderColor: stage.color + '30',
-                      color: isActive ? '#ffffff' : stage.color,
-                      '--tw-ring-color': stage.color,
-                    }}
-                  >
-                    <span className="text-[9px] sm:text-[10px] font-medium text-center leading-tight line-clamp-2 w-full px-0.5">
-                      {stage.name}
-                    </span>
-                    <span className="text-base sm:text-xl font-bold mt-0.5 leading-tight">{count}</span>
-                  </button>
-                );
-              })}
-
-              {/* Revision chip — RE-Requested leads with revision > 0 */}
+              {/* Sep 17 2026 — Sales Head asked for a shorter summary row:
+                  All Leads | New Appointment | P3 | P2 | P1 | Project
+                  Onboarded | Lost. The full stage pipeline (Office Visit,
+                  Follow-up, RE-Request, RE-Planning, RE-Client, Client Site
+                  Visit, Client Project Visit, Deal Close, RNR...) still
+                  exists underneath — this only trims which chips render up
+                  top. Revision chip dropped too (not in the requested list).
+                  P1/P2/P3 stay driven by the existing manual-pick + checklist
+                  system (client_category), unchanged. */}
               {(() => {
-                const revLeads = filteredLeads.filter(l => (l.re_revision_number || 0) > 0 && l.current_stage_id === 'stg_re_requested');
-                const revCount = revLeads.length;
-                const isActive = activeStage === 'revision';
-                const color = '#f97316';
-                return (
-                  <button
-                    onClick={() => setActiveStage('revision')}
-                    data-testid="stage-chip-revision"
-                    className={`flex flex-col items-center justify-center rounded-2xl px-1.5 py-2.5 sm:py-3 shadow-sm border transition-all hover:shadow-md hover:-translate-y-0.5 ${isActive ? 'ring-2' : ''}`}
-                    style={{
-                      backgroundColor: isActive ? color : color + '15',
-                      borderColor: color + '30',
-                      color: isActive ? '#ffffff' : color,
-                      '--tw-ring-color': color,
-                    }}
-                  >
-                    <span className="text-[9px] sm:text-[10px] font-medium text-center leading-tight line-clamp-2 w-full px-0.5 flex items-center gap-0.5 justify-center">
-                      <RefreshCw className="h-3 w-3" /> Revision
-                    </span>
-                    <span className="text-base sm:text-xl font-bold mt-0.5 leading-tight">{revCount}</span>
-                  </button>
-                );
+                const stageChip = (stage) => {
+                  if (!stage) return null;
+                  const stageLeads = getLeadsByStage(stage.stage_id);
+                  const count = stageLeads.length;
+                  const isActive = activeStage === stage.stage_id;
+                  return (
+                    <button
+                      key={stage.stage_id}
+                      onClick={() => setActiveStage(stage.stage_id)}
+                      data-testid={`stage-chip-${stage.stage_id}`}
+                      className={`flex flex-col items-center justify-center rounded-2xl px-1.5 py-2.5 sm:py-3 shadow-sm border transition-all hover:shadow-md hover:-translate-y-0.5 ${isActive ? 'ring-2' : ''}`}
+                      style={{
+                        backgroundColor: isActive ? stage.color : stage.color + '15',
+                        borderColor: stage.color + '30',
+                        color: isActive ? '#ffffff' : stage.color,
+                        '--tw-ring-color': stage.color,
+                      }}
+                    >
+                      <span className="text-[9px] sm:text-[10px] font-medium text-center leading-tight line-clamp-2 w-full px-0.5">
+                        {stage.name}
+                      </span>
+                      <span className="text-base sm:text-xl font-bold mt-0.5 leading-tight">{count}</span>
+                    </button>
+                  );
+                };
+                return stageChip(stages.find(s => s.stage_id === 'stg_new_appt'));
               })()}
 
-              {/* Client Category chips — P1 / P2 / P3 priority tiers */}
+              {/* Client Category chips — P1 / P2 / P3 priority tiers, shown
+                  coldest-first (P3 → P2 → P1) per the requested order */}
               {[
-                { key: 'P1', color: '#dc2626' },  // red — hottest
-                { key: 'P2', color: '#f59e0b' },  // amber — warm
                 { key: 'P3', color: '#3b82f6' },  // blue — cold/info
+                { key: 'P2', color: '#f59e0b' },  // amber — warm
+                { key: 'P1', color: '#dc2626' },  // red — hottest
               ].map(({ key, color }) => {
                 // P1/P2/P3 chips count *active* pipeline only — exclude onboarded /
                 // lost / moved-to-planning so the priority view matches the list filter.
@@ -1379,6 +1368,40 @@ export default function CRMSales() {
                   </button>
                 );
               })}
+
+              {(() => {
+                const stageChip = (stage) => {
+                  if (!stage) return null;
+                  const stageLeads = getLeadsByStage(stage.stage_id);
+                  const count = stageLeads.length;
+                  const isActive = activeStage === stage.stage_id;
+                  return (
+                    <button
+                      key={stage.stage_id}
+                      onClick={() => setActiveStage(stage.stage_id)}
+                      data-testid={`stage-chip-${stage.stage_id}`}
+                      className={`flex flex-col items-center justify-center rounded-2xl px-1.5 py-2.5 sm:py-3 shadow-sm border transition-all hover:shadow-md hover:-translate-y-0.5 ${isActive ? 'ring-2' : ''}`}
+                      style={{
+                        backgroundColor: isActive ? stage.color : stage.color + '15',
+                        borderColor: stage.color + '30',
+                        color: isActive ? '#ffffff' : stage.color,
+                        '--tw-ring-color': stage.color,
+                      }}
+                    >
+                      <span className="text-[9px] sm:text-[10px] font-medium text-center leading-tight line-clamp-2 w-full px-0.5">
+                        {stage.name}
+                      </span>
+                      <span className="text-base sm:text-xl font-bold mt-0.5 leading-tight">{count}</span>
+                    </button>
+                  );
+                };
+                return (
+                  <>
+                    {stageChip(stages.find(s => s.stage_id === 'stg_project_onboarded'))}
+                    {stageChip(stages.find(s => s.stage_id === 'stg_lost'))}
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -2395,6 +2418,22 @@ export default function CRMSales() {
                             {selectedLead.advance_payment.collected_at && <p className="text-xs">Collected: {new Date(selectedLead.advance_payment.collected_at).toLocaleDateString('en-IN')}</p>}
                           </div>
                         )}
+                        {/* Sep 17 2026 — "Deal Close" was removed from the Move-to-Stage
+                            row below (renamed row no longer lists it), but that chip was
+                            the ONLY place that opened this Convert Deal / advance popup —
+                            without a replacement, a lead already sitting in Payment
+                            Collect would have no way to actually collect the advance.
+                            Give it its own dedicated button here instead. */}
+                        {selectedLead.current_stage_id === 'stg_payment_collect' && (
+                          <Button
+                            size="sm"
+                            className="mt-2 w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                            onClick={() => openConvertDealFromSales(selectedLead)}
+                            data-testid="detail-collect-advance-btn"
+                          >
+                            <Wallet className="h-4 w-4 mr-1" /> {selectedLead.onboarding_status === 'accountant_rejected' ? 'Re-collect Advance' : 'Collect Advance'}
+                          </Button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -2619,7 +2658,18 @@ export default function CRMSales() {
               <span className="text-xs font-medium text-gray-500">Move to Stage:</span>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {stages.filter(s => !['stg_accountant_approval'].includes(s.stage_id)).map(stage => (
+              {/* Sep 17 2026 — Sales Head asked for a shorter quick-move row:
+                  New Appointment | Office Visit | Follow-up | RE-Request |
+                  Client Site Visit | Client Project Visit | Project Onboarded
+                  | RNR | Lost. RE-Planning and RE-Client already no-op when
+                  clicked here (auto-set by the backend / by the dedicated
+                  Generate-RE-Link button above), and Deal Close's Convert
+                  Deal popup now has its own "Collect Advance" button in the
+                  Payment Collect banner above — so hiding all four from this
+                  row loses no functionality, just the redundant chips. The
+                  stages themselves are untouched; leads already parked on
+                  them keep working exactly as before. */}
+              {stages.filter(s => !['stg_accountant_approval', 'stg_re_from_planning', 'stg_re_to_client', 'stg_payment_collect'].includes(s.stage_id)).map(stage => (
                 <Button
                   key={stage.stage_id}
                   variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'}
