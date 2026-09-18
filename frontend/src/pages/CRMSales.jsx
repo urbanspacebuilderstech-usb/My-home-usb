@@ -3790,12 +3790,17 @@ export default function CRMSales() {
                   <p className="text-sm text-gray-400 text-center py-4">No ongoing projects found</p>
                 )}
               </div>
+              <div>
+                <Label>Visit Date</Label>
+                <Input type="date" value={svVisitDate} onChange={(e) => setSvVisitDate(e.target.value)} className="mt-1" />
+              </div>
+              {/* Sep 18 2026 — placed under Visit Date per Sales Head
+                  request. Defaults to the project's own assigned engineer
+                  (if any) but can be overridden to any active Sr/Jr Site
+                  Engineer for this specific visit. */}
               {selectedProject && (
                 <div>
                   <Label>Site Engineer</Label>
-                  {/* Sep 18 2026 — defaults to the project's own assigned
-                      engineer (if any) but can be overridden to any active
-                      Sr/Jr Site Engineer for this specific visit. */}
                   <Select value={selectedProjectVisitEngineer} onValueChange={setSelectedProjectVisitEngineer}>
                     <SelectTrigger className="mt-1" data-testid="project-visit-engineer-select"><SelectValue placeholder="Select Site Engineer" /></SelectTrigger>
                     <SelectContent>
@@ -3811,10 +3816,6 @@ export default function CRMSales() {
                   )}
                 </div>
               )}
-              <div>
-                <Label>Visit Date</Label>
-                <Input type="date" value={svVisitDate} onChange={(e) => setSvVisitDate(e.target.value)} className="mt-1" />
-              </div>
             </div>
           )}
           <DialogFooter className="gap-2 mt-4">
