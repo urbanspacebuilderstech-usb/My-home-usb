@@ -368,6 +368,8 @@ export default function CRMSales() {
   const [ongoingProjects, setOngoingProjects] = useState([]);
   const [projectSearch, setProjectSearch] = useState('');
   const [selectedProject, setSelectedProject] = useState(null);
+  const [projectVisitEngineers, setProjectVisitEngineers] = useState([]);
+  const [selectedProjectVisitEngineer, setSelectedProjectVisitEngineer] = useState('');
   
   const [draggedLead, setDraggedLead] = useState(null);
   const [onboardingPendingStageId, setOnboardingPendingStageId] = useState(null);
@@ -915,10 +917,18 @@ export default function CRMSales() {
     setProjectSearch('');
     setSvVisitDate(new Date().toISOString().split('T')[0]);
     setSvNotes('');
+    setSelectedProjectVisitEngineer('');
     try {
       const res = await axios.get(`${API}/crm/ongoing-projects`);
       setOngoingProjects(res.data);
     } catch { setOngoingProjects([]); }
+    // Sep 18 2026 — Site Engineer picker: every site engineer (Sr + Jr), not
+    // just the project's own default, so the salesperson can override who
+    // actually hosts this particular visit.
+    try {
+      const engRes = await axios.get(`${API}/crm/site-engineers`);
+      setProjectVisitEngineers(engRes.data);
+    } catch { setProjectVisitEngineers([]); }
     setOngoingProjectDialog(true);
   };
 
@@ -928,6 +938,7 @@ export default function CRMSales() {
       await axios.post(`${API}/crm/leads/${ongoingProjectLead.lead_id}/assign-site-visit`, {
         visit_type: 'ongoing_project',
         project_id: selectedProject.project_id,
+        sr_engineer_id: selectedProjectVisitEngineer || null,
         visit_date: svVisitDate,
         notes: svNotes
       });
@@ -2842,10 +2853,10 @@ export default function CRMSales() {
                           )}
                         </div>
 
-                        {/* Client Project Visit */}
+                        {/* USB Project Visit */}
                         <div className="border rounded-lg p-3">
                           <div className="flex items-center justify-between mb-2">
-                            <p className="text-xs font-semibold text-violet-700">Client Project Visit</p>
+                            <p className="text-xs font-semibold text-violet-700">USB Project Visit</p>
                             <div className="flex items-center gap-1.5">
                               <Badge className="bg-violet-100 text-violet-700 text-[10px]" data-testid="summary-client-project-visit-count">{summaryPanel?.client_project_visits?.length || 0}</Badge>
                               <Button size="sm" variant="outline" className="h-6 text-[10px] px-2 border-violet-300 text-violet-700 hover:bg-violet-50"
@@ -3751,7 +3762,7 @@ export default function CRMSales() {
                     <div
                       key={project.project_id}
                       className={`border rounded-lg p-3 cursor-pointer transition-all ${selectedProject?.project_id === project.project_id ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : 'hover:border-gray-400'}`}
-                      onClick={() => setSelectedProject(project)}
+                      onClick={() => { setSelectedProject(project); setSelectedProjectVisitEngineer(project.site_engineer?.user_id || ''); }}
                       data-testid={`project-option-${project.project_id}`}
                     >
                       <div className="flex justify-between items-start">
@@ -3779,12 +3790,25 @@ export default function CRMSales() {
                   <p className="text-sm text-gray-400 text-center py-4">No ongoing projects found</p>
                 )}
               </div>
-              {selectedProject && selectedProject.site_engineer && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <p className="text-xs text-blue-600 font-medium mb-1">Site Engineer for this project:</p>
-                  <p className="font-semibold">{selectedProject.site_engineer.name}</p>
-                  {selectedProject.site_engineer.phone && <p className="text-sm">{selectedProject.site_engineer.phone}</p>}
-                  {selectedProject.site_engineer.email && <p className="text-sm text-gray-600">{selectedProject.site_engineer.email}</p>}
+              {selectedProject && (
+                <div>
+                  <Label>Site Engineer</Label>
+                  {/* Sep 18 2026 — defaults to the project's own assigned
+                      engineer (if any) but can be overridden to any active
+                      Sr/Jr Site Engineer for this specific visit. */}
+                  <Select value={selectedProjectVisitEngineer} onValueChange={setSelectedProjectVisitEngineer}>
+                    <SelectTrigger className="mt-1" data-testid="project-visit-engineer-select"><SelectValue placeholder="Select Site Engineer" /></SelectTrigger>
+                    <SelectContent>
+                      {projectVisitEngineers.map(eng => (
+                        <SelectItem key={eng.user_id} value={eng.user_id}>
+                          {eng.name}{eng.role === 'sr_site_engineer' ? ' (Sr)' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedProject.site_engineer && !selectedProjectVisitEngineer && (
+                    <p className="text-xs text-gray-500 mt-1">Project's default: {selectedProject.site_engineer.name}</p>
+                  )}
                 </div>
               )}
               <div>

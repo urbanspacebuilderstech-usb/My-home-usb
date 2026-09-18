@@ -394,7 +394,7 @@ async def get_default_sales_stages():
         # Sep 17 2026 — renamed per Sales Head request; stage_id kept unchanged
         # so existing leads parked here keep resolving correctly.
         ("stg_sv_client_land",     "Client Site Visit",  7,  "#a855f7", False),
-        ("stg_sv_our_projects",    "Client Project Visit", 8, "#7c3aed", False),
+        ("stg_sv_our_projects",    "USB Project Visit", 8, "#7c3aed", False),
         ("stg_payment_collect",    "Deal Close",         9,  "#22c55e", False),
         ("stg_accountant_approval","Accountant Approval",10, "#f97316", False),  # hidden in UI
         ("stg_project_onboarded",  "Project Onboarded",  11, "#059669", True),
@@ -438,7 +438,7 @@ async def get_default_sales_stages():
             {"stage_id": "stg_re_from_planning", "name": "RE - Planning", "stage_type": "sales", "order": 5, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_re_to_client", "name": "RE - Client", "stage_type": "sales", "order": 6, "color": "#84cc16", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_sv_client_land", "name": "Client Site Visit", "stage_type": "sales", "order": 7, "color": "#a855f7", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_sv_our_projects", "name": "Client Project Visit", "stage_type": "sales", "order": 8, "color": "#7c3aed", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_sv_our_projects", "name": "USB Project Visit", "stage_type": "sales", "order": 8, "color": "#7c3aed", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_payment_collect", "name": "Deal Close", "stage_type": "sales", "order": 9, "color": "#22c55e", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_accountant_approval", "name": "Accountant Approval", "stage_type": "sales", "order": 10, "color": "#f97316", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "stage_type": "sales", "order": 11, "color": "#059669", "is_final": True, "is_active": True, "created_by": "system"},
@@ -532,7 +532,7 @@ async def migrate_stages(user: User = Depends(get_current_user)):
         {"stage_id": "stg_re_from_planning", "name": "RE - Planning", "order": 5, "color": "#10b981", "is_final": False},
         {"stage_id": "stg_re_to_client", "name": "RE - Client", "order": 6, "color": "#84cc16", "is_final": False},
         {"stage_id": "stg_sv_client_land", "name": "Client Site Visit", "order": 7, "color": "#a855f7", "is_final": False},
-        {"stage_id": "stg_sv_our_projects", "name": "Client Project Visit", "order": 8, "color": "#7c3aed", "is_final": False},
+        {"stage_id": "stg_sv_our_projects", "name": "USB Project Visit", "order": 8, "color": "#7c3aed", "is_final": False},
         {"stage_id": "stg_payment_collect", "name": "Deal Close", "order": 9, "color": "#22c55e", "is_final": False},
         {"stage_id": "stg_accountant_approval", "name": "Accountant Approval", "order": 10, "color": "#f97316", "is_final": False},
         {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "order": 11, "color": "#059669", "is_final": True},
@@ -2582,17 +2582,30 @@ async def get_all_site_engineers(user: User = Depends(get_current_user)):
 
 @router.get("/crm/ongoing-projects")
 async def get_ongoing_projects(search: Optional[str] = None, user: User = Depends(get_current_user)):
-    """Get ongoing projects with site engineer info for site visit assignment"""
-    query = {"status": {"$in": ["active", "in_progress", "ongoing"]}}
+    """Get current projects with site engineer info for site visit assignment
+    (USB Project Visit — showing a prospect one of USB's own projects).
+
+    Sep 18 2026 — this used a `status` field with values ("active",
+    "in_progress", "ongoing") that nothing in `db.projects` actually writes —
+    the real field is `planning_status` ("new"/"active"/"delivered"), the
+    same convention every other "current projects" query in this codebase
+    already uses (financial.py, site_ops.py, procurement.py, ...). It also
+    projected a `project_name` field that doesn't exist on the document (the
+    real field is `name`), so every result showed as "Unnamed Project"
+    regardless of whether it actually had a name. Both were silent — no
+    error, just an almost-empty, all-"Unnamed" list.
+    """
+    query = {"planning_status": {"$in": ["new", "active", "delivered"]}}
     if search:
         query["$or"] = [
-            {"project_name": {"$regex": search, "$options": "i"}},
+            {"name": {"$regex": search, "$options": "i"}},
             {"location": {"$regex": search, "$options": "i"}}
         ]
-    projects = await db.projects.find(query, {"_id": 0, "project_id": 1, "project_name": 1, "location": 1, "site_engineer_user_id": 1}).to_list(100)
-    
+    projects = await db.projects.find(query, {"_id": 0, "project_id": 1, "name": 1, "location": 1, "site_engineer_user_id": 1}).sort("name", 1).to_list(500)
+
     # Enrich with site engineer details
     for p in projects:
+        p["project_name"] = p.pop("name", None)
         if p.get("site_engineer_user_id"):
             eng = await db.users.find_one({"user_id": p["site_engineer_user_id"]}, {"_id": 0, "user_id": 1, "name": 1, "phone": 1, "email": 1})
             p["site_engineer"] = eng
@@ -2632,15 +2645,21 @@ async def assign_site_visit(lead_id: str, data: AssignSiteVisitInput, user: User
     elif data.visit_type == "ongoing_project":
         if not data.project_id:
             raise HTTPException(status_code=400, detail="Project is required for ongoing project visit")
-        project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0, "project_name": 1, "location": 1, "site_engineer_user_id": 1})
+        # Sep 18 2026 — the real name field on db.projects is `name`, not
+        # `project_name` (see get_ongoing_projects above) — this projection
+        # silently returned None for project_name on every save too.
+        project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0, "name": 1, "location": 1, "site_engineer_user_id": 1})
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         site_visit_data["project_id"] = data.project_id
-        site_visit_data["project_name"] = project.get("project_name")
+        site_visit_data["project_name"] = project.get("name")
         site_visit_data["project_location"] = project.get("location")
-        if project.get("site_engineer_user_id"):
-            eng = await db.users.find_one({"user_id": project["site_engineer_user_id"]}, {"_id": 0, "name": 1, "phone": 1, "email": 1})
-            site_visit_data["site_engineer_id"] = project["site_engineer_user_id"]
+        # An explicit Site Engineer pick (from the dialog's SE dropdown)
+        # overrides the project's own default site_engineer_user_id.
+        engineer_id = data.sr_engineer_id or project.get("site_engineer_user_id")
+        if engineer_id:
+            eng = await db.users.find_one({"user_id": engineer_id}, {"_id": 0, "name": 1, "phone": 1, "email": 1})
+            site_visit_data["site_engineer_id"] = engineer_id
             site_visit_data["site_engineer_name"] = eng["name"] if eng else "Unknown"
             site_visit_data["site_engineer_phone"] = eng.get("phone") if eng else None
             site_visit_data["site_engineer_email"] = eng.get("email") if eng else None
