@@ -217,6 +217,50 @@ async def update_package_link_greeting(lead_id: str, data: GreetingUpdate, user:
     return {"message": "Greeting updated"}
 
 
+# Sep 18 2026 — Share Package Link's greeting used to be saved per-lead only,
+# so customizing it for one lead never carried over to the next one (every
+# new lead started from a blank box again). One shared template now, with a
+# literal "{lead name}" token substituted per-lead at send time — the dialog
+# already advertised this exact token in its tip text, it just never
+# actually worked. Singleton doc, same shape as db.company_settings.
+DEFAULT_PACKAGE_GREETING_TEMPLATE = "Hi {lead name}, here's your Urban Space package details 👇"
+
+
+class GreetingTemplateUpdate(BaseModel):
+    template: str
+
+
+@router.get("/package-link/greeting-template")
+async def get_package_greeting_template(user: User = Depends(get_current_user)):
+    """The single shared greeting template used to prefill Share Package Link
+    for every lead. Contains a literal "{lead name}" token, substituted
+    client-side per-lead for preview/copy/WhatsApp — never stored
+    pre-substituted, so it stays reusable for the next lead."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    doc = await db.package_greeting_settings.find_one({}, {"_id": 0})
+    return {"template": (doc or {}).get("template") or DEFAULT_PACKAGE_GREETING_TEMPLATE}
+
+
+@router.patch("/package-link/greeting-template")
+async def update_package_greeting_template(data: GreetingTemplateUpdate, user: User = Depends(get_current_user)):
+    """Save the shared greeting template so it applies to every lead's Share
+    Package Link dialog going forward, not just the one open right now."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.SALES_HEAD, UserRole.PRE_SALES]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    await db.package_greeting_settings.update_one(
+        {},
+        {"$set": {
+            "template": data.template,
+            "updated_by": user.user_id,
+            "updated_by_name": user.name,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+    return {"message": "Greeting template saved for all leads", "template": data.template}
+
+
 @router.get("/home-packages/generic-link")
 async def get_generic_package_link(user: User = Depends(get_current_user)):
     """Returns a stable, non-customer-specific package link ('Portfolio + Packages')

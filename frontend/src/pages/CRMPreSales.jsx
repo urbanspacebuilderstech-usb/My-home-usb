@@ -2993,25 +2993,38 @@ export default function CRMPreSales() {
 }
 
 // ================== Package Link Share Dialog ==================
+// Sep 18 2026 — the greeting used to save per-lead only, so customizing it
+// for one lead never carried over to the next (every new lead started from
+// a blank box). Now one shared template (GET/PATCH /package-link/greeting-
+// template) with a literal "{lead name}" token substituted per-lead only
+// for preview/copy/WhatsApp — the raw template (token intact) is what's
+// edited and saved, so it stays reusable for every future lead.
+const DEFAULT_PACKAGE_GREETING_TEMPLATE = "Hi {lead name}, here's your Urban Space package details 👇";
+
 function PackageLinkShareDialog({ state, onClose, currentStageId, onMoveToPackageStage }) {
   const [greeting, setGreeting] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (state.open) setGreeting(state.link?.greeting || '');
-  }, [state.open, state.link]);
+    if (!state.open) return;
+    axios.get(`${API}/package-link/greeting-template`)
+      .then(r => setGreeting(r.data?.template || DEFAULT_PACKAGE_GREETING_TEMPLATE))
+      .catch(() => setGreeting(state.link?.greeting || DEFAULT_PACKAGE_GREETING_TEMPLATE));
+  }, [state.open]);
 
   if (!state.open || !state.link) return null;
   const url = `${window.location.origin}/package/${state.link.token}`;
-  const fullMessage = `${greeting}\n\n${url}`;
   const clientName = state.link.client_name || '';
   const clientPhone = state.link.client_phone || '';
+  const firstName = clientName.split(' ')[0] || 'there';
+  const substitutedGreeting = greeting.replace(/\{lead name\}/gi, firstName);
+  const fullMessage = `${substitutedGreeting}\n\n${url}`;
 
   const saveGreeting = async () => {
     setSaving(true);
     try {
-      await axios.patch(`${API}/leads/${state.leadId}/package-link/greeting`, { greeting });
-      toast.success('Greeting saved');
+      await axios.patch(`${API}/package-link/greeting-template`, { template: greeting });
+      toast.success('Greeting saved — used for every lead from now on');
     } catch { toast.error('Failed to save greeting'); }
     finally { setSaving(false); }
   };
