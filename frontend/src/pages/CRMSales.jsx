@@ -392,6 +392,9 @@ export default function CRMSales() {
   // Feb 28 2026 — Planner name for the linked RE project (shown in the
   // "RE Sent to Client" banner so Sales can see who prepared the estimate).
   const [linkedREPlanner, setLinkedREPlanner] = useState('');
+  // Sep 18 2026 — revision number of the linked RE project (0 = original),
+  // shown as "RE{n+1}" in that same banner in place of the Revision button.
+  const [linkedRERevision, setLinkedRERevision] = useState(null);
   const [quoteLinkLoading, setQuoteLinkLoading] = useState(false);
   // Regenerate-RE remarks dialog
   const [regenDialog, setRegenDialog] = useState({ open: false, lead: null });
@@ -1118,7 +1121,10 @@ export default function CRMSales() {
         try {
           const reRes = await axios.get(`${API}/crm/re-projects/${reId}`);
           setLinkedREPlanner(reRes.data?.prepared_by_name || '');
+          setLinkedRERevision(reRes.data?.revision ?? null);
         } catch { /* non-fatal */ }
+      } else {
+        setLinkedRERevision(null);
       }
     } catch {
       setLeadDetail(lead);
@@ -1181,6 +1187,16 @@ export default function CRMSales() {
         const lr = await axios.get(`${API}/crm/leads/${lead.lead_id}`);
         setLeadDetail(lr.data);
         setSelectedLead(lr.data);
+        // Sep 18 2026 — Regenerate RE creates a new re_projects revision and
+        // repoints the lead at it; refresh so the RE{n} badge bumps live
+        // (RE1 -> RE2) without needing to close and reopen the popup.
+        if (lr.data?.re_project_id) {
+          try {
+            const reRes = await axios.get(`${API}/crm/re-projects/${lr.data.re_project_id}`);
+            setLinkedREPlanner(reRes.data?.prepared_by_name || '');
+            setLinkedRERevision(reRes.data?.revision ?? null);
+          } catch { /* non-fatal */ }
+        }
       } catch {}
       fetchData(false);
     } catch (e) {
@@ -2385,15 +2401,13 @@ export default function CRMSales() {
                           >
                             <CheckCircle className="h-4 w-4 mr-1" /> Approved
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full text-orange-700 border-orange-400 hover:bg-orange-50"
-                            onClick={() => openReClientAction(selectedLead, 'revision')}
-                            data-testid="detail-re-revision-btn"
-                          >
-                            <RefreshCw className="h-4 w-4 mr-1" /> Revision
-                          </Button>
+                          {/* Sep 18 2026 — Revision button removed; this now
+                              shows the current RE revision count instead
+                              (RE1, RE2, ...), which bumps automatically
+                              whenever "Regenerate RE" creates a new one. */}
+                          <div className="w-full flex items-center justify-center rounded-md border border-orange-300 bg-orange-50 text-orange-700 text-sm font-semibold" data-testid="detail-re-revision-count">
+                            RE{(linkedRERevision ?? 0) + 1}
+                          </div>
                         </div>
                       </div>
                     </div>
