@@ -1227,7 +1227,14 @@ async def get_pre_sales_leads(
         else:
             query["created_at"] = {"$lte": datetime.fromisoformat(date_to.replace('Z', '+00:00'))}
     
-    leads = await db.leads.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    # Sep 18 2026 — this was `.to_list(500)`, so the board only ever received
+    # the newest 500 leads. Pre Sales > All read "All (500)" while the Total
+    # Leads tile — /crm/pre-sales/dashboard, same {"stage_type": "pre_sales"}
+    # query — said 2,235, and every stage tab was counted from the truncated
+    # 500 (RNR 8 on the tab vs 79 on the tile). No cap now, so the list and the
+    # tiles are counted from the same set. The (stage_type, created_at) index
+    # already serves this exact filter + sort.
+    leads = await db.leads.find(query, {"_id": 0}).sort("created_at", -1).to_list(None)
     leads = await filter_contacts_leads(db, leads, user.role)
 
     # Backfill assigned_to_name for legacy leads that have an assigned_to but
@@ -1240,7 +1247,10 @@ async def get_pre_sales_leads(
             if l.get("assigned_to") and not l.get("assigned_to_name"):
                 l["assigned_to_name"] = name_by_id.get(l["assigned_to"]) or None
 
-    return mask_leads_phone(leads, user.role)
+    # The uncapped list is ~4.5x the old payload and the board polls it every
+    # 15s, so skip FastAPI's pure-Python jsonable_encoder pass (see
+    # core/fastjson.py — decode-identical output, verified by its test suite).
+    return fast_json(mask_leads_phone(leads, user.role))
 
 
 class LeadCreate(BaseModel):

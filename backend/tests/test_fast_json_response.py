@@ -126,7 +126,8 @@ WRAPPED = {
                            "get_site_engineer_inventory_summary",
                            "get_pm_inventory_summary", "get_planning_inventory_summary"],
     "routes/projects.py": ["get_projects", "get_admin_dashboard_summary"],
-    "routes/crm.py": ["get_sales_masterview_rows", "get_sales_masterview_summary"],
+    "routes/crm.py": ["get_sales_masterview_rows", "get_sales_masterview_summary",
+                      "get_pre_sales_leads"],
     "routes/procurement.py": ["material_vendor_payments_summary"],
     "routes/operations.py": ["get_monthly_schedule"],
 }
