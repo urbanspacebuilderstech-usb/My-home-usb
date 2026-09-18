@@ -463,25 +463,26 @@ export default function CRMSales() {
   const fetchData = async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true);
-      const [userRes, dashboardRes, stagesRes, leadsRes, customFieldsRes] = await Promise.all([
+      // Sep 18 2026 — sales-overview used to be fetched AFTER this Promise.all
+      // resolved (a fully serial extra round trip on every load/refresh).
+      // Pull it into the same Promise.all so it runs concurrently with
+      // everything else — one of the "improve speed loading" fixes for the
+      // new manual Refresh button.
+      const [userRes, dashboardRes, stagesRes, leadsRes, customFieldsRes, overviewRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/crm/sales/dashboard`),
         axios.get(`${API}/crm/stages?stage_type=sales`),
         axios.get(`${API}/crm/sales/leads`),
-        axios.get(`${API}/crm/custom-fields`)
+        axios.get(`${API}/crm/custom-fields`),
+        axios.get(`${API}/crm/sales-overview`).catch(() => null),
       ]);
-      
+
       setUser(userRes.data);
       setDashboard(dashboardRes.data);
       setStages(stagesRes.data);
       setLeads(leadsRes.data);
       if (customFieldsRes?.data) setCustomFields(customFieldsRes.data);
-      
-      // Fetch sales overview
-      try {
-        const overviewRes = await axios.get(`${API}/crm/sales-overview`);
-        setSalesOverview(overviewRes.data);
-      } catch { /* ignore */ }
+      if (overviewRes?.data) setSalesOverview(overviewRes.data);
     } catch (error) {
       console.error('Failed to fetch data:', error);
       if (error.response?.status === 401) {
@@ -1688,7 +1689,22 @@ export default function CRMSales() {
               <Settings className="h-3.5 w-3.5" /> Manage Stages
             </Button>
           )}
-          <div className="flex items-center border rounded-lg overflow-hidden bg-white ml-auto">
+          {/* Sep 18 2026 — manual refresh (the 15s auto-refresh already
+              exists via useAutoRefresh, but Sales Head wants an explicit
+              button rather than waiting). Refetches leads, dashboard/stage
+              counts, stages and sales overview together. */}
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-9 w-9 flex-shrink-0 ml-auto"
+            onClick={() => fetchData(true)}
+            disabled={loading}
+            title="Refresh"
+            data-testid="sales-refresh-btn"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
+          <div className="flex items-center border rounded-lg overflow-hidden bg-white">
             <Button
               variant="ghost"
               size="sm"
