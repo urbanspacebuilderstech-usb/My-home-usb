@@ -182,3 +182,29 @@ jobs:
           script_stop: true
           script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/repair_usb_mr034_suspense_and_cheque.py --apply
 
+      # TEMPORARY — Anbu test Vendor / Cheque #1234 excess-to-suspense backfill
+      # (the cheque-excess -> vendor-suspense flow was restored in this same
+      # deploy; this is the one-off fix for the single payment made before
+      # that fix shipped). Guarded and idempotent — skips once already
+      # applied. REMOVE once it has run.
+      - name: 'Anbu test vendor cheque excess backfill (dry run)'
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/backfill_anbu_test_vendor_cheque_excess.py
+
+      - name: 'Anbu test vendor cheque excess backfill (apply + verify)'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/backfill_anbu_test_vendor_cheque_excess.py --apply
+

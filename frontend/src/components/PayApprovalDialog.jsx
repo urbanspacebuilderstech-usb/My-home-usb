@@ -168,17 +168,17 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
     if (claimed.has(cid)) { toast.error('Cheque already selected in another leg'); return; }
     const current = leg.chequeIds || [];
     const next = current.includes(cid) ? current.filter(x => x !== cid) : [...current, cid];
-    // Aug 18 2026 — Pre-fill with what this payment actually needs, capped at
-    // the cheques' remaining balance. Previously this forced the full face
-    // value, which is what made every cheque all-or-nothing and pushed the
-    // rest into suspense. The field stays editable, so a smaller draw is fine
-    // and the remainder simply stays on the cheque.
+    // Sep 18 2026 — reverted to the pre-Aug-18 default: a cheque leg draws
+    // its FULL available balance, not just what this bill still needs. A
+    // cheque is deposited whole; any amount above the bill is genuine
+    // excess and rolls to the vendor's suspense for their next bill (see
+    // the "Excess → Suspense" banner below and allow_excess_to_suspense in
+    // submit()). The Aug 18 change that capped this at stillNeeded is what
+    // was silently leaving that excess stranded as unallocated cheque
+    // balance instead of crediting the vendor — reported as a bug.
     const availTotal = next.reduce(
       (s, x) => s + Number(allCheques[x]?.available_amount ?? allCheques[x]?.amount ?? 0), 0);
-    const otherLegs = legs.filter(l => l.id !== legId).reduce((s, l) => s + (Number(l.amount) || 0), 0);
-    const stillNeeded = Math.max(0, payable - otherLegs);
-    const newAmount = Math.min(availTotal, stillNeeded || availTotal);
-    updateLeg(legId, { chequeIds: next, amount: newAmount > 0 ? String(Math.round(newAmount * 100) / 100) : '' });
+    updateLeg(legId, { chequeIds: next, amount: availTotal > 0 ? String(Math.round(availTotal * 100) / 100) : '' });
   };
 
   // Aug 23 2026 — Apply the vendor credit now and leave the balance for later.
@@ -302,6 +302,12 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
           denominations: Object.entries(l.denoms).filter(([, c]) => Number(c) > 0).map(([n, c]) => ({ note: Number(n), count: Number(c) }))
         } : {}),
       })),
+      // Sep 18 2026 — a cheque leg now always draws its full available
+      // balance (see toggleChequeOnLeg), so any cheque payment can
+      // legitimately tender more than payable. Opt into the excess going to
+      // vendor suspense only when a cheque leg is actually present — cash/
+      // bank legs stay covered by the Aug 22 stale-prefill guard.
+      allow_excess_to_suspense: legs.some(l => l.method === 'cheque'),
     };
 
     try {
