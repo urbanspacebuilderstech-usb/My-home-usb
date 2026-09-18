@@ -296,6 +296,7 @@ export default function CRMSales() {
   const [leadDetail, setLeadDetail] = useState(null);
   const [summaryPanel, setSummaryPanel] = useState(null);
   const [summaryPanelLoading, setSummaryPanelLoading] = useState(false);
+  const [officeVisitRemarkDialog, setOfficeVisitRemarkDialog] = useState({ open: false, leadId: null, index: null, remarks: '' });
   const [apptDialog, setApptDialog] = useState(false);
   const [apptForm, setApptForm] = useState({ date: '', time: '', type: '' });
   
@@ -1064,6 +1065,20 @@ export default function CRMSales() {
       setSummaryPanel(null);
     } finally {
       setSummaryPanelLoading(false);
+    }
+  };
+
+  // Sep 18 2026 — Summary tab's Office Visit history: add/edit remarks on a
+  // past visit entry from a small popup instead of only at scheduling time.
+  const handleSaveOfficeVisitRemark = async () => {
+    const { leadId, index, remarks } = officeVisitRemarkDialog;
+    try {
+      await axios.patch(`${API}/crm/leads/${leadId}/office-visits/${index}`, { remarks });
+      toast.success('Remarks saved');
+      setOfficeVisitRemarkDialog({ open: false, leadId: null, index: null, remarks: '' });
+      fetchSummaryPanel(leadId);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to save remarks');
     }
   };
 
@@ -2753,9 +2768,22 @@ export default function CRMSales() {
                             <div className="space-y-1.5 max-h-40 overflow-y-auto">
                               {summaryPanel.office_visits.map((v, i) => (
                                 <div key={i} className="text-xs bg-sky-50 rounded p-1.5">
-                                  <span className="font-medium">#{i + 1}</span>{' '}
-                                  {v.date ? new Date(v.date).toLocaleDateString('en-IN') : '-'}{v.time ? ` ${v.time}` : ''}
-                                  {v.location && <span className="text-gray-500"> · {v.location}</span>}
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span>
+                                      <span className="font-medium">#{i + 1}</span>{' '}
+                                      {v.date ? new Date(v.date).toLocaleDateString('en-IN') : '-'}{v.time ? ` ${v.time}` : ''}
+                                      {v.location && <span className="text-gray-500"> · {v.location}</span>}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="text-sky-600 hover:text-sky-800 flex-shrink-0"
+                                      title="Add / edit remarks"
+                                      onClick={() => setOfficeVisitRemarkDialog({ open: true, leadId: selectedLead.lead_id, index: i, remarks: v.remarks || '' })}
+                                      data-testid={`office-visit-edit-remarks-${i}`}
+                                    >
+                                      <Edit className="h-3 w-3" />
+                                    </button>
+                                  </div>
                                   {v.remarks && <p className="text-gray-500 mt-0.5">{v.remarks}</p>}
                                 </div>
                               ))}
@@ -3806,7 +3834,33 @@ export default function CRMSales() {
         </DialogContent>
       </Dialog>
 
-      {/* Quick Follow-up Dialog (used by Record/New buttons on Follow-up stage leads) */}
+      {/* Office Visit Remarks Dialog (Summary tab's Office Visit history) */}
+      <Dialog open={officeVisitRemarkDialog.open} onOpenChange={(o) => setOfficeVisitRemarkDialog(prev => ({ ...prev, open: o }))}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="h-5 w-5 text-sky-600" /> Office Visit Remarks
+            </DialogTitle>
+            <DialogDescription>Add or update remarks for this office visit</DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label className="text-sm font-medium">Remarks</Label>
+            <textarea
+              value={officeVisitRemarkDialog.remarks}
+              onChange={(e) => setOfficeVisitRemarkDialog(prev => ({ ...prev, remarks: e.target.value }))}
+              placeholder="Enter remarks..."
+              className="w-full rounded-md border p-2 text-sm min-h-[90px] mt-1"
+              data-testid="office-visit-remarks-input"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOfficeVisitRemarkDialog({ open: false, leadId: null, index: null, remarks: '' })}>Cancel</Button>
+            <Button onClick={handleSaveOfficeVisitRemark} className="bg-sky-600 hover:bg-sky-700" data-testid="office-visit-remarks-save">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Follow-up Dialog (used by the "Follow-up" quick-schedule button on Follow-up stage leads) */}
       <Dialog open={quickFollowupDialog} onOpenChange={setQuickFollowupDialog}>
         <DialogContent className="max-w-sm">
           <DialogHeader>

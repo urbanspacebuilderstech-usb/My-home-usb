@@ -2922,6 +2922,43 @@ async def get_lead_summary_panel(lead_id: str, user: User = Depends(get_current_
     }
 
 
+class OfficeVisitRemarkUpdate(BaseModel):
+    remarks: str
+
+
+@router.patch("/crm/leads/{lead_id}/office-visits/{index}")
+async def update_office_visit_remarks(lead_id: str, index: int, data: OfficeVisitRemarkUpdate, user: User = Depends(get_current_user)):
+    """Sep 18 2026 — Summary tab's Office Visit history lets the salesperson
+    add/edit remarks on a past visit entry (e.g. after the visit actually
+    happened) without re-scheduling. Addressed by array index since entries
+    are only ever appended, never reordered or removed.
+    """
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0, "office_visits": 1, "office_visit": 1, "stage_type": 1})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales_head"]:
+        raise HTTPException(status_code=403, detail="Pre-Sales access required")
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head"]:
+        raise HTTPException(status_code=403, detail="Sales access required")
+
+    office_visits = lead.get("office_visits") or ([lead["office_visit"]] if lead.get("office_visit") else [])
+    if index < 0 or index >= len(office_visits):
+        raise HTTPException(status_code=404, detail="Office visit entry not found")
+
+    office_visits[index]["remarks"] = data.remarks
+    office_visits[index]["remarks_updated_by"] = user.user_id
+    office_visits[index]["remarks_updated_by_name"] = user.name
+    office_visits[index]["remarks_updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    update = {"office_visits": office_visits}
+    # Keep the singular `office_visit` field (latest) in sync when it's the
+    # entry being edited, so older code paths reading it don't go stale.
+    if index == len(office_visits) - 1:
+        update["office_visit"] = office_visits[index]
+    await db.leads.update_one({"lead_id": lead_id}, {"$set": update})
+    return {"message": "Remarks updated", "office_visits": office_visits}
+
+
 @router.patch("/crm/leads/{lead_id}")
 async def update_lead(lead_id: str, data: LeadUpdateInput, user: User = Depends(get_current_user)):
     """Update lead fields including summary"""
