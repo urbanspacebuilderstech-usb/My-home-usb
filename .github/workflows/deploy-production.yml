@@ -208,3 +208,20 @@ jobs:
           script_stop: true
           script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/backfill_anbu_test_vendor_cheque_excess.py --apply
 
+      # TEMPORARY — generalizes the Anbu test Vendor fix above to every
+      # already-used cheque with unallocated leftover balance, per explicit
+      # request. DRY RUN ONLY for now — reviewing the printed plan (which
+      # cheques, which vendors, which ones are ambiguous multi-vendor cases)
+      # before adding an --apply step in a follow-up commit. Read-only:
+      # writes nothing.
+      - name: 'All-cheques excess backfill (DRY RUN ONLY - review before apply)'
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/backfill_all_cheque_excess_to_suspense.py
+
