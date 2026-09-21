@@ -11220,6 +11220,7 @@ async def cheque_computed_trace(
     date_b: str = "2026-09-16",
     mode: str = "cheque",
     target: float = 100000.0,
+    full: bool = False,
     user: User = Depends(get_current_user),
 ):
     """TEMPORARY read-only trace of what moved a Close Book "Computed" figure.
@@ -11479,13 +11480,26 @@ async def cheque_computed_trace(
         "cheque_mode_count": sum(1 for r in touched if r["classified_mode"] == mode),
         "rows": touched[:300],
     }
+    # 386 records share this amount, which blew the response size and buried
+    # the answer. Only the ones actually touched inside the window can be the
+    # cause, so only those are listed; the rest are summarised by mode.
+    _am_in_window = [r for r in amount_matches if r.get("timestamps_inside_window")]
+    _am_rest_by_mode: Dict[str, int] = {}
+    for r in amount_matches:
+        if not r.get("timestamps_inside_window"):
+            k = str(r.get("classified_mode")) + "/" + str(r.get("collection"))
+            _am_rest_by_mode[k] = _am_rest_by_mode.get(k, 0) + 1
     out["amount_matches_anywhere"] = {
         "target": target,
-        "note": ("Every record in the system whose amount equals the unexplained "
-                 "gap, regardless of date - the gap is a round number, so one of "
-                 "these is very likely it."),
-        "count": len(amount_matches),
-        "rows": amount_matches[:200],
+        "total_records_with_this_amount": len(amount_matches),
+        "touched_inside_window": len(_am_in_window),
+        "rows_touched_inside_window": _am_in_window,
+        "untouched_summary_by_mode_collection": _am_rest_by_mode,
+        "note": ("A record with this amount only matters if one of its "
+                 "timestamps falls inside the window. NOTE: income is HARD "
+                 "deleted (db.income.delete_one), so a deleted income can "
+                 "never appear here - see prime_suspects for delete/income "
+                 "events, whose audit detail carries the amount."),
     }
 
     # cheque-mode rows dated OUTSIDE the drill-down range but touched in window
@@ -11517,14 +11531,25 @@ async def cheque_computed_trace(
 
     # Most-decisive sections first: the first run was truncated by response
     # size before the answer was reached.
-    PRIORITY = ["write_performed", "read_only", "reconciliation", "window",
-                "carry_forward", "amount_matches_anywhere", "backdated_suspects",
-                "prime_suspects", "events_inside_window", "closings",
-                "audit_events_in_window"]
+    PRIORITY = ["write_performed", "read_only", "reconciliation",
+                "prime_suspects", "amount_matches_anywhere", "carry_forward",
+                "window", "backdated_suspects", "events_inside_window",
+                "closings", "audit_events_in_window"]
     ordered = {k: out[k] for k in PRIORITY if k in out}
     for k, v in out.items():
         if k not in ordered:
             ordered[k] = v
+    if not full:
+        # Keep the response small enough to actually reach the reader.
+        ordered.pop("closings", None)
+        ev = ordered.get("events_inside_window")
+        if isinstance(ev, dict):
+            ev["rows"] = [r for r in ev.get("rows", [])
+                          if r.get("classified_mode") == mode][:40]
+        aw = ordered.get("audit_events_in_window")
+        if isinstance(aw, dict):
+            aw.pop("events", None)
+            aw["events_omitted"] = "pass full=true to include"
     return fast_json(ordered)
 
 
