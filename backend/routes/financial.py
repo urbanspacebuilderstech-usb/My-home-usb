@@ -11335,29 +11335,63 @@ async def cheque_computed_trace(
     lock_audits = await db.audit_logs.find(
         {"action": "lock_closing_balance"}, {"_id": 0}
     ).sort("timestamp", -1).to_list(50)
-    out["carry_forward"]["lock_history"] = [
+    _locks = [
         {"timestamp": _iso(a.get("timestamp")), "user_id": a.get("user_id"),
          "details": a.get("details"), "inside_window": _in_window(a.get("timestamp"))}
         for a in lock_audits
     ]
+    out["carry_forward"]["locks_inside_window"] = [l for l in _locks if l["inside_window"]]
+    out["carry_forward"]["lock_history_recent"] = _locks[:3]
+    out["carry_forward"]["lock_history_total"] = len(_locks)
 
     # ---------- 3. every audited event inside the window ------------------
     audits = await db.audit_logs.find({}, {"_id": 0}).sort("timestamp", -1).to_list(20000)
     in_window_audits = [a for a in audits if _in_window(a.get("timestamp"))]
-    out["audit_events_in_window"] = {
-        "count": len(in_window_audits),
-        "by_action": {},
-        "events": [
-            {"timestamp": _iso(a.get("timestamp")), "action": a.get("action"),
-             "resource_type": a.get("resource_type"), "resource_id": a.get("resource_id"),
-             "user_id": a.get("user_id"), "details": a.get("details")}
-            for a in in_window_audits[:400]
-        ],
-    }
+
+    AUTH_NOISE = {"login", "logout", "login_failed"}
+
+    def _ev(a):
+        return {"timestamp": _iso(a.get("timestamp")), "action": a.get("action"),
+                "resource_type": a.get("resource_type"), "resource_id": a.get("resource_id"),
+                "user_id": a.get("user_id"), "details": a.get("details")}
+
+    by_action: Dict[str, int] = {}
     for a in in_window_audits:
         k = str(a.get("action")) + " / " + str(a.get("resource_type"))
-        out["audit_events_in_window"]["by_action"][k] = \
-            out["audit_events_in_window"]["by_action"].get(k, 0) + 1
+        by_action[k] = by_action.get(k, 0) + 1
+
+    # Only events that can actually move a money total. Auth traffic is still
+    # counted in by_action but dropped from the listing - it was 246 of 514
+    # rows and crowded the answer out of the response.
+    MONEY_ACTIONS = {"bounce", "delete", "hard_delete", "review_approve", "approve",
+                     "accounts_approve", "pay", "cheque_payment", "reverse",
+                     "delete_material_suspense", "delete_labour_suspense",
+                     "delete_petty_cash", "daily_closing_reopen"}
+    MONEY_RESOURCES = {"income", "cheque", "expense", "material", "material_expense",
+                       "credit_ledger", "daily_closings"}
+    prime = [a for a in in_window_audits
+             if (a.get("action") in MONEY_ACTIONS or a.get("resource_type") in MONEY_RESOURCES)
+             and a.get("action") not in AUTH_NOISE]
+    # Removals first: bounce/delete are the only events that take money OUT of
+    # a total, which is the direction this gap needs.
+    prime.sort(key=lambda a: (a.get("action") not in
+                              ("bounce", "delete", "hard_delete", "daily_closing_reopen"),
+                              str(a.get("timestamp"))))
+    out["prime_suspects"] = {
+        "note": ("Events inside the window that can move a money total, "
+                 "removals first."),
+        "count": len(prime),
+        "events": [_ev(a) for a in prime[:150]],
+    }
+    out["audit_events_in_window"] = {
+        "count": len(in_window_audits),
+        "by_action": by_action,
+        "auth_events_excluded_from_listing": sum(
+            1 for a in in_window_audits if a.get("action") in AUTH_NOISE),
+        "events": [_ev(a) for a in in_window_audits
+                   if a.get("action") not in AUTH_NOISE][:120],
+    }
+
 
     # ---------- 4. scan the money collections -----------------------------
     SOURCES = [
@@ -11480,7 +11514,18 @@ async def cheque_computed_trace(
                     and abs((float(c_a) - known - float(target)) - float(c_b)) < 0.5),
         "formula": "Computed(mode) = income(mode) - expense(mode) - carry_forward(mode)",
     }
-    return fast_json(out)
+
+    # Most-decisive sections first: the first run was truncated by response
+    # size before the answer was reached.
+    PRIORITY = ["write_performed", "read_only", "reconciliation", "window",
+                "carry_forward", "amount_matches_anywhere", "backdated_suspects",
+                "prime_suspects", "events_inside_window", "closings",
+                "audit_events_in_window"]
+    ordered = {k: out[k] for k in PRIORITY if k in out}
+    for k, v in out.items():
+        if k not in ordered:
+            ordered[k] = v
+    return fast_json(ordered)
 
 
 @router.get("/admin/suspense-mode-audit")
