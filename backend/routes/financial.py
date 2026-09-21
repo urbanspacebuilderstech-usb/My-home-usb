@@ -11214,6 +11214,275 @@ async def suspense_mode_backfill_dryrun(entry_ids: str, payment_mode: str = "che
     }
 
 
+@router.get("/admin/cheque-computed-trace")
+async def cheque_computed_trace(
+    date_a: str = "2026-09-12",
+    date_b: str = "2026-09-16",
+    mode: str = "cheque",
+    target: float = 100000.0,
+    user: User = Depends(get_current_user),
+):
+    """TEMPORARY read-only trace of what moved a Close Book "Computed" figure.
+
+    Sep 21 2026 - Cheque Computed went 86,11,851.71 (12-09) -> 78,78,004.96
+    (16-09). Expenses dated 13-09..17-09 explain 6,33,846.75 of that, leaving
+    exactly 1,00,000 unexplained. Computed is a cumulative all-time balance
+    snapshotted when Close is clicked:
+
+        Computed(mode) = income(mode) - expense(mode) - carry_forward(mode)
+
+    so it moves whenever ANY historical row enters or leaves those totals -
+    an older bill being approved, a back-dated entry, a deleted or bounced
+    income - none of which a date-filtered cashbook view can show.
+
+    This reports every event between the two closing timestamps that could
+    have done it. It performs NO writes of any kind.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    def _ts(v):
+        """Normalise a stored timestamp (datetime OR ISO string) to aware UTC."""
+        if v is None:
+            return None
+        if isinstance(v, datetime):
+            return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
+        if isinstance(v, str) and v.strip():
+            raw = v.strip().replace("Z", "+00:00")
+            try:
+                d = datetime.fromisoformat(raw)
+            except ValueError:
+                try:
+                    d = datetime.fromisoformat(raw[:19])
+                except ValueError:
+                    return None
+            return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+        return None
+
+    def _iso(v):
+        d = _ts(v)
+        return d.isoformat() if d else None
+
+    TIME_FIELDS = ("created_at", "updated_at", "approved_at", "deleted_at",
+                   "bounced_at", "closed_at", "date", "received_date")
+
+    out: Dict[str, Any] = {"write_performed": False, "read_only": True}
+
+    # ---------- 1. the two closing snapshots -----------------------------
+    closings = await db.daily_closings.find(
+        {"date": {"$in": [date_a, date_b]}}, {"_id": 0}
+    ).to_list(50)
+    by_date: Dict[str, Any] = {}
+    for r in closings:
+        by_date.setdefault(r["date"], {})[r["mode"]] = {
+            "computed_balance": r.get("computed_balance"),
+            "actual_balance": r.get("actual_balance"),
+            "variance": r.get("variance"),
+            "closed_at": _iso(r.get("closed_at")),
+            "closed_by_name": r.get("closed_by_name"),
+            "reopened": r.get("reopened"),
+            "remark": r.get("remark"),
+        }
+    out["closings"] = by_date
+
+    row_a = (by_date.get(date_a) or {}).get(mode) or {}
+    row_b = (by_date.get(date_b) or {}).get(mode) or {}
+    t_a = _ts(row_a.get("closed_at"))
+    t_b = _ts(row_b.get("closed_at"))
+    out["window"] = {
+        "from_close": date_a, "from_clicked_at": row_a.get("closed_at"),
+        "to_close": date_b, "to_clicked_at": row_b.get("closed_at"),
+        "note": ("Computed is snapshotted at the moment Close is clicked, "
+                 "not at end of day. Anything entering the books inside this "
+                 "window moves the later figure."),
+    }
+    if not t_a or not t_b:
+        out["ERROR"] = ("Could not read both closing timestamps for mode "
+                        + str(mode) + "; check date_a/date_b/mode.")
+        return fast_json(out)
+
+    def _in_window(v):
+        d = _ts(v)
+        return bool(d and t_a <= d <= t_b)
+
+    def _touch_report(doc):
+        """Which timestamps on this doc fall inside the window."""
+        hits = {}
+        for f in TIME_FIELDS:
+            if f in doc and _in_window(doc.get(f)):
+                hits[f] = _iso(doc.get(f))
+        return hits
+
+    # ---------- 2. carry forward: did the third term move? ---------------
+    cb = await db.closing_balances.find_one({"_id": CLOSING_BALANCE_DOC_ID}) or {}
+    cb_bucket = (cb.get("buckets") or {}).get(mode) or {}
+    cf_locked_at = _iso(cb.get("locked_at"))
+    out["carry_forward"] = {
+        "bucket": mode,
+        "income": cb_bucket.get("income"),
+        "expense_term_used_by_Computed": cb_bucket.get("expense"),
+        "balance": cb_bucket.get("balance"),
+        "locked_at": cf_locked_at,
+        "locked_by_name": cb.get("locked_by_name"),
+        "changed_inside_window": _in_window(cb.get("locked_at")),
+        "verdict": ("CARRY FORWARD CHANGED INSIDE THE WINDOW - it is a suspect"
+                    if _in_window(cb.get("locked_at")) else
+                    "unchanged inside the window - cancels out, not the cause"),
+        "caveat": ("closing_balances is ONE document overwritten in place, so "
+                   "only the latest lock survives; the audit entry records the "
+                   "total only, not the per-bucket split."),
+    }
+    lock_audits = await db.audit_logs.find(
+        {"action": "lock_closing_balance"}, {"_id": 0}
+    ).sort("timestamp", -1).to_list(50)
+    out["carry_forward"]["lock_history"] = [
+        {"timestamp": _iso(a.get("timestamp")), "user_id": a.get("user_id"),
+         "details": a.get("details"), "inside_window": _in_window(a.get("timestamp"))}
+        for a in lock_audits
+    ]
+
+    # ---------- 3. every audited event inside the window ------------------
+    audits = await db.audit_logs.find({}, {"_id": 0}).sort("timestamp", -1).to_list(20000)
+    in_window_audits = [a for a in audits if _in_window(a.get("timestamp"))]
+    out["audit_events_in_window"] = {
+        "count": len(in_window_audits),
+        "by_action": {},
+        "events": [
+            {"timestamp": _iso(a.get("timestamp")), "action": a.get("action"),
+             "resource_type": a.get("resource_type"), "resource_id": a.get("resource_id"),
+             "user_id": a.get("user_id"), "details": a.get("details")}
+            for a in in_window_audits[:400]
+        ],
+    }
+    for a in in_window_audits:
+        k = str(a.get("action")) + " / " + str(a.get("resource_type"))
+        out["audit_events_in_window"]["by_action"][k] = \
+            out["audit_events_in_window"]["by_action"].get(k, 0) + 1
+
+    # ---------- 4. scan the money collections -----------------------------
+    SOURCES = [
+        ("recorded_expenses", "expense_id", "expense", ("payment_method", "payment_mode")),
+        ("income", "income_id", "income", ("payment_mode", "payment_method")),
+        ("material_requests", "request_id", "expense", ("payment_method", "payment_mode")),
+        ("labour_expenses", "labour_expense_id", "expense", ("payment_method", "payment_mode")),
+        ("material_expenses", "expense_id", "expense", ("payment_method", "payment_mode")),
+        ("cheques", "cheque_id", "cheque", ("payment_mode", "payment_method")),
+    ]
+
+    touched: List[Dict[str, Any]] = []
+    amount_matches: List[Dict[str, Any]] = []
+
+    for coll, id_field, kind, mode_fields in SOURCES:
+        docs = await db[coll].find({}, {"_id": 0}).to_list(50000)
+        for d in docs:
+            raw_mode = None
+            for mf in mode_fields:
+                if d.get(mf):
+                    raw_mode = d.get(mf)
+                    break
+            bucket = classify_payment_mode(raw_mode) if raw_mode else None
+            amt = 0.0
+            for af in ("amount", "total_amount", "estimated_price", "final_price"):
+                try:
+                    if d.get(af) is not None:
+                        amt = float(d.get(af) or 0)
+                        break
+                except (TypeError, ValueError):
+                    continue
+
+            hits = _touch_report(d)
+            is_amount_match = abs(abs(amt) - abs(float(target))) < 0.5
+
+            base = {
+                "collection": coll,
+                "id": d.get(id_field) or d.get("expense_id") or d.get("cheque_id"),
+                "amount": amt,
+                "kind": kind,
+                "raw_payment_mode": raw_mode,
+                "classified_mode": bucket,
+                "status": d.get("status"),
+                "is_deleted": d.get("is_deleted"),
+                "entry_date": d.get("date") or d.get("received_date"),
+                "created_at": _iso(d.get("created_at")),
+                "updated_at": _iso(d.get("updated_at")),
+                "approved_at": _iso(d.get("approved_at")),
+                "deleted_at": _iso(d.get("deleted_at")),
+                "bounced_at": _iso(d.get("bounced_at")),
+                "vendor_name": d.get("vendor_name") or d.get("contractor_name"),
+                "project_id": d.get("project_id"),
+                "description": (d.get("description") or d.get("material_name")
+                                or d.get("cheque_number")),
+            }
+
+            if hits and (bucket == mode or is_amount_match):
+                row = dict(base)
+                row["timestamps_inside_window"] = hits
+                # signed effect on Computed(mode), by direction of the event
+                if bucket == mode:
+                    if "deleted_at" in hits or d.get("is_deleted"):
+                        row["signed_effect_on_computed"] = (amt if kind == "expense" else -amt)
+                        row["why"] = "removed from the books inside the window"
+                    elif "created_at" in hits:
+                        row["signed_effect_on_computed"] = (-amt if kind == "expense" else amt)
+                        row["why"] = "created inside the window"
+                    else:
+                        row["signed_effect_on_computed"] = None
+                        row["why"] = ("changed inside the window (status/approval) - "
+                                      "sign depends on whether it entered or left the totals")
+                else:
+                    row["signed_effect_on_computed"] = None
+                    row["why"] = "amount matches the gap but mode is not " + str(mode)
+                touched.append(row)
+
+            if is_amount_match:
+                row = dict(base)
+                row["timestamps_inside_window"] = hits
+                amount_matches.append(row)
+
+    touched.sort(key=lambda r: (r.get("classified_mode") != mode, -(r.get("amount") or 0)))
+    out["events_inside_window"] = {
+        "count": len(touched),
+        "cheque_mode_count": sum(1 for r in touched if r["classified_mode"] == mode),
+        "rows": touched[:300],
+    }
+    out["amount_matches_anywhere"] = {
+        "target": target,
+        "note": ("Every record in the system whose amount equals the unexplained "
+                 "gap, regardless of date - the gap is a round number, so one of "
+                 "these is very likely it."),
+        "count": len(amount_matches),
+        "rows": amount_matches[:200],
+    }
+
+    # cheque-mode rows dated OUTSIDE the drill-down range but touched in window
+    out["backdated_suspects"] = {
+        "note": ("Cheque-mode rows that entered/changed inside the window but "
+                 "are dated outside 13-09..17-09 - exactly the profile that a "
+                 "date-filtered drill-down cannot show."),
+        "rows": [r for r in touched
+                 if r["classified_mode"] == mode
+                 and str(r.get("entry_date") or "")[:10] not in
+                 ("2026-09-13", "2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17")],
+    }
+
+    # ---------- 5. the arithmetic ----------------------------------------
+    c_a = row_a.get("computed_balance")
+    c_b = row_b.get("computed_balance")
+    known = 633846.75
+    out["reconciliation"] = {
+        "computed_at_" + date_a: c_a,
+        "known_expense_effect": -known,
+        "unexplained_target": -float(target),
+        "expected_" + date_b: (round(float(c_a) - known - float(target), 2)
+                               if c_a is not None else None),
+        "actual_computed_at_" + date_b: c_b,
+        "matches": (c_a is not None and c_b is not None
+                    and abs((float(c_a) - known - float(target)) - float(c_b)) < 0.5),
+        "formula": "Computed(mode) = income(mode) - expense(mode) - carry_forward(mode)",
+    }
+    return fast_json(out)
+
+
 @router.get("/admin/suspense-mode-audit")
 async def suspense_mode_audit(user: User = Depends(get_current_user)):
     """READ-ONLY: why each material suspense entry lands in the mode tile it does.
