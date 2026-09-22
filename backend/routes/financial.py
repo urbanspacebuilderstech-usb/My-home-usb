@@ -11351,7 +11351,29 @@ async def cheque_amount_correction_preview(
             {"expense_id": l.get("expense_id"), "amount": _f(l.get("amount")),
              "tendered_amount": _f(l.get("tendered_amount")),
              "status": l.get("status"), "description": l.get("description"),
-             "payment_method": l.get("payment_method")} for l in legs],
+             "payment_method": l.get("payment_method"),
+             # WHY did this leg match? A bare cheque_number match is NOT proof:
+             # banks recycle numbers, and get_cheque_usage already documents
+             # that a number match must be scoped to a project.
+             "matched_on": [k for k, ok in (
+                 ("cheque_id == this cheque", l.get("cheque_id") == cid),
+                 ("cheque_ids contains it", cid in (l.get("cheque_ids") or [])),
+                 ("cheque_no == cheque_id", l.get("cheque_no") == cid),
+                 ("payment_legs.cheque_id", any(
+                     (pl or {}).get("cheque_id") == cid
+                     for pl in (l.get("payment_legs") or []))),
+                 ("cheque_number string only (WEAK - numbers are recycled)",
+                  bool(cnum) and (l.get("cheque_number") == cnum
+                                  or l.get("cheque_no") == cnum)),
+             ) if ok],
+             "leg_cheque_id": l.get("cheque_id"),
+             "leg_cheque_ids": l.get("cheque_ids"),
+             "leg_cheque_no": l.get("cheque_no"),
+             "leg_cheque_number": l.get("cheque_number"),
+             "leg_project_id": l.get("project_id"),
+             "same_project_as_cheque": l.get("project_id") == chq.get("project_id"),
+             "vendor_name": l.get("vendor_name"),
+             "created_at": l.get("created_at")} for l in legs],
         "suspense_entries_referencing_it": [
             {"entry_id": s.get("entry_id"), "amount": _f(s.get("amount")),
              "type": s.get("type"), "vendor_name": s.get("vendor_name"),
@@ -11359,13 +11381,24 @@ async def cheque_amount_correction_preview(
         "used_for_expense_id": chq.get("used_for_expense_id"),
         "availability_before": round(current - active_alloc, 2),
         "availability_after": round(proposed - active_alloc, 2),
-        "verdict": ("UNSPENT - no allocations, no expense legs, no suspense. "
-                    "Raising the face value only raises what is available to "
-                    "draw later; it cannot disturb an existing payment."
-                    if not allocs and not legs and not susp else
-                    "SPENT - this cheque already funded something. Review the "
-                    "rows above before changing the face value."),
+        "strong_links_only": [
+            l.get("expense_id") for l in legs
+            if l.get("cheque_id") == cid
+            or cid in (l.get("cheque_ids") or [])
+            or l.get("cheque_no") == cid
+            or any((pl or {}).get("cheque_id") == cid
+                   for pl in (l.get("payment_legs") or []))],
+        "verdict": None,
     }
+
+    _strong = out["spending_side"]["strong_links_only"]
+    out["spending_side"]["verdict"] = (
+        "UNSPENT - no allocations, no suspense, and no expense leg links to "
+        "this cheque by id. Raising the face value only raises what is "
+        "available to draw later; it cannot disturb an existing payment."
+        if not allocs and not susp and not _strong else
+        "SPENT - " + str(len(_strong)) + " expense leg(s) link by id: "
+        + ", ".join(_strong) + ". Review before changing the face value.")
 
     # ---------- 4. audit / creation history ------------------------------
     audits = await db.audit_logs.find(
