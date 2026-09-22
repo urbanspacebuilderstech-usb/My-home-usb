@@ -11214,6 +11214,206 @@ async def suspense_mode_backfill_dryrun(entry_ids: str, payment_mode: str = "che
     }
 
 
+@router.get("/admin/cheque-amount-correction-preview")
+async def cheque_amount_correction_preview(
+    cheque_number: str = "000005",
+    party: str = "Pushpalatha",
+    proposed_amount: float = 150000.0,
+    cheque_id: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """TEMPORARY read-only preview of correcting ONE cheque's face value.
+
+    Sep 22 2026 - the client paid 4,50,000 with four cheques, the last being
+    1,50,000, but #000005 is stored as 1,00,000. That is why the group's
+    cheques total 4,00,000 against 4,50,000 of income.
+
+    This reports every consumer of that cheque's face value and simulates the
+    correction, so the blast radius is known BEFORE any write. It performs no
+    writes of any kind.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    out: Dict[str, Any] = {"write_performed": False, "read_only": True}
+
+    q: Dict[str, Any] = {"cheque_id": cheque_id} if cheque_id else {"cheque_number": cheque_number}
+    matches = await db.cheques.find(q, {"_id": 0}).to_list(50)
+    if party and len(matches) > 1:
+        narrowed = [c for c in matches
+                    if party.lower() in str(c.get("party_name") or "").lower()]
+        if narrowed:
+            matches = narrowed
+    if not matches:
+        out["ERROR"] = "no cheque matched"
+        return fast_json(out)
+    if len(matches) > 1:
+        out["ERROR"] = "ambiguous - pass cheque_id"
+        out["candidates"] = [{"cheque_id": c.get("cheque_id"),
+                              "party_name": c.get("party_name"),
+                              "amount": _f(c.get("amount"))} for c in matches]
+        return fast_json(out)
+
+    chq = matches[0]
+    cid = chq["cheque_id"]
+    cnum = chq.get("cheque_number")
+    current = _f(chq.get("amount"))
+    proposed = _f(proposed_amount)
+    delta = round(proposed - current, 2)
+
+    out["target_cheque"] = chq
+    out["change"] = {"field": "cheques.amount", "cheque_id": cid,
+                     "before": current, "after": proposed, "delta": delta}
+
+    # ---------- 1. the bulk group, before and after ----------------------
+    bulk_id = chq.get("bulk_collection_id")
+    group = await db.cheques.find({"bulk_collection_id": bulk_id}, {"_id": 0}).to_list(200) \
+        if bulk_id else [chq]
+    live = [c for c in group
+            if str(c.get("status") or "").lower() not in ("bounced", "cancelled", "deleted")
+            and not c.get("is_disabled")]
+    grp_before = round(sum(_f(c.get("amount")) for c in live), 2)
+    grp_after = round(grp_before + delta, 2)
+
+    inc_or: List[Dict[str, Any]] = [{"cheque_id": cid}]
+    if bulk_id:
+        inc_or.append({"bulk_collection_id": bulk_id})
+    incomes = await db.income.find({"$or": inc_or}, {"_id": 0}).to_list(200)
+    incomes = list({i["income_id"]: i for i in incomes if i.get("income_id")}.values())
+    inc_total = round(sum(_f(i.get("amount")) for i in incomes), 2)
+
+    out["group_reconciliation"] = {
+        "bulk_collection_id": bulk_id,
+        "cheques_in_group": [{"cheque_number": c.get("cheque_number"),
+                              "cheque_id": c.get("cheque_id"),
+                              "amount_before": _f(c.get("amount")),
+                              "amount_after": (proposed if c.get("cheque_id") == cid
+                                               else _f(c.get("amount")))}
+                             for c in sorted(live, key=lambda x: str(x.get("cheque_number")))],
+        "cheque_total_before": grp_before,
+        "cheque_total_after": grp_after,
+        "income_total_before": inc_total,
+        "income_total_after": inc_total,
+        "income_is_untouched_by_this_change": True,
+        "difference_before": round(inc_total - grp_before, 2),
+        "difference_after": round(inc_total - grp_after, 2),
+        "closes_to_zero": abs(inc_total - grp_after) < 0.5,
+    }
+
+    # ---------- 2. income + stages: proof nothing else moves -------------
+    stage_ids = [i.get("payment_stage_id") or i.get("stage_id") for i in incomes
+                 if i.get("payment_stage_id") or i.get("stage_id")]
+    stages = await db.payment_stages.find(
+        {"stage_id": {"$in": list(set(stage_ids))}},
+        {"_id": 0, "stage_id": 1, "stage_name": 1, "stage_label": 1, "amount": 1,
+         "amount_received": 1, "status": 1},
+    ).to_list(100) if stage_ids else []
+
+    out["unchanged_by_this_correction"] = {
+        "income_rows": [{"income_id": i.get("income_id"), "amount": _f(i.get("amount")),
+                         "payment_mode": i.get("payment_mode"), "status": i.get("status"),
+                         "stage": i.get("stage"), "description": i.get("description")}
+                        for i in incomes],
+        "payment_stages": stages,
+        "why": ("Income rows and payment_stages.amount_received store their own "
+                "values. No read path recomputes them from cheques.amount, so "
+                "editing the face value cannot add income, double-count income, "
+                "alter the recorded 4,50,000, or move a stage's received amount."),
+    }
+
+    # ---------- 3. has this cheque been SPENT? ---------------------------
+    allocs = await db.cheque_allocations.find({"cheque_id": cid}, {"_id": 0}).to_list(200)
+    active_alloc = round(sum(_f(a.get("amount")) for a in allocs
+                             if a.get("status") == "active"), 2)
+
+    or_terms: List[Dict[str, Any]] = [
+        {"cheque_id": cid}, {"cheque_ids": cid}, {"cheque_no": cid},
+        {"payment_legs.cheque_id": cid},
+    ]
+    if cnum:
+        or_terms += [{"cheque_number": cnum}, {"cheque_no": cnum}]
+    legs = await db.recorded_expenses.find({"$or": or_terms}, {"_id": 0}).to_list(200)
+
+    susp = await db.suspense_entries.find(
+        {"$or": [{"cheque_id": cid}, {"cheque_no": cnum}, {"cheque_number": cnum}]},
+        {"_id": 0}).to_list(200)
+
+    out["spending_side"] = {
+        "cheque_allocations": {"count": len(allocs), "active_total": active_alloc,
+                               "rows": allocs},
+        "recorded_expense_legs_referencing_it": [
+            {"expense_id": l.get("expense_id"), "amount": _f(l.get("amount")),
+             "tendered_amount": _f(l.get("tendered_amount")),
+             "status": l.get("status"), "description": l.get("description"),
+             "payment_method": l.get("payment_method")} for l in legs],
+        "suspense_entries_referencing_it": [
+            {"entry_id": s.get("entry_id"), "amount": _f(s.get("amount")),
+             "type": s.get("type"), "vendor_name": s.get("vendor_name"),
+             "payment_mode": s.get("payment_mode")} for s in susp],
+        "used_for_expense_id": chq.get("used_for_expense_id"),
+        "availability_before": round(current - active_alloc, 2),
+        "availability_after": round(proposed - active_alloc, 2),
+        "verdict": ("UNSPENT - no allocations, no expense legs, no suspense. "
+                    "Raising the face value only raises what is available to "
+                    "draw later; it cannot disturb an existing payment."
+                    if not allocs and not legs and not susp else
+                    "SPENT - this cheque already funded something. Review the "
+                    "rows above before changing the face value."),
+    }
+
+    # ---------- 4. audit / creation history ------------------------------
+    audits = await db.audit_logs.find(
+        {"$or": [{"resource_id": cid}, {"resource_id": cnum},
+                 {"details.cheque_id": cid}, {"details.cheque_number": cnum}]},
+        {"_id": 0}).sort("timestamp", -1).to_list(100)
+    out["audit_history"] = {
+        "count": len(audits),
+        "events": [{"timestamp": a.get("timestamp"), "action": a.get("action"),
+                    "resource_type": a.get("resource_type"),
+                    "user_id": a.get("user_id"), "details": a.get("details")}
+                   for a in audits[:40]],
+    }
+
+    # ---------- 5. every consumer of this face value ---------------------
+    out["consumers_of_cheques_amount"] = {
+        "recalculated_live_everywhere": True,
+        "no_stored_totals_to_resynchronise": True,
+        "list": [
+            {"where": "Cheque Management tiles (RECEIVED / OPENED / ISSUED / BOUNCED)",
+             "how": "frontend reduce over c.amount in ChequeListView.jsx",
+             "effect": f"RECEIVED rises by {delta:,.0f}", "needs_sync": False},
+            {"where": "Cheque Usage Details popup",
+             "how": "compares linked income against cheque amount",
+             "effect": "group total becomes 4,50,000 and matches income",
+             "needs_sync": False},
+            {"where": "cheque availability (face - active allocations - seeded)",
+             "how": "computed live per request",
+             "effect": f"available rises by {delta:,.0f} on this cheque only",
+             "needs_sync": False},
+            {"where": "bounce_cheque - bounce_amount = float(cheque['amount'])",
+             "how": "reverses income equal to the FACE VALUE",
+             "effect": ("today a bounce would reverse only 1,00,000 and leave "
+                        "50,000 of phantom income; after the fix it reverses "
+                        "the true 1,50,000"),
+             "needs_sync": False, "is_a_reason_to_fix": True},
+            {"where": "Cashbook / Close Books / income_by_mode",
+             "how": "reads db.income, never cheques.amount",
+             "effect": "NO CHANGE - Close Book Computed figures do not move",
+             "needs_sync": False},
+            {"where": "payment_stages.amount_received",
+             "how": "written from income at collection time",
+             "effect": "NO CHANGE", "needs_sync": False},
+        ],
+    }
+    return fast_json(out)
+
+
 @router.get("/admin/bulk-collection-trace")
 async def bulk_collection_trace(
     cheque_number: str = "000003",
