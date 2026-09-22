@@ -11214,6 +11214,205 @@ async def suspense_mode_backfill_dryrun(entry_ids: str, payment_mode: str = "che
     }
 
 
+@router.get("/admin/bulk-collection-trace")
+async def bulk_collection_trace(
+    cheque_number: str = "000003",
+    party: str = "Pushpalatha",
+    cheque_id: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """TEMPORARY read-only trace of one bulk collection group.
+
+    Sep 22 2026 - Cheque Usage Details on a 1,00,000 cheque reports
+    "linked income 4,50,000" and warns that they do not match. The usage
+    endpoint gathers income by `bulk_collection_id` - the system's grouping
+    for a multi-cheque / multi-income collection - and then sums each income
+    IN FULL with no per-cheque apportionment, so every cheque in the group
+    reports the group's entire income.
+
+    This lays the group out: every cheque, every income, each income's
+    payment mode, and the reconciliation between them - so the non-cheque
+    remainder can be named rather than inferred.
+
+    Reads only. No writes, and it deliberately does NOT call
+    /cheques/{id}/usage, which self-heals (writes) party/recorded-by fields.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    CHQ_F = {"_id": 0, "cheque_id": 1, "cheque_number": 1, "amount": 1, "status": 1,
+             "cheque_type": 1, "bank_name": 1, "party_name": 1, "project_id": 1,
+             "bulk_collection_id": 1, "income_id": 1, "stage_id": 1, "is_disabled": 1,
+             "cheque_date": 1, "created_at": 1, "collected_date": 1, "collected_by": 1,
+             "used_for_expense_id": 1, "recorded_by_name": 1}
+    INC_F = {"_id": 0, "income_id": 1, "amount": 1, "payment_mode": 1, "status": 1,
+             "project_id": 1, "bulk_collection_id": 1, "cheque_id": 1,
+             "cheque_number": 1, "payment_reference": 1, "payment_stage_id": 1,
+             "stage_id": 1, "stage": 1, "description": 1, "date": 1,
+             "received_date": 1, "created_at": 1, "approved_at": 1, "category": 1}
+
+    out: Dict[str, Any] = {"write_performed": False, "read_only": True}
+
+    # ---------- 1. locate the cheque ------------------------------------
+    q: Dict[str, Any] = {"cheque_id": cheque_id} if cheque_id else {"cheque_number": cheque_number}
+    seed_cheques = await db.cheques.find(q, CHQ_F).to_list(50)
+    if party and len(seed_cheques) > 1:
+        narrowed = [c for c in seed_cheques
+                    if party.lower() in str(c.get("party_name") or "").lower()]
+        if narrowed:
+            seed_cheques = narrowed
+    if not seed_cheques:
+        out["ERROR"] = "no cheque matched; pass cheque_id or a different cheque_number"
+        return fast_json(out)
+
+    seed = seed_cheques[0]
+    out["seed_cheque"] = seed
+    bulk_id = seed.get("bulk_collection_id")
+    project_id = seed.get("project_id")
+    out["bulk_collection_id"] = bulk_id
+    out["grouping_verdict"] = (
+        "cheque HAS a bulk_collection_id - the usage popup will show the whole "
+        "group's income on every cheque in it"
+        if bulk_id else
+        "cheque has NO bulk_collection_id - income must be linked some other way "
+        "(see income_match_reason on each row below)")
+
+    # ---------- 2. every cheque in the group ----------------------------
+    chq_or: List[Dict[str, Any]] = []
+    if bulk_id:
+        chq_or.append({"bulk_collection_id": bulk_id})
+    if project_id:
+        chq_or.append({"project_id": project_id, "cheque_type": "incoming"})
+    group_cheques = await db.cheques.find({"$or": chq_or}, CHQ_F).to_list(500) if chq_or else [seed]
+    group_cheques = list({c["cheque_id"]: c for c in group_cheques if c.get("cheque_id")}.values())
+    group_cheques.sort(key=lambda c: str(c.get("cheque_number") or ""))
+
+    in_bulk = [c for c in group_cheques if bulk_id and c.get("bulk_collection_id") == bulk_id]
+    same_project_only = [c for c in group_cheques if c not in in_bulk]
+
+    def _chq_total(rows):
+        return round(sum(_f(c.get("amount")) for c in rows
+                         if str(c.get("status") or "").lower() not in
+                         ("bounced", "cancelled", "deleted")
+                         and not c.get("is_disabled")), 2)
+
+    out["cheques"] = {
+        "in_this_bulk_group": {
+            "count": len(in_bulk),
+            "live_total": _chq_total(in_bulk),
+            "rows": in_bulk,
+        },
+        "same_project_but_not_in_group": {
+            "note": "shown for completeness - these are NOT part of the group total",
+            "count": len(same_project_only),
+            "live_total": _chq_total(same_project_only),
+            "rows": same_project_only,
+        },
+    }
+
+    # ---------- 3. every income the usage endpoint would link ------------
+    inc_or: List[Dict[str, Any]] = [{"cheque_id": seed["cheque_id"]}]
+    if bulk_id:
+        inc_or.append({"bulk_collection_id": bulk_id})
+    if seed.get("income_id"):
+        inc_or.append({"income_id": seed["income_id"]})
+    group_incomes = await db.income.find({"$or": inc_or}, INC_F).to_list(500)
+    group_incomes = list({i["income_id"]: i for i in group_incomes if i.get("income_id")}.values())
+
+    for i in group_incomes:
+        reasons = []
+        if i.get("cheque_id") == seed["cheque_id"]:
+            reasons.append("income.cheque_id == this cheque")
+        if bulk_id and i.get("bulk_collection_id") == bulk_id:
+            reasons.append("same bulk_collection_id")
+        if seed.get("income_id") and i.get("income_id") == seed.get("income_id"):
+            reasons.append("cheque.income_id points at it")
+        i["income_match_reason"] = reasons or ["(matched by a looser clause)"]
+        i["counted_in_popup_total"] = True
+
+    group_incomes.sort(key=lambda i: -_f(i.get("amount")))
+    total_income = round(sum(_f(i.get("amount")) for i in group_incomes), 2)
+
+    by_mode: Dict[str, Dict[str, Any]] = {}
+    for i in group_incomes:
+        raw = i.get("payment_mode")
+        key = str(raw) if raw else "(no payment_mode recorded)"
+        b = by_mode.setdefault(key, {"amount": 0.0, "count": 0,
+                                     "classified_mode": classify_payment_mode(raw) if raw else None,
+                                     "income_ids": []})
+        b["amount"] = round(b["amount"] + _f(i.get("amount")), 2)
+        b["count"] += 1
+        b["income_ids"].append(i.get("income_id"))
+
+    out["incomes"] = {
+        "count": len(group_incomes),
+        "total_amount": total_income,
+        "by_payment_mode": by_mode,
+        "rows": group_incomes,
+    }
+
+    # ---------- 4. the stages these incomes settle ----------------------
+    stage_ids = [i.get("payment_stage_id") or i.get("stage_id") for i in group_incomes
+                 if i.get("payment_stage_id") or i.get("stage_id")]
+    stages = []
+    if stage_ids:
+        stages = await db.payment_stages.find(
+            {"stage_id": {"$in": list(set(stage_ids))}},
+            {"_id": 0, "stage_id": 1, "stage_name": 1, "stage_label": 1, "amount": 1,
+             "amount_received": 1, "status": 1, "project_id": 1},
+        ).to_list(100)
+    out["stages_settled"] = stages
+
+    # ---------- 5. reconciliation ---------------------------------------
+    cheque_side = _chq_total(in_bulk) if in_bulk else _chq_total([seed])
+    cheque_mode_income = round(sum(
+        v["amount"] for k, v in by_mode.items() if v.get("classified_mode") == "cheque"), 2)
+    non_cheque_income = round(total_income - cheque_mode_income, 2)
+
+    out["reconciliation"] = {
+        "income_total": total_income,
+        "cheques_in_group_total": cheque_side,
+        "difference_income_minus_cheques": round(total_income - cheque_side, 2),
+        "income_recorded_as_cheque_mode": cheque_mode_income,
+        "income_recorded_as_other_modes": non_cheque_income,
+        "other_modes_breakdown": {k: v["amount"] for k, v in by_mode.items()
+                                  if v.get("classified_mode") != "cheque"},
+        "reads": ("If income_recorded_as_other_modes equals "
+                  "difference_income_minus_cheques, the remainder was simply "
+                  "collected in another payment mode and nothing is missing. "
+                  "If they disagree, the gap is a genuine recording problem."),
+    }
+
+    # ---------- 6. what the popup does, and why it warns -----------------
+    seed_amount = _f(seed.get("amount"))
+    out["popup_behaviour"] = {
+        "this_cheque_amount": seed_amount,
+        "popup_shows_linked_income": total_income,
+        "popup_warning_fires": abs(total_income - seed_amount) > 0.5,
+        "why": ("get_cheque_usage sums each linked income IN FULL "
+                "(total_income = sum(i['amount'])) with no per-cheque share, "
+                "then the UI compares that group total against this one "
+                "cheque's face value."),
+        "same_warning_on_every_cheque_in_group": [
+            {"cheque_number": c.get("cheque_number"), "amount": _f(c.get("amount")),
+             "would_show_linked_income": total_income,
+             "would_warn": abs(total_income - _f(c.get("amount"))) > 0.5}
+            for c in in_bulk
+        ],
+        "no_allocation_model_for_incoming": (
+            "cheque_allocations rows are keyed by expense_id (outgoing only), "
+            "so there is no stored per-cheque share for incoming cheques - the "
+            "correct figure cannot be derived from existing data."),
+    }
+    return fast_json(out)
+
+
 @router.get("/admin/cheque-computed-trace")
 async def cheque_computed_trace(
     date_a: str = "2026-09-12",
