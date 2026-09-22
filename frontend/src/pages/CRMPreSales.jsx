@@ -963,8 +963,9 @@ export default function CRMPreSales() {
               <table className="w-full table-fixed">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[16%]">Lead</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[14%]">Contact</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[4%]">S.No</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[14%]">Lead</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Contact</th>
                     <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[9%]">Source</th>
                     <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Assigned</th>
                     <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[11%]">Stage</th>
@@ -974,13 +975,14 @@ export default function CRMPreSales() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).map(lead => (
+                  {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).map((lead, idx) => (
                     <tr 
                       key={lead.lead_id} 
                       className={`hover:bg-gray-50 cursor-pointer transition-colors ${(lead.tags || []).includes('client_office_visit') ? 'bg-emerald-50/80 ring-1 ring-emerald-200' : ''}`}
                       onClick={() => openLeadDetail(lead)}
                       data-testid={(lead.tags || []).includes('client_office_visit') ? 'client-office-visit-lead-row' : undefined}
                     >
+                      <td className="px-2 py-2 text-xs text-gray-500 tabular-nums">{idx + 1}</td>
                       <td className="px-2 py-2">
                         <div className="flex items-center gap-2">
                           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
@@ -1129,7 +1131,7 @@ export default function CRMPreSales() {
                   ))}
                   {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).length === 0 && (
                     <tr>
-                      <td colSpan="6" className="px-4 py-12 text-center text-gray-500">
+                      <td colSpan="9" className="px-4 py-12 text-center text-gray-500">
                         No leads found
                       </td>
                     </tr>

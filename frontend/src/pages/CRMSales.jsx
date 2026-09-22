@@ -1803,8 +1803,9 @@ export default function CRMSales() {
               <table className="w-full table-fixed">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[20%]">Lead</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[18%]">Contact</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[4%]">S.No</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[18%]">Lead</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[16%]">Contact</th>
                     <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Assigned</th>
                     <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[14%]">Stage</th>
                     <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">RE Status</th>
@@ -1813,12 +1814,13 @@ export default function CRMSales() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).map(lead => (
+                  {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).map((lead, idx) => (
                     <tr 
                       key={lead.lead_id} 
                       className="hover:bg-gray-50 cursor-pointer transition-colors"
                       onClick={() => openLeadDetail(lead)}
                     >
+                      <td className="px-2 py-2 text-xs text-gray-500 tabular-nums">{idx + 1}</td>
                       <td className="px-2 py-2">
                         <div className="flex items-center gap-2">
                           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
@@ -2004,7 +2006,7 @@ export default function CRMSales() {
                   ))}
                   {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).length === 0 && (
                     <tr>
-                      <td colSpan="6" className="px-4 py-12 text-center text-gray-500">
+                      <td colSpan="8" className="px-4 py-12 text-center text-gray-500">
                         No leads found
                       </td>
                     </tr>
