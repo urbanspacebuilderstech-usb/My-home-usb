@@ -124,6 +124,39 @@ export default function ProfilePage() {
     setDisableLoading(false);
   };
 
+  // Sep 23 2026 - Route 2: change the password using the CURRENT password,
+  // no email involved. The OTP route depends on the mail service, which is a
+  // server-side setting; when that is unconfigured (or mail is simply slow)
+  // this leaves a working way to change a password. Same backend field, same
+  // hashing - /auth/change-password verifies the current password first.
+  const [curPass, setCurPass] = useState('');
+  const [showCurPass, setShowCurPass] = useState(false);
+  const [directLoading, setDirectLoading] = useState(false);
+
+  const resetPassForms = () => {
+    setShowChangePass(false); setPassStep(0);
+    setOtpCode(''); setNewPass(''); setConfirmPass(''); setCurPass('');
+  };
+
+  const handleChangePasswordDirect = async () => {
+    if (!curPass) { toast.error('Enter your current password'); return; }
+    if (!newPass || newPass.length < 6) { toast.error('New password must be at least 6 characters'); return; }
+    if (newPass !== confirmPass) { toast.error('Passwords do not match'); return; }
+    if (curPass === newPass) { toast.error('New password must be different from the current one'); return; }
+    setDirectLoading(true);
+    try {
+      await axios.post(`${API}/auth/change-password`, {
+        current_password: curPass,
+        new_password: newPass,
+      });
+      toast.success('Password changed successfully');
+      resetPassForms();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to change password');
+    }
+    setDirectLoading(false);
+  };
+
   const handleSendOTP = async () => {
     setOtpSending(true);
     try {
@@ -237,10 +270,92 @@ export default function ProfilePage() {
                           <Input value={user?.email || ''} disabled className="mt-1 bg-white" data-testid="otp-email-display" />
                         </div>
                         <div className="flex gap-2">
-                          <Button variant="outline" onClick={() => { setShowChangePass(false); setPassStep(0); }}>Cancel</Button>
+                          <Button variant="outline" onClick={resetPassForms}>Cancel</Button>
                           <Button onClick={handleSendOTP} disabled={otpSending} className="flex-1 bg-amber-600 hover:bg-amber-700" data-testid="send-otp-btn">
                             {otpSending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Mail className="h-4 w-4 mr-1" />}
                             {otpSending ? 'Sending...' : 'Send OTP'}
+                          </Button>
+                        </div>
+                        <div className="pt-2 border-t">
+                          <p className="text-[11px] text-gray-500">
+                            Not receiving the email? Change your password using your current one instead.
+                          </p>
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="text-xs text-amber-700 p-0 h-auto mt-1"
+                            onClick={() => setPassStep(3)}
+                            data-testid="use-current-password-btn"
+                          >
+                            Use my current password instead
+                          </Button>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Route 2: current password - no email required */}
+                    {passStep === 3 && (
+                      <>
+                        <h4 className="text-sm font-semibold">Change password using your current password</h4>
+                        <p className="text-xs text-gray-500">No email needed. Your current password is verified before the change.</p>
+                        <div>
+                          <Label className="text-xs">Current Password</Label>
+                          <div className="relative mt-1">
+                            <Input
+                              type={showCurPass ? 'text' : 'password'}
+                              value={curPass}
+                              onChange={e => setCurPass(e.target.value)}
+                              placeholder="Your current password"
+                              data-testid="current-password-input"
+                            />
+                            <button type="button" className="absolute right-2 top-2 text-gray-400" onClick={() => setShowCurPass(!showCurPass)}>
+                              {showCurPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-xs">New Password</Label>
+                          <div className="relative mt-1">
+                            <Input
+                              type={showNewPass ? 'text' : 'password'}
+                              value={newPass}
+                              onChange={e => setNewPass(e.target.value)}
+                              placeholder="Min 6 characters"
+                              data-testid="direct-new-password-input"
+                            />
+                            <button type="button" className="absolute right-2 top-2 text-gray-400" onClick={() => setShowNewPass(!showNewPass)}>
+                              {showNewPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Confirm Password</Label>
+                          <Input
+                            type="password"
+                            value={confirmPass}
+                            onChange={e => setConfirmPass(e.target.value)}
+                            placeholder="Re-enter new password"
+                            className="mt-1"
+                            data-testid="direct-confirm-password-input"
+                            onKeyDown={e => e.key === 'Enter' && handleChangePasswordDirect()}
+                          />
+                          {confirmPass && newPass !== confirmPass && (
+                            <p className="text-[10px] text-red-500 mt-0.5">Passwords do not match</p>
+                          )}
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <Button variant="outline" onClick={resetPassForms}>Cancel</Button>
+                          <Button variant="link" size="sm" className="text-xs text-amber-600 p-0" onClick={() => { setPassStep(1); setCurPass(''); }}>
+                            Use email OTP
+                          </Button>
+                          <Button
+                            onClick={handleChangePasswordDirect}
+                            disabled={directLoading || !curPass || !newPass || newPass !== confirmPass}
+                            className="flex-1 bg-amber-600 hover:bg-amber-700"
+                            data-testid="direct-set-password-btn"
+                          >
+                            {directLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                            {directLoading ? 'Saving...' : 'Change Password'}
                           </Button>
                         </div>
                       </>
