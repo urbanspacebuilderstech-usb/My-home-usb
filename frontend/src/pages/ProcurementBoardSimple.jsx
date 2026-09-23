@@ -39,7 +39,8 @@ import {
   ThumbsUp,
   ChevronDown,
   Check,
-  Search
+  Search,
+  Undo2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
@@ -146,6 +147,7 @@ function RequestsTab({ dateRange, projectFilter }) {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(null);
   const [rejectDialog, setRejectDialog] = useState({ open: false, req: null, reason: '' });
+  const [reviseDialog, setReviseDialog] = useState({ open: false, req: null, remarks: '' });
   const [verifyDialog, setVerifyDialog] = useState({ open: false, req: null, invoice_no: '', notes: '', qty_match: true, price_match: true, reject_mode: false, reject_reason: '', received_qty_override: '', unit_price_override: '' });
   const [submitting, setSubmitting] = useState(false);
   // Free-text search across Vendor / Contractor names (mirrors Planning Requests filter bar).
@@ -281,6 +283,19 @@ function RequestsTab({ dateRange, projectFilter }) {
       fetchAll();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to reject');
+    } finally { setSubmitting(false); }
+  };
+
+  const submitRevise = async () => {
+    if (!reviseDialog.req) return;
+    setSubmitting(true);
+    try {
+      await axios.patch(`${API}/procurement-simple/material-requests/${reviseDialog.req.request_id}/self-revise`, { remarks: reviseDialog.remarks });
+      toast.success('Sent back to New Request');
+      setReviseDialog({ open: false, req: null, remarks: '' });
+      fetchAll();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to revise');
     } finally { setSubmitting(false); }
   };
 
@@ -483,7 +498,28 @@ function RequestsTab({ dateRange, projectFilter }) {
         onClose={() => setOpen(null)}
         onDone={() => { setOpen(null); fetchAll(); }}
         onReject={(req) => { setOpen(null); setRejectDialog({ open: true, req, reason: '' }); }}
+        onRevise={(req) => { setOpen(null); setReviseDialog({ open: true, req, remarks: '' }); }}
       />
+
+      {/* Revise Dialog — sends an already-priced/dispatched request back to New Request */}
+      <Dialog open={reviseDialog.open} onOpenChange={(o) => !o && setReviseDialog({ open: false, req: null, remarks: '' })}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-700"><RefreshCw className="h-5 w-5" /> Revise Material Request</DialogTitle>
+            <DialogDescription className="text-xs">{reviseDialog.req?.material_name} · {reviseDialog.req?.project_name} — sends this back to New Request so it can be re-priced / re-assigned</DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label className="text-xs">Reason for revision (optional)</Label>
+            <Textarea rows={3} value={reviseDialog.remarks} onChange={(e) => setReviseDialog({ ...reviseDialog, remarks: e.target.value })} placeholder="e.g. wrong vendor, qty needs correction…" className="mt-1 text-sm" data-testid="proc-revise-remarks" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setReviseDialog({ open: false, req: null, remarks: '' })} disabled={submitting}>Cancel</Button>
+            <Button size="sm" className="bg-orange-600 hover:bg-orange-700" onClick={submitRevise} disabled={submitting} data-testid="proc-revise-submit">
+              {submitting ? 'Sending…' : 'Send Back to New Request'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Reject Dialog */}
       <Dialog open={rejectDialog.open} onOpenChange={(o) => !o && setRejectDialog({ open: false, req: null, reason: '' })}>
@@ -1960,7 +1996,7 @@ function VendorCombobox({ value, onChange, vendors, disabled, excludeId, placeho
   );
 }
 
-function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
+function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevise }) {
   const [vendors, setVendors] = useState([]);
   const [vendorId, setVendorId] = useState('');
   const [unitPrice, setUnitPrice] = useState('');
@@ -2704,6 +2740,22 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
               <RefreshCw className="h-3.5 w-3.5 mr-1" /> Change Vendor
             </Button>
           )}
+          {dialogTab === 'details' && readOnly && ['procurement_priced', 'in_transit', 'received_partial', 'procurement_verify_rejected'].includes((item.status || '').toLowerCase()) && (() => {
+            const alreadyPaid = (parseFloat(item.advance_paid_amount) || 0) + (parseFloat(item.balance_paid_amount) || 0) > 0.5;
+            return (
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-orange-700 border-orange-300 hover:bg-orange-50 disabled:opacity-50"
+                onClick={() => onRevise(item)}
+                disabled={alreadyPaid}
+                title={alreadyPaid ? 'A payment has already been released — use Change Vendor instead' : 'Send this request back to New Request for a full re-quote'}
+                data-testid="proc-assign-revise"
+              >
+                <Undo2 className="h-3.5 w-3.5 mr-1" /> Revise
+              </Button>
+            );
+          })()}
           {dialogTab === 'details' && !readOnly && (
             <>
               <Button variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => onReject(item)} disabled={submitting} data-testid="proc-assign-reject">

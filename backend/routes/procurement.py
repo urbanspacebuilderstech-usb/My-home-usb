@@ -4140,6 +4140,50 @@ async def procurement_simple_planning_revision(request_id: str, data: dict, user
     return {"message": "Sent back to Procurement for revision", "status": "procurement_revision"}
 
 
+@router.patch("/procurement-simple/material-requests/{request_id}/self-revise")
+async def procurement_simple_self_revise(request_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Procurement sends its own already-priced/dispatched request back to the
+    New Request bucket for a full re-quote (wrong vendor/qty/price discovered
+    after assigning/dispatching). Reuses `procurement_revision` — same status
+    planning-revision above uses — so it lands back in the same bucket with
+    the previous vendor/pricing still prefilled to edit and resend.
+
+    Blocked once any money has actually moved (advance/balance already paid):
+    that payment needs to be reconciled via Change Vendor or Accounts, not
+    silently orphaned by resetting the request to a pre-payment state.
+    """
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement / Super Admin can revise")
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    allowed_statuses = {"procurement_priced", "in_transit", "received_partial", "procurement_verify_rejected"}
+    if req.get("status") not in allowed_statuses:
+        raise HTTPException(status_code=400, detail=f"Cannot revise at current status: {req.get('status')}")
+    already_paid = float(req.get("advance_paid_amount") or 0) + float(req.get("balance_paid_amount") or 0)
+    if already_paid > 0.5:
+        raise HTTPException(
+            status_code=400,
+            detail="A payment has already been released on this request — use Change Vendor instead of Revise",
+        )
+
+    remarks = (data.get("remarks") or "").strip() or "Sent back for revision"
+    now = datetime.now(timezone.utc).isoformat()
+    history_entry = {"at": now, "by": user.user_id, "by_name": user.name, "remarks": remarks}
+    await db.material_requests.update_one({"request_id": request_id}, {
+        "$set": {
+            "status": "procurement_revision",
+            "revision_remarks": remarks,
+            "revision_requested_by": user.user_id,
+            "revision_requested_by_name": user.name,
+            "revision_requested_at": now,
+        },
+        "$push": {"revision_history": history_entry},
+    })
+    await create_audit_log(user.user_id, "self_revise", "material_request", request_id, {"remarks": remarks})
+    return {"message": "Sent back to New Request for revision", "status": "procurement_revision"}
+
+
 
 def fmt_money(n):
     try:
