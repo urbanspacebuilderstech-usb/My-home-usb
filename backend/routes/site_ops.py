@@ -2705,6 +2705,7 @@ class MaterialReceiptCreate(BaseModel):
     receive_time: Optional[str] = None
     lorry_image_id: Optional[str] = None  # legacy — superseded by vehicle_front/side below
     material_image_id: Optional[str] = None
+    vehicle_number: Optional[str] = None
     vehicle_front_image_id: Optional[str] = None
     vehicle_side_image_id: Optional[str] = None
     dp_copy_image_id: Optional[str] = None
@@ -2886,6 +2887,9 @@ async def initiate_material_receipt(
     if missing_photos:
         raise HTTPException(status_code=400, detail=f"Missing required photo(s): {', '.join(missing_photos)}")
 
+    if not (data.vehicle_number or "").strip():
+        raise HTTPException(status_code=400, detail="Vehicle number is required")
+
     now_iso = datetime.now(timezone.utc).isoformat()
 
     # Build receipt record (auto-verified — no OTP)
@@ -2914,6 +2918,7 @@ async def initiate_material_receipt(
     rcpt_dict["vehicle_front_image_id"] = data.vehicle_front_image_id
     rcpt_dict["vehicle_side_image_id"] = data.vehicle_side_image_id
     rcpt_dict["dp_copy_image_id"] = data.dp_copy_image_id
+    rcpt_dict["vehicle_number"] = data.vehicle_number.strip()
     rcpt_dict["material_name"] = request.get("material_name", "")
     rcpt_dict["unit"] = request.get("unit", "")
     rcpt_dict["brand"] = request.get("brand", "")
@@ -2950,6 +2955,7 @@ async def initiate_material_receipt(
             "vehicle_front_image_id": data.vehicle_front_image_id,
             "vehicle_side_image_id": data.vehicle_side_image_id,
             "dp_copy_image_id": data.dp_copy_image_id,
+            "vehicle_number": data.vehicle_number.strip(),
         }
         # NEW: every payment mode now flows through Procurement verification
         # before reaching its final next-state. We compute the "post-verify"
@@ -3027,6 +3033,7 @@ async def initiate_material_receipt(
                 "vehicle_front_image_id": data.vehicle_front_image_id,
                 "vehicle_side_image_id": data.vehicle_side_image_id,
                 "dp_copy_image_id": data.dp_copy_image_id,
+                "vehicle_number": data.vehicle_number.strip(),
                 "received_at": now_iso,
             }},
         )

@@ -223,7 +223,7 @@ export default function SiteEngineerProject() {
     };
   }, [materialDropdownOpen]);
   const [labourForm, setLabourForm] = useState({ labour_type: '', num_workers: '', num_days: '', rate_per_day: '', remarks: '' });
-  const [receiveForm, setReceiveForm] = useState({ received_qty: '', remarks: '', receive_date: new Date().toISOString().split('T')[0], receive_time: new Date().toTimeString().slice(0,5) });
+  const [receiveForm, setReceiveForm] = useState({ received_qty: '', vehicle_number: '', remarks: '', receive_date: new Date().toISOString().split('T')[0], receive_time: new Date().toTimeString().slice(0,5) });
   // Feb 12 2026 — per-diameter received qty for steel orders. Indexed the same
   // as receiveDialog.request.steel_specs.items, each entry is the kg received
   // for that diameter. The total received_qty is the live sum below the table.
@@ -899,8 +899,9 @@ export default function SiteEngineerProject() {
 
   const openReceiveDialog = (request) => {
     setReceiveDialog({ open: true, request });
-    setReceiveForm({ 
-      received_qty: request.quantity.toString(), 
+    setReceiveForm({
+      received_qty: request.quantity.toString(),
+      vehicle_number: '',
       remarks: '',
       receive_date: new Date().toISOString().split('T')[0],
       receive_time: new Date().toTimeString().slice(0,5)
@@ -960,6 +961,10 @@ export default function SiteEngineerProject() {
       toast.error('GPS location required');
       return;
     }
+    if (!receiveForm.vehicle_number.trim()) {
+      toast.error('Vehicle number is required');
+      return;
+    }
     // Feb 2026 — when steel breakdown is present, the per-diameter rows are
     // the source of truth and `received_qty` becomes the auto-summed total.
     const steelItems = receiveDialog.request?.steel_specs?.items || [];
@@ -1005,6 +1010,7 @@ export default function SiteEngineerProject() {
         gps_longitude: gpsLocation.longitude,
         receive_date: receiveForm.receive_date,
         receive_time: receiveForm.receive_time,
+        vehicle_number: receiveForm.vehicle_number.trim(),
         vehicle_front_image_id: vehicleFrontImageId,
         vehicle_side_image_id: vehicleSideImageId,
         material_image_id: materialImageId,
@@ -1030,7 +1036,7 @@ export default function SiteEngineerProject() {
       setMaterialImageId(null);
       setDpCopyImageId(null);
       setGpsLocation(null);
-      setReceiveForm({ received_qty: '', remarks: '', receive_date: new Date().toISOString().split('T')[0], receive_time: new Date().toTimeString().slice(0,5) });
+      setReceiveForm({ received_qty: '', vehicle_number: '', remarks: '', receive_date: new Date().toISOString().split('T')[0], receive_time: new Date().toTimeString().slice(0,5) });
       setReceivedSteelItems([]);
       fetchData(false);
     } catch (error) {
@@ -2373,6 +2379,17 @@ export default function SiteEngineerProject() {
                   />
                 </div>
               )}
+
+              <div>
+                <Label className="text-xs sm:text-sm">Vehicle Number *</Label>
+                <Input
+                  value={receiveForm.vehicle_number}
+                  onChange={(e) => setReceiveForm({...receiveForm, vehicle_number: e.target.value.toUpperCase()})}
+                  placeholder="e.g. TN 07 AB 1234"
+                  className="text-sm"
+                  data-testid="receive-vehicle-number-input"
+                />
+              </div>
 
               {/* Image Uploads */}
               <div className="grid grid-cols-2 gap-2">
