@@ -11240,6 +11240,155 @@ async def suspense_mode_backfill_dryrun(entry_ids: str, payment_mode: str = "che
     }
 
 
+@router.get("/admin/material-request-payment-trace")
+async def material_request_payment_trace(
+    request_number: str = "USB-MR1706",
+    request_id: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """TEMPORARY read-only trace of one material request's payment state.
+
+    Sep 23 2026 - USB-MR1706 shows "Advance Pending 50" on the Procurement
+    board although the advance was paid in Accounts and went through vendor
+    suspense. The board decides purely on `advance_paid_amount > 0`, and that
+    field has ONE writer: pay_approval, when the expense carries a
+    source_request_id and payment_phase == "advance".
+
+    This shows which path the money actually took: the request document, the
+    material_expenses approval row, every recorded_expenses leg that points at
+    it, the vendor's suspense entries, and the audit trail - so the fix is
+    chosen from evidence rather than inferred from a badge.
+
+    Reads only. No writes.
+    """
+    if user.role not in (UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT):
+        raise HTTPException(status_code=403, detail="Super admin or accountant only")
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    q = {"request_id": request_id} if request_id else {"request_number": request_number}
+    req = await db.material_requests.find_one(q, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail=f"material request not found: {q}")
+
+    rid = req.get("request_id")
+    vendor = req.get("vendor_name")
+    out: Dict[str, Any] = {"write_performed": False, "read_only": True}
+
+    total = _f(req.get("estimated_price") or req.get("final_price") or req.get("total_amount"))
+    adv_amt = _f(req.get("advance_amount"))
+    adv_paid = _f(req.get("advance_paid_amount"))
+    bal_paid = _f(req.get("balance_paid_amount"))
+    plain_paid = _f(req.get("paid_amount"))
+
+    out["request"] = {
+        "request_id": rid, "request_number": req.get("request_number"),
+        "material_name": req.get("material_name"), "vendor_name": vendor,
+        "project_id": req.get("project_id"), "status": req.get("status"),
+        "payment_mode": req.get("payment_mode"),
+        "next_payment_phase": req.get("next_payment_phase"),
+        "total": total, "advance_amount": adv_amt,
+        "balance_amount": _f(req.get("balance_amount")),
+        "advance_paid_amount": adv_paid,
+        "balance_paid_amount": bal_paid,
+        "paid_amount": plain_paid,
+        "advance_paid_at": req.get("advance_paid_at"),
+        "advance_paid_by_name": req.get("advance_paid_by_name"),
+        "created_at": req.get("created_at"),
+    }
+    out["why_the_board_says_what_it_says"] = {
+        "board_rule": "advance_paid_amount > 0  ->  '✓ Advance Collected', else 'Advance Pending'",
+        "advance_paid_amount": adv_paid,
+        "board_currently_shows": ("Advance Collected" if adv_paid > 0 else "Advance Pending"),
+        "only_writer_of_this_field": ("pay_approval (Approvals > Release Payment), and only when the "
+                                      "expense has source_request_id and payment_phase == 'advance'"),
+    }
+
+    # ---- the approval row (material_expenses) ---------------------------
+    mexps = await db.material_expenses.find(
+        {"$or": [{"source_request_id": rid}, {"request_id": rid}]}, {"_id": 0}).to_list(50)
+    out["material_expenses_rows"] = [
+        {"expense_id": m.get("expense_id") or m.get("material_expense_id"),
+         "amount": _f(m.get("amount")), "total_paid": _f(m.get("total_paid")),
+         "paid_amount": _f(m.get("paid_amount")),
+         "remaining_balance": _f(m.get("remaining_balance")),
+         "payment_phase": m.get("payment_phase"), "status": m.get("status"),
+         "source_request_id": m.get("source_request_id"),
+         "created_at": m.get("created_at")} for m in mexps]
+
+    # ---- every cashbook leg that points at this request ------------------
+    legs = await db.recorded_expenses.find(
+        {"$or": [{"request_id": rid}, {"source_request_id": rid},
+                 {"request_id": {"$in": [m.get("expense_id") for m in mexps if m.get("expense_id")]}}]},
+        {"_id": 0}).to_list(100)
+    out["recorded_expense_legs"] = [
+        {"expense_id": l.get("expense_id"), "amount": _f(l.get("amount")),
+         "tendered_amount": _f(l.get("tendered_amount")),
+         "credit_applied": _f(l.get("credit_applied")),
+         "new_suspense_credit": _f(l.get("new_suspense_credit")),
+         "payment_method": l.get("payment_method"), "status": l.get("status"),
+         "source": l.get("source"),
+         "source_is_approval": l.get("source") == "approval",
+         "payment_phase": l.get("payment_phase"),
+         "request_id": l.get("request_id"),
+         "source_request_id": l.get("source_request_id"),
+         "description": l.get("description"),
+         "created_at": l.get("created_at")} for l in legs]
+
+    # ---- the vendor's suspense pool -------------------------------------
+    susp = await db.suspense_entries.find(
+        {"type": "material", "vendor_name": vendor}, {"_id": 0}
+    ).sort("created_at", -1).to_list(200) if vendor else []
+    out["vendor_suspense"] = {
+        "vendor_name": vendor,
+        "balance": round(sum(_f(s.get("amount")) for s in susp), 2),
+        "entries": [
+            {"entry_id": s.get("entry_id"), "amount": _f(s.get("amount")),
+             "payment_mode": s.get("payment_mode"),
+             "linked_expense_id": s.get("linked_expense_id"),
+             "linked_request_id": s.get("linked_request_id"),
+             "description": s.get("description"),
+             "created_at": s.get("created_at")} for s in susp[:40]],
+    }
+
+    # ---- audit trail -----------------------------------------------------
+    ids = [rid] + [m.get("expense_id") for m in mexps if m.get("expense_id")] \
+        + [l.get("expense_id") for l in legs if l.get("expense_id")]
+    audits = await db.audit_logs.find(
+        {"resource_id": {"$in": [i for i in ids if i]}}, {"_id": 0}
+    ).sort("timestamp", -1).to_list(100)
+    out["audit_trail"] = [
+        {"timestamp": a.get("timestamp"), "action": a.get("action"),
+         "resource_type": a.get("resource_type"), "resource_id": a.get("resource_id"),
+         "user_id": a.get("user_id"), "details": a.get("details")} for a in audits[:40]]
+
+    # ---- the diagnosis ---------------------------------------------------
+    paid_seen = round(sum(_f(l.get("amount")) for l in legs
+                          if (l.get("status") or "").lower() not in
+                          ("rejected", "cheque_bounced", "under_correction")), 2)
+    approval_legs = [l for l in legs if l.get("source") == "approval"]
+    out["diagnosis"] = {
+        "money_recorded_against_this_request": paid_seen,
+        "legs_created_by_the_approval_flow": len(approval_legs),
+        "legs_created_outside_it": len(legs) - len(approval_legs),
+        "advance_paid_amount_on_request": adv_paid,
+        "mismatch": paid_seen > 0 and adv_paid <= 0,
+        "reading": (
+            "Money is recorded against this request but advance_paid_amount was "
+            "never stamped - the board cannot know the advance was paid."
+            if paid_seen > 0 and adv_paid <= 0 else
+            "advance_paid_amount is set; the board should already show Advance Collected."
+            if adv_paid > 0 else
+            "No cashbook leg points at this request at all - the payment was "
+            "recorded without a link to it."),
+    }
+    return fast_json(out)
+
+
 @router.post("/admin/cheque-amount-correction-apply")
 async def cheque_amount_correction_apply(
     cheque_id: str,
