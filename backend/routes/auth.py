@@ -1297,6 +1297,90 @@ async def change_password(data: ChangePasswordRequest, user: User = Depends(get_
     return {"message": "Password changed successfully"}
 
 
+@router.get("/admin/email-delivery-diagnostic")
+async def email_delivery_diagnostic(
+    test_send: bool = False,
+    user: User = Depends(get_current_user),
+):
+    """TEMPORARY diagnostic for OTP / notification email delivery.
+
+    Sep 23 2026 - "OTP sent to your email" appeared but no mail arrived. The
+    send endpoint reported success unconditionally, so the real reason was
+    invisible. This reports the mail configuration WITHOUT exposing the key,
+    and can optionally attempt one real send to surface the provider's own
+    error message.
+
+    Reads only, unless test_send=true is passed - which sends exactly one
+    email to the caller's own address and changes no data.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    key = resend.api_key or ""
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "email": 1}) or {}
+    email = user_doc.get("email")
+
+    out: Dict[str, Any] = {
+        "resend_api_key_configured": bool(key),
+        "resend_api_key_prefix": (key[:3] + "..." if key else None),
+        "resend_api_key_length": len(key),
+        "sender_email_in_use": SENDER_EMAIL,
+        "sender_is_resend_test_address": SENDER_EMAIL.strip().lower() == "onboarding@resend.dev",
+        "your_account_email": email,
+        "frontend_url": FRONTEND_URL,
+    }
+
+    notes = []
+    if not key:
+        notes.append("RESEND_API_KEY is not set on the server, so NO email is "
+                     "even attempted. This alone explains a missing OTP.")
+    if out["sender_is_resend_test_address"]:
+        notes.append("SENDER_EMAIL is Resend's shared test address "
+                     "(onboarding@resend.dev). Resend only delivers from that "
+                     "address to the Resend account owner's own verified "
+                     "email - any other recipient is rejected. Set SENDER_EMAIL "
+                     "to an address on a domain verified in Resend.")
+    out["likely_causes"] = notes or [
+        "Configuration looks sane; run with test_send=true to get the "
+        "provider's actual response."]
+
+    last = await db.password_otps.find_one(
+        {"user_id": user.user_id},
+        {"_id": 0, "email": 1, "created_at": 1, "expires_at": 1, "used": 1},
+    )
+    out["last_otp_record"] = last or "none stored"
+    out["otp_storage_working"] = bool(last)
+
+    if test_send:
+        if not key:
+            out["test_send"] = {"attempted": False,
+                                "reason": "no API key configured"}
+        elif not email:
+            out["test_send"] = {"attempted": False,
+                                "reason": "your account has no email address"}
+        else:
+            try:
+                res = await asyncio.to_thread(resend.Emails.send, {
+                    "from": SENDER_EMAIL,
+                    "to": [email],
+                    "subject": "My Home USB - email delivery test",
+                    "html": "<p>This is a delivery test. If you received it, "
+                            "OTP email works and the fault is elsewhere.</p>",
+                })
+                out["test_send"] = {"attempted": True, "accepted": True,
+                                    "provider_response": str(res)[:400],
+                                    "sent_to": email}
+            except Exception as e:
+                out["test_send"] = {"attempted": True, "accepted": False,
+                                    "provider_error": str(e)[:600],
+                                    "error_type": type(e).__name__,
+                                    "this_is_the_real_reason": True}
+    else:
+        out["test_send"] = "not attempted - add ?test_send=true to send one real test email to yourself"
+
+    return out
+
+
 @router.post("/auth/send-password-otp")
 async def send_password_otp(user: User = Depends(get_current_user)):
     """Send OTP to user's email for password change"""
@@ -1322,7 +1406,19 @@ async def send_password_otp(user: User = Depends(get_current_user)):
         "used": False
     })
 
-    if resend.api_key:
+    # Sep 23 2026 - this used to report success unconditionally. If
+    # RESEND_API_KEY was unset the whole block below was skipped, and if Resend
+    # rejected the message the exception was swallowed - either way the caller
+    # still got "OTP sent to your email" and waited for a mail that was never
+    # going to arrive. Now the outcome is tracked and a failure is surfaced.
+    email_sent = False
+    failure_reason = None
+
+    if not resend.api_key:
+        failure_reason = ("the email service is not configured on the server "
+                          "(RESEND_API_KEY is not set)")
+        logger.error("send_password_otp: RESEND_API_KEY is empty - no OTP email was attempted")
+    else:
         try:
             params = {
                 "from": SENDER_EMAIL,
@@ -1340,12 +1436,27 @@ async def send_password_otp(user: User = Depends(get_current_user)):
                 """
             }
             await asyncio.to_thread(resend.Emails.send, params)
+            email_sent = True
+            logger.info(f"send_password_otp: OTP email accepted by Resend for user {user.user_id}")
         except Exception as e:
-            logger.error(f"Failed to send OTP email: {e}")
-            # OTP is still stored — email delivery failed but flow continues
-            logger.warning("OTP stored but email delivery failed")
+            failure_reason = str(e)[:300]
+            logger.error(
+                f"send_password_otp: Resend rejected the OTP email "
+                f"(from={SENDER_EMAIL}): {e}"
+            )
 
-    return {"message": "OTP sent to your email", "email": email[:3] + "***" + email[email.index("@"):]}
+    masked = email[:3] + "***" + email[email.index("@"):]
+
+    if not email_sent:
+        # Fail loudly. Advancing to the OTP screen when no mail went out just
+        # leaves the user waiting for a code that does not exist.
+        await db.password_otps.delete_many({"user_id": user.user_id})
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not send the OTP email to {masked}: {failure_reason}",
+        )
+
+    return {"message": "OTP sent to your email", "email": masked, "email_sent": True}
 
 
 class VerifyOTPResetRequest(BaseModel):
