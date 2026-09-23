@@ -2520,7 +2520,11 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
   ];
 
   const filteredExpenses = allExpenseEntries.filter(e => {
-    const src = e.source === 'approval' ? 'approval' : 'manual';
+    // Sep 23 2026 — a bill settled from vendor suspense is written with
+    // source 'approval_suspense', not 'approval'. Matching only the exact
+    // string filed those legs under "Manual", which reads as though an
+    // accountant keyed them in by hand outside the approval flow.
+    const src = String(e.source || '').startsWith('approval') ? 'approval' : 'manual';
     if (sourceFilter !== 'all' && src !== sourceFilter) return false;
     if (expenseSubTab === 'material') return e.expense_type === 'material';
     if (expenseSubTab === 'labour') return e.expense_type === 'labour';
@@ -3070,7 +3074,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
         <TabsContent value="expense">
           {(() => {
             // Apply source filter at the category-total level too, so the cards reflect active filters
-            const srcMatch = (e) => sourceFilter === 'all' || (e.source === 'approval' ? 'approval' : 'manual') === sourceFilter;
+            const srcMatch = (e) => sourceFilter === 'all' || (String(e.source || '').startsWith('approval') ? 'approval' : 'manual') === sourceFilter;
             const byCat = {
               material: allExpenseEntries.filter(e => e.expense_type === 'material' && srcMatch(e)),
               labour: allExpenseEntries.filter(e => e.expense_type === 'labour' && srcMatch(e)),
@@ -3303,8 +3307,9 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                           </td>
                         )}
                         <td className="px-3 py-2 text-center" data-testid={`expense-source-${i}`}>
-                          <Badge className={entry.source === 'approval' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}>
-                            {entry.source === 'approval' ? 'Approval' : 'Manual'}
+                          <Badge className={String(entry.source || '').startsWith('approval') ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}>
+                            {entry.source === 'approval_suspense' ? 'Approval · Suspense'
+                              : String(entry.source || '').startsWith('approval') ? 'Approval' : 'Manual'}
                           </Badge>
                         </td>
                         <td className="px-3 py-2 text-center">

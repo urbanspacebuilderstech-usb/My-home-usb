@@ -9955,6 +9955,24 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
 
     # 9. Update request status — fully paid or partially paid
     new_total_paid = already_paid + effective_paid
+
+    # Sep 23 2026 — `new_total_paid` is deliberately cash-only: settlement is
+    # expressed everywhere else as `credit_used + new_total_paid` (see
+    # remaining_balance below, and `is_full_payment` above). That is correct
+    # for the mirror row, but the PARENT request's advance/balance paid stamps
+    # mean "how much of this phase is settled", and they were being given the
+    # cash-only figure. A bill paid entirely from vendor suspense therefore
+    # settled (status `paid`, remaining_balance 0) while recording
+    # advance_paid_amount = 0 — and the Procurement board, which decides purely
+    # on `advance_paid_amount > 0`, kept showing "Advance Pending" for an
+    # advance that was already paid (USB-MR1706, Granite Tile / Chennai Steel
+    # Corp: credit_used 50, effective_paid 0).
+    #
+    # This mirrors is_full_payment's own definition, so the two can no longer
+    # disagree. It changes nothing when credit_used is 0 — i.e. every ordinary
+    # cash/cheque payment — and continuations force credit_used to 0, so a
+    # part-payment cannot double-count.
+    settled_this_phase = round(already_paid + effective_paid + credit_used, 2)
     # Feb 19 2026 — Reflect the accountant's actual payment mode on the
     # parent request doc (labour_expenses / material_requests / petty_cash)
     # so the Cashbook Expense list shows the right mode pill. For multi-leg
@@ -10016,7 +10034,7 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
                         "advance_paid_at": now,
                         "advance_paid_by": user.user_id,
                         "advance_paid_by_name": user.name,
-                        "advance_paid_amount": new_total_paid,
+                        "advance_paid_amount": settled_this_phase,
                         "next_payment_phase": "balance",
                     })
                     notify_se_msg = f"Advance approved — ready to collect: {parent.get('material_name')} → {parent.get('vendor_name', 'Vendor')}"
@@ -10025,7 +10043,7 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
                         "balance_paid_at": now,
                         "balance_paid_by": user.user_id,
                         "balance_paid_by_name": user.name,
-                        "balance_paid_amount": new_total_paid,
+                        "balance_paid_amount": settled_this_phase,
                     })
                     # Jul 7 2026 — Balance released EARLY from the Partially
                     # Collected tab (parent still awaiting delivery / procurement
