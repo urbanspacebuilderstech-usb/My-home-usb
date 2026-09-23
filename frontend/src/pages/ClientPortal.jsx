@@ -1620,9 +1620,9 @@ export default function ClientPortal() {
                                     {d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                                   </td>
                                   <td className="px-4 py-3 text-gray-700 min-w-[200px]">
-                                    <p className="truncate max-w-[360px]">{inc.description || inc.category || 'Payment'}</p>
+                                    <p className="whitespace-normal break-words">{inc.description || inc.category || 'Payment'}</p>
                                     {inc.reference && (
-                                      <p className="text-[11px] text-gray-400 mt-0.5 truncate">Ref: {inc.reference}</p>
+                                      <p className="text-[11px] text-gray-400 mt-0.5 whitespace-normal break-words">Ref: {inc.reference}</p>
                                     )}
                                   </td>
                                   <td className="px-4 py-3 hidden md:table-cell">
