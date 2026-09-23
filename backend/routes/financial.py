@@ -9355,7 +9355,21 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
             # The parent's total_amount is the actively-maintained source of
             # truth here; prefer it so this dialog can never disagree with the
             # card the accountant just clicked Release Payment from.
-            if total_amount > 0.5:
+            # Sep 23 2026 — The blanket "always prefer parent total_amount"
+            # above was overcharging the ADVANCE leg: an advance request for
+            # a ₹500 bill with a ₹300 advance was showing Bill Amount ₹500
+            # (the full total) instead of ₹300 (this leg's amount), so
+            # Release Payment charged the whole bill instead of just the
+            # advance. Both advance and balance mirrors are created with
+            # their own `final_amount` already correct for their phase
+            # (procurement.py ~4330), so prefer the phase-specific parent
+            # figure — this still self-heals a stale mirror (the original
+            # Aug 18 2026 bug) but no longer conflates advance with total.
+            if payment_phase == "advance" and advance_amount > 0.5:
+                bill_amount = advance_amount
+            elif payment_phase == "balance" and balance_amount > 0.5:
+                bill_amount = balance_amount
+            elif total_amount > 0.5:
                 bill_amount = total_amount
 
     # Feb 28 2026 — User asked to STOP auto-netting vendor suspense (positive
@@ -9472,10 +9486,22 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     if req_type == "material" and req.get("payment_phase") in ("advance", "balance") and req.get("source_request_id"):
         _parent = await db.material_requests.find_one(
             {"request_id": req["source_request_id"]},
-            {"_id": 0, "total_amount": 1},
+            {"_id": 0, "total_amount": 1, "advance_amount": 1, "balance_amount": 1},
         )
-        _parent_total = float((_parent or {}).get("total_amount") or 0)
-        if _parent_total > 0.5:
+        _parent = _parent or {}
+        _parent_total = float(_parent.get("total_amount") or 0)
+        _parent_advance = float(_parent.get("advance_amount") or 0)
+        _parent_balance = float(_parent.get("balance_amount") or max(0.0, _parent_total - _parent_advance))
+        # Sep 23 2026 — Same phase-aware fix as get_pay_context: prefer this
+        # leg's own phase amount, not the full parent total, or an advance
+        # leg gets charged (and validated against) the whole bill instead of
+        # just its advance portion.
+        _phase = req.get("payment_phase")
+        if _phase == "advance" and _parent_advance > 0.5:
+            bill_amount = _parent_advance
+        elif _phase == "balance" and _parent_balance > 0.5:
+            bill_amount = _parent_balance
+        elif _parent_total > 0.5:
             bill_amount = _parent_total
 
     # Feb 28 2026 — Auto-netting of vendor suspense (positive OR negative)
