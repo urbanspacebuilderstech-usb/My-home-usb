@@ -11240,6 +11240,161 @@ async def suspense_mode_backfill_dryrun(entry_ids: str, payment_mode: str = "che
     }
 
 
+@router.post("/admin/cheque-amount-correction-apply")
+async def cheque_amount_correction_apply(
+    cheque_id: str,
+    expected_current: float,
+    new_amount: float,
+    reason: str,
+    user: User = Depends(get_current_user),
+):
+    """Correct ONE cheque's face value. Guarded, idempotent, audited.
+
+    Sep 23 2026 - cheque #000005 (chq_678c0dfd) was recorded as 1,00,000 but
+    the client actually paid 1,50,000, which is the whole reason the
+    Pushpalatha bulk group totals 4,00,000 of cheques against 4,50,000 of
+    income. The read-only preview proved the cheque is unspent and that income
+    and payment stages cannot move.
+
+    Writes exactly one field on exactly one document. Nothing recalculates
+    income, stages, cashbook or Close Books - those read their own stored
+    values and never derive from cheques.amount.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+    if not reason or len(reason.strip()) < 5:
+        raise HTTPException(status_code=400, detail="A reason is required")
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    expected_current = _f(expected_current)
+    new_amount = _f(new_amount)
+    if new_amount <= 0:
+        raise HTTPException(status_code=400, detail="new_amount must be positive")
+    if abs(new_amount - expected_current) < 0.005:
+        raise HTTPException(status_code=400, detail="new_amount equals the current amount")
+
+    chq = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
+    if not chq:
+        raise HTTPException(status_code=404, detail=f"cheque {cheque_id} not found")
+
+    # ---- preconditions, re-verified against live data --------------------
+    problems: List[str] = []
+    live_amount = _f(chq.get("amount"))
+    if abs(live_amount - expected_current) >= 0.005:
+        problems.append(
+            f"amount is {live_amount} but expected_current was {expected_current} "
+            "- it changed since the preview, refusing to overwrite")
+
+    allocs = await db.cheque_allocations.find(
+        {"cheque_id": cheque_id, "status": "active"}, {"_id": 0}).to_list(200)
+    if allocs:
+        problems.append(f"{len(allocs)} active cheque_allocations draw on this cheque")
+
+    cnum = chq.get("cheque_number")
+    legs = await db.recorded_expenses.find(
+        {"$or": [{"cheque_id": cheque_id}, {"cheque_ids": cheque_id},
+                 {"cheque_no": cheque_id}, {"payment_legs.cheque_id": cheque_id}]},
+        {"_id": 0, "expense_id": 1}).to_list(200)
+    if legs:
+        problems.append("expense legs link to this cheque by id: "
+                        + ", ".join(str(l.get("expense_id")) for l in legs))
+
+    susp = await db.suspense_entries.find(
+        {"cheque_id": cheque_id}, {"_id": 0, "entry_id": 1}).to_list(200)
+    if susp:
+        problems.append(f"{len(susp)} suspense entries reference this cheque")
+
+    if chq.get("used_for_expense_id"):
+        problems.append(f"cheque is marked used_for_expense_id={chq['used_for_expense_id']}")
+    if str(chq.get("status") or "").lower() in ("bounced", "cancelled", "deleted"):
+        problems.append(f"cheque status is {chq.get('status')!r}")
+
+    if problems:
+        raise HTTPException(status_code=409, detail={
+            "message": "Preconditions failed - nothing was written",
+            "problems": problems,
+        })
+
+    bulk_id = chq.get("bulk_collection_id")
+
+    async def _totals():
+        grp = await db.cheques.find({"bulk_collection_id": bulk_id}, {"_id": 0}).to_list(200) \
+            if bulk_id else [await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})]
+        live = [c for c in grp if c and str(c.get("status") or "").lower()
+                not in ("bounced", "cancelled", "deleted") and not c.get("is_disabled")]
+        inc_or: List[Dict[str, Any]] = [{"cheque_id": cheque_id}]
+        if bulk_id:
+            inc_or.append({"bulk_collection_id": bulk_id})
+        incs = await db.income.find({"$or": inc_or}, {"_id": 0, "income_id": 1, "amount": 1}).to_list(200)
+        incs = list({i["income_id"]: i for i in incs if i.get("income_id")}.values())
+        return (round(sum(_f(c.get("amount")) for c in live), 2),
+                round(sum(_f(i.get("amount")) for i in incs), 2))
+
+    cheques_before, income_before = await _totals()
+
+    # ---- the write: one field, one document, idempotent filter -----------
+    now = datetime.now(timezone.utc).isoformat()
+    res = await db.cheques.update_one(
+        {"cheque_id": cheque_id, "amount": live_amount},
+        {"$set": {
+            "amount": new_amount,
+            "amount_corrected_at": now,
+            "amount_corrected_by": user.user_id,
+            "amount_corrected_from": live_amount,
+            "amount_correction_reason": reason.strip(),
+        }},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=409, detail=(
+            "The cheque changed between the check and the write - nothing was "
+            "written. Re-run the preview."))
+
+    # ---- verify against live data ----------------------------------------
+    after = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0, "amount": 1})
+    cheques_after, income_after = await _totals()
+
+    verification = {
+        "cheque_amount_now": _f((after or {}).get("amount")),
+        "cheque_amount_is_correct": abs(_f((after or {}).get("amount")) - new_amount) < 0.005,
+        "cheques_total_before": cheques_before,
+        "cheques_total_after": cheques_after,
+        "income_total_before": income_before,
+        "income_total_after": income_after,
+        "income_unchanged": abs(income_before - income_after) < 0.005,
+        "difference_before": round(income_before - cheques_before, 2),
+        "difference_after": round(income_after - cheques_after, 2),
+        "reconciled": abs(income_after - cheques_after) < 0.5,
+    }
+
+    try:
+        await create_audit_log(
+            user.user_id, "correct_cheque_amount", "cheque", cheque_id,
+            {"cheque_number": cnum, "from": live_amount, "to": new_amount,
+             "reason": reason.strip(), "bulk_collection_id": bulk_id,
+             "verification": verification},
+        )
+    except Exception as e:
+        logger.warning(f"cheque amount correction audit log failed: {e}")
+
+    return {
+        "message": "Cheque face value corrected",
+        "modified_count": res.modified_count,
+        "cheque_id": cheque_id,
+        "cheque_number": cnum,
+        "before": live_amount,
+        "after": new_amount,
+        "verification": verification,
+        "note": ("Income rows, payment stages, Cashbook and Close Books were "
+                 "not touched - they store their own values and never derive "
+                 "from cheques.amount."),
+    }
+
+
 @router.get("/admin/cheque-amount-correction-preview")
 async def cheque_amount_correction_preview(
     cheque_number: str = "000005",
