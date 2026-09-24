@@ -2036,10 +2036,13 @@ async def delete_material_request(
     request_id: str,
     user: User = Depends(get_current_user),
 ):
-    """SE / Sr.SE can delete their OWN material request only while it is
-    still at the initial pending state (Planning hasn't approved yet).
-    Once any approval flag is set (planning_initial / PM / procurement /
-    accounts / final), the delete endpoint refuses to preserve audit chain.
+    """SE / Sr.SE can delete their OWN material request only while it hasn't
+    been APPROVED by Planning yet — `planning_initial_pending` (untouched)
+    and `planning_initial_rejected` (Planning declined it at initial review)
+    are both still "not approved" states with no live edit/resubmit path, so
+    the SE can clear them and raise a corrected request. Once any approval
+    flag is set (planning_initial / PM / procurement / accounts / final),
+    the delete endpoint refuses to preserve audit chain.
     Super Admin bypasses both checks.
     """
     if user.role not in (UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN):
@@ -2049,7 +2052,7 @@ async def delete_material_request(
     if not req:
         raise HTTPException(status_code=404, detail="Material request not found")
 
-    # Status guard — only delete while Planning hasn't acted on the request.
+    # Status guard — only delete while Planning hasn't APPROVED the request.
     # Super Admin bypasses this guard (Feb 2026) so they can delete delivered
     # / paid / rejected material requests from the Planning Requests view —
     # useful for cleaning up test data and removing obsolete deliveries that
@@ -2058,7 +2061,7 @@ async def delete_material_request(
         "planning_initial_approved", "pm_approved", "planning_approved",
         "pending_procurement", "pending_accounts_approval", "pending_planning_final",
         "approved_for_po", "po_issued", "in_transit", "received", "paid",
-        "delivered", "planning_initial_rejected", "rejected_by_planning", "rejected",
+        "delivered", "rejected_by_planning", "rejected",
     }
     if user.role != UserRole.SUPER_ADMIN and (req.get("status") or "").lower() in locking_statuses:
         raise HTTPException(status_code=400, detail="Cannot delete — request already moved past initial review")

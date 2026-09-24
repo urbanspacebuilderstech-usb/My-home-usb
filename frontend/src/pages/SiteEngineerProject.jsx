@@ -1899,10 +1899,12 @@ export default function SiteEngineerProject() {
                                   {req.is_high_priority ? '★ ON' : '☆ Priority'}
                                 </button>
                                 {/* Delete: SE can delete their own material request ONLY while
-                                    Planning hasn't approved it yet. Once any approval flag is
-                                    set (planning_initial / PM / procurement / final) the delete
-                                    icon disappears so audit chain is preserved. */}
-                                {(req.status || '').toLowerCase() === 'planning_initial_pending' && (
+                                    Planning hasn't APPROVED it yet — untouched (pending) or
+                                    rejected at initial review both count, since a rejected
+                                    request has no live edit/resubmit path. Once any approval
+                                    flag is set (planning_initial / PM / procurement / final)
+                                    the delete icon disappears so audit chain is preserved. */}
+                                {['planning_initial_pending', 'planning_initial_rejected'].includes((req.status || '').toLowerCase()) && (
                                   <button
                                     type="button"
                                     onClick={async (e) => {
