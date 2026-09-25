@@ -4298,6 +4298,12 @@ function ApprovalsTab() {
   const [statusFilter, setStatusFilter] = useState('pending');
   // Project filter — applies to BOTH Income & Expense approval queues
   const [appProjectFilter, setAppProjectFilter] = useState('');
+  // Projects reported back by AccountantMaterialPayments' own queue fetch
+  // (/procurement-simple/accountant/queue) — broader than /approvals/unified's
+  // "pending" status set (e.g. Partially Collected rows), so a project only
+  // visible there wasn't showing up in the header's project search. See
+  // AccountantMaterialPayments' onProjectsChange callback.
+  const [liveMaterialQueueProjects, setLiveMaterialQueueProjects] = useState([]);
   // Send-for-correction modal state (post-approval pullback by accountant)
   const [correctionIncome, setCorrectionIncome] = useState(null);
   const [correctionIncomeReason, setCorrectionIncomeReason] = useState('');
@@ -4539,8 +4545,14 @@ function ApprovalsTab() {
       if (!pid) return;
       if (!map.has(pid)) map.set(pid, { project_id: pid, name: r.project_name || pid });
     });
+    // Sep 25 2026 — also fold in projects from the live material payments
+    // queue (Partially Collected etc.) that /approvals/unified's narrower
+    // status set doesn't surface. See liveMaterialQueueProjects above.
+    liveMaterialQueueProjects.forEach(p => {
+      if (!map.has(p.project_id)) map.set(p.project_id, p);
+    });
     return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  }, [data, woStagePayments]);
+  }, [data, woStagePayments, liveMaterialQueueProjects]);
   const fSummary = {
     income_count: filteredIncome.length,
     income_total: filteredIncome.reduce((sum, x) => sum + (x.amount || 0), 0),
@@ -4826,7 +4838,7 @@ function ApprovalsTab() {
           {/* Procurement → Planning → Accountant material payments (full / advance / balance).
               Uses the unified PayApprovalDialog with cheque suspense + CRE-opened cheque picker. */}
           <div className="mb-3" data-testid="approvals-procurement-materials">
-            <AccountantMaterialPayments onRefresh={() => fetchApprovals(false)} legacyExpenses={filteredMaterials} projectFilter={appProjectFilter} />
+            <AccountantMaterialPayments onRefresh={() => fetchApprovals(false)} legacyExpenses={filteredMaterials} projectFilter={appProjectFilter} onProjectsChange={setLiveMaterialQueueProjects} />
           </div>
           {/* Vendor credit ledger settlements awaiting accountant release */}
           <div className="mb-3" data-testid="approvals-credit-settlements">

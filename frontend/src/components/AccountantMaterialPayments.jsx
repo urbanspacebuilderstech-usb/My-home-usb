@@ -24,7 +24,7 @@ const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency:
  * CRE-opened cheque picker + auto excess-to-suspense). Each material_request
  * carries an `expense_id` back-link to its mirrored material_expenses row.
  */
-export default function AccountantMaterialPayments({ onRefresh, legacyExpenses = [], projectFilter = '' }) {
+export default function AccountantMaterialPayments({ onRefresh, legacyExpenses = [], projectFilter = '', onProjectsChange }) {
   const [rawItems, setRawItems] = useState([]);
   // Project filter (from Approvals header) — applies to live queue rows.
   const items = !projectFilter
@@ -52,11 +52,28 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
     setLoading(true);
     try {
       const r = await axios.get(`${API}/procurement-simple/accountant/queue`);
-      setRawItems(r.data?.requests || []);
+      const requests = r.data?.requests || [];
+      setRawItems(requests);
+      // Sep 25 2026 — this queue (esp. Partially Collected rows: advance
+      // paid, balance still in transit/verification) is fetched independently
+      // of the Approvals header's project dropdown, which only knew about
+      // projects present in /approvals/unified's narrower "pending" status
+      // set. A project whose only live material row was Partially Collected
+      // (e.g. Mrs Pushpalatha / USB-MR1730) never made it into that dropdown
+      // even though its card was visibly rendered here. Report our own
+      // projects up so the parent can include them too.
+      if (onProjectsChange) {
+        const seen = new Map();
+        requests.forEach(req => {
+          const pid = req.project_id || req.project_name;
+          if (pid && !seen.has(pid)) seen.set(pid, { project_id: pid, name: req.project_name || pid });
+        });
+        onProjectsChange(Array.from(seen.values()));
+      }
     } catch {
       setRawItems([]);
     } finally { setLoading(false); }
-  }, []);
+  }, [onProjectsChange]);
 
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
 
