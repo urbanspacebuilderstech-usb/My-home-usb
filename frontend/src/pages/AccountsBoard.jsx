@@ -4304,6 +4304,19 @@ function ApprovalsTab() {
   // visible there wasn't showing up in the header's project search. See
   // AccountantMaterialPayments' onProjectsChange callback.
   const [liveMaterialQueueProjects, setLiveMaterialQueueProjects] = useState([]);
+  // Sep 25 2026 — the dropdown previously only listed projects that had at
+  // least one row in the currently-loaded approval queues, so a project with
+  // nothing pending right now (e.g. Mr. Vinoth — brand new, nothing raised
+  // yet) never appeared at all, unlike Planning's All Projects list which
+  // always shows every project regardless of queue state. Fetch the full
+  // project list once so the filter can always find any project, not just
+  // ones with a currently-visible approval.
+  const [allProjectsList, setAllProjectsList] = useState([]);
+  useEffect(() => {
+    axios.get(`${API}/projects`).then(r => {
+      setAllProjectsList((r.data || []).map(p => ({ project_id: p.project_id, name: p.name })));
+    }).catch(() => setAllProjectsList([]));
+  }, []);
   // Send-for-correction modal state (post-approval pullback by accountant)
   const [correctionIncome, setCorrectionIncome] = useState(null);
   const [correctionIncomeReason, setCorrectionIncomeReason] = useState('');
@@ -4536,6 +4549,13 @@ function ApprovalsTab() {
   // status queue (before project filtering) so options don't disappear.
   const approvalProjects = React.useMemo(() => {
     const map = new Map();
+    // Base: every real project (New/Current/Delivered/Archived alike), so a
+    // project with nothing currently pending is still searchable/selectable —
+    // matches Planning's All Projects list rather than only showing whoever
+    // happens to have a live queue row right now.
+    allProjectsList.forEach(p => {
+      if (p.project_id) map.set(p.project_id, p);
+    });
     [
       ...(data.income || []), ...(data.materials || []), ...(data.labour || []),
       ...(data.vendor || []), ...(data.petty_cash || []), ...(data.recorded_expenses || []),
@@ -4552,7 +4572,7 @@ function ApprovalsTab() {
       if (!map.has(p.project_id)) map.set(p.project_id, p);
     });
     return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  }, [data, woStagePayments, liveMaterialQueueProjects]);
+  }, [data, woStagePayments, liveMaterialQueueProjects, allProjectsList]);
   const fSummary = {
     income_count: filteredIncome.length,
     income_total: filteredIncome.reduce((sum, x) => sum + (x.amount || 0), 0),
