@@ -13235,3 +13235,352 @@ async def cheque_balance_trace(cheque_number: str, restore_amount: float = 0.0,
         ),
         "note": "Read-only. No apply endpoint is deployed; nothing changes without approval.",
     }
+
+
+# ==========================================================================
+# Sep 25 2026 - one-row repair for a mirror bill whose paid_amount was
+# written from the CASH-ONLY figure and so understates a suspense-funded
+# settlement (USB-MR1181: 610 settled, 0 recorded).
+#
+# Scope is deliberately narrow. It only touches mirrors whose status is
+# `partially_paid`, because the accountant queue computes
+#
+#     collected = parent.advance_paid_amount + parent.balance_paid_amount
+#                 + (mirror.paid_amount if mirror.status == "partially_paid")
+#
+# so for exactly that status the mirror is the single field that carries the
+# figure and repairing it cannot double-count against the parent stamps.
+# Bills settled in full stamp the PARENT instead and need a different repair.
+# ==========================================================================
+
+async def _mirror_repair_context(request_number: str, expense_id: Optional[str] = None):
+    """Gather everything both the preview and the apply reason about.
+
+    Returns (parent, mirror, legs, numbers, problems). Reads only.
+    """
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    problems: List[str] = []
+
+    parent = await db.material_requests.find_one(
+        {"request_number": request_number}, {"_id": 0})
+    if not parent:
+        raise HTTPException(status_code=404,
+                            detail=f"material request {request_number} not found")
+
+    q: Dict[str, Any] = {"source_request_id": parent.get("request_id")}
+    if expense_id:
+        q = {"expense_id": expense_id}
+    mirrors = await db.material_expenses.find(q, {"_id": 0}).to_list(50)
+    if not mirrors:
+        raise HTTPException(status_code=404,
+                            detail=f"no material_expenses mirror for {request_number}")
+    if len(mirrors) > 1 and not expense_id:
+        problems.append(
+            "%d mirror bills exist for this request (%s) - pass expense_id to "
+            "name the one to repair" % (
+                len(mirrors), ", ".join(str(m.get("expense_id")) for m in mirrors)))
+    mirror = mirrors[0]
+    mexp_id = mirror.get("expense_id")
+
+    # Legs keyed the way the scan counted them.
+    legs = await db.recorded_expenses.find(
+        {"request_id": mexp_id}, {"_id": 0}).to_list(200)
+    surviving = [l for l in legs
+                 if (l.get("status") or "").lower() not in _PAID_LEG_EXCLUDED_STATUS]
+    settled = round(sum(_f(l.get("amount")) for l in surviving), 2)
+    credit = round(sum(_f(l.get("credit_applied")) for l in surviving), 2)
+
+    # Same broad match `_reconciled_already_paid` uses. If it finds legs the
+    # narrow key missed, the two disagree and we must not guess.
+    ids = [i for i in {mirror.get("expense_id"), mirror.get("source_request_id"),
+                       mirror.get("material_expense_id"), parent.get("request_id")} if i]
+    broad = await db.recorded_expenses.find(
+        {"$or": [{"request_id": {"$in": ids}},
+                 {"material_request_id": {"$in": ids}},
+                 {"material_expense_id": {"$in": ids}}]},
+        {"_id": 0, "expense_id": 1, "amount": 1, "status": 1, "request_id": 1,
+         "source": 1, "credit_applied": 1}).to_list(200)
+    broad = list({l.get("expense_id"): l for l in broad}.values())
+    broad_surviving = [l for l in broad
+                       if (l.get("status") or "").lower() not in _PAID_LEG_EXCLUDED_STATUS]
+    broad_settled = round(sum(_f(l.get("amount")) for l in broad_surviving), 2)
+    if abs(broad_settled - settled) >= 0.5:
+        problems.append(
+            "leg evidence disagrees: legs keyed to this mirror total %s but the "
+            "wider match `_reconciled_already_paid` uses totals %s - refusing to "
+            "guess which is right" % (settled, broad_settled))
+
+    bill_mirror = _f(mirror.get("final_amount") or mirror.get("estimated_cost")
+                     or mirror.get("estimated_price") or mirror.get("final_price"))
+    bill_parent = _f(parent.get("total_amount") or parent.get("estimated_price"))
+    bill = bill_mirror or bill_parent
+
+    stored = _f(mirror.get("paid_amount"))
+    proposed = settled
+    gap = round(proposed - stored, 2)
+
+    # ---- preconditions -------------------------------------------------
+    if mirror.get("status") != "partially_paid":
+        problems.append(
+            "mirror status is %r, not 'partially_paid'. Only partially_paid "
+            "mirrors carry the collected figure for the accountant queue; any "
+            "other status is stamped on the PARENT and needs a different repair."
+            % mirror.get("status"))
+    if gap <= 0.5:
+        problems.append(
+            "nothing to repair: stored paid_amount %s already matches the "
+            "surviving legs %s" % (stored, settled))
+    if bill <= 0:
+        problems.append("bill amount is 0 on both the mirror and the parent")
+    if proposed > bill + 0.5:
+        problems.append(
+            "surviving legs (%s) exceed the bill (%s) - that is a different "
+            "problem and must not be papered over by this repair" % (proposed, bill))
+    if credit <= 0.5:
+        problems.append(
+            "no suspense credit on the surviving legs (credit_applied totals %s) "
+            "- this row is not the cash-only bug and is out of scope" % credit)
+
+    # ---- what the accountant queue shows, by its own arithmetic ---------
+    adv = _f(parent.get("advance_paid_amount"))
+    bal_stamp = _f(parent.get("balance_paid_amount"))
+    q_total = bill_parent or bill
+
+    def _queue(mirror_paid):
+        collected = round(adv + bal_stamp + mirror_paid, 2)
+        balance = round(max(0.0, q_total - collected), 2)
+        partial = collected > 0.01 and balance > 0.01 and parent.get("status") in (
+            "pending_accounts_approval", "in_transit", "procurement_verifying",
+            "pending_balance_payment", "partially_paid", "pending_advance_payment")
+        return {"collected": collected, "balance_due": balance,
+                "partially_collected": bool(partial),
+                "tab": "Partially Collected" if partial else "Pending"}
+
+    numbers = {
+        "bill_amount": bill,
+        "bill_amount_on_mirror": bill_mirror,
+        "bill_amount_on_parent": bill_parent,
+        "paid_amount_stored": stored,
+        "settled_per_surviving_legs": settled,
+        "of_which_suspense_credit": credit,
+        "under_recorded_by": gap,
+        "proposed_paid_amount": proposed,
+        "proposed_remaining_balance": round(max(0.0, bill - proposed), 2),
+        "remaining_balance_stored": _f(mirror.get("remaining_balance")),
+        "parent_advance_paid_amount": adv,
+        "parent_balance_paid_amount": bal_stamp,
+        "queue_now": _queue(stored),
+        "queue_after_repair": _queue(proposed),
+    }
+    return parent, mirror, surviving, numbers, problems
+
+
+def _mirror_repair_token(request_number: str, stored: float, proposed: float) -> str:
+    return "%s:%s->%s" % (request_number, stored, proposed)
+
+
+@router.get("/admin/mirror-paid-repair-preview")
+async def mirror_paid_repair_preview(
+    request_number: str = "USB-MR1181",
+    expense_id: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """TEMPORARY read-only preview of the one-row repair. Writes nothing."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    parent, mirror, legs, numbers, problems = await _mirror_repair_context(
+        request_number, expense_id)
+
+    token = _mirror_repair_token(
+        request_number, numbers["paid_amount_stored"], numbers["proposed_paid_amount"])
+    apply_url = (
+        "/api/admin/mirror-paid-repair-apply"
+        "?request_number=%s&expense_id=%s&expected_current=%s&new_paid_amount=%s"
+        "&confirm=%s&reason=REPLACE_WITH_REASON" % (
+            request_number, mirror.get("expense_id"),
+            numbers["paid_amount_stored"], numbers["proposed_paid_amount"], token))
+
+    return fast_json({
+        "write_performed": False,
+        "read_only": True,
+        "request_number": request_number,
+        "material_expense_id": mirror.get("expense_id"),
+        "vendor_name": mirror.get("vendor_name"),
+        "material_name": parent.get("material_name"),
+        "mirror_status": mirror.get("status"),
+        "parent_status": parent.get("status"),
+        "payment_phase": mirror.get("payment_phase"),
+        "numbers": numbers,
+        "surviving_legs": [
+            {"expense_id": l.get("expense_id"), "amount": l.get("amount"),
+             "credit_applied": l.get("credit_applied"), "source": l.get("source"),
+             "status": l.get("status"), "created_at": l.get("created_at")}
+            for l in legs],
+        "fields_that_would_change": {
+            "material_expenses.paid_amount": {
+                "before": numbers["paid_amount_stored"],
+                "after": numbers["proposed_paid_amount"]},
+            "material_expenses.remaining_balance": {
+                "before": numbers["remaining_balance_stored"],
+                "after": numbers["proposed_remaining_balance"]},
+        },
+        "fields_left_untouched": [
+            "material_expenses.status", "material_requests.status",
+            "material_requests.advance_paid_amount",
+            "material_requests.balance_paid_amount",
+            "recorded_expenses (every leg)", "vendor suspense balances",
+            "cheques", "income", "cashflow_ledger",
+        ],
+        "preconditions_failed": problems,
+        "safe_to_apply": not problems,
+        "apply_url": apply_url,
+        "note": ("Nothing has been written. The apply refuses unless every "
+                 "precondition still holds at write time and paid_amount is "
+                 "still exactly expected_current."),
+    })
+
+
+@router.api_route("/admin/mirror-paid-repair-apply", methods=["GET", "POST"])
+async def mirror_paid_repair_apply(
+    request_number: str,
+    expected_current: float,
+    new_paid_amount: float,
+    confirm: str,
+    reason: str,
+    expense_id: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Repair ONE mirror bill's paid_amount. Guarded, idempotent, audited.
+
+    Writes two fields on one document: paid_amount and remaining_balance.
+    Status is deliberately left alone so nothing jumps between queues; the
+    accountant board derives Pending vs Partially Collected itself from the
+    repaired figure.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+    if not reason or len(reason.strip()) < 5:
+        raise HTTPException(status_code=400, detail="A reason is required")
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    expected_current = _f(expected_current)
+    new_paid_amount = _f(new_paid_amount)
+
+    # Re-derive everything from live data; the caller's numbers are checked
+    # against it, never trusted.
+    parent, mirror, legs, numbers, problems = await _mirror_repair_context(
+        request_number, expense_id)
+
+    expect_token = _mirror_repair_token(
+        request_number, numbers["paid_amount_stored"], numbers["proposed_paid_amount"])
+    if confirm != expect_token:
+        raise HTTPException(status_code=400, detail={
+            "message": "confirm token does not match the live figures - "
+                       "nothing was written. Re-run the preview.",
+            "expected": expect_token, "received": confirm,
+        })
+    if abs(numbers["paid_amount_stored"] - expected_current) >= 0.005:
+        problems.append(
+            "paid_amount is %s but expected_current was %s - it changed since "
+            "the preview, refusing to overwrite"
+            % (numbers["paid_amount_stored"], expected_current))
+    if abs(numbers["proposed_paid_amount"] - new_paid_amount) >= 0.005:
+        problems.append(
+            "new_paid_amount %s does not match the figure re-derived from the "
+            "surviving legs (%s)" % (new_paid_amount, numbers["proposed_paid_amount"]))
+    if problems:
+        raise HTTPException(status_code=409, detail={
+            "message": "Preconditions failed - nothing was written",
+            "problems": problems,
+        })
+
+    mexp_id = mirror.get("expense_id")
+    now = datetime.now(timezone.utc).isoformat()
+    before = {
+        "paid_amount": numbers["paid_amount_stored"],
+        "remaining_balance": numbers["remaining_balance_stored"],
+        "status": mirror.get("status"),
+    }
+
+    # Idempotent filter: the document must still hold the value we measured.
+    res = await db.material_expenses.update_one(
+        {"expense_id": mexp_id, "paid_amount": mirror.get("paid_amount")},
+        {"$set": {
+            "paid_amount": new_paid_amount,
+            "remaining_balance": numbers["proposed_remaining_balance"],
+            "paid_amount_repaired_at": now,
+            "paid_amount_repaired_by": user.user_id,
+            "paid_amount_repaired_from": numbers["paid_amount_stored"],
+            "paid_amount_repair_reason": reason.strip(),
+            "updated_at": now,
+        }},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=409, detail=(
+            "The mirror changed between the check and the write - nothing was "
+            "written. Re-run the preview."))
+
+    # ---- verify against live data ---------------------------------------
+    after_doc = await db.material_expenses.find_one(
+        {"expense_id": mexp_id},
+        {"_id": 0, "paid_amount": 1, "remaining_balance": 1, "status": 1}) or {}
+    _, _, _, after_numbers, _ = await _mirror_repair_context(request_number, mexp_id)
+
+    verification = {
+        "paid_amount_now": _f(after_doc.get("paid_amount")),
+        "paid_amount_is_correct":
+            abs(_f(after_doc.get("paid_amount")) - new_paid_amount) < 0.005,
+        "remaining_balance_now": _f(after_doc.get("remaining_balance")),
+        "remaining_balance_is_correct":
+            abs(_f(after_doc.get("remaining_balance"))
+                - numbers["proposed_remaining_balance"]) < 0.005,
+        "mirror_status_unchanged": after_doc.get("status") == before["status"],
+        "queue_before": numbers["queue_now"],
+        "queue_after": after_numbers["queue_now"],
+        "under_recorded_by_now": after_numbers["under_recorded_by"],
+        "fully_reconciled": after_numbers["under_recorded_by"] <= 0.5,
+    }
+
+    try:
+        await create_audit_log(
+            user.user_id, "repair_underrecorded_paid_amount", "material_expense",
+            mexp_id,
+            {"request_number": request_number,
+             "vendor_name": mirror.get("vendor_name"),
+             "from": before["paid_amount"], "to": new_paid_amount,
+             "remaining_balance_from": before["remaining_balance"],
+             "remaining_balance_to": numbers["proposed_remaining_balance"],
+             "settled_per_surviving_legs": numbers["settled_per_surviving_legs"],
+             "suspense_credit": numbers["of_which_suspense_credit"],
+             "legs": [l.get("expense_id") for l in legs],
+             "reason": reason.strip(), "verification": verification},
+        )
+    except Exception as e:
+        logger.warning(f"mirror paid_amount repair audit log failed: {e}")
+
+    return {
+        "message": "Mirror paid_amount repaired",
+        "write_performed": True,
+        "modified_count": res.modified_count,
+        "request_number": request_number,
+        "material_expense_id": mexp_id,
+        "before": before,
+        "after": {"paid_amount": new_paid_amount,
+                  "remaining_balance": numbers["proposed_remaining_balance"],
+                  "status": before["status"]},
+        "verification": verification,
+        "note": ("Only material_expenses.paid_amount and .remaining_balance "
+                 "changed. No leg, suspense balance, cheque, income or parent "
+                 "field was touched, and no status moved."),
+    }
