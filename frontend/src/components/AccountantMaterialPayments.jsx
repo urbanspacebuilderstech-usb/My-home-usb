@@ -205,7 +205,13 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
         {showItems.map(req => {
           const phase = req.next_payment_phase || 'full';
           const total = req.total_amount || req.estimated_price || 0;
-          const paid = req.paid_amount || 0;
+          // Sep 25 2026 — the queue computes what has actually been collected
+          // (advance + balance stamps + any partially-paid mirror) and returns
+          // it as `collected_amount`. `paid_amount` is the PARENT request's
+          // own field, which pay_approval never writes for materials — it
+          // writes to the mirror — so reading it alone showed "₹0 paid" on
+          // bills that were genuinely part-settled.
+          const paid = req.collected_amount ?? req.paid_amount ?? 0;
           const due = phase === 'balance' ? Math.max(0, total - paid) : (phase === 'advance' ? (req.advance_amount || 0) : total);
           const phaseColor = phase === 'advance' ? 'orange' : phase === 'balance' ? 'cyan' : 'blue';
           return (
@@ -232,10 +238,10 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     <span>previously paid {fmt(req.last_paid_amount || 0)} via Cheque #{req.last_cheque_number}</span>
                   </div>
                 )}
-                {(req.status === 'partially_paid' || req.last_partial_paid_at) && req.remaining_balance > 0 && (
+                {(req.status === 'partially_paid' || req.last_partial_paid_at || req.partially_collected) && (req.balance_due ?? req.remaining_balance) > 0 && (
                   <div className="mb-2 bg-yellow-50 border border-yellow-200 rounded px-2 py-1.5 text-[11px] text-yellow-800 flex items-center justify-between">
-                    <span><span className="font-semibold">Partially Paid:</span> {fmt(req.paid_amount || 0)} of {fmt(total)} paid</span>
-                    <span className="font-bold">Balance: {fmt(req.remaining_balance)}</span>
+                    <span><span className="font-semibold">Partially Paid:</span> {fmt(paid)} of {fmt(total)} paid</span>
+                    <span className="font-bold">Balance: {fmt(req.balance_due ?? req.remaining_balance)}</span>
                   </div>
                 )}
                 {req.partially_collected && (

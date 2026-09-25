@@ -115,15 +115,23 @@ def test_settled_this_phase_includes_credit_used():
     assert "settled_this_phase = round(already_paid + effective_paid + credit_used, 2)" in seg
 
 
-def test_cash_only_semantics_are_left_alone_elsewhere():
-    """remaining_balance and the mirror row deliberately treat new_total_paid
-    as cash-only and subtract credit_used separately - that must not change,
-    or balances would shift across the app."""
+def test_new_total_paid_keeps_its_cash_only_meaning():
+    """`new_total_paid` is still the cash-tendered figure - it is what the
+    response reports as this call's payment, and what the cheque/leg maths
+    upstream is built on.
+
+    Superseded Sep 25 2026: this test used to also require the MIRROR row to
+    store that cash-only figure in paid_amount and to express remaining_balance
+    as `bill - credit_used - new_total_paid`. Both moved to
+    `settled_this_phase` once it was shown that the accountant queue derives
+    "collected so far" from the mirror's paid_amount, so a suspense-funded
+    bill reported 0 collected and never surfaced as partially collected
+    (USB-MR1181). The two expressions are numerically identical; see
+    test_suspense_partial_collected.py."""
     fn, src = _pay_approval()
     seg = ast.get_source_segment(src, fn) or ""
     assert "new_total_paid = already_paid + effective_paid" in seg
-    assert '"paid_amount": new_total_paid,' in seg
-    assert "max(0.0, bill_amount - credit_used - new_total_paid)" in seg
+    assert '"new_total_paid": new_total_paid,' in seg
 
 
 def test_is_full_payment_and_the_stamp_share_one_definition():

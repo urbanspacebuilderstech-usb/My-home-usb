@@ -9983,7 +9983,19 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     else:
         actual_method = req.get("payment_method")
     request_update = {
-        "paid_amount": new_total_paid,
+        # Sep 25 2026 — was `new_total_paid` (cash only). A bill part-settled
+        # from vendor suspense therefore recorded paid_amount 0, and the
+        # accountant queue derives its "collected so far" from exactly this
+        # field (mirror_partial), so the row reported 0 collected, never set
+        # `partially_collected`, and stayed in Pending showing the FULL amount
+        # still due — USB-MR1181 (Inner Primer / SAI VISHNU PAINTS): 610 paid
+        # from suspense against a 6,360 bill, displayed as "6,360 / 0".
+        #
+        # remaining_balance below is unchanged in value: it used to read
+        # `bill - credit_used - new_total_paid`, which is the same number as
+        # `bill - settled_this_phase` by definition. The two are now expressed
+        # against one figure so they cannot drift apart.
+        "paid_amount": settled_this_phase,
         "paid_via_expense_id": primary_expense_id,
         "payment_method": actual_method,
         "updated_at": now,
@@ -10002,7 +10014,7 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
         request_update["last_partial_paid_at"] = now
         request_update["last_partial_paid_by"] = user.user_id
         request_update["last_partial_paid_by_name"] = user.name
-        request_update["remaining_balance"] = max(0.0, bill_amount - credit_used - new_total_paid)
+        request_update["remaining_balance"] = max(0.0, bill_amount - settled_this_phase)
     await db[coll].update_one(
         {id_field: request_id},
         {"$set": request_update, "$unset": {"_payment_lock_at": ""}},
@@ -10083,7 +10095,7 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
         "payable": payable,
         "paid_amount": effective_paid,  # this call only (for backward compatibility in tests)
         "total_paid_so_far": new_total_paid,
-        "remaining_balance": max(0.0, bill_amount - credit_used - new_total_paid),
+        "remaining_balance": max(0.0, bill_amount - settled_this_phase),
         "new_suspense_credit": new_suspense_credit,
         "is_partial": not is_full_payment,
         "status": "paid" if is_full_payment else "partially_paid",
