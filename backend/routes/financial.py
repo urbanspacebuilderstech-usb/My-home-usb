@@ -11272,23 +11272,31 @@ async def suspense_mode_backfill_dryrun(entry_ids: str, payment_mode: str = "che
 
 @router.get("/admin/underrecorded-paid-scan")
 async def underrecorded_paid_scan(
-    limit: int = 500,
+    limit: int = 60,
+    tier: str = "all",
     user: User = Depends(get_current_user),
 ):
-    """TEMPORARY read-only scan: bills whose stored paid_amount is below the
+    """TEMPORARY read-only scan: bills whose recorded settlement is below the
     cashbook legs that actually settled them.
 
-    Sep 25 2026 - until today pay_approval wrote the mirror's paid_amount from
-    the CASH-ONLY figure, so any bill part- or fully-settled from vendor
-    suspense recorded less than was really settled (USB-MR1181: 610 settled,
-    0 recorded). The logic is fixed going forward, but every payment made
-    before the fix still carries the low number, and the accountant queue
-    derives "collected so far" from exactly that field.
+    Sep 25 2026 - until today pay_approval wrote BOTH the mirror's paid_amount
+    and the parent's advance/balance stamps from the CASH-ONLY figure, so any
+    bill part- or fully-settled from vendor suspense recorded less than was
+    really settled (USB-MR1181: 610 settled, 0 recorded). The logic is fixed
+    going forward; every payment made before the fix still carries the low
+    number.
 
-    This sizes the problem before anything is repaired: for each
-    material_expenses row it compares the stored paid_amount against the sum
-    of the surviving recorded_expenses legs that point at it - the same
-    evidence `_reconciled_already_paid` already trusts over the stored flag.
+    v2 (same day) corrects two flaws in the first pass:
+
+      * bill_amount read `amount`, which material mirrors do not populate, so
+        every row reported a 0 bill and a meaningless remaining_balance. It
+        now uses the fields `_request_collection_and_keys` itself uses.
+      * it only looked at the mirror. The accountant queue counts a mirror's
+        paid_amount ONLY when that mirror's status is `partially_paid`;
+        otherwise it reads the PARENT's advance_paid_amount +
+        balance_paid_amount. So a mirror gap alone does not say whether a row
+        is operationally wrong. Each row is now tiered by whether repairing
+        the mirror would actually change what the board shows.
 
     Reads only. No writes.
     """
@@ -11301,11 +11309,24 @@ async def underrecorded_paid_scan(
         except (TypeError, ValueError):
             return 0.0
 
+    # Parent states in which the accountant queue can still surface a row,
+    # i.e. where an understated figure can invite a second payment.
+    QUEUE_PARENT_STATES = {
+        "pending_accounts_approval", "pending_balance_payment", "partially_paid",
+        "in_transit", "procurement_verifying", "pending_advance_payment",
+    }
+    CLOSED_PARENT_STATES = {
+        "rejected", "accounts_rejected", "cancelled", "deleted",
+        "paid", "delivered", "received_completed",
+    }
+
     mexps = await db.material_expenses.find(
         {}, {"_id": 0, "expense_id": 1, "material_expense_id": 1,
-             "source_request_id": 1, "amount": 1, "paid_amount": 1,
-             "total_paid": 1, "remaining_balance": 1, "status": 1,
-             "vendor_name": 1, "payment_phase": 1, "created_at": 1},
+             "source_request_id": 1, "paid_amount": 1, "total_paid": 1,
+             "remaining_balance": 1, "status": 1, "vendor_name": 1,
+             "payment_phase": 1, "created_at": 1,
+             "final_amount": 1, "estimated_cost": 1, "estimated_price": 1,
+             "final_price": 1},
     ).to_list(20000)
     by_id = {}
     for m in mexps:
@@ -11339,20 +11360,20 @@ async def underrecorded_paid_scan(
         gap = round(evidence - stored, 2)
         if gap <= 0.5:
             continue
-        bill = _f(m.get("amount"))
+        bill = _f(m.get("final_amount") or m.get("estimated_cost")
+                  or m.get("estimated_price") or m.get("final_price"))
         affected.append({
             "material_expense_id": key,
             "source_request_id": m.get("source_request_id"),
             "vendor_name": m.get("vendor_name"),
-            "status": m.get("status"),
+            "mirror_status": m.get("status"),
             "payment_phase": m.get("payment_phase"),
-            "bill_amount": bill,
+            "bill_amount_mirror": bill,
             "paid_amount_stored": stored,
             "settled_per_cashbook_legs": evidence,
             "under_recorded_by": gap,
             "of_which_from_suspense": credit_by_mexp.get(key, 0.0),
             "remaining_balance_stored": _f(m.get("remaining_balance")),
-            "remaining_balance_correct": round(max(0.0, bill - evidence), 2),
             "legs": [{"expense_id": l.get("expense_id"), "amount": _f(l.get("amount")),
                       "credit_applied": _f(l.get("credit_applied")),
                       "source": l.get("source"), "status": l.get("status"),
@@ -11366,30 +11387,92 @@ async def underrecorded_paid_scan(
     reqs = await db.material_requests.find(
         {"request_id": {"$in": req_ids}},
         {"_id": 0, "request_id": 1, "request_number": 1, "material_name": 1,
-         "project_id": 1, "status": 1},
+         "project_id": 1, "status": 1, "total_amount": 1, "estimated_price": 1,
+         "advance_paid_amount": 1, "balance_paid_amount": 1, "cheque_bounced": 1},
     ).to_list(20000) if req_ids else []
     req_by_id = {r["request_id"]: r for r in reqs}
-    for r in affected:
-        parent = req_by_id.get(r.get("source_request_id")) or {}
-        r["request_number"] = parent.get("request_number")
-        r["material_name"] = parent.get("material_name")
-        r["parent_status"] = parent.get("status")
 
-    suspense_driven = [r for r in affected if r["of_which_from_suspense"] > 0.5]
+    for r in affected:
+        p = req_by_id.get(r.get("source_request_id")) or {}
+        r["request_number"] = p.get("request_number")
+        r["material_name"] = p.get("material_name")
+        r["parent_status"] = p.get("status")
+        bill = r["bill_amount_mirror"] or _f(p.get("total_amount") or p.get("estimated_price"))
+        r["bill_amount"] = bill
+        adv = _f(p.get("advance_paid_amount"))
+        bal = _f(p.get("balance_paid_amount"))
+        r["parent_advance_paid_amount"] = adv
+        r["parent_balance_paid_amount"] = bal
+        # What the queue believes has been collected, by its own rule.
+        queue_now = round(adv + bal, 2)
+        if r["mirror_status"] == "partially_paid":
+            queue_now = round(queue_now + r["paid_amount_stored"], 2)
+        r["queue_collected_now"] = queue_now
+        # What it would believe once this mirror is repaired.
+        queue_after = round(adv + bal, 2)
+        if r["mirror_status"] == "partially_paid":
+            queue_after = round(queue_after + r["settled_per_cashbook_legs"], 2)
+        r["queue_collected_after_mirror_fix"] = queue_after
+        r["truly_settled"] = r["settled_per_cashbook_legs"]
+        r["remaining_balance_correct"] = (
+            round(max(0.0, bill - r["settled_per_cashbook_legs"]), 2) if bill else None
+        )
+        parent_state = p.get("status")
+        in_queue = parent_state in QUEUE_PARENT_STATES or bool(p.get("cheque_bounced"))
+        if not in_queue and parent_state in CLOSED_PARENT_STATES:
+            r["tier"] = "record_only"
+            r["why"] = (
+                "Parent is %s - the accountant queue cannot surface it, so the "
+                "low figure misstates history but cannot invite a second payment."
+                % parent_state)
+        elif queue_after > queue_now + 0.5:
+            r["tier"] = "queue_affecting"
+            r["why"] = (
+                "Mirror is partially_paid, so the queue reads its paid_amount. "
+                "Repairing it moves collected from %s to %s." % (queue_now, queue_after))
+        else:
+            r["tier"] = "parent_stamp"
+            r["why"] = (
+                "Parent is %s (still live) but the queue reads its advance/balance "
+                "stamps, not this mirror. Repairing the mirror alone would not "
+                "change the board." % parent_state)
+
+    def _bucket(rows, keyfn):
+        out: Dict[str, Dict[str, Any]] = {}
+        for r in rows:
+            b = out.setdefault(str(keyfn(r)), {"count": 0, "under_recorded": 0.0})
+            b["count"] += 1
+            b["under_recorded"] = round(b["under_recorded"] + r["under_recorded_by"], 2)
+        return dict(sorted(out.items(), key=lambda kv: -kv[1]["under_recorded"]))
+
+    def _tot(rows):
+        return round(sum(r["under_recorded_by"] for r in rows), 2)
+
+    tiers = {t: [r for r in affected if r["tier"] == t]
+             for t in ("queue_affecting", "parent_stamp", "record_only")}
+    shown = affected if tier == "all" else tiers.get(tier, [])
+
     return fast_json({
         "write_performed": False,
         "read_only": True,
         "mirrors_examined": len(by_id),
         "affected_count": len(affected),
-        "total_under_recorded": round(sum(r["under_recorded_by"] for r in affected), 2),
-        "suspense_funded_count": len(suspense_driven),
-        "suspense_funded_total": round(sum(r["under_recorded_by"] for r in suspense_driven), 2),
-        "reading": ("Each row below was settled by cashbook legs totalling more "
-                    "than its stored paid_amount. The accountant queue reads the "
-                    "stored figure, so these bills understate what has been "
-                    "collected and can invite a second payment."),
-        "rows": affected[:limit],
-        "truncated": len(affected) > limit,
+        "total_under_recorded": _tot(affected),
+        "tiers": {t: {"count": len(rows), "under_recorded": _tot(rows)}
+                  for t, rows in tiers.items()},
+        "by_mirror_status": _bucket(affected, lambda r: r["mirror_status"]),
+        "by_parent_status": _bucket(affected, lambda r: r["parent_status"]),
+        "reading": (
+            "queue_affecting: mirror is partially_paid, so the accountant queue "
+            "reads its paid_amount - repairing it corrects the board. "
+            "parent_stamp: parent is still live but the queue reads the parent's "
+            "advance/balance stamps, so the mirror fix alone changes nothing. "
+            "record_only: parent is closed - wrong in history, harmless on the board."
+        ),
+        "tier_filter": tier,
+        "rows": shown[:limit],
+        "rows_available": len(shown),
+        "truncated": len(shown) > limit,
     })
 
 
