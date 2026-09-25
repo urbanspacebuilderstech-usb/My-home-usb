@@ -13584,3 +13584,187 @@ async def mirror_paid_repair_apply(
                  "changed. No leg, suspense balance, cheque, income or parent "
                  "field was touched, and no status moved."),
     }
+
+
+# ==========================================================================
+# Sep 25 2026 - TEMPORARY read-only audit of vendor-name keying.
+#
+# `_live_vendor_suspense_balance` matches suspense with an exact,
+# case-sensitive `vendor_name` string. The vendor master has stable
+# vendor_ids, but suspense_entries never carry them. So two spellings of one
+# vendor hold two separate credit pools, and a bill raised under spelling A
+# sees 0 available even though spelling B holds lakhs.
+#
+# Reported: Mrs Pushpalatha / Steel bill shows VENDOR SUSPENSE 0 while the
+# Material Vendor summary shows 2,90,300 credit under
+# "SRINIVASAKA ENTERPRISES (steel)".
+#
+# This sizes it before anything is changed. Reads only. No writes.
+# ==========================================================================
+
+def _vendor_key_strict(name: str) -> str:
+    """Case, whitespace and punctuation only - a pure spelling collision."""
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
+def _vendor_key_loose(name: str) -> str:
+    """Also drops a parenthetical suffix such as "(steel)"."""
+    base = re.sub(r"\([^)]*\)", " ", (name or "").lower())
+    return re.sub(r"[^a-z0-9]", "", base)
+
+
+@router.get("/admin/vendor-name-keying-audit")
+async def vendor_name_keying_audit(
+    vendor_name: Optional[str] = None,
+    limit: int = 40,
+    user: User = Depends(get_current_user),
+):
+    """Where one real vendor is split across several spellings.
+
+    Returns, for every collision group, the exact spellings in play, the
+    suspense credit sitting under each, and the vendor master records behind
+    them - so it is visible whether a group is really one vendor (safe to
+    merge) or two genuinely different ones (must stay apart).
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    # ---- suspense credit per exact spelling ------------------------------
+    entries = await db.suspense_entries.find(
+        {"type": "material"},
+        {"_id": 0, "vendor_name": 1, "amount": 1, "linked_expense_id": 1,
+         "expense_id": 1, "created_at": 1},
+    ).to_list(20000)
+
+    # Apply the SAME liveness filter the pay dialog applies, so the numbers
+    # here are the spendable ones, not the raw ledger.
+    _excl = {"rejected", "accountant_rejected", "accounts_rejected",
+             "under_correction", "cheque_bounced"}
+    linked = [e.get("linked_expense_id") or e.get("expense_id") for e in entries
+              if e.get("linked_expense_id") or e.get("expense_id")]
+    live_ids = set()
+    if linked:
+        docs = await db.recorded_expenses.find(
+            {"expense_id": {"$in": linked}},
+            {"_id": 0, "expense_id": 1, "status": 1, "is_deleted": 1},
+        ).to_list(len(linked))
+        live_ids = {d["expense_id"] for d in docs
+                    if (d.get("status") or "").lower() not in _excl and not d.get("is_deleted")}
+    spendable = [
+        e for e in entries
+        if not (e.get("linked_expense_id") or e.get("expense_id"))
+        or (e.get("linked_expense_id") or e.get("expense_id")) in live_ids
+    ]
+
+    susp_by_name: Dict[str, Dict[str, Any]] = {}
+    for e in spendable:
+        nm = e.get("vendor_name") or ""
+        b = susp_by_name.setdefault(nm, {"entries": 0, "credit": 0.0})
+        b["entries"] += 1
+        b["credit"] = round(b["credit"] + _f(e.get("amount")), 2)
+
+    # ---- bills per exact spelling ----------------------------------------
+    mexps = await db.material_expenses.find(
+        {}, {"_id": 0, "vendor_name": 1, "expense_id": 1, "source_request_id": 1},
+    ).to_list(20000)
+    bills_by_name: Dict[str, int] = {}
+    for m in mexps:
+        nm = m.get("vendor_name") or ""
+        bills_by_name[nm] = bills_by_name.get(nm, 0) + 1
+
+    # ---- vendor master ----------------------------------------------------
+    vendors = await db.vendors.find(
+        {}, {"_id": 0, "vendor_id": 1, "name": 1, "user_id": 1, "phone": 1},
+    ).to_list(5000)
+    vend_by_name: Dict[str, List[Dict[str, Any]]] = {}
+    for v in vendors:
+        vend_by_name.setdefault(v.get("name") or "", []).append(v)
+
+    all_names = set(susp_by_name) | set(bills_by_name) | set(vend_by_name)
+
+    groups: Dict[str, Dict[str, Any]] = {}
+    for nm in all_names:
+        k = _vendor_key_loose(nm)
+        if not k:
+            continue
+        g = groups.setdefault(k, {"spellings": [], "strict_keys": set()})
+        g["strict_keys"].add(_vendor_key_strict(nm))
+        g["spellings"].append({
+            "vendor_name": nm,
+            "suspense_credit": susp_by_name.get(nm, {}).get("credit", 0.0),
+            "suspense_entries": susp_by_name.get(nm, {}).get("entries", 0),
+            "material_bills": bills_by_name.get(nm, 0),
+            "vendor_master": [
+                {"vendor_id": v.get("vendor_id"), "name": v.get("name"),
+                 "phone": v.get("phone"), "user_id": v.get("user_id")}
+                for v in vend_by_name.get(nm, [])
+            ],
+        })
+
+    collisions = []
+    for k, g in groups.items():
+        if len(g["spellings"]) < 2:
+            continue
+        sp = sorted(g["spellings"], key=lambda s: -s["suspense_credit"])
+        stranded = round(sum(s["suspense_credit"] for s in sp[1:]), 2)
+        masters = [m for s in sp for m in s["vendor_master"]]
+        ids = {m["vendor_id"] for m in masters if m.get("vendor_id")}
+        collisions.append({
+            "key": k,
+            "spelling_count": len(sp),
+            "differs_only_by_case_or_punctuation": len(g["strict_keys"]) == 1,
+            "total_suspense_credit": round(sum(s["suspense_credit"] for s in sp), 2),
+            "credit_not_on_the_largest_spelling": stranded,
+            "total_material_bills": sum(s["material_bills"] for s in sp),
+            "distinct_vendor_master_ids": sorted(ids),
+            "one_master_record": len(ids) <= 1,
+            "spellings": sp,
+        })
+
+    collisions.sort(key=lambda c: -c["total_suspense_credit"])
+
+    drill = None
+    if vendor_name:
+        k = _vendor_key_loose(vendor_name)
+        drill = next((c for c in collisions if c["key"] == k), None)
+        if drill is None:
+            drill = {
+                "key": k,
+                "note": "no collision - this spelling stands alone",
+                "vendor_name": vendor_name,
+                "suspense_credit": susp_by_name.get(vendor_name, {}).get("credit", 0.0),
+                "material_bills": bills_by_name.get(vendor_name, 0),
+            }
+
+    return fast_json({
+        "write_performed": False,
+        "read_only": True,
+        "how_the_lookup_works": (
+            "_live_vendor_suspense_balance queries suspense_entries with an "
+            "exact, case-sensitive vendor_name. suspense_entries carry no "
+            "vendor_id, so two spellings of one vendor hold two separate "
+            "credit pools and neither bill can spend the other's."
+        ),
+        "material_suspense_entries_examined": len(entries),
+        "spendable_after_liveness_filter": len(spendable),
+        "distinct_vendor_spellings": len(all_names),
+        "collision_groups": len(collisions),
+        "credit_stranded_by_spelling": round(
+            sum(c["credit_not_on_the_largest_spelling"] for c in collisions), 2),
+        "reading": (
+            "differs_only_by_case_or_punctuation=true means the spellings are "
+            "the same words - almost certainly one vendor. false means a "
+            "spelling carries an extra parenthetical such as '(steel)', which "
+            "may be a deliberate per-material vendor record. one_master_record "
+            "says whether the vendors collection agrees they are one."
+        ),
+        "drilldown": drill,
+        "collisions": collisions[:limit],
+        "truncated": len(collisions) > limit,
+    })
