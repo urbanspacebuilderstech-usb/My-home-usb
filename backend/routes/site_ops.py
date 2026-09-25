@@ -1623,10 +1623,19 @@ async def get_project_approved_materials(
 ):
     """Get materials available for a Site Engineer to request.
 
-    Sources (deduped by name+brand, project-specific items first):
-      1. db.project_materials (legacy approved materials with brand)
-      2. project.package_materials (RE/Quotation package materials with brand)
-      3. db.materials master catalog (industry-standard fallback)
+    Sources (deduped by name+brand), STRICTLY scoped to this project — a
+    material only appears once Planning has actually added/updated it in
+    this project's own Materials List or applied a package to it:
+      1. db.project_materials (this project's Materials List, edited from
+         Project > Materials tab)
+      2. project.package_materials (RE/Quotation package applied to this
+         project)
+
+    Sep 25 2026 — previously fell back to the industry-wide db.materials
+    master catalog when these two were exhausted, so an SE could pick (and
+    request) materials Planning never approved for THIS project. Removed:
+    if it isn't in this project's own list, it shouldn't be requestable —
+    Custom / Other remains the escape hatch for anything genuinely missing.
     """
     allowed_roles = [
         UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM,
@@ -1689,19 +1698,6 @@ async def get_project_approved_materials(
     proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "package_materials": 1})
     for r in (proj or {}).get("package_materials") or []:
         _add(r, "package")
-
-    # 3) Industry-wide master catalog
-    master_rows = await db.materials.find({}, {"_id": 0}).to_list(2000)
-    if not master_rows:
-        # Master catalog is empty — seed a comprehensive default list once so SEs always
-        # have construction materials to pick from. Idempotent: skipped on subsequent calls.
-        try:
-            await _seed_default_materials_catalog()
-            master_rows = await db.materials.find({}, {"_id": 0}).to_list(2000)
-        except Exception:
-            master_rows = []
-    for r in master_rows:
-        _add(r, "master")
 
     return out
 
