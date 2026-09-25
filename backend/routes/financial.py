@@ -11270,6 +11270,129 @@ async def suspense_mode_backfill_dryrun(entry_ids: str, payment_mode: str = "che
     }
 
 
+@router.get("/admin/underrecorded-paid-scan")
+async def underrecorded_paid_scan(
+    limit: int = 500,
+    user: User = Depends(get_current_user),
+):
+    """TEMPORARY read-only scan: bills whose stored paid_amount is below the
+    cashbook legs that actually settled them.
+
+    Sep 25 2026 - until today pay_approval wrote the mirror's paid_amount from
+    the CASH-ONLY figure, so any bill part- or fully-settled from vendor
+    suspense recorded less than was really settled (USB-MR1181: 610 settled,
+    0 recorded). The logic is fixed going forward, but every payment made
+    before the fix still carries the low number, and the accountant queue
+    derives "collected so far" from exactly that field.
+
+    This sizes the problem before anything is repaired: for each
+    material_expenses row it compares the stored paid_amount against the sum
+    of the surviving recorded_expenses legs that point at it - the same
+    evidence `_reconciled_already_paid` already trusts over the stored flag.
+
+    Reads only. No writes.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    mexps = await db.material_expenses.find(
+        {}, {"_id": 0, "expense_id": 1, "material_expense_id": 1,
+             "source_request_id": 1, "amount": 1, "paid_amount": 1,
+             "total_paid": 1, "remaining_balance": 1, "status": 1,
+             "vendor_name": 1, "payment_phase": 1, "created_at": 1},
+    ).to_list(20000)
+    by_id = {}
+    for m in mexps:
+        for k in (m.get("expense_id"), m.get("material_expense_id")):
+            if k:
+                by_id[k] = m
+
+    legs = await db.recorded_expenses.find(
+        {"request_id": {"$in": list(by_id.keys())}},
+        {"_id": 0, "expense_id": 1, "request_id": 1, "amount": 1,
+         "credit_applied": 1, "status": 1, "source": 1, "created_at": 1},
+    ).to_list(50000) if by_id else []
+
+    settled_by_mexp: Dict[str, float] = {}
+    credit_by_mexp: Dict[str, float] = {}
+    legs_by_mexp: Dict[str, List[Dict[str, Any]]] = {}
+    for l in legs:
+        if (l.get("status") or "").lower() in _PAID_LEG_EXCLUDED_STATUS:
+            continue
+        rid = l.get("request_id")
+        settled_by_mexp[rid] = round(settled_by_mexp.get(rid, 0.0) + _f(l.get("amount")), 2)
+        credit_by_mexp[rid] = round(credit_by_mexp.get(rid, 0.0) + _f(l.get("credit_applied")), 2)
+        legs_by_mexp.setdefault(rid, []).append(l)
+
+    affected = []
+    for key, m in by_id.items():
+        if key != m.get("expense_id"):
+            continue  # count each mirror once
+        evidence = settled_by_mexp.get(key, 0.0)
+        stored = _f(m.get("paid_amount"))
+        gap = round(evidence - stored, 2)
+        if gap <= 0.5:
+            continue
+        bill = _f(m.get("amount"))
+        affected.append({
+            "material_expense_id": key,
+            "source_request_id": m.get("source_request_id"),
+            "vendor_name": m.get("vendor_name"),
+            "status": m.get("status"),
+            "payment_phase": m.get("payment_phase"),
+            "bill_amount": bill,
+            "paid_amount_stored": stored,
+            "settled_per_cashbook_legs": evidence,
+            "under_recorded_by": gap,
+            "of_which_from_suspense": credit_by_mexp.get(key, 0.0),
+            "remaining_balance_stored": _f(m.get("remaining_balance")),
+            "remaining_balance_correct": round(max(0.0, bill - evidence), 2),
+            "legs": [{"expense_id": l.get("expense_id"), "amount": _f(l.get("amount")),
+                      "credit_applied": _f(l.get("credit_applied")),
+                      "source": l.get("source"), "status": l.get("status"),
+                      "created_at": l.get("created_at")}
+                     for l in legs_by_mexp.get(key, [])],
+            "created_at": m.get("created_at"),
+        })
+
+    affected.sort(key=lambda r: -r["under_recorded_by"])
+    req_ids = [r["source_request_id"] for r in affected if r.get("source_request_id")]
+    reqs = await db.material_requests.find(
+        {"request_id": {"$in": req_ids}},
+        {"_id": 0, "request_id": 1, "request_number": 1, "material_name": 1,
+         "project_id": 1, "status": 1},
+    ).to_list(20000) if req_ids else []
+    req_by_id = {r["request_id"]: r for r in reqs}
+    for r in affected:
+        parent = req_by_id.get(r.get("source_request_id")) or {}
+        r["request_number"] = parent.get("request_number")
+        r["material_name"] = parent.get("material_name")
+        r["parent_status"] = parent.get("status")
+
+    suspense_driven = [r for r in affected if r["of_which_from_suspense"] > 0.5]
+    return fast_json({
+        "write_performed": False,
+        "read_only": True,
+        "mirrors_examined": len(by_id),
+        "affected_count": len(affected),
+        "total_under_recorded": round(sum(r["under_recorded_by"] for r in affected), 2),
+        "suspense_funded_count": len(suspense_driven),
+        "suspense_funded_total": round(sum(r["under_recorded_by"] for r in suspense_driven), 2),
+        "reading": ("Each row below was settled by cashbook legs totalling more "
+                    "than its stored paid_amount. The accountant queue reads the "
+                    "stored figure, so these bills understate what has been "
+                    "collected and can invite a second payment."),
+        "rows": affected[:limit],
+        "truncated": len(affected) > limit,
+    })
+
+
 @router.get("/admin/material-request-payment-trace")
 async def material_request_payment_trace(
     request_number: str = "USB-MR1706",
