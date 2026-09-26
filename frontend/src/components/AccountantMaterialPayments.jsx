@@ -261,12 +261,6 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     <span className="font-bold">Balance: {fmt(req.balance_due ?? req.remaining_balance)}</span>
                   </div>
                 )}
-                {req.partially_collected && (
-                  <div className="mb-2 bg-yellow-50 border border-yellow-200 rounded px-2 py-1.5 text-[11px] text-yellow-800 flex items-center justify-between flex-wrap gap-1" data-testid={`acc-mat-partial-strip-${req.request_id}`}>
-                    <span><span className="font-semibold">Collected:</span> {fmt(req.collected_amount || 0)} of {fmt(total)}</span>
-                    <span className="font-bold">Balance Due: {fmt(req.balance_due || 0)}</span>
-                  </div>
-                )}
                 <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {/* Jul 10 2026 — Every request reaching Accounts has already
