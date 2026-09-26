@@ -3144,13 +3144,6 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                     </span>
                   </Button>
                 ))}
-                <div className="ml-auto">
-                  <Button size="sm" className="bg-red-600 hover:bg-red-700 gap-1 sm:gap-1.5 h-8 text-xs" onClick={() => {
-                    if (window.innerWidth < 768) { setMobileExpenseDialog(true); } else { setAddExpenseOpen(true); }
-                  }} data-testid="add-expense-btn">
-                    <Plus className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Add </span>Expense
-                  </Button>
-                </div>
               </div>
             );
           })()}
