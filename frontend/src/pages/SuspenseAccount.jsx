@@ -257,13 +257,7 @@ export default function SuspenseAccountPage() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [activeTab, setActiveTab] = useState('petty_cash');
-  const [paymentDialog, setPaymentDialog] = useState(false);
   const [unreadNotifs, setUnreadNotifs] = useState(0);
-  const [payForm, setPayForm] = useState({
-    payment_type: 'labour', vendor_or_contractor: '', requested_amount: '',
-    cheque_amount: '', payment_method: 'cheque', remarks: '',
-    allocations: [{ project_id: '', amount: '' }]
-  });
 
   useEffect(() => { fetchData(); }, []);
 
@@ -370,41 +364,6 @@ export default function SuspenseAccountPage() {
     openDeleteDialog('labour', entry);
   };
 
-  const handlePayment = async (e) => {
-    e.preventDefault();
-    try {
-      const projects = data?.projects || [];
-      const allocations = payForm.allocations.filter(a => a.project_id && a.amount).map(a => ({
-        project_id: a.project_id,
-        project_name: projects.find(p => p.project_id === a.project_id)?.name || '',
-        amount: Number(a.amount)
-      }));
-      
-      await axios.post(`${API}/suspense/payment`, {
-        payment_type: payForm.payment_type,
-        vendor_or_contractor: payForm.vendor_or_contractor,
-        requested_amount: Number(payForm.requested_amount),
-        cheque_amount: Number(payForm.cheque_amount),
-        payment_method: payForm.payment_method,
-        site_allocations: allocations,
-        remarks: payForm.remarks,
-      });
-      toast.success('Payment processed with suspense tracking');
-      setPaymentDialog(false);
-      setPayForm({ payment_type: 'labour', vendor_or_contractor: '', requested_amount: '', cheque_amount: '', payment_method: 'cheque', remarks: '', allocations: [{ project_id: '', amount: '' }] });
-      fetchData(false);
-    } catch (error) {
-      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed');
-    }
-  };
-
-  const addAllocation = () => setPayForm({ ...payForm, allocations: [...payForm.allocations, { project_id: '', amount: '' }] });
-  const updateAllocation = (idx, field, val) => {
-    const allocs = [...payForm.allocations];
-    allocs[idx] = { ...allocs[idx], [field]: val };
-    setPayForm({ ...payForm, allocations: allocs });
-  };
-
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="w-10 h-10 border-3 border-amber-500 border-t-transparent rounded-full animate-spin" />
@@ -429,71 +388,6 @@ export default function SuspenseAccountPage() {
       <div className="max-w-7xl mx-auto px-4 py-5 sm:px-6">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-xl sm:text-2xl font-bold text-gray-900" data-testid="suspense-title">Suspense Account</h2>
-          <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
-            <DialogTrigger asChild>
-              <Button className="gap-1.5 bg-secondary hover:bg-secondary/90" data-testid="process-payment-btn">
-                <Plus className="h-4 w-4" /><span className="hidden sm:inline">Process Payment</span>
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-              <DialogHeader><DialogTitle>Process Payment with Suspense</DialogTitle></DialogHeader>
-              <form onSubmit={handlePayment} className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div><Label>Payment Type</Label>
-                    <Select value={payForm.payment_type} onValueChange={(v) => setPayForm({...payForm, payment_type: v})}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="material">Material</SelectItem>
-                        <SelectItem value="labour">Labour</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div><Label>Payment Method</Label>
-                    <Select value={payForm.payment_method} onValueChange={(v) => setPayForm({...payForm, payment_method: v})}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cheque">Cheque</SelectItem>
-                        <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                        <SelectItem value="savings_account">Savings A/c</SelectItem>
-                        <SelectItem value="cash">Cash</SelectItem>
-                        <SelectItem value="escrow">Escrow</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div><Label>Vendor / Contractor Name</Label><Input data-testid="pay-vendor-input" value={payForm.vendor_or_contractor} onChange={(e) => setPayForm({...payForm, vendor_or_contractor: e.target.value})} required /></div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div><Label>Requested Amount (₹)</Label><NumericInput data-testid="pay-requested-input" value={payForm.requested_amount} onChange={(e) => setPayForm({...payForm, requested_amount: e.target.value})} required /></div>
-                  <div><Label>Cheque/Payment Amount (₹)</Label><NumericInput data-testid="pay-cheque-input" value={payForm.cheque_amount} onChange={(e) => setPayForm({...payForm, cheque_amount: e.target.value})} required /></div>
-                </div>
-                
-                {payForm.requested_amount && payForm.cheque_amount && Number(payForm.cheque_amount) > Number(payForm.requested_amount) && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs">
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600 inline mr-1" />
-                    <strong>Excess: {fmt(Number(payForm.cheque_amount) - Number(payForm.requested_amount))}</strong> will go to suspense account for {payForm.vendor_or_contractor || 'this vendor'}
-                  </div>
-                )}
-
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <Label>Site Allocation</Label>
-                    <Button type="button" variant="ghost" size="sm" onClick={addAllocation} className="text-xs">+ Add Site</Button>
-                  </div>
-                  {payForm.allocations.map((alloc, idx) => (
-                    <div key={idx} className="grid grid-cols-2 gap-2 mb-2">
-                      <Select value={alloc.project_id} onValueChange={(v) => updateAllocation(idx, 'project_id', v)}>
-                        <SelectTrigger><SelectValue placeholder="Select site" /></SelectTrigger>
-                        <SelectContent>{projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}</SelectContent>
-                      </Select>
-                      <NumericInput placeholder="Amount (₹)" value={alloc.amount} onChange={(e) => updateAllocation(idx, 'amount', e.target.value)} />
-                    </div>
-                  ))}
-                </div>
-                <div><Label>Remarks</Label><Input value={payForm.remarks} onChange={(e) => setPayForm({...payForm, remarks: e.target.value})} /></div>
-                <Button type="submit" className="w-full" data-testid="submit-payment-btn">Process Payment</Button>
-              </form>
-            </DialogContent>
-          </Dialog>
         </div>
 
         {/* Total Suspense (sum of all 3) */}
