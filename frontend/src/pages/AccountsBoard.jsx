@@ -5906,7 +5906,7 @@ function ProjectWiseLabourTab({ dateFrom, dateTo, setDateFrom, setDateTo }) {
 // Client-side only — reuses the SAME expense_entries the Overview sub-tab
 // already fetched (no extra API call), filtered to expense_type/category
 // "petty_cash" and grouped by project.
-function ProjectWisePettyCashTab({ expenseEntries, loading, dateFrom, dateTo, setDateFrom, setDateTo }) {
+function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateFrom, dateTo, setDateFrom, setDateTo }) {
   const [search, setSearch] = useState('');
   const [viewProject, setViewProject] = useState(null); // { project_id, project_name, total, rows }
 
@@ -5925,6 +5925,29 @@ function ProjectWisePettyCashTab({ expenseEntries, loading, dateFrom, dateTo, se
 
   const filtered = byProject.filter(r => !search || (r.project_name || '').toLowerCase().includes(search.toLowerCase()));
   const grandTotal = filtered.reduce((s, r) => s + r.total, 0);
+
+  // Sep 26 2026 - summary tiles. These read db.petty_cash (via
+  // petty_cash_rows), NOT the recorded_expenses legs the table below sums:
+  // a leg carries a single `amount` and cannot distinguish what the
+  // accountant sanctioned from what was handed over from what was spent.
+  //
+  //   Issued       - cash actually handed to the Site Engineer
+  //   A/C Approved - what the accountant sanctioned (requests that got past
+  //                  the `requested` stage); differs from Issued while a
+  //                  sanctioned request is still awaiting payout
+  //   Spent        - reported back as spent by the SE
+  //   Balance      - Issued - Spent, i.e. cash still sitting with SEs. Same
+  //                  formula the Daily Closing dialog uses.
+  const pcTotals = React.useMemo(() => {
+    const t = { issued: 0, approved: 0, spent: 0 };
+    (pettyCashRows || []).forEach(pc => {
+      if (search && !(pc.project_name || '').toLowerCase().includes(search.toLowerCase())) return;
+      t.issued += Number(pc.amount_issued) || 0;
+      t.spent += Number(pc.amount_spent) || 0;
+      if (pc.status && pc.status !== 'requested') t.approved += Number(pc.amount_requested) || 0;
+    });
+    return { ...t, balance: t.issued - t.spent };
+  }, [pettyCashRows, search]);
 
   return (
     <div className="space-y-3">
@@ -5947,6 +5970,23 @@ function ProjectWisePettyCashTab({ expenseEntries, loading, dateFrom, dateTo, se
           </div>
         </CardContent>
       </Card>
+      <div className="flex gap-1.5 sm:gap-3 overflow-x-auto" data-testid="pw-pettycash-tiles">
+        {[
+          { key: 'issued', label: 'Issued', value: pcTotals.issued, cls: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
+          { key: 'approved', label: 'A/C Approved', value: pcTotals.approved, cls: 'bg-sky-50 border-sky-200 text-sky-700' },
+          { key: 'spent', label: 'Spent', value: pcTotals.spent, cls: 'bg-red-50 border-red-200 text-red-700' },
+          { key: 'balance', label: 'Balance', value: pcTotals.balance, cls: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+        ].map(p => (
+          <div
+            key={p.key}
+            data-testid={`pw-pettycash-tile-${p.key}`}
+            className={`flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${p.cls}`}
+          >
+            <span className="text-[9px] sm:text-xs font-medium text-center leading-tight">{p.label}</span>
+            <span className="text-base sm:text-2xl font-bold mt-0.5">{fmtFull(p.value)}</span>
+          </div>
+        ))}
+      </div>
       <Card>
         <CardContent className="p-0 overflow-x-auto">
           <table className="w-full text-sm" data-testid="pw-pettycash-table">
@@ -6198,6 +6238,7 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
         {pwSubTabBar}
         <ProjectWisePettyCashTab
           expenseEntries={filteredData?.expense_entries || []}
+          pettyCashRows={filteredData?.petty_cash_rows || []}
           loading={fLoading}
           dateFrom={projDateFrom}
           dateTo={projDateTo}

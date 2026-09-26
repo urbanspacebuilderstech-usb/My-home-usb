@@ -6347,6 +6347,25 @@ async def get_settings_summary(user: User = Depends(get_current_user)):
 
 # ==================== ENHANCED CASHBOOK WITH DATE RANGE ====================
 
+def _petty_cash_query(project_id, start_date, end_date):
+    """Scope petty_cash the same way build_expense_query scopes the rest.
+
+    Sep 26 2026 - rejected / under-correction rows are excluded so the tiles
+    agree with every other petty cash total in the app (see the identical
+    list in get_accountant_cashbook).
+    """
+    q = {"status": {"$nin": ["under_correction", "rejected",
+                             "accountant_rejected", "accounts_rejected",
+                             "cheque_bounced"]}}
+    if project_id:
+        q["project_id"] = project_id
+    if start_date:
+        q.setdefault("created_at", {})["$gte"] = start_date
+    if end_date:
+        q.setdefault("created_at", {})["$lte"] = end_date + "T23:59:59"
+    return q
+
+
 @router.get("/accountant/cashbook-filtered")
 async def get_cashbook_filtered(
     start_date: Optional[str] = None,
@@ -6381,7 +6400,7 @@ async def get_cashbook_filtered(
     # caller filters the expense collections identically.
     expense_q = build_expense_query(project_id=project_id, start_date=start_date, end_date=end_date)
 
-    (incomes, expense_source_docs, projects_list) = await asyncio.gather(
+    (incomes, expense_source_docs, projects_list, petty_cash_docs) = await asyncio.gather(
         db.income.find(income_q, {"_id": 0}).sort("created_at", -1).to_list(2000),
         # Canonical expense sources (recorded / labour / material requests /
         # legacy material POs / petty cash) — one definition, shared with
@@ -6400,6 +6419,16 @@ async def get_cashbook_filtered(
             },
             {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "status": 1, "planning_status": 1, "created_at": 1},
         ).sort("name", 1).to_list(5000),
+        # Sep 26 2026 - Project Wise > Petty Cash needs the petty_cash
+        # records themselves, not just the recorded_expenses legs. The legs
+        # carry one `amount` (cash paid out) and cannot express requested vs
+        # issued vs spent, which is what the four summary tiles report.
+        # Scoped by the same project/date window as every other source here.
+        db.petty_cash.find(_petty_cash_query(project_id, start_date, end_date),
+                           {"_id": 0, "petty_cash_id": 1, "project_id": 1,
+                            "amount_requested": 1, "amount_issued": 1,
+                            "amount_spent": 1, "status": 1, "created_at": 1,
+                            "purpose": 1, "requested_by_name": 1}).to_list(5000),
     )
     (recorded_exps, labour_exps, material_reqs, material_exps_legacy, direct_exps) = expense_source_docs
 
@@ -6748,6 +6777,13 @@ async def get_cashbook_filtered(
         # and the by-mode/project-wise totals built from the same list.
         "income_entries": incomes,
         "expense_entries": all_expenses,
+        # Sep 26 2026 - raw petty_cash rows for the Project Wise > Petty Cash
+        # summary tiles (Issued / A/C Approved / Spent / Balance). Grouping
+        # and filtering stay client-side, as that tab already does.
+        "petty_cash_rows": [
+            {**pc, "project_name": project_map.get(pc.get("project_id"), "")}
+            for pc in petty_cash_docs
+        ],
         "projects": projects_list,
         "project_wise": project_wise_sorted,
         "income_by_mode": income_by_mode,
