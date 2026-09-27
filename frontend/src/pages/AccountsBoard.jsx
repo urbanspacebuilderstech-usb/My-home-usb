@@ -5947,20 +5947,28 @@ function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateF
   // "Total Petty Cash Used" figure derived from a different source
   // (expense legs, which can't distinguish issued/approved/spent — see the
   // pcTotals comment above).
+  //
+  // Petty cash requests can be raised with NO project ("global" — see
+  // request_petty_cash, which stores project_id as "" and project_name as
+  // "General" in that case). Grouping on project_id alone therefore dropped
+  // every such row silently — with enough of those, the whole table showed
+  // "No petty cash entries" even though the tiles (which don't group) still
+  // totalled real money. Fall back to project_name as the group key so a
+  // General bucket still surfaces as its own row instead of vanishing.
   const pcByProject = React.useMemo(() => {
     const map = {};
-    (pettyCashRows || []).forEach(pc => {
-      const pid = pc.project_id;
-      if (!pid) return;
-      if (!map[pid]) map[pid] = { project_id: pid, project_name: pc.project_name || 'Unknown', issued: 0, approved: 0, spent: 0 };
-      map[pid].issued += Number(pc.amount_issued) || 0;
-      map[pid].spent += Number(pc.amount_spent) || 0;
-      if (pc.status && pc.status !== 'requested') map[pid].approved += Number(pc.amount_requested) || 0;
+    sePettyCashRows.forEach(pc => {
+      const key = pc.project_id || pc.project_name;
+      if (!key) return;
+      if (!map[key]) map[key] = { project_id: pc.project_id || key, project_name: pc.project_name || 'Unknown', issued: 0, approved: 0, spent: 0 };
+      map[key].issued += Number(pc.amount_issued) || 0;
+      map[key].spent += Number(pc.amount_spent) || 0;
+      if (pc.status && pc.status !== 'requested') map[key].approved += Number(pc.amount_requested) || 0;
     });
     return Object.values(map)
       .map(p => ({ ...p, balance: p.issued - p.spent, rows: byProject[p.project_id]?.rows || [] }))
       .sort((a, b) => (a.project_name || '').localeCompare(b.project_name || ''));
-  }, [pettyCashRows, byProject]);
+  }, [sePettyCashRows, byProject]);
 
   const filtered = pcByProject.filter(r => !search || (r.project_name || '').toLowerCase().includes(search.toLowerCase()));
   const grandTotal = {
@@ -5984,20 +5992,28 @@ function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateF
   //                  formula the Daily Closing dialog uses.
   const pcTotals = React.useMemo(() => {
     const t = { issued: 0, approved: 0, spent: 0 };
-    (pettyCashRows || []).forEach(pc => {
+    sePettyCashRows.forEach(pc => {
       if (search && !(pc.project_name || '').toLowerCase().includes(search.toLowerCase())) return;
       t.issued += Number(pc.amount_issued) || 0;
       t.spent += Number(pc.amount_spent) || 0;
       if (pc.status && pc.status !== 'requested') t.approved += Number(pc.amount_requested) || 0;
     });
     return { ...t, balance: t.issued - t.spent };
-  }, [pettyCashRows, search]);
+  }, [sePettyCashRows, search]);
 
   return (
     <div className="space-y-3">
       <Card>
         <CardContent className="p-3">
           <div className="flex flex-wrap items-center gap-2">
+            <ProjectSearchSelect
+              value={seFilter}
+              onChange={setSeFilter}
+              projects={seOptions}
+              placeholder="All Site Engineers"
+              width="w-52"
+              testId="pw-pettycash-se-filter"
+            />
             <CashbookDateFilter dateFrom={dateFrom} dateTo={dateTo} setDateFrom={setDateFrom} setDateTo={setDateTo} testIdPrefix="pwpettycash" accent="amber" />
             {loading && <RefreshCw className="h-4 w-4 animate-spin text-amber-600" />}
             <div className="relative ml-auto w-full sm:w-72">
