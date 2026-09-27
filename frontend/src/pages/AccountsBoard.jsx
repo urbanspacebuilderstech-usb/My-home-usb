@@ -5908,7 +5908,25 @@ function ProjectWiseLabourTab({ dateFrom, dateTo, setDateFrom, setDateTo }) {
 // "petty_cash" and grouped by project.
 function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateFrom, dateTo, setDateFrom, setDateTo }) {
   const [search, setSearch] = useState('');
+  const [seFilter, setSeFilter] = useState('');
   const [viewProject, setViewProject] = useState(null); // { project_id, project_name, total, rows }
+
+  // Sep 27 2026 — Site Engineer filter, populated from the same
+  // petty_cash_rows the tiles/table already use (requested_by/requested_by_name).
+  const seOptions = React.useMemo(() => {
+    const map = new Map();
+    (pettyCashRows || []).forEach(pc => {
+      const id = pc.requested_by;
+      if (!id || map.has(id)) return;
+      map.set(id, { project_id: id, name: pc.requested_by_name || id });
+    });
+    return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [pettyCashRows]);
+
+  const sePettyCashRows = React.useMemo(
+    () => (pettyCashRows || []).filter(pc => !seFilter || pc.requested_by === seFilter),
+    [pettyCashRows, seFilter]
+  );
 
   const byProject = React.useMemo(() => {
     const map = {};

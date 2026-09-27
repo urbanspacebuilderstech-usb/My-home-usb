@@ -8915,6 +8915,37 @@ _PAID_LEG_EXCLUDED_STATUS = {"rejected", "accountant_rejected", "accounts_reject
                              "under_correction", "cheque_bounced"}
 
 
+def _prior_phase_paid_to_exclude(payment_phase, bill_amount, parent_balance,
+                                 parent_advance_paid):
+    """Money paid in an EARLIER phase that `balance_amount` has already netted off.
+
+    Sep 27 2026 - USB-MR1801 (Anbu Test / Champion Demo Test, RE - Dummy
+    Project). Ordered 5 at 100 = 500 with a 100 advance. The accountant paid
+    the advance; Procurement then verified 6 received, so the parent became
+    total 600 / advance 100 / balance 500. The Approvals card correctly read
+    600 total, 100 paid, balance 500.
+
+    Pay & Settle offered 400. For a balance leg `bill_amount` is the parent's
+    `balance_amount`, which is total MINUS advance - the advance is already
+    deducted there. But this request reuses ONE mirror across both phases:
+    after the advance was paid, mexp_d83d7d14fe1a still carried paid_amount
+    100 while its payment_phase had moved on to "balance".
+    `_reconciled_already_paid` read that 100 and it was subtracted a second
+    time, so 100 of a 600 bill became uncollectable while the bill looked
+    settled.
+
+    Only the advance portion is excluded, so a genuine part-payment WITHIN
+    the balance phase still counts against the balance. Returns 0 unless the
+    bill really is the balance figure, leaving the ordinary flow - where
+    procurement creates a fresh balance mirror with paid_amount 0 - untouched.
+    """
+    if payment_phase != "balance":
+        return 0.0
+    if parent_balance <= 0.5 or abs(bill_amount - parent_balance) > 0.5:
+        return 0.0
+    return max(0.0, parent_advance_paid or 0.0)
+
+
 async def _reconciled_already_paid(req: Dict[str, Any]) -> float:
     """How much of this bill is *actually* still paid for.
 
@@ -9368,16 +9399,19 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
     total_amount = None
     advance_amount = None
     balance_amount = None
+    parent_advance_paid = 0.0
     if req_type == "material" and req.get("payment_phase") in ("advance", "balance") and req.get("source_request_id"):
         parent = await db.material_requests.find_one(
             {"request_id": req["source_request_id"]},
-            {"_id": 0, "total_amount": 1, "advance_amount": 1, "balance_amount": 1},
+            {"_id": 0, "total_amount": 1, "advance_amount": 1, "balance_amount": 1,
+             "advance_paid_amount": 1},
         )
         if parent:
             payment_phase = req.get("payment_phase")
             total_amount = float(parent.get("total_amount") or 0)
             advance_amount = float(parent.get("advance_amount") or 0)
             balance_amount = float(parent.get("balance_amount") or max(0.0, total_amount - advance_amount))
+            parent_advance_paid = float(parent.get("advance_paid_amount") or 0)
             # Aug 18 2026 — `bill_amount` above came from the material_expenses
             # mirror's own `final_amount`, a denormalized copy that
             # recalculate_material_request_amount only re-syncs while the bill
@@ -9422,6 +9456,11 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
     # a prior partial settlement, the remaining payable shrinks accordingly and
     # suspense was already consumed in the first call.
     already_paid = await _reconciled_already_paid(req)
+    # Sep 27 2026 - see _prior_phase_paid_to_exclude. A balance bill is already
+    # net of the advance, so advance money still sitting on a shared mirror
+    # must not be deducted from it a second time (USB-MR1801).
+    already_paid = max(0.0, already_paid - _prior_phase_paid_to_exclude(
+        payment_phase, bill_amount, balance_amount or 0.0, parent_advance_paid))
     is_continuation = already_paid > 0 and req.get("status") == "partially_paid"
     if is_continuation:
         # Suspense was already credited; do not double-apply.
@@ -9522,7 +9561,8 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     if req_type == "material" and req.get("payment_phase") in ("advance", "balance") and req.get("source_request_id"):
         _parent = await db.material_requests.find_one(
             {"request_id": req["source_request_id"]},
-            {"_id": 0, "total_amount": 1, "advance_amount": 1, "balance_amount": 1},
+            {"_id": 0, "total_amount": 1, "advance_amount": 1, "balance_amount": 1,
+             "advance_paid_amount": 1},
         )
         _parent = _parent or {}
         _parent_total = float(_parent.get("total_amount") or 0)
@@ -9539,6 +9579,12 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             bill_amount = _parent_balance
         elif _parent_total > 0.5:
             bill_amount = _parent_total
+        # Sep 27 2026 - mirrors get_pay_context exactly; see
+        # _prior_phase_paid_to_exclude. Kept beside the bill_amount choice so
+        # the two cannot drift apart (USB-MR1801).
+        already_paid = max(0.0, already_paid - _prior_phase_paid_to_exclude(
+            _phase, bill_amount, _parent_balance,
+            float(_parent.get("advance_paid_amount") or 0)))
 
     # Feb 28 2026 — Auto-netting of vendor suspense (positive OR negative)
     # against the bill has been disabled at the user's request.
