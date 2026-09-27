@@ -5920,11 +5920,37 @@ function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateF
       map[pid].total += Number(e.amount) || 0;
       map[pid].rows.push(e);
     });
-    return Object.values(map).sort((a, b) => (a.project_name || '').localeCompare(b.project_name || ''));
+    return map;
   }, [expenseEntries]);
 
-  const filtered = byProject.filter(r => !search || (r.project_name || '').toLowerCase().includes(search.toLowerCase()));
-  const grandTotal = filtered.reduce((s, r) => s + r.total, 0);
+  // Sep 27 2026 — per-project breakdown of the same Issued / A/C Approved /
+  // Spent / Balance figures the tiles above already show in aggregate, so
+  // each row in the table carries the same numbers instead of just a single
+  // "Total Petty Cash Used" figure derived from a different source
+  // (expense legs, which can't distinguish issued/approved/spent — see the
+  // pcTotals comment above).
+  const pcByProject = React.useMemo(() => {
+    const map = {};
+    (pettyCashRows || []).forEach(pc => {
+      const pid = pc.project_id;
+      if (!pid) return;
+      if (!map[pid]) map[pid] = { project_id: pid, project_name: pc.project_name || 'Unknown', issued: 0, approved: 0, spent: 0 };
+      map[pid].issued += Number(pc.amount_issued) || 0;
+      map[pid].spent += Number(pc.amount_spent) || 0;
+      if (pc.status && pc.status !== 'requested') map[pid].approved += Number(pc.amount_requested) || 0;
+    });
+    return Object.values(map)
+      .map(p => ({ ...p, balance: p.issued - p.spent, rows: byProject[p.project_id]?.rows || [] }))
+      .sort((a, b) => (a.project_name || '').localeCompare(b.project_name || ''));
+  }, [pettyCashRows, byProject]);
+
+  const filtered = pcByProject.filter(r => !search || (r.project_name || '').toLowerCase().includes(search.toLowerCase()));
+  const grandTotal = {
+    issued: filtered.reduce((s, r) => s + r.issued, 0),
+    approved: filtered.reduce((s, r) => s + r.approved, 0),
+    spent: filtered.reduce((s, r) => s + r.spent, 0),
+    balance: filtered.reduce((s, r) => s + r.balance, 0),
+  };
 
   // Sep 26 2026 - summary tiles. These read db.petty_cash (via
   // petty_cash_rows), NOT the recorded_expenses legs the table below sums:
@@ -5994,18 +6020,24 @@ function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateF
               <tr>
                 <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
                 <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
-                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Total Petty Cash Used</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Issued</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">A/C Approved</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Spent</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Balance</th>
                 <th className="px-3 py-2 text-center text-[10px] font-semibold text-gray-500 uppercase">View</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {filtered.length === 0 ? (
-                <tr><td colSpan={4} className="px-3 py-8 text-center text-gray-400 text-sm">{loading ? 'Loading…' : 'No petty cash entries in this period'}</td></tr>
+                <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400 text-sm">{loading ? 'Loading…' : 'No petty cash entries in this period'}</td></tr>
               ) : filtered.map((r, idx) => (
                 <tr key={r.project_id} className="hover:bg-gray-50" data-testid={`pw-pettycash-row-${idx}`}>
                   <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
                   <td className="px-3 py-2 font-medium text-gray-900">{r.project_name}</td>
-                  <td className="px-3 py-2 text-right text-red-700 font-semibold">{fmtFull(r.total)}</td>
+                  <td className="px-3 py-2 text-right text-indigo-700 font-semibold">{fmtFull(r.issued)}</td>
+                  <td className="px-3 py-2 text-right text-sky-700 font-semibold">{fmtFull(r.approved)}</td>
+                  <td className="px-3 py-2 text-right text-red-700 font-semibold">{fmtFull(r.spent)}</td>
+                  <td className="px-3 py-2 text-right text-emerald-700 font-semibold">{fmtFull(r.balance)}</td>
                   <td className="px-3 py-2 text-center">
                     <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setViewProject(r)} data-testid={`pw-pettycash-view-${idx}`}>
                       <Eye className="h-3.5 w-3.5" /> View
@@ -6017,7 +6049,10 @@ function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateF
             <tfoot className="bg-gray-50 border-t font-semibold">
               <tr>
                 <td className="px-3 py-2" colSpan={2}>Total</td>
-                <td className="px-3 py-2 text-right">{fmtFull(grandTotal)}</td>
+                <td className="px-3 py-2 text-right">{fmtFull(grandTotal.issued)}</td>
+                <td className="px-3 py-2 text-right">{fmtFull(grandTotal.approved)}</td>
+                <td className="px-3 py-2 text-right">{fmtFull(grandTotal.spent)}</td>
+                <td className="px-3 py-2 text-right">{fmtFull(grandTotal.balance)}</td>
                 <td></td>
               </tr>
             </tfoot>
