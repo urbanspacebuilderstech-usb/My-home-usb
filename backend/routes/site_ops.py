@@ -972,17 +972,61 @@ async def _inventory_rows_for_projects(project_name_map: Dict[str, str], date_fr
     return rows
 
 
-def _material_payment_status(d: dict) -> str:
-    """paid / partial / unpaid, derived from the material_request's own
-    advance_amount / balance_amount / total_amount — the same fields
-    Pay & Settle itself treats as the actively-maintained source of truth
-    (see financial.py's payment-dialog builder, "The parent's total_amount
-    is the actively-maintained source of truth here"). Works the same way
-    regardless of payment_type (advance/full/credit/post_delivery) — a
+def _material_payment_status(d: dict, mirrors: list = None) -> str:
+    """paid / partial / unpaid for Planning > Inventory.
+
+    Sep 27 2026 — rewritten. This used to read advance_amount /
+    balance_amount, i.e. what was OWED when Procurement priced the request,
+    and never looked at a single payment. The old docstring claimed "a
     credit settlement, a balance payment, and a straight full payment all
-    write balance_amount back to 0 on this exact field/collection
-    (procurement.py's credit-settle and verify-delivery balance recompute)."""
+    write balance_amount back to 0". Nothing does: pay_approval stamps
+    balance_paid_amount and leaves balance_amount untouched.
+
+    USB-MR1806 (ShareChat_test / Anbu test Vendor, post_delivery, 250) was
+    wrong in BOTH directions because of it:
+
+      17:04  assign_vendor  post_delivery sets advance_amount 0 AND
+             balance_amount 0, so `balance <= 0.5` read "paid" before a
+             rupee had been paid — the dangerous direction.
+      17:07  verify_approve recomputed balance_amount to 250 (qty 4 -> 5),
+             flipping the badge to "unpaid".
+      17:08  the accountant paid all 250. It is recorded on the parent as
+             balance_paid_amount 250, on the mirror as status "paid" with
+             remaining_balance 0, and as an approved 250 cashbook leg — but
+             balance_amount is still 250, so the badge stayed "unpaid".
+
+    Payment evidence now decides. A request that has mirror bills is a
+    modern row and its mirrors are authoritative. Only rows with no mirror
+    at all — legacy data predating them — fall back to the owed reading,
+    and that fallback no longer calls a zero balance "paid" unless a real
+    advance covered it or the request actually completed, so a freshly
+    priced post_delivery request can never again look settled.
+    """
     total = float(d.get("total_amount") or d.get("final_price") or d.get("estimated_price") or 0)
+    if total <= 0:
+        return "unpaid"  # never priced yet, so nothing's been paid either
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    if mirrors:
+        # Every mirror settled and nothing outstanding -> the bill is paid,
+        # whatever the stale owed-side fields happen to say.
+        if all(m.get("status") == "paid" and _f(m.get("remaining_balance")) <= 0.5
+               for m in mirrors):
+            return "paid"
+        paid = max(
+            _f(d.get("advance_paid_amount")) + _f(d.get("balance_paid_amount")),
+            round(sum(_f(m.get("paid_amount")) for m in mirrors), 2),
+        )
+        if paid >= total - 0.5:
+            return "paid"
+        return "partial" if paid > 0.5 else "unpaid"
+
+    # ---- legacy rows with no mirror bill -----------------------------------
     advance = float(d.get("advance_amount") or 0)
     balance = d.get("balance_amount")
     balance = float(balance) if balance is not None else max(0.0, total - advance)
@@ -997,7 +1041,11 @@ def _material_payment_status(d: dict) -> str:
     # balance=0 there is genuinely fully paid, just via credit not advance).
     if balance <= 0.5 and advance > 0 and (total - advance) > 0.5:
         balance = total - advance
-    if balance <= 0.5:
+    # Sep 27 2026 — a zero balance alone no longer means paid. Procurement
+    # prices a post_delivery / credit request with advance 0 AND balance 0,
+    # which used to read "paid" the moment a vendor was assigned.
+    _completed = str(d.get("status") or "") in ("delivered", "received_completed")
+    if balance <= 0.5 and (advance > 0.5 or _completed):
         return "paid"
     if advance > 0:
         return "partial"
@@ -1042,6 +1090,19 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
         {"project_id": {"$in": pids}, "used": {"$gt": 0}},
         {"_id": 0, "project_id": 1, "material_name": 1, "date": 1, "used": 1},
     ).sort("date", 1).to_list(50000)
+
+    # Sep 27 2026 — the mirror bills decide the Payment badge (see
+    # _material_payment_status). Loaded once for every request in scope, not
+    # per row, so this stays a single query rather than an N+1 on a listing.
+    _req_ids = [d.get("request_id") for d in all_requests if d.get("request_id")]
+    mirrors_by_request: Dict[str, list] = {}
+    if _req_ids:
+        async for _m in db.material_expenses.find(
+            {"source_request_id": {"$in": _req_ids}},
+            {"_id": 0, "source_request_id": 1, "status": 1, "paid_amount": 1,
+             "remaining_balance": 1},
+        ):
+            mirrors_by_request.setdefault(_m.get("source_request_id"), []).append(_m)
 
     requests_by_project: Dict[str, list] = {}
     for d in all_requests:
@@ -1097,7 +1158,8 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
                 "receive_date": receive_date,
                 "today_in": 0.0,
                 "today_out": 0.0,
-                "payment_status": _material_payment_status(d),
+                "payment_status": _material_payment_status(
+                    d, mirrors_by_request.get(d.get("request_id"))),
             })
         for batches in batches_by_material.values():
             batches.sort(key=lambda b: b["receive_date"] or "")
