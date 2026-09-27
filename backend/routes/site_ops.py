@@ -840,12 +840,19 @@ async def _backfill_missing_inventory_entries(project_id: str) -> None:
         {"project_id": project_id, "status": {"$nin": ["rejected", "cancelled", "deleted"]}},
         {"_id": 0, "request_id": 1, "material_name": 1, "unit": 1, "unit_price": 1, "unit_rate": 1,
          "received_quantity": 1, "approved_quantity": 1, "quantity": 1,
-         "received_at": 1, "delivered_at": 1, "updated_at": 1, "created_at": 1},
+         "received_at": 1, "delivered_at": 1, "updated_at": 1, "created_at": 1,
+         "status": 1},
     ).to_list(2000)
     priced_received = []
     for d in docs:
         unit_rate = float(d.get("unit_price") or d.get("unit_rate") or 0)
         if unit_rate <= 0:
+            continue
+        # Sep 28 2026 - this said "priced + received" but only ever checked
+        # priced, so it BACKFILLED ledger rows for material still in transit
+        # (USB-MR1807). Same gate as the Planning batch builder: nothing is
+        # stock until the SE has pressed Material Collecting.
+        if str(d.get("status") or "") not in _COLLECTED_STATUSES:
             continue
         qty = d.get("received_quantity")
         if qty is None:
@@ -970,6 +977,20 @@ async def _inventory_rows_for_projects(project_name_map: Dict[str, str], date_fr
 
     rows.sort(key=lambda r: (r["project_name"].lower(), (r["material_name"] or "").lower()))
     return rows
+
+
+# Sep 28 2026 — statuses a material_request reaches at or after the Site
+# Engineer's "Material Collecting" step, i.e. once the goods are physically on
+# site. Everything before it (requested / pm_approved / procurement_priced /
+# pending_advance_payment / in_transit) is ordered but not received, so it
+# contributes no stock.
+_COLLECTED_STATUSES = {
+    "collected",
+    "procurement_verifying", "procurement_verify_rejected",
+    "pending_accounts_approval", "pending_balance_payment",
+    "partially_paid", "paid",
+    "delivered", "received_completed",
+}
 
 
 def _material_payment_status(d: dict, mirrors: list = None) -> str:
@@ -1130,9 +1151,18 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
             stored_rate = float(d.get("unit_price") or d.get("unit_rate") or 0)
             if stored_rate <= 0:
                 continue
-            # Batch qty = what was actually received (received_quantity),
-            # falling back to approved/requested qty for requests that
-            # haven't logged a receipt yet.
+            # Sep 28 2026 — stock exists on site only once the Site Engineer
+            # has pressed Material Collecting. USB-MR1807 (Anbu Material Test,
+            # 2 unit) was still In Transit — the SE card showed the stage bar
+            # stopped at Transit, Collected not yet reached — yet Inventory
+            # already listed it with Current Stock 2 and Today In +2, because
+            # this fell back to the ORDERED quantity for anything priced.
+            # Ordering a material is not receiving it.
+            if str(d.get("status") or "") not in _COLLECTED_STATUSES:
+                continue
+            # Batch qty = what was actually received, falling back to the
+            # approved/requested figure for older collected rows that never
+            # recorded a receipt quantity.
             qty = d.get("received_quantity")
             if qty is None:
                 qty = d.get("approved_quantity")
@@ -1195,6 +1225,18 @@ async def _inventory_request_rows_for_projects(project_name_map: Dict[str, str],
         for mat, batches in batches_by_material.items():
             threshold = thresholds.get(mat, 0)
             for b in batches:
+                # Sep 28 2026 — a fully consumed batch stays listed on the day
+                # it was used, so the SE can see the -N movement, and drops off
+                # afterwards. USB-MR1808: 4 received, 4 used the same day —
+                # that day shows Today Out -4 with Current Stock 0, and from
+                # the next day the exhausted row is gone instead of lingering
+                # forever at 0. Rows are only hidden when nothing moved within
+                # the selected range, so widening the date filter brings the
+                # history back.
+                if (b["remaining"] <= 0.0001
+                        and b["today_in"] <= 0.0001
+                        and b["today_out"] <= 0.0001):
+                    continue
                 is_low = b["remaining"] <= threshold and threshold > 0
                 rows.append({
                     "project_id": pid,
