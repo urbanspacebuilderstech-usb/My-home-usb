@@ -4213,7 +4213,22 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
             # accountant queue looking "completed" even though only part of
             # the bill was collected (e.g. Dhanalakshmi SS handrail ₹30,000
             # of ₹65,885 — USB-MR161).
-            {"advance_paid_amount": {"$gt": 0}, "status": {"$in": ["in_transit", "procurement_verifying"]}},
+            #
+            # REVERSED Sep 27 2026 by product decision. On a SPLIT advance
+            # (₹250 as ₹100 now + ₹150 after delivery — USB-MR1322, OPC 53
+            # Grade Cement) that visibility also made the balance RELEASABLE
+            # while the material was still in transit, because `awaiting_stage`
+            # was only ever an informational badge. The balance must not be
+            # payable before Procurement has verified the delivery, so these
+            # rows are no longer pulled in here and are dropped below.
+            #
+            # The row is not lost: verify_delivery sets `pending_next_status`
+            # (pending_balance_payment, or pending_accounts_approval) and both
+            # are matched by the first clause above, so USB-MR1322 returns to
+            # Partially Collected — same request, same balance — the moment
+            # Purchase Verification is done. The USB-MR161 trade-off is
+            # accepted: a part-paid request is invisible to the accountant
+            # while it is in transit.
         ]},
         {"_id": 0},
     ).sort("planning_approved_at", -1).to_list(500)
@@ -4284,8 +4299,19 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
             r["partially_collected"] = True
             r["collected_amount"] = collected
             r["balance_due"] = bal
-            r["awaiting_stage"] = _STAGE_LABEL.get(r.get("status"))  # info badge only — Release always available
-        if r.get("status") in ("in_transit", "procurement_verifying", "pending_advance_payment") and not r.get("cheque_bounced") and not r.get("partially_collected"):
+            r["awaiting_stage"] = _STAGE_LABEL.get(r.get("status"))
+        # Sep 27 2026 — a split advance must not expose its balance before
+        # Procurement has verified the delivery, so in_transit /
+        # procurement_verifying rows are dropped even when part-collected.
+        # `partially_collected` no longer exempts them; only a bounced cheque
+        # does, because a bounce has to reach the accountant at any stage.
+        if r.get("status") in ("in_transit", "procurement_verifying") and not r.get("cheque_bounced"):
+            continue
+        # pending_advance_payment keeps the older behaviour: here it is the
+        # ADVANCE itself that is still being collected, not a balance waiting
+        # on delivery, so a part-paid advance must stay visible (Swarnaa
+        # Agency USB-MR191 — ₹50,000 of ₹1,05,600 paid through the dialog).
+        if r.get("status") == "pending_advance_payment" and not r.get("cheque_bounced") and not r.get("partially_collected"):
             continue
         kept.append(r)
     rows = kept
