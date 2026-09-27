@@ -675,7 +675,8 @@ function RequestsTab({ dateRange, projectFilter }) {
                       )}
                     </div>
                     <div><span className="text-gray-500">Total:</span> <strong className="text-fuchsia-700" data-testid="verify-live-total">{fmt(liveTotalFinal)}</strong></div>
-                    <div className="col-span-2"><span className="text-gray-500">Payment Mode:</span> <strong>{verifyDialog.req.payment_mode || '—'}</strong></div>
+                    <div><span className="text-gray-500">Payment Mode:</span> <strong>{verifyDialog.req.payment_mode || '—'}</strong></div>
+                    <div><span className="text-gray-500">Vehicle Number:</span> <strong>{verifyDialog.req.vehicle_number || '—'}</strong></div>
                   </div>
                 );
               })()}
