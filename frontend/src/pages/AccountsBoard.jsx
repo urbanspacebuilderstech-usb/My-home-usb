@@ -3111,13 +3111,6 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                       </button>
                     );
                   })}
-                  <div className="sm:col-span-3 flex justify-end">
-                    <Button size="sm" className="bg-red-600 hover:bg-red-700 gap-1 h-8 text-xs" onClick={() => {
-                      if (window.innerWidth < 768) { setMobileExpenseDialog(true); } else { setAddExpenseOpen(true); }
-                    }} data-testid="add-expense-btn">
-                      <Plus className="h-3.5 w-3.5" /> Add Expense
-                    </Button>
-                  </div>
                 </div>
               );
             }
