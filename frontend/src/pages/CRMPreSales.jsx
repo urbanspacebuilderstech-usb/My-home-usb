@@ -76,6 +76,22 @@ const MaskedContact = ({ phone, email, lost, compact = false, withIcons = false 
   );
 };
 
+// toLocaleDateString/toLocaleTimeString with options build a new Intl
+// formatter on every call, which adds up to hundreds of ms per render across
+// 1000+ lead rows. Same output, but each formatter is built once.
+const IN_DATE_FORMATTERS = new Map();
+const formatIN = (value, options) => {
+  const d = new Date(value);
+  if (isNaN(d)) return 'Invalid Date'; // what toLocaleDateString returns; Intl throws
+  const key = JSON.stringify(options);
+  let formatter = IN_DATE_FORMATTERS.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-IN', options);
+    IN_DATE_FORMATTERS.set(key, formatter);
+  }
+  return formatter.format(d);
+};
+
 const SOURCE_COLORS = {
   meta: 'bg-amber-50 text-amber-700',
   seo: 'bg-green-100 text-green-700',
@@ -212,14 +228,19 @@ export default function CRMPreSales() {
         axios.get(`${API}/crm/stages?stage_type=pre_sales`),
         axios.get(`${API}/crm/custom-fields`)
       ]);
-      
-      setUser(userRes.data);
-      setDashboard(dashboardRes.data);
-      setStages(stagesRes.data);
-      setCustomFields(fieldsRes.data);
-      
+
+      // The 15s auto-refresh usually gets back exactly what is on screen.
+      // Keep the current state then: any re-render redraws every lead row
+      // (1000+), which stalled the page, typing in dialogs included, on
+      // every refresh.
+      const keepIfSame = (next) => (prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
+      setUser(keepIfSame(userRes.data));
+      setDashboard(keepIfSame(dashboardRes.data));
+      setStages(keepIfSame(stagesRes.data));
+      setCustomFields(keepIfSame(fieldsRes.data));
+
       const leadsRes = await axios.get(`${API}/crm/pre-sales/leads`);
-      setLeads(leadsRes.data);
+      setLeads(keepIfSame(leadsRes.data));
     } catch (error) {
       console.error('Failed to fetch data:', error);
       if (error.response?.status === 401) {
@@ -1015,7 +1036,7 @@ export default function CRMPreSales() {
                         {lead.current_stage_id === 'stg_appointment' && lead.appointment_date && (
                           <div className="mt-1 flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 py-0.5 w-fit" data-testid={`appt-date-list-${lead.lead_id}`}>
                             <Calendar className="h-2.5 w-2.5" />
-                            <span>{new Date(lead.appointment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}{lead.appointment_time ? ` · ${lead.appointment_time}` : ''}</span>
+                            <span>{formatIN(lead.appointment_date, { day: '2-digit', month: 'short' })}{lead.appointment_time ? ` · ${lead.appointment_time}` : ''}</span>
                           </div>
                         )}
                       </td>
@@ -1031,12 +1052,12 @@ export default function CRMPreSales() {
                             <div className="space-y-0.5">
                               {nextFup ? (
                                 <div className={`text-[10px] px-1.5 py-0.5 rounded inline-block ${isToday ? 'bg-amber-100 text-amber-700 font-semibold' : isPast ? 'bg-red-100 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
-                                  {new Date(nextFup.scheduled_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short'})}
+                                  {formatIN(nextFup.scheduled_date, {day:'2-digit', month:'short'})}
                                   {nextFup.scheduled_time && ` ${nextFup.scheduled_time}`}
                                 </div>
                               ) : lastFup?.completed ? (
                                 <div className="text-[10px] px-1.5 py-0.5 rounded inline-block bg-green-50 text-green-600">
-                                  Last: {new Date(lastFup.scheduled_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short'})}
+                                  Last: {formatIN(lastFup.scheduled_date, {day:'2-digit', month:'short'})}
                                 </div>
                               ) : (
                                 <span className="text-[10px] text-gray-400">—</span>
@@ -1047,7 +1068,7 @@ export default function CRMPreSales() {
                       </td>
                       <td className="px-2 py-2">
                         <span className="text-xs text-gray-500">
-                          {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                          {formatIN(lead.created_at, { day: '2-digit', month: '2-digit', year: 'numeric' })}
                         </span>
                       </td>
                       <td className="px-2 py-2 text-center">
@@ -1184,7 +1205,7 @@ export default function CRMPreSales() {
                         {lead.current_stage_id === 'stg_appointment' && lead.appointment_date && (
                           <div className="mt-1.5 flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 w-fit" data-testid={`appt-date-kanban-${lead.lead_id}`}>
                             <Calendar className="h-2.5 w-2.5" />
-                            <span>{new Date(lead.appointment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}{lead.appointment_time ? ` · ${lead.appointment_time}` : ''}</span>
+                            <span>{formatIN(lead.appointment_date, { day: '2-digit', month: 'short', year: 'numeric' })}{lead.appointment_time ? ` · ${lead.appointment_time}` : ''}</span>
                           </div>
                         )}
                         
@@ -1214,7 +1235,7 @@ export default function CRMPreSales() {
                                 {lead.rnr_log.slice(-5).map((log, i) => (
                                   <div key={i} className="text-[10px] text-gray-500 flex justify-between px-1">
                                     <span className="text-red-500 font-medium">RNR {log.attempt}</span>
-                                    <span>{new Date(log.timestamp).toLocaleDateString('en-IN', {day:'2-digit',month:'2-digit'})} {new Date(log.timestamp).toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'})}</span>
+                                    <span>{formatIN(log.timestamp, {day:'2-digit',month:'2-digit'})} {formatIN(log.timestamp, {hour:'2-digit',minute:'2-digit'})}</span>
                                   </div>
                                 ))}
                               </div>
@@ -1250,7 +1271,7 @@ export default function CRMPreSales() {
                                 {(() => {
                                   const next = (lead.follow_ups || []).filter(f => !f.completed).sort((a,b) => (a.scheduled_date||'').localeCompare(b.scheduled_date||''))[0];
                                   if (!next) return 'Done';
-                                  return new Date(next.scheduled_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short'});
+                                  return formatIN(next.scheduled_date, {day:'2-digit', month:'short'});
                                 })()}
                               </Badge>
                             )}
@@ -1267,7 +1288,7 @@ export default function CRMPreSales() {
                         
                         <div className="flex items-center justify-between mt-3 pt-2 border-t">
                           <span className="text-xs text-gray-400">
-                            {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} {new Date(lead.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                            {formatIN(lead.created_at, { day: '2-digit', month: '2-digit', year: 'numeric' })} {formatIN(lead.created_at, { hour: '2-digit', minute: '2-digit' })}
                           </span>
                           <div className="flex gap-1">
                             <Button 
