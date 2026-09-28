@@ -9463,7 +9463,20 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
         payment_phase, bill_amount, balance_amount or 0.0, parent_advance_paid))
     is_continuation = already_paid > 0 and req.get("status") == "partially_paid"
     if is_continuation:
-        # Suspense was already credited; do not double-apply.
+        # credit_used stays 0 here too (matches the no-auto-netting default
+        # above) — the accountant still opts in per leg via apply_suspense.
+        #
+        # Sep 28 2026 — This used to ALSO force the displayed
+        # `suspense.vendor_balance` to 0 on every continuation leg, on the
+        # assumption suspense was "already consumed in the first call." That
+        # assumption doesn't hold in general — existing_suspense is a live
+        # read of suspense_entries, already net of whatever was actually
+        # applied so far, so a vendor's genuinely unconsumed credit (e.g.
+        # SP ENTERPRISES holding ₹23,992 never touched by this bill's first
+        # leg) was being hidden from the dialog on every later leg even
+        # though pay_approval (POST) never applied this same zeroing and
+        # would have accepted apply_suspense against it regardless. See
+        # vendor_balance below — no longer zeroed for continuations.
         credit_used = 0.0
         payable = max(0.0, bill_amount - already_paid)
 
@@ -9488,7 +9501,7 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
             "balance_amount": balance_amount,
         },
         "suspense": {
-            "vendor_balance": existing_suspense if not is_continuation else 0.0,
+            "vendor_balance": existing_suspense,
             "credit_to_apply": credit_used,
         },
         "payable_after_suspense": payable,
