@@ -70,9 +70,10 @@ jobs:
                 REQ_MARKER=venv/.requirements.sha256
               fi
               REQ_HASH=$(sha256sum requirements.txt | cut -d' ' -f1)
-              if [ -n "$REQ_MARKER" ] && [ "$(cat "$REQ_MARKER" 2>/dev/null)" = "$REQ_HASH" ]; then
-                echo "requirements.txt unchanged, skipping pip install"
-              else
+              # No `else` here: script_stop injects an exit-on-$? check after
+              # every line, so a false condition followed by `else` aborts.
+              if [ -z "$REQ_MARKER" ] || [ "$(cat "$REQ_MARKER" 2>/dev/null)" != "$REQ_HASH" ]; then
+                echo "requirements.txt changed, running pip install"
                 pip install -r requirements.txt && { [ -z "$REQ_MARKER" ] || echo "$REQ_HASH" > "$REQ_MARKER"; } || true
               fi
             fi
