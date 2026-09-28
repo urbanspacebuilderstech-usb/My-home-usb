@@ -25,10 +25,23 @@ jobs:
         working-directory: frontend
         run: yarn install --frozen-lockfile
 
+      # webpack + babel-loader persistent cache. Restored after install so a
+      # warm build only recompiles the files that changed.
+      - name: Restore webpack build cache
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules/.cache
+          key: cra-build-${{ hashFiles('frontend/yarn.lock', 'frontend/craco.config.js') }}-${{ github.sha }}
+          restore-keys: |
+            cra-build-${{ hashFiles('frontend/yarn.lock', 'frontend/craco.config.js') }}-
+
       - name: Build with production env
         working-directory: frontend
         env:
           CI: false
+          # Source maps roughly double build time and upload size and are not
+          # served to anyone in production.
+          GENERATE_SOURCEMAP: false
         run: |
           echo "REACT_APP_BACKEND_URL=https://myhomeusb.com" > .env
           yarn build
@@ -53,8 +66,15 @@ jobs:
             if [ -f requirements.txt ]; then
               if [ -d venv ]; then
                 source venv/bin/activate
+                # Hash lives inside the venv so a rebuilt venv always reinstalls
+                REQ_MARKER=venv/.requirements.sha256
               fi
-              pip install -r requirements.txt || true
+              REQ_HASH=$(sha256sum requirements.txt | cut -d' ' -f1)
+              if [ -n "$REQ_MARKER" ] && [ "$(cat "$REQ_MARKER" 2>/dev/null)" = "$REQ_HASH" ]; then
+                echo "requirements.txt unchanged, skipping pip install"
+              else
+                pip install -r requirements.txt && { [ -z "$REQ_MARKER" ] || echo "$REQ_HASH" > "$REQ_MARKER"; } || true
+              fi
             fi
             cd ..
 
@@ -116,122 +136,3 @@ jobs:
             ls frontend/build/index.html
             pm2 status
             echo "===DEPLOY COMPLETE==="
-
-      # TEMPORARY — reopens labour RABs stranded by a cheque bounce that
-      # predates the reopen fix. Reviewed against the live audit first: 9
-      # bounced labour expenses, 8 fully re-paid, 1 stranded (RAB-07,
-      # Venkatesh, 1,00,000). Guarded and idempotent — it re-scans before
-      # writing and skips anything already reopened or since re-paid, so a
-      # repeat deploy is a no-op. REMOVE once it has run.
-      - name: 'labour bounce backfill (dry run)'
-        if: always()
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          script_stop: true
-          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/reopen_stranded_labour_rabs.py
-
-      # Apply fails only on a genuine error; the separate assert step fails
-      # only if anything is still stranded. Two steps, two distinguishable
-      # signals — a crash and a write that did not stick used to look identical.
-      - name: 'labour bounce backfill (apply)'
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          script_stop: true
-          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/reopen_stranded_labour_rabs.py --apply
-
-      - name: 'labour bounce backfill (assert clean)'
-        if: always()
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          script_stop: true
-          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/reopen_stranded_labour_rabs.py --assert-clean
-
-      # TEMPORARY — USB-MR034 repair. Dry run first, then apply+verify. Both
-      # corrections are individually guarded and idempotent, so a repeat deploy
-      # is a no-op rather than a double-count. REMOVE once it has run.
-      - name: 'USB-MR034 repair (dry run)'
-        if: always()
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          script_stop: true
-          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/repair_usb_mr034_suspense_and_cheque.py
-
-      - name: 'USB-MR034 repair (apply + verify)'
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          script_stop: true
-          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/repair_usb_mr034_suspense_and_cheque.py --apply
-
-      # TEMPORARY — Anbu test Vendor / Cheque #1234 excess-to-suspense backfill
-      # (the cheque-excess -> vendor-suspense flow was restored in this same
-      # deploy; this is the one-off fix for the single payment made before
-      # that fix shipped). Guarded and idempotent — skips once already
-      # applied. REMOVE once it has run.
-      - name: 'Anbu test vendor cheque excess backfill (dry run)'
-        if: always()
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          script_stop: true
-          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/backfill_anbu_test_vendor_cheque_excess.py
-
-      - name: 'Anbu test vendor cheque excess backfill (apply + verify)'
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          script_stop: true
-          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/backfill_anbu_test_vendor_cheque_excess.py --apply
-
-      # TEMPORARY — generalizes the Anbu test Vendor fix above to every
-      # already-used cheque with unallocated leftover balance, per explicit
-      # request. Dry run reviewed first (477 cheques scanned, 382 with a
-      # leftover, 373 of those simply untouched/normal, 9 actually needed
-      # the fix — all 9 single-vendor, none of the ambiguous multi-vendor
-      # cases the script watches for). Safe to apply. REMOVE once it has run.
-      - name: 'All-cheques excess backfill (dry run)'
-        if: always()
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          script_stop: true
-          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/backfill_all_cheque_excess_to_suspense.py
-
-      - name: 'All-cheques excess backfill (apply + verify)'
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          script_stop: true
-          script: cd ${{ secrets.VPS_APP_PATH }}/backend && { [ -d venv ] && . venv/bin/activate || true; } && $(command -v python || command -v python3) scripts/backfill_all_cheque_excess_to_suspense.py --apply
-
