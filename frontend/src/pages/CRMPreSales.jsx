@@ -705,8 +705,11 @@ export default function CRMPreSales() {
       <AppHeader user={user} />
 
       <div className="max-w-full mx-auto px-2 py-2 sm:px-6 sm:py-3">
-        {/* Stats Cards - Single row (clickable to filter the list) */}
-        <div className="flex gap-1.5 sm:gap-3 mb-3 overflow-x-auto pb-1">
+        {/* Stats Cards - Single row (clickable to filter the list).
+            overflow-x-auto clips on every side, so pad the row enough for the
+            active ring (2px + 1px offset) and the hover lift, and cancel the
+            padding with negative margins so the cards stay aligned. */}
+        <div className="flex gap-1.5 sm:gap-3 mb-3 overflow-x-auto -mx-1 -mt-1.5 px-1 pt-1.5 pb-1">
           <button
             type="button"
             onClick={() => { setActiveStage('all'); setViewMode('list'); }}
