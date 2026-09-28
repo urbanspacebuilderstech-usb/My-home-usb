@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Users, LogOut, Plus, Search, Upload, Phone, PhoneOff, Mail, MapPin, Calendar, Building2, 
-  ArrowRight, RefreshCw, GripVertical, Eye, Clock, User, MessageSquare,
+  ArrowRight, RefreshCw, RotateCw, GripVertical, Eye, Clock, User, MessageSquare,
   FileText, History, Send, X, Settings, ChevronDown, Trash2, Edit2,
   LayoutGrid, List, MoreVertical, Bell, CheckCircle, ArrowUpDown, Loader2
 } from 'lucide-react';
@@ -112,7 +112,8 @@ export default function CRMPreSales() {
   const [sortOrder, setSortOrder] = useState('desc');
   const [packageLinkDialog, setPackageLinkDialog] = useState({ open: false, leadId: null, link: null }); // newest first by default
   const [syncingSheets, setSyncingSheets] = useState(false);
-  
+  const [refreshing, setRefreshing] = useState(false);
+
   // Dialogs
   const [createLeadDialog, setCreateLeadDialog] = useState(false);
   
@@ -153,21 +154,6 @@ export default function CRMPreSales() {
   const [apptEditDialog, setApptEditDialog] = useState(false);
   const [apptEditForm, setApptEditForm] = useState({ date: '', time: '', type: '' });
   
-  // Lead Form
-  const [leadForm, setLeadForm] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    alternative_phone: '',
-    source: 'other',
-    address: '',
-    city: '',
-    state: '',
-    pincode: '',
-    notes: '',
-    custom_fields: {}
-  });
-
   // Edit Lead Form
   const [editLeadForm, setEditLeadForm] = useState({
     name: '',
@@ -253,6 +239,16 @@ export default function CRMPreSales() {
     window.location.href = '/login';
   };
 
+  // Same silent reload the 15s auto-refresh does, on demand
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchData(false);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   // ============ SYNC GOOGLE SHEETS ============
   const handleSyncSheets = async () => {
     setSyncingSheets(true);
@@ -274,31 +270,6 @@ export default function CRMPreSales() {
     } finally {
       setSyncingSheets(false);
     }
-  };
-
-  // ============ CREATE LEAD ============
-  const handleCreateLead = async () => {
-    if (!leadForm.name) {
-      toast.error('Name is required');
-      return;
-    }
-
-    try {
-      await axios.post(`${API}/crm/pre-sales/leads`, leadForm);
-      toast.success('Lead created successfully');
-      setCreateLeadDialog(false);
-      resetLeadForm();
-      fetchData(false);
-    } catch (error) {
-      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create lead');
-    }
-  };
-
-  const resetLeadForm = () => {
-    setLeadForm({
-      name: '', email: '', phone: '', alternative_phone: '', source: 'other',
-      address: '', city: '', state: '', pincode: '', notes: '', custom_fields: {}
-    });
   };
 
   // ============ INLINE ADD FIELD (NOTION STYLE) ============
@@ -891,6 +862,17 @@ export default function CRMPreSales() {
             <Button
               variant="outline"
               size="sm"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="gap-1.5 text-gray-700"
+              data-testid="refresh-page-btn"
+            >
+              <RotateCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={handleSyncSheets}
               disabled={syncingSheets}
               className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
@@ -1323,210 +1305,14 @@ export default function CRMPreSales() {
       </div>
 
       {/* ============ CREATE LEAD DIALOG ============ */}
-      <Dialog open={createLeadDialog} onOpenChange={setCreateLeadDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center justify-between">
-              <span>Add New Lead</span>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={() => setAddFieldDialog(true)}
-                className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-              >
-                <Plus className="h-4 w-4 mr-1" /> Add Field
-              </Button>
-            </DialogTitle>
-            <DialogDescription>Enter lead details. Custom fields appear below.</DialogDescription>
-          </DialogHeader>
-          
-          <div className="grid grid-cols-2 gap-4">
-            {/* Standard Fields */}
-            <div className="col-span-2 sm:col-span-1">
-              <Label>Name *</Label>
-              <Input
-                value={leadForm.name}
-                onChange={(e) => setLeadForm({...leadForm, name: e.target.value})}
-                placeholder="Full name"
-                data-testid="input-name"
-              />
-            </div>
-            
-            <div className="col-span-2 sm:col-span-1">
-              <Label>Source</Label>
-              <Select value={leadForm.source} onValueChange={(v) => setLeadForm({...leadForm, source: v})}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="meta">Meta</SelectItem>
-                  <SelectItem value="seo">SEO</SelectItem>
-                  <SelectItem value="referral">Referral</SelectItem>
-                  <SelectItem value="walk_in">Walk-in</SelectItem>
-                  <SelectItem value="website">Website</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div>
-              <Label>Email</Label>
-              <Input
-                type="email"
-                value={leadForm.email}
-                onChange={(e) => setLeadForm({...leadForm, email: e.target.value})}
-                placeholder="email@example.com"
-              />
-            </div>
-            
-            <div>
-              <Label>Phone</Label>
-              <Input
-                value={leadForm.phone}
-                onChange={(e) => setLeadForm({...leadForm, phone: e.target.value})}
-                placeholder="+91 9876543210"
-              />
-            </div>
-
-            <div>
-              <Label>Alternative Phone</Label>
-              <Input
-                value={leadForm.alternative_phone}
-                onChange={(e) => setLeadForm({...leadForm, alternative_phone: e.target.value})}
-                placeholder="Optional secondary number"
-                data-testid="lead-alt-phone"
-              />
-            </div>
-            
-            <div className="col-span-2">
-              <Label>Address</Label>
-              <Input
-                value={leadForm.address}
-                onChange={(e) => setLeadForm({...leadForm, address: e.target.value})}
-                placeholder="Street address"
-              />
-            </div>
-            
-            <div>
-              <Label>City</Label>
-              <Input
-                value={leadForm.city}
-                onChange={(e) => setLeadForm({...leadForm, city: e.target.value})}
-                placeholder="City"
-              />
-            </div>
-            
-            <div>
-              <Label>State</Label>
-              <Input
-                value={leadForm.state}
-                onChange={(e) => setLeadForm({...leadForm, state: e.target.value})}
-                placeholder="State"
-              />
-            </div>
-            
-            {/* Divider for Custom Fields */}
-            {customFields.length > 0 && (
-              <div className="col-span-2 border-t pt-4 mt-2">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <Settings className="h-4 w-4 text-indigo-600" />
-                    <span className="text-sm font-medium text-gray-700">Custom Fields</span>
-                  </div>
-                  <Button 
-                    variant="ghost" 
-                    size="sm"
-                    onClick={() => setManageFieldsDialog(true)}
-                    className="text-xs text-gray-500 hover:text-red-600"
-                  >
-                    <Edit2 className="h-3 w-3 mr-1" /> Manage
-                  </Button>
-                </div>
-              </div>
-            )}
-            
-            {/* Custom Fields */}
-            {customFields.map(field => (
-              <div key={field.field_id} className={field.field_type === 'textarea' ? 'col-span-2' : ''}>
-                <Label>{field.label} {field.required && '*'}</Label>
-                {field.field_type === 'text' && (
-                  <Input
-                    value={leadForm.custom_fields[field.field_id] || ''}
-                    onChange={(e) => setLeadForm({
-                      ...leadForm,
-                      custom_fields: {...leadForm.custom_fields, [field.field_id]: e.target.value}
-                    })}
-                    placeholder={field.placeholder}
-                  />
-                )}
-                {field.field_type === 'number' && (
-                  <NumericInput
-                    
-                    value={leadForm.custom_fields[field.field_id] || ''}
-                    onChange={(e) => setLeadForm({
-                      ...leadForm,
-                      custom_fields: {...leadForm.custom_fields, [field.field_id]: e.target.value}
-                    })}
-                    placeholder={field.placeholder}
-                  />
-                )}
-                {field.field_type === 'dropdown' && (
-                  <Select 
-                    value={leadForm.custom_fields[field.field_id] || ''} 
-                    onValueChange={(v) => setLeadForm({
-                      ...leadForm,
-                      custom_fields: {...leadForm.custom_fields, [field.field_id]: v}
-                    })}
-                  >
-                    <SelectTrigger><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
-                    <SelectContent>
-                      {field.options?.map(opt => (
-                        <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                {field.field_type === 'textarea' && (
-                  <Textarea
-                    value={leadForm.custom_fields[field.field_id] || ''}
-                    onChange={(e) => setLeadForm({
-                      ...leadForm,
-                      custom_fields: {...leadForm.custom_fields, [field.field_id]: e.target.value}
-                    })}
-                    placeholder={field.placeholder}
-                    rows={3}
-                  />
-                )}
-                {field.field_type === 'date' && (
-                  <Input
-                    type="date"
-                    value={leadForm.custom_fields[field.field_id] || ''}
-                    onChange={(e) => setLeadForm({
-                      ...leadForm,
-                      custom_fields: {...leadForm.custom_fields, [field.field_id]: e.target.value}
-                    })}
-                  />
-                )}
-              </div>
-            ))}
-            
-            <div className="col-span-2">
-              <Label>Notes</Label>
-              <Textarea
-                value={leadForm.notes}
-                onChange={(e) => setLeadForm({...leadForm, notes: e.target.value})}
-                placeholder="Additional notes..."
-                rows={3}
-              />
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateLeadDialog(false)}>Cancel</Button>
-            <Button onClick={handleCreateLead} data-testid="submit-lead">
-              <Plus className="h-4 w-4 mr-1" /> Create Lead
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CreateLeadDialog
+        open={createLeadDialog}
+        onOpenChange={setCreateLeadDialog}
+        customFields={customFields}
+        onAddField={() => setAddFieldDialog(true)}
+        onManageFields={() => setManageFieldsDialog(true)}
+        onCreated={() => fetchData(false)}
+      />
 
       {/* ============ ADD FIELD DIALOG (NOTION STYLE) ============ */}
       <Dialog open={addFieldDialog} onOpenChange={setAddFieldDialog}>
@@ -3140,6 +2926,243 @@ function PackageLinkShareDialog({ state, onClose, currentStageId, onMoveToPackag
           </Button>
           <Button onClick={openWhatsApp} className="bg-green-600 hover:bg-green-700 text-white gap-1" disabled={saving || !clientPhone} data-testid="pkg-whatsapp-btn">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : '💬'} WhatsApp
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ================== Create Lead Dialog ==================
+// The form state lives here, not in CRMPreSales, so each keystroke
+// re-renders only this dialog instead of the page's whole (unpaginated)
+// lead list, which made typing lag.
+const EMPTY_LEAD_FORM = {
+  name: '', email: '', phone: '', alternative_phone: '', source: 'other',
+  address: '', city: '', state: '', pincode: '', notes: '', custom_fields: {}
+};
+
+function CreateLeadDialog({ open, onOpenChange, customFields, onAddField, onManageFields, onCreated }) {
+  const [leadForm, setLeadForm] = useState(EMPTY_LEAD_FORM);
+
+  const handleCreateLead = async () => {
+    if (!leadForm.name) {
+      toast.error('Name is required');
+      return;
+    }
+
+    try {
+      await axios.post(`${API}/crm/pre-sales/leads`, leadForm);
+      toast.success('Lead created successfully');
+      onOpenChange(false);
+      setLeadForm(EMPTY_LEAD_FORM);
+      onCreated();
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create lead');
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center justify-between">
+            <span>Add New Lead</span>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={onAddField}
+              className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+            >
+              <Plus className="h-4 w-4 mr-1" /> Add Field
+            </Button>
+          </DialogTitle>
+          <DialogDescription>Enter lead details. Custom fields appear below.</DialogDescription>
+        </DialogHeader>
+        
+        <div className="grid grid-cols-2 gap-4">
+          {/* Standard Fields */}
+          <div className="col-span-2 sm:col-span-1">
+            <Label>Name *</Label>
+            <Input
+              value={leadForm.name}
+              onChange={(e) => setLeadForm({...leadForm, name: e.target.value})}
+              placeholder="Full name"
+              data-testid="input-name"
+            />
+          </div>
+          
+          <div className="col-span-2 sm:col-span-1">
+            <Label>Source</Label>
+            <Select value={leadForm.source} onValueChange={(v) => setLeadForm({...leadForm, source: v})}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="meta">Meta</SelectItem>
+                <SelectItem value="seo">SEO</SelectItem>
+                <SelectItem value="referral">Referral</SelectItem>
+                <SelectItem value="walk_in">Walk-in</SelectItem>
+                <SelectItem value="website">Website</SelectItem>
+                <SelectItem value="other">Other</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div>
+            <Label>Email</Label>
+            <Input
+              type="email"
+              value={leadForm.email}
+              onChange={(e) => setLeadForm({...leadForm, email: e.target.value})}
+              placeholder="email@example.com"
+            />
+          </div>
+          
+          <div>
+            <Label>Phone</Label>
+            <Input
+              value={leadForm.phone}
+              onChange={(e) => setLeadForm({...leadForm, phone: e.target.value})}
+              placeholder="+91 9876543210"
+            />
+          </div>
+
+          <div>
+            <Label>Alternative Phone</Label>
+            <Input
+              value={leadForm.alternative_phone}
+              onChange={(e) => setLeadForm({...leadForm, alternative_phone: e.target.value})}
+              placeholder="Optional secondary number"
+              data-testid="lead-alt-phone"
+            />
+          </div>
+          
+          <div className="col-span-2">
+            <Label>Address</Label>
+            <Input
+              value={leadForm.address}
+              onChange={(e) => setLeadForm({...leadForm, address: e.target.value})}
+              placeholder="Street address"
+            />
+          </div>
+          
+          <div>
+            <Label>City</Label>
+            <Input
+              value={leadForm.city}
+              onChange={(e) => setLeadForm({...leadForm, city: e.target.value})}
+              placeholder="City"
+            />
+          </div>
+          
+          <div>
+            <Label>State</Label>
+            <Input
+              value={leadForm.state}
+              onChange={(e) => setLeadForm({...leadForm, state: e.target.value})}
+              placeholder="State"
+            />
+          </div>
+          
+          {/* Divider for Custom Fields */}
+          {customFields.length > 0 && (
+            <div className="col-span-2 border-t pt-4 mt-2">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Settings className="h-4 w-4 text-indigo-600" />
+                  <span className="text-sm font-medium text-gray-700">Custom Fields</span>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={onManageFields}
+                  className="text-xs text-gray-500 hover:text-red-600"
+                >
+                  <Edit2 className="h-3 w-3 mr-1" /> Manage
+                </Button>
+              </div>
+            </div>
+          )}
+          
+          {/* Custom Fields */}
+          {customFields.map(field => (
+            <div key={field.field_id} className={field.field_type === 'textarea' ? 'col-span-2' : ''}>
+              <Label>{field.label} {field.required && '*'}</Label>
+              {field.field_type === 'text' && (
+                <Input
+                  value={leadForm.custom_fields[field.field_id] || ''}
+                  onChange={(e) => setLeadForm({
+                    ...leadForm,
+                    custom_fields: {...leadForm.custom_fields, [field.field_id]: e.target.value}
+                  })}
+                  placeholder={field.placeholder}
+                />
+              )}
+              {field.field_type === 'number' && (
+                <NumericInput
+                  
+                  value={leadForm.custom_fields[field.field_id] || ''}
+                  onChange={(e) => setLeadForm({
+                    ...leadForm,
+                    custom_fields: {...leadForm.custom_fields, [field.field_id]: e.target.value}
+                  })}
+                  placeholder={field.placeholder}
+                />
+              )}
+              {field.field_type === 'dropdown' && (
+                <Select 
+                  value={leadForm.custom_fields[field.field_id] || ''} 
+                  onValueChange={(v) => setLeadForm({
+                    ...leadForm,
+                    custom_fields: {...leadForm.custom_fields, [field.field_id]: v}
+                  })}
+                >
+                  <SelectTrigger><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
+                  <SelectContent>
+                    {field.options?.map(opt => (
+                      <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {field.field_type === 'textarea' && (
+                <Textarea
+                  value={leadForm.custom_fields[field.field_id] || ''}
+                  onChange={(e) => setLeadForm({
+                    ...leadForm,
+                    custom_fields: {...leadForm.custom_fields, [field.field_id]: e.target.value}
+                  })}
+                  placeholder={field.placeholder}
+                  rows={3}
+                />
+              )}
+              {field.field_type === 'date' && (
+                <Input
+                  type="date"
+                  value={leadForm.custom_fields[field.field_id] || ''}
+                  onChange={(e) => setLeadForm({
+                    ...leadForm,
+                    custom_fields: {...leadForm.custom_fields, [field.field_id]: e.target.value}
+                  })}
+                />
+              )}
+            </div>
+          ))}
+          
+          <div className="col-span-2">
+            <Label>Notes</Label>
+            <Textarea
+              value={leadForm.notes}
+              onChange={(e) => setLeadForm({...leadForm, notes: e.target.value})}
+              placeholder="Additional notes..."
+              rows={3}
+            />
+          </div>
+        </div>
+        
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={handleCreateLead} data-testid="submit-lead">
+            <Plus className="h-4 w-4 mr-1" /> Create Lead
           </Button>
         </DialogFooter>
       </DialogContent>
