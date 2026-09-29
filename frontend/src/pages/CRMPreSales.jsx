@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -114,6 +114,235 @@ const FIELD_TYPES = [
   { value: 'checkbox', label: 'Checkbox' },
 ];
 
+// Sep 29 2026 — The Delete and Transfer lead dialogs keep their own state and
+// are opened through a ref: ref.current.open(lead, stageName). CRMPreSales
+// renders every lead row (2000+), so any state change on the page redraws all
+// of them — which made these dialogs slow to open and laggy to type in. Held
+// here, opening, typing and picking an executive only redraw the dialog.
+const DeleteLeadDialog = forwardRef(function DeleteLeadDialog({ onDeleted }, ref) {
+  const [open, setOpen] = useState(false);
+  const [lead, setLead] = useState(null);
+  const [stageName, setStageName] = useState('');
+  const [confirmText, setConfirmText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useImperativeHandle(ref, () => ({
+    open: (nextLead, nextStageName) => {
+      setLead(nextLead);
+      setStageName(nextStageName || '');
+      setConfirmText('');
+      setSubmitting(false);
+      setOpen(true);
+    },
+  }), []);
+
+  const handleDelete = async () => {
+    if (!lead || confirmText !== 'DELETE') {
+      toast.error('Please type DELETE to confirm');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await axios.delete(`${API}/crm/leads/${lead.lead_id}`);
+      toast.success('Lead deleted successfully');
+      setOpen(false);
+      onDeleted(lead.lead_id);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete lead');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o && !submitting) setOpen(false); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <Trash2 className="h-5 w-5" />
+            Delete Lead
+          </DialogTitle>
+          <DialogDescription>
+            This action cannot be undone. The lead and its remarks and follow-ups will be permanently removed.
+          </DialogDescription>
+        </DialogHeader>
+
+        {lead && (
+          <div className="space-y-4">
+            <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+              <p className="font-medium text-red-800">{lead.name}</p>
+              <p className="text-xs text-red-600">
+                {stageName}
+                {lead.assigned_to_name ? ` • ${lead.assigned_to_name}` : ''}
+              </p>
+            </div>
+
+            <div>
+              <Label className="text-gray-700">
+                Type <span className="font-bold text-red-600">DELETE</span> to confirm
+              </Label>
+              <Input
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder="Type DELETE"
+                className="mt-1"
+                data-testid="delete-lead-confirm-input"
+              />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={handleDelete}
+            disabled={submitting || confirmText !== 'DELETE'}
+            data-testid="confirm-delete-lead-btn"
+          >
+            <Trash2 className="h-4 w-4 mr-1" /> Delete Lead
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+});
+
+const TransferLeadDialog = forwardRef(function TransferLeadDialog({ onTransferred }, ref) {
+  const [open, setOpen] = useState(false);
+  const [lead, setLead] = useState(null);
+  const [stageName, setStageName] = useState('');
+  const [newOwner, setNewOwner] = useState('');
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  // Active Pre-Sales executives: loaded as soon as the page mounts the dialog,
+  // so the list is ready on the first click, then refreshed quietly on each open.
+  const [executives, setExecutives] = useState(null);
+
+  const loadExecutives = async () => {
+    try {
+      const res = await axios.get(`${API}/crm/reassign-targets`, { params: { stage_type: 'pre_sales' } });
+      setExecutives((res.data || []).filter(u => u.role === 'pre_sales'));
+    } catch {
+      setExecutives(prev => prev || []);
+    }
+  };
+  useEffect(() => { loadExecutives(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useImperativeHandle(ref, () => ({
+    open: (nextLead, nextStageName) => {
+      setLead(nextLead);
+      setStageName(nextStageName || '');
+      setNewOwner('');
+      setReason('');
+      setSubmitting(false);
+      setOpen(true);
+      loadExecutives();
+    },
+  }), []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const options = (executives || []).filter(u => u.user_id !== lead?.assigned_to);
+
+  const handleTransfer = async () => {
+    if (!lead || !newOwner) {
+      toast.error('Pick a Pre-Sales executive to transfer to');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await axios.post(`${API}/crm/leads/${lead.lead_id}/reassign`, {
+        new_owner_user_id: newOwner,
+        reason: reason.trim() || null,
+      });
+      const newName = res.data?.new_owner || options.find(u => u.user_id === newOwner)?.name || '';
+      toast.success(`Lead transferred to ${newName}`);
+      setOpen(false);
+      onTransferred(lead.lead_id, newOwner, newName);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to transfer lead');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o && !submitting) setOpen(false); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ArrowRightLeft className="h-5 w-5 text-indigo-600" />
+            Transfer Lead
+          </DialogTitle>
+          <DialogDescription>
+            Move this lead to another Pre-Sales executive. Both executives are notified.
+          </DialogDescription>
+        </DialogHeader>
+
+        {lead && (
+          <div className="space-y-4">
+            <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+              <p className="font-medium text-gray-900">{lead.name}</p>
+              <p className="text-xs text-gray-600">
+                {stageName} • Currently with{' '}
+                <span className="font-medium">{lead.assigned_to_name || 'Unassigned'}</span>
+              </p>
+            </div>
+
+            <div>
+              <Label className="text-gray-700">Transfer to</Label>
+              <Select value={newOwner} onValueChange={setNewOwner} disabled={options.length === 0}>
+                <SelectTrigger className="mt-1" data-testid="transfer-lead-select">
+                  <SelectValue placeholder={
+                    executives === null ? 'Loading executives…'
+                      : options.length === 0 ? 'No other Pre-Sales executives'
+                      : 'Select Pre-Sales executive'
+                  } />
+                </SelectTrigger>
+                <SelectContent>
+                  {options.map(u => (
+                    <SelectItem key={u.user_id} value={u.user_id}>{u.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label className="text-gray-700">Reason <span className="text-gray-400 font-normal">(optional)</span></Label>
+              <Textarea
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Why is this lead being transferred?"
+                className="mt-1"
+                rows={2}
+                data-testid="transfer-lead-reason"
+              />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleTransfer}
+            disabled={submitting || !newOwner}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white"
+            data-testid="confirm-transfer-lead-btn"
+          >
+            {submitting
+              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              : <ArrowRightLeft className="h-4 w-4 mr-1" />}
+            Transfer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+});
+
 export default function CRMPreSales() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -157,12 +386,6 @@ export default function CRMPreSales() {
   const [deleteFieldDialog, setDeleteFieldDialog] = useState(false);
   const [fieldToDelete, setFieldToDelete] = useState(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  const [deleteLeadDialog, setDeleteLeadDialog] = useState(false);
-  const [leadToDelete, setLeadToDelete] = useState(null);
-  const [deleteLeadConfirmText, setDeleteLeadConfirmText] = useState('');
-  // Lead Transfer (Sales Head / Super Admin) — hand a lead to another Pre-Sales executive
-  const [transferDialog, setTransferDialog] = useState({ open: false, lead: null, new_owner: '', reason: '', submitting: false });
-  const [transferOptions, setTransferOptions] = useState(null);
 
   // Appointment booking
   const [appointmentDialog, setAppointmentDialog] = useState(false);
@@ -356,78 +579,24 @@ export default function CRMPreSales() {
     }
   };
 
-  // ============ DELETE LEAD ============
+  // ============ DELETE LEAD / LEAD TRANSFER ============
   // Pre-Sales staff only ever see their own leads here; the backend enforces
   // that too. Every deletion shows on the Priority Board's Deleted Leads timeline.
   const canDeleteLead = ['super_admin', 'sales_head', 'pre_sales'].includes(user?.role);
-
-  const openDeleteLeadDialog = (lead) => {
-    setLeadToDelete(lead);
-    setDeleteLeadConfirmText('');
-    setDeleteLeadDialog(true);
-  };
-
-  const closeDeleteLeadDialog = () => {
-    setDeleteLeadDialog(false);
-    setLeadToDelete(null);
-    setDeleteLeadConfirmText('');
-  };
-
-  const handleDeleteLead = async () => {
-    if (!leadToDelete || deleteLeadConfirmText !== 'DELETE') {
-      toast.error('Please type DELETE to confirm');
-      return;
-    }
-    try {
-      await axios.delete(`${API}/crm/leads/${leadToDelete.lead_id}`);
-      toast.success('Lead deleted successfully');
-      setLeads(prev => prev.filter(l => l.lead_id !== leadToDelete.lead_id));
-      closeDeleteLeadDialog();
-      fetchData(false);
-    } catch (error) {
-      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete lead');
-    }
-  };
-
-  // ============ LEAD TRANSFER ============
-  // Sep 29 2026 — Transfer column in the list view. Uses the same
-  // /reassign endpoint as Sales CRM (logs to the lead's activity_log and
-  // notifies both executives); only Pre-Sales executives are offered.
+  // Sep 29 2026 — Lead Transfer column (list view): hand a lead to another
+  // Pre-Sales executive.
   const canTransferLead = ['super_admin', 'sales_head'].includes(user?.role);
-  const closeTransferDialog = () => setTransferDialog({ open: false, lead: null, new_owner: '', reason: '', submitting: false });
+  const deleteDialogRef = useRef(null);
+  const transferDialogRef = useRef(null);
 
-  const openTransferDialog = async (lead) => {
-    setTransferDialog({ open: true, lead, new_owner: '', reason: '', submitting: false });
-    setTransferOptions(null);
-    try {
-      const res = await axios.get(`${API}/crm/reassign-targets`, { params: { stage_type: 'pre_sales' } });
-      setTransferOptions((res.data || []).filter(u => u.role === 'pre_sales' && u.user_id !== lead.assigned_to));
-    } catch {
-      setTransferOptions([]);
-    }
+  const handleLeadDeleted = (leadId) => {
+    setLeads(prev => prev.filter(l => l.lead_id !== leadId));
+    fetchData(false);
   };
 
-  const handleTransferLead = async () => {
-    const { lead, new_owner, reason } = transferDialog;
-    if (!lead || !new_owner) {
-      toast.error('Pick a Pre-Sales executive to transfer to');
-      return;
-    }
-    setTransferDialog(d => ({ ...d, submitting: true }));
-    try {
-      const res = await axios.post(`${API}/crm/leads/${lead.lead_id}/reassign`, {
-        new_owner_user_id: new_owner,
-        reason: reason.trim() || null,
-      });
-      const newName = res.data?.new_owner || (transferOptions || []).find(u => u.user_id === new_owner)?.name || '';
-      toast.success(`Lead transferred to ${newName}`);
-      setLeads(prev => prev.map(l => (l.lead_id === lead.lead_id ? { ...l, assigned_to: new_owner, assigned_to_name: newName } : l)));
-      closeTransferDialog();
-      fetchData(false);
-    } catch (error) {
-      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to transfer lead');
-      setTransferDialog(d => ({ ...d, submitting: false }));
-    }
+  const handleLeadTransferred = (leadId, ownerId, ownerName) => {
+    setLeads(prev => prev.map(l => (l.lead_id === leadId ? { ...l, assigned_to: ownerId, assigned_to_name: ownerName } : l)));
+    fetchData(false);
   };
 
   // ============ LEAD STAGES ============
@@ -1163,7 +1332,7 @@ export default function CRMPreSales() {
                             className="h-7 px-2 text-[10px] text-indigo-600 border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                             title={`Transfer to another Pre-Sales executive (current: ${lead.assigned_to_name || 'Unassigned'})`}
                             data-testid={`transfer-lead-btn-${lead.lead_id}`}
-                            onClick={(e) => { e.stopPropagation(); openTransferDialog(lead); }}
+                            onClick={(e) => { e.stopPropagation(); transferDialogRef.current?.open(lead, getStageName(lead.current_stage_id)); }}
                           >
                             <ArrowRightLeft className="h-3 w-3 mr-1" /> Transfer
                           </Button>
@@ -1236,7 +1405,7 @@ export default function CRMPreSales() {
                               className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
                               title="Delete lead"
                               data-testid={`delete-lead-btn-${lead.lead_id}`}
-                              onClick={(e) => { e.stopPropagation(); openDeleteLeadDialog(lead); }}
+                              onClick={(e) => { e.stopPropagation(); deleteDialogRef.current?.open(lead, getStageName(lead.current_stage_id)); }}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
@@ -1423,7 +1592,7 @@ export default function CRMPreSales() {
                                 className="text-red-500 hover:text-red-700 hover:bg-red-50"
                                 title="Delete lead"
                                 data-testid={`delete-lead-card-btn-${lead.lead_id}`}
-                                onClick={(e) => { e.stopPropagation(); openDeleteLeadDialog(lead); }}
+                                onClick={(e) => { e.stopPropagation(); deleteDialogRef.current?.open(lead, getStageName(lead.current_stage_id)); }}
                               >
                                 <Trash2 className="h-3 w-3" />
                               </Button>
@@ -2677,137 +2846,10 @@ export default function CRMPreSales() {
         </DialogContent>
       </Dialog>
 
-      {/* ============ DELETE LEAD CONFIRMATION DIALOG ============ */}
-      <Dialog open={deleteLeadDialog} onOpenChange={(open) => { if (!open) closeDeleteLeadDialog(); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
-              <Trash2 className="h-5 w-5" />
-              Delete Lead
-            </DialogTitle>
-            <DialogDescription>
-              This action cannot be undone. The lead and its remarks and follow-ups will be permanently removed.
-            </DialogDescription>
-          </DialogHeader>
-
-          {leadToDelete && (
-            <div className="space-y-4">
-              <div className="p-3 bg-red-50 rounded-lg border border-red-200">
-                <p className="font-medium text-red-800">{leadToDelete.name}</p>
-                <p className="text-xs text-red-600">
-                  {getStageName(leadToDelete.current_stage_id)}
-                  {leadToDelete.assigned_to_name ? ` • ${leadToDelete.assigned_to_name}` : ''}
-                </p>
-              </div>
-
-              <div>
-                <Label className="text-gray-700">
-                  Type <span className="font-bold text-red-600">DELETE</span> to confirm
-                </Label>
-                <Input
-                  value={deleteLeadConfirmText}
-                  onChange={(e) => setDeleteLeadConfirmText(e.target.value)}
-                  placeholder="Type DELETE"
-                  className="mt-1"
-                  data-testid="delete-lead-confirm-input"
-                />
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDeleteLeadDialog}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteLead}
-              disabled={deleteLeadConfirmText !== 'DELETE'}
-              data-testid="confirm-delete-lead-btn"
-            >
-              <Trash2 className="h-4 w-4 mr-1" /> Delete Lead
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ============ LEAD TRANSFER DIALOG ============ */}
-      <Dialog open={transferDialog.open} onOpenChange={(open) => { if (!open && !transferDialog.submitting) closeTransferDialog(); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ArrowRightLeft className="h-5 w-5 text-indigo-600" />
-              Transfer Lead
-            </DialogTitle>
-            <DialogDescription>
-              Move this lead to another Pre-Sales executive. Both executives are notified.
-            </DialogDescription>
-          </DialogHeader>
-
-          {transferDialog.lead && (
-            <div className="space-y-4">
-              <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-100">
-                <p className="font-medium text-gray-900">{transferDialog.lead.name}</p>
-                <p className="text-xs text-gray-600">
-                  {getStageName(transferDialog.lead.current_stage_id)} • Currently with{' '}
-                  <span className="font-medium">{transferDialog.lead.assigned_to_name || 'Unassigned'}</span>
-                </p>
-              </div>
-
-              <div>
-                <Label className="text-gray-700">Transfer to</Label>
-                <Select
-                  value={transferDialog.new_owner}
-                  onValueChange={(v) => setTransferDialog(d => ({ ...d, new_owner: v }))}
-                  disabled={transferOptions === null || transferOptions.length === 0}
-                >
-                  <SelectTrigger className="mt-1" data-testid="transfer-lead-select">
-                    <SelectValue placeholder={
-                      transferOptions === null ? 'Loading executives…'
-                        : transferOptions.length === 0 ? 'No other Pre-Sales executives'
-                        : 'Select Pre-Sales executive'
-                    } />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(transferOptions || []).map(u => (
-                      <SelectItem key={u.user_id} value={u.user_id}>{u.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label className="text-gray-700">Reason <span className="text-gray-400 font-normal">(optional)</span></Label>
-                <Textarea
-                  value={transferDialog.reason}
-                  onChange={(e) => setTransferDialog(d => ({ ...d, reason: e.target.value }))}
-                  placeholder="Why is this lead being transferred?"
-                  className="mt-1"
-                  rows={2}
-                  data-testid="transfer-lead-reason"
-                />
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={closeTransferDialog} disabled={transferDialog.submitting}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleTransferLead}
-              disabled={transferDialog.submitting || !transferDialog.new_owner}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white"
-              data-testid="confirm-transfer-lead-btn"
-            >
-              {transferDialog.submitting
-                ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                : <ArrowRightLeft className="h-4 w-4 mr-1" />}
-              Transfer
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Delete / Transfer lead dialogs hold their own state (components above
+          CRMPreSales), so opening and typing in them doesn't redraw the lead rows. */}
+      {canDeleteLead && <DeleteLeadDialog ref={deleteDialogRef} onDeleted={handleLeadDeleted} />}
+      {canTransferLead && <TransferLeadDialog ref={transferDialogRef} onTransferred={handleLeadTransferred} />}
 
       {/* Appointment Edit Dialog */}
       <Dialog open={apptEditDialog} onOpenChange={setApptEditDialog}>
