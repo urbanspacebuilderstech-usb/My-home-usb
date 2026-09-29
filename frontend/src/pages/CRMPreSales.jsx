@@ -353,9 +353,11 @@ export default function CRMPreSales() {
     }
   };
 
-  // ============ DELETE LEAD (Super Admin) ============
-  // Presales leads live in the same `leads` collection as the Marketing
-  // Board, so this reuses its Super Admin-only delete endpoint.
+  // ============ DELETE LEAD ============
+  // Pre-Sales staff only ever see their own leads here; the backend enforces
+  // that too. Every deletion shows on the Priority Board's Deleted Leads timeline.
+  const canDeleteLead = ['super_admin', 'sales_head', 'pre_sales'].includes(user?.role);
+
   const openDeleteLeadDialog = (lead) => {
     setLeadToDelete(lead);
     setDeleteLeadConfirmText('');
@@ -374,7 +376,7 @@ export default function CRMPreSales() {
       return;
     }
     try {
-      await axios.delete(`${API}/marketing/leads/${leadToDelete.lead_id}`);
+      await axios.delete(`${API}/crm/leads/${leadToDelete.lead_id}`);
       toast.success('Lead deleted successfully');
       setLeads(prev => prev.filter(l => l.lead_id !== leadToDelete.lead_id));
       closeDeleteLeadDialog();
@@ -1165,7 +1167,7 @@ export default function CRMPreSales() {
                           >
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
-                          {user?.role === 'super_admin' && (
+                          {canDeleteLead && (
                             <Button
                               variant="ghost"
                               size="sm"
@@ -1352,7 +1354,7 @@ export default function CRMPreSales() {
                             >
                               <Eye className="h-3 w-3" />
                             </Button>
-                            {user?.role === 'super_admin' && (
+                            {canDeleteLead && (
                               <Button
                                 variant="ghost"
                                 size="sm"

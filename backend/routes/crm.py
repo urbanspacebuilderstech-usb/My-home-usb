@@ -3054,8 +3054,81 @@ async def update_lead(lead_id: str, data: LeadUpdateInput, user: User = Depends(
     if push_history:
         update_ops["$push"] = {"client_category_history": push_history}
     await db.leads.update_one({"lead_id": lead_id}, update_ops)
-    
+
     return {"message": "Lead updated successfully"}
+
+
+async def log_lead_deletions(leads: list, user: User, deleted_from: str):
+    """Sep 29 2026 — record every deleted lead for the Deleted Leads timeline
+    on the Sales Head's Priority Board. The whole lead document is kept under
+    `lead` so one deleted by mistake can still be restored by hand."""
+    if not leads:
+        return
+    stage_docs = await db.lead_stages.find(
+        {"stage_id": {"$in": list({l.get("current_stage_id") for l in leads})}},
+        {"_id": 0, "stage_id": 1, "stage_type": 1, "name": 1}).to_list(500)
+    stage_by_type = {(s.get("stage_type"), s.get("stage_id")): s.get("name") for s in stage_docs}
+    stage_by_id = {s.get("stage_id"): s.get("name") for s in stage_docs}
+    now = datetime.now(timezone.utc).isoformat()
+    role = getattr(user.role, "value", user.role)
+    await db.deleted_leads.insert_many([{
+        "deletion_id": f"del_{uuid.uuid4().hex[:12]}",
+        "lead_id": l.get("lead_id"),
+        "name": l.get("name"),
+        "phone": l.get("phone"),
+        "city": l.get("city"),
+        "source": l.get("source"),
+        "stage_type": l.get("stage_type"),
+        "current_stage_id": l.get("current_stage_id"),
+        "current_stage_name": (l.get("current_stage_name")
+                               or stage_by_type.get((l.get("stage_type"), l.get("current_stage_id")))
+                               or stage_by_id.get(l.get("current_stage_id")) or ""),
+        "assigned_to": l.get("assigned_to"),
+        "assigned_to_name": l.get("assigned_to_name"),
+        "lead_created_at": l.get("created_at"),
+        "deleted_by": user.user_id,
+        "deleted_by_name": user.name,
+        "deleted_by_role": role,
+        "deleted_from": deleted_from,
+        "deleted_at": now,
+        "lead": l,
+    } for l in leads])
+
+
+@router.delete("/crm/leads/{lead_id}")
+async def delete_crm_lead(lead_id: str, user: User = Depends(get_current_user)):
+    """Sep 29 2026 — delete a Pre-Sales / Sales lead. Super Admin and Sales
+    Head can delete any lead; Pre-Sales and Sales staff only leads in their
+    own pipeline that are assigned to them (the same leads their boards list).
+    """
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    if user.role not in [UserRole.SUPER_ADMIN, "sales_head"]:
+        if user.role not in ["pre_sales", "sales"] or lead.get("stage_type") != user.role:
+            raise HTTPException(status_code=403, detail="You don't have permission to delete this lead")
+        if lead.get("assigned_to") != user.user_id:
+            raise HTTPException(status_code=403, detail="You can only delete leads assigned to you")
+
+    # A converted lead is referenced by its project; deleting it would orphan that.
+    if await db.projects.find_one({"lead_id": lead_id}, {"_id": 1}):
+        raise HTTPException(status_code=400, detail="This lead has been converted to a project and can't be deleted")
+
+    await log_lead_deletions([lead], user, lead.get("stage_type") or "crm")
+    await db.leads.delete_one({"lead_id": lead_id})
+    await db.sales_leads.delete_one({"lead_id": lead_id})
+    return {"message": "Lead deleted successfully"}
+
+
+@router.get("/crm/deleted-leads")
+async def get_deleted_leads(limit: int = 300, user: User = Depends(get_current_user)):
+    """Deleted Leads timeline on the Sales Head's Priority Board, newest first."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales_head"]:
+        raise HTTPException(status_code=403, detail="Sales Head access required")
+    limit = max(1, min(int(limit or 300), 1000))
+    rows = await db.deleted_leads.find({}, {"_id": 0, "lead": 0}).sort("deleted_at", -1).to_list(limit)
+    return mask_leads_phone(rows, user.role)
 
 
 class LeadReassignInput(BaseModel):
@@ -5126,10 +5199,12 @@ async def delete_lead(lead_id: str, user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Super Admin access required")
     
     # Check if lead exists
-    lead = await db.leads.find_one({"lead_id": lead_id})
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    
+
+    await log_lead_deletions([lead], user, "marketing")
+
     # Delete the lead
     await db.leads.delete_one({"lead_id": lead_id})
     
@@ -5150,7 +5225,10 @@ async def bulk_delete_leads(request: Request, user: User = Depends(get_current_u
     
     if not lead_ids:
         raise HTTPException(status_code=400, detail="No lead IDs provided")
-    
+
+    leads = await db.leads.find({"lead_id": {"$in": lead_ids}}, {"_id": 0}).to_list(len(lead_ids))
+    await log_lead_deletions(leads, user, "marketing")
+
     result = await db.leads.delete_many({"lead_id": {"$in": lead_ids}})
     await db.sales_leads.delete_many({"lead_id": {"$in": lead_ids}})
     

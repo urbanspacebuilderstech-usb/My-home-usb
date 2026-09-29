@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { RefreshCw, ExternalLink, Search } from 'lucide-react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet';
+import { RefreshCw, ExternalLink, Search, Trash2 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -38,6 +39,27 @@ const fmtDate = (s) => {
   } catch { return '—'; }
 };
 
+const fmtTime = (s) => {
+  if (!s) return '';
+  try {
+    return new Date(s).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  } catch { return ''; }
+};
+
+// Day heading in the Deleted Leads timeline: Today / Yesterday / 27 Sep 2026.
+const dayLabel = (s) => {
+  const d = new Date(s);
+  if (isNaN(d)) return '—';
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const day = new Date(d); day.setHours(0, 0, 0, 0);
+  const diff = Math.round((today - day) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return fmtDate(s);
+};
+
+const ROLE_LABELS = { super_admin: 'Super Admin', sales_head: 'Sales Head', pre_sales: 'Pre-Sales', sales: 'Sales', cre: 'CRE' };
+
 export default function PriorityBoard() {
   const [user, setUser] = useState(null);
   const [unreadNotifs, setUnreadNotifs] = useState(0);
@@ -46,6 +68,12 @@ export default function PriorityBoard() {
   const [active, setActive] = useState('P1');
   const [rnrMin, setRnrMin] = useState(3);
   const [q, setQ] = useState('');
+  // Sep 29 2026 — Deleted Leads timeline (every delete from Pre-Sales, Sales
+  // and the Marketing Board), opened from the button beside Refresh.
+  const [deletedOpen, setDeletedOpen] = useState(false);
+  const [deleted, setDeleted] = useState(null);
+  const [deletedLoading, setDeletedLoading] = useState(false);
+  const [deletedQ, setDeletedQ] = useState('');
 
   useEffect(() => {
     axios.get(`${API}/auth/me`).then(r => setUser(r.data)).catch(() => {});
@@ -67,6 +95,33 @@ export default function PriorityBoard() {
     }
   };
   useEffect(() => { load(rnrMin); }, [rnrMin]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openDeleted = async () => {
+    setDeletedOpen(true);
+    setDeletedLoading(true);
+    try {
+      const r = await axios.get(`${API}/crm/deleted-leads`);
+      setDeleted(r.data || []);
+    } catch {
+      setDeleted([]);
+    } finally {
+      setDeletedLoading(false);
+    }
+  };
+
+  const deletedGroups = useMemo(() => {
+    const term = deletedQ.trim().toLowerCase();
+    const list = (deleted || []).filter(d => !term || [d.name, d.phone, d.city, d.assigned_to_name,
+      d.deleted_by_name, d.current_stage_name].some(v => (v || '').toString().toLowerCase().includes(term)));
+    // Already newest first, so consecutive rows share a day.
+    const groups = [];
+    for (const d of list) {
+      const label = dayLabel(d.deleted_at);
+      if (groups[groups.length - 1]?.label !== label) groups.push({ label, items: [] });
+      groups[groups.length - 1].items.push(d);
+    }
+    return groups;
+  }, [deleted, deletedQ]);
 
   const rows = useMemo(() => {
     const list = (data?.leads?.[active]) || [];
@@ -93,15 +148,26 @@ export default function PriorityBoard() {
             <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Priority Board</h2>
             <p className="text-xs text-gray-500 mt-0.5">Active priority leads, long RNR follow-ups and declined leads across the team</p>
           </div>
-          <button
-            onClick={() => load()}
-            disabled={loading}
-            className="h-9 w-9 rounded-md border border-gray-200 bg-white flex items-center justify-center hover:bg-gray-50"
-            title="Refresh"
-            data-testid="priority-board-refresh"
-          >
-            <RefreshCw className={`h-4 w-4 text-gray-600 ${loading ? 'animate-spin' : ''}`} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => load()}
+              disabled={loading}
+              className="h-9 w-9 rounded-md border border-gray-200 bg-white flex items-center justify-center hover:bg-gray-50"
+              title="Refresh"
+              data-testid="priority-board-refresh"
+            >
+              <RefreshCw className={`h-4 w-4 text-gray-600 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              onClick={openDeleted}
+              className="h-9 px-3 rounded-md border border-gray-200 bg-white flex items-center gap-1.5 text-sm text-gray-700 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
+              title="Deleted leads timeline"
+              data-testid="priority-board-deleted-leads"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span className="hidden sm:inline">Deleted Leads</span>
+            </button>
+          </div>
         </div>
 
         {/* Tabs — same chip design as Sales CRM's stage summary (rounded-2xl,
@@ -264,6 +330,70 @@ export default function PriorityBoard() {
           </table>
         </div>
       </div>
+
+      <Sheet open={deletedOpen} onOpenChange={setDeletedOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-lg p-0 flex flex-col gap-0" data-testid="deleted-leads-sheet">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b text-left">
+            <SheetTitle className="flex items-center gap-2">
+              <Trash2 className="h-4 w-4 text-red-600" /> Deleted Leads
+            </SheetTitle>
+            <SheetDescription className="text-xs">
+              Leads deleted from Pre-Sales, Sales and the Marketing Board, newest first.
+            </SheetDescription>
+            <div className="relative pt-2">
+              <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 mt-1" />
+              <input
+                value={deletedQ}
+                onChange={(e) => setDeletedQ(e.target.value)}
+                placeholder="Search lead, assignee, deleted by…"
+                className="w-full h-9 pl-9 pr-3 rounded-md border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                data-testid="deleted-leads-search"
+              />
+            </div>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            {deletedLoading && !deleted ? (
+              <p className="py-10 text-center text-sm text-gray-400">Loading…</p>
+            ) : deletedGroups.length === 0 ? (
+              <p className="py-10 text-center text-sm text-gray-400">
+                {deletedQ ? 'No deleted leads match your search.' : 'No leads have been deleted.'}
+              </p>
+            ) : deletedGroups.map(g => (
+              <div key={g.label} className="mb-5">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2">{g.label}</p>
+                <ol className="border-l border-gray-200 ml-1.5 space-y-4">
+                  {g.items.map(d => (
+                    <li key={d.deletion_id} className="relative pl-4" data-testid={`deleted-lead-${d.lead_id}`}>
+                      <span className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-medium text-gray-900 text-sm truncate" title={d.name || ''}>{d.name || '—'}</p>
+                        <span className="text-[11px] text-gray-500 whitespace-nowrap">{fmtTime(d.deleted_at)}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        {(d.stage_type === 'pre_sales' || d.stage_type === 'sales') && (
+                          <span className={`inline-block whitespace-nowrap text-[10px] font-semibold px-2 py-0.5 rounded-full border ${d.stage_type === 'pre_sales' ? 'text-sky-700 bg-sky-50 border-sky-200' : 'text-emerald-700 bg-emerald-50 border-emerald-200'}`}>
+                            {d.stage_type === 'pre_sales' ? 'Pre Sales' : 'Sales'}
+                          </span>
+                        )}
+                        {d.current_stage_name && <span className="text-[11px] text-gray-600">{d.current_stage_name}</span>}
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        {[d.phone && cleanPhone(d.phone), d.city, `Assigned to ${d.assigned_to_name || '—'}`].filter(Boolean).join(' · ')}
+                      </p>
+                      <p className="text-xs text-red-700 mt-1">
+                        Deleted by <strong>{d.deleted_by_name || '—'}</strong>
+                        {d.deleted_by_role ? ` (${ROLE_LABELS[d.deleted_by_role] || d.deleted_by_role})` : ''}
+                        {d.deleted_from === 'marketing' ? ' · via Marketing Board' : ''}
+                      </p>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
       <MobileBottomNav user={user} />
     </div>
   );

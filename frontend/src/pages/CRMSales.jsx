@@ -49,7 +49,8 @@ import {
   Smartphone,
   AlertCircle,
   ArrowUpDown,
-  Wallet
+  Wallet,
+  Trash2
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
@@ -400,6 +401,7 @@ export default function CRMSales() {
   const [regenDialog, setRegenDialog] = useState({ open: false, lead: null });
   // Reassign — change lead owner to another salesperson
   const [reassignDialog, setReassignDialog] = useState({ open: false, lead: null, new_owner: '', reason: '', submitting: false });
+  const [deleteLeadDialog, setDeleteLeadDialog] = useState({ open: false, lead: null, confirmText: '', submitting: false });
   const [reassignOptions, setReassignOptions] = useState([]);
 
   // Load eligible owners (sales / pre_sales role users) when reassign dialog opens
@@ -1094,6 +1096,31 @@ export default function CRMSales() {
       fetchSummaryPanel(leadId);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to save remarks');
+    }
+  };
+
+  // Sep 29 2026 — Sales staff only ever see their own leads here; the backend
+  // enforces that too. Every deletion shows on the Priority Board's Deleted
+  // Leads timeline.
+  const canDeleteLead = ['super_admin', 'sales_head', 'sales'].includes(user?.role);
+  const closeDeleteLeadDialog = () => setDeleteLeadDialog({ open: false, lead: null, confirmText: '', submitting: false });
+
+  const handleDeleteLead = async () => {
+    const lead = deleteLeadDialog.lead;
+    if (!lead || deleteLeadDialog.confirmText !== 'DELETE') {
+      toast.error('Please type DELETE to confirm');
+      return;
+    }
+    setDeleteLeadDialog(d => ({ ...d, submitting: true }));
+    try {
+      await axios.delete(`${API}/crm/leads/${lead.lead_id}`);
+      toast.success('Lead deleted successfully');
+      setLeads(prev => prev.filter(l => l.lead_id !== lead.lead_id));
+      closeDeleteLeadDialog();
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete lead');
+      setDeleteLeadDialog(d => ({ ...d, submitting: false }));
     }
   };
 
@@ -2000,6 +2027,18 @@ export default function CRMSales() {
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
+                          {canDeleteLead && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                              onClick={(e) => { e.stopPropagation(); setDeleteLeadDialog({ open: true, lead, confirmText: '', submitting: false }); }}
+                              title="Delete lead"
+                              data-testid={`delete-lead-btn-${lead.lead_id}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -2291,6 +2330,18 @@ export default function CRMSales() {
                             >
                               <Eye className="h-3 w-3" />
                             </Button>
+                            {canDeleteLead && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                onClick={(e) => { e.stopPropagation(); setDeleteLeadDialog({ open: true, lead, confirmText: '', submitting: false }); }}
+                                title="Delete lead"
+                                data-testid={`delete-lead-card-btn-${lead.lead_id}`}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
                           </div>
                         </div>
                       </CardContent>
@@ -4297,6 +4348,55 @@ export default function CRMSales() {
             <Button variant="outline" onClick={() => setReassignDialog({ open: false, lead: null, new_owner: '', reason: '', submitting: false })} disabled={reassignDialog.submitting}>Cancel</Button>
             <Button onClick={handleReassignSubmit} disabled={reassignDialog.submitting || !reassignDialog.new_owner} className="bg-purple-600 hover:bg-purple-700 text-white" data-testid="reassign-submit-btn">
               <UserCheck className="h-4 w-4 mr-1" /> Reassign
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Lead confirmation */}
+      <Dialog open={deleteLeadDialog.open} onOpenChange={(o) => !o && !deleteLeadDialog.submitting && closeDeleteLeadDialog()}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="h-5 w-5" />
+              Delete Lead
+            </DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. The lead and its remarks and follow-ups will be permanently removed.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteLeadDialog.lead && (
+            <div className="space-y-4">
+              <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+                <p className="font-medium text-red-800">{deleteLeadDialog.lead.name}</p>
+                <p className="text-xs text-red-600">
+                  {getStageName(deleteLeadDialog.lead.current_stage_id)}
+                  {deleteLeadDialog.lead.assigned_to_name ? ` • ${deleteLeadDialog.lead.assigned_to_name}` : ''}
+                </p>
+              </div>
+              <div>
+                <Label className="text-gray-700">
+                  Type <span className="font-bold text-red-600">DELETE</span> to confirm
+                </Label>
+                <Input
+                  value={deleteLeadDialog.confirmText}
+                  onChange={e => setDeleteLeadDialog(d => ({ ...d, confirmText: e.target.value }))}
+                  placeholder="Type DELETE"
+                  className="mt-1"
+                  data-testid="delete-lead-confirm-input"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={closeDeleteLeadDialog} disabled={deleteLeadDialog.submitting}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteLead}
+              disabled={deleteLeadDialog.submitting || deleteLeadDialog.confirmText !== 'DELETE'}
+              data-testid="confirm-delete-lead-btn"
+            >
+              <Trash2 className="h-4 w-4 mr-1" /> Delete Lead
             </Button>
           </DialogFooter>
         </DialogContent>
