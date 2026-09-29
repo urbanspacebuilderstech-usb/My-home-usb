@@ -157,7 +157,10 @@ export default function CRMPreSales() {
   const [deleteFieldDialog, setDeleteFieldDialog] = useState(false);
   const [fieldToDelete, setFieldToDelete] = useState(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  
+  const [deleteLeadDialog, setDeleteLeadDialog] = useState(false);
+  const [leadToDelete, setLeadToDelete] = useState(null);
+  const [deleteLeadConfirmText, setDeleteLeadConfirmText] = useState('');
+
   // Appointment booking
   const [appointmentDialog, setAppointmentDialog] = useState(false);
   const [appointmentLeadId, setAppointmentLeadId] = useState(null);
@@ -347,6 +350,37 @@ export default function CRMPreSales() {
       setCustomFields(fieldsRes.data);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete field');
+    }
+  };
+
+  // ============ DELETE LEAD (Super Admin) ============
+  // Presales leads live in the same `leads` collection as the Marketing
+  // Board, so this reuses its Super Admin-only delete endpoint.
+  const openDeleteLeadDialog = (lead) => {
+    setLeadToDelete(lead);
+    setDeleteLeadConfirmText('');
+    setDeleteLeadDialog(true);
+  };
+
+  const closeDeleteLeadDialog = () => {
+    setDeleteLeadDialog(false);
+    setLeadToDelete(null);
+    setDeleteLeadConfirmText('');
+  };
+
+  const handleDeleteLead = async () => {
+    if (!leadToDelete || deleteLeadConfirmText !== 'DELETE') {
+      toast.error('Please type DELETE to confirm');
+      return;
+    }
+    try {
+      await axios.delete(`${API}/marketing/leads/${leadToDelete.lead_id}`);
+      toast.success('Lead deleted successfully');
+      setLeads(prev => prev.filter(l => l.lead_id !== leadToDelete.lead_id));
+      closeDeleteLeadDialog();
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete lead');
     }
   };
 
@@ -1131,6 +1165,18 @@ export default function CRMPreSales() {
                           >
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
+                          {user?.role === 'super_admin' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                              title="Delete lead"
+                              data-testid={`delete-lead-btn-${lead.lead_id}`}
+                              onClick={(e) => { e.stopPropagation(); openDeleteLeadDialog(lead); }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1306,6 +1352,18 @@ export default function CRMPreSales() {
                             >
                               <Eye className="h-3 w-3" />
                             </Button>
+                            {user?.role === 'super_admin' && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                                title="Delete lead"
+                                data-testid={`delete-lead-card-btn-${lead.lead_id}`}
+                                onClick={(e) => { e.stopPropagation(); openDeleteLeadDialog(lead); }}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
                           </div>
                         </div>
                       </CardContent>
@@ -2550,6 +2608,60 @@ export default function CRMPreSales() {
               data-testid="confirm-delete-btn"
             >
               <Trash2 className="h-4 w-4 mr-1" /> Delete Field
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ DELETE LEAD CONFIRMATION DIALOG ============ */}
+      <Dialog open={deleteLeadDialog} onOpenChange={(open) => { if (!open) closeDeleteLeadDialog(); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="h-5 w-5" />
+              Delete Lead
+            </DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. The lead and its remarks and follow-ups will be permanently removed.
+            </DialogDescription>
+          </DialogHeader>
+
+          {leadToDelete && (
+            <div className="space-y-4">
+              <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+                <p className="font-medium text-red-800">{leadToDelete.name}</p>
+                <p className="text-xs text-red-600">
+                  {getStageName(leadToDelete.current_stage_id)}
+                  {leadToDelete.assigned_to_name ? ` • ${leadToDelete.assigned_to_name}` : ''}
+                </p>
+              </div>
+
+              <div>
+                <Label className="text-gray-700">
+                  Type <span className="font-bold text-red-600">DELETE</span> to confirm
+                </Label>
+                <Input
+                  value={deleteLeadConfirmText}
+                  onChange={(e) => setDeleteLeadConfirmText(e.target.value)}
+                  placeholder="Type DELETE"
+                  className="mt-1"
+                  data-testid="delete-lead-confirm-input"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeDeleteLeadDialog}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteLead}
+              disabled={deleteLeadConfirmText !== 'DELETE'}
+              data-testid="confirm-delete-lead-btn"
+            >
+              <Trash2 className="h-4 w-4 mr-1" /> Delete Lead
             </Button>
           </DialogFooter>
         </DialogContent>
