@@ -55,7 +55,8 @@ export default function SalesBoard() {
   const [sLoading, setSLoading] = useState(false);
 
   // Aug 29 2026 — click-through row view (LAPS = Leads/Appointment/Proposal/Sales)
-  const [activeCard, setActiveCard] = useState(null); // 'leads' | 'appointments' | 'proposals' | 'sales' | null
+  // Sep 29 2026 — open on Leads so the page isn't empty until a card is clicked.
+  const [activeCard, setActiveCard] = useState('leads'); // 'leads' | 'appointments' | 'proposals' | 'sales' | null
   const [rows, setRows] = useState([]);
   const [rowsLoading, setRowsLoading] = useState(false);
 
