@@ -30,11 +30,12 @@ const PRESETS = {
   },
 };
 
+// `ring` is the selected-card outline; it matches the `accent` left border.
 const CARDS = [
-  { key: 'leads', label: 'Leads', hint: 'Total new Pre-Sales leads', Icon: Users, accent: 'border-l-indigo-500', color: 'text-indigo-700', bg: 'bg-indigo-50' },
-  { key: 'appointments', label: 'Appointment', hint: 'Pre-Sales appointments booked', Icon: CalendarCheck, accent: 'border-l-emerald-500', color: 'text-emerald-700', bg: 'bg-emerald-50' },
-  { key: 'proposals', label: 'Proposal', hint: 'RE sent to client (RE - Client)', Icon: FileText, accent: 'border-l-amber-500', color: 'text-amber-700', bg: 'bg-amber-50' },
-  { key: 'sales', label: 'Sales', hint: 'Deals closed', Icon: TrendingUp, accent: 'border-l-rose-500', color: 'text-rose-700', bg: 'bg-rose-50' },
+  { key: 'leads', label: 'Leads', hint: 'Total new Pre-Sales leads', Icon: Users, accent: 'border-l-indigo-500', ring: 'ring-indigo-500', color: 'text-indigo-700', bg: 'bg-indigo-50' },
+  { key: 'appointments', label: 'Appointment', hint: 'Pre-Sales appointments booked', Icon: CalendarCheck, accent: 'border-l-emerald-500', ring: 'ring-emerald-500', color: 'text-emerald-700', bg: 'bg-emerald-50' },
+  { key: 'proposals', label: 'Proposal', hint: 'RE sent to client (RE - Client)', Icon: FileText, accent: 'border-l-amber-500', ring: 'ring-amber-500', color: 'text-amber-700', bg: 'bg-amber-50' },
+  { key: 'sales', label: 'Sales', hint: 'Deals closed', Icon: TrendingUp, accent: 'border-l-rose-500', ring: 'ring-rose-500', color: 'text-rose-700', bg: 'bg-rose-50' },
 ];
 
 const WHEN_LABEL = {
@@ -215,7 +216,7 @@ export default function SalesBoard() {
             return (
               <Card
                 key={c.key}
-                className={`border-l-4 ${c.accent} cursor-pointer transition-shadow hover:shadow-md ${isActive ? 'ring-2 ring-offset-1 ring-amber-400' : ''}`}
+                className={`border-l-4 ${c.accent} cursor-pointer transition-shadow hover:shadow-md ${isActive ? `ring-2 ring-offset-1 ${c.ring}` : ''}`}
                 onClick={() => selectCard(c.key)}
                 data-testid={`sales-masterview-card-${c.key}`}
               >
