@@ -1122,6 +1122,8 @@ export default function CRMSales() {
       toast.success('Lead deleted successfully');
       setLeads(prev => prev.filter(l => l.lead_id !== lead.lead_id));
       closeDeleteLeadDialog();
+      // Deleting from the lead popup (phones) — don't leave it open on a lead that's gone.
+      setViewLeadDialog(false);
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete lead');
@@ -1928,10 +1930,11 @@ export default function CRMSales() {
                               <Badge className="bg-green-100 text-green-700 text-[10px]">In Planning</Badge>
                             )}
                             {/* Actions sit at the end of this row; ml-auto + the row's
-                                flex-wrap move them to their own line only when needed. */}
-                            {(showContactBtns || showFollowupBtn || showReClientBtns || canReassign || canDeleteLead) && (
+                                flex-wrap move them to their own line only when needed.
+                                Call/WhatsApp come last so they sit at the right edge;
+                                Delete lives in the lead popup on phones. */}
+                            {(showContactBtns || showFollowupBtn || showReClientBtns || canReassign) && (
                               <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                                {showContactBtns && <LeadContactActions phone={lead.phone} />}
                                 {showFollowupBtn && (
                                   <Button
                                     variant="outline"
@@ -1982,18 +1985,7 @@ export default function CRMSales() {
                                     <UserCheck className="h-4 w-4" />
                                   </Button>
                                 )}
-                                {canDeleteLead && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-9 w-9 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                    aria-label="Delete lead"
-                                    data-testid={`delete-lead-mobile-btn-${lead.lead_id}`}
-                                    onClick={(e) => { e.stopPropagation(); setDeleteLeadDialog({ open: true, lead, confirmText: '', submitting: false }); }}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                )}
+                                {showContactBtns && <LeadContactActions phone={lead.phone} />}
                               </div>
                             )}
                           </div>
@@ -2518,7 +2510,8 @@ export default function CRMSales() {
                             >
                               <Eye className="h-3 w-3" />
                             </Button>
-                            {canDeleteLead && (
+                            {/* Phones delete from the lead popup instead. */}
+                            {canDeleteLead && !isMobile && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -2586,6 +2579,19 @@ export default function CRMSales() {
                 <Button variant="ghost" size="sm" onClick={() => openEditDialog(leadDetail || selectedLead)} data-testid="edit-lead-btn">
                   <Edit className="h-4 w-4" />
                 </Button>
+                {/* Phones: Delete sits here instead of on every lead card. */}
+                {isMobile && canDeleteLead && selectedLead && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                    aria-label="Delete lead"
+                    data-testid="delete-lead-popup-btn"
+                    onClick={() => setDeleteLeadDialog({ open: true, lead: leadDetail || selectedLead, confirmText: '', submitting: false })}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
             </DialogTitle>
             <DialogDescription className="sr-only">Lead details and actions</DialogDescription>

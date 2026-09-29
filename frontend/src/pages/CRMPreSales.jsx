@@ -659,6 +659,8 @@ export default function CRMPreSales() {
 
   const handleLeadDeleted = (leadId) => {
     setLeads(prev => prev.filter(l => l.lead_id !== leadId));
+    // Deleting from the lead popup (phones) — don't leave it open on a lead that's gone.
+    setLeadDetailDialog(false);
     fetchData(false);
   };
 
@@ -1351,10 +1353,11 @@ export default function CRMPreSales() {
                               <Badge className="bg-emerald-500 text-white border-0 text-[9px] px-1 py-0 h-4">★ Client Visit</Badge>
                             )}
                             {/* Actions sit at the end of this row; ml-auto + the row's
-                                flex-wrap move them to their own line only when needed. */}
-                            {(showContactBtns || showFollowupBtn || canTransferLead || canDeleteLead) && (
+                                flex-wrap move them to their own line only when needed.
+                                Call/WhatsApp come last so they sit at the right edge;
+                                Delete lives in the lead popup on phones. */}
+                            {(showContactBtns || showFollowupBtn || canTransferLead) && (
                               <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                                {showContactBtns && <LeadContactActions phone={lead.phone} />}
                                 {showFollowupBtn && (
                                   <Button
                                     variant="outline"
@@ -1381,18 +1384,7 @@ export default function CRMPreSales() {
                                     <ArrowRightLeft className="h-3.5 w-3.5 mr-1" /> Transfer
                                   </Button>
                                 )}
-                                {canDeleteLead && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-9 w-9 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                    aria-label="Delete lead"
-                                    data-testid={`delete-lead-mobile-btn-${lead.lead_id}`}
-                                    onClick={(e) => { e.stopPropagation(); deleteDialogRef.current?.open(lead, getStageName(lead.current_stage_id)); }}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                )}
+                                {showContactBtns && <LeadContactActions phone={lead.phone} />}
                               </div>
                             )}
                           </div>
@@ -1741,7 +1733,8 @@ export default function CRMPreSales() {
                             >
                               <Eye className="h-3 w-3" />
                             </Button>
-                            {canDeleteLead && (
+                            {/* Phones delete from the lead popup instead. */}
+                            {canDeleteLead && !isMobile && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -1908,14 +1901,29 @@ export default function CRMPreSales() {
                   </div>
                 </div>
               </div>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={() => { setLeadDetailDialog(false); openEditLead(selectedLead); }}
-                className="text-amber-600 border-blue-200 hover:bg-amber-50 flex-shrink-0"
-              >
-                <Edit2 className="h-4 w-4 mr-1" /> Edit
-              </Button>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setLeadDetailDialog(false); openEditLead(selectedLead); }}
+                  className="text-amber-600 border-blue-200 hover:bg-amber-50 flex-shrink-0"
+                >
+                  <Edit2 className="h-4 w-4 mr-1" /> Edit
+                </Button>
+                {/* Phones: Delete sits here instead of on every lead card. */}
+                {isMobile && canDeleteLead && selectedLead && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0 text-red-500 border-red-200 hover:text-red-700 hover:bg-red-50"
+                    aria-label="Delete lead"
+                    data-testid="delete-lead-popup-btn"
+                    onClick={() => deleteDialogRef.current?.open(selectedLead, getStageName(selectedLead.current_stage_id))}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
             </DialogTitle>
           </DialogHeader>
           </div>
