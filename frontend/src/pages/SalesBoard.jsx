@@ -4,7 +4,7 @@ import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { Users, CalendarCheck, FileText, TrendingUp, RefreshCw, ExternalLink, X } from 'lucide-react';
+import { Users, CalendarCheck, FileText, TrendingUp, RefreshCw, ExternalLink } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -55,8 +55,9 @@ export default function SalesBoard() {
   const [sLoading, setSLoading] = useState(false);
 
   // Aug 29 2026 — click-through row view (LAPS = Leads/Appointment/Proposal/Sales)
-  // Sep 29 2026 — open on Leads so the page isn't empty until a card is clicked.
-  const [activeCard, setActiveCard] = useState('leads'); // 'leads' | 'appointments' | 'proposals' | 'sales' | null
+  // Sep 29 2026 — open on Leads, and always keep one card open: clicking the
+  // open card no longer closes it, so the page never goes back to empty.
+  const [activeCard, setActiveCard] = useState('leads'); // 'leads' | 'appointments' | 'proposals' | 'sales'
   const [rows, setRows] = useState([]);
   const [rowsLoading, setRowsLoading] = useState(false);
 
@@ -122,8 +123,8 @@ export default function SalesBoard() {
     if (activeCard) fetchRows(activeCard);
   }, [activeCard, fetchRows]);
 
-  const toggleCard = (key) => {
-    setActiveCard(prev => (prev === key ? null : key));
+  const selectCard = (key) => {
+    setActiveCard(key);
   };
 
   const crmLink = (row) => {
@@ -215,7 +216,7 @@ export default function SalesBoard() {
               <Card
                 key={c.key}
                 className={`border-l-4 ${c.accent} cursor-pointer transition-shadow hover:shadow-md ${isActive ? 'ring-2 ring-offset-1 ring-amber-400' : ''}`}
-                onClick={() => toggleCard(c.key)}
+                onClick={() => selectCard(c.key)}
                 data-testid={`sales-masterview-card-${c.key}`}
               >
                 <CardContent className="p-4">
@@ -244,13 +245,6 @@ export default function SalesBoard() {
                     {activeCardMeta?.label} ({rowsLoading ? '…' : rows.length})
                   </span>
                 </div>
-                <button
-                  onClick={() => setActiveCard(null)}
-                  className="text-gray-400 hover:text-gray-700"
-                  data-testid="sales-masterview-rows-close"
-                >
-                  <X className="h-4 w-4" />
-                </button>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm" data-testid="sales-masterview-rows-table">
