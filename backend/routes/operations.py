@@ -5139,7 +5139,7 @@ async def upload_staff_document(
     storage_path = f"{APP_NAME}/hr/{staff_id}/{doc_type}/{file_id}.{ext}"
     
     try:
-        result = put_object(storage_path, data, content_type)
+        result = await asyncio.to_thread(put_object, storage_path, data, content_type)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
     

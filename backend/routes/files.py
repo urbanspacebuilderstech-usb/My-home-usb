@@ -5,6 +5,7 @@ Uses Emergent Object Storage for production file management
 from fastapi import APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, Form, Query
 from typing import Optional
 from datetime import datetime, timezone
+import asyncio
 import uuid
 import logging
 import io
@@ -59,7 +60,14 @@ async def upload_file(
     storage_path = f"{APP_NAME}/{category}/{user.user_id}/{file_id}.{ext}"
 
     try:
-        result = put_object(storage_path, data, content_type)
+        # Sep 29 2026 - off the event loop. core.storage uses the blocking
+        # `requests` library, so calling it directly from an async handler
+        # stalled the whole worker for the length of the remote storage round
+        # trip. runtime-health measured event-loop lag of 348ms median / 954ms
+        # max and a 894ms mongo ping on a host that was otherwise idle (load
+        # 0.42 of 4 CPUs, 9% memory) - every page with thumbnails was holding
+        # up every other request, including CRE Payment Schedule.
+        result = await asyncio.to_thread(put_object, storage_path, data, content_type)
     except Exception as e:
         logger.error(f"Upload failed: {e}")
         raise HTTPException(status_code=500, detail="File upload failed")
@@ -145,7 +153,7 @@ async def download_file(file_id: str, request: Request):
             data = await gf.read()
             content_type = record.get("content_type") or (gf.metadata or {}).get("contentType") or "application/octet-stream"
         else:
-            data, content_type = get_object(sp)
+            data, content_type = await asyncio.to_thread(get_object, sp)
     except Exception as e:
         logger.error(f"Download failed for {file_id}: {e}")
         raise HTTPException(status_code=500, detail="File download failed")
@@ -166,7 +174,7 @@ async def _load_file_bytes(record: dict) -> bytes:
         from bson import ObjectId
         gf = await fs.open_download_stream(ObjectId(sp.replace("gridfs://", "", 1)))
         return await gf.read()
-    data, _ = get_object(sp)
+    data, _ = await asyncio.to_thread(get_object, sp)
     return data
 
 

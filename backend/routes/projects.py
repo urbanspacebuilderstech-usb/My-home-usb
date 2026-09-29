@@ -5792,7 +5792,7 @@ async def upload_section_attachment(
     storage_path = f"{APP_NAME}/addition_section/{user.user_id}/{file_id}.{ext}"
     storage_size = len(contents)
     try:
-        result = put_object(storage_path, contents, content_type)
+        result = await asyncio.to_thread(put_object, storage_path, contents, content_type)
         storage_path = result.get("path", storage_path)
         storage_size = result.get("size", storage_size)
     except Exception as e:
@@ -5892,7 +5892,7 @@ async def upload_project_additional_attachment(
     storage_path = f"{APP_NAME}/additional_ungrouped/{user.user_id}/{file_id}.{ext}"
     storage_size = len(contents)
     try:
-        result = put_object(storage_path, contents, content_type)
+        result = await asyncio.to_thread(put_object, storage_path, contents, content_type)
         storage_path = result.get("path", storage_path)
         storage_size = result.get("size", storage_size)
     except Exception as e:
@@ -7599,7 +7599,7 @@ async def upload_deduction_section_attachment(
     storage_path = f"{APP_NAME}/deduction_section/{user.user_id}/{file_id}.{ext}"
     storage_size = len(contents)
     try:
-        result = put_object(storage_path, contents, content_type)
+        result = await asyncio.to_thread(put_object, storage_path, contents, content_type)
         storage_path = result.get("path", storage_path)
         storage_size = result.get("size", storage_size)
     except Exception as e:
