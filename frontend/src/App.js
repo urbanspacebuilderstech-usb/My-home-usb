@@ -2,7 +2,6 @@ import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-route
 import { useState, useEffect, useRef, lazy, Suspense, Component } from 'react';
 import axios from 'axios';
 import { Toaster } from '@/components/ui/sonner';
-import ScreenWatermark from '@/components/ScreenWatermark';
 import '@/App.css';
 // DayPicker base styles. Several date filters (Cashbook, PM, Sr SE, DLR)
 // render <DayPicker> and rely on these rules being global. Keep this import
@@ -457,13 +456,7 @@ function ProtectedRoute({ children }) {
     return null;
   }
 
-  // Everyone but Super Admin gets the name/time watermark (see ScreenWatermark).
-  return (
-    <>
-      {children}
-      <ScreenWatermark user={user} />
-    </>
-  );
+  return children;
 }
 
 function App() {
