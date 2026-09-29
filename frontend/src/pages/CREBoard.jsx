@@ -1416,6 +1416,21 @@ export default function CREBoard() {
                     const collectedTotal = entries.reduce((s, e) => s + (Number(e.amount_received) || 0), 0);
                     const receivedCount = entries.filter(e => (Number(e.amount_received) || 0) > 0).length;
                     const outstandingCount = entries.filter(e => !isCollectedEntry(e)).length;
+                    // Sep 29 2026 — "This Month Collected": money actually
+                    // received during the REAL current calendar month,
+                    // regardless of which sub-tab (Pending/Partial/Collected/
+                    // All) or schedule month/All-Months view is active — it's
+                    // a fixed reference point, not a re-slice of `entries`.
+                    // Built from `dateFiltered` (respects the Select Date /
+                    // search narrowing the other tiles already respect, just
+                    // not the sub-tab split) and the backend's new
+                    // collection_month/collection_year fields (the real
+                    // paid_at-derived date, distinct from `month`/`year`
+                    // which stay pinned to the stage's PLANNED month).
+                    const _today = new Date();
+                    const thisMonthCollected = dateFiltered
+                      .filter(e => e.collection_month === _today.getMonth() + 1 && e.collection_year === _today.getFullYear())
+                      .reduce((s, e) => s + (Number(e.amount_received) || 0), 0);
                     const tiles = [
                       { key: 'planned', label: 'Total Planned',
                         value: formatCurrency(psSummary.planned),
@@ -1425,13 +1440,17 @@ export default function CREBoard() {
                         value: formatCurrency(collectedTotal),
                         sub: `${receivedCount} collected`,
                         border: 'border-l-emerald-500', text: 'text-emerald-700' },
+                      { key: 'this_month_collected', label: 'This Month Collected',
+                        value: formatCurrency(thisMonthCollected),
+                        sub: MONTHS[_today.getMonth()] + ' ' + _today.getFullYear(),
+                        border: 'border-l-teal-500', text: 'text-teal-700' },
                       { key: 'balance', label: 'Balance',
                         value: formatCurrency(psSummary.balance),
                         sub: `${outstandingCount} outstanding`,
                         border: 'border-l-red-500', text: 'text-red-600' },
                     ];
                     return (
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" data-testid="ps-summary-tiles">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" data-testid="ps-summary-tiles">
                         {tiles.map(t => (
                           <Card key={t.key} className={`border-l-4 ${t.border}`} data-testid={`ps-summary-${t.key}`}>
                             <CardContent className="p-3">

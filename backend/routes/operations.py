@@ -2421,12 +2421,38 @@ async def get_monthly_schedule(
             row_stage_status = stage.get("status", "pending")
 
         entry_id_base = manual.get("entry_id") or f"computed_{stage.get('stage_id')}"
+        # Sep 29 2026 — `month`/`year` above is the stage's PLANNED/effective
+        # bucket (a collected stage stays pinned to when it was scheduled,
+        # not when it was actually paid — see the "Fully-collected stages
+        # stay pinned to their PLANNED month" comment above). CRE's "This
+        # Month Collected" tile needs the real payment date instead, so
+        # expose it separately.
+        #
+        # Gate on `row_stage_status` (this ROW's display status), not the
+        # raw stage doc's own `status` field — a collected_portion virtual
+        # split row is forced to row_stage_status="collected" above even
+        # when the underlying stage's real status is still "partial" (the
+        # stage isn't fully done yet, only this historical slice is), so
+        # _collection_month_for_stage(stage) would wrongly return (None,
+        # None) for it. Same paid_at -> collected_at -> updated_at ->
+        # expected_payment_date -> due_date fallback chain either way.
+        _coll_month, _coll_year = None, None
+        if row_stage_status in ("paid", "collected"):
+            _coll_d = (_parse_date(stage.get("paid_at"))
+                       or _parse_date(stage.get("collected_at"))
+                       or _parse_date(stage.get("updated_at"))
+                       or _parse_date(stage.get("expected_payment_date"))
+                       or _parse_date(stage.get("due_date")))
+            if _coll_d:
+                _coll_month, _coll_year = _coll_d.month, _coll_d.year
         enriched.append({
             "entry_id": f"{entry_id_base}{virtual_suffix}" if virtual_suffix else entry_id_base,
             "stage_id": stage.get("stage_id"),
             "project_id": stage.get("project_id"),
             "month": month,
             "year": year,
+            "collection_month": _coll_month,
+            "collection_year": _coll_year,
             "is_carryover": m["is_carryover"],
             "carry_from_month": m["planned_month"] if m["is_carryover"] else None,
             "carry_from_year": m["planned_year"] if m["is_carryover"] else None,
