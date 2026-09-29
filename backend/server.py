@@ -371,6 +371,13 @@ async def startup_init():
     await _safe_index(startup_db.cheques, [("cheque_id", 1)])
     await _safe_index(startup_db.cheques, [("cheque_number", 1)])
     await _safe_index(startup_db.payment_stages, [("stage_id", 1)])
+    # Sep 29 2026 — CRE Board > Payment Schedule self-heals stored
+    # amount_received from income on every load:
+    #   db.income.find({"payment_stage_id": {"$in": [...every stage...]}})
+    # With no index on that field this scanned the whole income
+    # collection each time, and in All Months the $in carries every
+    # payment stage in the system.
+    await _safe_index(startup_db.income, [("payment_stage_id", 1)])
     await _safe_index(startup_db.payment_stages, [("project_id", 1)])
     await _safe_index(startup_db.project_work_orders, [("work_order_id", 1)])
     await _safe_index(startup_db.project_work_orders, [("project_id", 1)])

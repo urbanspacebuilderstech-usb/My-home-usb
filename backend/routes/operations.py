@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, Depends, Upload
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, List, Dict, Any
+from pymongo import UpdateOne
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 import uuid
@@ -2130,6 +2131,18 @@ async def get_monthly_schedule(
             _received_by_stage[_sid] = _received_by_stage.get(_sid, 0.0) + float(_inc.get("amount") or 0)
 
         _now_iso = datetime.now(timezone.utc).isoformat()
+        # Sep 29 2026 — this used to `await update_one` once per drifted
+        # stage, inside the loop. In all_months mode `stages_cursor` is every
+        # payment stage in the system (up to 50,000), so a schedule with a lot
+        # of drift paid one network round trip per row before the page could
+        # render — the reported "heavy loading" on CRE Board > Payment
+        # Schedule > All Months.
+        #
+        # The writes are collected and sent as ONE bulk_write instead. Same
+        # filters, same $set, same documents, same values — only the number of
+        # round trips changes. `ordered=False` is safe because every operation
+        # targets a distinct stage_id, so none of them can conflict.
+        _heal_ops = []
         for stage in stages_cursor:
             _sid = stage.get("stage_id")
             if _sid not in _received_by_stage:
@@ -2142,10 +2155,12 @@ async def get_monthly_schedule(
             _new_status = "paid" if _stage_amount > 0 and _true_received >= _stage_amount - 0.5 else ("partial" if _true_received > 0 else "pending")
             stage["amount_received"] = _true_received
             stage["status"] = _new_status
-            await db.payment_stages.update_one(
+            _heal_ops.append(UpdateOne(
                 {"stage_id": _sid},
                 {"$set": {"amount_received": _true_received, "status": _new_status, "updated_at": _now_iso}},
-            )
+            ))
+        if _heal_ops:
+            await db.payment_stages.bulk_write(_heal_ops, ordered=False)
 
     # 3. Classify each stage into a single effective month
     # NEW (Feb 2026): A **partially-collected** past-due stage is split into TWO
