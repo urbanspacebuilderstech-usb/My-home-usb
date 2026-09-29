@@ -1402,14 +1402,20 @@ export default function CREBoard() {
                       acc.balance += amt - got;
                       return acc;
                     }, { planned: 0, balance: 0 });
-                    // Collected tile sums only the entries (within the
-                    // current scope) that are actually collected, so a
-                    // Partial row's part-payment never inflates it — see
-                    // the fix note that used to live here, now generalised
-                    // to whichever sub-tab is active rather than only "All".
-                    const scopedCollected = entries.filter(isCollectedEntry);
-                    const collectedTotal = scopedCollected.reduce((s, e) => s + (Number(e.amount_received) || 0), 0);
-                    const outstandingCount = entries.length - scopedCollected.length;
+                    // Sep 29 2026 (v2) — "Collected" is the money actually
+                    // received on whatever's in the current scope, not just
+                    // fully-closed rows: on the Partial tab both rows are
+                    // still open but genuinely hold ₹10,000 + ₹5,000 against
+                    // them, and that money should show as ₹15,000 collected,
+                    // not ₹0. Sum amount_received across all of `entries`
+                    // directly — on the Collected tab every row there IS
+                    // fully collected already, so this still lands on the
+                    // same ₹45,200 the earlier fix established; it only
+                    // changes Pending/Partial/All, which previously showed 0
+                    // or (on All) the same figure either way.
+                    const collectedTotal = entries.reduce((s, e) => s + (Number(e.amount_received) || 0), 0);
+                    const receivedCount = entries.filter(e => (Number(e.amount_received) || 0) > 0).length;
+                    const outstandingCount = entries.filter(e => !isCollectedEntry(e)).length;
                     const tiles = [
                       { key: 'planned', label: 'Total Planned',
                         value: formatCurrency(psSummary.planned),
@@ -1417,7 +1423,7 @@ export default function CREBoard() {
                         border: 'border-l-indigo-500', text: 'text-indigo-700' },
                       { key: 'collected', label: 'Collected',
                         value: formatCurrency(collectedTotal),
-                        sub: `${scopedCollected.length} collected`,
+                        sub: `${receivedCount} collected`,
                         border: 'border-l-emerald-500', text: 'text-emerald-700' },
                       { key: 'balance', label: 'Balance',
                         value: formatCurrency(psSummary.balance),
