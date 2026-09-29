@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -91,6 +92,36 @@ const formatIN = (value, options) => {
   }
   return formatter.format(d);
 };
+
+// Next pending follow-up (amber today, red overdue, blue upcoming), else the
+// last completed one. Shared by the desktop table and the phone cards.
+const FollowUpChip = ({ followUps }) => {
+  const pending = (followUps || []).filter(f => !f.completed);
+  const last = (followUps || []).slice(-1)[0];
+  const next = pending.sort((a, b) => (a.scheduled_date || '').localeCompare(b.scheduled_date || ''))[0];
+  if (next) {
+    const today = new Date().toISOString().split('T')[0];
+    const isToday = next.scheduled_date === today;
+    const isPast = next.scheduled_date < today;
+    return (
+      <div className={`text-[10px] px-1.5 py-0.5 rounded inline-block ${isToday ? 'bg-amber-100 text-amber-700 font-semibold' : isPast ? 'bg-red-100 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
+        {formatIN(next.scheduled_date, { day: '2-digit', month: 'short' })}
+        {next.scheduled_time && ` ${next.scheduled_time}`}
+      </div>
+    );
+  }
+  if (last?.completed) {
+    return (
+      <div className="text-[10px] px-1.5 py-0.5 rounded inline-block bg-green-50 text-green-600">
+        Last: {formatIN(last.scheduled_date, { day: '2-digit', month: 'short' })}
+      </div>
+    );
+  }
+  return <span className="text-[10px] text-gray-400">—</span>;
+};
+
+// Phones get cards instead of the table, built this many at a time.
+const MOBILE_PAGE_SIZE = 40;
 
 const SOURCE_COLORS = {
   meta: 'bg-amber-50 text-amber-700',
@@ -435,6 +466,15 @@ export default function CRMPreSales() {
   
   const [draggedLead, setDraggedLead] = useState(null);
 
+  // Sep 29 2026 — Phones (< 768px) get a card list instead of the 10-column
+  // table. The page holds 1000+ leads, so cards are built MOBILE_PAGE_SIZE at
+  // a time with a "Show more" button, starting over when the filters change.
+  const isMobile = useIsMobile();
+  const [mobileVisible, setMobileVisible] = useState(MOBILE_PAGE_SIZE);
+  useEffect(() => {
+    setMobileVisible(MOBILE_PAGE_SIZE);
+  }, [activeStage, searchQuery, selectedSource, dateFilter, dateFilterEnd, followUpFilter, sortOrder]);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -726,7 +766,9 @@ export default function CRMPreSales() {
       setApptEditDialog(false);
       const res = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
       setSelectedLead(res.data);
-      fetchLeads();
+      // Was `fetchLeads()`, which doesn't exist here: the ReferenceError landed
+      // in the catch below, so a saved appointment reported "Failed to update".
+      fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update appointment');
     }
@@ -940,6 +982,8 @@ export default function CRMPreSales() {
     );
   }
 
+  const listLeads = activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
@@ -954,10 +998,10 @@ export default function CRMPreSales() {
           <button
             type="button"
             onClick={() => { setActiveStage('all'); setViewMode('list'); }}
-            className={`flex-1 min-w-0 flex flex-col items-center justify-center bg-emerald-500 text-white rounded-2xl px-2 py-3 sm:py-5 shadow-sm transition-transform hover:-translate-y-0.5 ${activeStage === 'all' ? 'ring-2 ring-emerald-700 ring-offset-1' : ''}`}
+            className={`flex-none w-[84px] sm:w-auto sm:flex-1 sm:min-w-0 flex flex-col items-center justify-center bg-emerald-500 text-white rounded-2xl px-2 py-2.5 sm:py-5 shadow-sm transition-transform hover:-translate-y-0.5 ${activeStage === 'all' ? 'ring-2 ring-emerald-700 ring-offset-1' : ''}`}
             data-testid="filter-tile-all"
           >
-            <span className="text-[8px] sm:text-xs font-medium opacity-90">Total Leads</span>
+            <span className="text-[10px] sm:text-xs font-medium opacity-90">Total Leads</span>
             <span className="text-lg sm:text-3xl font-bold mt-0.5">{dashboard?.total_leads || 0}</span>
           </button>
           {stages.map(stage => {
@@ -968,7 +1012,7 @@ export default function CRMPreSales() {
               type="button"
               key={stage.stage_id}
               onClick={() => { setActiveStage(stage.stage_id); setViewMode('list'); }}
-              className={`flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-1 py-3 sm:py-5 shadow-sm border transition-transform hover:-translate-y-0.5 ${active ? 'ring-2 ring-offset-1' : ''}`}
+              className={`flex-none w-[76px] sm:w-auto sm:flex-1 sm:min-w-0 flex flex-col items-center justify-center rounded-2xl px-1 py-2.5 sm:py-5 shadow-sm border transition-transform hover:-translate-y-0.5 ${active ? 'ring-2 ring-offset-1' : ''}`}
               style={{ 
                 backgroundColor: stage.color + '15',
                 borderColor: stage.color + '30',
@@ -976,16 +1020,16 @@ export default function CRMPreSales() {
               }}
               data-testid={`stage-count-${stage.stage_id}`}
             >
-              <span className="text-[6px] sm:text-[11px] font-medium text-center leading-tight truncate w-full px-0.5" style={{ color: stage.color }}>{stage.name}</span>
-              <span className="text-base sm:text-3xl font-bold mt-0.5" style={{ color: stage.color }}>{count}</span>
+              <span className="text-[10px] sm:text-[11px] font-medium text-center leading-tight line-clamp-2 sm:truncate w-full px-0.5" style={{ color: stage.color }}>{stage.name}</span>
+              <span className="text-lg sm:text-3xl font-bold mt-0.5" style={{ color: stage.color }}>{count}</span>
             </button>
             );
           })}
         </div>
 
         {/* Search & Filters + View Toggle */}
-        <div className="flex flex-wrap gap-3 mb-6 items-center">
-          <div className="relative flex-1 min-w-[200px]">
+        <div className="flex flex-wrap gap-2 sm:gap-3 mb-3 sm:mb-6 items-center">
+          <div className="relative basis-full sm:basis-0 flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
               placeholder="Search leads by name, email, phone..."
@@ -1028,10 +1072,12 @@ export default function CRMPreSales() {
                 {dateFilter && <X className="h-3 w-3 ml-1 opacity-50 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setDateFilter(''); setDateFilterEnd(''); }} />}
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0 rounded-xl shadow-xl border-0" align="start">
-              <div className="flex">
+            <PopoverContent className="w-auto max-w-[calc(100vw-1rem)] p-0 rounded-xl shadow-xl border-0" align="start" collisionPadding={8}>
+              {/* Phones: presets become a row of chips above the calendar, since
+                  sidebar + calendar (~410px) is wider than the screen. */}
+              <div className="flex flex-col sm:flex-row">
                 {/* Quick Presets - Left sidebar */}
-                <div className="w-32 border-r bg-gray-50 p-2 space-y-0.5 rounded-l-xl">
+                <div className="flex flex-wrap gap-1 sm:block sm:w-32 border-b sm:border-b-0 sm:border-r bg-gray-50 p-2 sm:space-y-0.5 rounded-t-xl sm:rounded-tr-none sm:rounded-l-xl">
                   {[
                     { label: 'Today', fn: () => { const d = new Date().toISOString().split('T')[0]; setDateFilter(d); setDateFilterEnd(''); } },
                     { label: 'Tomorrow', fn: () => { const d = new Date(); d.setDate(d.getDate()+1); setDateFilter(d.toISOString().split('T')[0]); setDateFilterEnd(''); } },
@@ -1045,7 +1091,7 @@ export default function CRMPreSales() {
                     <button
                       key={p.label}
                       onClick={p.fn}
-                      className={`w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-colors ${p.label === 'Clear' ? 'text-red-500 hover:bg-red-50 mt-2' : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'}`}
+                      className={`sm:w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-colors ${p.label === 'Clear' ? 'text-red-500 hover:bg-red-50 sm:mt-2' : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'}`}
                     >
                       {p.label}
                     </button>
@@ -1096,7 +1142,7 @@ export default function CRMPreSales() {
           
           {/* Source Filter */}
           <Select value={selectedSource} onValueChange={setSelectedSource}>
-            <SelectTrigger className="w-[150px]">
+            <SelectTrigger className="w-[130px] sm:w-[150px] h-9">
               <SelectValue placeholder="All Sources" />
             </SelectTrigger>
             <SelectContent>
@@ -1119,7 +1165,9 @@ export default function CRMPreSales() {
           )}
 
           {/* View Toggle */}
-          <div className="flex items-center gap-2 ml-auto">
+          {/* On phones Refresh / Sync Sheets / Kanban / List show icons only,
+              so the whole group fits on one row next to Create Lead. */}
+          <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
             <Button
               size="sm"
               onClick={() => setCreateLeadDialog(true)}
@@ -1134,43 +1182,47 @@ export default function CRMPreSales() {
               size="sm"
               onClick={handleRefresh}
               disabled={refreshing}
-              className="gap-1.5 text-gray-700"
+              className="gap-1.5 text-gray-700 px-2.5 sm:px-3"
+              title="Refresh"
               data-testid="refresh-page-btn"
             >
               <RotateCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-              Refresh
+              <span className="hidden sm:inline">Refresh</span>
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={handleSyncSheets}
               disabled={syncingSheets}
-              className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+              className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50 px-2.5 sm:px-3"
+              title="Sync Sheets"
               data-testid="sync-sheets-btn"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${syncingSheets ? 'animate-spin' : ''}`} />
-              {syncingSheets ? 'Syncing...' : 'Sync Sheets'}
+              <span className="hidden sm:inline">{syncingSheets ? 'Syncing...' : 'Sync Sheets'}</span>
             </Button>
             <div className="flex items-center border rounded-lg overflow-hidden bg-white">
             <Button
               variant={viewMode === 'kanban' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setViewMode('kanban')}
-              className="rounded-none px-3"
+              className="rounded-none px-2.5 sm:px-3"
+              title="Kanban"
               data-testid="kanban-view-btn"
             >
-              <LayoutGrid className="h-4 w-4 mr-1" />
-              <span className="text-xs">Kanban</span>
+              <LayoutGrid className="h-4 w-4 sm:mr-1" />
+              <span className="text-xs hidden sm:inline">Kanban</span>
             </Button>
             <Button
               variant={viewMode === 'list' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setViewMode('list')}
-              className="rounded-none px-3"
+              className="rounded-none px-2.5 sm:px-3"
+              title="List"
               data-testid="list-view-btn"
             >
-              <List className="h-4 w-4 mr-1" />
-              <span className="text-xs">List</span>
+              <List className="h-4 w-4 sm:mr-1" />
+              <span className="text-xs hidden sm:inline">List</span>
             </Button>
           </div>
           </div>
@@ -1213,7 +1265,127 @@ export default function CRMPreSales() {
               </div>
             </div>
 
-            {/* List Table */}
+            {isMobile ? (
+              /* Phone card list — one card per lead; tap opens the lead. */
+              <div className="divide-y divide-gray-100" data-testid="presales-mobile-list">
+                {listLeads.slice(0, mobileVisible).map(lead => {
+                  const stageColor = stages.find(s => s.stage_id === lead.current_stage_id)?.color;
+                  const clientVisit = (lead.tags || []).includes('client_office_visit');
+                  const showFollowupBtn = lead.current_stage_id === 'stg_follow_up' && !(lead.follow_ups || []).some(f => !f.completed);
+                  return (
+                    <div
+                      key={lead.lead_id}
+                      className={`px-3 py-3 active:bg-gray-50 ${clientVisit ? 'bg-emerald-50/80' : ''}`}
+                      onClick={() => openLeadDetail(lead)}
+                      data-testid={`presales-mobile-card-${lead.lead_id}`}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-sm font-semibold flex-shrink-0">
+                          {lead.name?.charAt(0)?.toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="font-medium text-gray-900 text-sm truncate">{lead.name}</p>
+                            <Badge variant="outline" className="text-[10px] px-1.5 flex-shrink-0 whitespace-nowrap" style={{ borderColor: stageColor }}>
+                              {getStageName(lead.current_stage_id)}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-gray-500 min-w-0">
+                            {lead.city && <span className="truncate">{lead.city}</span>}
+                            {lead.source && (
+                              <Badge className={`text-[10px] px-1.5 flex-shrink-0 ${SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}`}>
+                                {lead.source.replace('_', ' ')}
+                              </Badge>
+                            )}
+                            <span className="ml-auto flex-shrink-0 tabular-nums">
+                              {formatIN(lead.created_at, { day: '2-digit', month: 'short' })}
+                            </span>
+                          </div>
+                          {/* Tap the number to reveal it without opening the lead. */}
+                          <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                            <MaskedContact phone={lead.phone} email={lead.email} lost={isLeadLost(lead)} compact />
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5">
+                            <span className="flex items-center gap-1 min-w-0 text-[11px] text-gray-700">
+                              <User className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                              <span className="truncate">{lead.assigned_to_name || 'Unassigned'}</span>
+                            </span>
+                            {(lead.follow_ups || []).length > 0 && <FollowUpChip followUps={lead.follow_ups} />}
+                            {lead.current_stage_id === 'stg_appointment' && lead.appointment_date && (
+                              <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 py-0.5">
+                                <Calendar className="h-2.5 w-2.5" />
+                                {formatIN(lead.appointment_date, { day: '2-digit', month: 'short' })}{lead.appointment_time ? ` · ${lead.appointment_time}` : ''}
+                              </span>
+                            )}
+                            {clientVisit && (
+                              <Badge className="bg-emerald-500 text-white border-0 text-[9px] px-1 py-0 h-4">★ Client Visit</Badge>
+                            )}
+                            {/* Actions sit at the end of this row; ml-auto + the row's
+                                flex-wrap move them to their own line only when needed. */}
+                            {(showFollowupBtn || canTransferLead || canDeleteLead) && (
+                              <div className="ml-auto flex items-center gap-2">
+                                {showFollowupBtn && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-9 px-2.5 text-xs text-amber-600 border-amber-300 hover:bg-amber-50"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setQuickFollowupLeadId(lead.lead_id);
+                                      setQuickFollowupForm({ date: '', time: '', remarks: '' });
+                                      setQuickFollowupDialog(true);
+                                    }}
+                                  >
+                                    <Calendar className="h-3.5 w-3.5 mr-1" /> Follow-up
+                                  </Button>
+                                )}
+                                {canTransferLead && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-9 px-2.5 text-xs text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                                    data-testid={`transfer-lead-card-btn-${lead.lead_id}`}
+                                    onClick={(e) => { e.stopPropagation(); transferDialogRef.current?.open(lead, getStageName(lead.current_stage_id)); }}
+                                  >
+                                    <ArrowRightLeft className="h-3.5 w-3.5 mr-1" /> Transfer
+                                  </Button>
+                                )}
+                                {canDeleteLead && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-9 w-9 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                    aria-label="Delete lead"
+                                    data-testid={`delete-lead-mobile-btn-${lead.lead_id}`}
+                                    onClick={(e) => { e.stopPropagation(); deleteDialogRef.current?.open(lead, getStageName(lead.current_stage_id)); }}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {listLeads.length === 0 && (
+                  <p className="px-4 py-12 text-center text-sm text-gray-500">No leads found</p>
+                )}
+                {listLeads.length > mobileVisible && (
+                  <button
+                    type="button"
+                    onClick={() => setMobileVisible(v => v + MOBILE_PAGE_SIZE)}
+                    className="w-full py-3 text-sm font-medium text-indigo-600 active:bg-indigo-50"
+                    data-testid="presales-mobile-show-more"
+                  >
+                    Show {Math.min(MOBILE_PAGE_SIZE, listLeads.length - mobileVisible)} more · {listLeads.length - mobileVisible} left
+                  </button>
+                )}
+              </div>
+            ) : (
+            /* List Table */
             <div className="w-full">
               <table className="w-full table-fixed">
                 <thead className="bg-gray-50 border-b">
@@ -1234,7 +1406,7 @@ export default function CRMPreSales() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).map((lead, idx) => (
+                  {listLeads.map((lead, idx) => (
                     <tr 
                       key={lead.lead_id} 
                       className={`hover:bg-gray-50 cursor-pointer transition-colors ${(lead.tags || []).includes('client_office_visit') ? 'bg-emerald-50/80 ring-1 ring-emerald-200' : ''}`}
@@ -1294,30 +1466,9 @@ export default function CRMPreSales() {
                         )}
                       </td>
                       <td className="px-2 py-2">
-                        {(() => {
-                          const pendingFups = (lead.follow_ups || []).filter(f => !f.completed);
-                          const lastFup = (lead.follow_ups || []).slice(-1)[0];
-                          const nextFup = pendingFups.sort((a,b) => (a.scheduled_date||'').localeCompare(b.scheduled_date||''))[0];
-                          const today = new Date().toISOString().split('T')[0];
-                          const isToday = nextFup?.scheduled_date === today;
-                          const isPast = nextFup?.scheduled_date < today;
-                          return (
-                            <div className="space-y-0.5">
-                              {nextFup ? (
-                                <div className={`text-[10px] px-1.5 py-0.5 rounded inline-block ${isToday ? 'bg-amber-100 text-amber-700 font-semibold' : isPast ? 'bg-red-100 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
-                                  {formatIN(nextFup.scheduled_date, {day:'2-digit', month:'short'})}
-                                  {nextFup.scheduled_time && ` ${nextFup.scheduled_time}`}
-                                </div>
-                              ) : lastFup?.completed ? (
-                                <div className="text-[10px] px-1.5 py-0.5 rounded inline-block bg-green-50 text-green-600">
-                                  Last: {formatIN(lastFup.scheduled_date, {day:'2-digit', month:'short'})}
-                                </div>
-                              ) : (
-                                <span className="text-[10px] text-gray-400">—</span>
-                              )}
-                            </div>
-                          );
-                        })()}
+                        <div className="space-y-0.5">
+                          <FollowUpChip followUps={lead.follow_ups} />
+                        </div>
                       </td>
                       <td className="px-2 py-2">
                         <span className="text-xs text-gray-500">
@@ -1382,7 +1533,7 @@ export default function CRMPreSales() {
                       </td>
                     </tr>
                   ))}
-                  {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).length === 0 && (
+                  {listLeads.length === 0 && (
                     <tr>
                       <td colSpan={canTransferLead ? 10 : 9} className="px-4 py-12 text-center text-gray-500">
                         No leads found
@@ -1392,6 +1543,7 @@ export default function CRMPreSales() {
                 </tbody>
               </table>
             </div>
+            )}
           </div>
         )}
 
@@ -1699,15 +1851,16 @@ export default function CRMPreSales() {
       {/* ============ LEAD DETAIL DIALOG ============ */}
       <Dialog open={leadDetailDialog} onOpenChange={setLeadDetailDialog}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col p-0">
-          <div className="overflow-y-auto flex-1 px-6 pt-6">
+          <div className="overflow-y-auto flex-1 px-4 pt-5 sm:px-6 sm:pt-6">
           <DialogHeader>
-            <DialogTitle className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xl font-bold">
+            {/* pr-8 keeps the Edit button clear of the dialog's close (X) button. */}
+            <DialogTitle className="flex items-center justify-between gap-2 pr-8">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xl font-bold flex-shrink-0">
                   {selectedLead?.name?.charAt(0)?.toUpperCase()}
                 </div>
-                <div>
-                  <h3 className="text-xl font-bold">{selectedLead?.name}</h3>
+                <div className="min-w-0">
+                  <h3 className="text-lg sm:text-xl font-bold break-words">{selectedLead?.name}</h3>
                   <div className="flex items-center gap-2 mt-1">
                     <Badge className={SOURCE_COLORS[selectedLead?.source] || SOURCE_COLORS.other}>
                       {selectedLead?.source}
@@ -1720,7 +1873,7 @@ export default function CRMPreSales() {
                 variant="outline" 
                 size="sm" 
                 onClick={() => { setLeadDetailDialog(false); openEditLead(selectedLead); }}
-                className="text-amber-600 border-blue-200 hover:bg-amber-50"
+                className="text-amber-600 border-blue-200 hover:bg-amber-50 flex-shrink-0"
               >
                 <Edit2 className="h-4 w-4 mr-1" /> Edit
               </Button>
@@ -1749,7 +1902,8 @@ export default function CRMPreSales() {
                   </Button>
                 </div>
               )}
-              <TabsList className="grid grid-cols-6 w-full">
+              {/* Phones: six tabs don't fit in six columns, so scroll them sideways. */}
+              <TabsList className="flex w-full justify-start overflow-x-auto sm:grid sm:grid-cols-6">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="history" data-testid="lead-detail-history-tab">History</TabsTrigger>
                 <TabsTrigger value="timeline">Timeline</TabsTrigger>
@@ -2349,7 +2503,7 @@ export default function CRMPreSales() {
           
           {/* Sticky Footer - Move to Stage */}
           {selectedLead && (
-          <div className="border-t bg-white px-6 py-3 shrink-0">
+          <div className="border-t bg-white px-4 sm:px-6 py-3 shrink-0">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-xs font-medium text-gray-500">Move to Stage:</span>
               {selectedLead.current_stage_id === 'stg_rnr' && (
