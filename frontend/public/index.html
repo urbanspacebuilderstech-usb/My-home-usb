@@ -24,13 +24,19 @@
         Learn how to configure a non-root public URL by running `npm run build`.
         -->
         <title>My Home USB</title>
-        <script src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
         <!--
-        These two scripts have been added for the Visual Edits, please do not edit or remove them
+        These scripts have been added for the Visual Edits, please do not edit or remove them
         -->
         <script>
             // Only load visual edit scripts when inside an iframe
             if (window.self !== window.top) {
+                // Preview logger: wraps fetch/XHR and posts errors to the Emergent
+                // preview panel. It used to be a render-blocking <script> for every
+                // visitor; outside the preview iframe it has no parent to report to.
+                var emergentMainScript = document.createElement('script');
+                emergentMainScript.src = 'https://assets.emergent.sh/scripts/emergent-main.js';
+                document.head.appendChild(emergentMainScript);
+
                 // Load debug monitor script
                 var debugMonitorScript = document.createElement('script');
                 debugMonitorScript.src = 'https://assets.emergent.sh/scripts/debug-monitor.js';

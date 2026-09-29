@@ -40,6 +40,20 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # Hashed build output (main.<hash>.js, <n>.<hash>.chunk.js, css, media).
+    # Names change on every deploy, so browsers can keep them for a year.
+    # gzip is set here rather than in nginx.conf, whose default only
+    # compresses text/html and would clash with a second `gzip on`.
+    location /static/ {
+        root /var/www/myhomeusb/app/frontend/build;
+        try_files $uri =404;
+        gzip on;
+        gzip_vary on;
+        gzip_comp_level 6;
+        gzip_types text/css application/javascript application/json image/svg+xml;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
     # Frontend (React build)
     location / {
         root /var/www/myhomeusb/app/frontend/build;

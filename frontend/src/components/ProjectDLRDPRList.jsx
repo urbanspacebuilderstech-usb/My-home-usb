@@ -19,7 +19,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { DayPicker } from 'react-day-picker';
-import 'react-day-picker/dist/style.css';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = v => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(v || 0);

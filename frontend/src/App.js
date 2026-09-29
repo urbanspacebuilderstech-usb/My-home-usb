@@ -1,91 +1,167 @@
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense, Component } from 'react';
 import axios from 'axios';
 import { Toaster } from '@/components/ui/sonner';
 import '@/App.css';
+// DayPicker base styles. Several date filters (Cashbook, PM, Sr SE, DLR)
+// render <DayPicker> and rely on these rules being global. Keep this import
+// here rather than in one component, or it only loads with that page's chunk.
+import 'react-day-picker/dist/style.css';
 // Side-effect import: applies the persisted theme to <html> before React paints.
 import '@/hooks/useTheme';
 
 import Login from '@/pages/Login';
-import ForgotPassword from '@/pages/ForgotPassword';
-import ResetPassword from '@/pages/ResetPassword';
-import SetupPassword from '@/pages/SetupPassword';
-import Dashboard from '@/pages/Dashboard';
-import Projects from '@/pages/Projects';
-import ProjectDetail from '@/pages/ProjectDetail';
-import BOQManagement from '@/pages/BOQManagement';
-import WorkOrders from '@/pages/WorkOrders';
-import ApprovalQueue from '@/pages/ApprovalQueue';
-import Procurement from '@/pages/Procurement';
-import SiteReceipt from '@/pages/SiteReceipt';
-import Expenses from '@/pages/Expenses';
-import ClientPortal from '@/pages/ClientPortal';
-import ClientPortalV2 from '@/pages/ClientPortalV2';
-import Notifications from '@/pages/Notifications';
-import UserManagement from '@/pages/UserManagement';
-import VendorPortal from '@/pages/VendorPortal';
-import FinancialOverview from '@/pages/FinancialOverview';
-import ComprehensiveProjectView from '@/pages/ComprehensiveProjectView';
-import Income from '@/pages/Income';
-import ExpenseManagement from '@/pages/ExpenseManagement';
-import Settings from '@/pages/Settings';
-import SlotManagement from '@/pages/SlotManagement';
-import StageManagement from '@/pages/StageManagement';
-import AdminAddProject from '@/pages/AdminAddProject';
-import PaymentScheduleTemplates from '@/pages/PaymentScheduleTemplates';
-import MaterialManagement from '@/pages/MaterialManagement';
-import VendorMasterManagement from '@/pages/VendorMasterManagement';
-import ContractorManagement from '@/pages/ContractorManagement';
-import SiteEngineerDashboard from '@/pages/SiteEngineerDashboard';
-import SiteEngineerProject from '@/pages/SiteEngineerProject';
-import MaterialReceipt from '@/pages/MaterialReceipt';
-import ProcurementDashboard from '@/pages/ProcurementDashboard';
-import ProcurementBoardV2 from '@/pages/ProcurementBoardV2';
-import ProcurementBoardSimple from '@/pages/ProcurementBoardSimple';
-import PackageManagement from '@/pages/PackageManagement';
-import CREBoard from '@/pages/CREBoard';
-import PlanningBoard from '@/pages/PlanningBoard';
-import AccountsBoard from '@/pages/AccountsBoard';
-import CloseBooksHistoryPage from '@/pages/CloseBooksHistoryPage';
-import ProjectFinance from '@/pages/ProjectFinance';
-import FinanceBoard from '@/pages/FinanceBoard';
-import LabourPaymentsPage from '@/pages/LabourPaymentsPage';
-import Cashbook from '@/pages/Cashbook';
-import CashflowEngine from '@/pages/CashflowEngine';
-import HRPortal from '@/pages/HRPortal';
-import ChequeManagement from '@/pages/ChequeManagement';
-import PaymentProcessing from '@/pages/PaymentProcessing';
-import WorkOrderManagement from '@/pages/WorkOrderManagement';
-import LabourContractorManagement from '@/pages/LabourContractorManagement';
-import ProjectMaterials from '@/pages/ProjectMaterials';
-import IndirectCostManagement from '@/pages/IndirectCostManagement';
-import SuspenseAccount from '@/pages/SuspenseAccount';
-import OtherAccounts from '@/pages/OtherAccounts';
-import DTBoard from '@/pages/DTBoard';
-import ProspectApp from '@/pages/ProspectApp';
-import PublicQuoteView from '@/pages/PublicQuoteView';
-import PublicPackageView from '@/pages/PublicPackageView';
-import CREFEDetail from '@/pages/CREFEDetail';
-import CREPreConstruction from '@/pages/CREPreConstruction';
-import UserApp from '@/pages/UserApp';
-import CRMPreSales from '@/pages/CRMPreSales';
-import CRMSales from '@/pages/CRMSales';
-import SalesBoard from '@/pages/SalesBoard';
-import PriorityBoard from '@/pages/PriorityBoard';
-import SuperAdminDashboard from '@/pages/SuperAdminDashboard';
-import REProjectsPage from '@/pages/REProjectsPage';
-import CustomFieldsBuilder from '@/pages/CustomFieldsBuilder';
-import CSVImportPage from '@/pages/CSVImportPage';
-import GMDashboard from '@/pages/GMDashboard';
-import MarketingBoard from '@/pages/MarketingBoard';
-import MarketingProjectsBoard from '@/pages/MarketingProjectsBoard';
-import PMDashboard from '@/pages/PMDashboard';
-import QCDashboard from '@/pages/QCDashboard';
-import ArchitectDashboard from '@/pages/ArchitectDashboard';
-import WorkflowMasterPage from '@/pages/WorkflowMasterPage';
-import SetupWizard from '@/pages/SetupWizard';
-import PaymentSchedulePage from '@/pages/PaymentSchedulePage';
-import ProfilePage from '@/pages/ProfilePage';
+
+// Sep 29 2026 — Every page used to be a static import, so all 80 pages
+// (plus jspdf, leaflet, dnd-kit…) shipped in one 5 MB main.js that had to
+// download and parse before even the login screen appeared. Pages are now
+// loaded on demand, one chunk per route. Login stays static because it is
+// the first screen for most visits.
+//
+// Chunk loads can fail in two ways a static bundle never did:
+//   * a network blip on site — retry once after a short pause;
+//   * a deploy replaced the build (the old hashed chunks are deleted) while
+//     this tab was open — reload once so the no-store index.html pulls the
+//     new chunk names. The timestamp guard stops a reload loop if the chunk
+//     is genuinely unreachable; the error then reaches PageLoadBoundary.
+const CHUNK_RELOAD_KEY = 'mhu_chunk_reload_at';
+
+function lazyPage(factory) {
+  return lazy(() =>
+    factory()
+      .catch(() => new Promise(resolve => setTimeout(resolve, 1000)).then(factory))
+      .catch(err => {
+        let last = 0;
+        try { last = Number(sessionStorage.getItem(CHUNK_RELOAD_KEY)) || 0; } catch {}
+        if (Date.now() - last > 10000) {
+          try { sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now())); } catch {}
+          window.location.reload();
+          return new Promise(() => {}); // stay suspended until the reload lands
+        }
+        throw err;
+      })
+  );
+}
+
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-gray-50" data-testid="page-loading">
+      <div className="h-8 w-8 border-3 border-gray-300 border-t-blue-600 rounded-full animate-spin" />
+    </div>
+  );
+}
+
+class PageLoadBoundary extends Component {
+  state = { error: null };
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidUpdate(prevProps) {
+    // Navigating elsewhere (sidebar, back button) gets a fresh attempt.
+    if (this.state.error && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 p-4">
+        <div className="text-center">
+          <p className="text-sm text-gray-600 mb-3">This page couldn't load. Check your connection and reload.</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
+          >
+            Reload
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
+const ForgotPassword = lazyPage(() => import('@/pages/ForgotPassword'));
+const ResetPassword = lazyPage(() => import('@/pages/ResetPassword'));
+const SetupPassword = lazyPage(() => import('@/pages/SetupPassword'));
+const Dashboard = lazyPage(() => import('@/pages/Dashboard'));
+const Projects = lazyPage(() => import('@/pages/Projects'));
+const ProjectDetail = lazyPage(() => import('@/pages/ProjectDetail'));
+const BOQManagement = lazyPage(() => import('@/pages/BOQManagement'));
+const WorkOrders = lazyPage(() => import('@/pages/WorkOrders'));
+const ApprovalQueue = lazyPage(() => import('@/pages/ApprovalQueue'));
+const Procurement = lazyPage(() => import('@/pages/Procurement'));
+const SiteReceipt = lazyPage(() => import('@/pages/SiteReceipt'));
+const Expenses = lazyPage(() => import('@/pages/Expenses'));
+const ClientPortal = lazyPage(() => import('@/pages/ClientPortal'));
+const ClientPortalV2 = lazyPage(() => import('@/pages/ClientPortalV2'));
+const Notifications = lazyPage(() => import('@/pages/Notifications'));
+const UserManagement = lazyPage(() => import('@/pages/UserManagement'));
+const VendorPortal = lazyPage(() => import('@/pages/VendorPortal'));
+const FinancialOverview = lazyPage(() => import('@/pages/FinancialOverview'));
+const ComprehensiveProjectView = lazyPage(() => import('@/pages/ComprehensiveProjectView'));
+const Income = lazyPage(() => import('@/pages/Income'));
+const ExpenseManagement = lazyPage(() => import('@/pages/ExpenseManagement'));
+const Settings = lazyPage(() => import('@/pages/Settings'));
+const SlotManagement = lazyPage(() => import('@/pages/SlotManagement'));
+const StageManagement = lazyPage(() => import('@/pages/StageManagement'));
+const AdminAddProject = lazyPage(() => import('@/pages/AdminAddProject'));
+const PaymentScheduleTemplates = lazyPage(() => import('@/pages/PaymentScheduleTemplates'));
+const MaterialManagement = lazyPage(() => import('@/pages/MaterialManagement'));
+const VendorMasterManagement = lazyPage(() => import('@/pages/VendorMasterManagement'));
+const ContractorManagement = lazyPage(() => import('@/pages/ContractorManagement'));
+const SiteEngineerDashboard = lazyPage(() => import('@/pages/SiteEngineerDashboard'));
+const SiteEngineerProject = lazyPage(() => import('@/pages/SiteEngineerProject'));
+const MaterialReceipt = lazyPage(() => import('@/pages/MaterialReceipt'));
+const ProcurementDashboard = lazyPage(() => import('@/pages/ProcurementDashboard'));
+const ProcurementBoardV2 = lazyPage(() => import('@/pages/ProcurementBoardV2'));
+const ProcurementBoardSimple = lazyPage(() => import('@/pages/ProcurementBoardSimple'));
+const PackageManagement = lazyPage(() => import('@/pages/PackageManagement'));
+const CREBoard = lazyPage(() => import('@/pages/CREBoard'));
+const PlanningBoard = lazyPage(() => import('@/pages/PlanningBoard'));
+const AccountsBoard = lazyPage(() => import('@/pages/AccountsBoard'));
+const CloseBooksHistoryPage = lazyPage(() => import('@/pages/CloseBooksHistoryPage'));
+const ProjectFinance = lazyPage(() => import('@/pages/ProjectFinance'));
+const FinanceBoard = lazyPage(() => import('@/pages/FinanceBoard'));
+const LabourPaymentsPage = lazyPage(() => import('@/pages/LabourPaymentsPage'));
+const Cashbook = lazyPage(() => import('@/pages/Cashbook'));
+const CashflowEngine = lazyPage(() => import('@/pages/CashflowEngine'));
+const HRPortal = lazyPage(() => import('@/pages/HRPortal'));
+const ChequeManagement = lazyPage(() => import('@/pages/ChequeManagement'));
+const PaymentProcessing = lazyPage(() => import('@/pages/PaymentProcessing'));
+const WorkOrderManagement = lazyPage(() => import('@/pages/WorkOrderManagement'));
+const LabourContractorManagement = lazyPage(() => import('@/pages/LabourContractorManagement'));
+const ProjectMaterials = lazyPage(() => import('@/pages/ProjectMaterials'));
+const IndirectCostManagement = lazyPage(() => import('@/pages/IndirectCostManagement'));
+const SuspenseAccount = lazyPage(() => import('@/pages/SuspenseAccount'));
+const OtherAccounts = lazyPage(() => import('@/pages/OtherAccounts'));
+const DTBoard = lazyPage(() => import('@/pages/DTBoard'));
+const ProspectApp = lazyPage(() => import('@/pages/ProspectApp'));
+const PublicQuoteView = lazyPage(() => import('@/pages/PublicQuoteView'));
+const PublicPackageView = lazyPage(() => import('@/pages/PublicPackageView'));
+const CREFEDetail = lazyPage(() => import('@/pages/CREFEDetail'));
+const CREPreConstruction = lazyPage(() => import('@/pages/CREPreConstruction'));
+const UserApp = lazyPage(() => import('@/pages/UserApp'));
+const CRMPreSales = lazyPage(() => import('@/pages/CRMPreSales'));
+const CRMSales = lazyPage(() => import('@/pages/CRMSales'));
+const SalesBoard = lazyPage(() => import('@/pages/SalesBoard'));
+const PriorityBoard = lazyPage(() => import('@/pages/PriorityBoard'));
+const SuperAdminDashboard = lazyPage(() => import('@/pages/SuperAdminDashboard'));
+const REProjectsPage = lazyPage(() => import('@/pages/REProjectsPage'));
+const CustomFieldsBuilder = lazyPage(() => import('@/pages/CustomFieldsBuilder'));
+const CSVImportPage = lazyPage(() => import('@/pages/CSVImportPage'));
+const GMDashboard = lazyPage(() => import('@/pages/GMDashboard'));
+const MarketingBoard = lazyPage(() => import('@/pages/MarketingBoard'));
+const MarketingProjectsBoard = lazyPage(() => import('@/pages/MarketingProjectsBoard'));
+const PMDashboard = lazyPage(() => import('@/pages/PMDashboard'));
+const QCDashboard = lazyPage(() => import('@/pages/QCDashboard'));
+const ArchitectDashboard = lazyPage(() => import('@/pages/ArchitectDashboard'));
+const WorkflowMasterPage = lazyPage(() => import('@/pages/WorkflowMasterPage'));
+const SetupWizard = lazyPage(() => import('@/pages/SetupWizard'));
+const PaymentSchedulePage = lazyPage(() => import('@/pages/PaymentSchedulePage'));
+const ProfilePage = lazyPage(() => import('@/pages/ProfilePage'));
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -137,6 +213,8 @@ function AppRouter() {
   }, []);
   
   return (
+    <PageLoadBoundary resetKey={location.pathname}>
+    <Suspense fallback={<PageLoader />}>
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/setup" element={<SetupWizard />} />
@@ -225,6 +303,8 @@ function AppRouter() {
       <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
       <Route path="/" element={<Navigate to="/login" replace />} />
     </Routes>
+    </Suspense>
+    </PageLoadBoundary>
   );
 }
 
