@@ -123,6 +123,33 @@ const FollowUpChip = ({ followUps }) => {
 // Phones get cards instead of the table, built this many at a time.
 const MOBILE_PAGE_SIZE = 40;
 
+// `tel:` target for a stored number. Meta sheet imports can carry a "p:"
+// prefix and spaces/dashes; keep only digits and a leading +.
+const telHref = (phone) => String(phone || '').replace(/^p:/i, '').replace(/[^\d+]/g, '');
+
+// Custom-field keys without a defined label ("created_time", "adset_id" from
+// Meta lead ads) read as "Created time", "Adset id".
+const humanizeFieldKey = (key) => {
+  const s = String(key).replace(/^cf_/, '').replace(/_/g, ' ').trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
+// Custom-field values: ISO timestamps as a readable date/time, lists joined,
+// booleans as Yes/No, objects as JSON (rendering an object would crash React).
+const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+const formatFieldValue = (value) => {
+  if (value === null || value === undefined || value === '') return '-';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (Array.isArray(value)) return value.join(', ') || '-';
+  if (typeof value === 'object') return JSON.stringify(value);
+  const s = String(value);
+  if (ISO_DATETIME.test(s)) {
+    const shown = formatIN(s, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return shown === 'Invalid Date' ? s : shown;
+  }
+  return s;
+};
+
 const SOURCE_COLORS = {
   meta: 'bg-amber-50 text-amber-700',
   seo: 'bg-green-100 text-green-700',
@@ -1850,18 +1877,21 @@ export default function CRMPreSales() {
 
       {/* ============ LEAD DETAIL DIALOG ============ */}
       <Dialog open={leadDetailDialog} onOpenChange={setLeadDetailDialog}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col p-0">
-          <div className="overflow-y-auto flex-1 px-4 pt-5 sm:px-6 sm:pt-6">
+        {/* Sep 29 2026 — Phones: full screen (dvh, so the browser's URL bar
+            doesn't hide the bottom), header fixed above the scrolling tabs so
+            the close (X) always sits on it instead of floating over content. */}
+        <DialogContent className="max-w-3xl h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[90vh] overflow-hidden flex flex-col gap-0 p-0">
+          <div className="shrink-0 px-4 pt-4 pb-3 sm:px-6 sm:pt-6 sm:pb-2 border-b sm:border-b-0">
           <DialogHeader>
             {/* pr-8 keeps the Edit button clear of the dialog's close (X) button. */}
-            <DialogTitle className="flex items-center justify-between gap-2 pr-8">
+            <DialogTitle className="flex items-center justify-between gap-2 pr-8 text-left">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xl font-bold flex-shrink-0">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-lg sm:text-xl font-bold flex-shrink-0">
                   {selectedLead?.name?.charAt(0)?.toUpperCase()}
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-lg sm:text-xl font-bold break-words">{selectedLead?.name}</h3>
-                  <div className="flex items-center gap-2 mt-1">
+                  <h3 className="text-base sm:text-xl font-bold break-words">{selectedLead?.name}</h3>
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-1">
                     <Badge className={SOURCE_COLORS[selectedLead?.source] || SOURCE_COLORS.other}>
                       {selectedLead?.source}
                     </Badge>
@@ -1879,12 +1909,14 @@ export default function CRMPreSales() {
               </Button>
             </DialogTitle>
           </DialogHeader>
-          
+          </div>
+
+          <div className="overflow-y-auto flex-1 px-4 pb-4 sm:px-6">
           {selectedLead && (
-            <Tabs value={detailTab} onValueChange={setDetailTab} className="mt-4">
+            <Tabs value={detailTab} onValueChange={setDetailTab}>
               {/* Package Link CTA — always visible when the lead has an active link */}
               {selectedLead._package_link && (
-                <div className="flex items-center justify-between gap-2 mb-2 p-2.5 bg-gradient-to-r from-amber-50 to-emerald-50 border border-amber-200 rounded-lg">
+                <div className="flex items-center justify-between gap-2 mt-3 sm:mt-2 p-2.5 bg-gradient-to-r from-amber-50 to-emerald-50 border border-amber-200 rounded-lg">
                   <div className="flex items-center gap-2 min-w-0">
                     <div className="h-9 w-9 rounded-full bg-amber-500 flex items-center justify-center text-white shrink-0">📦</div>
                     <div className="min-w-0">
@@ -1902,7 +1934,11 @@ export default function CRMPreSales() {
                   </Button>
                 </div>
               )}
-              {/* Phones: six tabs don't fit in six columns, so scroll them sideways. */}
+              {/* Phones: six tabs don't fit in six columns, so scroll them sideways.
+                  The white wrapper is pinned to the top of the scroll area (it
+                  carries the top spacing, so nothing shows above the tabs) and
+                  switching tabs never needs a scroll back up. */}
+              <div className="sticky top-0 z-10 bg-white pt-3 sm:pt-2 pb-1 -mx-4 px-4 sm:-mx-6 sm:px-6">
               <TabsList className="flex w-full justify-start overflow-x-auto sm:grid sm:grid-cols-6">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="history" data-testid="lead-detail-history-tab">History</TabsTrigger>
@@ -1911,6 +1947,7 @@ export default function CRMPreSales() {
                 <TabsTrigger value="followup">Follow-up</TabsTrigger>
                 <TabsTrigger value="activity">Activity</TabsTrigger>
               </TabsList>
+              </div>
               
               {/* Overview Tab */}
               <TabsContent value="overview" className="space-y-4 mt-4">
@@ -1919,34 +1956,38 @@ export default function CRMPreSales() {
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-gray-600">Contact Information</CardTitle>
                   </CardHeader>
-                  <CardContent className="grid grid-cols-2 gap-4">
+                  {/* Phones: one column, long emails wrap, numbers are tap-to-call. */}
+                  <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     {selectedLead.email && (
-                      <div className="flex items-center gap-2">
-                        <Mail className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm">{selectedLead.email}</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Mail className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        <span className="text-sm [overflow-wrap:anywhere]">{selectedLead.email}</span>
                       </div>
                     )}
                     {selectedLead.phone && (
                       <div className="flex items-center gap-2">
-                        <Phone className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm">{selectedLead.phone}</span>
+                        <Phone className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        <a href={`tel:${telHref(selectedLead.phone)}`} className="text-sm text-indigo-700 underline-offset-2 hover:underline">{selectedLead.phone}</a>
                       </div>
                     )}
                     {selectedLead.alternative_phone && (
                       <div className="flex items-center gap-2">
-                        <Phone className="h-4 w-4 text-gray-300" />
-                        <span className="text-sm text-gray-600">{selectedLead.alternative_phone} <span className="text-[10px] text-gray-400 ml-1">(alt)</span></span>
+                        <Phone className="h-4 w-4 text-gray-300 flex-shrink-0" />
+                        <span className="text-sm text-gray-600">
+                          <a href={`tel:${telHref(selectedLead.alternative_phone)}`} className="underline-offset-2 hover:underline">{selectedLead.alternative_phone}</a>
+                          <span className="text-[10px] text-gray-400 ml-1">(alt)</span>
+                        </span>
                       </div>
                     )}
                     {(selectedLead.address || selectedLead.city || selectedLead.location) && (
-                      <div className="flex items-center gap-2 col-span-2">
-                        <MapPin className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm">{[selectedLead.address, selectedLead.city, selectedLead.state, selectedLead.location].filter(Boolean).join(', ')}</span>
+                      <div className="flex items-center gap-2 sm:col-span-2 min-w-0">
+                        <MapPin className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        <span className="text-sm [overflow-wrap:anywhere]">{[selectedLead.address, selectedLead.city, selectedLead.state, selectedLead.location].filter(Boolean).join(', ')}</span>
                       </div>
                     )}
                     {selectedLead.sqft && (
                       <div className="flex items-center gap-2">
-                        <Building2 className="h-4 w-4 text-gray-400" />
+                        <Building2 className="h-4 w-4 text-gray-400 flex-shrink-0" />
                         <span className="text-sm">{selectedLead.sqft}</span>
                       </div>
                     )}
@@ -1965,18 +2006,18 @@ export default function CRMPreSales() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="bg-green-50 rounded-lg p-3">
+                      <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                        <div className="bg-green-50 rounded-lg p-2 sm:p-3 min-w-0">
                           <span className="text-xs text-green-600">Date</span>
-                          <p className="font-medium">{selectedLead.appointment.appointment_date}</p>
+                          <p className="text-sm sm:text-base font-medium [overflow-wrap:anywhere]">{selectedLead.appointment.appointment_date}</p>
                         </div>
-                        <div className="bg-green-50 rounded-lg p-3">
+                        <div className="bg-green-50 rounded-lg p-2 sm:p-3 min-w-0">
                           <span className="text-xs text-green-600">Time</span>
-                          <p className="font-medium">{selectedLead.appointment.appointment_time}</p>
+                          <p className="text-sm sm:text-base font-medium">{selectedLead.appointment.appointment_time}</p>
                         </div>
-                        <div className="bg-green-50 rounded-lg p-3">
+                        <div className="bg-green-50 rounded-lg p-2 sm:p-3 min-w-0">
                           <span className="text-xs text-green-600">Type</span>
-                          <p className="font-medium capitalize">{selectedLead.appointment.appointment_type?.replace('_', ' ')}</p>
+                          <p className="text-sm sm:text-base font-medium capitalize [overflow-wrap:anywhere]">{selectedLead.appointment.appointment_type?.replace('_', ' ')}</p>
                         </div>
                       </div>
                     </CardContent>
@@ -1990,13 +2031,18 @@ export default function CRMPreSales() {
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm font-medium text-gray-600">Additional Details</CardTitle>
                     </CardHeader>
-                    <CardContent className="grid grid-cols-2 gap-3">
+                    {/* Phones: a compact label / value list (Meta ad fields carry
+                        long IDs and timestamps); sm+: the two-column tiles. */}
+                    <CardContent className="divide-y divide-gray-100 sm:divide-y-0 sm:grid sm:grid-cols-2 sm:gap-3">
                       {Object.entries(selectedLead.custom_fields).map(([key, value]) => {
                         const field = customFields.find(f => f.field_id === key || f.name === key);
+                        const shown = formatFieldValue(value);
                         return (
-                          <div key={key} className="bg-gray-50 rounded-lg p-3">
-                            <span className="text-xs text-gray-500">{field?.label || key}</span>
-                            <p className="font-medium">{value || '-'}</p>
+                          <div key={key} className="flex items-baseline justify-between gap-3 py-2 sm:block sm:bg-gray-50 sm:rounded-lg sm:p-3 min-w-0">
+                            <span className="text-xs text-gray-500 shrink-0 max-w-[45%] sm:max-w-none">{field?.label || humanizeFieldKey(key)}</span>
+                            <p className="text-sm sm:text-base font-medium text-gray-900 text-right sm:text-left min-w-0 [overflow-wrap:anywhere]" title={shown !== String(value ?? '') ? String(value) : undefined}>
+                              {shown}
+                            </p>
                           </div>
                         );
                       })}
@@ -2503,8 +2549,8 @@ export default function CRMPreSales() {
           
           {/* Sticky Footer - Move to Stage */}
           {selectedLead && (
-          <div className="border-t bg-white px-4 sm:px-6 py-3 shrink-0">
-            <div className="flex items-center gap-2 mb-2">
+          <div className="border-t bg-white px-4 sm:px-6 pt-2.5 sm:pt-3 pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:pb-3 shrink-0">
+            <div className="flex items-center gap-2 mb-1.5 sm:mb-2">
               <span className="text-xs font-medium text-gray-500">Move to Stage:</span>
               {selectedLead.current_stage_id === 'stg_rnr' && (
                 <Button
@@ -2527,13 +2573,15 @@ export default function CRMPreSales() {
                 </Button>
               )}
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            {/* Phones: one row that scrolls sideways (wrapped, the nine stages
+                took four rows, a quarter of the screen); sm+: wrap as before. */}
+            <div className="flex gap-1.5 overflow-x-auto -mx-4 px-4 pb-1 sm:mx-0 sm:px-0 sm:pb-0 sm:flex-wrap sm:overflow-visible">
               {stages.map(stage => (
                 <Button
                   key={stage.stage_id}
                   variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'}
                   size="sm"
-                  className="h-7 text-xs"
+                  className="h-8 sm:h-7 text-xs shrink-0"
                   onClick={() => {
                     handleStageChange(selectedLead.lead_id, stage.stage_id);
                     setLeadDetailDialog(false);
