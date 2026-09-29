@@ -2428,16 +2428,16 @@ async def get_monthly_schedule(
         # Month Collected" tile needs the real payment date instead, so
         # expose it separately.
         #
-        # Gate on `row_stage_status` (this ROW's display status), not the
-        # raw stage doc's own `status` field — a collected_portion virtual
-        # split row is forced to row_stage_status="collected" above even
-        # when the underlying stage's real status is still "partial" (the
-        # stage isn't fully done yet, only this historical slice is), so
-        # _collection_month_for_stage(stage) would wrongly return (None,
-        # None) for it. Same paid_at -> collected_at -> updated_at ->
+        # Sep 29 2026 (v2) — gate on `disp_received > 0` (SOME money has
+        # actually landed on this row), not on row_stage_status being fully
+        # "paid"/"collected". A Partial row (money received, balance still
+        # open) genuinely received that money on some real date and must get
+        # a collection_month/year too, or "This Month Collected" could never
+        # count a Partial stage's payment even when it truly happened this
+        # month. Same paid_at -> collected_at -> updated_at ->
         # expected_payment_date -> due_date fallback chain either way.
         _coll_month, _coll_year = None, None
-        if row_stage_status in ("paid", "collected"):
+        if disp_received > 0:
             _coll_d = (_parse_date(stage.get("paid_at"))
                        or _parse_date(stage.get("collected_at"))
                        or _parse_date(stage.get("updated_at"))

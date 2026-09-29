@@ -1416,19 +1416,18 @@ export default function CREBoard() {
                     const collectedTotal = entries.reduce((s, e) => s + (Number(e.amount_received) || 0), 0);
                     const receivedCount = entries.filter(e => (Number(e.amount_received) || 0) > 0).length;
                     const outstandingCount = entries.filter(e => !isCollectedEntry(e)).length;
-                    // Sep 29 2026 — "This Month Collected": money actually
-                    // received during the REAL current calendar month,
-                    // regardless of which sub-tab (Pending/Partial/Collected/
-                    // All) or schedule month/All-Months view is active — it's
-                    // a fixed reference point, not a re-slice of `entries`.
-                    // Built from `dateFiltered` (respects the Select Date /
-                    // search narrowing the other tiles already respect, just
-                    // not the sub-tab split) and the backend's new
-                    // collection_month/collection_year fields (the real
-                    // paid_at-derived date, distinct from `month`/`year`
-                    // which stay pinned to the stage's PLANNED month).
+                    // Sep 29 2026 (v2) — "This Month Collected": money
+                    // actually received during the REAL current calendar
+                    // month, scoped to `entries` (the SAME sub-tab-filtered
+                    // set the other tiles use) so clicking Partial narrows
+                    // this tile too, not just Collected/All. Uses the
+                    // backend's collection_month/collection_year fields
+                    // (the real paid_at-derived date, distinct from
+                    // `month`/`year` which stay pinned to the stage's
+                    // PLANNED month) — populated for any row with money
+                    // received, partial or fully collected alike.
                     const _today = new Date();
-                    const thisMonthCollected = dateFiltered
+                    const thisMonthCollected = entries
                       .filter(e => e.collection_month === _today.getMonth() + 1 && e.collection_year === _today.getFullYear())
                       .reduce((s, e) => s + (Number(e.amount_received) || 0), 0);
                     const tiles = [
