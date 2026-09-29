@@ -44,6 +44,7 @@ import {
   MessageSquare,
   GitBranch,
   IndianRupee,
+  User,
   UserCheck,
   Users,
   Smartphone,
@@ -58,6 +59,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popove
 import { DayPicker } from 'react-day-picker';
 import { generateREPDF } from '../utils/pdfGenerator';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { useIsMobile } from '../hooks/useIsMobile';
+import LeadContactActions from '../components/LeadContactActions';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -271,6 +274,8 @@ export default function CRMSales() {
   const [stages, setStages] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState('list'); // 'kanban' or 'list'
+  // Phones get cards instead of the list table (8 columns don't fit).
+  const isMobile = useIsMobile();
   const [sortOrder, setSortOrder] = useState('desc'); // newest first by default
   const [activeStage, setActiveStage] = useState('all');
   
@@ -1825,7 +1830,184 @@ export default function CRMSales() {
               </div>
             </div>
 
-            {/* List Table */}
+            {isMobile ? (
+              /* Phone card list — same details and actions as a table row;
+                 tap opens the lead. */
+              <div className="divide-y divide-gray-100" data-testid="sales-mobile-list">
+                {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).map(lead => {
+                  const lost = isLeadLost(lead);
+                  const stageColor = stages.find(s => s.stage_id === lead.current_stage_id)?.color;
+                  const pendingFup = (lead.follow_ups || [])
+                    .filter(f => !f.completed && f.scheduled_date)
+                    .sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date))[0];
+                  const nextFollowup = pendingFup?.scheduled_date || lead.next_followup_date;
+                  // Lost leads keep their number hidden, so no call/WhatsApp either.
+                  const showContactBtns = !!lead.phone && !lost;
+                  const showFollowupBtn = lead.current_stage_id === 'stg_sales_followup' && !(lead.follow_ups || []).some(f => !f.completed);
+                  const showReClientBtns = ['stg_re_to_client', 'stg_re_from_planning'].includes(lead.current_stage_id);
+                  const canReassign = lead.assigned_to && !['stg_project_onboarded', 'stg_lost'].includes(lead.current_stage_id) && lead.onboarding_status !== 'moved_to_planning';
+                  return (
+                    <div
+                      key={lead.lead_id}
+                      className="px-3 py-3 active:bg-gray-50"
+                      onClick={() => openLeadDetail(lead)}
+                      data-testid={`sales-mobile-card-${lead.lead_id}`}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-sm font-semibold flex-shrink-0">
+                          {lead.name?.charAt(0)?.toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="font-medium text-gray-900 text-sm truncate">{lead.name}</p>
+                            <Badge variant="outline" className="text-[10px] px-1.5 flex-shrink-0 whitespace-nowrap" style={{ borderColor: stageColor }}>
+                              {getStageName(lead.current_stage_id)}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-gray-500 min-w-0">
+                            {lead.custom_fields?.sqft && <span className="truncate">{lead.custom_fields.sqft} sqft</span>}
+                            <span className="ml-auto flex-shrink-0 tabular-nums">
+                              {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                            </span>
+                          </div>
+                          {lead.onboarding_status === 'accountant_rejected' && (lead.advance_payment?.rejection_reason || lead.rejection_reason) && (
+                            <div
+                              className="mt-1 px-1.5 py-1 rounded bg-red-50 border border-red-300 text-[10px] text-red-800 font-semibold"
+                              data-testid={`adv-rejected-mobile-${lead.lead_id}`}
+                            >
+                              <span className="font-bold">⚠ Advance Rejected — Re-enter:</span>{' '}
+                              <span className="font-normal">{lead.advance_payment?.rejection_reason || lead.rejection_reason}</span>
+                              {(lead.advance_payment?.rejected_by_name || lead.rejected_by_name) && (
+                                <span className="block text-[9px] text-red-600 mt-0.5 font-normal italic">
+                                  by {lead.advance_payment?.rejected_by_name || lead.rejected_by_name}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {/* Tap the number to reveal it without opening the lead. */}
+                          <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                            <MaskedContact phone={lead.phone} email={lead.email} lost={lost} compact />
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5">
+                            <span className="flex items-center gap-1 min-w-0 text-[11px] text-gray-700">
+                              <User className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                              <span className="truncate" data-testid={`sales-assignee-mobile-${lead.lead_id}`}>{lead.assigned_to_name || 'Unassigned'}</span>
+                            </span>
+                            {lead.current_stage_id === 'stg_sales_office_visit' && lead.office_visit?.date && (
+                              <span className="flex items-center gap-1 text-[10px] font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded px-1 py-0.5">
+                                <Building2 className="h-2.5 w-2.5" />
+                                {new Date(lead.office_visit.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}{lead.office_visit.time ? ` · ${lead.office_visit.time}` : ''}
+                              </span>
+                            )}
+                            {nextFollowup && (
+                              <span className="flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 py-0.5">
+                                <Calendar className="h-2.5 w-2.5" />
+                                {new Date(nextFollowup).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                              </span>
+                            )}
+                            {lead.re_project_id && (
+                              <Badge
+                                className="bg-purple-100 text-purple-700 text-[10px] px-1.5 cursor-pointer"
+                                onClick={(e) => { e.stopPropagation(); handleViewREProject(lead.re_project_id); }}
+                              >
+                                View RE
+                              </Badge>
+                            )}
+                            {lead.re_project_id && (lead.re_revision_number || 0) > 0 && (
+                              <Badge className="bg-orange-100 text-orange-700 text-[10px] px-1.5 border border-orange-300">
+                                RE{lead.re_revision_number}
+                              </Badge>
+                            )}
+                            {lead.current_stage_id === 'stg_accountant_approval' && (
+                              <Badge className="bg-amber-100 text-amber-700 text-[10px]">Awaiting Accountant</Badge>
+                            )}
+                            {lead.current_stage_id === 'stg_project_onboarded' && (
+                              <Badge className="bg-green-100 text-green-700 text-[10px]">Project Onboarded</Badge>
+                            )}
+                            {lead.onboarding_status === 'moved_to_planning' && (
+                              <Badge className="bg-green-100 text-green-700 text-[10px]">In Planning</Badge>
+                            )}
+                            {/* Actions sit at the end of this row; ml-auto + the row's
+                                flex-wrap move them to their own line only when needed. */}
+                            {(showContactBtns || showFollowupBtn || showReClientBtns || canReassign || canDeleteLead) && (
+                              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                                {showContactBtns && <LeadContactActions phone={lead.phone} />}
+                                {showFollowupBtn && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-9 px-2.5 text-xs text-amber-600 border-amber-300 hover:bg-amber-50"
+                                    data-testid={`followup-mobile-btn-${lead.lead_id}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setQuickFollowupLeadId(lead.lead_id);
+                                      setQuickFollowupForm({ date: '', time: '', remarks: '' });
+                                      setQuickFollowupDialog(true);
+                                    }}
+                                  >
+                                    <Calendar className="h-3.5 w-3.5 mr-1" /> Follow-up
+                                  </Button>
+                                )}
+                                {showReClientBtns && (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-9 px-2.5 text-xs text-green-700 border-green-400 hover:bg-green-50 font-medium"
+                                      data-testid={`re-client-approve-mobile-btn-${lead.lead_id}`}
+                                      onClick={(e) => { e.stopPropagation(); openReClientAction(lead, 'approved'); }}
+                                    >
+                                      <CheckCircle className="h-3.5 w-3.5 mr-1" /> Approved
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-9 px-2.5 text-xs text-orange-700 border-orange-400 hover:bg-orange-50 font-medium"
+                                      data-testid={`re-client-revision-mobile-btn-${lead.lead_id}`}
+                                      onClick={(e) => { e.stopPropagation(); openReClientAction(lead, 'revision'); }}
+                                    >
+                                      <RefreshCw className="h-3.5 w-3.5 mr-1" /> Revision
+                                    </Button>
+                                  </>
+                                )}
+                                {canReassign && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-9 w-9 p-0 text-purple-600 hover:text-purple-800 hover:bg-purple-50"
+                                    aria-label={`Reassign (current: ${lead.assigned_to_name || '—'})`}
+                                    data-testid={`reassign-mobile-btn-${lead.lead_id}`}
+                                    onClick={(e) => { e.stopPropagation(); setReassignDialog({ open: true, lead, new_owner: '', reason: '', submitting: false }); }}
+                                  >
+                                    <UserCheck className="h-4 w-4" />
+                                  </Button>
+                                )}
+                                {canDeleteLead && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-9 w-9 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                    aria-label="Delete lead"
+                                    data-testid={`delete-lead-mobile-btn-${lead.lead_id}`}
+                                    onClick={(e) => { e.stopPropagation(); setDeleteLeadDialog({ open: true, lead, confirmText: '', submitting: false }); }}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).length === 0 && (
+                  <p className="px-4 py-12 text-center text-sm text-gray-500">No leads found</p>
+                )}
+              </div>
+            ) : (
+            /* List Table */
             <div className="w-full">
               <table className="w-full table-fixed">
                 <thead className="bg-gray-50 border-b">
@@ -2053,6 +2235,7 @@ export default function CRMSales() {
                 </tbody>
               </table>
             </div>
+            )}
           </div>
         )}
 
@@ -2120,7 +2303,12 @@ export default function CRMSales() {
                             <MaskedContact phone={lead.phone} email={lead.email} lost={isLeadLost(lead)} withIcons />
                           </div>
                         )}
-                        
+                        {isMobile && lead.phone && !isLeadLost(lead) && (
+                          <div className="mb-1 flex items-center gap-2">
+                            <LeadContactActions phone={lead.phone} />
+                          </div>
+                        )}
+
                         {lead.custom_fields?.sqft && (
                           <p className="text-xs text-gray-500 mb-1">
                             {lead.custom_fields.sqft} sqft • {lead.custom_fields?.project_type || 'Residential'}

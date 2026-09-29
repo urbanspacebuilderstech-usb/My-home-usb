@@ -22,6 +22,7 @@ import {
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { useIsMobile } from '../hooks/useIsMobile';
+import LeadContactActions from '../components/LeadContactActions';
 import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -1299,6 +1300,8 @@ export default function CRMPreSales() {
                   const stageColor = stages.find(s => s.stage_id === lead.current_stage_id)?.color;
                   const clientVisit = (lead.tags || []).includes('client_office_visit');
                   const showFollowupBtn = lead.current_stage_id === 'stg_follow_up' && !(lead.follow_ups || []).some(f => !f.completed);
+                  // Lost leads keep their number hidden, so no call/WhatsApp either.
+                  const showContactBtns = !!lead.phone && !isLeadLost(lead);
                   return (
                     <div
                       key={lead.lead_id}
@@ -1349,8 +1352,9 @@ export default function CRMPreSales() {
                             )}
                             {/* Actions sit at the end of this row; ml-auto + the row's
                                 flex-wrap move them to their own line only when needed. */}
-                            {(showFollowupBtn || canTransferLead || canDeleteLead) && (
-                              <div className="ml-auto flex items-center gap-2">
+                            {(showContactBtns || showFollowupBtn || canTransferLead || canDeleteLead) && (
+                              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                                {showContactBtns && <LeadContactActions phone={lead.phone} />}
                                 {showFollowupBtn && (
                                   <Button
                                     variant="outline"
@@ -1626,7 +1630,12 @@ export default function CRMPreSales() {
                         <h4 className="font-semibold text-gray-900 mb-1">{lead.name}</h4>
                         
                         <MaskedContact phone={lead.phone} email={lead.email} lost={isLeadLost(lead)} withIcons />
-                        
+                        {isMobile && lead.phone && !isLeadLost(lead) && (
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <LeadContactActions phone={lead.phone} />
+                          </div>
+                        )}
+
                         {/* Appointment date — show on Appointment Booked stage */}
                         {lead.current_stage_id === 'stg_appointment' && lead.appointment_date && (
                           <div className="mt-1.5 flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 w-fit" data-testid={`appt-date-kanban-${lead.lead_id}`}>
