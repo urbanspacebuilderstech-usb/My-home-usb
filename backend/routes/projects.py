@@ -6942,7 +6942,15 @@ async def cre_additional_costs_queue(user: User = Depends(get_current_user)):
 import hashlib
 import secrets as _secrets
 
-_su_confirm_tokens = {}  # token → (user_id, expires_at_epoch)
+# Sep 29 2026 — Confirm tokens live in Mongo (`superadmin_confirm_tokens`,
+# keyed by a SHA-256 of the token) instead of a module-level dict. With the
+# backend running several uvicorn workers, the confirm call and the edit call
+# can land on different processes, and a per-process dict would reject a
+# token issued moments earlier.
+
+
+def _su_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 @router.post("/superadmin/confirm-password")
@@ -6965,31 +6973,28 @@ async def superadmin_confirm_password(body: dict, user: User = Depends(get_curre
         raise HTTPException(status_code=401, detail="Incorrect password")
     # Issue a short-lived confirm token (10 minutes)
     token = _secrets.token_urlsafe(24)
-    expires_at = datetime.now(timezone.utc).timestamp() + 600
-    _su_confirm_tokens[token] = (user.user_id, expires_at)
+    now = datetime.now(timezone.utc).timestamp()
+    await db.superadmin_confirm_tokens.delete_many({"expires_at": {"$lt": now}})
+    await db.superadmin_confirm_tokens.insert_one({
+        "token_hash": _su_token_hash(token),
+        "user_id": user.user_id,
+        "expires_at": now + 600,
+    })
     return {"token": token, "expires_in_seconds": 600}
 
 
-def _verify_superadmin_confirm(request: Request, user: User) -> bool:
+async def _verify_superadmin_confirm(request: Request, user: User) -> bool:
     """Returns True if request carries a valid X-SuperAdmin-Confirm token issued
-    to this super admin in the last 10 minutes. Side-effect: cleans expired tokens."""
+    to this super admin in the last 10 minutes."""
     if user.role != UserRole.SUPER_ADMIN:
         return False
     token = request.headers.get("x-superadmin-confirm") or request.headers.get("X-SuperAdmin-Confirm")
     if not token:
         return False
-    rec = _su_confirm_tokens.get(token)
+    rec = await db.superadmin_confirm_tokens.find_one({"token_hash": _su_token_hash(token)}, {"_id": 0})
     if not rec:
         return False
-    uid, exp = rec
-    now = datetime.now(timezone.utc).timestamp()
-    # purge expired
-    for t, (_, e) in list(_su_confirm_tokens.items()):
-        if e < now:
-            _su_confirm_tokens.pop(t, None)
-    if exp < now or uid != user.user_id:
-        return False
-    return True
+    return rec.get("expires_at", 0) >= datetime.now(timezone.utc).timestamp() and rec.get("user_id") == user.user_id
 
 
 
@@ -7043,7 +7048,7 @@ async def _assert_fe_editable_for_planning_person(project_id: str, user: User, r
     # Super Admin: still needs password-confirm for client-approved items
     if user.role == UserRole.SUPER_ADMIN:
         if fe_status == "approved" and request is not None:
-            if not _verify_superadmin_confirm(request, user):
+            if not await _verify_superadmin_confirm(request, user):
                 raise HTTPException(status_code=423, detail="Client-approved item is locked. Super Admin must confirm password to edit.")
         return
     

@@ -437,124 +437,130 @@ async def startup_init():
     await _safe_index(startup_db.cheque_allocations, [("expense_id", 1), ("status", 1)])
     logger.info("MongoDB indexes verified/created")
 
-    # Auto-seed demo users only in DEMO_MODE
-    try:
-        from core.database import db as startup_db
-        from passlib.context import CryptContext
-        from datetime import datetime, timezone
-
-        demo_mode = os.environ.get("DEMO_MODE", "false").lower() == "true"
-        pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-        existing = await startup_db.users.count_documents({})
-
-        if existing == 0 and demo_mode:
-            demo_password_hash = pwd_ctx.hash("Demo@1234")
-            demo_users = [
-                {"user_id": "user_superadmin001", "email": "admin@constructionos.com", "name": "Rajesh Kumar", "role": "super_admin", "phone": "+91 9876543210"},
-                {"user_id": "user_gm001", "email": "gm@constructionos.com", "name": "Suresh Menon", "role": "general_manager", "phone": "+91 9876543220"},
-                {"user_id": "user_cre001", "email": "cre@constructionos.com", "name": "Anita Desai", "role": "cre", "phone": "+91 9876543221"},
-                {"user_id": "user_accountant001", "email": "accountant@constructionos.com", "name": "Priya Sharma", "role": "accountant", "phone": "+91 9876543211"},
-                {"user_id": "user_pm001", "email": "pm@constructionos.com", "name": "Rajesh PM", "role": "project_manager", "phone": "+91 9876543212"},
-                {"user_id": "user_planning001", "email": "planning@constructionos.com", "name": "Amit Patel", "role": "planning", "phone": "+91 9876543213"},
-                {"user_id": "user_procurement001", "email": "procurement@constructionos.com", "name": "Sneha Reddy", "role": "procurement", "phone": "+91 9876543214"},
-                {"user_id": "user_engineer001", "email": "engineer@constructionos.com", "name": "Vikram Singh", "role": "site_engineer", "phone": "+91 9876543215"},
-                {"user_id": "user_presales001", "email": "presales@constructionos.com", "name": "Kavitha Nair", "role": "pre_sales", "phone": "+91 9876543230"},
-                {"user_id": "user_sales001", "email": "sales@constructionos.com", "name": "Ravi Sales", "role": "sales", "phone": "+91 9876543231"},
-                {"user_id": "user_client001", "email": "raj@client.com", "name": "Mr. Raj", "role": "client", "phone": "+91 9876543216"},
-                {"user_id": "user_client002", "email": "mohan@client.com", "name": "Mr. Mohan", "role": "client", "phone": "+91 9876543217"},
-                {"user_id": "user_vendor001", "email": "vendor@balaji.com", "name": "Balaji Vendor", "role": "vendor", "phone": "+91 9876501234"},
-            ]
-            now = datetime.now(timezone.utc).isoformat()
-            for u in demo_users:
-                u["password_hash"] = demo_password_hash
-                u["is_active"] = True
-                u["status"] = "active"
-                u["created_at"] = now
-            await startup_db.users.insert_many(demo_users)
-            logger.info(f"Auto-seeded {len(demo_users)} demo users (password: Demo@1234)")
-        elif existing == 0 and not demo_mode:
-            logger.info("No users found and DEMO_MODE is off. Awaiting first-time setup via /api/auth/initial-setup")
-        else:
-            logger.info(f"Database has {existing} users, skipping seed")
-
-        # Production Super Admin is created via /setup page — no auto-seed needed
-
-        # Ensure RNR stage exists in pre_sales
-        rnr_exists = await startup_db.lead_stages.find_one({"$or": [{"stage_id": "stg_rnr"}, {"name": "RNR", "stage_type": "pre_sales"}]})
-        if not rnr_exists:
-            pre_sales_stages = await startup_db.lead_stages.count_documents({"stage_type": "pre_sales"})
-            if pre_sales_stages > 0:
-                await startup_db.lead_stages.insert_one({
-                    "stage_id": "stg_rnr", "name": "RNR", "stage_type": "pre_sales",
-                    "order": 3, "color": "#ef4444", "is_final": False, "is_active": True,
-                    "created_by": "system", "created_at": datetime.now(timezone.utc).isoformat()
-                })
-                logger.info("Added RNR stage to pre-sales pipeline")
-
-        # Sales stage migration: rename/re-order/deactivate obsolete stages
+    # Sep 29 2026 — With `uvicorn --workers N` this startup hook runs in every
+    # worker. The indexes above are idempotent, but the seeding/backfills below
+    # check-then-insert and would race into duplicates, so only the background
+    # leader (one worker, see core/leader.py) runs them.
+    from core.leader import try_become_leader
+    if try_become_leader():
+        # Auto-seed demo users only in DEMO_MODE
         try:
-            from routes.crm import get_default_sales_stages
-            await get_default_sales_stages()
-            logger.info("Sales stage migration completed")
-        except Exception as e:
-            logger.warning(f"Sales stage migration failed (non-fatal): {e}")
+            from core.database import db as startup_db
+            from passlib.context import CryptContext
+            from datetime import datetime, timezone
 
-        # Backfill `site_engineer_assignments` for projects that have legacy
-        # `team.site_engineer / sr_site_engineer / associate_pm` set but no
-        # corresponding active assignment doc. Required so SE dashboards (`my-projects`)
-        # show projects assigned via /api/projects/{id}/team before this fix landed.
-        try:
-            backfill_count = 0
-            SE_LIKE_ROLES = ("site_engineer", "sr_site_engineer", "associate_pm")
-            cursor = startup_db.projects.find(
-                {"team": {"$type": "object"}, "is_deleted": {"$ne": True}},
-                {"_id": 0, "project_id": 1, "name": 1, "project_name": 1, "team": 1},
-            )
-            async for proj in cursor:
-                team = proj.get("team") or {}
-                project_id = proj.get("project_id")
-                project_name = proj.get("name") or proj.get("project_name") or project_id
-                if not project_id:
-                    continue
-                for role in SE_LIKE_ROLES:
-                    uid = team.get(role)
-                    if not uid:
-                        continue
-                    has_assignment = await startup_db.site_engineer_assignments.find_one(
-                        {"project_id": project_id, "user_id": uid, "is_active": True},
-                        {"_id": 1},
-                    )
-                    if has_assignment:
-                        continue
-                    target_user = await startup_db.users.find_one(
-                        {"user_id": uid}, {"_id": 0, "name": 1, "role": 1}
-                    )
-                    if not target_user:
-                        continue
-                    await startup_db.site_engineer_assignments.insert_one({
-                        "assignment_id": f"sea_{uuid.uuid4().hex[:12]}",
-                        "user_id": uid,
-                        "user_name": target_user.get("name", ""),
-                        "user_role": target_user.get("role", role),
-                        "project_id": project_id,
-                        "project_name": project_name,
-                        "assigned_by": "system_backfill",
-                        "assigned_by_name": "System Backfill",
-                        "is_active": True,
-                        "created_at": datetime.now(timezone.utc).isoformat(),
+            demo_mode = os.environ.get("DEMO_MODE", "false").lower() == "true"
+            pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+            existing = await startup_db.users.count_documents({})
+
+            if existing == 0 and demo_mode:
+                demo_password_hash = pwd_ctx.hash("Demo@1234")
+                demo_users = [
+                    {"user_id": "user_superadmin001", "email": "admin@constructionos.com", "name": "Rajesh Kumar", "role": "super_admin", "phone": "+91 9876543210"},
+                    {"user_id": "user_gm001", "email": "gm@constructionos.com", "name": "Suresh Menon", "role": "general_manager", "phone": "+91 9876543220"},
+                    {"user_id": "user_cre001", "email": "cre@constructionos.com", "name": "Anita Desai", "role": "cre", "phone": "+91 9876543221"},
+                    {"user_id": "user_accountant001", "email": "accountant@constructionos.com", "name": "Priya Sharma", "role": "accountant", "phone": "+91 9876543211"},
+                    {"user_id": "user_pm001", "email": "pm@constructionos.com", "name": "Rajesh PM", "role": "project_manager", "phone": "+91 9876543212"},
+                    {"user_id": "user_planning001", "email": "planning@constructionos.com", "name": "Amit Patel", "role": "planning", "phone": "+91 9876543213"},
+                    {"user_id": "user_procurement001", "email": "procurement@constructionos.com", "name": "Sneha Reddy", "role": "procurement", "phone": "+91 9876543214"},
+                    {"user_id": "user_engineer001", "email": "engineer@constructionos.com", "name": "Vikram Singh", "role": "site_engineer", "phone": "+91 9876543215"},
+                    {"user_id": "user_presales001", "email": "presales@constructionos.com", "name": "Kavitha Nair", "role": "pre_sales", "phone": "+91 9876543230"},
+                    {"user_id": "user_sales001", "email": "sales@constructionos.com", "name": "Ravi Sales", "role": "sales", "phone": "+91 9876543231"},
+                    {"user_id": "user_client001", "email": "raj@client.com", "name": "Mr. Raj", "role": "client", "phone": "+91 9876543216"},
+                    {"user_id": "user_client002", "email": "mohan@client.com", "name": "Mr. Mohan", "role": "client", "phone": "+91 9876543217"},
+                    {"user_id": "user_vendor001", "email": "vendor@balaji.com", "name": "Balaji Vendor", "role": "vendor", "phone": "+91 9876501234"},
+                ]
+                now = datetime.now(timezone.utc).isoformat()
+                for u in demo_users:
+                    u["password_hash"] = demo_password_hash
+                    u["is_active"] = True
+                    u["status"] = "active"
+                    u["created_at"] = now
+                await startup_db.users.insert_many(demo_users)
+                logger.info(f"Auto-seeded {len(demo_users)} demo users (password: Demo@1234)")
+            elif existing == 0 and not demo_mode:
+                logger.info("No users found and DEMO_MODE is off. Awaiting first-time setup via /api/auth/initial-setup")
+            else:
+                logger.info(f"Database has {existing} users, skipping seed")
+
+            # Production Super Admin is created via /setup page — no auto-seed needed
+
+            # Ensure RNR stage exists in pre_sales
+            rnr_exists = await startup_db.lead_stages.find_one({"$or": [{"stage_id": "stg_rnr"}, {"name": "RNR", "stage_type": "pre_sales"}]})
+            if not rnr_exists:
+                pre_sales_stages = await startup_db.lead_stages.count_documents({"stage_type": "pre_sales"})
+                if pre_sales_stages > 0:
+                    await startup_db.lead_stages.insert_one({
+                        "stage_id": "stg_rnr", "name": "RNR", "stage_type": "pre_sales",
+                        "order": 3, "color": "#ef4444", "is_final": False, "is_active": True,
+                        "created_by": "system", "created_at": datetime.now(timezone.utc).isoformat()
                     })
-                    if role == "site_engineer":
-                        await startup_db.projects.update_one(
-                            {"project_id": project_id},
-                            {"$set": {"assigned_se": uid, "assigned_se_name": target_user.get("name", "")}},
+                    logger.info("Added RNR stage to pre-sales pipeline")
+
+            # Sales stage migration: rename/re-order/deactivate obsolete stages
+            try:
+                from routes.crm import get_default_sales_stages
+                await get_default_sales_stages()
+                logger.info("Sales stage migration completed")
+            except Exception as e:
+                logger.warning(f"Sales stage migration failed (non-fatal): {e}")
+
+            # Backfill `site_engineer_assignments` for projects that have legacy
+            # `team.site_engineer / sr_site_engineer / associate_pm` set but no
+            # corresponding active assignment doc. Required so SE dashboards (`my-projects`)
+            # show projects assigned via /api/projects/{id}/team before this fix landed.
+            try:
+                backfill_count = 0
+                SE_LIKE_ROLES = ("site_engineer", "sr_site_engineer", "associate_pm")
+                cursor = startup_db.projects.find(
+                    {"team": {"$type": "object"}, "is_deleted": {"$ne": True}},
+                    {"_id": 0, "project_id": 1, "name": 1, "project_name": 1, "team": 1},
+                )
+                async for proj in cursor:
+                    team = proj.get("team") or {}
+                    project_id = proj.get("project_id")
+                    project_name = proj.get("name") or proj.get("project_name") or project_id
+                    if not project_id:
+                        continue
+                    for role in SE_LIKE_ROLES:
+                        uid = team.get(role)
+                        if not uid:
+                            continue
+                        has_assignment = await startup_db.site_engineer_assignments.find_one(
+                            {"project_id": project_id, "user_id": uid, "is_active": True},
+                            {"_id": 1},
                         )
-                    backfill_count += 1
-            if backfill_count:
-                logger.info(f"Backfilled {backfill_count} site_engineer_assignments from project.team data")
+                        if has_assignment:
+                            continue
+                        target_user = await startup_db.users.find_one(
+                            {"user_id": uid}, {"_id": 0, "name": 1, "role": 1}
+                        )
+                        if not target_user:
+                            continue
+                        await startup_db.site_engineer_assignments.insert_one({
+                            "assignment_id": f"sea_{uuid.uuid4().hex[:12]}",
+                            "user_id": uid,
+                            "user_name": target_user.get("name", ""),
+                            "user_role": target_user.get("role", role),
+                            "project_id": project_id,
+                            "project_name": project_name,
+                            "assigned_by": "system_backfill",
+                            "assigned_by_name": "System Backfill",
+                            "is_active": True,
+                            "created_at": datetime.now(timezone.utc).isoformat(),
+                        })
+                        if role == "site_engineer":
+                            await startup_db.projects.update_one(
+                                {"project_id": project_id},
+                                {"$set": {"assigned_se": uid, "assigned_se_name": target_user.get("name", "")}},
+                            )
+                        backfill_count += 1
+                if backfill_count:
+                    logger.info(f"Backfilled {backfill_count} site_engineer_assignments from project.team data")
+            except Exception as e:
+                logger.warning(f"SE assignment backfill failed (non-fatal): {e}")
         except Exception as e:
-            logger.warning(f"SE assignment backfill failed (non-fatal): {e}")
-    except Exception as e:
-        logger.warning(f"Auto-seed failed (non-fatal): {e}")
+            logger.warning(f"Auto-seed failed (non-fatal): {e}")
 
     # Start background auto-sync for Google Sheets
     import asyncio
@@ -605,6 +611,11 @@ async def startup_init():
         while True:
             try:
                 await asyncio.sleep(60)  # Check every 1 minute for near-immediate sync
+                # Every worker runs this loop, but only the background leader
+                # syncs, or N workers would import each new row N times. Asking
+                # each cycle lets a surviving worker take over if the leader dies.
+                if not try_become_leader():
+                    continue
 
                 async with _sheets_sync_lock:
                     cycle_start = time.monotonic()
@@ -849,12 +860,13 @@ async def startup_init():
         from routes.crm import decay_client_priorities
         await asyncio.sleep(120)
         while True:
-            try:
-                result = await decay_client_priorities()
-                if result.get("lowered") or result.get("clocks_started"):
-                    logger.info(f"Priority decay: {result}")
-            except Exception as e:
-                logger.warning(f"Priority decay loop error: {e}")
+            if try_become_leader():  # background leader only, as for the Sheets sync
+                try:
+                    result = await decay_client_priorities()
+                    if result.get("lowered") or result.get("clocks_started"):
+                        logger.info(f"Priority decay: {result}")
+                except Exception as e:
+                    logger.warning(f"Priority decay loop error: {e}")
             await asyncio.sleep(6 * 3600)
 
     asyncio.create_task(priority_decay_loop())
