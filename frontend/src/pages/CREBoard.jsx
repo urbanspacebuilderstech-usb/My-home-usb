@@ -1383,12 +1383,14 @@ export default function CREBoard() {
                   </Card>
 
                   {/* Summary tiles — Total Planned / Collected / Balance.
-                      Sep 29 2026. Computed from `dateFiltered`, the same set
-                      the "All" chip counts, so the tiles always describe
-                      exactly what the month selector and date filter have
-                      narrowed to rather than some wider total. */}
+                      Sep 29 2026. Scoped to `entries` — the SAME set the
+                      table below is currently showing (Pending / Partial /
+                      Collected / All, per psSubTab) — so clicking a sub-tab
+                      updates the tiles to describe just that bucket instead
+                      of always describing the full "All" set regardless of
+                      which sub-tab is open. */}
                   {(() => {
-                    const psSummary = dateFiltered.reduce((acc, e) => {
+                    const psSummary = entries.reduce((acc, e) => {
                       const amt = Number(e.amount) || 0;
                       const got = Number(e.amount_received) || 0;
                       acc.planned += amt;
@@ -1400,28 +1402,26 @@ export default function CREBoard() {
                       acc.balance += amt - got;
                       return acc;
                     }, { planned: 0, balance: 0 });
-                    // Sep 29 2026 fix — this used to sum amount_received across
-                    // ALL of dateFiltered (Pending + Partial + Collected), so a
-                    // Partial row's part-payment inflated the "Collected" tile
-                    // even though that row never appears in the Collected tab
-                    // (e.g. showed ₹60,200 / "6 collected" when the 6 Collected
-                    // rows' own Received column only summed to ₹45,200 — the
-                    // extra ₹15,000 was 2 Partial rows' received amounts).
-                    // Sum only collectedEntries so the tile's value and its
-                    // "N collected" subtitle describe the same set of rows.
-                    const collectedTotal = collectedEntries.reduce((s, e) => s + (Number(e.amount_received) || 0), 0);
+                    // Collected tile sums only the entries (within the
+                    // current scope) that are actually collected, so a
+                    // Partial row's part-payment never inflates it — see
+                    // the fix note that used to live here, now generalised
+                    // to whichever sub-tab is active rather than only "All".
+                    const scopedCollected = entries.filter(isCollectedEntry);
+                    const collectedTotal = scopedCollected.reduce((s, e) => s + (Number(e.amount_received) || 0), 0);
+                    const outstandingCount = entries.length - scopedCollected.length;
                     const tiles = [
                       { key: 'planned', label: 'Total Planned',
                         value: formatCurrency(psSummary.planned),
-                        sub: `${dateFiltered.length} stage${dateFiltered.length === 1 ? '' : 's'}`,
+                        sub: `${entries.length} stage${entries.length === 1 ? '' : 's'}`,
                         border: 'border-l-indigo-500', text: 'text-indigo-700' },
                       { key: 'collected', label: 'Collected',
                         value: formatCurrency(collectedTotal),
-                        sub: `${collectedEntries.length} collected`,
+                        sub: `${scopedCollected.length} collected`,
                         border: 'border-l-emerald-500', text: 'text-emerald-700' },
                       { key: 'balance', label: 'Balance',
                         value: formatCurrency(psSummary.balance),
-                        sub: `${pendingEntries.length} outstanding`,
+                        sub: `${outstandingCount} outstanding`,
                         border: 'border-l-red-500', text: 'text-red-600' },
                     ];
                     return (
