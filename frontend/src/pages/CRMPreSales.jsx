@@ -1799,27 +1799,6 @@ export default function CRMPreSales() {
                   </CardContent>
                 </Card>
                 
-                {/* Additional Details from custom_fields */}
-                {selectedLead.custom_fields && Object.keys(selectedLead.custom_fields).length > 0 && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-600">Additional Details</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 gap-3">
-                      {Object.entries(selectedLead.custom_fields).map(([key, value]) => (
-                        value && (
-                        <div key={key} className="bg-gray-50 rounded-lg p-2">
-                          <span className="text-[10px] text-gray-500 block">{key.replace(/_/g, ' ')}</span>
-                          <span className="text-sm font-medium text-gray-800">{String(value)}</span>
-                        </div>
-                        )
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-                )}
-                
                 {/* Appointment Info - only for leads in Appointment Booked (final) stage */}
                 {stages.find(s => s.is_final && s.stage_id === selectedLead.current_stage_id) && selectedLead.appointment && Object.keys(selectedLead.appointment).length > 0 && (
                   <Card>
@@ -1850,7 +1829,8 @@ export default function CRMPreSales() {
                   </Card>
                 )}
                 
-                {/* Custom Fields */}
+                {/* Custom Fields — Sep 29 2026: the only Additional Details card now; a
+                    second copy listing raw keys ("cf budget", "cf c2ab89a6") was removed. */}
                 {Object.keys(selectedLead.custom_fields || {}).length > 0 && (
                   <Card>
                     <CardHeader className="pb-2">
