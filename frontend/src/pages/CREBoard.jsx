@@ -1382,6 +1382,54 @@ export default function CREBoard() {
                     </CardContent>
                   </Card>
 
+                  {/* Summary tiles — Total Planned / Collected / Balance.
+                      Sep 29 2026. Computed from `dateFiltered`, the same set
+                      the "All" chip counts, so the tiles always describe
+                      exactly what the month selector and date filter have
+                      narrowed to rather than some wider total. */}
+                  {(() => {
+                    const psSummary = dateFiltered.reduce((acc, e) => {
+                      const amt = Number(e.amount) || 0;
+                      const got = Number(e.amount_received) || 0;
+                      acc.planned += amt;
+                      acc.collected += got;
+                      // Same expression as the row's own Balance column
+                      // (amount - amount_received, unclamped), so the tiles
+                      // agree with the table and Planned - Collected always
+                      // equals Balance. An over-collected stage therefore
+                      // reduces the total, exactly as its row shows.
+                      acc.balance += amt - got;
+                      return acc;
+                    }, { planned: 0, collected: 0, balance: 0 });
+                    const tiles = [
+                      { key: 'planned', label: 'Total Planned',
+                        value: formatCurrency(psSummary.planned),
+                        sub: `${dateFiltered.length} stage${dateFiltered.length === 1 ? '' : 's'}`,
+                        border: 'border-l-indigo-500', text: 'text-indigo-700' },
+                      { key: 'collected', label: 'Collected',
+                        value: formatCurrency(psSummary.collected),
+                        sub: `${collectedEntries.length} collected`,
+                        border: 'border-l-emerald-500', text: 'text-emerald-700' },
+                      { key: 'balance', label: 'Balance',
+                        value: formatCurrency(psSummary.balance),
+                        sub: `${pendingEntries.length} outstanding`,
+                        border: 'border-l-red-500', text: 'text-red-600' },
+                    ];
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" data-testid="ps-summary-tiles">
+                        {tiles.map(t => (
+                          <Card key={t.key} className={`border-l-4 ${t.border}`} data-testid={`ps-summary-${t.key}`}>
+                            <CardContent className="p-3">
+                              <p className="text-[10px] text-gray-500 uppercase font-medium tracking-wide">{t.label}</p>
+                              <p className={`text-xl font-bold ${t.text}`}>{t.value}</p>
+                              <p className="text-[10px] text-gray-400">{t.sub}</p>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
                   {/* Sub-tabs + Date filter + Search + Delete Selected */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex gap-2 flex-wrap items-center" data-testid="ps-subtabs">
