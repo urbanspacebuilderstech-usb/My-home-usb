@@ -5,8 +5,8 @@ import { Input } from './ui/input';
 import { Search, Check, ChevronDown } from 'lucide-react';
 
 /**
- * Searchable project dropdown (Radix Popover).
- * Reusable across AccountsBoard, PlanningBoard, etc.
+ * Searchable project dropdown (Radix Popover) — plain name list, no stats
+ * subtitle. Pass `projects` as [{ project_id, name }].
  */
 export default function ProjectSearchSelect({
   projects = [],
@@ -15,7 +15,6 @@ export default function ProjectSearchSelect({
   placeholder = 'All Projects',
   testId = 'project-search-select',
   width = 'w-64',
-  accent = 'red',
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -24,10 +23,6 @@ export default function ProjectSearchSelect({
   const filtered = query.trim()
     ? projects.filter(p => (p.name || p.project_name || '').toLowerCase().includes(query.trim().toLowerCase()))
     : projects;
-  const accentBg = accent === 'indigo' ? 'bg-indigo-50 text-indigo-700' :
-                    accent === 'amber' ? 'bg-amber-50 text-amber-700' :
-                    accent === 'blue' ? 'bg-blue-50 text-blue-700' :
-                    'bg-red-50 text-red-700';
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -38,7 +33,10 @@ export default function ProjectSearchSelect({
           className={`${width} h-9 justify-between text-xs font-normal`}
           data-testid={testId}
         >
-          <span className="truncate text-left flex-1">{selectedLabel}</span>
+          <span className="truncate text-left flex-1 flex items-center gap-1.5">
+            <Search className="h-3.5 w-3.5 opacity-50 flex-shrink-0" />
+            {selectedLabel}
+          </span>
           <ChevronDown className="h-3.5 w-3.5 opacity-50 ml-2 flex-shrink-0" />
         </Button>
       </PopoverTrigger>
@@ -60,7 +58,7 @@ export default function ProjectSearchSelect({
           <button
             type="button"
             onClick={() => { onChange(''); setOpen(false); setQuery(''); }}
-            className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-gray-50 ${!value ? `${accentBg} font-medium` : 'text-gray-700'}`}
+            className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-gray-50 ${!value ? 'bg-amber-50 text-amber-700 font-medium' : 'text-gray-700'}`}
             data-testid={`${testId}-all`}
           >
             <Check className={`h-3.5 w-3.5 ${!value ? 'opacity-100' : 'opacity-0'}`} />
@@ -73,7 +71,7 @@ export default function ProjectSearchSelect({
               key={p.project_id}
               type="button"
               onClick={() => { onChange(p.project_id); setOpen(false); setQuery(''); }}
-              className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-gray-50 ${value === p.project_id ? `${accentBg} font-medium` : 'text-gray-700'}`}
+              className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-gray-50 ${value === p.project_id ? 'bg-amber-50 text-amber-700 font-medium' : 'text-gray-700'}`}
               data-testid={`${testId}-item-${p.project_id}`}
             >
               <Check className={`h-3.5 w-3.5 ${value === p.project_id ? 'opacity-100' : 'opacity-0'}`} />

@@ -14,6 +14,7 @@ import { Checkbox } from '../components/ui/checkbox';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import MaterialSearchSelect from '../components/MaterialSearchSelect';
+import { CashbookDateFilter, filterByDateRange } from '../components/CashbookDateFilter';
 import {
   Eye,
   Send,
@@ -401,6 +402,21 @@ export default function PlanningBoard({ embedded = false }) {
   const [scheduleMonth, setScheduleMonth] = useState(new Date().getMonth() + 1);
   const [scheduleYear, setScheduleYear] = useState(new Date().getFullYear());
   const [scheduleSubTab, setScheduleSubTab] = useState('pending'); // pending | collected | all
+  // Sep 29 2026 — Date + Project filters on top of the month/year navigation,
+  // narrowing the already-fetched month's entries client-side (date, by
+  // Release Date) and by project (fetched separately from GET /projects,
+  // the comprehensive list, not the stage-filtered `projects` state above
+  // which excludes delivered/archived/new projects).
+  const [scheduleDateFrom, setScheduleDateFrom] = useState('');
+  const [scheduleDateTo, setScheduleDateTo] = useState('');
+  const [scheduleProjectFilter, setScheduleProjectFilter] = useState('');
+  const [allProjectsForScheduleFilter, setAllProjectsForScheduleFilter] = useState([]);
+  const scheduleFilteredEntries = React.useMemo(() => {
+    let entries = monthlySchedule.entries || [];
+    entries = filterByDateRange(entries, scheduleDateFrom, scheduleDateTo, e => e.expected_payment_date);
+    if (scheduleProjectFilter) entries = entries.filter(e => e.project_name === scheduleProjectFilter);
+    return entries;
+  }, [monthlySchedule.entries, scheduleDateFrom, scheduleDateTo, scheduleProjectFilter]);
   const [addStagesDialog, setAddStagesDialog] = useState(false);
   const [availableStages, setAvailableStages] = useState([]);
   const [selectedStageIds, setSelectedStageIds] = useState([]);
@@ -508,7 +524,12 @@ export default function PlanningBoard({ embedded = false }) {
       if (materials.length === 0) fetchMaterials();
       if (packages.length === 0) fetchPackages();
     }
-    if (sub === 'payment_schedule') fetchMonthlySchedule();
+    if (sub === 'payment_schedule') {
+      fetchMonthlySchedule();
+      if (allProjectsForScheduleFilter.length === 0) {
+        axios.get(`${API}/projects`).then(r => setAllProjectsForScheduleFilter(r.data || [])).catch(() => {});
+      }
+    }
   };
 
   // Fetch projects by planning lifecycle sub-tab with date filters
@@ -1832,7 +1853,29 @@ export default function PlanningBoard({ embedded = false }) {
                         </div>
                         <Button size="sm" variant="outline" onClick={() => handleScheduleMonthChange(1)} data-testid="schedule-next-month"><ArrowRight className="h-4 w-4" /></Button>
                       </div>
-                      <Button onClick={openAddStagesDialog} className="bg-amber-600 hover:bg-amber-700" data-testid="add-stages-btn"><Plus className="h-4 w-4 mr-1" />Add Stages</Button>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <CashbookDateFilter
+                          dateFrom={scheduleDateFrom}
+                          dateTo={scheduleDateTo}
+                          setDateFrom={setScheduleDateFrom}
+                          setDateTo={setScheduleDateTo}
+                          testIdPrefix="planning-ps"
+                          accent="amber"
+                          showMonthYear={false}
+                        />
+                        <MaterialSearchSelect
+                          materials={allProjectsForScheduleFilter.map(p => ({ name: p.name }))}
+                          value={scheduleProjectFilter}
+                          onChange={setScheduleProjectFilter}
+                          placeholder="All Projects"
+                          allLabel="All Projects"
+                          noun="project"
+                          testId="planning-ps-project-filter"
+                          width="w-56"
+                          accent="amber"
+                        />
+                        <Button onClick={openAddStagesDialog} className="bg-amber-600 hover:bg-amber-700" data-testid="add-stages-btn"><Plus className="h-4 w-4 mr-1" />Add Stages</Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

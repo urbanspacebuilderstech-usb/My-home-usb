@@ -1863,6 +1863,15 @@ async def get_payment_schedule_overview(user: User = Depends(get_current_user)):
 
 # ==================== MONTHLY PAYMENT SCHEDULE ====================
 
+# Sep 29 2026 — the last few real /planning/monthly-schedule requests, with
+# their db/process split. The handler already logged this, but the logs are on
+# the VPS and not readable from here, and the standalone timing endpoint only
+# re-runs SOME of the queries (it measured 0.047s total while the page still
+# took seconds, which is exactly how it misled us). This records what actual
+# page loads cost. Bounded, in-memory, never persisted.
+_SCHEDULE_TIMINGS: List[Dict[str, Any]] = []
+
+
 @router.get("/planning/monthly-schedule")
 async def get_monthly_schedule(
     month: Optional[int] = Query(None, ge=1, le=12),
@@ -2118,6 +2127,7 @@ async def get_monthly_schedule(
     # per stage: one grouped income read covers every stage on this page.
     EXCLUDED_INC_STATUSES = {"rejected", "accountant_rejected", "under_correction", "pending_approval", "cheque_bounced"}
     _stage_ids_for_heal = [s["stage_id"] for s in stages_cursor if s.get("stage_id")]
+    _heal_ops = []
     if _stage_ids_for_heal:
         _income_rows_for_heal = await db.income.find(
             {"payment_stage_id": {"$in": _stage_ids_for_heal}},
@@ -2142,7 +2152,6 @@ async def get_monthly_schedule(
         # filters, same $set, same documents, same values — only the number of
         # round trips changes. `ordered=False` is safe because every operation
         # targets a distinct stage_id, so none of them can conflict.
-        _heal_ops = []
         for stage in stages_cursor:
             _sid = stage.get("stage_id")
             if _sid not in _received_by_stage:
@@ -2481,6 +2490,19 @@ async def get_monthly_schedule(
         bool(all_months), _t_db - _t0, _t_end - _t_db, _t_end - _t0,
         _n_fetched, len(stages_cursor), len(raw_manual), len(enriched),
     )
+    _SCHEDULE_TIMINGS.append({
+        "at": datetime.now(timezone.utc).isoformat(),
+        "all_months": bool(all_months),
+        "db_seconds": round(_t_db - _t0, 3),
+        "process_seconds": round(_t_end - _t_db, 3),
+        "total_seconds": round(_t_end - _t0, 3),
+        "stages_fetched": _n_fetched,
+        "stages_kept": len(stages_cursor),
+        "manual_entries": len(raw_manual),
+        "rows_returned": len(enriched),
+        "heal_writes": len(_heal_ops),
+    })
+    del _SCHEDULE_TIMINGS[:-25]
 
     from core.fastjson import ORJSONResponse
     return ORJSONResponse(
@@ -2590,8 +2612,50 @@ async def monthly_schedule_timing(user: User = Depends(get_current_user)):
     except Exception as e:
         out["payment_stages_indexes"] = f"{type(e).__name__}: {e}"
 
+    # Sep 29 2026 — the report above re-runs only the payment_stages and
+    # manual-entry reads. It reported 0.047s total while the page still took
+    # seconds, because it never touched the two income queries the handler
+    # also runs, nor the Python work afterwards. Both are measured now.
+    out["counts"]["income_total"] = await timed(
+        "count_income_total", db.income.count_documents({}))
+
+    _stage_ids = [s["stage_id"] for s in stages if s.get("stage_id")]
+    if _stage_ids:
+        _heal_rows = await timed(
+            "fetch_income_for_heal",
+            db.income.find(
+                {"payment_stage_id": {"$in": _stage_ids}},
+                {"_id": 0, "payment_stage_id": 1, "amount": 1, "status": 1},
+            ).to_list(20000))
+        out["counts"]["income_rows_for_heal"] = len(_heal_rows)
+        await plan("income_heal_lookup", "income",
+                   {"payment_stage_id": {"$in": _stage_ids}})
+
+    await timed("aggregate_pending_income", db.income.aggregate([
+        {"$match": {"status": "pending_approval"}},
+        {"$group": {"_id": "$payment_stage_id",
+                    "pending_amount": {"$sum": "$amount"},
+                    "pending_count": {"$sum": 1}}},
+    ]).to_list(5000))
+
+    try:
+        out["income_indexes"] = sorted((await db.income.index_information()).keys())
+    except Exception as e:
+        out["income_indexes"] = f"{type(e).__name__}: {e}"
+
     out["timings_seconds"]["TOTAL_measured"] = round(
         sum(v for k, v in out["timings_seconds"].items()), 3)
+
+    # What real page loads actually cost, newest last. `process_seconds` is
+    # everything after the database work - the month classification, the
+    # virtual-row splitting and the enrichment.
+    out["recent_real_requests"] = list(_SCHEDULE_TIMINGS)
+    out["reading"] = (
+        "If recent_real_requests shows a large process_seconds against a small "
+        "db_seconds, the cost is Python in the handler, not MongoDB. If both "
+        "are small, the delay is in the browser rendering the rows or in "
+        "transferring the response."
+    )
     return out
 
 
