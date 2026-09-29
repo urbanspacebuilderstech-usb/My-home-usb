@@ -17,7 +17,7 @@ import {
   Users, LogOut, Plus, Search, Upload, Phone, PhoneOff, Mail, MapPin, Calendar, Building2, 
   ArrowRight, RefreshCw, RotateCw, GripVertical, Eye, Clock, User, MessageSquare,
   FileText, History, Send, X, Settings, ChevronDown, Trash2, Edit2,
-  LayoutGrid, List, MoreVertical, Bell, CheckCircle, ArrowUpDown, Loader2
+  LayoutGrid, List, MoreVertical, Bell, CheckCircle, ArrowUpDown, Loader2, ArrowRightLeft
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -160,6 +160,9 @@ export default function CRMPreSales() {
   const [deleteLeadDialog, setDeleteLeadDialog] = useState(false);
   const [leadToDelete, setLeadToDelete] = useState(null);
   const [deleteLeadConfirmText, setDeleteLeadConfirmText] = useState('');
+  // Lead Transfer (Sales Head / Super Admin) — hand a lead to another Pre-Sales executive
+  const [transferDialog, setTransferDialog] = useState({ open: false, lead: null, new_owner: '', reason: '', submitting: false });
+  const [transferOptions, setTransferOptions] = useState(null);
 
   // Appointment booking
   const [appointmentDialog, setAppointmentDialog] = useState(false);
@@ -383,6 +386,47 @@ export default function CRMPreSales() {
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete lead');
+    }
+  };
+
+  // ============ LEAD TRANSFER ============
+  // Sep 29 2026 — Transfer column in the list view. Uses the same
+  // /reassign endpoint as Sales CRM (logs to the lead's activity_log and
+  // notifies both executives); only Pre-Sales executives are offered.
+  const canTransferLead = ['super_admin', 'sales_head'].includes(user?.role);
+  const closeTransferDialog = () => setTransferDialog({ open: false, lead: null, new_owner: '', reason: '', submitting: false });
+
+  const openTransferDialog = async (lead) => {
+    setTransferDialog({ open: true, lead, new_owner: '', reason: '', submitting: false });
+    setTransferOptions(null);
+    try {
+      const res = await axios.get(`${API}/crm/reassign-targets`, { params: { stage_type: 'pre_sales' } });
+      setTransferOptions((res.data || []).filter(u => u.role === 'pre_sales' && u.user_id !== lead.assigned_to));
+    } catch {
+      setTransferOptions([]);
+    }
+  };
+
+  const handleTransferLead = async () => {
+    const { lead, new_owner, reason } = transferDialog;
+    if (!lead || !new_owner) {
+      toast.error('Pick a Pre-Sales executive to transfer to');
+      return;
+    }
+    setTransferDialog(d => ({ ...d, submitting: true }));
+    try {
+      const res = await axios.post(`${API}/crm/leads/${lead.lead_id}/reassign`, {
+        new_owner_user_id: new_owner,
+        reason: reason.trim() || null,
+      });
+      const newName = res.data?.new_owner || (transferOptions || []).find(u => u.user_id === new_owner)?.name || '';
+      toast.success(`Lead transferred to ${newName}`);
+      setLeads(prev => prev.map(l => (l.lead_id === lead.lead_id ? { ...l, assigned_to: new_owner, assigned_to_name: newName } : l)));
+      closeTransferDialog();
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to transfer lead');
+      setTransferDialog(d => ({ ...d, submitting: false }));
     }
   };
 
@@ -1007,13 +1051,17 @@ export default function CRMPreSales() {
                   <tr>
                     <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[4%]">S.No</th>
                     <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[14%]">Lead</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Contact</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[9%]">Source</th>
+                    {/* Transfer column (Sales Head / Super Admin) takes its width from Contact, Source, Follow-up, Created and Actions */}
+                    <th className={`px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider ${canTransferLead ? 'w-[11%]' : 'w-[12%]'}`}>Contact</th>
+                    <th className={`px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider ${canTransferLead ? 'w-[8%]' : 'w-[9%]'}`}>Source</th>
                     <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Assigned</th>
                     <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[11%]">Stage</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[15%]">Follow-up</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[11%]">Created</th>
-                    <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Actions</th>
+                    <th className={`px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider ${canTransferLead ? 'w-[11%]' : 'w-[15%]'}`}>Follow-up</th>
+                    <th className={`px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider ${canTransferLead ? 'w-[8%]' : 'w-[11%]'}`}>Created</th>
+                    {canTransferLead && (
+                      <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[10%]">Lead Transfer</th>
+                    )}
+                    <th className={`px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider ${canTransferLead ? 'w-[11%]' : 'w-[12%]'}`}>Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -1107,6 +1155,20 @@ export default function CRMPreSales() {
                           {formatIN(lead.created_at, { day: '2-digit', month: '2-digit', year: 'numeric' })}
                         </span>
                       </td>
+                      {canTransferLead && (
+                        <td className="px-2 py-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-[10px] text-indigo-600 border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                            title={`Transfer to another Pre-Sales executive (current: ${lead.assigned_to_name || 'Unassigned'})`}
+                            data-testid={`transfer-lead-btn-${lead.lead_id}`}
+                            onClick={(e) => { e.stopPropagation(); openTransferDialog(lead); }}
+                          >
+                            <ArrowRightLeft className="h-3 w-3 mr-1" /> Transfer
+                          </Button>
+                        </td>
+                      )}
                       <td className="px-2 py-2 text-center">
                         <div className="flex items-center justify-center gap-1">
                           {lead.current_stage_id === 'stg_follow_up' && (
@@ -1185,7 +1247,7 @@ export default function CRMPreSales() {
                   ))}
                   {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).length === 0 && (
                     <tr>
-                      <td colSpan="9" className="px-4 py-12 text-center text-gray-500">
+                      <td colSpan={canTransferLead ? 10 : 9} className="px-4 py-12 text-center text-gray-500">
                         No leads found
                       </td>
                     </tr>
@@ -2664,6 +2726,84 @@ export default function CRMPreSales() {
               data-testid="confirm-delete-lead-btn"
             >
               <Trash2 className="h-4 w-4 mr-1" /> Delete Lead
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ LEAD TRANSFER DIALOG ============ */}
+      <Dialog open={transferDialog.open} onOpenChange={(open) => { if (!open && !transferDialog.submitting) closeTransferDialog(); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowRightLeft className="h-5 w-5 text-indigo-600" />
+              Transfer Lead
+            </DialogTitle>
+            <DialogDescription>
+              Move this lead to another Pre-Sales executive. Both executives are notified.
+            </DialogDescription>
+          </DialogHeader>
+
+          {transferDialog.lead && (
+            <div className="space-y-4">
+              <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+                <p className="font-medium text-gray-900">{transferDialog.lead.name}</p>
+                <p className="text-xs text-gray-600">
+                  {getStageName(transferDialog.lead.current_stage_id)} • Currently with{' '}
+                  <span className="font-medium">{transferDialog.lead.assigned_to_name || 'Unassigned'}</span>
+                </p>
+              </div>
+
+              <div>
+                <Label className="text-gray-700">Transfer to</Label>
+                <Select
+                  value={transferDialog.new_owner}
+                  onValueChange={(v) => setTransferDialog(d => ({ ...d, new_owner: v }))}
+                  disabled={transferOptions === null || transferOptions.length === 0}
+                >
+                  <SelectTrigger className="mt-1" data-testid="transfer-lead-select">
+                    <SelectValue placeholder={
+                      transferOptions === null ? 'Loading executives…'
+                        : transferOptions.length === 0 ? 'No other Pre-Sales executives'
+                        : 'Select Pre-Sales executive'
+                    } />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(transferOptions || []).map(u => (
+                      <SelectItem key={u.user_id} value={u.user_id}>{u.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label className="text-gray-700">Reason <span className="text-gray-400 font-normal">(optional)</span></Label>
+                <Textarea
+                  value={transferDialog.reason}
+                  onChange={(e) => setTransferDialog(d => ({ ...d, reason: e.target.value }))}
+                  placeholder="Why is this lead being transferred?"
+                  className="mt-1"
+                  rows={2}
+                  data-testid="transfer-lead-reason"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeTransferDialog} disabled={transferDialog.submitting}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleTransferLead}
+              disabled={transferDialog.submitting || !transferDialog.new_owner}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              data-testid="confirm-transfer-lead-btn"
+            >
+              {transferDialog.submitting
+                ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                : <ArrowRightLeft className="h-4 w-4 mr-1" />}
+              Transfer
             </Button>
           </DialogFooter>
         </DialogContent>

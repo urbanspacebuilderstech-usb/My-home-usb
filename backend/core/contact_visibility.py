@@ -1,10 +1,13 @@
 """
 Contact visibility rules:
-- Super Admin, Sales, Pre-Sales: ALWAYS see phone/email
+- Super Admin, Sales Head, Sales, Pre-Sales: ALWAYS see phone/email
 - Everyone else: Only see phone/email after project is converted AND payment approved by accountant
+
+Sep 29 2026 — Sales Head added: they supervise both teams, and a blank
+Contact column on the Pre-Sales / Sales boards left them unable to act.
 """
 
-PRIVILEGED_ROLES = ["super_admin", "sales", "pre_sales"]
+PRIVILEGED_ROLES = ["super_admin", "sales_head", "sales", "pre_sales"]
 CONTACT_FIELDS = ["phone", "email", "client_phone", "client_email"]
 
 
