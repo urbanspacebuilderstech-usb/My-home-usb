@@ -1392,7 +1392,6 @@ export default function CREBoard() {
                       const amt = Number(e.amount) || 0;
                       const got = Number(e.amount_received) || 0;
                       acc.planned += amt;
-                      acc.collected += got;
                       // Same expression as the row's own Balance column
                       // (amount - amount_received, unclamped), so the tiles
                       // agree with the table and Planned - Collected always
@@ -1400,14 +1399,24 @@ export default function CREBoard() {
                       // reduces the total, exactly as its row shows.
                       acc.balance += amt - got;
                       return acc;
-                    }, { planned: 0, collected: 0, balance: 0 });
+                    }, { planned: 0, balance: 0 });
+                    // Sep 29 2026 fix — this used to sum amount_received across
+                    // ALL of dateFiltered (Pending + Partial + Collected), so a
+                    // Partial row's part-payment inflated the "Collected" tile
+                    // even though that row never appears in the Collected tab
+                    // (e.g. showed ₹60,200 / "6 collected" when the 6 Collected
+                    // rows' own Received column only summed to ₹45,200 — the
+                    // extra ₹15,000 was 2 Partial rows' received amounts).
+                    // Sum only collectedEntries so the tile's value and its
+                    // "N collected" subtitle describe the same set of rows.
+                    const collectedTotal = collectedEntries.reduce((s, e) => s + (Number(e.amount_received) || 0), 0);
                     const tiles = [
                       { key: 'planned', label: 'Total Planned',
                         value: formatCurrency(psSummary.planned),
                         sub: `${dateFiltered.length} stage${dateFiltered.length === 1 ? '' : 's'}`,
                         border: 'border-l-indigo-500', text: 'text-indigo-700' },
                       { key: 'collected', label: 'Collected',
-                        value: formatCurrency(psSummary.collected),
+                        value: formatCurrency(collectedTotal),
                         sub: `${collectedEntries.length} collected`,
                         border: 'border-l-emerald-500', text: 'text-emerald-700' },
                       { key: 'balance', label: 'Balance',
