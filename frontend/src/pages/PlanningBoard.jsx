@@ -14,6 +14,7 @@ import { Checkbox } from '../components/ui/checkbox';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import MaterialSearchSelect from '../components/MaterialSearchSelect';
+import ProjectSearchSelect from '../components/ProjectSearchSelect';
 import { CashbookDateFilter, filterByDateRange } from '../components/CashbookDateFilter';
 import {
   Eye,
@@ -414,7 +415,7 @@ export default function PlanningBoard({ embedded = false }) {
   const scheduleFilteredEntries = React.useMemo(() => {
     let entries = monthlySchedule.entries || [];
     entries = filterByDateRange(entries, scheduleDateFrom, scheduleDateTo, e => e.expected_payment_date);
-    if (scheduleProjectFilter) entries = entries.filter(e => e.project_name === scheduleProjectFilter);
+    if (scheduleProjectFilter) entries = entries.filter(e => e.project_id === scheduleProjectFilter);
     return entries;
   }, [monthlySchedule.entries, scheduleDateFrom, scheduleDateTo, scheduleProjectFilter]);
   const [addStagesDialog, setAddStagesDialog] = useState(false);
@@ -1863,16 +1864,13 @@ export default function PlanningBoard({ embedded = false }) {
                           accent="amber"
                           showMonthYear={false}
                         />
-                        <MaterialSearchSelect
-                          materials={allProjectsForScheduleFilter.map(p => ({ name: p.name }))}
+                        <ProjectSearchSelect
+                          projects={allProjectsForScheduleFilter}
                           value={scheduleProjectFilter}
                           onChange={setScheduleProjectFilter}
                           placeholder="All Projects"
-                          allLabel="All Projects"
-                          noun="project"
                           testId="planning-ps-project-filter"
                           width="w-56"
-                          accent="amber"
                         />
                         <Button onClick={openAddStagesDialog} className="bg-amber-600 hover:bg-amber-700" data-testid="add-stages-btn"><Plus className="h-4 w-4 mr-1" />Add Stages</Button>
                       </div>
@@ -1891,7 +1889,7 @@ export default function PlanningBoard({ embedded = false }) {
 
                 {/* Sub-tabs: Pending | Collected | All */}
                 {(() => {
-                  const allEntries = monthlySchedule.entries || [];
+                  const allEntries = scheduleFilteredEntries;
                   const isCollectedEntry = (e) => {
                     const hasPendingApproval = (e.pending_approval_count || 0) > 0;
                     if (hasPendingApproval) return false;
@@ -1956,7 +1954,7 @@ export default function PlanningBoard({ embedded = false }) {
                           </thead>
                           <tbody className="divide-y">
                             {(() => {
-                              const allEntries = monthlySchedule.entries || [];
+                              const allEntries = scheduleFilteredEntries;
                               const isCollectedEntry = (e) => {
                                 const hasPendingApproval = (e.pending_approval_count || 0) > 0;
                                 if (hasPendingApproval) return false;
