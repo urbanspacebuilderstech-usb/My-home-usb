@@ -168,8 +168,10 @@ export default function Login() {
     }
   };
 
+  // 100dvh, not 100vh: on phones 100vh is taller than the screen while the
+  // address bar shows, which made the page scroll and pushed the card off-centre.
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden bg-white">
+    <div className="min-h-screen supports-[min-height:100dvh]:min-h-dvh flex items-center justify-center p-4 relative overflow-hidden bg-white">
       {/* Subtle background decoration */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-[-120px] left-[-80px] w-[400px] h-[400px] rounded-full bg-amber-100/60 blur-3xl" />
@@ -204,7 +206,7 @@ export default function Login() {
             {branding.app_name || 'My Home USB'}
           </h1>
           <p
-            className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-600/80 mt-1"
+            className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-600/80 mt-1 text-center text-balance"
             data-testid="login-subtitle"
           >
             Powered by Urban Space Builders
@@ -214,9 +216,10 @@ export default function Login() {
         {/* Content */}
         <div className="px-6 pb-8 space-y-4">
           <Tabs value={loginTab} onValueChange={setLoginTab}>
-            <TabsList className={`grid w-full ${demoMode ? 'grid-cols-2' : 'grid-cols-1'} bg-white/50`} data-testid="login-tabs">
-              <TabsTrigger value="password" data-testid="tab-password">Login</TabsTrigger>
-              {demoMode && <TabsTrigger value="demo" data-testid="tab-demo">Demo Access</TabsTrigger>}
+            {/* A lone tab drops the list's padding so its box lines up with the inputs. */}
+            <TabsList className={`grid w-full ${demoMode ? 'grid-cols-2' : 'grid-cols-1 p-0'} bg-white/50`} data-testid="login-tabs">
+              <TabsTrigger value="password" className="h-full" data-testid="tab-password">Login</TabsTrigger>
+              {demoMode && <TabsTrigger value="demo" className="h-full" data-testid="tab-demo">Demo Access</TabsTrigger>}
             </TabsList>
 
             {/* Password Login Tab */}
