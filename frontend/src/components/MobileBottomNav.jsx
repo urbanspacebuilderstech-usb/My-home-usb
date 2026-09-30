@@ -128,10 +128,13 @@ const OTHER_ROLES = {
     { label: 'Additional', icon: PlusCircle, path: '/client-portal?tab=additional' },
     { label: 'More', icon: Menu, action: 'more' },
   ],
+  // Sep 30 2026 — Profile pointed at /settings, a Super Admin page that only
+  // shows "Failed to load settings" to Pre-Sales. Alerts and Profile are
+  // already in the header, so the bar holds User App and Logout instead.
   pre_sales: [
     { label: 'Leads', icon: Target, path: '/crm-pre-sales' },
-    { label: 'Alerts', icon: Bell, path: '/notifications' },
-    { label: 'Profile', icon: User, path: '/settings' },
+    { label: 'User App', icon: Users, path: '/user-app' },
+    { label: 'Logout', icon: LogOut, action: 'logout' },
   ],
   sales: [
     { label: 'Sales', icon: TrendingUp, path: '/crm-sales' },
@@ -287,6 +290,10 @@ export default function MobileBottomNav({ user }) {
       setMoreOpen(!moreOpen);
       return;
     }
+    if (item.action === 'logout') {
+      handleLogout();
+      return;
+    }
     setMoreOpen(false);
     let target = item.path;
     // Client bottom-nav items are hardcoded to the bare /client-portal base
@@ -303,6 +310,7 @@ export default function MobileBottomNav({ user }) {
 
   const handleLogout = async () => {
     try { await axios.post(`${API}/auth/logout`, {}, { withCredentials: true }); } catch {}
+    if (window.__clearAuthCache) window.__clearAuthCache();
     navigate('/login', { replace: true });
   };
 
@@ -365,7 +373,7 @@ export default function MobileBottomNav({ user }) {
       >
         <div className="flex items-center justify-around h-14">
           {navItems.map((item) => {
-            const active = item.path ? isActive(item.path) : moreOpen;
+            const active = item.path ? isActive(item.path) : item.action === 'more' && moreOpen;
             const Icon = item.icon;
             return (
               <button
