@@ -435,9 +435,9 @@ const GMDashboard = () => {
           the Final Estimate / Rough Estimate / Planning pill buttons below. */}
       <AppHeader user={user} hideNav />
 
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main className="max-w-7xl mx-auto px-3 py-4 sm:px-4 sm:py-6">
         {/* Stats Overview — each card is clickable to drill into the underlying list */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4 mb-4 sm:mb-6">
           <Card
             className="bg-gradient-to-br from-gray-700 to-gray-800 text-white cursor-pointer hover:scale-[1.02] active:scale-100 transition-transform"
             data-testid="gm-stat-total-projects"
@@ -526,10 +526,11 @@ const GMDashboard = () => {
           const isFE = activeTab === 'final_estimate';
           const isPlanningBoard = activeTab === 'planning_board';
           return (
-            <div className="bg-white border shadow-sm p-1 rounded-md inline-flex gap-1 flex-wrap mb-4" data-testid="gm-main-tabs">
+            // Phones: an even 2×2 grid; wider screens: one pill row.
+            <div className="bg-white border shadow-sm p-1 rounded-md grid grid-cols-2 sm:inline-flex gap-1 sm:flex-wrap mb-4" data-testid="gm-main-tabs">
               <button
                 onClick={() => setActiveTab('final_estimate')}
-                className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-medium transition-colors ${isFE ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50'}`}
+                className={`flex items-center justify-center sm:justify-start gap-2 px-2 sm:px-4 py-2 rounded text-sm font-medium transition-colors ${isFE ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50'}`}
                 data-testid="gm-tab-fe"
               >
                 <FileText className="h-4 w-4" /> Final Estimate
@@ -539,7 +540,7 @@ const GMDashboard = () => {
               </button>
               <button
                 onClick={() => setActiveTab('planning')}
-                className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-medium transition-colors ${isRE ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50'}`}
+                className={`flex items-center justify-center sm:justify-start gap-2 px-2 sm:px-4 py-2 rounded text-sm font-medium transition-colors ${isRE ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50'}`}
                 data-testid="gm-tab-re"
               >
                 <Calculator className="h-4 w-4" /> Rough Estimate
@@ -549,14 +550,14 @@ const GMDashboard = () => {
               </button>
               <button
                 onClick={() => setActiveTab('planning_board')}
-                className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-medium transition-colors ${isPlanningBoard ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50'}`}
+                className={`flex items-center justify-center sm:justify-start gap-2 px-2 sm:px-4 py-2 rounded text-sm font-medium transition-colors ${isPlanningBoard ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50'}`}
                 data-testid="gm-tab-planning-board"
               >
                 <Building2 className="h-4 w-4" /> Planning
               </button>
               <button
                 onClick={() => setActiveTab('labour_advance')}
-                className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-medium transition-colors ${activeTab === 'labour_advance' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50'}`}
+                className={`flex items-center justify-center sm:justify-start gap-2 px-2 sm:px-4 py-2 rounded text-sm font-medium transition-colors ${activeTab === 'labour_advance' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50'}`}
                 data-testid="gm-tab-labour-advance-pill"
               >
                 <Wallet className="h-4 w-4" /> Labour Advance
@@ -610,7 +611,7 @@ const GMDashboard = () => {
             {/* Pending Approvals Alert */}
             {(stats.pendingREApprovals > 0 || stats.pendingProjectApprovals > 0) && (
               <Card className="bg-amber-50 border-amber-200">
-                <CardContent className="p-4 flex items-center justify-between">
+                <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <AlertTriangle className="h-6 w-6 text-amber-600" />
                     <div>
@@ -702,25 +703,29 @@ const GMDashboard = () => {
           {/* Planning Tab - RE Projects */}
           <TabsContent value="planning" className="space-y-6">
             <Card>
-              <CardHeader>
+              <CardHeader className="px-3 sm:px-6">
                 <CardTitle className="flex items-center gap-2">
                   <Calculator className="h-5 w-5 text-purple-600" />
                   Rough Estimate Projects
                 </CardTitle>
                 <CardDescription>Review and approve rough estimates from Planning department</CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
+              {/* Tighter padding on phones so a row's four buttons fit on one line. */}
+              <CardContent className="px-3 sm:px-6">
+                <div className="space-y-3 sm:space-y-4">
                   {reProjects.map(re => (
-                    <div 
-                      key={re.re_project_id} 
-                      className={`p-4 rounded-lg border ${
+                    <div
+                      key={re.re_project_id}
+                      className={`p-3 sm:p-4 rounded-lg border ${
                         re.status === 're_submitted' ? 'bg-orange-50 border-orange-200' : 'bg-gray-50'
                       }`}
                     >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
+                      {/* Phones/small tablets: details on top, actions in a
+                          wrapping row below (the six buttons used to sit
+                          beside the details and double the page width). */}
+                      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                        <div className="min-w-0 md:flex-1">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
                             {re.re_number && (
                               <span className="font-mono text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded">
                                 {re.re_number}
@@ -739,7 +744,7 @@ const GMDashboard = () => {
                           </div>
                           <p className="text-sm text-gray-600">Client: {re.client_name}</p>
                           <p className="text-sm text-gray-500">Location: {re.location || '-'}</p>
-                          <div className="flex items-center gap-4 mt-2">
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2">
                             <span className="text-sm">
                               <strong>Scope Items:</strong> {re.rough_scope_items?.length || 0}
                             </span>
@@ -751,10 +756,10 @@ const GMDashboard = () => {
                             </span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <Button 
+                        <div className="flex flex-wrap items-center gap-2 md:flex-shrink-0 md:justify-end">
+                          <Button
                             type="button"
-                            size="sm" 
+                            size="sm"
                             variant="outline"
                             className="text-purple-600 hover:bg-purple-50"
                             onClick={(e) => {
@@ -867,9 +872,9 @@ const GMDashboard = () => {
                       key={project.project_id} 
                       className="p-4 rounded-lg border bg-orange-50 border-orange-200"
                     >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
                             <p className="font-semibold text-gray-900">{project.name}</p>
                             {getStatusBadge(project.status)}
                           </div>
@@ -879,7 +884,7 @@ const GMDashboard = () => {
                             {formatCurrency(project.value)}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
                           <Button 
                             size="sm" 
                             variant="outline"
@@ -957,9 +962,9 @@ const GMDashboard = () => {
                         req.status === 'pending' ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50'
                       }`}
                     >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
                             <p className="font-semibold text-gray-900">
                               {req.request_type === 'material' ? 'Material Request' : 'Labour Request'}
                             </p>
@@ -971,9 +976,10 @@ const GMDashboard = () => {
                             <p className="text-sm mt-1">Items: {req.items.length}</p>
                           )}
                         </div>
-                        <Button 
-                          size="sm" 
+                        <Button
+                          size="sm"
                           variant="outline"
+                          className="self-start sm:flex-shrink-0"
                           onClick={() => openViewDialog(req, 'site_request')}
                         >
                           <Eye className="h-4 w-4 mr-1" /> View Details
@@ -1009,9 +1015,9 @@ const GMDashboard = () => {
                       key={entry.entry_id} 
                       className="p-4 rounded-lg border bg-orange-50 border-orange-200"
                     >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
                             <p className="font-semibold text-gray-900">{entry.description}</p>
                             {getStatusBadge(entry.status)}
                           </div>
@@ -1020,7 +1026,7 @@ const GMDashboard = () => {
                             {formatCurrency(entry.amount)}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
                           <Button 
                             size="sm" 
                             className="bg-green-600 hover:bg-green-700"
@@ -1060,8 +1066,8 @@ const GMDashboard = () => {
                           payment.status === 'pending' ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50'
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <div>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
                             <p className="font-medium">{payment.contractor_name || 'Contractor'}</p>
                             <p className="text-sm text-gray-500">Project: {payment.project_name || '-'}</p>
                           </div>
@@ -1184,7 +1190,7 @@ const GMDashboard = () => {
                                 </div>
                               )}
                             </div>
-                            <div className="flex flex-col sm:flex-row gap-2">
+                            <div className="flex flex-wrap gap-2">
                               <Button size="sm" variant="outline" onClick={() => window.open(`/projects/${p.project_id}?tab=scope`, '_blank')} data-testid={`fe-view-${p.project_id}`}>
                                 <Eye className="h-3.5 w-3.5 mr-1" /> View FE
                               </Button>
@@ -1256,7 +1262,7 @@ const GMDashboard = () => {
                   await axios.post(`${API}/gm/final-estimates/${feRejectDialog.project.project_id}/reject`, { reason: feRejectDialog.reason.trim() });
                   toast.success('Final Estimate rejected — sent back to Planning');
                   setFeRejectDialog({ open: false, project: null, reason: '' });
-                  fetchDashboardData(false);
+                  fetchAllData(false);
                 } catch (err) {
                   toast.error(err.response?.data?.detail || 'Failed to reject');
                 } finally { setFeBusy(false); }
@@ -1377,7 +1383,7 @@ const GMDashboard = () => {
       >
         <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto" onPointerDownOutside={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
-            <DialogTitle className="flex items-center justify-between pr-8">
+            <DialogTitle className="flex flex-wrap items-center justify-between gap-2 pr-8">
               <div className="flex items-center gap-2">
                 <Eye className="h-5 w-5 text-amber-600" />
                 {viewType === 're_project' && 'RE Project Details'}
@@ -1414,7 +1420,8 @@ const GMDashboard = () => {
                   <Card className="bg-gray-50">
                     <CardContent className="p-4">
                       <h4 className="font-semibold mb-2 text-gray-700">Client Information</h4>
-                      <div className="grid grid-cols-2 gap-3 text-sm">
+                      {/* break-words: a long email wraps instead of running into Location. */}
+                      <div className="grid grid-cols-2 gap-3 text-sm break-words">
                         <div>
                           <span className="text-gray-500">Name:</span>
                           <p className="font-medium">{viewItem.client_name}</p>
@@ -1443,7 +1450,7 @@ const GMDashboard = () => {
                   <Card>
                     <CardContent className="p-4">
                       <h4 className="font-semibold mb-2 text-gray-700">Project Details</h4>
-                      <div className="grid grid-cols-4 gap-3 text-sm">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
                         <div>
                           <span className="text-gray-500">Project Name:</span>
                           <p className="font-medium">{viewItem.project_name || '-'}</p>
@@ -1676,7 +1683,8 @@ const GMDashboard = () => {
       <Dialog open={reEditDialog} onOpenChange={setReEditDialog}>
         <DialogContent className="max-w-4xl max-h-[90vh]">
           <DialogHeader>
-            <DialogTitle className="flex items-center justify-between">
+            {/* pr-8 keeps Download PDF clear of the dialog's close (X) button. */}
+            <DialogTitle className="flex flex-wrap items-center justify-between gap-2 pr-8">
               <div className="flex items-center gap-2">
                 <Calculator className="h-5 w-5 text-purple-600" />
                 Edit Rough Estimate
@@ -1701,7 +1709,7 @@ const GMDashboard = () => {
               <Card className="bg-gray-50">
                 <CardContent className="p-4">
                   <h4 className="font-semibold mb-2 text-sm text-gray-600">Client Information</h4>
-                  <div className="grid grid-cols-3 gap-3 text-sm">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm break-words">
                     <div><span className="text-gray-500">Name:</span><p className="font-medium">{reEditProject.client_name}</p></div>
                     {reEditProject.client_phone && <div><span className="text-gray-500">Phone:</span><p>{reEditProject.client_phone}</p></div>}
                     {reEditProject.client_email && <div><span className="text-gray-500">Email:</span><p>{reEditProject.client_email}</p></div>}
@@ -1710,7 +1718,7 @@ const GMDashboard = () => {
               </Card>
 
               {/* Project Details */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label>Project Name</Label>
                   <Input value={reEditForm.project_name} onChange={(e) => setReEditForm({...reEditForm, project_name: e.target.value})} />
@@ -1747,8 +1755,9 @@ const GMDashboard = () => {
                     <Plus className="h-4 w-4 mr-1" /> Add Item
                   </Button>
                 </div>
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="w-full text-sm">
+                {/* Scrolls sideways on phones rather than clipping Rate/Total. */}
+                <div className="border rounded-lg overflow-x-auto">
+                  <table className="w-full min-w-[560px] text-sm">
                     <thead className="bg-gray-100">
                       <tr>
                         <th className="px-3 py-2 text-left">Description</th>
