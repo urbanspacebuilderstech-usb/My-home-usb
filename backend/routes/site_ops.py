@@ -5159,6 +5159,33 @@ async def accountant_approve_recorded_expense(expense_id: str, payload: Recorded
         if payload.payment_date:
             updates["payment_date"] = payload.payment_date
     await db.recorded_expenses.update_one({"expense_id": expense_id}, {"$set": updates})
+    # Sep 30 2026 — This is the SE-record -> PM-approve -> Accountant-approve
+    # chain's final step, and like pay_approval before it (see the Aug 6 2026
+    # note in financial.py's release-payment handler — "never synced into
+    # cashflow_ledger... Mr Sridhar was missing 3 of these legs, ₹3.3L+"),
+    # it never called into the Cashflow Engine at all: Direct/Indirect
+    # allocation silently drifted behind the canonical project-expense total
+    # (compute_project_expense_total) for every SE-direct expense approved
+    # here (confirmed live — RE - Dummy Project's ₹697 petty-cash pickup
+    # expense, exp_72b90ec44f46, counted in "Total Expense" but not in the
+    # Cashflow Engine, which showed ₹0 direct_out/indirect_out for the whole
+    # project). Same category resolution full_recompute's replay uses, so a
+    # future recompute can never disagree with what live approval already did.
+    try:
+        from routes.cashflow import allocate_expense
+        cat = exp.get("category", "")
+        if exp.get("expense_type") == "indirect_cost" or exp.get("source") == "indirect_cost":
+            cat = "overhead"
+        await allocate_expense(
+            expense_id=expense_id,
+            project_id=exp.get("project_id"),
+            amount=float(exp.get("amount") or 0),
+            category=cat,
+            project_name=exp.get("project_name", ""),
+            source="approval",
+        )
+    except Exception as _e:
+        logger.warning(f"cashflow allocate_expense failed for recorded_expense {expense_id}: {_e}")
     # Jul 03 2026 — Increment `amount_spent` on the linked petty_cash bucket
     # ONLY at Accountant approval time. Before this moment the SE-recorded
     # expense sat in a "reserved" state and did not consume bucket balance;
