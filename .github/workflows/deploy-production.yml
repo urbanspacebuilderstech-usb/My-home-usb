@@ -82,25 +82,6 @@ jobs:
             echo "==> Preparing fresh build directory"
             rm -rf frontend/build
 
-      # ONE-OFF, Sep 30 2026 — dry run reviewed and confirmed correct against
-      # cheque #041296's real ledger (₹98,000 across 4 bills, ₹1,22,600
-      # credit voided, verified balance -₹67,100 -> +₹30,900). Now running
-      # --apply for real. Remove this step once confirmed applied cleanly;
-      # script_stop is off so a failure here never blocks the real deploy
-      # below.
-      - name: One-off - APPLY bounced-cheque material suspense backfill
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          script_stop: false
-          script: |
-            cd ${{ secrets.VPS_APP_PATH }}/backend
-            if [ -d venv ]; then source venv/bin/activate; fi
-            python scripts/backfill_bounced_cheque_material_suspense.py --apply
-
       - name: Copy built frontend to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
