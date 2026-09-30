@@ -113,6 +113,19 @@ jobs:
               fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab || true
             fi
 
+            # Sep 30 2026 — Several backend workers instead of one, so a slow
+            # request no longer freezes the ERP for everyone. uvicorn reads
+            # WEB_CONCURRENCY; `pm2 start all --update-env` below passes it on.
+            # Each step is one line that exits 0 (script_stop aborts on any
+            # non-zero line); the scripts explain their choices.
+            echo "==> Sizing backend workers"
+            BACKEND_WORKERS=$(bash hostinger_setup/backend_workers.sh || echo 1)
+            export WEB_CONCURRENCY=${BACKEND_WORKERS:-1}
+            echo "WEB_CONCURRENCY=$WEB_CONCURRENCY"
+
+            echo "==> nginx: gzip + long cache for hashed /static/ files"
+            bash hostinger_setup/nginx_static_cache.sh || true
+
             echo "==> Restarting PM2 backend (retrying on transient resource-throttle kills)"
             set +e
             RESTART_OK=0
