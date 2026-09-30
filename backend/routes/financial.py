@@ -7583,6 +7583,21 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
     except Exception as e:
         import logging; logging.getLogger(__name__).warning(f"pooled suspense credit reversal failed for bounced cheque {cheque_id}: {e}")
 
+    # 2d. MATERIAL vendor suspense — see _reverse_cheque_material_suspense_and_bills
+    # docstring. Unlike 2c's labour handling, this ALSO sends every affected
+    # material bill straight back to Approvals automatically (per explicit
+    # user decision) rather than leaving that as a separate reviewed step.
+    try:
+        material_plan = await _reverse_cheque_material_suspense_and_bills(
+            {**cheque, "cheque_id": cheque_id, "bounce_reason": payload.reason.strip()}, user, now,
+        )
+        reversal_summary["material_suspense_credit_voided"] = material_plan.get("total_credit_voided", 0.0)
+        reversal_summary["material_suspense_debit_restored"] = material_plan.get("total_debit_restored", 0.0)
+        reversal_summary["material_bills_sent_to_approvals"] = len(material_plan.get("bills_reversed", [])) + len(material_plan.get("bills_partially_reversed", []))
+        reversal_summary["material_bill_amount_reversed"] = material_plan.get("total_bill_amount_reversed", 0.0)
+    except Exception as e:
+        import logging; logging.getLogger(__name__).warning(f"material suspense/bill reversal failed for bounced cheque {cheque_id}: {e}")
+
     # 3. Audit log
     await create_audit_log(user.user_id, "bounce", "cheque", cheque_id, {
         "cheque_number": cheque.get("cheque_number"),
@@ -7759,6 +7774,284 @@ async def _reverse_cheque_pooled_suspense_credit(cheque: Dict[str, Any], user: U
     plan["request_ids_touched"] = sorted(request_ids_to_reverse)
     plan["total_credit_reversed"] = sum(float(c["amount"] or 0) for c in plan["credits_reversed"])
     plan["total_debit_reversed"] = sum(float(d["amount"] or 0) for d in plan["debits_reversed"])
+    return plan
+
+
+async def _reverse_cheque_material_suspense_and_bills(
+    cheque: Dict[str, Any], user: User, now: str, dry_run: bool = False
+) -> Dict[str, Any]:
+    """Material-vendor counterpart of `_reverse_cheque_pooled_suspense_credit`
+    + `reverse_cheque_suspense_fallout` combined into ONE automatic step.
+
+    Sep 30 2026 — The pooled-suspense bounce correction above was built ONLY
+    for labour (`contractor_suspense_ledger`), and its downstream-bill
+    reversal was deliberately kept a SEPARATE, manual, Super-Admin-reviewed
+    action (`reverse_cheque_suspense_fallout`) — a vendor may already
+    physically hold that money, so auto-reverting their bill's paid status
+    is a consequential decision. Material vendor suspense (`suspense_entries`,
+    type="material") had NEITHER half at all: SS AGENCY's Cheque #041296
+    bounced, but the ₹53,300 of vendor payments its excess had funded
+    (Red brick - Wire cut brick / Red brick - Sulai) stayed fully paid and
+    invisible to Approvals, while the vendor's suspense pool went to
+    -₹67,100 (real debits standing on a credit that was never real).
+
+    Per explicit user decision (Sep 30 2026), this runs fully automatically
+    on every bounce rather than as a separate reviewed step — every material
+    bill that drew from this cheque's suspense credit is sent straight back
+    to Approvals in the same call that marks the cheque bounced.
+
+    Mechanics, mirroring the labour version exactly:
+      • True-FIFO replay of the vendor's full suspense_entries ledger,
+        tracking (unlike _resolve_suspense_funding_source, which discards
+        this) exactly how much of EACH debit was funded by the bounced
+        credit specifically — a debit can straddle a bounced credit and a
+        still-good one.
+      • The bounced credit is voided in full (an un-consumed portion is
+        just as fake as a consumed one) via an offsetting debit entry;
+        never mutate an existing entry — audit trail stays intact.
+      • Each affected debit gets an offsetting credit entry restoring
+        exactly the bounced portion.
+      • The debit's own recorded_expenses mirror row (the "approval_suspense"
+        leg) is fully marked cheque_bounced if the WHOLE debit was
+        bounced-credit-funded, or its amount is reduced in place (kept
+        visible, smaller) if only PART was — same partial pattern the
+        income-side reversal above already uses.
+      • The underlying material bill's paid_amount is reduced by the
+        bounced portion: fully back to pending_accounts_approval if that
+        zeroes it out, partially_paid with a recomputed remaining_balance
+        otherwise — satisfying "if some entries partially used that cheque,
+        only that amount comes back to Approvals" rather than the whole
+        bill. cheque_bounced / bounced_from_cheque_* flags mirror the
+        existing direct-leg convention so the ALREADY-EXISTING "⚠ Cheque
+        Bounced" badge in Approvals > Materials picks it up with no
+        frontend change needed.
+    """
+    cheque_id = cheque["cheque_id"]
+    reason = payload_reason = cheque.get("bounce_reason") or ""
+    reason_line = f"Cheque {cheque.get('cheque_number')} bounced" + (f" ({reason})" if reason else "")
+
+    plan: Dict[str, Any] = {
+        "credits_voided": [],
+        "debits_restored": [],
+        "expense_legs_touched": [],
+        "bills_reversed": [],
+        "bills_partially_reversed": [],
+    }
+
+    credits = await db.suspense_entries.find(
+        {"type": "material", "amount": {"$gt": 0.5}, "linked_cheque_ids": cheque_id},
+        {"_id": 0},
+    ).to_list(50)
+    if not credits:
+        return plan
+
+    vendor_names = {c.get("vendor_name") for c in credits if c.get("vendor_name")}
+    bill_reductions: Dict[str, float] = {}  # material_expenses.expense_id -> total to reduce
+
+    for vendor_name in vendor_names:
+        all_entries = await db.suspense_entries.find(
+            {"type": "material", "vendor_name": vendor_name}, {"_id": 0},
+        ).sort([("created_at", 1), ("entry_id", 1)]).to_list(20000)
+        # Sep 30 2026 — exclude our OWN prior reversal entries from the
+        # replay (same caution the labour version documents): re-running
+        # this on an already-partly-reversed vendor must not feed a
+        # previously-inserted offsetting entry back into the FIFO queue as
+        # if it were a fresh real transaction.
+        entries = [e for e in all_entries if e.get("source_type") != "cheque_bounce_reversal"]
+        by_id = {e["entry_id"]: e for e in entries if e.get("entry_id")}
+        already_reversed = {
+            e.get("reversed_entry_id") for e in all_entries
+            if e.get("source_type") == "cheque_bounce_reversal" and e.get("reversed_entry_id")
+        }
+
+        # True-FIFO replay, tracking provenance (extends the read-only replay
+        # in _resolve_suspense_funding_source, which discards this mapping).
+        queue: List[List[Any]] = []  # [entry_id, remaining]
+        consumed: Dict[str, Dict[str, float]] = {}  # debit_entry_id -> {credit_entry_id: amount}
+        for se in entries:
+            amt = float(se.get("amount") or 0)
+            eid = se.get("entry_id")
+            if amt > 0.5:
+                queue.append([eid, amt])
+            elif amt < -0.5:
+                remaining = -amt
+                while remaining > 0.5 and queue:
+                    head = queue[0]
+                    take = min(remaining, head[1])
+                    consumed.setdefault(eid, {})
+                    consumed[eid][head[0]] = consumed[eid].get(head[0], 0.0) + take
+                    head[1] -= take
+                    remaining -= take
+                    if head[1] <= 0.5:
+                        queue.pop(0)
+
+        bounced_credit_ids = {c["entry_id"] for c in credits if c.get("vendor_name") == vendor_name}
+
+        for credit_id in bounced_credit_ids:
+            if credit_id in already_reversed:
+                plan.setdefault("skipped_already_voided_credits", []).append(credit_id)
+                continue
+            credit = by_id.get(credit_id)
+            if not credit:
+                continue
+            if not dry_run:
+                await db.suspense_entries.insert_one({
+                    "entry_id": f"se_{uuid.uuid4().hex[:10]}",
+                    "type": "material",
+                    "vendor_name": vendor_name,
+                    "amount": -float(credit.get("amount") or 0),
+                    "description": f"Void — {reason_line} (reverses excess credit {credit_id})",
+                    "payment_mode": credit.get("payment_mode"),
+                    "linked_request_id": credit.get("linked_request_id"),
+                    "source_type": "cheque_bounce_reversal",
+                    "reversed_entry_id": credit_id,
+                    "cheque_id": cheque_id,
+                    "created_at": now,
+                    "created_by": user.user_id,
+                })
+            plan["credits_voided"].append({"entry_id": credit_id, "amount": credit.get("amount"), "vendor_name": vendor_name})
+
+        for debit_id, sources in consumed.items():
+            if debit_id in already_reversed:
+                plan.setdefault("skipped_already_restored_debits", []).append(debit_id)
+                continue
+            bounced_amt = round(sum(a for cid, a in sources.items() if cid in bounced_credit_ids), 2)
+            if bounced_amt <= 0.5:
+                continue
+            debit = by_id.get(debit_id)
+            if not debit:
+                continue
+            full_debit_amt = abs(float(debit.get("amount") or 0))
+
+            if not dry_run:
+                await db.suspense_entries.insert_one({
+                    "entry_id": f"se_{uuid.uuid4().hex[:10]}",
+                    "type": "material",
+                    "vendor_name": vendor_name,
+                    "amount": bounced_amt,
+                    "description": f"Restore — {reason_line} (bill sent back to Approvals, was funded by voided credit)",
+                    "payment_mode": debit.get("payment_mode"),
+                    "linked_request_id": debit.get("linked_request_id"),
+                    "source_type": "cheque_bounce_reversal",
+                    "reversed_entry_id": debit_id,
+                    "cheque_id": cheque_id,
+                    "created_at": now,
+                    "created_by": user.user_id,
+                })
+            plan["debits_restored"].append({"entry_id": debit_id, "amount": bounced_amt, "vendor_name": vendor_name})
+
+            # The debit's own recorded_expenses mirror row ("approval_suspense"
+            # leg) — full bounce if the WHOLE debit was bounced-credit-funded,
+            # else reduce its amount in place (same partial pattern the
+            # income-side reversal already uses above).
+            leg_expense_id = debit.get("linked_expense_id")
+            if leg_expense_id:
+                leg = await db.recorded_expenses.find_one({"expense_id": leg_expense_id}, {"_id": 0})
+                if leg and leg.get("status") != "cheque_bounced":
+                    if bounced_amt >= full_debit_amt - 0.5:
+                        if not dry_run:
+                            await db.recorded_expenses.update_one(
+                                {"expense_id": leg_expense_id},
+                                {"$set": {
+                                    "status": "cheque_bounced", "bounced_at": now,
+                                    "bounced_by_cheque_id": cheque_id, "bounce_reason": reason_line,
+                                    "updated_at": now,
+                                }},
+                            )
+                            try:
+                                from routes.cashflow import reverse_allocation
+                                await reverse_allocation(leg_expense_id, kind="expense")
+                            except Exception as e:
+                                logger.warning(f"cashflow reverse_allocation failed for {leg_expense_id}: {e}")
+                    else:
+                        new_leg_amt = round(float(leg.get("amount") or 0) - bounced_amt, 2)
+                        if not dry_run:
+                            already = float(leg.get("partial_bounce_deducted") or 0)
+                            await db.recorded_expenses.update_one(
+                                {"expense_id": leg_expense_id},
+                                {"$set": {
+                                    "amount": max(0.0, new_leg_amt),
+                                    "partial_bounce_deducted": already + bounced_amt,
+                                    "last_partial_bounce_at": now,
+                                    "last_partial_bounce_cheque_id": cheque_id,
+                                    "last_partial_bounce_reason": reason_line,
+                                    "updated_at": now,
+                                }},
+                            )
+                            try:
+                                from routes.cashflow import reverse_allocation, allocate_expense
+                                await reverse_allocation(leg_expense_id, kind="expense")
+                                refreshed = await db.recorded_expenses.find_one({"expense_id": leg_expense_id}, {"_id": 0})
+                                if refreshed and float(refreshed.get("amount") or 0) > 0.5:
+                                    await allocate_expense(
+                                        leg_expense_id, refreshed.get("project_id"), float(refreshed["amount"]),
+                                        refreshed.get("category", ""), refreshed.get("project_name", ""), source="approval",
+                                    )
+                            except Exception as e:
+                                logger.warning(f"cashflow reverse_allocation failed for {leg_expense_id}: {e}")
+                    plan["expense_legs_touched"].append({"expense_id": leg_expense_id, "reduced_by": bounced_amt, "new_leg_amount": None if bounced_amt >= full_debit_amt - 0.5 else max(0.0, new_leg_amt)})
+
+            bill_id = debit.get("linked_request_id")
+            if bill_id:
+                bill_reductions[bill_id] = bill_reductions.get(bill_id, 0.0) + bounced_amt
+
+    # Apply the accumulated reduction to each affected bill once (a bill can
+    # have drawn suspense across multiple separate payment legs over time).
+    for expense_id, reduction in bill_reductions.items():
+        bill = await db.material_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+        if not bill:
+            continue
+        bill_amount = float(bill.get("final_amount") or bill.get("estimated_cost") or bill.get("estimated_price") or bill.get("final_price") or 0)
+        old_paid = float(bill.get("paid_amount") or 0)
+        new_paid = max(0.0, round(old_paid - reduction, 2))
+        update: Dict[str, Any] = {
+            "cheque_bounced": True,
+            "bounced_from_cheque_id": cheque_id,
+            "bounced_from_cheque_number": cheque.get("cheque_number"),
+            "bounced_from_cheque_amount": cheque.get("amount"),
+            "bounce_reason": reason_line,
+            "bounced_at": now,
+            "updated_at": now,
+        }
+        if new_paid <= 0.5:
+            update.update({
+                "status": "pending_accounts_approval",
+                "paid_amount": 0,
+                "paid_via_expense_id": None,
+                "paid_at": None,
+                "remaining_balance": bill_amount,
+            })
+            plan["bills_reversed"].append({"expense_id": expense_id, "reduced_by": reduction, "bill_amount": bill_amount})
+        else:
+            update.update({
+                "status": "partially_paid",
+                "paid_amount": new_paid,
+                "remaining_balance": max(0.0, round(bill_amount - new_paid, 2)),
+            })
+            plan["bills_partially_reversed"].append({"expense_id": expense_id, "reduced_by": reduction, "new_paid_amount": new_paid})
+        if not dry_run:
+            await db.material_expenses.update_one({"expense_id": expense_id}, {"$set": update})
+
+            # Flag the parent material_requests too (informational — matches
+            # the existing direct-leg convention above) so SE-facing views agree.
+            source_request_id = bill.get("source_request_id")
+            if source_request_id:
+                await db.material_requests.update_one(
+                    {"request_id": source_request_id},
+                    {"$set": {
+                        "cheque_bounced": True,
+                        "bounced_from_cheque_id": cheque_id,
+                        "bounced_from_cheque_number": cheque.get("cheque_number"),
+                        "bounced_from_cheque_amount": cheque.get("amount"),
+                        "bounce_reason": reason_line,
+                        "bounced_at": now,
+                        "updated_at": now,
+                    }},
+                )
+
+    plan["total_credit_voided"] = sum(float(c["amount"] or 0) for c in plan["credits_voided"])
+    plan["total_debit_restored"] = sum(float(d["amount"] or 0) for d in plan["debits_restored"])
+    plan["total_bill_amount_reversed"] = sum(float(b["reduced_by"] or 0) for b in plan["bills_reversed"] + plan["bills_partially_reversed"])
     return plan
 
 
