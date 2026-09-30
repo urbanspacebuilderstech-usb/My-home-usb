@@ -399,7 +399,8 @@ export default function CRMSales() {
   // "RE Sent to Client" banner so Sales can see who prepared the estimate).
   const [linkedREPlanner, setLinkedREPlanner] = useState('');
   // Sep 18 2026 — revision number of the linked RE project (0 = original),
-  // shown as "RE{n}" in that same banner in place of the Revision button.
+  // shown as "RE{n+1}" (first RE = RE1, like the Summary tab) in that same
+  // banner in place of the Revision button.
   const [linkedRERevision, setLinkedRERevision] = useState(null);
   const [quoteLinkLoading, setQuoteLinkLoading] = useState(false);
   // Regenerate-RE remarks dialog
@@ -577,10 +578,13 @@ export default function CRMSales() {
       // RE link no longer changes the stage.
       if (['stg_re_to_client'].includes(stage?.stage_id)) {
         const lead = leads.find(l => l.lead_id === leadId);
-        if (lead) {
-          openReClientAction(lead, 'approved');
+        if (lead?.current_stage_id === 'stg_re_to_client') return;  // already there
+        if (lead?.current_stage_id !== 'stg_re_from_planning') {
+          toast.error('RE - Client comes after RE Approve: the GM must approve the RE first.');
           return;
         }
+        openReClientAction(lead, 'approved');
+        return;
       }
       
       // Intercept: Show lost reason dialog
@@ -1908,9 +1912,10 @@ export default function CRMSales() {
                                 View RE
                               </Badge>
                             )}
-                            {lead.re_project_id && (lead.re_revision_number || 0) > 0 && (
+                            {/* Which RE the lead is on, counted like the Summary tab (first RE = RE1). */}
+                            {lead.re_project_id && (
                               <Badge className="bg-orange-100 text-orange-700 text-[10px] px-1.5 border border-orange-300">
-                                RE{lead.re_revision_number}
+                                RE{(lead.re_revision_number || 0) + 1}
                               </Badge>
                             )}
                             {lead.current_stage_id === 'stg_accountant_approval' && (
@@ -2060,11 +2065,10 @@ export default function CRMSales() {
                             >
                               View RE
                             </Badge>
-                            {(lead.re_revision_number || 0) > 0 && (
-                              <Badge className="bg-orange-100 text-orange-700 text-[10px] px-1.5 border border-orange-300">
-                                RE{lead.re_revision_number}
-                              </Badge>
-                            )}
+                            {/* Which RE the lead is on, counted like the Summary tab (first RE = RE1). */}
+                            <Badge className="bg-orange-100 text-orange-700 text-[10px] px-1.5 border border-orange-300">
+                              RE{(lead.re_revision_number || 0) + 1}
+                            </Badge>
                           </div>
                         ) : (
                           <span className="text-xs text-gray-400">-</span>
@@ -2603,13 +2607,12 @@ export default function CRMSales() {
                             </Button>
                           )}
                           {/* Sep 18 2026 — Revision button removed; this now
-                              shows the current RE revision, which bumps
-                              automatically whenever "Regenerate RE" creates a
-                              new one. Sep 30 2026 — numbered like the lead row,
-                              GM and Planning (RE0 original, RE1 first
-                              re-request…); it used to read one higher. */}
+                              shows the current RE, which bumps automatically
+                              whenever "Regenerate RE" creates a new one.
+                              Counted like the Summary tab and the lead row:
+                              first RE = RE1. */}
                           <div className="w-full flex items-center justify-center rounded-md border border-orange-300 bg-orange-50 text-orange-700 text-sm font-semibold" data-testid="detail-re-revision-count">
-                            RE{linkedRERevision ?? 0}
+                            RE{(linkedRERevision ?? 0) + 1}
                           </div>
                         </div>
                       </div>
@@ -3165,9 +3168,11 @@ export default function CRMSales() {
                   Sep 30 2026 — Deal Close is back in this row: in the new flow
                   a lead reaches it from USB Project Visit, and the chip opens
                   the Convert Deal / Collect Advance popup (never a direct
-                  move). RE Approve (GM approval) and RE - Client (the
-                  "Approved" button above) stay off it. */}
-              {stages.filter(s => !['stg_accountant_approval', 'stg_re_from_planning', 'stg_re_to_client'].includes(s.stage_id)).map(stage => (
+                  move). RE - Client is in the row too (Sales Head asked):
+                  from RE Approve it opens the "Client Approved RE"
+                  confirmation. RE Approve itself stays off — only GM
+                  approval sets it. */}
+              {stages.filter(s => !['stg_accountant_approval', 'stg_re_from_planning'].includes(s.stage_id)).map(stage => (
                 <Button
                   key={stage.stage_id}
                   variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'}
@@ -3437,7 +3442,7 @@ export default function CRMSales() {
                                 : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'
                         }`}
                       >
-                        RE{rev.revision}
+                        RE{(rev.revision || 0) + 1}
                         {isApproved && <CheckCircle className="inline h-3 w-3 ml-1" />}
                       </button>
                     );
@@ -3453,7 +3458,7 @@ export default function CRMSales() {
                   </span>
                 )}
                 <Badge className="text-[10px] bg-gray-100 text-gray-600 border-gray-200">
-                  <GitBranch className="h-3 w-3 mr-0.5" /> RE{selectedREProject.revision || 0}
+                  <GitBranch className="h-3 w-3 mr-0.5" /> RE{(selectedREProject.revision || 0) + 1}
                 </Badge>
                 {RE_STATUS_CONFIG[selectedREProject.status] && (
                   <Badge className={RE_STATUS_CONFIG[selectedREProject.status].color}>
