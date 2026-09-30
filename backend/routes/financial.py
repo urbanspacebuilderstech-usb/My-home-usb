@@ -7887,12 +7887,45 @@ async def _reverse_cheque_material_suspense_and_bills(
 
         bounced_credit_ids = {c["entry_id"] for c in credits if c.get("vendor_name") == vendor_name}
 
+        # Sep 30 2026 — `_live_vendor_suspense_balance` (the function that
+        # actually gates what an accountant can spend, and what the Pay &
+        # Settle dialog / Material Vendor summary show) does NOT sum every
+        # suspense_entries row — it already EXCLUDES any row whose
+        # linked_expense_id points at a recorded_expenses doc that is
+        # missing, deleted, or has a status in _PAID_LEG_EXCLUDED_STATUS
+        # (which includes "cheque_bounced"). A material suspense excess
+        # credit's linked_expense_id is always the SAME recorded_expenses
+        # row as the cheque's direct leg (`used_for_expense_id`) — and step
+        # "2b" above always marks THAT row cheque_bounced before this
+        # function ever runs. So by the time we get here, the credit is
+        # already excluded from the live balance with zero extra work.
+        # Inserting an explicit voiding entry on top of that would exclude
+        # it a SECOND time (the new entry is unlinked, so it always counts),
+        # silently overcorrecting the vendor's balance. Same logic applies
+        # to a FULLY bounced-credit-funded debit: marking its own leg
+        # cheque_bounced is enough to drop it from the live sum, so no
+        # separate offsetting entry for that case either. Only a PARTIALLY
+        # funded debit still needs an explicit entry, because there is no
+        # status-based way to exclude "only part of" one row.
+        async def _already_excluded(expense_id: Optional[str]) -> bool:
+            if not expense_id:
+                return False
+            doc = await db.recorded_expenses.find_one(
+                {"expense_id": expense_id}, {"_id": 0, "status": 1, "is_deleted": 1},
+            )
+            if not doc:
+                return True
+            return (doc.get("status") or "").lower() in _PAID_LEG_EXCLUDED_STATUS or bool(doc.get("is_deleted"))
+
         for credit_id in bounced_credit_ids:
-            if credit_id in already_reversed:
-                plan.setdefault("skipped_already_voided_credits", []).append(credit_id)
-                continue
             credit = by_id.get(credit_id)
             if not credit:
+                continue
+            if await _already_excluded(credit.get("linked_expense_id")):
+                plan["credits_voided"].append({"entry_id": credit_id, "amount": credit.get("amount"), "vendor_name": vendor_name, "via": "already_excluded"})
+                continue
+            if credit_id in already_reversed:
+                plan.setdefault("skipped_already_voided_credits", []).append(credit_id)
                 continue
             if not dry_run:
                 await db.suspense_entries.insert_one({
@@ -7909,12 +7942,9 @@ async def _reverse_cheque_material_suspense_and_bills(
                     "created_at": now,
                     "created_by": user.user_id,
                 })
-            plan["credits_voided"].append({"entry_id": credit_id, "amount": credit.get("amount"), "vendor_name": vendor_name})
+            plan["credits_voided"].append({"entry_id": credit_id, "amount": credit.get("amount"), "vendor_name": vendor_name, "via": "explicit_entry"})
 
         for debit_id, sources in consumed.items():
-            if debit_id in already_reversed:
-                plan.setdefault("skipped_already_restored_debits", []).append(debit_id)
-                continue
             bounced_amt = round(sum(a for cid, a in sources.items() if cid in bounced_credit_ids), 2)
             if bounced_amt <= 0.5:
                 continue
@@ -7922,74 +7952,89 @@ async def _reverse_cheque_material_suspense_and_bills(
             if not debit:
                 continue
             full_debit_amt = abs(float(debit.get("amount") or 0))
+            is_full = bounced_amt >= full_debit_amt - 0.5
+            leg_expense_id = debit.get("linked_expense_id")
+            leg = await db.recorded_expenses.find_one({"expense_id": leg_expense_id}, {"_id": 0}) if leg_expense_id else None
 
-            if not dry_run:
-                await db.suspense_entries.insert_one({
-                    "entry_id": f"se_{uuid.uuid4().hex[:10]}",
-                    "type": "material",
-                    "vendor_name": vendor_name,
-                    "amount": bounced_amt,
-                    "description": f"Restore — {reason_line} (bill sent back to Approvals, was funded by voided credit)",
-                    "payment_mode": debit.get("payment_mode"),
-                    "linked_request_id": debit.get("linked_request_id"),
-                    "source_type": "cheque_bounce_reversal",
-                    "reversed_entry_id": debit_id,
-                    "cheque_id": cheque_id,
-                    "created_at": now,
-                    "created_by": user.user_id,
-                })
-            plan["debits_restored"].append({"entry_id": debit_id, "amount": bounced_amt, "vendor_name": vendor_name})
+            if is_full:
+                # Idempotency for this path lives on the leg's own status,
+                # since (per above) we deliberately don't insert a marker
+                # entry for it.
+                if leg and leg.get("status") == "cheque_bounced":
+                    plan.setdefault("skipped_already_restored_debits", []).append(debit_id)
+                    continue
+            elif debit_id in already_reversed:
+                plan.setdefault("skipped_already_restored_debits", []).append(debit_id)
+                continue
+
+            if not is_full:
+                if not dry_run:
+                    await db.suspense_entries.insert_one({
+                        "entry_id": f"se_{uuid.uuid4().hex[:10]}",
+                        "type": "material",
+                        "vendor_name": vendor_name,
+                        "amount": bounced_amt,
+                        "description": f"Restore — {reason_line} (bill partially sent back to Approvals, was funded by voided credit)",
+                        "payment_mode": debit.get("payment_mode"),
+                        "linked_request_id": debit.get("linked_request_id"),
+                        "source_type": "cheque_bounce_reversal",
+                        "reversed_entry_id": debit_id,
+                        "cheque_id": cheque_id,
+                        "created_at": now,
+                        "created_by": user.user_id,
+                    })
+                plan["debits_restored"].append({"entry_id": debit_id, "amount": bounced_amt, "vendor_name": vendor_name, "via": "explicit_entry"})
+            else:
+                plan["debits_restored"].append({"entry_id": debit_id, "amount": bounced_amt, "vendor_name": vendor_name, "via": "status_exclusion"})
 
             # The debit's own recorded_expenses mirror row ("approval_suspense"
             # leg) — full bounce if the WHOLE debit was bounced-credit-funded,
             # else reduce its amount in place (same partial pattern the
             # income-side reversal already uses above).
-            leg_expense_id = debit.get("linked_expense_id")
-            if leg_expense_id:
-                leg = await db.recorded_expenses.find_one({"expense_id": leg_expense_id}, {"_id": 0})
-                if leg and leg.get("status") != "cheque_bounced":
-                    if bounced_amt >= full_debit_amt - 0.5:
-                        if not dry_run:
-                            await db.recorded_expenses.update_one(
-                                {"expense_id": leg_expense_id},
-                                {"$set": {
-                                    "status": "cheque_bounced", "bounced_at": now,
-                                    "bounced_by_cheque_id": cheque_id, "bounce_reason": reason_line,
-                                    "updated_at": now,
-                                }},
-                            )
-                            try:
-                                from routes.cashflow import reverse_allocation
-                                await reverse_allocation(leg_expense_id, kind="expense")
-                            except Exception as e:
-                                logger.warning(f"cashflow reverse_allocation failed for {leg_expense_id}: {e}")
-                    else:
-                        new_leg_amt = round(float(leg.get("amount") or 0) - bounced_amt, 2)
-                        if not dry_run:
-                            already = float(leg.get("partial_bounce_deducted") or 0)
-                            await db.recorded_expenses.update_one(
-                                {"expense_id": leg_expense_id},
-                                {"$set": {
-                                    "amount": max(0.0, new_leg_amt),
-                                    "partial_bounce_deducted": already + bounced_amt,
-                                    "last_partial_bounce_at": now,
-                                    "last_partial_bounce_cheque_id": cheque_id,
-                                    "last_partial_bounce_reason": reason_line,
-                                    "updated_at": now,
-                                }},
-                            )
-                            try:
-                                from routes.cashflow import reverse_allocation, allocate_expense
-                                await reverse_allocation(leg_expense_id, kind="expense")
-                                refreshed = await db.recorded_expenses.find_one({"expense_id": leg_expense_id}, {"_id": 0})
-                                if refreshed and float(refreshed.get("amount") or 0) > 0.5:
-                                    await allocate_expense(
-                                        leg_expense_id, refreshed.get("project_id"), float(refreshed["amount"]),
-                                        refreshed.get("category", ""), refreshed.get("project_name", ""), source="approval",
-                                    )
-                            except Exception as e:
-                                logger.warning(f"cashflow reverse_allocation failed for {leg_expense_id}: {e}")
-                    plan["expense_legs_touched"].append({"expense_id": leg_expense_id, "reduced_by": bounced_amt, "new_leg_amount": None if bounced_amt >= full_debit_amt - 0.5 else max(0.0, new_leg_amt)})
+            if leg_expense_id and leg and leg.get("status") != "cheque_bounced":
+                if is_full:
+                    if not dry_run:
+                        await db.recorded_expenses.update_one(
+                            {"expense_id": leg_expense_id},
+                            {"$set": {
+                                "status": "cheque_bounced", "bounced_at": now,
+                                "bounced_by_cheque_id": cheque_id, "bounce_reason": reason_line,
+                                "updated_at": now,
+                            }},
+                        )
+                        try:
+                            from routes.cashflow import reverse_allocation
+                            await reverse_allocation(leg_expense_id, kind="expense")
+                        except Exception as e:
+                            logger.warning(f"cashflow reverse_allocation failed for {leg_expense_id}: {e}")
+                    new_leg_amt = None
+                else:
+                    new_leg_amt = round(float(leg.get("amount") or 0) - bounced_amt, 2)
+                    if not dry_run:
+                        already = float(leg.get("partial_bounce_deducted") or 0)
+                        await db.recorded_expenses.update_one(
+                            {"expense_id": leg_expense_id},
+                            {"$set": {
+                                "amount": max(0.0, new_leg_amt),
+                                "partial_bounce_deducted": already + bounced_amt,
+                                "last_partial_bounce_at": now,
+                                "last_partial_bounce_cheque_id": cheque_id,
+                                "last_partial_bounce_reason": reason_line,
+                                "updated_at": now,
+                            }},
+                        )
+                        try:
+                            from routes.cashflow import reverse_allocation, allocate_expense
+                            await reverse_allocation(leg_expense_id, kind="expense")
+                            refreshed = await db.recorded_expenses.find_one({"expense_id": leg_expense_id}, {"_id": 0})
+                            if refreshed and float(refreshed.get("amount") or 0) > 0.5:
+                                await allocate_expense(
+                                    leg_expense_id, refreshed.get("project_id"), float(refreshed["amount"]),
+                                    refreshed.get("category", ""), refreshed.get("project_name", ""), source="approval",
+                                )
+                        except Exception as e:
+                            logger.warning(f"cashflow reverse_allocation failed for {leg_expense_id}: {e}")
+                plan["expense_legs_touched"].append({"expense_id": leg_expense_id, "reduced_by": bounced_amt, "new_leg_amount": new_leg_amt})
 
             bill_id = debit.get("linked_request_id")
             if bill_id:
