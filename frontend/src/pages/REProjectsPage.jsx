@@ -511,8 +511,10 @@ export default function REProjectsPage({ embedded = false }) {
                     className={`p-4 hover:bg-gray-50 transition-all ${isClientApproved ? 'border-l-4 border-l-green-500 bg-green-50/30' : ''} ${hasOtherApproved ? 'opacity-50' : ''}`}
                     data-testid={`re-project-${project.re_project_id}`}
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
+                    {/* Phones/small tablets: details on top, actions wrap below
+                        (side by side they pushed the page past the screen). */}
+                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                      <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-2 flex-wrap">
                           {project.re_number && (
                             <span 
@@ -563,7 +565,7 @@ export default function REProjectsPage({ embedded = false }) {
                         </div>
                         
                         {project.client_phone && (
-                          <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                          <p className="text-xs text-gray-500 mt-2 flex flex-wrap items-center gap-1 break-all">
                             <Phone className="h-3 w-3" /> {project.client_phone}
                             {project.client_email && (
                               <>
@@ -594,7 +596,7 @@ export default function REProjectsPage({ embedded = false }) {
                         )}
                       </div>
                       
-                      <div className="flex items-center gap-2 ml-4">
+                      <div className="flex flex-wrap items-center gap-2 md:ml-4">
                         {canEdit && project.status === 're_requested' && (
                           <Button
                             size="sm"
