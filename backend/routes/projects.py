@@ -2326,8 +2326,8 @@ async def create_client_portal(project_id: str, data: dict, user: User = Depends
         raise HTTPException(status_code=404, detail="Project not found")
 
     # Lazy-import auth helper
-    from .auth import hash_password as _hash
-    pw_hash = _hash(password)
+    from .auth import hash_password_async as _hash
+    pw_hash = await _hash(password)
 
     existing = await db.users.find_one({"email": email}, {"_id": 0})
     now = datetime.now(timezone.utc).isoformat()
@@ -14422,14 +14422,14 @@ async def update_project_module_permissions(
     confirmation in the body (`{password, permissions}`)."""
     if user.role not in ("super_admin", "super_architect"):
         raise HTTPException(status_code=403, detail="Super Admin only")
-    from routes.auth import verify_password as _verify_pw
+    from routes.auth import verify_password_async as _verify_pw
 
     password = (body.get("password") or "").strip()
     if not password:
         raise HTTPException(status_code=400, detail="Super Admin password required")
     admin_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1, "hashed_password": 1})
     pw_hash = (admin_doc or {}).get("password_hash") or (admin_doc or {}).get("hashed_password")
-    if not pw_hash or not _verify_pw(password, pw_hash):
+    if not pw_hash or not await _verify_pw(password, pw_hash):
         raise HTTPException(status_code=401, detail="Invalid Super Admin password")
 
     perms = body.get("permissions") or {}
@@ -14642,10 +14642,10 @@ async def workflow_master_save_role(
     password = (body.get("password") or "").strip()
     if not password:
         raise HTTPException(status_code=400, detail="Super Admin password required")
-    from routes.auth import verify_password as _verify_pw
+    from routes.auth import verify_password_async as _verify_pw
     admin = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1, "hashed_password": 1})
     pw_hash = (admin or {}).get("password_hash") or (admin or {}).get("hashed_password")
-    if not pw_hash or not _verify_pw(password, pw_hash):
+    if not pw_hash or not await _verify_pw(password, pw_hash):
         raise HTTPException(status_code=401, detail="Invalid Super Admin password")
 
     incoming = body.get("menus") or []

@@ -1080,19 +1080,16 @@ async def get_pre_sales_dashboard(user: User = Depends(get_current_user)):
     }
 
 
-@router.get("/crm/pre-sales/leads")
-async def get_pre_sales_leads(
-    stage_id: Optional[str] = None,
-    source: Optional[str] = None,
-    search: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    user: User = Depends(get_current_user)
-):
-    """Get Pre-Sales leads with filters - filtered by assigned user for non-admins"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales_head"]:
-        raise HTTPException(status_code=403, detail="Pre-Sales access required")
-    
+def _scan_due(key: str, every_seconds: int = 60) -> bool:
+    """True at most once per `every_seconds` for `key` in this worker."""
+    now_ts = datetime.now(timezone.utc).timestamp()
+    if now_ts - _DASHBOARD_SCAN_CACHE.get(key, 0) <= every_seconds:
+        return False
+    _DASHBOARD_SCAN_CACHE[key] = now_ts
+    return True
+
+
+async def _redistribute_stale_rnr_leads():
     # Auto-redistribute stale RNR leads (14+ days from last RNR attempt)
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(days=14)
@@ -1137,7 +1134,8 @@ async def get_pre_sales_leads(
                     owner_name = owner_doc["name"] if owner_doc else "Unknown"
                     
                     await db.leads.update_one(
-                        {"lead_id": lead["lead_id"]},
+                        # Guarded so two workers scanning at once move a lead once.
+                        {"lead_id": lead["lead_id"], "rnr_redistributed": {"$ne": True}},
                         {"$set": {
                             "current_stage_id": "stg_new_rnr",
                             "assigned_to": new_owner,
@@ -1159,7 +1157,9 @@ async def get_pre_sales_leads(
                 logger.info(f"RNR auto-redistribution: {len(stale_rnr)} leads redistributed among {len(pre_sales_team)} team members")
     except Exception as e:
         logger.error(f"RNR auto-redistribution error: {e}")
-    
+
+
+async def _auto_move_due_presales_followups(user: User):
     # Auto-move leads with due follow-ups to the Follow-up stage
     try:
         tomorrow_str = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -1181,7 +1181,8 @@ async def get_pre_sales_leads(
             now = datetime.now(timezone.utc)
             for lead in due_leads:
                 await db.leads.update_one(
-                    {"lead_id": lead["lead_id"]},
+                    # Guarded so two workers scanning at once push one history entry.
+                    {"lead_id": lead["lead_id"], "current_stage_id": lead["current_stage_id"]},
                     {"$set": {
                         "previous_stage_id": lead["current_stage_id"],
                         "current_stage_id": "stg_follow_up",
@@ -1200,6 +1201,30 @@ async def get_pre_sales_leads(
             logger.info(f"Pre-Sales follow-up auto-move: {len(due_leads)} leads moved to Follow-up stage")
     except Exception as e:
         logger.error(f"Pre-Sales follow-up auto-move error: {e}")
+
+
+@router.get("/crm/pre-sales/leads")
+async def get_pre_sales_leads(
+    stage_id: Optional[str] = None,
+    source: Optional[str] = None,
+    search: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get Pre-Sales leads with filters - filtered by assigned user for non-admins"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales_head"]:
+        raise HTTPException(status_code=403, detail="Pre-Sales access required")
+    
+    # Sep 30 2026 — These two write-side scans ran on every call, and the board
+    # polls this list every 15s for every open Pre-Sales tab, so the same
+    # lead collection was scanned several times a second all day. Their rules
+    # are day-granular (14-day RNR, due-today follow-ups), so once a minute is
+    # just as correct. Same throttle the Sales dashboard's follow-up scan uses.
+    if _scan_due("presales_rnr_scan"):
+        await _redistribute_stale_rnr_leads()
+    if _scan_due(f"presales_followup_scan:{user.user_id if user.role == 'pre_sales' else 'all'}"):
+        await _auto_move_due_presales_followups(user)
     
     query = {"stage_type": "pre_sales"}
     
@@ -5248,6 +5273,18 @@ from google.oauth2.credentials import Credentials
 from fastapi.responses import RedirectResponse
 import warnings
 
+
+async def _gexec(request):
+    """Run a googleapiclient request in a thread.
+
+    Sep 30 2026 — `.execute()` is a blocking HTTP round trip to Google (plus a
+    token refresh when one is due). These routes called it inline, so every
+    other request on the worker, logins included, waited for Google to answer;
+    an import that reads every tab froze the ERP for seconds. The background
+    auto-sync loop in server.py already runs these calls in a thread.
+    """
+    return await asyncio.to_thread(request.execute)
+
 # Google Sheets OAuth Config - loaded from environment
 GOOGLE_SHEETS_CLIENT_ID = os.environ.get('GOOGLE_SHEETS_CLIENT_ID', '')
 GOOGLE_SHEETS_CLIENT_SECRET = os.environ.get('GOOGLE_SHEETS_CLIENT_SECRET', '')
@@ -5648,7 +5685,7 @@ async def sheets_oauth_callback(code: str, state: str, request: Request, respons
         flow.code_verifier = code_verifier
     
     try:
-        flow.fetch_token(code=code)
+        await asyncio.to_thread(flow.fetch_token, code=code)
     except Exception as e:
         logger.error(f"Token fetch error: {e}")
         raise HTTPException(status_code=400, detail=f"Failed to complete Google authentication: {str(e)}")
@@ -5733,7 +5770,7 @@ async def get_sheets_credentials(user_id: str) -> Optional[Credentials]:
         
         if datetime.now(timezone.utc) >= expires:
             try:
-                creds.refresh(GoogleRequest())
+                await asyncio.to_thread(creds.refresh, GoogleRequest())
                 # Update whichever doc we read from (shared or per-user)
                 key = SHARED_SHEETS_KEY if using_shared else user_id
                 await db.google_sheets_tokens.update_one(
@@ -5815,20 +5852,20 @@ async def preview_sheet(data: PreviewSheetRequest, user: User = Depends(get_curr
         raise HTTPException(status_code=400, detail=str(e))
     
     try:
-        service = build('sheets', 'v4', credentials=creds)
+        service = await asyncio.to_thread(build, 'sheets', 'v4', credentials=creds)
         
         # Get spreadsheet metadata
-        spreadsheet = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+        spreadsheet = await _gexec(service.spreadsheets().get(spreadsheetId=spreadsheet_id))
         sheets = [s['properties']['title'] for s in spreadsheet.get('sheets', [])]
         
         # Use specified sheet or first sheet
         sheet_name = data.sheet_name or sheets[0] if sheets else "Sheet1"
         
         # Get data from the sheet (first 100 rows for preview)
-        result = service.spreadsheets().values().get(
+        result = await _gexec(service.spreadsheets().values().get(
             spreadsheetId=spreadsheet_id,
             range=f"'{sheet_name}'!A1:Z100"
-        ).execute()
+        ))
         
         values = result.get('values', [])
         if not values:
@@ -5898,8 +5935,8 @@ async def preview_all_tabs(data: PreviewSheetRequest, user: User = Depends(get_c
         raise HTTPException(status_code=400, detail=str(e))
     
     try:
-        service = build('sheets', 'v4', credentials=creds)
-        spreadsheet = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+        service = await asyncio.to_thread(build, 'sheets', 'v4', credentials=creds)
+        spreadsheet = await _gexec(service.spreadsheets().get(spreadsheetId=spreadsheet_id))
         sheet_names = [s['properties']['title'] for s in spreadsheet.get('sheets', [])]
         spreadsheet_name = spreadsheet.get('properties', {}).get('title', 'Unknown')
         
@@ -5910,10 +5947,10 @@ async def preview_all_tabs(data: PreviewSheetRequest, user: User = Depends(get_c
         tabs_preview = []
         for sheet_name in sheet_names:
             try:
-                result = service.spreadsheets().values().get(
+                result = await _gexec(service.spreadsheets().values().get(
                     spreadsheetId=spreadsheet_id,
                     range=f"'{sheet_name}'!A1:Z50"
-                ).execute()
+                ))
             except:
                 continue
             
@@ -6010,7 +6047,7 @@ async def import_all_tabs_configured(data: ImportAllTabsRequest, user: User = De
         raise HTTPException(status_code=400, detail=str(e))
     
     try:
-        service = build('sheets', 'v4', credentials=creds)
+        service = await asyncio.to_thread(build, 'sheets', 'v4', credentials=creds)
         settings = await get_distribution_settings()
         pre_sales_team = settings.get("pre_sales_team", [])
         current_index = settings.get("pre_sales_current_index", 0)
@@ -6046,10 +6083,10 @@ async def import_all_tabs_configured(data: ImportAllTabsRequest, user: User = De
             
             # Fetch sheet data
             try:
-                result = service.spreadsheets().values().get(
+                result = await _gexec(service.spreadsheets().values().get(
                     spreadsheetId=spreadsheet_id,
                     range=f"'{tab_name}'"
-                ).execute()
+                ))
             except Exception as e:
                 logger.error(f"Failed to read tab {tab_name}: {e}")
                 continue
@@ -6160,13 +6197,13 @@ async def import_all_tabs_configured(data: ImportAllTabsRequest, user: User = De
         try:
             for tab_config in data.tab_configs:
                 tn = tab_config.get("tab_name")
-                result = service.spreadsheets().values().get(
+                result = await _gexec(service.spreadsheets().values().get(
                     spreadsheetId=spreadsheet_id, range=f"'{tn}'"
-                ).execute()
+                ))
                 rows = result.get('values', [])
                 connected_doc["tab_row_counts"][tn] = len(rows) - 1 if len(rows) > 1 else 0
             
-            meta = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+            meta = await _gexec(service.spreadsheets().get(spreadsheetId=spreadsheet_id))
             connected_doc["spreadsheet_name"] = meta.get("properties", {}).get("title", "")
         except:
             pass
@@ -6278,13 +6315,13 @@ async def import_leads_from_sheet(data: ImportLeadsRequest, user: User = Depends
         raise HTTPException(status_code=401, detail="Google Sheets not connected")
     
     try:
-        service = build('sheets', 'v4', credentials=creds)
+        service = await asyncio.to_thread(build, 'sheets', 'v4', credentials=creds)
         
         # Get all data from the sheet
-        result = service.spreadsheets().values().get(
+        result = await _gexec(service.spreadsheets().values().get(
             spreadsheetId=source["spreadsheet_id"],
             range=f"'{source['sheet_name']}'"
-        ).execute()
+        ))
         
         values = result.get('values', [])
         if len(values) < 2:
@@ -6405,10 +6442,10 @@ async def import_all_sheets(data: ImportAllSheetsRequest, user: User = Depends(g
         raise HTTPException(status_code=400, detail=str(e))
     
     try:
-        service = build('sheets', 'v4', credentials=creds)
+        service = await asyncio.to_thread(build, 'sheets', 'v4', credentials=creds)
         
         # Get spreadsheet metadata - all sheets/tabs
-        spreadsheet = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+        spreadsheet = await _gexec(service.spreadsheets().get(spreadsheetId=spreadsheet_id))
         sheet_names = [s['properties']['title'] for s in spreadsheet.get('sheets', [])]
         
         if not sheet_names:
@@ -6429,10 +6466,10 @@ async def import_all_sheets(data: ImportAllSheetsRequest, user: User = Depends(g
         for sheet_name in sheet_names:
             # Get all data from this sheet
             try:
-                result = service.spreadsheets().values().get(
+                result = await _gexec(service.spreadsheets().values().get(
                     spreadsheetId=spreadsheet_id,
                     range=f"'{sheet_name}'"
-                ).execute()
+                ))
             except Exception as e:
                 logger.error(f"Failed to read sheet {sheet_name}: {e}")
                 continue
@@ -6553,7 +6590,7 @@ async def export_leads_to_sheet(data: ExportLeadsRequest, user: User = Depends(g
         raise HTTPException(status_code=401, detail="Google Sheets not connected")
     
     try:
-        service = build('sheets', 'v4', credentials=creds)
+        service = await asyncio.to_thread(build, 'sheets', 'v4', credentials=creds)
         
         # Build query filter
         query = {}
@@ -6594,46 +6631,46 @@ async def export_leads_to_sheet(data: ExportLeadsRequest, user: User = Depends(g
             spreadsheet_id = extract_spreadsheet_id(data.spreadsheet_url)
             
             # Check if sheet exists, create if not
-            spreadsheet = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+            spreadsheet = await _gexec(service.spreadsheets().get(spreadsheetId=spreadsheet_id))
             existing_sheets = [s['properties']['title'] for s in spreadsheet.get('sheets', [])]
             
             if data.sheet_name not in existing_sheets:
-                service.spreadsheets().batchUpdate(
+                await _gexec(service.spreadsheets().batchUpdate(
                     spreadsheetId=spreadsheet_id,
                     body={"requests": [{"addSheet": {"properties": {"title": data.sheet_name}}}]}
-                ).execute()
+                ))
             
             # Clear existing data and write new
-            service.spreadsheets().values().clear(
+            await _gexec(service.spreadsheets().values().clear(
                 spreadsheetId=spreadsheet_id,
                 range=f"'{data.sheet_name}'"
-            ).execute()
+            ))
             
-            service.spreadsheets().values().update(
+            await _gexec(service.spreadsheets().values().update(
                 spreadsheetId=spreadsheet_id,
                 range=f"'{data.sheet_name}'!A1",
                 valueInputOption="USER_ENTERED",
                 body={"values": rows}
-            ).execute()
+            ))
             
             sheet_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
         else:
             # Create new spreadsheet
-            new_sheet = service.spreadsheets().create(
+            new_sheet = await _gexec(service.spreadsheets().create(
                 body={
                     "properties": {"title": f"CRM Export - {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}"},
                     "sheets": [{"properties": {"title": data.sheet_name}}]
                 }
-            ).execute()
+            ))
             
             spreadsheet_id = new_sheet['spreadsheetId']
             
-            service.spreadsheets().values().update(
+            await _gexec(service.spreadsheets().values().update(
                 spreadsheetId=spreadsheet_id,
                 range=f"'{data.sheet_name}'!A1",
                 valueInputOption="USER_ENTERED",
                 body={"values": rows}
-            ).execute()
+            ))
             
             sheet_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
         
@@ -6719,7 +6756,7 @@ async def run_auto_sync(user: User = Depends(get_current_user)):
     if not connected:
         raise HTTPException(status_code=400, detail="No sheets connected. Ask admin to import a sheet first.")
     
-    service = build('sheets', 'v4', credentials=creds)
+    service = await asyncio.to_thread(build, 'sheets', 'v4', credentials=creds)
     settings = await get_distribution_settings()
     pre_sales_team = settings.get("pre_sales_team", [])
     current_index = settings.get("pre_sales_current_index", 0)
@@ -6737,7 +6774,7 @@ async def run_auto_sync(user: User = Depends(get_current_user)):
         
         # === DISCOVER NEW TABS in the spreadsheet ===
         try:
-            meta = service.spreadsheets().get(spreadsheetId=sid).execute()
+            meta = await _gexec(service.spreadsheets().get(spreadsheetId=sid))
             all_sheet_tabs = [s["properties"]["title"] for s in meta.get("sheets", [])]
         except Exception as e:
             logger.error(f"Auto-sync: Failed to get spreadsheet metadata: {e}")
@@ -6748,9 +6785,9 @@ async def run_auto_sync(user: User = Depends(get_current_user)):
             if tab_title not in known_tab_names:
                 # Read header row to auto-map columns
                 try:
-                    result = service.spreadsheets().values().get(
+                    result = await _gexec(service.spreadsheets().values().get(
                         spreadsheetId=sid, range=f"'{tab_title}'!1:1"
-                    ).execute()
+                    ))
                     headers = result.get('values', [[]])[0]
                     if not headers:
                         continue
@@ -6803,9 +6840,9 @@ async def run_auto_sync(user: User = Depends(get_current_user)):
             old_count = old_row_counts.get(tab_name, 0)
             
             try:
-                result = service.spreadsheets().values().get(
+                result = await _gexec(service.spreadsheets().values().get(
                     spreadsheetId=sid, range=f"'{tab_name}'"
-                ).execute()
+                ))
             except Exception as e:
                 logger.error(f"Auto-sync: Failed to read tab {tab_name}: {e}")
                 new_row_counts[tab_name] = old_count
@@ -7362,9 +7399,9 @@ async def transfer_sales_role(data: TransferRoleRequest, user: User = Depends(ge
         raise HTTPException(status_code=403, detail="Only Super Admin can transfer roles")
 
     # 1) Re-verify Super Admin password
-    from routes.auth import verify_password  # local import avoids circular
+    from routes.auth import verify_password_async  # local import avoids circular
     me = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1})
-    if not me or not me.get("password_hash") or not verify_password(data.confirm_password, me["password_hash"]):
+    if not me or not me.get("password_hash") or not await verify_password_async(data.confirm_password, me["password_hash"]):
         raise HTTPException(status_code=401, detail="Super Admin password is incorrect")
 
     if data.from_user_id == data.to_user_id:

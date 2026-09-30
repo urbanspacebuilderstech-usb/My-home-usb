@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from core.deps import get_current_user
 from core.models import User, UserRole
-from routes.auth import hash_password
+from routes.auth import hash_password_async
 
 MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
@@ -62,7 +62,7 @@ async def create_prospect_user(lead_id: str, data: CreateProspectUserRequest, us
                 {"$set": {
                     "name": name,
                     "phone": data.phone or lead.get("phone") or "",
-                    "password_hash": hash_password(data.password),
+                    "password_hash": await hash_password_async(data.password),
                     "is_active": True,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }}
@@ -82,7 +82,7 @@ async def create_prospect_user(lead_id: str, data: CreateProspectUserRequest, us
             "name": name,
             "role": "prospect",
             "phone": data.phone or lead.get("phone") or lead.get("client_phone") or "",
-            "password_hash": hash_password(data.password),
+            "password_hash": await hash_password_async(data.password),
             "is_active": True,
             "status": "active",
             "created_at": now,

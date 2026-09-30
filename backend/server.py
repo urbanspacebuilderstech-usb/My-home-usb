@@ -134,6 +134,10 @@ app.include_router(pre_construction_router, prefix="/api")
 app.include_router(cashflow_router, prefix="/api")
 app.include_router(expense_split_router, prefix="/api")
 
+from core.perf import RequestTimingMiddleware, start_monitoring, router as perf_router
+from core.etag import ETagMiddleware
+app.include_router(perf_router, prefix="/api")
+
 @app.get("/api/reports/api-endpoints-pdf")
 async def download_api_report_pdf(user=Depends(get_current_user)):
     pdf_path = Path(__file__).parent / "static" / "api_report.pdf"
@@ -195,6 +199,9 @@ app.add_middleware(CSRFMiddleware)
 # bytes. Because gzip runs synchronously on the single worker, that saved CPU
 # is time the server can spend answering other requests (an unrelated login
 # used to queue behind a finance screen compressing).
+# Sep 30 2026 — ETagMiddleware is added first so it runs INSIDE gzip and hashes
+# the plain JSON; an unchanged poll then skips gzip and the transfer entirely.
+app.add_middleware(ETagMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=1)
 
 app.add_middleware(
@@ -211,6 +218,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Outermost, so a request's time includes every middleware (core/perf.py).
+app.add_middleware(RequestTimingMiddleware)
 
 
 SHEETS_DEFAULT_INTERVAL_HOURS = 1
@@ -262,6 +271,11 @@ async def shutdown_db_client():
 async def startup_init():
     """Initialize services at startup"""
     try:
+        await start_monitoring()
+    except Exception as e:
+        logger.warning(f"Performance monitor failed to start (non-fatal): {e}")
+
+    try:
         from core.storage import init_storage
         init_storage()
     except Exception as e:
@@ -294,6 +308,8 @@ async def startup_init():
     await _safe_index(startup_db.user_sessions, [("user_id", 1)])
     await _safe_index(startup_db.users, [("email", 1)])
     await _safe_index(startup_db.users, [("role", 1), ("is_active", 1)])
+    # Per-minute login counters (core/login_limits.py) expire on their own.
+    await _safe_index(startup_db.login_rate_limits, [("expires_at", 1)], expireAfterSeconds=0)
     # Sep 10 2026 — Settings > Admin Login History reads audit_logs filtered by
     # resource_type + action and sorted by timestamp. audit_logs only grows, and
     # the only index declarations for it live in seed_comprehensive.py, which

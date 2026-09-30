@@ -5508,8 +5508,8 @@ async def update_workflow_settings(payload: dict, user: User = Depends(get_curre
         raise HTTPException(status_code=401, detail="Password required to change workflow")
     me = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1})
     stored_hash = (me or {}).get("password_hash")
-    from routes.auth import verify_password  # local import avoids circular
-    if not stored_hash or not verify_password(password, stored_hash):
+    from routes.auth import verify_password_async  # local import avoids circular
+    if not stored_hash or not await verify_password_async(password, stored_hash):
         raise HTTPException(status_code=401, detail="Incorrect password")
 
     await db.app_workflow_settings.update_one(
@@ -5550,8 +5550,8 @@ async def update_dlr_date_mode(payload: dict, user: User = Depends(get_current_u
         raise HTTPException(status_code=401, detail="Password required to change DLR mode")
     me = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1})
     stored_hash = (me or {}).get("password_hash")
-    from routes.auth import verify_password
-    if not stored_hash or not verify_password(password, stored_hash):
+    from routes.auth import verify_password_async
+    if not stored_hash or not await verify_password_async(password, stored_hash):
         raise HTTPException(status_code=401, detail="Incorrect password")
 
     await db.module_settings.update_one(
@@ -7973,12 +7973,12 @@ async def delete_cheque(cheque_id: str, payload: ChequeDeleteRequest, user: User
         raise HTTPException(status_code=403, detail="Only Super Admin or Accountant can delete cheques")
 
     # 1. Re-verify password
-    from routes.auth import verify_password  # local import to avoid circular
+    from routes.auth import verify_password_async  # local import to avoid circular
     db_user = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1, "hashed_password": 1})
     if not db_user:
         raise HTTPException(status_code=404, detail="User record not found")
     stored_hash = db_user.get("password_hash") or db_user.get("hashed_password")
-    if not stored_hash or not verify_password(payload.password, stored_hash):
+    if not stored_hash or not await verify_password_async(payload.password, stored_hash):
         raise HTTPException(status_code=401, detail="Incorrect password — cheque not deleted")
 
     # 2. Fetch cheque
@@ -8037,12 +8037,12 @@ async def delete_cheque(cheque_id: str, payload: ChequeDeleteRequest, user: User
 
 async def _verify_user_password(user: User, password: str):
     """Re-verify the current user's login password. Raises 401 on failure."""
-    from routes.auth import verify_password  # local import to avoid circular
+    from routes.auth import verify_password_async  # local import to avoid circular
     db_user = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1, "hashed_password": 1})
     if not db_user:
         raise HTTPException(status_code=404, detail="User record not found")
     stored_hash = db_user.get("password_hash") or db_user.get("hashed_password")
-    if not stored_hash or not verify_password(password, stored_hash):
+    if not stored_hash or not await verify_password_async(password, stored_hash):
         raise HTTPException(status_code=401, detail="Incorrect password")
 
 

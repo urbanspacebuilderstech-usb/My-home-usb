@@ -20,6 +20,7 @@ from passlib.context import CryptContext
 
 from core.database import db
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
+from core.login_limits import login_attempt_allowed
 from core.models import UserRole, User, UserSession
 from security import (
     SecurityConfig, rate_limiter, InputValidator, SessionManager,
@@ -44,6 +45,18 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password[:72], hashed_password)
+
+
+# Sep 30 2026 — bcrypt is deliberately slow (~0.25s of CPU per hash or
+# verify). Called straight from an async route it held the event loop that
+# long, so every login stalled every other request on the worker. Routes use
+# these thread-backed versions; the sync ones stay for seed scripts.
+async def hash_password_async(password: str) -> str:
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(plain_password: str, hashed_password: str) -> bool:
+    return await asyncio.to_thread(verify_password, plain_password, hashed_password)
 
 
 # ==================== FIRST-TIME SETUP (models + status check) ====================
@@ -158,7 +171,7 @@ async def initial_setup(data: InitialSetupRequest, request: Request, response: R
         "name": data.admin_name.strip(),
         "role": "super_admin",
         "phone": data.admin_phone or "",
-        "password_hash": hash_password(data.admin_password),
+        "password_hash": await hash_password_async(data.admin_password),
         "is_active": True,
         "status": "active",
         "created_at": now,
@@ -459,8 +472,8 @@ async def login(login_request: LoginRequest, request: Request, response: Respons
     # Per-IP+email: prevents brute-forcing one user's password while letting other
     # users from the same office IP log in normally.
     # Per-IP cap is generous (200/min) — only catches abusive scrapers.
-    ok_email = rate_limiter.check_login_rate_limit(f"login:{client_ip}|{email_key}", SecurityConfig.LOGIN_RATE_LIMIT_MAX)
-    ok_ip = rate_limiter.check_login_rate_limit(f"login:ip:{client_ip}", SecurityConfig.LOGIN_RATE_LIMIT_PER_IP)
+    ok_email = await login_attempt_allowed(f"login:{client_ip}|{email_key}", SecurityConfig.LOGIN_RATE_LIMIT_MAX)
+    ok_ip = await login_attempt_allowed(f"login:ip:{client_ip}", SecurityConfig.LOGIN_RATE_LIMIT_PER_IP)
     if not (ok_email and ok_ip):
         audit_entry = AuditLogger.create_audit_entry(
             user_id="unknown", action=AuditAction.LOGIN_FAILED,
@@ -497,7 +510,7 @@ async def login(login_request: LoginRequest, request: Request, response: Respons
     if not stored_hash:
         raise HTTPException(status_code=401, detail="Password not set. Please use 'Forgot Password' or contact administrator.")
 
-    if not verify_password(login_request.password, stored_hash):
+    if not await verify_password_async(login_request.password, stored_hash):
         audit_entry = AuditLogger.create_audit_entry(
             user_id=user_doc.get("user_id", "unknown"), action=AuditAction.LOGIN_FAILED,
             resource_type="auth", details={"reason": "invalid_password"},
@@ -557,8 +570,8 @@ async def demo_login(login_request: DemoLoginRequest, request: Request, response
     client_ip = _real_client_ip(request)
     email_key = (login_request.email or "").strip().lower()[:200]
 
-    ok_email = rate_limiter.check_login_rate_limit(f"demo:{client_ip}|{email_key}", SecurityConfig.LOGIN_RATE_LIMIT_MAX)
-    ok_ip = rate_limiter.check_login_rate_limit(f"demo:ip:{client_ip}", SecurityConfig.LOGIN_RATE_LIMIT_PER_IP)
+    ok_email = await login_attempt_allowed(f"demo:{client_ip}|{email_key}", SecurityConfig.LOGIN_RATE_LIMIT_MAX)
+    ok_ip = await login_attempt_allowed(f"demo:ip:{client_ip}", SecurityConfig.LOGIN_RATE_LIMIT_PER_IP)
     if not (ok_email and ok_ip):
         audit_entry = AuditLogger.create_audit_entry(
             user_id="unknown", action=AuditAction.LOGIN_FAILED,
@@ -693,7 +706,7 @@ async def reset_password(req: ResetPasswordRequest):
         raise HTTPException(status_code=400, detail="Reset link has expired. Please request a new one.")
 
     email = reset_doc["email"]
-    hashed = hash_password(req.new_password)
+    hashed = await hash_password_async(req.new_password)
 
     await db.users.update_one(
         {"email": email},
@@ -870,7 +883,7 @@ async def setup_password(req: SetupPasswordRequest):
         raise HTTPException(status_code=400, detail="Invitation has expired")
 
     email = invitation["email"]
-    hashed = hash_password(req.password)
+    hashed = await hash_password_async(req.password)
 
     # Update user with name and password
     result = await db.users.update_one(
@@ -1072,7 +1085,7 @@ async def verify_password_endpoint(data: PasswordVerifyRequest, user: User = Dep
     if not user_doc:
         raise HTTPException(status_code=404, detail="User not found")
     stored_hash = user_doc.get("password_hash")
-    if not stored_hash or not verify_password(data.password, stored_hash):
+    if not stored_hash or not await verify_password_async(data.password, stored_hash):
         raise HTTPException(status_code=401, detail="Incorrect password")
     return {"verified": True}
 
@@ -1109,7 +1122,7 @@ async def setup_2fa(data: TwoFactorSetupRequest, user: User = Depends(get_curren
         raise HTTPException(status_code=400, detail="2FA is already enabled")
 
     stored_hash = user_doc.get("password_hash")
-    if not stored_hash or not verify_password(data.password, stored_hash):
+    if not stored_hash or not await verify_password_async(data.password, stored_hash):
         raise HTTPException(status_code=401, detail="Incorrect password")
 
     # Generate TOTP secret
@@ -1173,8 +1186,8 @@ async def enroll_2fa_at_login(data: TwoFactorEnrollRequest, request: Request, re
     """
     client_ip = _real_client_ip(request)
     email_key = (data.email or "").strip().lower()[:200]
-    ok_email = rate_limiter.check_login_rate_limit(f"login:{client_ip}|{email_key}", SecurityConfig.LOGIN_RATE_LIMIT_MAX)
-    ok_ip = rate_limiter.check_login_rate_limit(f"login:ip:{client_ip}", SecurityConfig.LOGIN_RATE_LIMIT_PER_IP)
+    ok_email = await login_attempt_allowed(f"login:{client_ip}|{email_key}", SecurityConfig.LOGIN_RATE_LIMIT_MAX)
+    ok_ip = await login_attempt_allowed(f"login:ip:{client_ip}", SecurityConfig.LOGIN_RATE_LIMIT_PER_IP)
     if not (ok_email and ok_ip):
         raise HTTPException(status_code=429, detail="Too many attempts. Please wait a minute.")
 
@@ -1192,7 +1205,7 @@ async def enroll_2fa_at_login(data: TwoFactorEnrollRequest, request: Request, re
         raise HTTPException(status_code=403, detail="Account is deactivated. Contact administrator.")
 
     stored_hash = user_doc.get("password_hash")
-    if not stored_hash or not verify_password(data.password, stored_hash):
+    if not stored_hash or not await verify_password_async(data.password, stored_hash):
         audit_entry = AuditLogger.create_audit_entry(
             user_id=user_doc.get("user_id", "unknown"), action=AuditAction.LOGIN_FAILED,
             resource_type="auth", details={"reason": "invalid_password", "stage": "2fa_enroll"},
@@ -1246,7 +1259,7 @@ async def disable_2fa(data: TwoFactorDisableRequest, user: User = Depends(get_cu
         raise HTTPException(status_code=403, detail="Two-factor is required on this account by your administrator and cannot be turned off here.")
 
     stored_hash = user_doc.get("password_hash")
-    if not stored_hash or not verify_password(data.password, stored_hash):
+    if not stored_hash or not await verify_password_async(data.password, stored_hash):
         raise HTTPException(status_code=401, detail="Incorrect password")
 
     secret = user_doc.get("totp_secret")
@@ -1276,7 +1289,7 @@ async def change_password(data: ChangePasswordRequest, user: User = Depends(get_
         raise HTTPException(status_code=404, detail="User not found")
 
     stored_hash = user_doc.get("password_hash")
-    if not stored_hash or not verify_password(data.current_password, stored_hash):
+    if not stored_hash or not await verify_password_async(data.current_password, stored_hash):
         raise HTTPException(status_code=401, detail="Current password is incorrect")
 
     if len(data.new_password) < 6:
@@ -1285,7 +1298,7 @@ async def change_password(data: ChangePasswordRequest, user: User = Depends(get_
     if data.current_password == data.new_password:
         raise HTTPException(status_code=400, detail="New password must be different from current password")
 
-    new_hash = hash_password(data.new_password)
+    new_hash = await hash_password_async(data.new_password)
     await db.users.update_one(
         {"user_id": user.user_id},
         {"$set": {
@@ -1394,7 +1407,7 @@ async def send_password_otp(user: User = Depends(get_current_user)):
 
     import random
     otp = str(random.randint(100000, 999999))
-    otp_hash = hash_password(otp)
+    otp_hash = await hash_password_async(otp)
 
     await db.password_otps.delete_many({"user_id": user.user_id})
     await db.password_otps.insert_one({
@@ -1480,10 +1493,10 @@ async def verify_otp_reset_password(data: VerifyOTPResetRequest, user: User = De
     if datetime.now(timezone.utc).isoformat() > otp_doc.get("expires_at", ""):
         raise HTTPException(status_code=400, detail="OTP has expired. Please request a new one.")
 
-    if not verify_password(data.otp, otp_doc.get("otp_hash", "")):
+    if not await verify_password_async(data.otp, otp_doc.get("otp_hash", "")):
         raise HTTPException(status_code=400, detail="Invalid OTP. Please check and try again.")
 
-    new_hash = hash_password(data.new_password)
+    new_hash = await hash_password_async(data.new_password)
     await db.users.update_one(
         {"user_id": user.user_id},
         {"$set": {
