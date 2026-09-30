@@ -111,10 +111,30 @@ def test_all_three_labels_are_present():
 
 
 def test_they_are_computed_from_the_filtered_set():
-    """Not from the unfiltered list - the tiles must follow the month
-    selector, the date filter and the search box."""
+    """The tiles must follow the month selector, the date filter and the
+    search box - never describe a wider set than the table shows.
+
+    Superseded Sep 30 2026: this originally required the reduce to run over
+    `dateFiltered` itself. It now runs over `entries`, which is the slice of
+    dateFiltered for the ACTIVE sub-tab, so clicking Pending / Partial /
+    Collected retotals the tiles for just that bucket instead of always
+    showing the full All set. That is a strictly tighter scope, and the
+    property this test exists to protect still holds because every branch of
+    `entries` is derived from dateFiltered - which the next assertion pins."""
     src = _src()
-    assert "const psSummary = dateFiltered.reduce((acc, e) => {" in src
+    assert "const psSummary = entries.reduce((acc, e) => {" in src
+
+
+def test_the_tile_scope_is_always_derived_from_the_filtered_set():
+    """`entries` may be narrowed by sub-tab, but every branch of it must come
+    from dateFiltered, or the tiles could outgrow the table."""
+    src = _src()
+    block = src[src.index("const entries = psSubTab"):]
+    block = block[:block.index("return (")]
+    assert "pendingEntries" in block and "partialEntries" in block
+    assert "collectedEntries" in block and "dateFiltered" in block
+    for name in ("pendingEntries", "partialEntries", "collectedEntries"):
+        assert "const %s = dateFiltered.filter(" % name in src, name
 
 
 def test_balance_matches_the_row_expression_and_is_not_clamped():
