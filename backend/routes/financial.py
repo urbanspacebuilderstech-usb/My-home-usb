@@ -14203,3 +14203,321 @@ async def backfill_duplicate_scan(
         "cheques": suspect_cheques[:limit],
         "truncated": len(affected) > limit or len(suspect_cheques) > limit,
     })
+
+
+# ==========================================================================
+# Sep 30 2026 - reverse a bulk-backfill allocation that duplicates money the
+# cheque had already allocated.
+#
+# The backfill recorded each cheque's unallocated leftover. On nine of the ten
+# cheques it touched, the genuine allocations summed to LESS than the face
+# value and the backfill amount was exactly the remainder - correct, and left
+# alone. On cheque #105862 the genuine allocation already covered the entire
+# 2,00,000 for one expense (the bill consumed 1,09,699.70 and the 90,300.30
+# excess had already been routed to suspense), so the backfill's further
+# 2,00,000 was money that did not exist.
+#
+# The guard below is what separates the two cases: active allocations must
+# EXCEED the face value, and by exactly the backfill amount. A cheque whose
+# allocations reconcile to face value is refused, whatever its notes say.
+# ==========================================================================
+
+_BACKFILL_MARKERS = ("bulk backfill", "backfilled after the excess-to-suspense",
+                     "historical_opening")
+
+
+def _looks_like_backfill(doc: Dict[str, Any]) -> bool:
+    blob = " ".join(str(doc.get(k) or "") for k in
+                    ("source", "note", "description", "request_type")).lower()
+    return any(m in blob for m in _BACKFILL_MARKERS)
+
+
+async def _backfill_reversal_context(cheque_number: str):
+    """Everything the preview and the apply both reason about. Reads only."""
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    problems: List[str] = []
+
+    chq = await db.cheques.find_one({"cheque_number": cheque_number}, {"_id": 0})
+    if not chq:
+        raise HTTPException(status_code=404, detail=f"No cheque numbered {cheque_number}")
+    face = _f(chq.get("amount"))
+
+    allocs = await db.cheque_allocations.find(
+        {"cheque_id": chq.get("cheque_id")}, {"_id": 0}).to_list(500)
+    active = [a for a in allocs if (a.get("status") or "").lower() == "active"]
+    backfill = [a for a in active if _looks_like_backfill(a)]
+    genuine = [a for a in active if not _looks_like_backfill(a)]
+    genuine_total = round(sum(_f(a.get("amount")) for a in genuine), 2)
+    backfill_total = round(sum(_f(a.get("amount")) for a in backfill), 2)
+    active_total = round(genuine_total + backfill_total, 2)
+    overage = round(active_total - face, 2)
+
+    # ---- the guard that separates a duplicate from a genuine leftover -----
+    if len(backfill) != 1:
+        problems.append(
+            "expected exactly one backfill allocation, found %d - refusing to "
+            "guess which is the duplicate" % len(backfill))
+    if overage <= 0.5:
+        problems.append(
+            "active allocations total %s against a face value of %s, so this "
+            "cheque reconciles and its backfill row records a REAL leftover. "
+            "Nothing to reverse." % (active_total, face))
+    elif backfill and abs(overage - backfill_total) > 0.5:
+        problems.append(
+            "allocations exceed the face value by %s but the backfill row is "
+            "%s. Removing it would not bring the cheque back to its face "
+            "value, so the overage has another cause." % (overage, backfill_total))
+
+    dup_alloc = backfill[0] if len(backfill) == 1 else None
+    vendor = None
+    if dup_alloc:
+        vendor = (dup_alloc.get("vendor_name") or "").strip()
+        if not vendor:
+            for a in genuine:
+                if (a.get("vendor_name") or "").strip():
+                    vendor = a["vendor_name"].strip()
+                    break
+        if not vendor:
+            note = str(dup_alloc.get("note") or "")
+            m = re.search(r"routed to (.+?)'s suspense", note)
+            if m:
+                vendor = m.group(1).strip()
+    if not vendor:
+        problems.append("could not determine which vendor this allocation credited")
+
+    # ---- the suspense credit it created -----------------------------------
+    entries = await db.suspense_entries.find(
+        {"type": "material"}, {"_id": 0}).to_list(50000) if vendor else []
+    mine = [e for e in entries
+            if (e.get("vendor_name") or "").strip().lower() == (vendor or "").lower()]
+    balance = round(sum(_f(e.get("amount")) for e in mine), 2)
+    dup_credits = [e for e in mine
+                   if _f(e.get("amount")) > 0 and _looks_like_backfill(e)
+                   and cheque_number in str(e.get("description") or "")
+                   and abs(_f(e.get("amount")) - backfill_total) < 0.5]
+    already_reversed = [e for e in mine if e.get("reverses_entry_id")]
+
+    if vendor and len(dup_credits) != 1:
+        problems.append(
+            "expected exactly one backfill suspense credit of %s for %s naming "
+            "cheque %s, found %d" % (backfill_total, vendor, cheque_number,
+                                     len(dup_credits)))
+    dup_credit = dup_credits[0] if len(dup_credits) == 1 else None
+    if dup_credit and any(e.get("reverses_entry_id") == dup_credit.get("entry_id")
+                          for e in already_reversed):
+        problems.append(
+            "entry %s has already been reversed - nothing further to do"
+            % dup_credit.get("entry_id"))
+    if dup_credit and balance - _f(dup_credit.get("amount")) < -0.5:
+        problems.append(
+            "reversing %s would drive %s's suspense negative (balance is %s), "
+            "which means some of it has already been spent and a ledger "
+            "reversal alone is not the right repair"
+            % (_f(dup_credit.get("amount")), vendor, balance))
+
+    numbers = {
+        "face_value": face,
+        "active_allocations_total": active_total,
+        "genuine_allocations_total": genuine_total,
+        "backfill_allocation_total": backfill_total,
+        "exceeds_face_value_by": overage,
+        "vendor_name": vendor,
+        "vendor_suspense_balance_now": balance,
+        "vendor_suspense_balance_after": round(
+            balance - (_f(dup_credit.get("amount")) if dup_credit else 0.0), 2),
+        "allocations_total_after": round(active_total - backfill_total, 2),
+    }
+    return chq, dup_alloc, dup_credit, numbers, problems
+
+
+def _backfill_reversal_token(cheque_number, alloc_id, entry_id, amount) -> str:
+    return "%s:%s:%s:%s" % (cheque_number, alloc_id, entry_id, amount)
+
+
+@router.get("/admin/backfill-reversal-preview")
+async def backfill_reversal_preview(
+    cheque_number: str = "105862",
+    user: User = Depends(get_current_user),
+):
+    """TEMPORARY read-only preview of the duplicate-backfill reversal."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    chq, dup_alloc, dup_credit, numbers, problems = await _backfill_reversal_context(
+        cheque_number)
+
+    token = _backfill_reversal_token(
+        cheque_number,
+        (dup_alloc or {}).get("allocation_id"),
+        (dup_credit or {}).get("entry_id"),
+        numbers["backfill_allocation_total"])
+    apply_url = (
+        "/api/admin/backfill-reversal-apply?cheque_number=%s&allocation_id=%s"
+        "&entry_id=%s&expected_amount=%s&confirm=%s&reason=REPLACE_WITH_REASON"
+        % (cheque_number, (dup_alloc or {}).get("allocation_id"),
+           (dup_credit or {}).get("entry_id"),
+           numbers["backfill_allocation_total"], token))
+
+    return fast_json({
+        "write_performed": False,
+        "read_only": True,
+        "cheque": {"cheque_id": chq.get("cheque_id"),
+                   "cheque_number": chq.get("cheque_number"),
+                   "party_name": chq.get("party_name"),
+                   "face_value": numbers["face_value"]},
+        "duplicate_allocation": dup_alloc,
+        "duplicate_suspense_credit": dup_credit,
+        "numbers": numbers,
+        "fields_that_would_change": {
+            "cheque_allocations.status": {
+                "allocation_id": (dup_alloc or {}).get("allocation_id"),
+                "before": "active", "after": "reversed_duplicate"},
+            "suspense_entries": {
+                "action": "INSERT one reversing entry",
+                "amount": -numbers["backfill_allocation_total"],
+                "reverses_entry_id": (dup_credit or {}).get("entry_id"),
+                "note": "nothing is deleted - the original credit stays on "
+                        "the ledger with its reversal beside it"},
+        },
+        "fields_left_untouched": [
+            "the genuine allocations on this cheque",
+            "every other cheque (nine reconcile to face value and are correct)",
+            "recorded_expenses / payment legs", "material bills", "income",
+            "cheques.amount",
+        ],
+        "preconditions_failed": problems,
+        "safe_to_apply": not problems,
+        "apply_url": apply_url,
+    })
+
+
+@router.api_route("/admin/backfill-reversal-apply", methods=["GET", "POST"])
+async def backfill_reversal_apply(
+    cheque_number: str,
+    allocation_id: str,
+    entry_id: str,
+    expected_amount: float,
+    confirm: str,
+    reason: str,
+    user: User = Depends(get_current_user),
+):
+    """Reverse ONE duplicate backfill. Guarded, idempotent, audited."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+    if not reason or len(reason.strip()) < 5:
+        raise HTTPException(status_code=400, detail="A reason is required")
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    chq, dup_alloc, dup_credit, numbers, problems = await _backfill_reversal_context(
+        cheque_number)
+
+    expect = _backfill_reversal_token(
+        cheque_number, (dup_alloc or {}).get("allocation_id"),
+        (dup_credit or {}).get("entry_id"), numbers["backfill_allocation_total"])
+    if confirm != expect:
+        raise HTTPException(status_code=400, detail={
+            "message": "confirm token does not match the live figures - nothing "
+                       "was written. Re-run the preview.",
+            "expected": expect, "received": confirm})
+    if (dup_alloc or {}).get("allocation_id") != allocation_id:
+        problems.append("allocation_id does not match the one found live")
+    if (dup_credit or {}).get("entry_id") != entry_id:
+        problems.append("entry_id does not match the one found live")
+    if abs(numbers["backfill_allocation_total"] - _f(expected_amount)) >= 0.005:
+        problems.append(
+            "expected_amount %s does not match the live figure %s"
+            % (_f(expected_amount), numbers["backfill_allocation_total"]))
+    if problems:
+        raise HTTPException(status_code=409, detail={
+            "message": "Preconditions failed - nothing was written",
+            "problems": problems})
+
+    now = datetime.now(timezone.utc).isoformat()
+    amount = numbers["backfill_allocation_total"]
+    vendor = numbers["vendor_name"]
+
+    # 1. deactivate the duplicate allocation, pinned to its current status
+    res = await db.cheque_allocations.update_one(
+        {"allocation_id": allocation_id, "status": "active"},
+        {"$set": {"status": "reversed_duplicate",
+                  "reversed_at": now, "reversed_by": user.user_id,
+                  "reversal_reason": reason.strip()}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=409, detail=(
+            "The allocation changed between the check and the write - nothing "
+            "was written. Re-run the preview."))
+
+    # 2. add the reversing suspense entry. No linked_expense_id, so both
+    #    _live_vendor_suspense_balance and the Material Vendor summary always
+    #    count it (they only drop rows whose linked expense has died).
+    reversal_id = f"se_{uuid.uuid4().hex[:10]}"
+    await db.suspense_entries.insert_one({
+        "entry_id": reversal_id,
+        "type": "material",
+        "vendor_name": vendor,
+        "amount": -amount,
+        "description": (
+            "Reversal of duplicate backfill credit %s — cheque #%s was already "
+            "fully allocated, so that credit was not backed by money."
+            % (entry_id, cheque_number)),
+        "payment_mode": dup_credit.get("payment_mode") or "cheque",
+        "source_type": "backfill_duplicate_reversal",
+        "reverses_entry_id": entry_id,
+        "reversed_allocation_id": allocation_id,
+        "created_at": now,
+        "created_by": user.user_id,
+    })
+
+    # ---- verify against live data -----------------------------------------
+    _, _, _, after, _ = await _backfill_reversal_context(cheque_number)
+    alloc_now = await db.cheque_allocations.find_one(
+        {"allocation_id": allocation_id}, {"_id": 0, "status": 1}) or {}
+    verification = {
+        "allocation_status_now": alloc_now.get("status"),
+        "allocation_deactivated": alloc_now.get("status") == "reversed_duplicate",
+        "vendor_suspense_before": numbers["vendor_suspense_balance_now"],
+        "vendor_suspense_after": after["vendor_suspense_balance_now"],
+        "vendor_suspense_expected": numbers["vendor_suspense_balance_after"],
+        "vendor_suspense_is_correct": abs(
+            after["vendor_suspense_balance_now"]
+            - numbers["vendor_suspense_balance_after"]) < 0.005,
+        "allocations_total_before": numbers["active_allocations_total"],
+        "allocations_total_after": after["active_allocations_total"],
+        "cheque_now_reconciles": abs(
+            after["active_allocations_total"] - numbers["face_value"]) < 0.5,
+    }
+
+    try:
+        await create_audit_log(
+            user.user_id, "reverse_duplicate_backfill", "cheque_allocation",
+            allocation_id,
+            {"cheque_number": cheque_number, "vendor_name": vendor,
+             "amount_reversed": amount, "reversed_entry_id": entry_id,
+             "reversal_entry_id": reversal_id, "reason": reason.strip(),
+             "verification": verification})
+    except Exception as e:
+        logger.warning(f"backfill reversal audit log failed: {e}")
+
+    return {
+        "message": "Duplicate backfill reversed",
+        "write_performed": True,
+        "cheque_number": cheque_number,
+        "vendor_name": vendor,
+        "amount_reversed": amount,
+        "allocation_deactivated": allocation_id,
+        "reversing_entry_created": reversal_id,
+        "verification": verification,
+        "note": ("Nothing was deleted. The original credit stays on the ledger "
+                 "with its reversal beside it, and the duplicate allocation is "
+                 "marked reversed_duplicate rather than removed."),
+    }
