@@ -1015,6 +1015,9 @@ export default function CRMPreSales() {
   }
 
   const listLeads = activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage);
+  // Sep 30 2026 — The table's Follow-up column only on All and Follow-up;
+  // on the other stage tabs it was an empty or stale column.
+  const showFollowupCol = activeStage === 'all' || activeStage === 'stg_follow_up';
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1434,7 +1437,9 @@ export default function CRMPreSales() {
                     <th className={`px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider ${canTransferLead ? 'w-[8%]' : 'w-[9%]'}`}>Source</th>
                     <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Assigned</th>
                     <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[11%]">Stage</th>
-                    <th className={`px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider ${canTransferLead ? 'w-[11%]' : 'w-[15%]'}`}>Follow-up</th>
+                    {showFollowupCol && (
+                      <th className={`px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider ${canTransferLead ? 'w-[11%]' : 'w-[15%]'}`}>Follow-up</th>
+                    )}
                     <th className={`px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider ${canTransferLead ? 'w-[8%]' : 'w-[11%]'}`}>Created</th>
                     {canTransferLead && (
                       <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[10%]">Lead Transfer</th>
@@ -1502,11 +1507,13 @@ export default function CRMPreSales() {
                           </div>
                         )}
                       </td>
-                      <td className="px-2 py-2">
-                        <div className="space-y-0.5">
-                          <FollowUpChip followUps={lead.follow_ups} />
-                        </div>
-                      </td>
+                      {showFollowupCol && (
+                        <td className="px-2 py-2">
+                          <div className="space-y-0.5">
+                            <FollowUpChip followUps={lead.follow_ups} />
+                          </div>
+                        </td>
+                      )}
                       <td className="px-2 py-2">
                         <span className="text-xs text-gray-500">
                           {formatIN(lead.created_at, { day: '2-digit', month: '2-digit', year: 'numeric' })}
@@ -1572,7 +1579,7 @@ export default function CRMPreSales() {
                   ))}
                   {listLeads.length === 0 && (
                     <tr>
-                      <td colSpan={canTransferLead ? 10 : 9} className="px-4 py-12 text-center text-gray-500">
+                      <td colSpan={(canTransferLead ? 10 : 9) - (showFollowupCol ? 0 : 1)} className="px-4 py-12 text-center text-gray-500">
                         No leads found
                       </td>
                     </tr>
