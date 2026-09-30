@@ -119,16 +119,25 @@ async def main() -> int:
             print("\n  DRY RUN — nothing written. Re-run with --apply to perform this.")
             return 0
 
-        # Verify: re-run in dry_run mode and confirm every credit/debit for
-        # each touched cheque now shows up as already-skipped.
+        # Verify: re-run in dry_run mode and confirm nothing is left that
+        # would still WRITE on a further run. Sep 30 2026 fix — credits/debits
+        # already excluded via linked-expense status (not by an explicit
+        # offsetting entry, to avoid double-counting against
+        # _live_vendor_suspense_balance) are reported back every time with
+        # via="already_excluded"/"status_exclusion" since that's simply the
+        # current true state, not something left to do — only an entry
+        # tagged via="explicit_entry" reflects an actual pending write.
         print("\n  Verifying...")
         ok = True
         for cq, _ in total_plan:
             recheck = await F._reverse_cheque_material_suspense_and_bills(
                 {**cq, "bounce_reason": cq.get("bounce_reason") or ""}, system_user, now, dry_run=True,
             )
-            if recheck.get("credits_voided") or recheck.get("debits_restored"):
-                print(f"  MISMATCH for cheque {cq['cheque_id']}: still finds unreversed entries after apply: {recheck}")
+            pending_credits = [c for c in recheck.get("credits_voided", []) if c.get("via") == "explicit_entry"]
+            pending_debits = [d for d in recheck.get("debits_restored", []) if d.get("via") == "explicit_entry"]
+            if pending_credits or pending_debits:
+                print(f"  MISMATCH for cheque {cq['cheque_id']}: still has pending writes after apply: "
+                      f"credits={pending_credits} debits={pending_debits}")
                 ok = False
         print("  Verify: OK — every touched cheque's material suspense is now fully reversed." if ok else "  Verify: FAILED — see above.")
         return 0 if ok else 1
