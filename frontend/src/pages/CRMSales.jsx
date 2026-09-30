@@ -44,7 +44,6 @@ import {
   MessageSquare,
   GitBranch,
   IndianRupee,
-  User,
   UserCheck,
   Users,
   Smartphone,
@@ -1831,8 +1830,9 @@ export default function CRMSales() {
             </div>
 
             {isMobile ? (
-              /* Phone card list — same details and actions as a table row;
-                 tap opens the lead. */
+              /* Phone card list, laid out like Pre-Sales: name, date and number,
+                 stage with Call/WhatsApp, and only the next-step chips. Tap
+                 opens the lead popup, which has everything else. */
               <div className="divide-y divide-gray-100" data-testid="sales-mobile-list">
                 {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).map(lead => {
                   const lost = isLeadLost(lead);
@@ -1844,7 +1844,10 @@ export default function CRMSales() {
                   // Lost leads keep their number hidden, so no call/WhatsApp either.
                   const showContactBtns = !!lead.phone && !lost;
                   const showFollowupBtn = lead.current_stage_id === 'stg_sales_followup' && !(lead.follow_ups || []).some(f => !f.completed);
-                  const canReassign = lead.assigned_to && !['stg_project_onboarded', 'stg_lost'].includes(lead.current_stage_id) && lead.onboarding_status !== 'moved_to_planning';
+                  const showOfficeVisit = lead.current_stage_id === 'stg_sales_office_visit' && !!lead.office_visit?.date;
+                  const advanceRejected = lead.onboarding_status === 'accountant_rejected' && !!(lead.advance_payment?.rejection_reason || lead.rejection_reason);
+                  // Skip the chips/buttons row entirely when it would be empty.
+                  const hasExtrasRow = advanceRejected || showOfficeVisit || !!nextFollowup || showFollowupBtn;
                   return (
                     <div
                       key={lead.lead_id}
@@ -1857,116 +1860,68 @@ export default function CRMSales() {
                           {lead.name?.charAt(0)?.toUpperCase()}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="font-medium text-gray-900 text-sm truncate">{lead.name}</p>
-                            <Badge variant="outline" className="text-[10px] px-1.5 flex-shrink-0 whitespace-nowrap" style={{ borderColor: stageColor }}>
-                              {getStageName(rowStageId(lead))}
-                            </Badge>
-                          </div>
-                          <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-gray-500 min-w-0">
-                            {lead.custom_fields?.sqft && <span className="truncate">{lead.custom_fields.sqft} sqft</span>}
-                            <span className="ml-auto flex-shrink-0 tabular-nums">
+                          <p className="font-medium text-gray-900 text-sm truncate">{lead.name}</p>
+                          <div className="flex items-center gap-1 mt-0.5 text-[11px] text-gray-500 min-w-0">
+                            <span className="flex-shrink-0 tabular-nums">
                               {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                             </span>
+                            {lead.custom_fields?.sqft && <span className="truncate">· {lead.custom_fields.sqft} sqft</span>}
                           </div>
-                          {lead.onboarding_status === 'accountant_rejected' && (lead.advance_payment?.rejection_reason || lead.rejection_reason) && (
-                            <div
-                              className="mt-1 px-1.5 py-1 rounded bg-red-50 border border-red-300 text-[10px] text-red-800 font-semibold"
-                              data-testid={`adv-rejected-mobile-${lead.lead_id}`}
-                            >
-                              <span className="font-bold">⚠ Advance Rejected — Re-enter:</span>{' '}
-                              <span className="font-normal">{lead.advance_payment?.rejection_reason || lead.rejection_reason}</span>
-                              {(lead.advance_payment?.rejected_by_name || lead.rejected_by_name) && (
-                                <span className="block text-[9px] text-red-600 mt-0.5 font-normal italic">
-                                  by {lead.advance_payment?.rejected_by_name || lead.rejected_by_name}
-                                </span>
-                              )}
-                            </div>
-                          )}
                           {/* Tap the number to reveal it without opening the lead. */}
                           <div className="mt-1" onClick={(e) => e.stopPropagation()}>
                             <MaskedContact phone={lead.phone} email={lead.email} lost={lost} compact />
                           </div>
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5">
-                            <span className="flex items-center gap-1 min-w-0 text-[11px] text-gray-700">
-                              <User className="h-3 w-3 text-gray-400 flex-shrink-0" />
-                              <span className="truncate" data-testid={`sales-assignee-mobile-${lead.lead_id}`}>{lead.assigned_to_name || 'Unassigned'}</span>
-                            </span>
-                            {lead.current_stage_id === 'stg_sales_office_visit' && lead.office_visit?.date && (
-                              <span className="flex items-center gap-1 text-[10px] font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded px-1 py-0.5">
-                                <Building2 className="h-2.5 w-2.5" />
-                                {new Date(lead.office_visit.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}{lead.office_visit.time ? ` · ${lead.office_visit.time}` : ''}
-                              </span>
-                            )}
-                            {nextFollowup && (
-                              <span className="flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 py-0.5">
-                                <Calendar className="h-2.5 w-2.5" />
-                                {new Date(nextFollowup).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                              </span>
-                            )}
-                            {lead.re_project_id && (
-                              <Badge
-                                className="bg-purple-100 text-purple-700 text-[10px] px-1.5 cursor-pointer"
-                                onClick={(e) => { e.stopPropagation(); handleViewREProject(lead.re_project_id); }}
-                              >
-                                View RE
-                              </Badge>
-                            )}
-                            {/* Which RE the lead is on, counted like the Summary tab (first RE = RE1). */}
-                            {lead.re_project_id && (
-                              <Badge className="bg-orange-100 text-orange-700 text-[10px] px-1.5 border border-orange-300">
-                                RE{(lead.re_revision_number || 0) + 1}
-                              </Badge>
-                            )}
-                            {lead.current_stage_id === 'stg_accountant_approval' && (
-                              <Badge className="bg-amber-100 text-amber-700 text-[10px]">Awaiting Accountant</Badge>
-                            )}
-                            {lead.current_stage_id === 'stg_project_onboarded' && (
-                              <Badge className="bg-green-100 text-green-700 text-[10px]">Project Onboarded</Badge>
-                            )}
-                            {lead.onboarding_status === 'moved_to_planning' && (
-                              <Badge className="bg-green-100 text-green-700 text-[10px]">In Planning</Badge>
-                            )}
-                            {/* Actions sit at the end of this row; ml-auto + the row's
-                                flex-wrap move them to their own line only when needed.
-                                Call/WhatsApp come last so they sit at the right edge;
-                                Delete lives in the lead popup on phones. */}
-                            {(showContactBtns || showFollowupBtn || canReassign) && (
-                              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                                {showFollowupBtn && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-9 px-2.5 text-xs text-amber-600 border-amber-300 hover:bg-amber-50"
-                                    data-testid={`followup-mobile-btn-${lead.lead_id}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setQuickFollowupLeadId(lead.lead_id);
-                                      setQuickFollowupForm({ date: '', time: '', remarks: '' });
-                                      setQuickFollowupDialog(true);
-                                    }}
-                                  >
-                                    <Calendar className="h-3.5 w-3.5 mr-1" /> Follow-up
-                                  </Button>
-                                )}
-                                {canReassign && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-9 w-9 p-0 text-purple-600 hover:text-purple-800 hover:bg-purple-50"
-                                    aria-label={`Reassign (current: ${lead.assigned_to_name || '—'})`}
-                                    data-testid={`reassign-mobile-btn-${lead.lead_id}`}
-                                    onClick={(e) => { e.stopPropagation(); setReassignDialog({ open: true, lead, new_owner: '', reason: '', submitting: false }); }}
-                                  >
-                                    <UserCheck className="h-4 w-4" />
-                                  </Button>
-                                )}
-                                {showContactBtns && <LeadContactActions phone={lead.phone} />}
-                              </div>
-                            )}
-                          </div>
+                        </div>
+                        {/* Stage on top, Call/WhatsApp right under it, as on Pre-Sales. */}
+                        <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                          <Badge variant="outline" className="text-[10px] px-1.5 whitespace-nowrap" style={{ borderColor: stageColor }}>
+                            {getStageName(rowStageId(lead))}
+                          </Badge>
+                          {showContactBtns && (
+                            <div className="flex items-center gap-2">
+                              <LeadContactActions phone={lead.phone} />
+                            </div>
+                          )}
                         </div>
                       </div>
+                      {/* Only what needs doing next; the rest is in the lead popup. */}
+                      {hasExtrasRow && (
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 pl-[46px]">
+                          {advanceRejected && (
+                            <span className="text-[10px] font-semibold text-red-700 bg-red-50 border border-red-300 rounded px-1 py-0.5" data-testid={`adv-rejected-mobile-${lead.lead_id}`}>
+                              ⚠ Advance rejected
+                            </span>
+                          )}
+                          {showOfficeVisit && (
+                            <span className="flex items-center gap-1 text-[10px] font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded px-1 py-0.5">
+                              <Building2 className="h-2.5 w-2.5" />
+                              {new Date(lead.office_visit.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}{lead.office_visit.time ? ` · ${lead.office_visit.time}` : ''}
+                            </span>
+                          )}
+                          {nextFollowup && (
+                            <span className="flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 py-0.5">
+                              <Calendar className="h-2.5 w-2.5" />
+                              {new Date(nextFollowup).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                            </span>
+                          )}
+                          {showFollowupBtn && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="ml-auto h-9 px-2.5 text-xs text-amber-600 border-amber-300 hover:bg-amber-50"
+                              data-testid={`followup-mobile-btn-${lead.lead_id}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setQuickFollowupLeadId(lead.lead_id);
+                                setQuickFollowupForm({ date: '', time: '', remarks: '' });
+                                setQuickFollowupDialog(true);
+                              }}
+                            >
+                              <Calendar className="h-3.5 w-3.5 mr-1" /> Follow-up
+                            </Button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -2476,37 +2431,35 @@ export default function CRMSales() {
       {/* View Lead Dialog */}
       {/* Lead Detail Dialog */}
       <Dialog open={viewLeadDialog} onOpenChange={setViewLeadDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col p-0">
-          <div className="overflow-y-auto flex-1 px-6 pt-6">
+        {/* Sep 30 2026 — Phones: full screen like the Pre-Sales popup (dvh, so
+            the browser's URL bar doesn't hide the bottom), header fixed above
+            the scrolling tabs so the close (X) never floats over content. */}
+        <DialogContent className="max-w-2xl h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[90vh] overflow-hidden flex flex-col gap-0 p-0">
+          <div className="shrink-0 px-4 pt-4 pb-3 sm:px-6 sm:pt-6 sm:pb-2 border-b sm:border-b-0">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white font-bold">
-                {selectedLead?.name?.charAt(0)?.toUpperCase()}
-              </div>
-              <div>
-                <span>{selectedLead?.name}</span>
-                <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline" className="text-xs">{getStageName(selectedLead?.current_stage_id)}</Badge>
-                  {(leadDetail || selectedLead)?.appointment && (
-                    <Badge className="bg-green-100 text-green-700 text-xs">
-                      {(leadDetail || selectedLead).appointment.appointment_type?.replace('_', ' ')} - {(leadDetail || selectedLead).appointment.appointment_date} {(leadDetail || selectedLead).appointment.appointment_time}
-                    </Badge>
-                  )}
+            {/* pr-8 keeps the buttons clear of the dialog's close (X) button.
+                Name and buttons share the first line; the stage and appointment
+                badges get a line of their own under the name, so on a phone
+                they aren't squeezed into a narrow column. */}
+            <DialogTitle className="pr-8 text-left">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white font-bold flex-shrink-0">
+                  {selectedLead?.name?.charAt(0)?.toUpperCase()}
                 </div>
-              </div>
-              <div className="ml-auto flex items-center gap-1">
+                <h3 className="min-w-0 flex-1 text-base sm:text-lg font-bold break-words">{selectedLead?.name}</h3>
+              <div className="flex items-center gap-1 flex-shrink-0">
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 gap-1 text-purple-700 hover:bg-purple-50"
+                  className="h-8 gap-1 px-2 text-purple-700 hover:bg-purple-50"
                   onClick={() => setReassignDialog({ open: true, lead: leadDetail || selectedLead, new_owner: '', reason: '', submitting: false })}
                   data-testid="reassign-lead-btn"
                   title="Reassign to another salesperson"
+                  aria-label="Reassign"
                 >
-                  <UserCheck className="h-4 w-4" /> Reassign
+                  <UserCheck className="h-4 w-4" /> <span className="hidden sm:inline">Reassign</span>
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => openEditDialog(leadDetail || selectedLead)} data-testid="edit-lead-btn">
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEditDialog(leadDetail || selectedLead)} data-testid="edit-lead-btn" aria-label="Edit lead">
                   <Edit className="h-4 w-4" />
                 </Button>
                 {/* Phones: Delete sits here instead of on every lead card. */}
@@ -2523,20 +2476,37 @@ export default function CRMSales() {
                   </Button>
                 )}
               </div>
+              </div>
+              {/* pl-[52px]: lines up with the name (avatar 40px + 12px gap). */}
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-1.5 pl-[52px]">
+                <Badge variant="outline" className="text-xs whitespace-nowrap">{getStageName(selectedLead?.current_stage_id)}</Badge>
+                {(leadDetail || selectedLead)?.appointment && (
+                  <Badge className="bg-green-100 text-green-700 text-xs capitalize">
+                    {(leadDetail || selectedLead).appointment.appointment_type?.replace('_', ' ')} · {(leadDetail || selectedLead).appointment.appointment_date} {(leadDetail || selectedLead).appointment.appointment_time}
+                  </Badge>
+                )}
+              </div>
             </DialogTitle>
             <DialogDescription className="sr-only">Lead details and actions</DialogDescription>
           </DialogHeader>
-          
+          </div>
+
+          <div className="overflow-y-auto flex-1 px-4 pb-4 sm:px-6">
           {selectedLead && (
             <div className="space-y-4">
               <Tabs value={detailTab} onValueChange={setDetailTab}>
-                <TabsList className="w-full grid grid-cols-5">
+                {/* Phones: five tabs don't fit in five columns (the strip pushed
+                    the whole popup sideways), so they scroll on their own row,
+                    pinned to the top of the scroll area. */}
+                <div className="sticky top-0 z-10 bg-white pt-3 sm:pt-2 pb-1 -mx-4 px-4 sm:-mx-6 sm:px-6">
+                <TabsList className="flex w-full justify-start overflow-x-auto sm:grid sm:grid-cols-5">
                   <TabsTrigger value="overview" className="text-xs" data-testid="tab-overview">Overview</TabsTrigger>
                   <TabsTrigger value="summary" className="text-xs" data-testid="tab-summary">Summary</TabsTrigger>
                   <TabsTrigger value="timeline" className="text-xs" data-testid="tab-timeline">Timeline</TabsTrigger>
                   <TabsTrigger value="followups" className="text-xs" data-testid="tab-followups">Follow-ups</TabsTrigger>
                   <TabsTrigger value="remarks" className="text-xs" data-testid="tab-remarks">Remarks</TabsTrigger>
                 </TabsList>
+                </div>
                 
                 {/* Overview Tab */}
                 <TabsContent value="overview" className="space-y-4 mt-3">
@@ -3149,11 +3119,13 @@ export default function CRMSales() {
           
           {/* Sticky Footer - Move to Stage */}
           {selectedLead && (
-          <div className="border-t bg-white px-6 py-3 shrink-0">
-            <div className="flex items-center gap-2 mb-2">
+          <div className="border-t bg-white px-4 sm:px-6 pt-2.5 sm:pt-3 pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:pb-3 shrink-0">
+            <div className="flex items-center gap-2 mb-1.5 sm:mb-2">
               <span className="text-xs font-medium text-gray-500">Move to Stage:</span>
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            {/* Phones: one row that scrolls sideways (wrapped, the stages took
+                five rows, a quarter of the screen); sm+: wrap as before. */}
+            <div className="flex gap-1.5 overflow-x-auto -mx-4 px-4 pb-1 sm:mx-0 sm:px-0 sm:pb-0 sm:flex-wrap sm:overflow-visible">
               {/* Sep 17 2026 — Sales Head asked for a shorter quick-move row:
                   New Appointment | Office Visit | Follow-up | RE-Request |
                   Client Site Visit | Client Project Visit | Project Onboarded
@@ -3177,7 +3149,7 @@ export default function CRMSales() {
                   key={stage.stage_id}
                   variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'}
                   size="sm"
-                  className="h-7 text-xs"
+                  className="h-8 sm:h-7 text-xs shrink-0"
                   onClick={() => {
                     const interceptStages = ['stg_re_to_client', 'stg_lost', 'stg_sales_followup', 'stg_sv_client_land', 'stg_sv_our_projects', 'stg_payment_collect', 'stg_project_onboarded', 'stg_re_from_planning', 'stg_re_requested'];
                     if (!interceptStages.includes(stage.stage_id)) {
