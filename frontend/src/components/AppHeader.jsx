@@ -301,19 +301,22 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
     <div className="sticky top-0 z-50 bg-white dark:bg-gray-900">
       {/* Main Header */}
       <header data-testid="app-header" className="bg-white border-b border-gray-200 shadow-sm dark:bg-gray-900 dark:border-gray-800">
-        <div className="flex items-center justify-between px-4 lg:px-6 h-14">
+        <div className="flex items-center justify-between gap-2 lg:gap-0 px-4 lg:px-6 h-14">
           {/* Left: Logo + Brand (+ optional page Back button). Aug 6 2026 —
               a page-level "Back" button used to be squeezed in on the right
               via headerActions, crammed next to the unrelated theme/bell/
               profile icons with no visual grouping. It now lives on the
               left, right next to the brand it's returning from — the
               wordmark text collapses on mobile (icon-only) to make room. */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 min-w-0">
-            <div className="flex items-center gap-2.5 cursor-pointer shrink-0" onClick={() => navigate(navItems[0]?.path || '/dashboard')} data-testid="header-brand">
-              <img src="/logo.webp" alt="My Home USB" className="h-9 w-9 object-contain" style={{ mixBlendMode: 'multiply' }} />
-              <div className={`leading-tight ${backTo ? 'hidden sm:block' : ''}`}>
-                <span className="font-bold text-base text-gray-900 block">My Home USB</span>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600">
+          {/* Sep 30 2026 — the brand text may shorten ("My Home…") on the
+              narrowest phones so the right-hand icons never push the page
+              wider than the screen; the logo and icons keep their size. */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
+            <div className="flex items-center gap-2.5 cursor-pointer min-w-0" onClick={() => navigate(navItems[0]?.path || '/dashboard')} data-testid="header-brand">
+              <img src="/logo.webp" alt="My Home USB" className="h-9 w-9 object-contain shrink-0" style={{ mixBlendMode: 'multiply' }} />
+              <div className={`leading-tight min-w-0 ${backTo ? 'hidden sm:block' : ''}`}>
+                <span className="font-bold text-base text-gray-900 block truncate">My Home USB</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600 block truncate">
                   {roleLabel(role)}
                 </span>
               </div>
@@ -367,7 +370,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
           </nav>
 
           {/* Right: Theme + Notifs + Profile + User + Logout */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {role === 'super_admin' && <USBLookupBar />}
             {headerActions}
             <Button

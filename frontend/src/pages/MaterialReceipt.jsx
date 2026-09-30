@@ -254,12 +254,13 @@ export default function MaterialReceipt() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-2 mb-4 sm:mb-6">
-          <Button variant={activeTab === 'pending' ? 'default' : 'outline'} onClick={() => setActiveTab('pending')} className="gap-2 flex-1 sm:flex-initial px-3 sm:px-4" data-testid="pending-tab">
-            <Truck className="h-4 w-4" /> Pending Receipt ({transitOrders.length})
+        {/* Phones: two equal halves, with a shorter label so the count shows. */}
+        <div className="grid grid-cols-2 sm:flex gap-2 mb-4 sm:mb-6">
+          <Button variant={activeTab === 'pending' ? 'default' : 'outline'} onClick={() => setActiveTab('pending')} className="gap-2 min-w-0 px-2 sm:px-4" data-testid="pending-tab">
+            <Truck className="h-4 w-4" /><span className="truncate">Pending<span className="hidden sm:inline"> Receipt</span> ({transitOrders.length})</span>
           </Button>
-          <Button variant={activeTab === 'received' ? 'default' : 'outline'} onClick={() => setActiveTab('received')} className="gap-2 flex-1 sm:flex-initial px-3 sm:px-4" data-testid="received-tab">
-            <CheckCircle className="h-4 w-4" /> Received ({receivedOrders.length})
+          <Button variant={activeTab === 'received' ? 'default' : 'outline'} onClick={() => setActiveTab('received')} className="gap-2 min-w-0 px-2 sm:px-4" data-testid="received-tab">
+            <CheckCircle className="h-4 w-4" /><span className="truncate">Received ({receivedOrders.length})</span>
           </Button>
         </div>
 

@@ -164,10 +164,11 @@ export default function StageManagement() {
       <div className="max-w-5xl mx-auto px-3 md:px-6 py-4">
         {/* Header */}
         <div className="flex items-center gap-3 mb-4">
-          <Button variant="ghost" size="sm" className="gap-1" onClick={() => window.location.href = '/settings'} data-testid="back-to-settings">
-            <ArrowLeft className="h-4 w-4" /> Settings
+          {/* Icon-only on phones so the title and Add Stage fit on the row. */}
+          <Button variant="ghost" size="sm" className="gap-1 px-2 sm:px-3" onClick={() => window.location.href = '/settings'} data-testid="back-to-settings" aria-label="Back to Settings">
+            <ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Settings</span>
           </Button>
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <h2 className="text-lg sm:text-xl font-bold text-gray-900" data-testid="stage-mgmt-title">Pipeline Stage Management</h2>
             <p className="text-xs sm:text-sm text-gray-500">Add, edit, reorder, and delete stages for Pre-Sales & Sales pipelines</p>
           </div>

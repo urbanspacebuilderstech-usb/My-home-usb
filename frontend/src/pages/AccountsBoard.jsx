@@ -2838,9 +2838,9 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
           <>
           {/* Close Books header — Accountant clicks this to record actual bank/cash
               vs computed balance for today. Variance rolls into the audit trail. */}
-          <div className="flex items-center justify-between mb-2 gap-2">
+          <div className="flex flex-wrap items-center justify-between mb-2 gap-2">
             <p className="text-[10px] text-gray-500 uppercase tracking-wider">Cashbook · Payment Modes</p>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {dailyClosing.is_closed && (
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200" data-testid="dc-closed-badge">✓ Books closed for today</span>
               )}
