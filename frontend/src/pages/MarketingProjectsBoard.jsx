@@ -142,12 +142,12 @@ export default function MarketingProjectsBoard() {
               </div>
             </div>
 
-            <div className="flex gap-1 mt-3 border-b">
+            <div className="flex gap-1 mt-3 border-b overflow-x-auto scrollbar-hide">
               {TABS.map(tab => (
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                     activeTab === tab.key
                       ? 'border-indigo-600 text-indigo-700 bg-indigo-50'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'

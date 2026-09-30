@@ -344,3 +344,29 @@ input[inputmode="numeric"]::-webkit-inner-spin-button {
 
 /* Body fallback if a page never opts into dark vars. */
 .dark body { background-color: hsl(222 14% 8%); color: hsl(0 0% 96%); }
+
+
+/* ================================================================
+ * PHONES & TABLETS (Sep 30 2026)
+ * ================================================================ */
+
+/* Used on the header sub-nav strips (and elsewhere) but never defined. */
+.scrollbar-hide { scrollbar-width: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
+/* Below the desktop layout, tab strips scroll sideways instead of widening
+ * the whole page past the screen. */
+@media (max-width: 1023px) {
+  [role="tablist"] {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  [role="tablist"]::-webkit-scrollbar { display: none; }
+}
+
+/* A centred strip that overflows pushes its first tabs off the left edge,
+ * where scrolling can't reach them; `safe` starts it at the left instead.
+ * Identical to plain `center` whenever the tabs fit. */
+[role="tablist"].justify-center { justify-content: safe center; }

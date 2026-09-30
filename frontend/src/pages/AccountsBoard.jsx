@@ -7427,8 +7427,9 @@ export default function AccountsBoard() {
   // Cashflow Engine quick-link for Accountant/SuperAdmin
   const cashflowLinkButton = (
     <Link to="/cashflow-engine">
-      <Button size="sm" variant="outline" className="h-9 px-3 border-indigo-300 text-indigo-700 hover:bg-indigo-50" data-testid="accounts-cashflow-engine-link">
-        <Wallet className="h-4 w-4 mr-1.5" /> Cashflow Engine
+      {/* Icon-only on phones, where the header has no room for the label. */}
+      <Button size="sm" variant="outline" className="h-9 px-3 border-indigo-300 text-indigo-700 hover:bg-indigo-50" data-testid="accounts-cashflow-engine-link" aria-label="Cashflow Engine" title="Cashflow Engine">
+        <Wallet className="h-4 w-4 sm:mr-1.5" /><span className="hidden sm:inline">Cashflow Engine</span>
       </Button>
     </Link>
   );

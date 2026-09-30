@@ -200,22 +200,24 @@ export default function MaterialReceipt() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-orange-500 p-2 rounded-lg">
+      <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="bg-orange-500 p-2 rounded-lg flex-shrink-0">
               <Package className="h-6 w-6 text-white" />
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">Material Receipt</h1>
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-bold text-gray-900 truncate">Material Receipt</h1>
               <p className="text-xs text-gray-500">Site Engineer Portal</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
             <Button variant="outline" onClick={() => window.location.href = '/site-engineer'}>
-              Back to Dashboard
+              <span className="sm:hidden">Back</span>
+              <span className="hidden sm:inline">Back to Dashboard</span>
             </Button>
-            <div className="text-right">
+            {/* Phones: name/role live in the profile; no room here. */}
+            <div className="text-right hidden sm:block">
               <p className="text-sm font-semibold text-gray-900">{user?.name}</p>
               <p className="text-xs text-gray-500 uppercase">{user?.role}</p>
             </div>
@@ -226,9 +228,9 @@ export default function MaterialReceipt() {
         </div>
       </nav>
 
-      <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className="max-w-4xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Stats */}
-        <div className="grid grid-cols-2 gap-4 mb-8">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4 sm:mb-8">
           <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
             <CardContent className="p-4">
               <div className="flex items-center gap-2 text-orange-600 mb-2">
@@ -252,11 +254,11 @@ export default function MaterialReceipt() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-2 mb-6">
-          <Button variant={activeTab === 'pending' ? 'default' : 'outline'} onClick={() => setActiveTab('pending')} className="gap-2" data-testid="pending-tab">
+        <div className="flex gap-2 mb-4 sm:mb-6">
+          <Button variant={activeTab === 'pending' ? 'default' : 'outline'} onClick={() => setActiveTab('pending')} className="gap-2 flex-1 sm:flex-initial px-3 sm:px-4" data-testid="pending-tab">
             <Truck className="h-4 w-4" /> Pending Receipt ({transitOrders.length})
           </Button>
-          <Button variant={activeTab === 'received' ? 'default' : 'outline'} onClick={() => setActiveTab('received')} className="gap-2" data-testid="received-tab">
+          <Button variant={activeTab === 'received' ? 'default' : 'outline'} onClick={() => setActiveTab('received')} className="gap-2 flex-1 sm:flex-initial px-3 sm:px-4" data-testid="received-tab">
             <CheckCircle className="h-4 w-4" /> Received ({receivedOrders.length})
           </Button>
         </div>

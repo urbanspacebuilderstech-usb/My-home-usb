@@ -159,25 +159,26 @@ export default function SiteReceipt() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
+      <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
-            <div>
+            {/* Phones: logo only, so the nav buttons fit on the row. */}
+            <div className="hidden sm:block">
               <h1 className="text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500">Project Management System</p>
             </div>
           </div>
-          
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" onClick={() => window.location.href = '/dashboard'}>
+
+          <div className="flex items-center gap-1 sm:gap-4">
+            <Button variant="ghost" className="px-2 sm:px-4" onClick={() => window.location.href = '/dashboard'}>
               Dashboard
             </Button>
-            <Button variant="ghost" onClick={() => window.location.href = '/work-orders'}>
+            <Button variant="ghost" className="px-2 sm:px-4" onClick={() => window.location.href = '/work-orders'}>
               Work Orders
             </Button>
-            <div className="flex items-center gap-2 pl-4 border-l">
-              <div className="text-right">
+            <div className="flex items-center gap-2 sm:pl-4 sm:border-l">
+              <div className="text-right hidden sm:block">
                 <p className="text-sm font-semibold text-gray-900">{user.name}</p>
                 <p className="text-xs text-gray-500">{user.role.replace('_', ' ').toUpperCase()}</p>
               </div>
@@ -189,10 +190,10 @@ export default function SiteReceipt() {
         </div>
       </nav>
 
-      <div className="max-w-4xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h2 data-testid="site-receipt-title" className="text-3xl font-bold text-gray-900">Site Receipt</h2>
+      <div className="max-w-4xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
+        <div className="flex items-center justify-between gap-3 mb-4 sm:mb-8">
+          <div className="min-w-0">
+            <h2 data-testid="site-receipt-title" className="text-2xl sm:text-3xl font-bold text-gray-900">Site Receipt</h2>
             <p className="text-gray-600 mt-1">Record material deliveries with GPS verification</p>
           </div>
           {canSubmit && purchaseOrders.length > 0 && (

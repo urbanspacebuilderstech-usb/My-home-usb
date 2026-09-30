@@ -1352,7 +1352,7 @@ export default function PlanningBoard({ embedded = false }) {
           {/* ==================== DASHBOARD ==================== */}
           <TabsContent value="dashboard">
             {/* Dashboard sub-tabs */}
-            <div className="flex gap-1 border-b mb-3 bg-white rounded-t-lg px-2 pt-1">
+            <div className="flex gap-1 border-b mb-3 bg-white rounded-t-lg px-2 pt-1 overflow-x-auto scrollbar-hide">
               {[
                 { key: 'all_projects', label: 'All Projects', badge: newProjectCount },
                 { key: 'requests', label: 'Requests', badge: requestCount },
@@ -1385,7 +1385,7 @@ export default function PlanningBoard({ embedded = false }) {
                   </CardTitle>
                 </div>
                 {/* Sub-tabs */}
-                <div className="flex gap-1 mt-3 border-b">
+                <div className="flex gap-1 mt-3 border-b overflow-x-auto scrollbar-hide">
                   {[
                     { key: 'new', label: 'New Projects', badgeCls: 'bg-green-100 text-green-700 border-green-200' },
                     { key: 'active', label: 'Current Projects', badgeCls: 'bg-amber-100 text-amber-700 border-amber-200' },
@@ -1395,7 +1395,7 @@ export default function PlanningBoard({ embedded = false }) {
                     <button
                       key={tab.key}
                       onClick={() => handleProjectSubTabChange(tab.key)}
-                      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                         projectSubTab === tab.key
                           ? 'border-indigo-600 text-indigo-700 bg-indigo-50'
                           : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
