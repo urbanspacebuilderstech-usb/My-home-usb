@@ -95,7 +95,9 @@ async def create_prospect_user(lead_id: str, data: CreateProspectUserRequest, us
         }
         await db.users.insert_one(prospect_user)
 
-    # Stamp the lead with the prospect link AND auto-transition to RE-Client.
+    # Stamp the lead with the prospect link. Sep 30 2026 — no longer moves the
+    # lead to "RE - Client": that stage now means the client APPROVED the RE,
+    # so it stays in "RE Approve" until Sales records the client's approval.
     now_dt = datetime.now(timezone.utc)
     set_doc = {
         "prospect_user_id": user_id,
@@ -103,21 +105,7 @@ async def create_prospect_user(lead_id: str, data: CreateProspectUserRequest, us
         "prospect_user_created_at": now_dt.isoformat(),
         "updated_at": now_dt,
     }
-    push_doc: Dict[str, Any] = {}
-    # Auto-move RE Approve (stg_re_from_planning) → RE-Client when Sales creates the prospect login.
-    if lead.get("current_stage_id") == "stg_re_from_planning":
-        set_doc["current_stage_id"] = "stg_re_to_client"
-        push_doc["stage_history"] = {
-            "stage_id": "stg_re_to_client",
-            "from_stage_id": "stg_re_from_planning",
-            "moved_at": now_dt.isoformat(),
-            "moved_by": user.user_id,
-            "moved_by_name": user.name,
-            "action": "prospect_login_created",
-        }
     update_op: Dict[str, Any] = {"$set": set_doc}
-    if push_doc:
-        update_op["$push"] = push_doc
     await db.leads.update_one({"lead_id": lead_id}, update_op)
 
     # Mirror the linkage on the RE project so the prospect's My Quote can find it.

@@ -926,7 +926,10 @@ async def get_sales_masterview_summary(
                     shows the RE proposal reached "RE - Client"
                     (stg_re_to_client) in range.
     - Sales       = "Deal Close" — Sales leads whose stage_history shows
-                    they reached stg_payment_collect in range.
+                    they reached stg_payment_collect in range. Sep 30 2026 —
+                    or stg_accountant_approval: Deal Close from USB Project
+                    Visit goes through the Collect Advance popup straight to
+                    Accountant Approval, never touching stg_payment_collect.
     """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales", "sales_head"]:
         raise HTTPException(status_code=403, detail="Access denied")
@@ -963,9 +966,9 @@ async def get_sales_masterview_summary(
             elif sid == "stg_re_to_client":
                 proposal_count += 1
                 seen.add(sid)
-            elif sid == "stg_payment_collect":
+            elif sid in ("stg_payment_collect", "stg_accountant_approval") and "sales" not in seen:
                 sales_count += 1
-                seen.add(sid)
+                seen.add("sales")
 
     return fast_json({
         "leads": leads_count,
@@ -1030,14 +1033,15 @@ async def get_sales_masterview_rows(
             if l.get("stage_type") == "pre_sales" and _in_range(l.get("created_at")):
                 rows.append(_row(l, l.get("created_at")))
     else:
-        target_stage = {
-            "appointments": "stg_appointment",
-            "proposals": "stg_re_to_client",
-            "sales": "stg_payment_collect",
+        # Same stage sets as the funnel counts above.
+        target_stages = {
+            "appointments": {"stg_appointment"},
+            "proposals": {"stg_re_to_client"},
+            "sales": {"stg_payment_collect", "stg_accountant_approval"},
         }[category]
         for l in all_leads:
             for h in (l.get("stage_history") or []):
-                if h.get("stage_id") == target_stage and _in_range(h.get("moved_at")):
+                if h.get("stage_id") in target_stages and _in_range(h.get("moved_at")):
                     rows.append(_row(l, h.get("moved_at")))
                     break
 
@@ -4513,7 +4517,7 @@ class SalesRevisionReq(BaseModel):
 
 @router.post("/crm/leads/{lead_id}/re-client-approve")
 async def re_client_approve(lead_id: str, user: User = Depends(get_current_user)):
-    """Sales marks the RE-Client stage as APPROVED → moves lead to Negotiation and marks RE client-approved."""
+    """Sales records that the client APPROVED the RE → marks the RE client-approved and moves the lead to RE - Client."""
     if user.role not in [UserRole.SUPER_ADMIN, "sales", "sales_head", "cre"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
@@ -4533,9 +4537,16 @@ async def re_client_approve(lead_id: str, user: User = Depends(get_current_user)
                 "updated_at": now
             }}
         )
+    # Sep 30 2026 — Sales Head's flow: RE Approve → (client approves) RE -
+    # Client → Client Site Visit → USB Project Visit → Deal Close → Project
+    # Onboarded. This used to jump straight to Deal Close. Only a lead still
+    # waiting on the client decision moves; one already further along keeps
+    # its stage and just gets the RE marked client-approved.
+    if lead.get("current_stage_id") not in ("stg_re_from_planning", "stg_re_to_client"):
+        return {"message": "Client approval recorded on the RE."}
     stage_history = lead.get("stage_history", [])
     stage_history.append({
-        "stage_id": "stg_payment_collect",
+        "stage_id": "stg_re_to_client",
         "from_stage_id": lead.get("current_stage_id"),
         "moved_at": now.isoformat(),
         "moved_by": user.user_id,
@@ -4544,9 +4555,9 @@ async def re_client_approve(lead_id: str, user: User = Depends(get_current_user)
     })
     await db.leads.update_one(
         {"lead_id": lead_id},
-        {"$set": {"current_stage_id": "stg_payment_collect", "stage_history": stage_history, "updated_at": now}}
+        {"$set": {"current_stage_id": "stg_re_to_client", "stage_history": stage_history, "updated_at": now}}
     )
-    return {"message": "Client approved RE. Lead moved to Deal Close."}
+    return {"message": "Client approved RE. Lead moved to RE - Client."}
 
 
 @router.post("/crm/leads/{lead_id}/re-client-revision")

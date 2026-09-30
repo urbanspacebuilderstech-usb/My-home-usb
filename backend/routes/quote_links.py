@@ -110,24 +110,18 @@ async def generate_quote_link(lead_id: str, data: GenerateQuoteLinkRequest, user
     }
     await db.quote_links.insert_one(doc)
 
-    # Stamp the lead with the active quote token (keeps the header chip simple)
+    # Stamp the lead with the active quote token (keeps the header chip simple).
+    # Sep 30 2026 — sharing no longer moves the lead to "RE - Client": that
+    # stage now means the client APPROVED the RE (see re-client-approve), so
+    # the lead stays in "RE Approve" until the client decides.
     await db.leads.update_one(
         {"lead_id": lead_id},
         {"$set": {
             "active_quote_id": quote_id,
             "active_quote_token": token,
             "active_quote_expires_at": expires_at.isoformat(),
-            "current_stage_id": "stg_re_to_client",
             "updated_at": now,
-        },
-        "$push": {"stage_history": {
-            "stage_id": "stg_re_to_client",
-            "from_stage_id": lead.get("current_stage_id"),
-            "moved_at": now.isoformat(),
-            "moved_by": user.user_id,
-            "moved_by_name": user.name,
-            "action": "quote_link_generated",
-        }}}
+        }}
     )
 
     doc.pop("_id", None)

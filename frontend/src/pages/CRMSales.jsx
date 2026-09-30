@@ -571,13 +571,14 @@ export default function CRMSales() {
         }
       }
       
-      // Intercept: For RE-Client, auto-generate the public quote link
-      // (replaces the old prospect-login flow). The backend also moves
-      // the lead to "RE Sent to Client" stage.
+      // Intercept: "RE - Client" means the client APPROVED the RE (Sep 30
+      // 2026 flow), so moving a lead there asks to confirm that approval —
+      // the same dialog as the lead popup's "Approved" button. Sharing the
+      // RE link no longer changes the stage.
       if (['stg_re_to_client'].includes(stage?.stage_id)) {
         const lead = leads.find(l => l.lead_id === leadId);
         if (lead) {
-          handleGenerateQuoteLink(lead);
+          openReClientAction(lead, 'approved');
           return;
         }
       }
@@ -598,9 +599,9 @@ export default function CRMSales() {
         return;
       }
       
-      // Block manual move to RE - From Planning
+      // Block manual move to RE Approve (stg_re_from_planning)
       if (stage?.stage_id === 'stg_re_from_planning') {
-        toast.error('RE - From Planning is auto-populated when GM approves the RE');
+        toast.error('RE Approve is set automatically when the GM approves the RE');
         return;
       }
       
@@ -868,8 +869,8 @@ export default function CRMSales() {
     if (!reClientLead || !reClientAction) return;
     try {
       if (reClientAction === 'approved') {
-        await axios.post(`${API}/crm/leads/${reClientLead.lead_id}/re-client-approve`);
-        toast.success('Client approved RE! Lead moved to Negotiation.');
+        const res = await axios.post(`${API}/crm/leads/${reClientLead.lead_id}/re-client-approve`);
+        toast.success(res.data?.message || 'Client approved RE. Lead moved to RE - Client.');
       } else if (reClientAction === 'revision') {
         if (!reClientRevisionReason.trim()) {
           toast.error('Please enter a revision reason');
@@ -1419,6 +1420,10 @@ export default function CRMSales() {
         !['stg_project_onboarded', 'stg_lost'].includes(lead.current_stage_id) &&
         lead.onboarding_status !== 'moved_to_planning'
       );
+    } else if (stageId === 'stg_payment_collect') {
+      // Deal Close also lists deals waiting on the Accountant (collected
+      // advance, not yet onboarded) — they carry an "Awaiting Accountant" badge.
+      stageLeads = filteredLeads.filter(lead => ['stg_payment_collect', 'stg_accountant_approval'].includes(lead.current_stage_id));
     } else {
       stageLeads = filteredLeads.filter(lead => lead.current_stage_id === stageId);
     }
@@ -1472,6 +1477,10 @@ export default function CRMSales() {
     const stage = stages.find(s => s.stage_id === stageId);
     return stage?.name || stageId;
   };
+  // Stage shown on a lead row: deals waiting on the Accountant are listed
+  // under Deal Close (with an "Awaiting Accountant" badge), so they show as
+  // Deal Close rather than the internal Accountant Approval stage.
+  const rowStageId = (lead) => (lead.current_stage_id === 'stg_accountant_approval' ? 'stg_payment_collect' : lead.current_stage_id);
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount || 0);
@@ -1790,13 +1799,13 @@ export default function CRMSales() {
                     Move-to-Stage row: New Appointment | Office Visit |
                     Follow-up | RE-Request | Client Site Visit | Client
                     Project Visit | Project Onboarded | RNR | Lost.
-                    RE-Client/Deal Close/Accountant Approval stay valid
-                    stages (leads already on them keep working) but don't get
-                    their own tab here. Sep 30 2026 — "RE Approve" (GM-approved
-                    REs, stage_id stg_re_from_planning) now has a tab, and the
-                    old "Revision" tab is gone: revised leads sit in RE-Request
-                    with an RE1/RE2… badge on the row. */}
-                {stages.filter(s => !['stg_accountant_approval', 'stg_re_to_client', 'stg_payment_collect'].includes(s.stage_id)).map(stage => (
+                    Sep 30 2026 — "RE Approve" (GM-approved REs, stage_id
+                    stg_re_from_planning), "RE - Client" (client approved the
+                    RE) and "Deal Close" now have tabs, in pipeline order; the
+                    old "Revision" tab is gone (revised leads sit in RE-Request
+                    with an RE1/RE2… badge). Accountant Approval has no tab of
+                    its own — those leads are listed under Deal Close. */}
+                {stages.filter(s => s.stage_id !== 'stg_accountant_approval').map(stage => (
                   <button
                     key={stage.stage_id}
                     className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
@@ -1823,7 +1832,7 @@ export default function CRMSales() {
               <div className="divide-y divide-gray-100" data-testid="sales-mobile-list">
                 {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).map(lead => {
                   const lost = isLeadLost(lead);
-                  const stageColor = stages.find(s => s.stage_id === lead.current_stage_id)?.color;
+                  const stageColor = stages.find(s => s.stage_id === rowStageId(lead))?.color;
                   const pendingFup = (lead.follow_ups || [])
                     .filter(f => !f.completed && f.scheduled_date)
                     .sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date))[0];
@@ -1847,7 +1856,7 @@ export default function CRMSales() {
                           <div className="flex items-start justify-between gap-2">
                             <p className="font-medium text-gray-900 text-sm truncate">{lead.name}</p>
                             <Badge variant="outline" className="text-[10px] px-1.5 flex-shrink-0 whitespace-nowrap" style={{ borderColor: stageColor }}>
-                              {getStageName(lead.current_stage_id)}
+                              {getStageName(rowStageId(lead))}
                             </Badge>
                           </div>
                           <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-gray-500 min-w-0">
@@ -2037,9 +2046,9 @@ export default function CRMSales() {
                         <Badge 
                           variant="outline" 
                           className="text-[10px] px-1.5 truncate"
-                          style={{ borderColor: stages.find(s => s.stage_id === lead.current_stage_id)?.color }}
+                          style={{ borderColor: stages.find(s => s.stage_id === rowStageId(lead))?.color }}
                         >
-                          {getStageName(lead.current_stage_id)?.substring(0, 12)}
+                          {getStageName(rowStageId(lead))?.substring(0, 12)}
                         </Badge>
                       </td>
                       <td className="px-2 py-2">
@@ -2174,8 +2183,9 @@ export default function CRMSales() {
         {viewMode === 'kanban' && (
         <div className="overflow-x-auto pb-4" style={{height: 'calc(100vh - 220px)'}}>
           <div className="flex gap-4 min-w-max h-full">
-            {stages.map(stage => (
-              <div 
+            {/* Accountant Approval leads show in the Deal Close column. */}
+            {stages.filter(s => s.stage_id !== 'stg_accountant_approval').map(stage => (
+              <div
                 key={stage.stage_id}
                 className="w-80 flex-shrink-0 flex flex-col h-full"
                 onDragOver={handleDragOver}
@@ -2531,8 +2541,17 @@ export default function CRMSales() {
                     <div className="bg-gradient-to-r from-green-50 to-orange-50 border-2 border-dashed border-amber-300 rounded-lg p-3">
                       <div className="flex flex-col gap-3">
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold text-gray-800">RE Sent to Client — Awaiting Decision</p>
-                          <p className="text-xs text-gray-600 mt-0.5">Share the public RE link, regenerate if revisions are needed, or record the client decision.</p>
+                          {selectedLead.current_stage_id === 'stg_re_to_client' ? (
+                            <>
+                              <p className="text-sm font-semibold text-gray-800">Client Approved the RE</p>
+                              <p className="text-xs text-gray-600 mt-0.5">Next: Client Site Visit → USB Project Visit → Deal Close. Regenerate the RE if the client asks for changes.</p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-sm font-semibold text-gray-800">RE Approved — Awaiting Client Decision</p>
+                              <p className="text-xs text-gray-600 mt-0.5">Share the public RE link, regenerate if revisions are needed, or record the client's approval.</p>
+                            </>
+                          )}
                           {linkedREPlanner && (
                             <Badge className="mt-1 text-[10px] bg-indigo-50 text-indigo-700 border-indigo-200" data-testid="sales-banner-re-planner">
                               Prepared by {linkedREPlanner} (Planning Person)
@@ -2572,14 +2591,17 @@ export default function CRMSales() {
                           >
                             <RefreshCw className="h-4 w-4 mr-1" /> Regenerate RE
                           </Button>
-                          <Button
-                            size="sm"
-                            className="w-full bg-green-600 hover:bg-green-700 text-white"
-                            onClick={() => openReClientAction(selectedLead, 'approved')}
-                            data-testid="detail-re-approve-btn"
-                          >
-                            <CheckCircle className="h-4 w-4 mr-1" /> Approved
-                          </Button>
+                          {/* Only while waiting on the client; RE - Client already means approved. */}
+                          {selectedLead.current_stage_id === 'stg_re_from_planning' && (
+                            <Button
+                              size="sm"
+                              className="w-full bg-green-600 hover:bg-green-700 text-white"
+                              onClick={() => openReClientAction(selectedLead, 'approved')}
+                              data-testid="detail-re-approve-btn"
+                            >
+                              <CheckCircle className="h-4 w-4 mr-1" /> Approved
+                            </Button>
+                          )}
                           {/* Sep 18 2026 — Revision button removed; this now
                               shows the current RE revision, which bumps
                               automatically whenever "Regenerate RE" creates a
@@ -3139,8 +3161,13 @@ export default function CRMSales() {
                   Payment Collect banner above — so hiding all four from this
                   row loses no functionality, just the redundant chips. The
                   stages themselves are untouched; leads already parked on
-                  them keep working exactly as before. */}
-              {stages.filter(s => !['stg_accountant_approval', 'stg_re_from_planning', 'stg_re_to_client', 'stg_payment_collect'].includes(s.stage_id)).map(stage => (
+                  them keep working exactly as before.
+                  Sep 30 2026 — Deal Close is back in this row: in the new flow
+                  a lead reaches it from USB Project Visit, and the chip opens
+                  the Convert Deal / Collect Advance popup (never a direct
+                  move). RE Approve (GM approval) and RE - Client (the
+                  "Approved" button above) stay off it. */}
+              {stages.filter(s => !['stg_accountant_approval', 'stg_re_from_planning', 'stg_re_to_client'].includes(s.stage_id)).map(stage => (
                 <Button
                   key={stage.stage_id}
                   variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'}
@@ -4123,7 +4150,7 @@ export default function CRMSales() {
                   <CheckCircle className="h-5 w-5" /> Client Approved RE
                 </DialogTitle>
                 <DialogDescription>
-                  Confirm that the client has approved the current RE. The lead will be moved to <strong>Negotiation</strong> stage.
+                  Confirm that the client has approved the current RE. The lead will be moved to <strong>RE - Client</strong>; next come Client Site Visit, USB Project Visit and Deal Close.
                 </DialogDescription>
               </>
             ) : (
