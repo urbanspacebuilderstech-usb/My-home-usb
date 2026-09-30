@@ -13863,3 +13863,175 @@ async def vendor_name_keying_audit(
         "collisions": collisions[:limit],
         "truncated": len(collisions) > limit,
     })
+
+
+@router.get("/admin/vendor-suspense-audit")
+async def vendor_suspense_audit(
+    vendor_name: str = "SRINIVASAKA ENTERPRISES(steel)",
+    user: User = Depends(get_current_user),
+):
+    """TEMPORARY read-only audit of one material vendor's suspense ledger.
+
+    Sep 30 2026 - asked to verify SRINIVASAKA ENTERPRISES(steel), whose card
+    reads Total 4,23,170 / Paid 5,20,475 / Pending 11,397 / Suspense 2,00,001.
+    Two things do not add up on their face: Paid exceeds Total by 97,305, and
+    the suspense moved 2,90,300 -> 2,00,001 after a single 90,300 debit, which
+    should have left exactly 2,00,000.
+
+    Lists every suspense row with a running balance, says for each whether the
+    expense it is linked to is still live, and totals the ledger three ways -
+    raw, the way the Pay & Settle dialog counts it, and the way the Material
+    Vendor summary counts it. Where those three disagree, the disagreement is
+    itself the finding.
+
+    Reads only. No writes.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    target = (vendor_name or "").strip().lower()
+
+    # ---- every spelling that normalises to this vendor ---------------------
+    all_entries = await db.suspense_entries.find(
+        {"type": "material"}, {"_id": 0}).to_list(20000)
+    spellings = sorted({e.get("vendor_name") or "" for e in all_entries
+                        if (e.get("vendor_name") or "").strip().lower() == target})
+
+    rows = [e for e in all_entries
+            if (e.get("vendor_name") or "").strip().lower() == target]
+    rows.sort(key=lambda e: str(e.get("created_at") or e.get("date") or ""))
+
+    # ---- which linked expenses are still alive ------------------------------
+    linked_ids = [e.get("linked_expense_id") or e.get("expense_id")
+                  for e in rows if (e.get("linked_expense_id") or e.get("expense_id"))]
+    exp_by_id: Dict[str, Dict[str, Any]] = {}
+    if linked_ids:
+        async for d in db.recorded_expenses.find(
+            {"expense_id": {"$in": linked_ids}},
+            {"_id": 0, "expense_id": 1, "status": 1, "is_deleted": 1, "amount": 1},
+        ):
+            exp_by_id[d["expense_id"]] = d
+
+    _EXCL = {"rejected", "accountant_rejected", "accounts_rejected",
+             "under_correction", "cheque_bounced"}
+    _APPROVED = {"approved", "paid", "completed"}
+
+    ledger = []
+    running = 0.0
+    raw_total = 0.0
+    dialog_total = 0.0      # _live_vendor_suspense_balance's rule
+    summary_total = 0.0     # the Material Vendor summary's rule
+    for e in rows:
+        amt = _f(e.get("amount"))
+        raw_total = round(raw_total + amt, 2)
+        linked = e.get("linked_expense_id") or e.get("expense_id")
+        exp = exp_by_id.get(linked) if linked else None
+        exp_status = (exp or {}).get("status")
+        exp_missing = bool(linked) and exp is None
+        exp_live = (not linked) or (
+            exp is not None
+            and (exp_status or "").lower() not in _EXCL
+            and not exp.get("is_deleted"))
+
+        if exp_live:
+            dialog_total = round(dialog_total + amt, 2)
+        # the summary additionally drops sub-rupee rows and requires an
+        # APPROVED status rather than merely "not excluded"
+        summary_live = (not linked) or (
+            exp is not None
+            and (exp_status or "").lower() in _APPROVED
+            and (exp_status or "").lower() not in _EXCL
+            and not exp.get("is_deleted"))
+        if abs(amt) >= 0.5 and summary_live:
+            summary_total = round(summary_total + amt, 2)
+
+        running = round(running + amt, 2)
+        ledger.append({
+            "entry_id": e.get("entry_id"),
+            "created_at": e.get("created_at") or e.get("date"),
+            "amount": amt,
+            "direction": "credit" if amt > 0 else ("debit" if amt < 0 else "zero"),
+            "running_balance": running,
+            "description": e.get("description"),
+            "payment_mode": e.get("payment_mode"),
+            "cheque_number": e.get("cheque_number") or e.get("cheque_no"),
+            "linked_expense_id": linked,
+            "linked_expense_status": exp_status,
+            "linked_expense_missing": exp_missing,
+            "counts_for_pay_dialog": exp_live,
+            "counts_for_vendor_summary": bool(abs(amt) >= 0.5 and summary_live),
+        })
+
+    # ---- what the vendor card's Total / Paid / Pending are built from -------
+    pay_rows = await db.recorded_expenses.find(
+        {"category": "material"},
+        {"_id": 0, "expense_id": 1, "vendor_name": 1, "amount": 1, "status": 1,
+         "is_deleted": 1, "created_at": 1, "description": 1, "credit_applied": 1},
+    ).to_list(20000)
+    mine = [r for r in pay_rows
+            if (r.get("vendor_name") or "").strip().lower() == target]
+    paid_total = round(sum(_f(r.get("amount")) for r in mine
+                           if (r.get("status") or "").lower() in _APPROVED
+                           and not r.get("is_deleted")), 2)
+    credit_applied_total = round(sum(_f(r.get("credit_applied")) for r in mine
+                                     if (r.get("status") or "").lower() in _APPROVED
+                                     and not r.get("is_deleted")), 2)
+
+    # ---- findings -----------------------------------------------------------
+    findings = []
+    if abs(raw_total - dialog_total) >= 0.005:
+        findings.append(
+            "Raw ledger totals %s but the Pay & Settle dialog would offer %s - "
+            "the difference sits on rows whose linked expense is rejected, "
+            "bounced or deleted." % (raw_total, dialog_total))
+    if abs(dialog_total - summary_total) >= 0.005:
+        findings.append(
+            "The Pay & Settle dialog counts %s while the Material Vendor "
+            "summary counts %s. The two apply different status filters, so a "
+            "vendor can appear to hold credit the payment screen will not "
+            "spend." % (dialog_total, summary_total))
+    odd = [l for l in ledger if 0 < abs(l["amount"]) < 2]
+    if odd:
+        findings.append(
+            "%d ledger row(s) under 2 rupees: %s. A sub-rupee row is dropped "
+            "by the summary (its `abs(a) < 0.5` guard) but kept by the dialog, "
+            "which is how a balance can differ by small change."
+            % (len(odd), ", ".join("%s=%s" % (l["entry_id"], l["amount"]) for l in odd)))
+    missing = [l for l in ledger if l["linked_expense_missing"]]
+    if missing:
+        findings.append(
+            "%d row(s) point at a recorded_expense that no longer exists: %s."
+            % (len(missing), ", ".join(str(l["entry_id"]) for l in missing)))
+    if not findings:
+        findings.append("Every total agrees; nothing unexplained in this ledger.")
+
+    return fast_json({
+        "write_performed": False,
+        "read_only": True,
+        "vendor_name_queried": vendor_name,
+        "exact_spellings_found": spellings,
+        "entry_count": len(ledger),
+        "totals": {
+            "raw_sum_of_every_row": raw_total,
+            "as_the_pay_dialog_counts_it": dialog_total,
+            "as_the_vendor_summary_counts_it": summary_total,
+        },
+        "payments": {
+            "approved_material_expense_rows": len(
+                [r for r in mine if (r.get("status") or "").lower() in _APPROVED]),
+            "cash_paid_total": paid_total,
+            "credit_applied_total": credit_applied_total,
+            "note": ("`cash_paid_total` sums recorded_expenses.amount. A leg "
+                     "funded from suspense carries the amount AND a "
+                     "credit_applied, so a card that adds both will show Paid "
+                     "above the bill Total."),
+        },
+        "findings": findings,
+        "ledger": ledger,
+    })
