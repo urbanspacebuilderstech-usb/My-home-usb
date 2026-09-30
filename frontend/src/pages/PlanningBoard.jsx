@@ -3676,7 +3676,8 @@ export default function PlanningBoard({ embedded = false }) {
         </DialogContent>
       </Dialog>
 
-      <MobileBottomNav user={user} />
+      {/* Embedded (e.g. GM portal's Planning tab): the host page has the bar. */}
+      {!embedded && <MobileBottomNav user={user} />}
       <PaymentStageDetailDialog
         open={stageDetailDlg.open}
         stageId={stageDetailDlg.stageId}

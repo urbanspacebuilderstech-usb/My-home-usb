@@ -5,6 +5,7 @@ import { AppHeader } from '../components/AppHeader';
 import { LineChart, BarChart3, CalendarClock, FolderKanban, Banknote, Wallet } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import MobileBottomNav from '../components/MobileBottomNav';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -61,12 +62,12 @@ export default function FinanceBoard() {
         {TABS.map(t => (
           <TabsContent key={t.value} value={t.value} className="flex-1 m-0 p-0">
             {t.src ? (
+              // Below `lg` the frame also stops above the bottom nav (4rem).
               <iframe
                 title={t.label}
                 src={t.src}
                 data-testid={`fb-frame-${t.value}`}
-                className="w-full border-0"
-                style={{ height: 'calc(100vh - 6rem)' }}
+                className="w-full border-0 h-[calc(100vh-10rem)] lg:h-[calc(100vh-6rem)]"
               />
             ) : (
               <div data-testid="fb-projection-placeholder" className="h-[60vh] flex flex-col items-center justify-center text-center px-4">
@@ -80,6 +81,9 @@ export default function FinanceBoard() {
           </TabsContent>
         ))}
       </Tabs>
+      {/* Sep 30 2026 — the tab pages are embedded and no longer draw their
+          own bar, so the Finance Board (Super Admin's home) carries it. */}
+      <MobileBottomNav user={user} />
     </div>
   );
 }

@@ -37,22 +37,27 @@ import { ROLE_NAV } from './AppHeader';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
-// Super Admin: matches header menus exactly
-// Bottom bar: Dashboard, Projects, Accounts, Planning, More
-// More drawer: Marketing Board, GM, Users, Settings, Notifications
+// Super Admin — Sep 30 2026: follows the desktop header (Dashboard, Finance
+// Board, Planning, Sales, Marketing Board, HR, Settings). "Dashboard" used to
+// open /dashboard, which just redirects to the Finance Board, so the Super
+// Admin Dashboard wasn't reachable on a phone. Nothing was dropped: Projects
+// and Accounts moved into More with the rest.
 const SA_BOTTOM = [
-  { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-  { label: 'Projects', icon: FolderKanban, path: '/projects' },
-  { label: 'Accounts', icon: Landmark, path: '/accounts-board' },
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/super-admin-dashboard' },
+  { label: 'Finance', icon: IndianRupee, path: '/finance-board' },
   { label: 'Planning', icon: Calculator, path: '/planning-board' },
+  { label: 'Sales', icon: TrendingUp, path: '/sales-board' },
   { label: 'More', icon: Menu, action: 'more' },
 ];
 
 const SA_MORE_ITEMS = [
   { label: 'Marketing Board', icon: TrendingUp, path: '/marketing-board' },
+  { label: 'HR', icon: Users, path: '/hr-portal' },
+  { label: 'Settings', icon: Settings, path: '/settings' },
+  { label: 'Accounts', icon: Landmark, path: '/accounts-board' },
+  { label: 'Projects', icon: FolderKanban, path: '/projects' },
   { label: 'GM Dashboard', icon: Shield, path: '/gm-dashboard' },
   { label: 'Users', icon: Users, path: '/users' },
-  { label: 'Settings', icon: Settings, path: '/settings' },
   { label: 'Notifications', icon: Bell, path: '/notifications' },
 ];
 
@@ -236,8 +241,17 @@ export default function MobileBottomNav({ user }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [moreOpen, setMoreOpen] = useState(false);
-  
+
   if (!user) return null;
+  // Sep 30 2026 — pages embedded in another page (Finance Board tabs, HR
+  // Portal / Settings frames) render no bar: the host page owns navigation.
+  // A bar in here navigated only the frame, so e.g. More → Sales opened Sales
+  // Masterview inside the Finance Board, without its header or sub-menu.
+  let embedded;
+  try {
+    embedded = window.self !== window.top || new URLSearchParams(window.location.search).get('embedded') === '1';
+  } catch { embedded = true; }
+  if (embedded) return null;
 
   const isSuperAdmin = user.role === 'super_admin';
   const isAccountant = user.role === 'accountant';
