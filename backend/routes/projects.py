@@ -332,13 +332,10 @@ async def get_projects(include_deleted: bool = False, planning_person_id: Option
     # Collect all project IDs for batch queries
     project_ids = [p["project_id"] for p in projects]
     
-    # Batch fetch payment stages and income for all projects
-    all_payment_stages = await db.payment_stages.find(
-        {"project_id": {"$in": project_ids}}, {"_id": 0}
-    ).to_list(10000)
-    
+    # Batch fetch expenses for all projects. Only the fields summed below:
+    # this list is polled every 15s by the GM and other dashboards.
     all_expenses = await db.expenses.find(
-        {"project_id": {"$in": project_ids}}, {"_id": 0}
+        {"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "amount": 1, "status": 1}
     ).to_list(10000)
 
     # Batch addition + deduction totals so the project list cards can show the
@@ -352,7 +349,7 @@ async def get_projects(include_deleted: bool = False, planning_person_id: Option
         {"project_id": {"$in": project_ids}, "kind": "deduction"},
         {"_id": 0, "project_id": 1, "amount": 1, "estimated_amount": 1, "actual_amount": 1},
     ).to_list(10000)
-    # Per-project payment stages so we can compute overdue (pending dues).
+    # Per-project payment stages, for amounts received and overdue (pending dues).
     all_stages = await db.payment_stages.find(
         {"project_id": {"$in": project_ids}},
         {"_id": 0, "project_id": 1, "amount": 1, "amount_received": 1, "expected_payment_date": 1, "due_date": 1},
@@ -382,7 +379,7 @@ async def get_projects(include_deleted: bool = False, planning_person_id: Option
     
     # Group payment stages and expenses by project_id
     stages_by_project = {}
-    for stage in all_payment_stages:
+    for stage in all_stages:
         pid = stage["project_id"]
         if pid not in stages_by_project:
             stages_by_project[pid] = []

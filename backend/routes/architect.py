@@ -188,9 +188,14 @@ async def get_pending_design_approvals(user: User = Depends(get_current_user)):
 
     plans = await db.site_plans.find({"status": "approval_waiting"}, {"_id": 0}).to_list(500)
 
-    # Enrich with project info
+    # Enrich with project info (one query for all plans)
+    ids = list({plan.get("project_id") for plan in plans if plan.get("project_id")})
+    projects = await db.projects.find(
+        {"project_id": {"$in": ids}}, {"_id": 0, "project_id": 1, "name": 1, "client_name": 1}
+    ).to_list(len(ids) or 1)
+    by_id = {p["project_id"]: p for p in projects}
     for plan in plans:
-        project = await db.projects.find_one({"project_id": plan["project_id"]}, {"_id": 0, "name": 1, "client_name": 1})
+        project = by_id.get(plan.get("project_id"))
         plan["project_name"] = project.get("name", "") if project else ""
         plan["client_name"] = project.get("client_name", "") if project else ""
 

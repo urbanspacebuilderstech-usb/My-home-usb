@@ -1281,6 +1281,17 @@ async def _assigned_project_name_map(project_ids: list) -> Dict[str, str]:
     return {p["project_id"]: p.get("name", "") for p in projects}
 
 
+async def _project_names(project_ids) -> Dict[str, str]:
+    """project_id -> name for list endpoints, deleted projects included."""
+    ids = [pid for pid in project_ids if pid]
+    if not ids:
+        return {}
+    projects = await db.projects.find(
+        {"project_id": {"$in": ids}}, {"_id": 0, "project_id": 1, "name": 1},
+    ).to_list(len(ids))
+    return {p["project_id"]: p.get("name") for p in projects}
+
+
 @router.get("/site-engineer/dlr-dpr-summary")
 async def get_site_engineer_dlr_dpr_summary(
     date: Optional[str] = None,
@@ -2221,10 +2232,11 @@ async def get_material_requests(
 
     requests = await db.material_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
 
-    # Enrich with project name
+    # Enrich with project name — one query for all rows, not one per row
+    # (GM Dashboard polls this with up to 1000 rows every 15s).
+    names = await _project_names({r.get("project_id") for r in requests})
     for r in requests:
-        project = await db.projects.find_one({"project_id": r["project_id"]}, {"_id": 0, "name": 1})
-        r["project_name"] = project["name"] if project else "Unknown"
+        r["project_name"] = names.get(r.get("project_id"), "Unknown")
 
     return requests
 
@@ -2512,13 +2524,13 @@ async def get_labour_requests(
         query["status"] = status
     
     requests = await db.labour_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
-    
-    # Enrich with project name
+
+    # Enrich with project name (one query for every row missing it)
+    names = await _project_names({r.get("project_id") for r in requests if "project_name" not in r})
     for r in requests:
         if "project_name" not in r:
-            project = await db.projects.find_one({"project_id": r["project_id"]}, {"_id": 0, "name": 1})
-            r["project_name"] = project["name"] if project else "Unknown"
-    
+            r["project_name"] = names.get(r.get("project_id"), "Unknown")
+
     return requests
 
 
