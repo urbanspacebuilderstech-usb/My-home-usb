@@ -159,9 +159,16 @@ router = APIRouter()
 
 @router.get("/health")
 async def health():
-    """Public liveness check. `workers` is the uvicorn worker count the deploy
-    configured (WEB_CONCURRENCY), so it can be confirmed from outside."""
-    return {"status": "ok", "workers": int(os.environ.get("WEB_CONCURRENCY") or 1)}
+    """Public liveness check, plus the worker count the deploy chose
+    (hostinger_setup/backend_workers.sh). `workers` is null when
+    WEB_CONCURRENCY never reached this process, i.e. uvicorn runs one worker
+    because PM2 didn't pass the variable on."""
+    raw = os.environ.get("WEB_CONCURRENCY")
+    return {
+        "status": "ok",
+        "workers": int(raw) if raw and raw.isdigit() else None,
+        "sized_by": os.environ.get("WORKERS_SIZED_BY"),
+    }
 
 
 @router.get("/admin/perf-events")

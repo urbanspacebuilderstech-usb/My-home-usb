@@ -119,9 +119,11 @@ jobs:
             # Each step is one line that exits 0 (script_stop aborts on any
             # non-zero line); the scripts explain their choices.
             echo "==> Sizing backend workers"
-            BACKEND_WORKERS=$(bash hostinger_setup/backend_workers.sh || echo 1)
-            export WEB_CONCURRENCY=${BACKEND_WORKERS:-1}
-            echo "WEB_CONCURRENCY=$WEB_CONCURRENCY"
+            BACKEND_SIZING=$(bash hostinger_setup/backend_workers.sh || echo "1 script-failed")
+            export WEB_CONCURRENCY=$(echo "$BACKEND_SIZING" | awk '{ n = $1 + 0; if (n < 1) n = 1; print n }')
+            # Shown by GET /api/health, so the choice can be checked from outside.
+            export WORKERS_SIZED_BY=$(echo "$BACKEND_SIZING" | awk '{ print $2 }')
+            echo "WEB_CONCURRENCY=$WEB_CONCURRENCY ($WORKERS_SIZED_BY)"
 
             echo "==> nginx: gzip + long cache for hashed /static/ files"
             bash hostinger_setup/nginx_static_cache.sh || true

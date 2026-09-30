@@ -1,5 +1,6 @@
 #!/bin/bash
-# Prints how many uvicorn worker processes this VPS should run.
+# Prints how many uvicorn worker processes this VPS should run, then the
+# figures it was based on, e.g. `2 cpus=2,mem_available=1400MB`.
 #
 # Sep 30 2026 — The backend ran as ONE process, so any slow request (a big
 # report, a Sheets import) froze the ERP for every user until it finished.
@@ -23,5 +24,4 @@ mem_cap=$((avail_mb / 400))
 if [ "$mem_cap" -lt "$workers" ]; then workers=$mem_cap; fi
 if [ "$workers" -lt 1 ]; then workers=1; fi
 
-echo "backend_workers: cpus=$cpus mem_available=${avail_mb}MB -> $workers workers" >&2
-echo "$workers"
+echo "$workers cpus=$cpus,mem_available=${avail_mb}MB"
