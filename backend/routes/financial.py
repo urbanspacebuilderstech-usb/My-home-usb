@@ -14035,3 +14035,171 @@ async def vendor_suspense_audit(
         "findings": findings,
         "ledger": ledger,
     })
+
+
+@router.get("/admin/backfill-duplicate-scan")
+async def backfill_duplicate_scan(
+    limit: int = 60,
+    user: User = Depends(get_current_user),
+):
+    """TEMPORARY read-only scan: phantom vendor credit created by the
+    excess-to-suspense bulk backfill.
+
+    Sep 30 2026 - cheque #105862 (SBI, Mr Manimaran, face value 2,00,000)
+    reconciled exactly on its own:
+
+        applied to Steel bill mexp_6391731ba99f   1,09,699.70
+        excess to suspense  se_d2816ddf05            90,300.30
+                                                  ------------
+                                                  2,00,000.00
+
+    68 seconds later a bulk script added a SECOND allocation of the full
+    2,00,000 (cha_6d934be86e, source "historical_opening") and a SECOND
+    suspense credit of 2,00,000 (se_099800777d), both saying "bulk backfilled
+    after the excess-to-suspense flow was restored". It treated the whole face
+    value as leftover although most of it had already paid the bill and the
+    real leftover was already credited. cheque-balance-trace now reports
+    allocations of 4,00,000 and traced spend of 6,00,000 against a 2,00,000
+    cheque, and warns the evidence is double-counted.
+
+    The wording says "bulk", so this scan asks how far it went: which cheques
+    carry a backfill allocation on top of a real one, how much phantom credit
+    each vendor holds, and - the part that matters most - how much of that
+    phantom credit has ALREADY been spent on real bills.
+
+    Reads only. No writes.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    BACKFILL_MARKERS = ("bulk backfill", "backfilled after the excess-to-suspense",
+                        "historical_opening")
+
+    def _is_backfill(doc):
+        blob = " ".join(str(doc.get(k) or "") for k in
+                        ("source", "note", "description", "request_type")).lower()
+        return any(m in blob for m in BACKFILL_MARKERS)
+
+    allocs = await db.cheque_allocations.find({}, {"_id": 0}).to_list(50000)
+    cheques = await db.cheques.find(
+        {}, {"_id": 0, "cheque_id": 1, "cheque_number": 1, "amount": 1,
+             "party_name": 1, "bank_name": 1, "status": 1}).to_list(50000)
+    chq_by_id = {c["cheque_id"]: c for c in cheques if c.get("cheque_id")}
+
+    by_cheque: Dict[str, List[Dict[str, Any]]] = {}
+    for a in allocs:
+        if (a.get("status") or "").lower() != "active":
+            continue
+        by_cheque.setdefault(a.get("cheque_id"), []).append(a)
+
+    suspect_cheques = []
+    phantom_by_vendor: Dict[str, float] = {}
+    for cid, rows in by_cheque.items():
+        chq = chq_by_id.get(cid) or {}
+        face = _f(chq.get("amount"))
+        total = round(sum(_f(a.get("amount")) for a in rows), 2)
+        backfill_rows = [a for a in rows if _is_backfill(a)]
+        genuine_rows = [a for a in rows if not _is_backfill(a)]
+        backfill_total = round(sum(_f(a.get("amount")) for a in backfill_rows), 2)
+        over = round(total - face, 2)
+        # Suspicious when a backfill allocation sits on top of a real one, or
+        # when the active allocations simply exceed what the cheque was worth.
+        if not backfill_rows and over <= 0.5:
+            continue
+        for a in backfill_rows:
+            v = (a.get("vendor_name") or "").strip()
+            if v:
+                phantom_by_vendor[v] = round(
+                    phantom_by_vendor.get(v, 0.0) + _f(a.get("amount")), 2)
+        suspect_cheques.append({
+            "cheque_id": cid,
+            "cheque_number": chq.get("cheque_number"),
+            "party_name": chq.get("party_name"),
+            "face_value": face,
+            "active_allocations_total": total,
+            "exceeds_face_value_by": over if over > 0.5 else 0.0,
+            "genuine_allocation_count": len(genuine_rows),
+            "backfill_allocation_count": len(backfill_rows),
+            "backfill_allocation_total": backfill_total,
+            "allocations": [
+                {"allocation_id": a.get("allocation_id"), "amount": _f(a.get("amount")),
+                 "vendor_name": a.get("vendor_name"), "expense_id": a.get("expense_id"),
+                 "request_id": a.get("request_id"), "source": a.get("source"),
+                 "request_type": a.get("request_type"), "note": a.get("note"),
+                 "created_at": a.get("created_at"),
+                 "looks_like_backfill": _is_backfill(a)}
+                for a in sorted(rows, key=lambda r: str(r.get("created_at") or ""))],
+        })
+    suspect_cheques.sort(key=lambda c: -c["backfill_allocation_total"])
+
+    # ---- the suspense side --------------------------------------------------
+    entries = await db.suspense_entries.find({"type": "material"}, {"_id": 0}).to_list(50000)
+    per_vendor: Dict[str, Dict[str, Any]] = {}
+    for e in entries:
+        v = (e.get("vendor_name") or "").strip()
+        if not v:
+            continue
+        amt = _f(e.get("amount"))
+        b = per_vendor.setdefault(v, {
+            "vendor_name": v, "credits": 0.0, "debits": 0.0, "balance": 0.0,
+            "phantom_credit": 0.0, "phantom_entries": []})
+        if amt >= 0:
+            b["credits"] = round(b["credits"] + amt, 2)
+        else:
+            b["debits"] = round(b["debits"] + amt, 2)
+        b["balance"] = round(b["balance"] + amt, 2)
+        if amt > 0 and _is_backfill(e):
+            b["phantom_credit"] = round(b["phantom_credit"] + amt, 2)
+            b["phantom_entries"].append({
+                "entry_id": e.get("entry_id"), "amount": amt,
+                "created_at": e.get("created_at"),
+                "description": e.get("description")})
+
+    affected = [v for v in per_vendor.values() if v["phantom_credit"] > 0.5]
+    for v in affected:
+        spent = abs(v["debits"])
+        # Genuine credit is whatever was NOT created by the backfill.
+        v["genuine_credit"] = round(v["credits"] - v["phantom_credit"], 2)
+        # Spending is applied against genuine credit first; only what exceeds
+        # it can have come out of the phantom pool.
+        v["phantom_already_spent"] = round(max(0.0, spent - v["genuine_credit"]), 2)
+        v["phantom_still_spendable"] = round(
+            min(v["phantom_credit"], max(0.0, v["balance"])), 2)
+    affected.sort(key=lambda v: -v["phantom_credit"])
+
+    total_phantom = round(sum(v["phantom_credit"] for v in affected), 2)
+    total_spent = round(sum(v["phantom_already_spent"] for v in affected), 2)
+    total_live = round(sum(v["phantom_still_spendable"] for v in affected), 2)
+
+    return fast_json({
+        "write_performed": False,
+        "read_only": True,
+        "cheques_examined": len(by_cheque),
+        "suspect_cheque_count": len(suspect_cheques),
+        "vendors_with_phantom_credit": len(affected),
+        "totals": {
+            "phantom_credit_created": total_phantom,
+            "phantom_still_spendable_today": total_live,
+            "phantom_already_spent_on_real_bills": total_spent,
+        },
+        "reading": (
+            "phantom_credit_created is what the backfill invented. "
+            "phantom_still_spendable_today is what a bill could still be "
+            "settled against right now - that is the live exposure and a "
+            "ledger correction removes it. "
+            "phantom_already_spent_on_real_bills is worse: those bills show as "
+            "paid but the vendor was never funded for them, so correcting the "
+            "ledger alone would leave those bills wrongly closed. Spending is "
+            "attributed to genuine credit first, so this figure is the "
+            "minimum, not the maximum."
+        ),
+        "vendors": affected[:limit],
+        "cheques": suspect_cheques[:limit],
+        "truncated": len(affected) > limit or len(suspect_cheques) > limit,
+    })
