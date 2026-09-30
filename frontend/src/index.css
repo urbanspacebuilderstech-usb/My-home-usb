@@ -364,6 +364,12 @@ input[inputmode="numeric"]::-webkit-inner-spin-button {
     scrollbar-width: none;
   }
   [role="tablist"]::-webkit-scrollbar { display: none; }
+
+  /* Wide data tables scroll sideways inside their own box instead of
+   * widening the page. Covers the hand-built <table>s that sit straight in
+   * a div with no scroll wrapper; :where() keeps this at zero specificity,
+   * so a wrapper's own overflow class (e.g. a card's overflow-hidden) wins. */
+  :where(div:has(> table)) { overflow-x: auto; }
 }
 
 /* A centred strip that overflows pushes its first tabs off the left edge,
