@@ -1322,26 +1322,19 @@ export default function CRMPreSales() {
                               {getStageName(lead.current_stage_id)}
                             </Badge>
                           </div>
-                          <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-gray-500 min-w-0">
-                            {lead.city && <span className="truncate">{lead.city}</span>}
-                            {lead.source && (
-                              <Badge className={`text-[10px] px-1.5 flex-shrink-0 ${SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}`}>
-                                {lead.source.replace('_', ' ')}
-                              </Badge>
-                            )}
-                            <span className="ml-auto flex-shrink-0 tabular-nums">
+                          {/* Date sits right under the name; source and assignee
+                              stay off the phone card (both are in the lead popup). */}
+                          <div className="flex items-center gap-1 mt-0.5 text-[11px] text-gray-500 min-w-0">
+                            <span className="flex-shrink-0 tabular-nums">
                               {formatIN(lead.created_at, { day: '2-digit', month: 'short' })}
                             </span>
+                            {lead.city && <span className="truncate">· {lead.city}</span>}
                           </div>
                           {/* Tap the number to reveal it without opening the lead. */}
                           <div className="mt-1" onClick={(e) => e.stopPropagation()}>
                             <MaskedContact phone={lead.phone} email={lead.email} lost={isLeadLost(lead)} compact />
                           </div>
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5">
-                            <span className="flex items-center gap-1 min-w-0 text-[11px] text-gray-700">
-                              <User className="h-3 w-3 text-gray-400 flex-shrink-0" />
-                              <span className="truncate">{lead.assigned_to_name || 'Unassigned'}</span>
-                            </span>
                             {(lead.follow_ups || []).length > 0 && <FollowUpChip followUps={lead.follow_ups} />}
                             {lead.current_stage_id === 'stg_appointment' && lead.appointment_date && (
                               <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 py-0.5">
