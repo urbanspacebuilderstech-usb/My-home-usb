@@ -1020,18 +1020,20 @@ export default function CRMPreSales() {
       <AppHeader user={user} />
 
       <div className="max-w-full mx-auto px-2 py-2 sm:px-6 sm:py-3">
-        {/* Stats Cards - Single row (clickable to filter the list).
+        {/* Stats Cards (clickable to filter the list). Phones: an even 5-column
+            grid (Total + 9 stages = two full rows) that lines up with the
+            filters below; wider screens: a single row.
             overflow-x-auto clips on every side, so pad the row enough for the
             active ring (2px + 1px offset) and the hover lift, and cancel the
             padding with negative margins so the cards stay aligned. */}
-        <div className="flex gap-1.5 sm:gap-3 mb-3 overflow-x-auto -mx-1 -mt-1.5 px-1 pt-1.5 pb-1">
+        <div className="grid grid-cols-5 auto-rows-fr gap-1.5 sm:flex sm:gap-3 mb-3 sm:overflow-x-auto -mx-1 -mt-1.5 px-1 pt-1.5 pb-1">
           <button
             type="button"
             onClick={() => { setActiveStage('all'); setViewMode('list'); }}
-            className={`flex-none w-[84px] sm:w-auto sm:flex-1 sm:min-w-0 flex flex-col items-center justify-center bg-emerald-500 text-white rounded-2xl px-2 py-2.5 sm:py-5 shadow-sm transition-transform hover:-translate-y-0.5 ${activeStage === 'all' ? 'ring-2 ring-emerald-700 ring-offset-1' : ''}`}
+            className={`min-w-0 sm:flex-1 flex flex-col items-center justify-center bg-emerald-500 text-white rounded-xl sm:rounded-2xl px-1 sm:px-2 py-2 sm:py-5 shadow-sm transition-transform hover:-translate-y-0.5 ${activeStage === 'all' ? 'ring-2 ring-emerald-700 ring-offset-1' : ''}`}
             data-testid="filter-tile-all"
           >
-            <span className="text-[10px] sm:text-xs font-medium opacity-90">Total Leads</span>
+            <span className="text-[9px] sm:text-xs font-medium opacity-90 text-center leading-tight">Total Leads</span>
             <span className="text-lg sm:text-3xl font-bold mt-0.5">{dashboard?.total_leads || 0}</span>
           </button>
           {stages.map(stage => {
@@ -1042,7 +1044,7 @@ export default function CRMPreSales() {
               type="button"
               key={stage.stage_id}
               onClick={() => { setActiveStage(stage.stage_id); setViewMode('list'); }}
-              className={`flex-none w-[76px] sm:w-auto sm:flex-1 sm:min-w-0 flex flex-col items-center justify-center rounded-2xl px-1 py-2.5 sm:py-5 shadow-sm border transition-transform hover:-translate-y-0.5 ${active ? 'ring-2 ring-offset-1' : ''}`}
+              className={`min-w-0 sm:flex-1 flex flex-col items-center justify-center rounded-xl sm:rounded-2xl px-0.5 sm:px-1 py-2 sm:py-5 shadow-sm border transition-transform hover:-translate-y-0.5 ${active ? 'ring-2 ring-offset-1' : ''}`}
               style={{ 
                 backgroundColor: stage.color + '15',
                 borderColor: stage.color + '30',
@@ -1050,16 +1052,18 @@ export default function CRMPreSales() {
               }}
               data-testid={`stage-count-${stage.stage_id}`}
             >
-              <span className="text-[10px] sm:text-[11px] font-medium text-center leading-tight line-clamp-2 sm:truncate w-full px-0.5" style={{ color: stage.color }}>{stage.name}</span>
+              <span className="text-[9px] sm:text-[11px] font-medium text-center leading-tight line-clamp-2 sm:truncate w-full px-0.5" style={{ color: stage.color }}>{stage.name}</span>
               <span className="text-lg sm:text-3xl font-bold mt-0.5" style={{ color: stage.color }}>{count}</span>
             </button>
             );
           })}
         </div>
 
-        {/* Search & Filters + View Toggle */}
-        <div className="flex flex-wrap gap-2 sm:gap-3 mb-3 sm:mb-6 items-center">
-          <div className="relative basis-full sm:basis-0 flex-1 min-w-[200px]">
+        {/* Search & Filters + View Toggle. Phones: search on its own row, then
+            sort / date / source as three equal columns, then the actions row —
+            every row spans the full width. */}
+        <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:gap-3 mb-3 sm:mb-6 items-center">
+          <div className="relative col-span-3 sm:basis-0 flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
               placeholder="Search leads by name, email, phone..."
@@ -1074,7 +1078,7 @@ export default function CRMPreSales() {
           <Button
             variant="outline"
             size="sm"
-            className="h-9 gap-1.5 text-xs"
+            className="h-9 w-full sm:w-auto min-w-0 gap-1.5 text-xs px-2 sm:px-3"
             onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
             title={sortOrder === 'desc' ? 'Newest first — click for oldest first' : 'Oldest first — click for newest first'}
             data-testid="sort-order-toggle"
@@ -1088,10 +1092,12 @@ export default function CRMPreSales() {
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
-                className={`h-8 text-xs gap-1.5 rounded-lg shadow-sm ${dateFilter ? 'bg-blue-50 border-blue-400 text-blue-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}
+                className={`h-9 sm:h-8 w-full sm:w-auto min-w-0 px-2 sm:px-4 text-xs gap-1.5 rounded-lg shadow-sm ${dateFilter ? 'bg-blue-50 border-blue-400 text-blue-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}
                 data-testid="presales-date-filter-btn"
               >
                 <Calendar className="h-3.5 w-3.5" />
+                {/* truncate: a date range can be wider than a third of a phone. */}
+                <span className="truncate">
                 {dateFilter ? (
                   dateFilterEnd && dateFilter !== dateFilterEnd ? (
                     `${new Date(dateFilter).toLocaleDateString('en-IN', {day:'2-digit', month:'short'})} - ${new Date(dateFilterEnd).toLocaleDateString('en-IN', {day:'2-digit', month:'short'})}`
@@ -1099,6 +1105,7 @@ export default function CRMPreSales() {
                     new Date(dateFilter).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})
                   )
                 ) : 'Date'}
+                </span>
                 {dateFilter && <X className="h-3 w-3 ml-1 opacity-50 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setDateFilter(''); setDateFilterEnd(''); }} />}
               </Button>
             </PopoverTrigger>
@@ -1172,7 +1179,7 @@ export default function CRMPreSales() {
           
           {/* Source Filter */}
           <Select value={selectedSource} onValueChange={setSelectedSource}>
-            <SelectTrigger className="w-[130px] sm:w-[150px] h-9">
+            <SelectTrigger className="w-full sm:w-[150px] h-9 min-w-0 px-2 sm:px-3 text-xs sm:text-sm">
               <SelectValue placeholder="All Sources" />
             </SelectTrigger>
             <SelectContent>
@@ -1187,7 +1194,7 @@ export default function CRMPreSales() {
           </Select>
           
           {user?.role === 'super_admin' && (
-            <Button variant="outline" size="sm" className="gap-1.5 text-gray-600 hover:text-amber-700"
+            <Button variant="outline" size="sm" className="col-span-3 gap-1.5 text-gray-600 hover:text-amber-700"
               onClick={() => window.location.href = '/settings/stages?type=pre_sales'}
               data-testid="manage-presales-stages-btn">
               <Settings className="h-3.5 w-3.5" /> Manage Stages
@@ -1196,12 +1203,13 @@ export default function CRMPreSales() {
 
           {/* View Toggle */}
           {/* On phones Refresh / Sync Sheets / Kanban / List show icons only,
-              so the whole group fits on one row next to Create Lead. */}
-          <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+              so the whole group fits on one row next to Create Lead, which
+              stretches to fill it. */}
+          <div className="col-span-3 flex sm:flex-wrap items-center gap-2 sm:ml-auto">
             <Button
               size="sm"
               onClick={() => setCreateLeadDialog(true)}
-              className="gap-1.5 bg-indigo-600 hover:bg-indigo-700"
+              className="flex-1 sm:flex-initial gap-1.5 bg-indigo-600 hover:bg-indigo-700"
               data-testid="create-lead-btn"
             >
               <Plus className="h-3.5 w-3.5" />
