@@ -250,8 +250,8 @@ export default function Settings() {
 
   if (user.role !== 'super_admin') {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Card className="w-96">
+      <div className="flex items-center justify-center min-h-screen px-4">
+        <Card className="w-96 max-w-full">
           <CardContent className="pt-6 text-center">
             <SettingsIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
             <h2 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h2>

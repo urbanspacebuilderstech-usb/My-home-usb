@@ -67,19 +67,19 @@ const OTHER_ROLES = {
     { label: 'Command', icon: Shield, path: '/gm-dashboard' },
     { label: 'Projects', icon: FolderKanban, path: '/projects' },
     { label: 'Alerts', icon: Bell, path: '/notifications' },
-    { label: 'Settings', icon: Settings, path: '/settings' },
+    { label: 'Profile', icon: User, path: '/profile' },
   ],
   project_manager: [
     { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     { label: 'Projects', icon: FolderKanban, path: '/projects' },
     { label: 'Alerts', icon: Bell, path: '/notifications' },
-    { label: 'Settings', icon: Settings, path: '/settings' },
+    { label: 'Profile', icon: User, path: '/profile' },
   ],
   planning: [
     { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     { label: 'Planning', icon: Calculator, path: '/planning-board' },
     { label: 'Alerts', icon: Bell, path: '/notifications' },
-    { label: 'Settings', icon: Settings, path: '/settings' },
+    { label: 'Profile', icon: User, path: '/profile' },
   ],
   // Aug 11 2026 — was Projects/Receipt/Alerts/Profile, which didn't match
   // the dashboard's own tab bar at all. Mirrors the Sr. Site Engineer
@@ -107,13 +107,13 @@ const OTHER_ROLES = {
     { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     { label: 'Procurement', icon: ShoppingCart, path: '/procurement-board-v2' },
     { label: 'Alerts', icon: Bell, path: '/notifications' },
-    { label: 'Settings', icon: Settings, path: '/settings' },
+    { label: 'Profile', icon: User, path: '/profile' },
   ],
   cre: [
     { label: 'CRE Board', icon: Target, path: '/cre-board' },
     { label: 'Projects', icon: FolderKanban, path: '/projects' },
     { label: 'Alerts', icon: Bell, path: '/notifications' },
-    { label: 'Settings', icon: Settings, path: '/settings' },
+    { label: 'Profile', icon: User, path: '/profile' },
   ],
   // Aug 6 2026 — Overview/Payments used to both point at the exact same
   // path with no way to tell them apart, and none of the portal's other
@@ -136,10 +136,11 @@ const OTHER_ROLES = {
     { label: 'User App', icon: Users, path: '/user-app' },
     { label: 'Logout', icon: LogOut, action: 'logout' },
   ],
+  // Same fix as Pre-Sales: Profile opened the Super Admin-only /settings.
   sales: [
     { label: 'Sales', icon: TrendingUp, path: '/crm-sales' },
-    { label: 'Alerts', icon: Bell, path: '/notifications' },
-    { label: 'Profile', icon: User, path: '/settings' },
+    { label: 'User App', icon: Users, path: '/user-app' },
+    { label: 'Logout', icon: LogOut, action: 'logout' },
   ],
   // Sep 30 2026 — the roles below had no entry and fell back to the Super
   // Admin bar, whose More button does nothing for them (so e.g. a Sales
