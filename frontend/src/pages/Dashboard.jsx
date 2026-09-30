@@ -72,7 +72,8 @@ export default function Dashboard() {
       // Other roles are redirected by Login directly, but handle edge case of direct URL access.
       const role = userRes.data.role;
       if (role === 'super_admin') {
-        window.location.replace('/finance-board');
+        // Accounts on phones/tablets (Super Admin's request), Finance Board on desktop.
+        window.location.replace(window.matchMedia('(max-width: 1023px)').matches ? '/accounts-board' : '/finance-board');
         return;
       }
       if (role !== 'super_admin') {

@@ -34,7 +34,10 @@ function getRoleRedirect(role) {
     super_architect: '/workflow-master',
     hr: '/hr-portal',
     prospect: '/prospect-app',
-    super_admin: '/finance-board'
+    // Sep 30 2026 — on phones/tablets (where the bottom bar shows) Super
+    // Admin opens on Accounts, per their request; desktop keeps the Finance
+    // Board, whose first tab is Accounts anyway.
+    super_admin: window.matchMedia('(max-width: 1023px)').matches ? '/accounts-board' : '/finance-board'
   };
   return roleRoutes[role] || '/dashboard';
 }

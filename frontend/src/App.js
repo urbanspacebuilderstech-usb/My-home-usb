@@ -336,7 +336,8 @@ function getRoleRedirect(role) {
     super_architect: '/workflow-master',
     hr: '/hr-portal',
     prospect: '/prospect-app',
-    super_admin: '/finance-board'
+    // Same as Login.jsx: Accounts on phones/tablets, Finance Board on desktop.
+    super_admin: window.matchMedia('(max-width: 1023px)').matches ? '/accounts-board' : '/finance-board'
   };
   return roleRoutes[role] || '/dashboard';
 }
