@@ -82,6 +82,24 @@ jobs:
             echo "==> Preparing fresh build directory"
             rm -rf frontend/build
 
+      # ONE-OFF, Sep 30 2026 — dry run only (no --apply), read-only against
+      # the DB. Reviews Cheque #041296 and any other already-bounced cheque
+      # with an un-reversed material-suspense credit. Remove this step once
+      # reviewed; script_stop is off so a failure here never blocks the real
+      # deploy below.
+      - name: One-off - dry-run bounced-cheque material suspense backfill
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: false
+          script: |
+            cd ${{ secrets.VPS_APP_PATH }}/backend
+            if [ -d venv ]; then source venv/bin/activate; fi
+            python scripts/backfill_bounced_cheque_material_suspense.py
+
       - name: Copy built frontend to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
