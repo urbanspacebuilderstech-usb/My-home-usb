@@ -68,7 +68,6 @@ const GMDashboard = () => {
   const [feApproveDialog, setFeApproveDialog] = useState({ open: false, project: null, typed: '', autoShare: false, submitting: false });
   
   // Dashboard Data
-  const [stats, setStats] = useState({});
   const [projects, setProjects] = useState([]);
   const [reProjects, setReProjects] = useState([]);
   const [siteRequests, setSiteRequests] = useState([]);
@@ -106,60 +105,39 @@ const GMDashboard = () => {
     fetchAllData();
   }, []);
 
+  // Sep 30 2026 — the page used to wait for all nine requests before showing
+  // anything, so the slowest one (usually /projects) held the whole screen on
+  // "Loading GM Dashboard...". Now it shows as soon as /auth/me confirms the
+  // role and each list fills in as its own request lands.
   const fetchAllData = async (showLoading = true) => {
+    const list = (url, apply) => axios.get(`${API}${url}`)
+      .then(res => (Array.isArray(res.data) ? res.data : []), () => [])
+      .then(data => { apply(data); return data; });
     try {
       if (showLoading) setLoading(true);
-      const [userRes, projectsRes, reProjectsRes, materialReqRes, labourReqRes, paymentReqRes, suspenseRes, designRes, feRes] = await Promise.all([
-        axios.get(`${API}/auth/me`),
-        axios.get(`${API}/projects`).catch(() => ({ data: [] })),
-        axios.get(`${API}/crm/re-projects`).catch(() => ({ data: [] })),
-        axios.get(`${API}/site-engineer/material-requests`).catch(() => ({ data: [] })),
-        axios.get(`${API}/site-engineer/labour-requests`).catch(() => ({ data: [] })),
-        axios.get(`${API}/work-orders/payment-requests`).catch(() => ({ data: [] })),
-        axios.get(`${API}/financial/suspense`).catch(() => ({ data: [] })),
-        axios.get(`${API}/architect/pending-approvals`).catch(() => ({ data: [] })),
-        axios.get(`${API}/gm/final-estimates`).catch(() => ({ data: [] }))
-      ]);
-      
+      const userReq = axios.get(`${API}/auth/me`);
+      const lists = [
+        list('/projects', setProjects),
+        list('/crm/re-projects', setReProjects),
+        Promise.all([
+          list('/site-engineer/material-requests', () => {}),
+          list('/site-engineer/labour-requests', () => {}),
+        ]).then(([material, labour]) => setSiteRequests([...material, ...labour])),
+        list('/work-orders/payment-requests', setPaymentRequests),
+        list('/financial/suspense', setSuspenseRequests),
+        list('/architect/pending-approvals', setDesignApprovals),
+        list('/gm/final-estimates', setFeProjects),
+      ];
+
+      const userRes = await userReq;
       if (!['general_manager', 'super_admin'].includes(userRes.data.role)) {
         toast.error('Access denied. GM/Admin access required.');
         window.location.href = '/dashboard';
         return;
       }
-      
       setUser(userRes.data);
-      setProjects(projectsRes.data || []);
-      setReProjects(reProjectsRes.data || []);
-      const allSiteReqs = [...(materialReqRes.data || []), ...(labourReqRes.data || [])];
-      setSiteRequests(allSiteReqs);
-      setPaymentRequests(paymentReqRes.data || []);
-      setSuspenseRequests(suspenseRes.data || []);
-      setDesignApprovals(designRes.data || []);
-      setFeProjects(feRes.data || []);
-      
-      // Calculate stats - RE projects pending approval have status 're_submitted'
-      const pendingREApprovals = (reProjectsRes.data || []).filter(p => p.status === 're_submitted').length;
-      const pendingProjectApprovals = (projectsRes.data || []).filter(p => p.status === 'awaiting_approval' && !p.gm_approved_by).length;
-      const pendingSiteRequests = allSiteReqs.filter(r => r.status === 'pending').length;
-      const pendingPayments = (paymentReqRes.data || []).filter(p => p.status === 'pending').length;
-      const pendingSuspense = (suspenseRes.data || []).filter(s => s.status === 'pending_approval').length;
-      const pendingDesignApprovals = (designRes.data || []).length;
-      const pendingFEApprovals = (feRes.data || []).filter(p => (p.fe?.status === 'pending_gm_review')).length;
-      
-      setStats({
-        totalProjects: (projectsRes.data || []).length,
-        activeProjects: (projectsRes.data || []).filter(p => ['active', 'working', 'gm_approved'].includes(p.status)).length,
-        pendingApprovals: pendingREApprovals + pendingProjectApprovals,
-        pendingREApprovals,
-        pendingProjectApprovals,
-        pendingSiteRequests,
-        pendingPayments,
-        pendingSuspense,
-        pendingDesignApprovals,
-        pendingFEApprovals,
-        completedProjects: (projectsRes.data || []).filter(p => p.status === 'completed').length
-      });
-      
+      setLoading(false);
+      await Promise.all(lists);
     } catch (error) {
       toast.error('Failed to load dashboard data');
     } finally {
@@ -167,6 +145,26 @@ const GMDashboard = () => {
     }
   };
   useAutoRefresh(fetchAllData, 15000);
+
+  // Pending counts for the cards and tab badges, kept in step with the lists.
+  const stats = React.useMemo(() => {
+    // RE projects pending approval have status 're_submitted'
+    const pendingREApprovals = reProjects.filter(p => p.status === 're_submitted').length;
+    const pendingProjectApprovals = projects.filter(p => p.status === 'awaiting_approval' && !p.gm_approved_by).length;
+    return {
+      totalProjects: projects.length,
+      activeProjects: projects.filter(p => ['active', 'working', 'gm_approved'].includes(p.status)).length,
+      pendingApprovals: pendingREApprovals + pendingProjectApprovals,
+      pendingREApprovals,
+      pendingProjectApprovals,
+      pendingSiteRequests: siteRequests.filter(r => r.status === 'pending').length,
+      pendingPayments: paymentRequests.filter(p => p.status === 'pending').length,
+      pendingSuspense: suspenseRequests.filter(s => s.status === 'pending_approval').length,
+      pendingDesignApprovals: designApprovals.length,
+      pendingFEApprovals: feProjects.filter(p => (p.fe?.status === 'pending_gm_review')).length,
+      completedProjects: projects.filter(p => p.status === 'completed').length
+    };
+  }, [projects, reProjects, siteRequests, paymentRequests, suspenseRequests, designApprovals, feProjects]);
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-IN', {
