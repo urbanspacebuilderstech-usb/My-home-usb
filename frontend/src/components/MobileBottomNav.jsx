@@ -41,20 +41,22 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 // Board, Planning, Sales, Marketing Board, HR, Settings). "Dashboard" used to
 // open /dashboard, which just redirects to the Finance Board, so the Super
 // Admin Dashboard wasn't reachable on a phone. Nothing was dropped: Projects
-// and Accounts moved into More with the rest.
+// moved into More with the rest. Later the same day the Super Admin asked
+// for Accounts on the bar (Dashboard, Finance, Accounts, Planning) and Sales
+// at the top of More.
 const SA_BOTTOM = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/super-admin-dashboard' },
   { label: 'Finance', icon: IndianRupee, path: '/finance-board' },
+  { label: 'Accounts', icon: Landmark, path: '/accounts-board' },
   { label: 'Planning', icon: Calculator, path: '/planning-board' },
-  { label: 'Sales', icon: TrendingUp, path: '/sales-board' },
   { label: 'More', icon: Menu, action: 'more' },
 ];
 
 const SA_MORE_ITEMS = [
+  { label: 'Sales', icon: TrendingUp, path: '/sales-board' },
   { label: 'Marketing Board', icon: TrendingUp, path: '/marketing-board' },
   { label: 'HR', icon: Users, path: '/hr-portal' },
   { label: 'Settings', icon: Settings, path: '/settings' },
-  { label: 'Accounts', icon: Landmark, path: '/accounts-board' },
   { label: 'Projects', icon: FolderKanban, path: '/projects' },
   { label: 'GM Dashboard', icon: Shield, path: '/gm-dashboard' },
   { label: 'Users', icon: Users, path: '/users' },
