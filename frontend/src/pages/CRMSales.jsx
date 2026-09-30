@@ -1846,7 +1846,6 @@ export default function CRMSales() {
                   // Lost leads keep their number hidden, so no call/WhatsApp either.
                   const showContactBtns = !!lead.phone && !lost;
                   const showFollowupBtn = lead.current_stage_id === 'stg_sales_followup' && !(lead.follow_ups || []).some(f => !f.completed);
-                  const showReClientBtns = ['stg_re_to_client', 'stg_re_from_planning'].includes(lead.current_stage_id);
                   const canReassign = lead.assigned_to && !['stg_project_onboarded', 'stg_lost'].includes(lead.current_stage_id) && lead.onboarding_status !== 'moved_to_planning';
                   return (
                     <div
@@ -1933,7 +1932,7 @@ export default function CRMSales() {
                                 flex-wrap move them to their own line only when needed.
                                 Call/WhatsApp come last so they sit at the right edge;
                                 Delete lives in the lead popup on phones. */}
-                            {(showContactBtns || showFollowupBtn || showReClientBtns || canReassign) && (
+                            {(showContactBtns || showFollowupBtn || canReassign) && (
                               <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                                 {showFollowupBtn && (
                                   <Button
@@ -1950,28 +1949,6 @@ export default function CRMSales() {
                                   >
                                     <Calendar className="h-3.5 w-3.5 mr-1" /> Follow-up
                                   </Button>
-                                )}
-                                {showReClientBtns && (
-                                  <>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-9 px-2.5 text-xs text-green-700 border-green-400 hover:bg-green-50 font-medium"
-                                      data-testid={`re-client-approve-mobile-btn-${lead.lead_id}`}
-                                      onClick={(e) => { e.stopPropagation(); openReClientAction(lead, 'approved'); }}
-                                    >
-                                      <CheckCircle className="h-3.5 w-3.5 mr-1" /> Approved
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-9 px-2.5 text-xs text-orange-700 border-orange-400 hover:bg-orange-50 font-medium"
-                                      data-testid={`re-client-revision-mobile-btn-${lead.lead_id}`}
-                                      onClick={(e) => { e.stopPropagation(); openReClientAction(lead, 'revision'); }}
-                                    >
-                                      <RefreshCw className="h-3.5 w-3.5 mr-1" /> Revision
-                                    </Button>
-                                  </>
                                 )}
                                 {canReassign && (
                                   <Button
@@ -2147,29 +2124,6 @@ export default function CRMSales() {
                             >
                               <Calendar className="h-3 w-3 mr-0.5" /> Follow-up
                             </Button>
-                          )}
-                          {/* RE-Client / RE-Planning stage action buttons */}
-                          {['stg_re_to_client', 'stg_re_from_planning'].includes(lead.current_stage_id) && (
-                            <>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 px-1.5 text-[10px] text-green-700 border-green-400 hover:bg-green-50 font-medium"
-                                data-testid={`re-client-approve-btn-${lead.lead_id}`}
-                                onClick={(e) => { e.stopPropagation(); openReClientAction(lead, 'approved'); }}
-                              >
-                                <CheckCircle className="h-3 w-3 mr-0.5" /> Approved
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 px-1.5 text-[10px] text-orange-700 border-orange-400 hover:bg-orange-50 font-medium"
-                                data-testid={`re-client-revision-btn-${lead.lead_id}`}
-                                onClick={(e) => { e.stopPropagation(); openReClientAction(lead, 'revision'); }}
-                              >
-                                <RefreshCw className="h-3 w-3 mr-0.5" /> Revision
-                              </Button>
-                            </>
                           )}
                           {/* Onboarding status indicators */}
                           {lead.current_stage_id === 'stg_accountant_approval' && (
@@ -2431,29 +2385,6 @@ export default function CRMSales() {
                                 {new Date(lead.site_visit_data.visit_date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                               </div>
                             )}
-                          </div>
-                        )}
-                        
-                        {/* RE-Client / RE-Planning stage action buttons (Kanban) */}
-                        {['stg_re_to_client', 'stg_re_from_planning'].includes(lead.current_stage_id) && (
-                          <div className="mt-2 flex gap-1.5">
-                            <Button
-                              size="sm"
-                              className="h-7 flex-1 text-[11px] bg-green-600 hover:bg-green-700 text-white"
-                              onClick={(e) => { e.stopPropagation(); openReClientAction(lead, 'approved'); }}
-                              data-testid={`kanban-re-approve-${lead.lead_id}`}
-                            >
-                              <CheckCircle className="h-3 w-3 mr-1" /> Approved
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 flex-1 text-[11px] text-orange-700 border-orange-400 hover:bg-orange-50"
-                              onClick={(e) => { e.stopPropagation(); openReClientAction(lead, 'revision'); }}
-                              data-testid={`kanban-re-revision-${lead.lead_id}`}
-                            >
-                              <RefreshCw className="h-3 w-3 mr-1" /> Revision
-                            </Button>
                           </div>
                         )}
                         
