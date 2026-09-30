@@ -124,6 +124,9 @@ jobs:
             # Shown by GET /api/health, so the choice can be checked from outside.
             export WORKERS_SIZED_BY=$(echo "$BACKEND_SIZING" | awk '{ print $2 }')
             echo "WEB_CONCURRENCY=$WEB_CONCURRENCY ($WORKERS_SIZED_BY)"
+            # --update-env copies this shell's whole environment into the app,
+            # PATH included; keep the venv first as ecosystem.config.js does.
+            export PATH="$PWD/backend/venv/bin:$PATH"
 
             echo "==> nginx: gzip + long cache for hashed /static/ files"
             bash hostinger_setup/nginx_static_cache.sh || true
@@ -133,7 +136,11 @@ jobs:
             RESTART_OK=0
             for attempt in 1 2 3; do
               echo "--- Attempt $attempt ---"
-              pm2 stop all && pm2 start all --update-env
+              # `restart`, not `start`: PM2 5's `start all` drops --update-env
+              # (restartExistingNameSpace calls _operate without the options),
+              # so no env change ever reached the backend. Stopping first still
+              # frees memory before the new processes start.
+              pm2 stop all && pm2 restart all --update-env
               if [ $? -eq 0 ]; then
                 RESTART_OK=1
                 break

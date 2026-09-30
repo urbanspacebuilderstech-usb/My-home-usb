@@ -16,6 +16,7 @@ Events go to the log and to the capped `perf_events` collection, shared by
 all workers. Super Admin: GET /api/admin/perf-events.
 """
 import asyncio
+import hashlib
 import itertools
 import logging
 import os
@@ -168,6 +169,9 @@ async def health():
         "status": "ok",
         "workers": int(raw) if raw and raw.isdigit() else None,
         "sized_by": os.environ.get("WORKERS_SIZED_BY"),
+        # Opaque per-process id: repeated calls showing several values prove
+        # several workers are actually answering.
+        "worker": hashlib.sha1(str(os.getpid()).encode()).hexdigest()[:6],
     }
 
 
