@@ -12,6 +12,7 @@ import '@/hooks/useTheme';
 
 import Login from '@/pages/Login';
 import { installEtagCache, clearEtagCache } from '@/lib/etagCache';
+import { useNewVersionReload } from '@/hooks/useNewVersionReload';
 
 // Sep 29 2026 — Every page used to be a static import, so all 80 pages
 // (plus jspdf, leaflet, dnd-kit…) shipped in one 5 MB main.js that had to
@@ -195,6 +196,7 @@ axios.interceptors.request.use(config => {
 
 function AppRouter() {
   const location = useLocation();
+  useNewVersionReload(location.pathname);
 
   // Feb 26 2026 — Sync the browser tab title and favicon with the
   // app-name / favicon configured in Super Admin → Settings → Branding.
