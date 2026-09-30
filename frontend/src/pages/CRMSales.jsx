@@ -399,7 +399,7 @@ export default function CRMSales() {
   // "RE Sent to Client" banner so Sales can see who prepared the estimate).
   const [linkedREPlanner, setLinkedREPlanner] = useState('');
   // Sep 18 2026 — revision number of the linked RE project (0 = original),
-  // shown as "RE{n+1}" in that same banner in place of the Revision button.
+  // shown as "RE{n}" in that same banner in place of the Revision button.
   const [linkedRERevision, setLinkedRERevision] = useState(null);
   const [quoteLinkLoading, setQuoteLinkLoading] = useState(false);
   // Regenerate-RE remarks dialog
@@ -1411,9 +1411,7 @@ export default function CRMSales() {
 
   const getLeadsByStage = (stageId) => {
     let stageLeads;
-    if (stageId === 'revision') {
-      stageLeads = filteredLeads.filter(lead => (lead.re_revision_number || 0) > 0 && lead.current_stage_id === 'stg_re_requested');
-    } else if (stageId === 'P1' || stageId === 'P2' || stageId === 'P3') {
+    if (stageId === 'P1' || stageId === 'P2' || stageId === 'P3') {
       // Exclude onboarded / moved-to-planning / lost from P1/P2/P3 buckets — those
       // priority chips are meant to surface *active* pipeline only.
       stageLeads = filteredLeads.filter(lead =>
@@ -1792,10 +1790,13 @@ export default function CRMSales() {
                     Move-to-Stage row: New Appointment | Office Visit |
                     Follow-up | RE-Request | Client Site Visit | Client
                     Project Visit | Project Onboarded | RNR | Lost.
-                    RE-Planning/RE-Client/Deal Close/Accountant Approval stay
-                    valid stages (leads already on them keep working) but
-                    don't get their own tab here. */}
-                {stages.filter(s => !['stg_accountant_approval', 'stg_re_from_planning', 'stg_re_to_client', 'stg_payment_collect'].includes(s.stage_id)).map(stage => (
+                    RE-Client/Deal Close/Accountant Approval stay valid
+                    stages (leads already on them keep working) but don't get
+                    their own tab here. Sep 30 2026 — "RE Approve" (GM-approved
+                    REs, stage_id stg_re_from_planning) now has a tab, and the
+                    old "Revision" tab is gone: revised leads sit in RE-Request
+                    with an RE1/RE2… badge on the row. */}
+                {stages.filter(s => !['stg_accountant_approval', 'stg_re_to_client', 'stg_payment_collect'].includes(s.stage_id)).map(stage => (
                   <button
                     key={stage.stage_id}
                     className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
@@ -1813,22 +1814,6 @@ export default function CRMSales() {
                     </span>
                   </button>
                 ))}
-                {/* Revision tab */}
-                <button
-                  className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
-                    activeStage === 'revision' 
-                      ? 'border-orange-500 text-orange-600 bg-orange-50' 
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-                  }`}
-                  onClick={() => setActiveStage('revision')}
-                  data-testid="revision-tab"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <RefreshCw className="h-3 w-3" />
-                    Revision
-                    <span className="text-gray-400">({getLeadsByStage('revision').length})</span>
-                  </span>
-                </button>
               </div>
             </div>
 
@@ -2541,7 +2526,7 @@ export default function CRMSales() {
                 
                 {/* Overview Tab */}
                 <TabsContent value="overview" className="space-y-4 mt-3">
-                  {/* RE-Client / RE-Planning stage actions (prominent banner) */}
+                  {/* RE-Client / RE Approve stage actions (prominent banner) */}
                   {['stg_re_to_client', 'stg_re_from_planning'].includes(selectedLead.current_stage_id) && (
                     <div className="bg-gradient-to-r from-green-50 to-orange-50 border-2 border-dashed border-amber-300 rounded-lg p-3">
                       <div className="flex flex-col gap-3">
@@ -2596,11 +2581,13 @@ export default function CRMSales() {
                             <CheckCircle className="h-4 w-4 mr-1" /> Approved
                           </Button>
                           {/* Sep 18 2026 — Revision button removed; this now
-                              shows the current RE revision count instead
-                              (RE1, RE2, ...), which bumps automatically
-                              whenever "Regenerate RE" creates a new one. */}
+                              shows the current RE revision, which bumps
+                              automatically whenever "Regenerate RE" creates a
+                              new one. Sep 30 2026 — numbered like the lead row,
+                              GM and Planning (RE0 original, RE1 first
+                              re-request…); it used to read one higher. */}
                           <div className="w-full flex items-center justify-center rounded-md border border-orange-300 bg-orange-50 text-orange-700 text-sm font-semibold" data-testid="detail-re-revision-count">
-                            RE{(linkedRERevision ?? 0) + 1}
+                            RE{linkedRERevision ?? 0}
                           </div>
                         </div>
                       </div>

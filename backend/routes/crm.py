@@ -367,6 +367,9 @@ async def get_default_sales_stages():
         "stg_discussion": "stg_sales_followup",
         "stg_sv_done": "stg_re_requested",
         "stg_deal_closed": "stg_payment_collect",
+        # Sep 30 2026 — "Regenerate RE" used to park leads on "stg_re_request",
+        # a stage that never existed, so they showed under no tab at all.
+        "stg_re_request": "stg_re_requested",
     }
     # Fix the placeholder (site_visit should go to followup too now that discussion is removed)
     stage_migrations["stg_site_visit"] = "stg_sales_followup"
@@ -389,7 +392,11 @@ async def get_default_sales_stages():
         ("stg_sales_office_visit", "Office Visit",       2,  "#0ea5e9", False),
         ("stg_sales_followup",     "Follow-up",          3,  "#f59e0b", False),
         ("stg_re_requested",       "RE - Request",       4,  "#f59e0b", False),
-        ("stg_re_from_planning",   "RE - Planning",      5,  "#10b981", False),
+        # Sep 30 2026 — was "RE - Planning" (hidden in the Sales UI). GM
+        # approval already moves the lead here, so Sales Head asked for it
+        # as a visible "RE Approve" stage; stage_id kept so approved leads
+        # parked here, and the flows keyed on it, keep working.
+        ("stg_re_from_planning",   "RE Approve",         5,  "#10b981", False),
         ("stg_re_to_client",       "RE - Client",        6,  "#84cc16", False),
         # Sep 17 2026 — renamed per Sales Head request; stage_id kept unchanged
         # so existing leads parked here keep resolving correctly.
@@ -435,7 +442,7 @@ async def get_default_sales_stages():
             {"stage_id": "stg_sales_office_visit", "name": "Office Visit", "stage_type": "sales", "order": 2, "color": "#0ea5e9", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_sales_followup", "name": "Follow-up", "stage_type": "sales", "order": 3, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_re_requested", "name": "RE - Request", "stage_type": "sales", "order": 4, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_re_from_planning", "name": "RE - Planning", "stage_type": "sales", "order": 5, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_re_from_planning", "name": "RE Approve", "stage_type": "sales", "order": 5, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_re_to_client", "name": "RE - Client", "stage_type": "sales", "order": 6, "color": "#84cc16", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_sv_client_land", "name": "Client Site Visit", "stage_type": "sales", "order": 7, "color": "#a855f7", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_sv_our_projects", "name": "USB Project Visit", "stage_type": "sales", "order": 8, "color": "#7c3aed", "is_final": False, "is_active": True, "created_by": "system"},
@@ -529,7 +536,7 @@ async def migrate_stages(user: User = Depends(get_current_user)):
         {"stage_id": "stg_sales_office_visit", "name": "Office Visit", "order": 2, "color": "#0ea5e9", "is_final": False},
         {"stage_id": "stg_sales_followup", "name": "Follow-up", "order": 3, "color": "#f59e0b", "is_final": False},
         {"stage_id": "stg_re_requested", "name": "RE - Request", "order": 4, "color": "#f59e0b", "is_final": False},
-        {"stage_id": "stg_re_from_planning", "name": "RE - Planning", "order": 5, "color": "#10b981", "is_final": False},
+        {"stage_id": "stg_re_from_planning", "name": "RE Approve", "order": 5, "color": "#10b981", "is_final": False},
         {"stage_id": "stg_re_to_client", "name": "RE - Client", "order": 6, "color": "#84cc16", "is_final": False},
         {"stage_id": "stg_sv_client_land", "name": "Client Site Visit", "order": 7, "color": "#a855f7", "is_final": False},
         {"stage_id": "stg_sv_our_projects", "name": "USB Project Visit", "order": 8, "color": "#7c3aed", "is_final": False},
@@ -3571,7 +3578,20 @@ async def get_sales_leads(
     
     leads = await db.leads.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
     leads = await filter_contacts_leads(db, leads, user.role)
-    
+
+    # Sep 30 2026 — the RE number on each row (RE1, RE2…) is read from the
+    # linked RE itself: "Regenerate RE" and Planning's "Create Revision" never
+    # stamped re_revision_number on the lead, so older leads lacked it.
+    re_ids = list({l["re_project_id"] for l in leads if l.get("re_project_id")})
+    if re_ids:
+        revs = await db.re_projects.find(
+            {"re_project_id": {"$in": re_ids}}, {"_id": 0, "re_project_id": 1, "revision": 1}
+        ).to_list(len(re_ids))
+        rev_by_id = {r["re_project_id"]: r.get("revision") or 0 for r in revs}
+        for lead in leads:
+            if lead.get("re_project_id") in rev_by_id:
+                lead["re_revision_number"] = rev_by_id[lead["re_project_id"]]
+
     # Sort follow-up stage leads by earliest follow-up date (ascending)
     for lead in leads:
         if lead.get("current_stage_id") == "stg_sales_followup" and lead.get("follow_ups"):
@@ -4272,11 +4292,22 @@ async def approve_re_project(re_project_id: str, data: REApproval, user: User = 
             "updated_at": datetime.now(timezone.utc)
         }
         
-        # Update linked lead stage to "RE - From Planning"
+        # Move the linked lead to "RE Approve" (stg_re_from_planning) and
+        # log it, so the lead's history shows when and by whom.
         if project.get("lead_id"):
+            lead_now = await db.leads.find_one({"lead_id": project["lead_id"]}, {"_id": 0, "current_stage_id": 1})
+            now = datetime.now(timezone.utc)
             await db.leads.update_one(
                 {"lead_id": project["lead_id"]},
-                {"$set": {"current_stage_id": "stg_re_from_planning", "updated_at": datetime.now(timezone.utc)}}
+                {"$set": {"current_stage_id": "stg_re_from_planning", "updated_at": now},
+                 "$push": {"stage_history": {
+                     "stage_id": "stg_re_from_planning",
+                     "from_stage_id": (lead_now or {}).get("current_stage_id"),
+                     "moved_at": now.isoformat(),
+                     "moved_by": user.user_id,
+                     "moved_by_name": user.name,
+                     "action": f"re_gm_approved_re{project.get('revision', 0)}",
+                 }}}
             )
         
         # Notify Sales
@@ -4665,11 +4696,30 @@ async def create_re_revision(re_project_id: str, user: User = Depends(get_curren
     new_dict["duplicated_from_re_project_id"] = re_project_id
     await db.re_projects.insert_one(new_dict)
     
-    # Update the lead to point to the latest revision
-    await db.leads.update_one(
-        {"lead_id": project["lead_id"]},
-        {"$set": {"re_project_id": new_re.re_project_id, "updated_at": datetime.now(timezone.utc)}}
-    )
+    # Point the lead at the latest revision. Sep 30 2026 — a new revision is
+    # a re-request, so the lead also goes back to "RE - Request" with its RE
+    # number (RE1, RE2…) — unless the deal has already closed, in which case
+    # only the pointer/number change.
+    now = datetime.now(timezone.utc)
+    lead = await db.leads.find_one({"lead_id": project["lead_id"]}, {"_id": 0, "current_stage_id": 1, "project_id": 1})
+    update_op = {"$set": {
+        "re_project_id": new_re.re_project_id,
+        "re_revision_number": next_revision,
+        "updated_at": now,
+    }}
+    CLOSED_STAGES = {"stg_payment_collect", "stg_accountant_approval", "stg_project_onboarded", "stg_lost"}
+    if lead and not lead.get("project_id") and lead.get("current_stage_id") not in CLOSED_STAGES \
+            and lead.get("current_stage_id") != "stg_re_requested":
+        update_op["$set"]["current_stage_id"] = "stg_re_requested"
+        update_op["$push"] = {"stage_history": {
+            "stage_id": "stg_re_requested",
+            "from_stage_id": lead.get("current_stage_id"),
+            "moved_at": now.isoformat(),
+            "moved_by": user.user_id,
+            "moved_by_name": user.name,
+            "action": f"revision_created_re{next_revision}",
+        }}
+    await db.leads.update_one({"lead_id": project["lead_id"]}, update_op)
     
     # Notify Sales about the new revision
     notification = {

@@ -193,10 +193,11 @@ class TestRegenerateRe:
         assert data.get("re_project_id") != prev_re
         assert int(data.get("revision", 0)) >= 1
 
-        # Lead should be moved back to stg_re_request and point to new RE
+        # Lead should be moved back to RE - Request and point to new RE
         g = admin_client.get(f"{API}/crm/leads/{LEAD_B}")
         assert g.status_code == 200
-        assert g.json().get("current_stage_id") == "stg_re_request"
+        assert g.json().get("current_stage_id") == "stg_re_requested"
+        assert g.json().get("re_revision_number") == int(data["revision"])
         assert g.json().get("re_project_id") == data["re_project_id"]
 
 

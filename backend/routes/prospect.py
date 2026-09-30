@@ -104,7 +104,7 @@ async def create_prospect_user(lead_id: str, data: CreateProspectUserRequest, us
         "updated_at": now_dt,
     }
     push_doc: Dict[str, Any] = {}
-    # Auto-move RE-Planning → RE-Client when Sales creates the prospect login.
+    # Auto-move RE Approve (stg_re_from_planning) → RE-Client when Sales creates the prospect login.
     if lead.get("current_stage_id") == "stg_re_from_planning":
         set_doc["current_stage_id"] = "stg_re_to_client"
         push_doc["stage_history"] = {

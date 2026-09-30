@@ -350,16 +350,19 @@ async def regenerate_re(lead_id: str, data: RegenerateReReq, user: User = Depend
     await db.re_projects.insert_one(new_re)
 
     # NB: Old quote link stays live until the new RE is approved.
-    # Lead points to the new RE project + moves to "RE - Planning" stage.
+    # Lead points to the new RE project and goes back to "RE - Request" with
+    # its RE number (RE1, RE2…). Sep 30 2026 — this used "stg_re_request",
+    # a stage that doesn't exist, so regenerated leads showed under no tab.
     await db.leads.update_one(
         {"lead_id": lead_id},
         {"$set": {
             "re_project_id": new_re_id,
-            "current_stage_id": "stg_re_request",
+            "re_revision_number": revision,
+            "current_stage_id": "stg_re_requested",
             "updated_at": now,
         },
         "$push": {"stage_history": {
-            "stage_id": "stg_re_request",
+            "stage_id": "stg_re_requested",
             "from_stage_id": lead.get("current_stage_id"),
             "moved_at": now.isoformat(),
             "moved_by": user.user_id,
