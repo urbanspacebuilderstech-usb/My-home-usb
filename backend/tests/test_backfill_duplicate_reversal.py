@@ -205,3 +205,26 @@ def test_the_two_cases_are_documented():
     assert "105862" in block
     assert "nine" in block.lower()
     assert "1,09,699.70" in block or "109699.70" in block
+
+
+def test_the_post_write_balance_is_read_directly():
+    """The verification must not go back through _backfill_reversal_context.
+
+    That helper derives the vendor from the backfill allocation, which the
+    write has just moved out of `active` - so a second call finds no
+    allocation, never sets `vendor`, fetches no suspense rows and reports a
+    balance of 0. On the #105862 repair it announced vendor_suspense_after 0
+    against an expected 0.70 and flagged the repair incorrect, when the ledger
+    was exactly right. A verification that measures nothing and calls it zero
+    is worse than none.
+    """
+    seg = _seg("backfill_reversal_apply")
+    assert "after_balance = round(sum(" in seg
+    assert '"vendor_suspense_after": after_balance,' in seg
+    assert '"vendor_suspense_after": after["vendor_suspense_balance_now"],' not in seg
+
+
+def test_the_direct_read_filters_by_the_vendor_captured_before_the_write():
+    seg = _seg("backfill_reversal_apply")
+    block = seg.split("after_balance = round(sum(", 1)[1].split("alloc_now", 1)[0]
+    assert '(vendor or "").lower()' in block, "must reuse the pre-write vendor name"

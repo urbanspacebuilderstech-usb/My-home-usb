@@ -14479,18 +14479,30 @@ async def backfill_reversal_apply(
     })
 
     # ---- verify against live data -----------------------------------------
+    # Sep 30 2026 - the vendor balance is re-read DIRECTLY, not through
+    # _backfill_reversal_context. That helper derives the vendor name from the
+    # backfill allocation, which this write has just moved out of `active`, so
+    # a second call finds no allocation, never sets `vendor`, fetches no
+    # suspense rows and reports a balance of 0. On the #105862 repair it
+    # announced vendor_suspense_after 0 against an expected 0.70 and flagged
+    # vendor_suspense_is_correct false, when the ledger was in fact exactly
+    # right. It measured nothing and called it zero.
     _, _, _, after, _ = await _backfill_reversal_context(cheque_number)
+    _after_rows = await db.suspense_entries.find(
+        {"type": "material"}, {"_id": 0, "vendor_name": 1, "amount": 1}).to_list(50000)
+    after_balance = round(sum(
+        _f(e.get("amount")) for e in _after_rows
+        if (e.get("vendor_name") or "").strip().lower() == (vendor or "").lower()), 2)
     alloc_now = await db.cheque_allocations.find_one(
         {"allocation_id": allocation_id}, {"_id": 0, "status": 1}) or {}
     verification = {
         "allocation_status_now": alloc_now.get("status"),
         "allocation_deactivated": alloc_now.get("status") == "reversed_duplicate",
         "vendor_suspense_before": numbers["vendor_suspense_balance_now"],
-        "vendor_suspense_after": after["vendor_suspense_balance_now"],
+        "vendor_suspense_after": after_balance,
         "vendor_suspense_expected": numbers["vendor_suspense_balance_after"],
         "vendor_suspense_is_correct": abs(
-            after["vendor_suspense_balance_now"]
-            - numbers["vendor_suspense_balance_after"]) < 0.005,
+            after_balance - numbers["vendor_suspense_balance_after"]) < 0.005,
         "allocations_total_before": numbers["active_allocations_total"],
         "allocations_total_after": after["active_allocations_total"],
         "cheque_now_reconciles": abs(
