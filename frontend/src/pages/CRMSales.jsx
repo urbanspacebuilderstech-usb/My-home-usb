@@ -2479,7 +2479,13 @@ export default function CRMSales() {
               </div>
               {/* pl-[52px]: lines up with the name (avatar 40px + 12px gap). */}
               <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-1.5 pl-[52px]">
-                <Badge variant="outline" className="text-xs whitespace-nowrap">{getStageName(selectedLead?.current_stage_id)}</Badge>
+                {/* Same stage name as the card/tab: deals waiting on the
+                    Accountant read "Deal Close", with the badge that used to
+                    sit on the phone card. */}
+                <Badge variant="outline" className="text-xs whitespace-nowrap">{selectedLead ? getStageName(rowStageId(selectedLead)) : ''}</Badge>
+                {selectedLead?.current_stage_id === 'stg_accountant_approval' && (
+                  <Badge className="bg-amber-100 text-amber-700 text-xs whitespace-nowrap" data-testid="detail-awaiting-accountant">Awaiting Accountant</Badge>
+                )}
                 {(leadDetail || selectedLead)?.appointment && (
                   <Badge className="bg-green-100 text-green-700 text-xs capitalize">
                     {(leadDetail || selectedLead).appointment.appointment_type?.replace('_', ' ')} · {(leadDetail || selectedLead).appointment.appointment_date} {(leadDetail || selectedLead).appointment.appointment_time}
@@ -2710,8 +2716,16 @@ export default function CRMSales() {
                     </div>
                   )}
                   
+                  {/* Sep 30 2026 — phone cards no longer show View RE / the RE
+                      number, so the popup carries both for every lead with an
+                      RE (the banner above only shows for RE Approve / RE - Client). */}
                   {selectedLead.re_project_id && (
-                    <Badge className="bg-purple-100 text-purple-700 cursor-pointer" onClick={() => { handleViewREProject(selectedLead.re_project_id); setViewLeadDialog(false); }}><FileText className="h-3 w-3 mr-1" /> View RE Project</Badge>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge className="bg-purple-100 text-purple-700 cursor-pointer" onClick={() => { handleViewREProject(selectedLead.re_project_id); setViewLeadDialog(false); }}><FileText className="h-3 w-3 mr-1" /> View RE Project</Badge>
+                      <Badge className="bg-orange-100 text-orange-700 border border-orange-300" data-testid="detail-re-number">
+                        RE{(linkedRERevision ?? selectedLead.re_revision_number ?? 0) + 1}
+                      </Badge>
+                    </div>
                   )}
                   
                   {['stg_payment_collect', 'stg_accountant_approval'].includes(selectedLead.current_stage_id) && (
