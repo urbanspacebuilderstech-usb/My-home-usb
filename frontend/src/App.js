@@ -11,6 +11,7 @@ import 'react-day-picker/dist/style.css';
 import '@/hooks/useTheme';
 
 import Login from '@/pages/Login';
+import { installEtagCache, clearEtagCache } from '@/lib/etagCache';
 
 // Sep 29 2026 — Every page used to be a static import, so all 80 pages
 // (plus jspdf, leaflet, dnd-kit…) shipped in one 5 MB main.js that had to
@@ -167,6 +168,8 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 axios.defaults.withCredentials = true;
+// Unchanged API responses come back as empty 304s (see lib/etagCache.js).
+installEtagCache(axios);
 
 // Auth interceptor: only invalidate cache on real 401s (auth failure).
 // 429 (rate-limit) and 5xx are transient — never log the user out for those.
@@ -185,6 +188,7 @@ axios.interceptors.request.use(config => {
   if (config.url?.includes('/auth/logout')) {
     cachedUser = null;
     authPromise = null;
+    clearEtagCache();
   }
   return config;
 });

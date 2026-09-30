@@ -530,7 +530,9 @@ export default function CRMPreSales() {
       // Keep the current state then: any re-render redraws every lead row
       // (1000+), which stalled the page, typing in dialogs included, on
       // every refresh.
-      const keepIfSame = (next) => (prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
+      // An unchanged response is now the very same object (lib/etagCache.js),
+      // so check identity before paying for two JSON.stringify calls.
+      const keepIfSame = (next) => (prev) => (prev === next || JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
       setUser(keepIfSame(userRes.data));
       setDashboard(keepIfSame(dashboardRes.data));
       setStages(keepIfSame(stagesRes.data));
