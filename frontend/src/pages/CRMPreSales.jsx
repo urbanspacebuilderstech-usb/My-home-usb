@@ -1304,6 +1304,9 @@ export default function CRMPreSales() {
                   const showFollowupBtn = lead.current_stage_id === 'stg_follow_up' && !(lead.follow_ups || []).some(f => !f.completed);
                   // Lost leads keep their number hidden, so no call/WhatsApp either.
                   const showContactBtns = !!lead.phone && !isLeadLost(lead);
+                  const showAppointment = lead.current_stage_id === 'stg_appointment' && !!lead.appointment_date;
+                  // Skip the chips/buttons row entirely when it would be empty.
+                  const hasExtrasRow = (lead.follow_ups || []).length > 0 || showAppointment || clientVisit || showFollowupBtn || canTransferLead;
                   return (
                     <div
                       key={lead.lead_id}
@@ -1316,14 +1319,9 @@ export default function CRMPreSales() {
                           {lead.name?.charAt(0)?.toUpperCase()}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="font-medium text-gray-900 text-sm truncate">{lead.name}</p>
-                            <Badge variant="outline" className="text-[10px] px-1.5 flex-shrink-0 whitespace-nowrap" style={{ borderColor: stageColor }}>
-                              {getStageName(lead.current_stage_id)}
-                            </Badge>
-                          </div>
+                          <p className="font-medium text-gray-900 text-sm truncate">{lead.name}</p>
                           {/* Date sits right under the name; source and assignee
-                              stay off the phone card (both are in the lead popup). */}
+                              stay off the phone card. */}
                           <div className="flex items-center gap-1 mt-0.5 text-[11px] text-gray-500 min-w-0">
                             <span className="flex-shrink-0 tabular-nums">
                               {formatIN(lead.created_at, { day: '2-digit', month: 'short' })}
@@ -1334,55 +1332,68 @@ export default function CRMPreSales() {
                           <div className="mt-1" onClick={(e) => e.stopPropagation()}>
                             <MaskedContact phone={lead.phone} email={lead.email} lost={isLeadLost(lead)} compact />
                           </div>
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5">
-                            {(lead.follow_ups || []).length > 0 && <FollowUpChip followUps={lead.follow_ups} />}
-                            {lead.current_stage_id === 'stg_appointment' && lead.appointment_date && (
-                              <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 py-0.5">
-                                <Calendar className="h-2.5 w-2.5" />
-                                {formatIN(lead.appointment_date, { day: '2-digit', month: 'short' })}{lead.appointment_time ? ` · ${lead.appointment_time}` : ''}
-                              </span>
-                            )}
-                            {clientVisit && (
-                              <Badge className="bg-emerald-500 text-white border-0 text-[9px] px-1 py-0 h-4">★ Client Visit</Badge>
-                            )}
-                            {/* Actions sit at the end of this row; ml-auto + the row's
-                                flex-wrap move them to their own line only when needed.
-                                Call/WhatsApp come last so they sit at the right edge;
-                                Delete lives in the lead popup on phones. */}
-                            {(showContactBtns || showFollowupBtn || canTransferLead) && (
-                              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                                {showFollowupBtn && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-9 px-2.5 text-xs text-amber-600 border-amber-300 hover:bg-amber-50"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setQuickFollowupLeadId(lead.lead_id);
-                                      setQuickFollowupForm({ date: '', time: '', remarks: '' });
-                                      setQuickFollowupDialog(true);
-                                    }}
-                                  >
-                                    <Calendar className="h-3.5 w-3.5 mr-1" /> Follow-up
-                                  </Button>
-                                )}
-                                {canTransferLead && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-9 px-2.5 text-xs text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-                                    data-testid={`transfer-lead-card-btn-${lead.lead_id}`}
-                                    onClick={(e) => { e.stopPropagation(); transferDialogRef.current?.open(lead, getStageName(lead.current_stage_id)); }}
-                                  >
-                                    <ArrowRightLeft className="h-3.5 w-3.5 mr-1" /> Transfer
-                                  </Button>
-                                )}
-                                {showContactBtns && <LeadContactActions phone={lead.phone} />}
-                              </div>
-                            )}
-                          </div>
+                        </div>
+                        {/* Stage on top, Call/WhatsApp right under it, so the
+                            buttons don't need a row of their own. */}
+                        <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                          <Badge variant="outline" className="text-[10px] px-1.5 whitespace-nowrap" style={{ borderColor: stageColor }}>
+                            {getStageName(lead.current_stage_id)}
+                          </Badge>
+                          {showContactBtns && (
+                            <div className="flex items-center gap-2">
+                              <LeadContactActions phone={lead.phone} />
+                            </div>
+                          )}
                         </div>
                       </div>
+                      {/* Full card width so the buttons line up under Call/WhatsApp;
+                          indented to start under the name. */}
+                      {hasExtrasRow && (
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 pl-[46px]">
+                          {(lead.follow_ups || []).length > 0 && <FollowUpChip followUps={lead.follow_ups} />}
+                          {showAppointment && (
+                            <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 py-0.5">
+                              <Calendar className="h-2.5 w-2.5" />
+                              {formatIN(lead.appointment_date, { day: '2-digit', month: 'short' })}{lead.appointment_time ? ` · ${lead.appointment_time}` : ''}
+                            </span>
+                          )}
+                          {clientVisit && (
+                            <Badge className="bg-emerald-500 text-white border-0 text-[9px] px-1 py-0 h-4">★ Client Visit</Badge>
+                          )}
+                          {/* ml-auto + the row's flex-wrap move these to their own
+                              line only when needed. Delete lives in the lead popup. */}
+                          {(showFollowupBtn || canTransferLead) && (
+                            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                              {showFollowupBtn && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-9 px-2.5 text-xs text-amber-600 border-amber-300 hover:bg-amber-50"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setQuickFollowupLeadId(lead.lead_id);
+                                    setQuickFollowupForm({ date: '', time: '', remarks: '' });
+                                    setQuickFollowupDialog(true);
+                                  }}
+                                >
+                                  <Calendar className="h-3.5 w-3.5 mr-1" /> Follow-up
+                                </Button>
+                              )}
+                              {canTransferLead && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-9 px-2.5 text-xs text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                                  data-testid={`transfer-lead-card-btn-${lead.lead_id}`}
+                                  onClick={(e) => { e.stopPropagation(); transferDialogRef.current?.open(lead, getStageName(lead.current_stage_id)); }}
+                                >
+                                  <ArrowRightLeft className="h-3.5 w-3.5 mr-1" /> Transfer
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
