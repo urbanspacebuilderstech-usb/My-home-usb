@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import axios from 'axios';
+import { ROLE_NAV } from './AppHeader';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -137,7 +138,80 @@ const OTHER_ROLES = {
     { label: 'Alerts', icon: Bell, path: '/notifications' },
     { label: 'Profile', icon: User, path: '/settings' },
   ],
+  // Sep 30 2026 — the roles below had no entry and fell back to the Super
+  // Admin bar, whose More button does nothing for them (so e.g. a Sales
+  // Head on a phone could not reach Pre Sales / Sales at all).
+  sales_head: [
+    { label: 'Priority', icon: ListChecks, path: '/priority-board' },
+    { label: 'Masterview', icon: LayoutDashboard, path: '/sales-board' },
+    { label: 'Pre Sales', icon: Target, path: '/crm-pre-sales' },
+    { label: 'Sales', icon: TrendingUp, path: '/crm-sales' },
+  ],
+  associate_pm: [
+    { label: 'Dashboard', icon: LayoutDashboard, path: '/pm-dashboard' },
+    { label: 'Projects', icon: FolderKanban, path: '/projects' },
+    { label: 'Alerts', icon: Bell, path: '/notifications' },
+    { label: 'Profile', icon: User, path: '/profile' },
+  ],
+  planning_person: [
+    { label: 'Planning', icon: Calculator, path: '/planning-board' },
+    { label: 'Alerts', icon: Bell, path: '/notifications' },
+    { label: 'Profile', icon: User, path: '/profile' },
+  ],
+  quality_check: [
+    { label: 'QC', icon: CheckSquare, path: '/qc-dashboard' },
+    { label: 'Alerts', icon: Bell, path: '/notifications' },
+    { label: 'Profile', icon: User, path: '/profile' },
+  ],
+  hr: [
+    { label: 'HR', icon: Users, path: '/hr-portal' },
+    { label: 'Projects', icon: FolderKanban, path: '/projects' },
+    { label: 'Alerts', icon: Bell, path: '/notifications' },
+    { label: 'Profile', icon: User, path: '/profile' },
+  ],
+  marketing_head: [
+    { label: 'Marketing', icon: TrendingUp, path: '/marketing-board' },
+    { label: 'Alerts', icon: Bell, path: '/notifications' },
+    { label: 'Profile', icon: User, path: '/profile' },
+  ],
+  drawlead_marketing: [
+    { label: 'Projects', icon: FolderKanban, path: '/marketing-projects' },
+    { label: 'Alerts', icon: Bell, path: '/notifications' },
+    { label: 'Profile', icon: User, path: '/profile' },
+  ],
+  architect: [
+    { label: 'Projects', icon: FolderKanban, path: '/architect-dashboard' },
+    { label: 'Alerts', icon: Bell, path: '/notifications' },
+    { label: 'Profile', icon: User, path: '/profile' },
+  ],
+  super_architect: [
+    { label: 'Workflow', icon: ListChecks, path: '/workflow-master' },
+    { label: 'Alerts', icon: Bell, path: '/notifications' },
+    { label: 'Profile', icon: User, path: '/profile' },
+  ],
+  vendor: [
+    { label: 'Portal', icon: ShoppingCart, path: '/vendor-portal' },
+    { label: 'Alerts', icon: Bell, path: '/notifications' },
+    { label: 'Profile', icon: User, path: '/profile' },
+  ],
 };
+
+// Any role not listed above gets this rather than the Super Admin bar.
+const DEFAULT_BOTTOM = [
+  { label: 'Home', icon: Home, path: '/dashboard' },
+  { label: 'Alerts', icon: Bell, path: '/notifications' },
+  { label: 'Profile', icon: User, path: '/profile' },
+];
+
+// More-drawer icon for header nav items, picked from the path.
+const PATH_ICONS = [
+  ['cheque', CreditCard], ['suspense', Wallet], ['accounts', Landmark], ['finance', IndianRupee],
+  ['approvals', CheckSquare], ['procurement', ShoppingCart], ['packages', FileText], ['vendor', ShoppingCart],
+  ['contractor', HardHat], ['boq', ClipboardList], ['planning', Calculator], ['project', FolderKanban],
+  ['pre-sales', Target], ['cre-board', Target], ['sales', TrendingUp], ['marketing', TrendingUp],
+  ['user-app', Users], ['hr', Users], ['users', Users], ['gm-', Shield], ['settings', Settings],
+];
+const iconForPath = (path) => (PATH_ICONS.find(([k]) => path.includes(k)) || [null, LayoutDashboard])[1];
 
 const ACCOUNTANT_MORE = [
   { label: 'Cheque Mgmt', icon: CreditCard, path: '/cheque-management' },
@@ -164,9 +238,24 @@ export default function MobileBottomNav({ user }) {
   const isSuperAdmin = user.role === 'super_admin';
   const isAccountant = user.role === 'accountant';
   const isClient = user.role === 'client';
-  const hasMore = isSuperAdmin || isAccountant || isClient;
-  const navItems = isSuperAdmin ? SA_BOTTOM : (OTHER_ROLES[user.role] || SA_BOTTOM);
-  const moreItems = isSuperAdmin ? SA_MORE_ITEMS : isAccountant ? ACCOUNTANT_MORE : isClient ? CLIENT_MORE : [];
+  const barItems = isSuperAdmin ? SA_BOTTOM : (OTHER_ROLES[user.role] || DEFAULT_BOTTOM);
+  const baseMore = isSuperAdmin ? SA_MORE_ITEMS : isAccountant ? ACCOUNTANT_MORE : isClient ? CLIENT_MORE : [];
+  // Sep 30 2026 — the desktop header nav is hidden below `lg`, so anything it
+  // offers that isn't already on the bar or in More is added to More.
+  // Otherwise e.g. an accountant on a phone had no way to reach Suspense A/c.
+  const seen = new Set(barItems.flatMap(i => [i.path, i.label.toLowerCase()]).filter(Boolean));
+  const moreItems = baseMore
+    .concat((ROLE_NAV[user.role] || []).map(i => ({ ...i, icon: iconForPath(i.path) })))
+    .filter(i => {
+      if (seen.has(i.path) || seen.has(i.label.toLowerCase())) return false;
+      seen.add(i.path);
+      seen.add(i.label.toLowerCase());
+      return true;
+    });
+  const hasMore = moreItems.length > 0;
+  const navItems = hasMore && !barItems.some(i => i.action === 'more')
+    ? barItems.concat({ label: 'More', icon: Menu, action: 'more' })
+    : barItems;
   
   const isActive = (path) => {
     // Aug 5 2026 — Sr. Site Engineer's tabs all share the SAME base path
@@ -221,7 +310,7 @@ export default function MobileBottomNav({ user }) {
     <>
       {/* More drawer overlay */}
       {moreOpen && hasMore && (
-        <div className="md:hidden fixed inset-0 z-[60]" data-testid="mobile-more-drawer">
+        <div className="lg:hidden fixed inset-0 z-[60]" data-testid="mobile-more-drawer">
           <div className="absolute inset-0 bg-black/40" onClick={() => setMoreOpen(false)} />
           <div className="absolute bottom-16 left-0 right-0 bg-white rounded-t-2xl shadow-2xl border-t"
             style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
@@ -231,7 +320,8 @@ export default function MobileBottomNav({ user }) {
                 <X className="h-4 w-4 text-gray-400" />
               </button>
             </div>
-            <div className="px-2 pb-3 space-y-0.5">
+            {/* Scrolls when a role's list is taller than a short phone. */}
+            <div className="px-2 pb-3 space-y-0.5 max-h-[65vh] overflow-y-auto">
               {moreItems.map((item) => {
                 const Icon = item.icon;
                 const active = isActive(item.path);

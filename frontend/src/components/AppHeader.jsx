@@ -8,8 +8,10 @@ import USBLookupBar from './USBLookupBar';
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 // ═══ ROLE-BASED NAVIGATION ═══
+// Also read by MobileBottomNav, which puts any of these it doesn't already
+// show into its More drawer — this header nav is hidden below `lg`.
 
-const ROLE_NAV = {
+export const ROLE_NAV = {
   super_admin: [
     { label: 'Dashboard', path: '/super-admin-dashboard' },
     { label: 'Finance Board', path: '/finance-board' },
@@ -402,9 +404,12 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
       </header>
 
       {/* Sub-navigation bar — for super_admin we surface the page's customNav
-          here so the Super Admin shell stays visible at the top. */}
-      {!hideNav && customNavAsSub && customNav && customNav.length > 0 && (
-        <div className="bg-gray-50 border-b border-gray-200 px-4 lg:px-6" data-testid="sub-nav">
+          here so the Super Admin shell stays visible at the top. Other roles
+          get the same strip below `lg`, where the header nav that normally
+          carries a page's customNav is hidden (otherwise phones could only
+          ever see the page's first tab). */}
+      {!hideNav && hasCustomNav && (
+        <div className={`bg-gray-50 border-b border-gray-200 px-4 lg:px-6 ${customNavAsSub ? '' : 'lg:hidden'}`} data-testid="sub-nav">
           <div className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-hide">
             {customNav.map((item) => (
               <button
