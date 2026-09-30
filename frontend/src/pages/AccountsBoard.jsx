@@ -3397,14 +3397,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
           onInteractOutside={(e) => { if (entryPhotoPreview.open) e.preventDefault(); }}
         >
           <DialogHeader>
-            <DialogTitle className="flex items-center justify-between">
-              <span>Transaction Details</span>
-              {selectedEntry?.income_id && !editingIncome && (
-                <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={startEditIncome} data-testid="income-edit-btn">
-                  <Edit className="h-3 w-3" /> Edit
-                </Button>
-              )}
-            </DialogTitle>
+            <DialogTitle>Transaction Details</DialogTitle>
           </DialogHeader>
           {selectedEntry && (
             <div className="space-y-3">
