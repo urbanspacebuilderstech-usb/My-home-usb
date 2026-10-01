@@ -1900,10 +1900,11 @@ export default function CRMPreSales() {
 
       {/* ============ LEAD DETAIL DIALOG ============ */}
       <Dialog open={leadDetailDialog} onOpenChange={setLeadDetailDialog}>
-        {/* Sep 29 2026 — Phones: full screen (dvh, so the browser's URL bar
-            doesn't hide the bottom), header fixed above the scrolling tabs so
-            the close (X) always sits on it instead of floating over content. */}
-        <DialogContent className="max-w-3xl h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[90vh] overflow-hidden flex flex-col gap-0 p-0">
+        {/* Oct 1 2026 — Phones: a popup like on desktop, not full screen: a
+            12px margin each side, rounded, at most 90dvh tall (dvh, so the
+            browser's URL bar doesn't hide the bottom). The header stays fixed
+            above the scrolling tabs so the close (X) never floats over content. */}
+        <DialogContent className="w-[calc(100%-1.5rem)] max-w-3xl max-h-[90dvh] sm:max-h-[90vh] rounded-xl sm:rounded-lg overflow-hidden flex flex-col gap-0 p-0">
           <div className="shrink-0 px-4 pt-4 pb-3 sm:px-6 sm:pt-6 sm:pb-2 border-b sm:border-b-0">
           <DialogHeader>
             {/* pr-8 keeps the Edit button clear of the dialog's close (X) button. */}
@@ -1923,13 +1924,16 @@ export default function CRMPreSales() {
                 </div>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
+                {/* Phones: Edit is icon only (like the Sales CRM popup), so the
+                    name keeps its width in the popup instead of breaking mid-word. */}
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => { setLeadDetailDialog(false); openEditLead(selectedLead); }}
-                  className="text-amber-600 border-blue-200 hover:bg-amber-50 flex-shrink-0"
+                  aria-label="Edit lead"
+                  className="h-8 w-8 p-0 sm:w-auto sm:px-3 text-amber-600 border-blue-200 hover:bg-amber-50 flex-shrink-0"
                 >
-                  <Edit2 className="h-4 w-4 mr-1" /> Edit
+                  <Edit2 className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Edit</span>
                 </Button>
                 {/* Phones: Delete sits here instead of on every lead card. */}
                 {isMobile && canDeleteLead && selectedLead && (
@@ -2587,7 +2591,7 @@ export default function CRMPreSales() {
           
           {/* Sticky Footer - Move to Stage */}
           {selectedLead && (
-          <div className="border-t bg-white px-4 sm:px-6 pt-2.5 sm:pt-3 pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:pb-3 shrink-0">
+          <div className="border-t bg-white px-4 sm:px-6 pt-2.5 sm:pt-3 pb-2.5 sm:pb-3 shrink-0">
             <div className="flex items-center gap-2 mb-1.5 sm:mb-2">
               <span className="text-xs font-medium text-gray-500">Move to Stage:</span>
               {selectedLead.current_stage_id === 'stg_rnr' && (

@@ -2431,10 +2431,11 @@ export default function CRMSales() {
       {/* View Lead Dialog */}
       {/* Lead Detail Dialog */}
       <Dialog open={viewLeadDialog} onOpenChange={setViewLeadDialog}>
-        {/* Sep 30 2026 — Phones: full screen like the Pre-Sales popup (dvh, so
-            the browser's URL bar doesn't hide the bottom), header fixed above
-            the scrolling tabs so the close (X) never floats over content. */}
-        <DialogContent className="max-w-2xl h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[90vh] overflow-hidden flex flex-col gap-0 p-0">
+        {/* Oct 1 2026 — Phones: a popup like the Pre-Sales one, not full
+            screen: a 12px margin each side, rounded, at most 90dvh tall (dvh,
+            so the browser's URL bar doesn't hide the bottom). The header stays
+            fixed above the scrolling tabs so the close (X) never floats over content. */}
+        <DialogContent className="w-[calc(100%-1.5rem)] max-w-2xl max-h-[90dvh] sm:max-h-[90vh] rounded-xl sm:rounded-lg overflow-hidden flex flex-col gap-0 p-0">
           <div className="shrink-0 px-4 pt-4 pb-3 sm:px-6 sm:pt-6 sm:pb-2 border-b sm:border-b-0">
           <DialogHeader>
             {/* pr-8 keeps the buttons clear of the dialog's close (X) button.
@@ -2552,10 +2553,12 @@ export default function CRMSales() {
                             </div>
                           )}
                         </div>
+                        {/* On small phones the long labels wrap to two lines
+                            instead of running past the button edge. */}
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                           <Button
                             size="sm"
-                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                            className="w-full h-auto min-h-8 py-1.5 whitespace-normal leading-tight bg-emerald-600 hover:bg-emerald-700 text-white"
                             onClick={() => handleGenerateQuoteLink(selectedLead)}
                             disabled={quoteLinkLoading}
                             data-testid="detail-generate-re-link-btn"
@@ -2565,7 +2568,7 @@ export default function CRMSales() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="w-full text-purple-700 border-purple-400 hover:bg-purple-50"
+                            className="w-full h-auto min-h-8 py-1.5 whitespace-normal leading-tight text-purple-700 border-purple-400 hover:bg-purple-50"
                             onClick={() => { setRegenDialog({ open: true, lead: selectedLead }); setRegenRemarks(''); }}
                             data-testid="detail-regenerate-re-btn"
                           >
@@ -3133,7 +3136,7 @@ export default function CRMSales() {
           
           {/* Sticky Footer - Move to Stage */}
           {selectedLead && (
-          <div className="border-t bg-white px-4 sm:px-6 pt-2.5 sm:pt-3 pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:pb-3 shrink-0">
+          <div className="border-t bg-white px-4 sm:px-6 pt-2.5 sm:pt-3 pb-2.5 sm:pb-3 shrink-0">
             <div className="flex items-center gap-2 mb-1.5 sm:mb-2">
               <span className="text-xs font-medium text-gray-500">Move to Stage:</span>
             </div>
