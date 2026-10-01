@@ -553,7 +553,7 @@ export default function CRMSales() {
         return;
       }
       
-      // Intercept: Show Sr. Engineer assignment popup for "Site Visit (Client Land)"
+      // Intercept: Show Site Engineer assignment popup for "Site Visit (Client Land)"
       if (stage?.stage_id === 'stg_sv_client_land') {
         const lead = leads.find(l => l.lead_id === leadId);
         if (lead) {
@@ -894,15 +894,17 @@ export default function CRMSales() {
     }
   };
 
-  // Site Visit: Client Land - open popup with Sr. Engineers
+  // Site Visit: Client Land - open popup with the site engineers.
+  // Oct 1 2026 — every active site engineer (Sr + Jr, Sr marked), sorted by
+  // name, not just the Sr. Site Engineers: Sales picks whoever goes.
   const openClientLandVisit = async (lead) => {
     setClientLandLead(lead);
     setSelectedSrEngineer('');
     setSvVisitDate(new Date().toISOString().split('T')[0]);
     setSvNotes('');
     try {
-      const res = await axios.get(`${API}/crm/sr-site-engineers`);
-      setSrEngineers(res.data);
+      const res = await axios.get(`${API}/crm/site-engineers`);
+      setSrEngineers([...(res.data || [])].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
     } catch { setSrEngineers([]); }
     setClientLandDialog(true);
   };
@@ -916,7 +918,7 @@ export default function CRMSales() {
         visit_date: svVisitDate,
         notes: svNotes
       });
-      toast.success('Site visit assigned to Sr. Engineer');
+      toast.success('Site visit assigned to Site Engineer');
       setClientLandDialog(false);
       fetchData(false);
       if (selectedLead?.lead_id === clientLandLead.lead_id) fetchSummaryPanel(clientLandLead.lead_id);
@@ -3905,12 +3907,12 @@ export default function CRMSales() {
         </DialogContent>
       </Dialog>
 
-      {/* Site Visit (Client Land) - Assign Sr. Engineer Dialog */}
+      {/* Site Visit (Client Land) - Assign Site Engineer Dialog */}
       <Dialog open={clientLandDialog} onOpenChange={setClientLandDialog}>
         <DialogContent className="max-w-lg" style={{ overflowY: 'auto' }}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-purple-600"><MapPin className="h-5 w-5" />Site Visit - Client Land</DialogTitle>
-            <DialogDescription>Assign a Sr. Site Engineer for client land visit</DialogDescription>
+            <DialogDescription>Assign a Site Engineer for client land visit</DialogDescription>
           </DialogHeader>
           {clientLandLead && (
             <div className="space-y-4">
@@ -3919,15 +3921,18 @@ export default function CRMSales() {
                 <p className="text-gray-500">{clientLandLead.phone} | {clientLandLead.city || 'No location'}</p>
               </div>
               <div>
-                <Label>Sr. Site Engineer *</Label>
+                <Label>Site Engineer *</Label>
                 <Select value={selectedSrEngineer} onValueChange={setSelectedSrEngineer}>
-                  <SelectTrigger className="mt-1" data-testid="select-sr-engineer"><SelectValue placeholder="Select Sr. Engineer" /></SelectTrigger>
+                  <SelectTrigger className="mt-1" data-testid="select-sr-engineer"><SelectValue placeholder="Select Site Engineer" /></SelectTrigger>
                   <SelectContent>
-                    {srEngineers.map(eng => (
-                      <SelectItem key={eng.user_id} value={eng.user_id}>
-                        {eng.name} {eng.region ? `(${eng.region})` : ''} {eng.phone ? `- ${eng.phone}` : ''}
-                      </SelectItem>
-                    ))}
+                    {srEngineers.map(eng => {
+                      const tags = [eng.role === 'sr_site_engineer' && 'Sr', eng.region].filter(Boolean);
+                      return (
+                        <SelectItem key={eng.user_id} value={eng.user_id}>
+                          {eng.name} {tags.length ? `(${tags.join(', ')})` : ''} {eng.phone ? `- ${eng.phone}` : ''}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </div>
