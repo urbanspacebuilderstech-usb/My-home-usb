@@ -207,7 +207,7 @@ export default function HomePackagesAdmin() {
         </CardContent>
       </Card>
 
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
         <div className="text-xs text-gray-500">Each package shows on the public package link with a dropdown selector + accordion sections.</div>
         <div className="flex items-center gap-2">
           {items.length === 0 && (

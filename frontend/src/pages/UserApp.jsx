@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
+import MobileBottomNav from '../components/MobileBottomNav';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -61,7 +62,15 @@ export default function UserApp() {
     }
   };
 
-  useEffect(() => { load(tab); /* eslint-disable-next-line */ }, [tab]);
+  // Projects and Packages aren't in TYPES (Packages loads itself), so
+  // load(tab) threw for them and showed "Failed to load", and the Completed
+  // sub-tab Projects opens on was never fetched. Projects loads all three
+  // lists so each sub-tab's count is right.
+  useEffect(() => {
+    if (tab === 'projects') PROJECT_KEYS.forEach(load);
+    else if (TYPES[tab]) load(tab);
+    /* eslint-disable-next-line */
+  }, [tab]);
 
   const openCreate = (type) => { setDialog({ open: true, type, editing: null }); setForm({ ...empty }); };
   const openEdit = (type, item) => { setDialog({ open: true, type, editing: item }); setForm({ ...empty, ...item }); };
@@ -153,7 +162,9 @@ export default function UserApp() {
         )}
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid grid-cols-4">
+          {/* Oct 1 2026 — four equal columns stacked the labels on top of each
+              other on phones; two rows of two there, one row from md up. */}
+          <TabsList className="grid grid-cols-2 md:grid-cols-4 h-auto md:h-9 gap-1">
             <TabsTrigger value="packages" data-testid="ua-tab-packages">
               <PackageIcon className="h-3.5 w-3.5 mr-1 text-amber-600" /> Packages
             </TabsTrigger>
@@ -189,13 +200,14 @@ export default function UserApp() {
 
           <TabsContent value="projects">
             <Tabs value={projectTab} onValueChange={(v) => { setProjectTab(v); load(v); }}>
+              {/* Phones: smaller text and no icon so all three fit on one row. */}
               <TabsList className="grid grid-cols-3 mb-3">
                 {PROJECT_KEYS.map(pk => {
                   const pt = TYPES[pk];
                   return (
-                    <TabsTrigger key={pk} value={pk} data-testid={`ua-ptab-${pk}`}>
-                      <pt.Icon className={`h-3.5 w-3.5 mr-1 ${pt.color}`} /> {pt.label}
-                      <Badge className="ml-1 bg-gray-100 text-gray-700 text-[10px]">{(items[pk] || []).length}</Badge>
+                    <TabsTrigger key={pk} value={pk} className="px-1 text-xs sm:px-3 sm:text-sm" data-testid={`ua-ptab-${pk}`}>
+                      <pt.Icon className={`hidden sm:block h-3.5 w-3.5 mr-1 ${pt.color}`} /> {pt.label}
+                      <Badge className="ml-1 px-1.5 sm:px-2.5 bg-gray-100 text-gray-700 text-[10px]">{(items[pk] || []).length}</Badge>
                     </TabsTrigger>
                   );
                 })}
@@ -329,6 +341,7 @@ export default function UserApp() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <MobileBottomNav user={user} />
     </div>
   );
 }
