@@ -252,11 +252,15 @@ export default function REProjectsPage({ embedded = false }) {
     }
   };
 
+  // Oct 1 2026 — the Rejection Reason decides the action: empty → only
+  // Approve works, filled in → only Reject works.
   const handleApprove = async (approved) => {
+    const hasReason = !!rejectionReason.trim();
+    if (approved === hasReason) return;
     try {
       await axios.patch(`${API}/crm/re-projects/${selectedProject.re_project_id}/approve`, {
         approved,
-        rejection_reason: approved ? null : rejectionReason
+        rejection_reason: approved ? null : rejectionReason.trim()
       });
       toast.success(approved ? 'RE Project approved' : 'RE Project rejected');
       setApprovalDialog(false);
@@ -656,7 +660,7 @@ export default function REProjectsPage({ embedded = false }) {
                         {canApprove && project.status === 're_submitted' && (
                           <Button 
                             size="sm"
-                            onClick={() => { setSelectedProject(project); setApprovalDialog(true); }}
+                            onClick={() => { setSelectedProject(project); setRejectionReason(''); setApprovalDialog(true); }}
                           >
                             Review
                           </Button>
@@ -1394,7 +1398,13 @@ export default function REProjectsPage({ embedded = false }) {
                   onChange={(e) => setRejectionReason(e.target.value)}
                   placeholder="Required if rejecting..."
                   rows={3}
+                  data-testid="re-rejection-reason"
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  {rejectionReason.trim()
+                    ? 'A reason is entered, so only Reject is available. Clear it to approve.'
+                    : 'Leave empty to approve. Enter a reason to reject.'}
+                </p>
               </div>
             </div>
           )}
@@ -1404,13 +1414,16 @@ export default function REProjectsPage({ embedded = false }) {
             <Button 
               variant="destructive"
               onClick={() => handleApprove(false)}
-              disabled={!rejectionReason}
+              disabled={!rejectionReason.trim()}
+              data-testid="re-review-reject-btn"
             >
               <XCircle className="h-4 w-4 mr-1" /> Reject
             </Button>
-            <Button 
+            <Button
               className="bg-green-600 hover:bg-green-700"
               onClick={() => handleApprove(true)}
+              disabled={!!rejectionReason.trim()}
+              data-testid="re-review-approve-btn"
             >
               <CheckCircle className="h-4 w-4 mr-1" /> Approve
             </Button>

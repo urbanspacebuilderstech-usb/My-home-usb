@@ -4432,7 +4432,10 @@ async def approve_re_project(re_project_id: str, data: REApproval, user: User = 
     
     if project["status"] not in ["re_submitted", "re_in_progress", "re_awaiting_approval"]:
         raise HTTPException(status_code=400, detail="Project not in submitted/in-progress state")
-    
+    # Oct 1 2026 — a rejection must say why; approving takes no reason.
+    if not data.approved and not (data.rejection_reason or "").strip():
+        raise HTTPException(status_code=400, detail="Rejection reason is required to reject")
+
     if data.approved:
         update = {
             "status": "re_approved",
