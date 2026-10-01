@@ -127,6 +127,18 @@ const RE_STATUS_CONFIG = {
   converted: { label: 'Converted', color: 'bg-teal-100 text-teal-700', icon: Building2 }
 };
 
+// Oct 1 2026 — Deal Close needs the RE approved by the GM, then by the client.
+const RE_CLIENT_APPROVED_STATUSES = ['client_approved', 'deal_closed', 'converted'];
+const RE_GM_APPROVED_STATUSES = ['re_approved', 'sent_to_client', 'client_feedback', ...RE_CLIENT_APPROVED_STATUSES];
+// What's holding the GM approval up, and what Sales does next, per RE status.
+const reApprovalHint = (status) => {
+  if (!status) return { gm: 'No RE yet', next: 'This lead has no Rough Estimate yet. Move it to RE - Request so Planning prepares one; then the GM approves it.' };
+  if (['re_requested', 're_in_progress'].includes(status)) return { gm: 'RE with Planning', next: 'Planning is still preparing the RE. Once they submit it, the GM has to approve it.' };
+  if (status === 're_submitted') return { gm: 'Waiting for GM', next: 'The RE is waiting for the GM’s approval.' };
+  if (status === 're_rejected') return { gm: 'Sent back by GM', next: 'The GM sent the RE back for changes. The revised RE has to be approved by the GM.' };
+  return { gm: 'Approved', next: 'The GM has approved the RE. Share it with the client and record their approval: Move to Stage → RE - Client, or the Approved button on the Overview tab.' };
+};
+
 // Sep 17 2026 — shared by openLeadDetail and openEditDialog so editForm
 // (which now also backs the Summary tab's Client Category editor) is always
 // in sync with the currently-open lead, not just when the separate Edit
@@ -357,6 +369,9 @@ export default function CRMSales() {
   const [convertDealDialog, setConvertDealDialog] = useState(false);
   const [convertDeal, setConvertDeal] = useState(null);
   const [convertDealRE, setConvertDealRE] = useState(null);
+  // Deal Close tried before the GM and the client approved the RE:
+  // { leadName, reStatus } for the "RE approval needed" popup.
+  const [dealCloseBlocked, setDealCloseBlocked] = useState(null);
   const [convertForm, setConvertForm] = useState({ name: '', client_name: '', client_phone: '', client_email: '', location: '', sqft: '', building_type: 'residential', expected_start_date: '' });
   const [convertAdvanceAmount, setConvertAdvanceAmount] = useState('');
   const [convertPaymentEntries, setConvertPaymentEntries] = useState([{ amount: '', payment_mode: 'savings_account', reference: '', cheque_details: [] }]);
@@ -537,7 +552,7 @@ export default function CRMSales() {
       if (stage?.stage_id === 'stg_payment_collect') {
         const lead = leads.find(l => l.lead_id === leadId);
         if (lead) {
-          openConvertDealFromSales(lead);
+          openConvertDealFromSales(lead, { requireReApproval: true });
         } else {
           toast.error('Could not find lead. Refresh and try again.');
         }
@@ -971,15 +986,30 @@ export default function CRMSales() {
   };
 
   // CRE-style Convert Deal from Sales (triggered on drag to "Project Onboarded")
-  const openConvertDealFromSales = async (lead) => {
+  // Oct 1 2026 — requireReApproval (moving a lead to Deal Close): the RE must
+  // be approved by the GM and then by the client first, otherwise a popup
+  // says what's missing. Not checked for "Collect Advance" on a lead already
+  // in Deal Close, or when re-collecting an advance the Accountant rejected.
+  const openConvertDealFromSales = async (lead, { requireReApproval = false } = {}) => {
+    let reData = null;
+    if (lead.re_project_id) {
+      try {
+        const reRes = await axios.get(`${API}/crm/re-projects/${lead.re_project_id}`);
+        reData = reRes.data;
+      } catch {
+        if (requireReApproval) { toast.error('Could not check the RE approval. Please try again.'); return; }
+        reData = null;
+      }
+    }
+    if (requireReApproval && lead.onboarding_status !== 'accountant_rejected'
+        && !RE_CLIENT_APPROVED_STATUSES.includes(reData?.status)) {
+      setDealCloseBlocked({ leadName: lead.name, reStatus: reData?.status || null });
+      return;
+    }
     setConvertDeal(lead);
     setConvertAdvanceAmount('');
     setConvertAccountantConfirmed(false);
     setConvertPaymentEntries([{ amount: '', payment_mode: 'savings_account', reference: '', cheque_details: [] }]);
-    let reData = null;
-    if (lead.re_project_id) {
-      try { const reRes = await axios.get(`${API}/crm/re-projects/${lead.re_project_id}`); reData = reRes.data; } catch { reData = null; }
-    }
     setConvertDealRE(reData);
     setConvertForm({
       name: reData?.project_name || lead.name || '',
@@ -4300,6 +4330,48 @@ export default function CRMSales() {
 
 
       <MobileBottomNav user={user} />
+
+      {/* Deal Close blocked: the RE isn't approved by the GM and the client yet. */}
+      <Dialog open={!!dealCloseBlocked} onOpenChange={(o) => { if (!o) setDealCloseBlocked(null); }}>
+        <DialogContent className="max-w-md" data-testid="deal-close-blocked-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertCircle className="h-5 w-5" /> RE approval needed
+            </DialogTitle>
+            <DialogDescription>
+              {dealCloseBlocked?.leadName ? <><span className="font-medium text-gray-700">{dealCloseBlocked.leadName}</span> can’t move to Deal Close yet. </> : null}
+              You need to get the Rough Estimate approved by the GM and by the client first.
+            </DialogDescription>
+          </DialogHeader>
+          {dealCloseBlocked && (() => {
+            const hint = reApprovalHint(dealCloseBlocked.reStatus);
+            const gmOk = RE_GM_APPROVED_STATUSES.includes(dealCloseBlocked.reStatus);
+            const rows = [
+              { label: 'GM approval', ok: gmOk, text: hint.gm },
+              { label: 'Client approval', ok: false, text: 'Pending' },
+            ];
+            return (
+              <div className="space-y-3">
+                <div className="rounded-lg border divide-y text-sm">
+                  {rows.map(r => (
+                    <div key={r.label} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <span className="flex items-center gap-2 font-medium text-gray-700">
+                        {r.ok ? <CheckCircle className="h-4 w-4 text-green-600" /> : <XCircle className="h-4 w-4 text-red-500" />}
+                        {r.label}
+                      </span>
+                      <span className={r.ok ? 'text-green-700' : 'text-red-600'}>{r.text}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-sm text-gray-600">{hint.next}</p>
+              </div>
+            );
+          })()}
+          <DialogFooter>
+            <Button onClick={() => setDealCloseBlocked(null)} data-testid="deal-close-blocked-ok">OK</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* CRE-style Convert Deal Dialog (triggered on drag to Project Onboarded) */}
       <Dialog open={convertDealDialog} onOpenChange={setConvertDealDialog}>
