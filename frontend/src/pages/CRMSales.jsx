@@ -301,7 +301,9 @@ export default function CRMSales() {
   const [leadDetail, setLeadDetail] = useState(null);
   const [summaryPanel, setSummaryPanel] = useState(null);
   const [summaryPanelLoading, setSummaryPanelLoading] = useState(false);
-  const [officeVisitRemarkDialog, setOfficeVisitRemarkDialog] = useState({ open: false, leadId: null, index: null, remarks: '' });
+  // visitType: null = Office Visit, 'client_land' = Client Site Visit,
+  // 'ongoing_project' = USB Project Visit.
+  const [visitRemarkDialog, setVisitRemarkDialog] = useState({ open: false, leadId: null, visitType: null, index: null, remarks: '' });
   const [apptDialog, setApptDialog] = useState(false);
   const [apptForm, setApptForm] = useState({ date: '', time: '', type: '' });
   
@@ -1098,12 +1100,16 @@ export default function CRMSales() {
 
   // Sep 18 2026 — Summary tab's Office Visit history: add/edit remarks on a
   // past visit entry from a small popup instead of only at scheduling time.
-  const handleSaveOfficeVisitRemark = async () => {
-    const { leadId, index, remarks } = officeVisitRemarkDialog;
+  // Oct 1 2026 — same for Client Site Visit and USB Project Visit entries.
+  const handleSaveVisitRemark = async () => {
+    const { leadId, visitType, index, remarks } = visitRemarkDialog;
     try {
-      await axios.patch(`${API}/crm/leads/${leadId}/office-visits/${index}`, { remarks });
+      const url = visitType
+        ? `${API}/crm/leads/${leadId}/site-visits/${visitType}/${index}`
+        : `${API}/crm/leads/${leadId}/office-visits/${index}`;
+      await axios.patch(url, { remarks });
       toast.success('Remarks saved');
-      setOfficeVisitRemarkDialog({ open: false, leadId: null, index: null, remarks: '' });
+      setVisitRemarkDialog({ open: false, leadId: null, visitType: null, index: null, remarks: '' });
       fetchSummaryPanel(leadId);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to save remarks');
@@ -3002,7 +3008,7 @@ export default function CRMSales() {
                                       type="button"
                                       className="text-sky-600 hover:text-sky-800 flex-shrink-0"
                                       title="Add / edit remarks"
-                                      onClick={() => setOfficeVisitRemarkDialog({ open: true, leadId: selectedLead.lead_id, index: i, remarks: v.remarks || '' })}
+                                      onClick={() => setVisitRemarkDialog({ open: true, leadId: selectedLead.lead_id, visitType: null, index: i, remarks: v.remarks || '' })}
                                       data-testid={`office-visit-edit-remarks-${i}`}
                                     >
                                       <Edit className="h-3 w-3" />
@@ -3056,10 +3062,24 @@ export default function CRMSales() {
                             <div className="space-y-1.5 max-h-40 overflow-y-auto">
                               {summaryPanel.client_site_visits.map((v, i) => (
                                 <div key={i} className="text-xs bg-purple-50 rounded p-1.5">
-                                  <span className="font-medium">#{i + 1}</span>{' '}
-                                  {v.visit_date ? new Date(v.visit_date).toLocaleDateString('en-IN') : '-'}
-                                  {v.sr_engineer_name && <span className="text-gray-500"> · {v.sr_engineer_name}</span>}
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span>
+                                      <span className="font-medium">#{i + 1}</span>{' '}
+                                      {v.visit_date ? new Date(v.visit_date).toLocaleDateString('en-IN') : '-'}
+                                      {v.sr_engineer_name && <span className="text-gray-500"> · {v.sr_engineer_name}</span>}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="text-purple-600 hover:text-purple-800 flex-shrink-0"
+                                      title="Add / edit remarks"
+                                      onClick={() => setVisitRemarkDialog({ open: true, leadId: selectedLead.lead_id, visitType: 'client_land', index: i, remarks: v.remarks || '' })}
+                                      data-testid={`client-site-visit-edit-remarks-${i}`}
+                                    >
+                                      <Edit className="h-3 w-3" />
+                                    </button>
+                                  </div>
                                   {v.notes && <p className="text-gray-500 mt-0.5">{v.notes}</p>}
+                                  {v.remarks && <p className="text-gray-700 mt-0.5"><span className="font-medium">Remarks:</span> {v.remarks}</p>}
                                 </div>
                               ))}
                             </div>
@@ -3084,11 +3104,25 @@ export default function CRMSales() {
                             <div className="space-y-1.5 max-h-40 overflow-y-auto">
                               {summaryPanel.client_project_visits.map((v, i) => (
                                 <div key={i} className="text-xs bg-violet-50 rounded p-1.5">
-                                  <span className="font-medium">#{i + 1}</span>{' '}
-                                  {v.visit_date ? new Date(v.visit_date).toLocaleDateString('en-IN') : '-'}
-                                  {(v.site_engineer_name) && <span className="text-gray-500"> · {v.site_engineer_name}</span>}
-                                  {v.project_name && <span className="text-gray-500"> · {v.project_name}</span>}
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span>
+                                      <span className="font-medium">#{i + 1}</span>{' '}
+                                      {v.visit_date ? new Date(v.visit_date).toLocaleDateString('en-IN') : '-'}
+                                      {(v.site_engineer_name) && <span className="text-gray-500"> · {v.site_engineer_name}</span>}
+                                      {v.project_name && <span className="text-gray-500"> · {v.project_name}</span>}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="text-violet-600 hover:text-violet-800 flex-shrink-0"
+                                      title="Add / edit remarks"
+                                      onClick={() => setVisitRemarkDialog({ open: true, leadId: selectedLead.lead_id, visitType: 'ongoing_project', index: i, remarks: v.remarks || '' })}
+                                      data-testid={`client-project-visit-edit-remarks-${i}`}
+                                    >
+                                      <Edit className="h-3 w-3" />
+                                    </button>
+                                  </div>
                                   {v.notes && <p className="text-gray-500 mt-0.5">{v.notes}</p>}
+                                  {v.remarks && <p className="text-gray-700 mt-0.5"><span className="font-medium">Remarks:</span> {v.remarks}</p>}
                                 </div>
                               ))}
                             </div>
@@ -4084,28 +4118,32 @@ export default function CRMSales() {
         </DialogContent>
       </Dialog>
 
-      {/* Office Visit Remarks Dialog (Summary tab's Office Visit history) */}
-      <Dialog open={officeVisitRemarkDialog.open} onOpenChange={(o) => setOfficeVisitRemarkDialog(prev => ({ ...prev, open: o }))}>
+      {/* Visit Remarks Dialog (Summary tab's Office Visit, Client Site Visit
+          and USB Project Visit history) */}
+      <Dialog open={visitRemarkDialog.open} onOpenChange={(o) => setVisitRemarkDialog(prev => ({ ...prev, open: o }))}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Edit className="h-5 w-5 text-sky-600" /> Office Visit Remarks
+              <Edit className="h-5 w-5 text-sky-600" />
+              {{ client_land: 'Client Site Visit', ongoing_project: 'USB Project Visit' }[visitRemarkDialog.visitType] || 'Office Visit'} Remarks
             </DialogTitle>
-            <DialogDescription>Add or update remarks for this office visit</DialogDescription>
+            <DialogDescription>
+              Add or update remarks for this {{ client_land: 'client site visit', ongoing_project: 'USB project visit' }[visitRemarkDialog.visitType] || 'office visit'}
+            </DialogDescription>
           </DialogHeader>
           <div>
             <Label className="text-sm font-medium">Remarks</Label>
             <textarea
-              value={officeVisitRemarkDialog.remarks}
-              onChange={(e) => setOfficeVisitRemarkDialog(prev => ({ ...prev, remarks: e.target.value }))}
+              value={visitRemarkDialog.remarks}
+              onChange={(e) => setVisitRemarkDialog(prev => ({ ...prev, remarks: e.target.value }))}
               placeholder="Enter remarks..."
               className="w-full rounded-md border p-2 text-sm min-h-[90px] mt-1"
               data-testid="office-visit-remarks-input"
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOfficeVisitRemarkDialog({ open: false, leadId: null, index: null, remarks: '' })}>Cancel</Button>
-            <Button onClick={handleSaveOfficeVisitRemark} className="bg-sky-600 hover:bg-sky-700" data-testid="office-visit-remarks-save">Save</Button>
+            <Button variant="outline" onClick={() => setVisitRemarkDialog({ open: false, leadId: null, visitType: null, index: null, remarks: '' })}>Cancel</Button>
+            <Button onClick={handleSaveVisitRemark} className="bg-sky-600 hover:bg-sky-700" data-testid="office-visit-remarks-save">Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

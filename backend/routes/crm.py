@@ -3087,6 +3087,48 @@ async def update_office_visit_remarks(lead_id: str, index: int, data: OfficeVisi
     return {"message": "Remarks updated", "office_visits": office_visits}
 
 
+@router.patch("/crm/leads/{lead_id}/site-visits/{visit_type}/{index}")
+async def update_site_visit_remarks(lead_id: str, visit_type: str, index: int, data: OfficeVisitRemarkUpdate, user: User = Depends(get_current_user)):
+    """Oct 1 2026 — remarks on a Client Site Visit ("client_land") or USB
+    Project Visit ("ongoing_project") entry, from the Summary tab, like the
+    Office Visit remarks above. `index` counts entries of that visit type
+    only, in the same order the summary panel lists them.
+    """
+    if visit_type not in ("client_land", "ongoing_project"):
+        raise HTTPException(status_code=400, detail="Invalid visit type")
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0, "site_visits": 1, "site_visit_data": 1, "stage_type": 1})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales_head"]:
+        raise HTTPException(status_code=403, detail="Pre-Sales access required")
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales", "sales_head"]:
+        raise HTTPException(status_code=403, detail="Sales access required")
+
+    site_visits = lead.get("site_visits") or ([lead["site_visit_data"]] if lead.get("site_visit_data") else [])
+    positions = [i for i, v in enumerate(site_visits) if v.get("visit_type") == visit_type]
+    if index < 0 or index >= len(positions):
+        raise HTTPException(status_code=404, detail="Site visit entry not found")
+    pos = positions[index]
+
+    remark_fields = {
+        "remarks": data.remarks,
+        "remarks_updated_by": user.user_id,
+        "remarks_updated_by_name": user.name,
+        "remarks_updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    site_visits[pos].update(remark_fields)
+
+    update = {"site_visits": site_visits}
+    # The latest entry is also `site_visit_data`. Set only the remark fields
+    # there: the engineer's "Mark Done" writes visit_status to that field
+    # alone, and copying the list entry over it would undo that.
+    if pos == len(site_visits) - 1 and lead.get("site_visit_data"):
+        for k, v in remark_fields.items():
+            update[f"site_visit_data.{k}"] = v
+    await db.leads.update_one({"lead_id": lead_id}, {"$set": update})
+    return {"message": "Remarks updated"}
+
+
 @router.patch("/crm/leads/{lead_id}")
 async def update_lead(lead_id: str, data: LeadUpdateInput, user: User = Depends(get_current_user)):
     """Update lead fields including summary"""
