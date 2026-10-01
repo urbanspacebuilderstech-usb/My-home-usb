@@ -521,6 +521,16 @@ async def startup_init():
             except Exception as e:
                 logger.warning(f"Sales stage migration failed (non-fatal): {e}")
 
+            # Oct 1 2026 — Pre-Sales follow-ups copied onto Sales leads before
+            # transfers started closing them. Idempotent.
+            try:
+                from routes.crm import close_inherited_presales_followups
+                closed = await close_inherited_presales_followups()
+                if closed:
+                    logger.info(f"Closed {closed} Pre-Sales follow-ups carried into Sales leads")
+            except Exception as e:
+                logger.warning(f"Closing carried-over Pre-Sales follow-ups failed (non-fatal): {e}")
+
             # Backfill `site_engineer_assignments` for projects that have legacy
             # `team.site_engineer / sr_site_engineer / associate_pm` set but no
             # corresponding active assignment doc. Required so SE dashboards (`my-projects`)

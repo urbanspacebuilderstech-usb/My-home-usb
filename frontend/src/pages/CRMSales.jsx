@@ -1842,7 +1842,8 @@ export default function CRMSales() {
                   const pendingFup = (lead.follow_ups || [])
                     .filter(f => !f.completed && f.scheduled_date)
                     .sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date))[0];
-                  const nextFollowup = pendingFup?.scheduled_date || lead.next_followup_date;
+                  // Only while the lead is in Follow-up (see the table row).
+                  const nextFollowup = lead.current_stage_id === 'stg_sales_followup' && (pendingFup?.scheduled_date || lead.next_followup_date);
                   // Lost leads keep their number hidden, so no call/WhatsApp either.
                   const showContactBtns = !!lead.phone && !lost;
                   const showFollowupBtn = lead.current_stage_id === 'stg_sales_followup' && !(lead.follow_ups || []).some(f => !f.completed);
@@ -2042,8 +2043,10 @@ export default function CRMSales() {
                           </div>
                         )}
                         {(() => {
-                          // Show next pending follow-up date (works on Followup tab + RE-Request etc.
-                          // wherever a follow-up is scheduled but not yet closed)
+                          // Next pending follow-up date. Oct 1 2026 — only while the
+                          // lead is in Follow-up: a lead that has moved on (or a
+                          // date carried over from Pre-Sales) no longer shows one.
+                          if (lead.current_stage_id !== 'stg_sales_followup') return null;
                           const pendingFup = (lead.follow_ups || [])
                             .filter(f => !f.completed && f.scheduled_date)
                             .sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date))[0];
@@ -2356,6 +2359,7 @@ export default function CRMSales() {
                               </div>
                             )}
                             {(() => {
+                              if (lead.current_stage_id !== 'stg_sales_followup') return null;
                               const pendingFup = (lead.follow_ups || []).filter(f => !f.completed && f.scheduled_date).sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date))[0];
                               const nextDate = pendingFup?.scheduled_date || lead.next_followup_date;
                               if (!nextDate) return null;

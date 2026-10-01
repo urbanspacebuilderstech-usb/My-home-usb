@@ -96,7 +96,10 @@ const formatIN = (value, options) => {
 
 // Next pending follow-up (amber today, red overdue, blue upcoming), else the
 // last completed one. Shared by the desktop table and the phone cards.
-const FollowUpChip = ({ followUps }) => {
+// Oct 1 2026 — only while the lead is in Follow-up: once it moves on, the
+// follow-up date is no longer shown.
+const FollowUpChip = ({ followUps, stageId }) => {
+  if (stageId !== 'stg_follow_up') return <span className="text-[10px] text-gray-400">—</span>;
   const pending = (followUps || []).filter(f => !f.completed);
   const last = (followUps || []).slice(-1)[0];
   const next = pending.sort((a, b) => (a.scheduled_date || '').localeCompare(b.scheduled_date || ''))[0];
@@ -944,7 +947,7 @@ export default function CRMPreSales() {
       const today = new Date().toISOString().split('T')[0];
       const pendingFollowups = (lead.follow_ups || []).filter(f => !f.completed);
       const hasToday = pendingFollowups.some(f => f.scheduled_date === today) || lead.next_followup_date === today;
-      if (!hasToday) return false;
+      if (!hasToday || lead.current_stage_id !== 'stg_follow_up') return false;
     }
 
     let matchesDate = true;
@@ -1319,7 +1322,8 @@ export default function CRMPreSales() {
                   const showContactBtns = !!lead.phone && !isLeadLost(lead);
                   const showAppointment = lead.current_stage_id === 'stg_appointment' && !!lead.appointment_date;
                   // Skip the chips/buttons row entirely when it would be empty.
-                  const hasExtrasRow = (lead.follow_ups || []).length > 0 || showAppointment || clientVisit || showFollowupBtn || canTransferLead;
+                  const showFollowupChip = lead.current_stage_id === 'stg_follow_up' && (lead.follow_ups || []).length > 0;
+                  const hasExtrasRow = showFollowupChip || showAppointment || clientVisit || showFollowupBtn || canTransferLead;
                   return (
                     <div
                       key={lead.lead_id}
@@ -1363,7 +1367,7 @@ export default function CRMPreSales() {
                           indented to start under the name. */}
                       {hasExtrasRow && (
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 pl-[46px]">
-                          {(lead.follow_ups || []).length > 0 && <FollowUpChip followUps={lead.follow_ups} />}
+                          {showFollowupChip && <FollowUpChip followUps={lead.follow_ups} stageId={lead.current_stage_id} />}
                           {showAppointment && (
                             <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 py-0.5">
                               <Calendar className="h-2.5 w-2.5" />
@@ -1510,7 +1514,7 @@ export default function CRMPreSales() {
                       {showFollowupCol && (
                         <td className="px-2 py-2">
                           <div className="space-y-0.5">
-                            <FollowUpChip followUps={lead.follow_ups} />
+                            <FollowUpChip followUps={lead.follow_ups} stageId={lead.current_stage_id} />
                           </div>
                         </td>
                       )}
@@ -1704,7 +1708,7 @@ export default function CRMPreSales() {
                                 <MessageSquare className="h-3 w-3 mr-1" /> {lead.remarks.length}
                               </Badge>
                             )}
-                            {lead.follow_ups?.length > 0 && (
+                            {lead.current_stage_id === 'stg_follow_up' && lead.follow_ups?.length > 0 && (
                               <Badge variant="outline" className={`text-xs ${
                                 (() => {
                                   const next = (lead.follow_ups || []).filter(f => !f.completed).sort((a,b) => (a.scheduled_date||'').localeCompare(b.scheduled_date||''))[0];

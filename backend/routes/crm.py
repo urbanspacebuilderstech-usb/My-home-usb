@@ -1170,13 +1170,74 @@ async def _redistribute_stale_rnr_leads():
         logger.error(f"RNR auto-redistribution error: {e}")
 
 
+async def close_inherited_presales_followups() -> int:
+    """Close open Pre-Sales follow-ups that were copied onto Sales leads.
+
+    Oct 1 2026 — a lead handed to Sales took its open Pre-Sales follow-ups
+    with it, and the Sales auto-move then pulled the new lead into Sales
+    Follow-up, showing the Pre-Sales date. New transfers close them first
+    (update_lead_stage); this closes the ones copied before that. Run at
+    startup; idempotent, a second run finds nothing. Returns how many closed.
+    """
+    def _ts(v):
+        if isinstance(v, str):
+            try:
+                v = datetime.fromisoformat(v.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        if isinstance(v, datetime):
+            return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
+        return None
+
+    closed = 0
+    cursor = db.leads.find(
+        {
+            "stage_type": "sales",
+            "transferred_from_lead_id": {"$nin": [None, ""]},
+            "follow_ups": {"$elemMatch": {"completed": False}},
+        },
+        {"_id": 0, "lead_id": 1, "created_at": 1, "transferred_from_lead_id": 1, "follow_ups": 1},
+    )
+    async for lead in cursor:
+        source = await db.leads.find_one(
+            {"lead_id": lead["transferred_from_lead_id"]}, {"_id": 0, "follow_ups.follow_up_id": 1}
+        )
+        source_ids = {f.get("follow_up_id") for f in (source or {}).get("follow_ups") or []} - {None}
+        # Copied follow-ups were all made before the Sales lead existed.
+        arrived = _ts(lead.get("created_at"))
+        now_iso = datetime.now(timezone.utc).isoformat()
+        changed = 0
+        follow_ups = []
+        for fu in lead["follow_ups"]:
+            made = _ts(fu.get("created_at"))
+            inherited = fu.get("follow_up_id") in source_ids or bool(made and arrived and made < arrived)
+            if not fu.get("completed") and inherited:
+                fu = {**fu, "completed": True, "auto_completed": True, "completed_at": now_iso,
+                      "completed_reason": "Pre-Sales follow-up, closed when the lead moved to Sales"}
+                changed += 1
+            follow_ups.append(fu)
+        if changed:
+            # Matching the array we read means only one worker writes it.
+            res = await db.leads.update_one(
+                {"lead_id": lead["lead_id"], "follow_ups": lead["follow_ups"]},
+                {"$set": {"follow_ups": follow_ups}},
+            )
+            if res.modified_count:
+                closed += changed
+    return closed
+
+
 async def _auto_move_due_presales_followups(user: User):
     # Auto-move leads with due follow-ups to the Follow-up stage
     try:
         tomorrow_str = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
         followup_query = {
             "stage_type": "pre_sales",
-            "current_stage_id": {"$ne": "stg_follow_up"},
+            # Oct 1 2026 — not leads already handed to Sales (Appointment
+            # Booked, or Office Visit synced from Sales): a follow-up left open
+            # there dragged them back to Follow-up on both boards.
+            "current_stage_id": {"$nin": ["stg_follow_up", "stg_appointment", "stg_office_visit"]},
+            "transferred_to_lead_id": {"$in": [None, ""]},
             "follow_ups": {
                 "$elemMatch": {
                     "scheduled_date": {"$lt": tomorrow_str},
@@ -1552,20 +1613,21 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         "updated_at": datetime.now(timezone.utc)
     }
 
-    # When a lead progresses OUT of Followup to any downstream stage, auto-complete any
-    # still-pending follow-ups. Otherwise the auto-move job in /crm/sales/leads would
-    # silently bounce the lead back to Followup on the next refresh.
-    DOWNSTREAM_OF_FOLLOWUP = {
-        "stg_re_requested", "stg_re_from_planning", "stg_re_to_client",
-        "stg_sv_client_land", "stg_sv_our_projects",
-        "stg_payment_collect", "stg_accountant_approval",
-        "stg_project_onboarded", "stg_lost",
-    }
-    if (
-        old_stage_id == "stg_sales_followup"
-        and data.stage_id in DOWNSTREAM_OF_FOLLOWUP
-        and lead.get("follow_ups")
-    ):
+    # When a lead moves OUT of Follow-up, auto-complete any still-pending
+    # follow-ups. Otherwise the auto-move jobs in /crm/pre-sales/leads and
+    # /crm/sales/leads would silently bounce the lead back to Follow-up.
+    # Oct 1 2026 — was Sales only, and only for RE / site visit / deal stages,
+    # so the follow-up date kept showing after the lead moved on. Now any move
+    # out of Follow-up on either board, plus handing a Pre-Sales lead to Sales
+    # (Appointment Booked) or marking it Lost: Pre-Sales follow-ups must not
+    # reach the Sales copy of the lead as open, where the Sales auto-move
+    # pulled the new lead straight into Sales Follow-up.
+    FOLLOWUP_STAGES = {"stg_follow_up", "stg_sales_followup"}
+    leaving_followup = old_stage_id in FOLLOWUP_STAGES and data.stage_id not in FOLLOWUP_STAGES
+    closing_stage = data.stage_id in {"stg_pre_lost", "stg_lost"} or (
+        lead["stage_type"] == "pre_sales" and (stage.get("is_final") or data.stage_id == "stg_appointment")
+    )
+    if (leaving_followup or closing_stage) and any(not fu.get("completed") for fu in lead.get("follow_ups") or []):
         completed_follow_ups = []
         for fu in lead.get("follow_ups", []):
             if not fu.get("completed"):
@@ -1811,7 +1873,8 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         new_lead_dict["pre_sales_person_id"] = lead.get("assigned_to")
         new_lead_dict["pre_sales_person_name"] = lead.get("assigned_to_name")
         new_lead_dict["summary"] = lead.get("summary", "")
-        new_lead_dict["follow_ups"] = lead.get("follow_ups", [])
+        # The closed copies from above, so they arrive in Sales as history only.
+        new_lead_dict["follow_ups"] = update.get("follow_ups", lead.get("follow_ups", []))
         
         # Store appointment info
         if appointment_info:
