@@ -52,6 +52,7 @@ import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import { UnitSelect } from '../components/UnitSelect';
+import PreviousREPanel from '../components/PreviousREPanel';
 
 const API = process.env.REACT_APP_BACKEND_URL + '/api';
 
@@ -1520,6 +1521,9 @@ const GMDashboard = () => {
                     </Card>
                   )}
 
+                  {/* Earlier estimates when Sales asked for this RE again */}
+                  <PreviousREPanel reProjectId={viewItem.re_project_id} revision={viewItem.revision} />
+
                   {/* Full Scope of Works */}
                   <Card className="border-purple-200">
                     <CardContent className="p-4">
@@ -1714,6 +1718,9 @@ const GMDashboard = () => {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Earlier estimates when Sales asked for this RE again */}
+              <PreviousREPanel reProjectId={reEditProject.re_project_id} revision={reEditProject.revision} />
 
               {/* Project Details */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -22,6 +22,7 @@ import { SortableList, SortableTableRow, DragHandle } from '../components/Sortab
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import { UnitSelect } from '../components/UnitSelect';
+import PreviousREPanel from '../components/PreviousREPanel';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -821,6 +822,9 @@ export default function REProjectsPage({ embedded = false }) {
                   </CardContent>
                 </Card>
               )}
+
+              {/* Earlier estimates when Sales asked for this RE again */}
+              <PreviousREPanel reProjectId={selectedProject.re_project_id} revision={selectedProject.revision} />
 
               {/* File Attachments */}
               <Card className="bg-gray-50 border">

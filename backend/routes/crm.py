@@ -4137,6 +4137,46 @@ async def get_re_revisions(re_number: str, user: User = Depends(get_current_user
     return projects
 
 
+@router.get("/crm/re-projects/{re_project_id}/previous")
+async def get_previous_re_projects(re_project_id: str, user: User = Depends(get_current_user)):
+    """Oct 1 2026 — the earlier estimates of this RE, newest first, so GM and
+    Planning see what was quoted before when Sales asks for the RE a second
+    or third time. Each revision is a full document; Create Revision, the
+    client-revision request and Regenerate RE all keep the original
+    re_number (and parent_re_number), which groups them."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.PLANNING_PERSON, "sales", "sales_head", "cre"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    current = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not current:
+        raise HTTPException(status_code=404, detail="RE Project not found")
+    root = current.get("parent_re_number") or current.get("re_number")
+    if not root:
+        return []
+    previous = await db.re_projects.find(
+        {
+            "$or": [{"re_number": root}, {"parent_re_number": root}],
+            "re_project_id": {"$ne": re_project_id},
+            "revision": {"$lt": current.get("revision") or 0},
+        },
+        # Same client on every revision; the popup already shows (or hides) it.
+        {"_id": 0, "client_phone": 0, "client_email": 0},
+    ).sort("revision", -1).to_list(50)
+
+    # prepared_by / gm_approved_by hold user ids.
+    ids = {p.get(k) for p in previous for k in ("prepared_by", "gm_approved_by")} - {None, ""}
+    names = {}
+    if ids:
+        async for u in db.users.find({"user_id": {"$in": list(ids)}}, {"_id": 0, "user_id": 1, "name": 1}):
+            names[u["user_id"]] = u.get("name", "")
+    for p in previous:
+        if p.get("prepared_by") and not p.get("prepared_by_name"):
+            p["prepared_by_name"] = names.get(p["prepared_by"], "")
+        if p.get("gm_approved_by"):
+            p["gm_approved_by_name"] = names.get(p["gm_approved_by"], "")
+    return previous
+
+
 @router.get("/crm/re-projects/{re_project_id}")
 async def get_re_project(re_project_id: str, user: User = Depends(get_current_user)):
     """Get RE project details"""
