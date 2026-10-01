@@ -2068,37 +2068,12 @@ export default function CRMSales() {
                       </td>
                       <td className="px-2 py-2 text-center">
                         <div className="flex items-center gap-1 justify-center">
-                          {/* Sep 17 2026 — the "Record"/"New" pair (shown
-                              when the lead already has a pending follow-up)
-                              was removed per Sales Head request. The plain
-                              "Follow-up" quick-schedule button (shown when
-                              there's no pending follow-up yet) stays. */}
-                          {lead.current_stage_id === 'stg_sales_followup' && !(lead.follow_ups || []).some(f => !f.completed) && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 px-1.5 text-[10px] text-amber-600 border-amber-300 hover:bg-amber-50"
-                              data-testid={`followup-btn-${lead.lead_id}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setQuickFollowupLeadId(lead.lead_id);
-                                setQuickFollowupForm({ date: '', time: '', remarks: '' });
-                                setQuickFollowupDialog(true);
-                              }}
-                            >
-                              <Calendar className="h-3 w-3 mr-0.5" /> Follow-up
-                            </Button>
-                          )}
-                          {/* Onboarding status indicators */}
-                          {lead.current_stage_id === 'stg_accountant_approval' && (
-                            <Badge className="bg-amber-100 text-amber-700 text-[10px]">Awaiting Accountant</Badge>
-                          )}
-                          {lead.current_stage_id === 'stg_project_onboarded' && (
-                            <Badge className="bg-green-100 text-green-700 text-[10px]">Project Onboarded</Badge>
-                          )}
-                          {lead.onboarding_status === 'moved_to_planning' && (
-                            <Badge className="bg-green-100 text-green-700 text-[10px]">In Planning</Badge>
-                          )}
+                          {/* Oct 1 2026 — icons only (Reassign, View, Delete),
+                              per Sales Head. The "Follow-up" button and the
+                              Awaiting Accountant / Project Onboarded / In
+                              Planning badges were removed: follow-ups are
+                              scheduled from the lead popup, which also shows
+                              Awaiting Accountant, and Stage shows Onboarded. */}
                           {/* Quick Reassign — only when lead is still owned by a salesperson and not in terminal/onboarded stage */}
                           {lead.assigned_to && !['stg_project_onboarded', 'stg_lost'].includes(lead.current_stage_id) && lead.onboarding_status !== 'moved_to_planning' && (
                             <Button
