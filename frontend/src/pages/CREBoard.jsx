@@ -1382,14 +1382,24 @@ export default function CREBoard() {
                     </CardContent>
                   </Card>
 
-                  {/* Summary tiles — Total Planned / Collected / Balance.
+                  {/* Summary tiles — Total Planned / Collected / This Month
+                      Collected / Balance.
+
+                      Oct 1 2026 — Super Admin only. These are company-wide
+                      money totals across every project on the board (crores
+                      of planned value and outstanding balance); a CRE sees
+                      the same CRE Board component and was being shown them.
+                      The per-row Amount / Received / Balance columns below
+                      are unchanged — a CRE still sees the figures for the
+                      stages they actually work.
+
                       Sep 29 2026. Scoped to `entries` — the SAME set the
                       table below is currently showing (Pending / Partial /
                       Collected / All, per psSubTab) — so clicking a sub-tab
                       updates the tiles to describe just that bucket instead
                       of always describing the full "All" set regardless of
                       which sub-tab is open. */}
-                  {(() => {
+                  {isSuperAdmin && (() => {
                     const psSummary = entries.reduce((acc, e) => {
                       const amt = Number(e.amount) || 0;
                       const got = Number(e.amount_received) || 0;

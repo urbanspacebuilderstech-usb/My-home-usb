@@ -165,3 +165,28 @@ def test_colour_classes_are_literal_not_interpolated():
     assert "border-l-emerald-500" in block
     assert "border-l-red-500" in block
     assert not re.search(r"border-l-\$\{", block)
+
+
+def test_the_tiles_are_super_admin_only():
+    """Oct 1 2026 — these are company-wide money totals across every project
+    on the board (crores of planned value and outstanding balance). A CRE
+    opens the same CREBoard component and was being shown them."""
+    src = _src()
+    assert "{isSuperAdmin && (() => {" in src
+
+
+def test_the_gate_uses_a_variable_that_exists():
+    """A typo here fails silently - the tiles would simply never render."""
+    src = _src()
+    assert "const isSuperAdmin = user?.role === 'super_admin';" in src
+    assert src.index("const isSuperAdmin =") < src.index("{isSuperAdmin && (() => {")
+
+
+def test_the_per_row_money_columns_are_not_gated():
+    """A CRE must still see Amount / Received / Balance on the stages they
+    work - only the board-wide rollup is hidden."""
+    src = _src()
+    assert "const balance = (e.amount || 0) - (e.amount_received || 0);" in src
+    row_block = src[src.index("const balance = (e.amount || 0)"):]
+    row_block = row_block[:3000]
+    assert "isSuperAdmin" not in row_block
