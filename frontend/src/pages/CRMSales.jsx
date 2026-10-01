@@ -1951,7 +1951,7 @@ export default function CRMSales() {
                     <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[14%]">Stage</th>
                     <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">RE Status</th>
                     <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Created</th>
-                    <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Actions</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -2066,16 +2066,18 @@ export default function CRMSales() {
                           );
                         })()}
                       </td>
-                      <td className="px-2 py-2 text-center">
-                        <div className="flex items-center gap-1 justify-center">
+                      <td className="px-2 py-2">
+                        <div className="flex items-center gap-1">
                           {/* Oct 1 2026 — icons only (Reassign, View, Delete),
                               per Sales Head. The "Follow-up" button and the
                               Awaiting Accountant / Project Onboarded / In
                               Planning badges were removed: follow-ups are
                               scheduled from the lead popup, which also shows
-                              Awaiting Accountant, and Stage shows Onboarded. */}
+                              Awaiting Accountant, and Stage shows Onboarded.
+                              Left-aligned, and Reassign keeps its slot when
+                              hidden, so View and Delete line up on every row. */}
                           {/* Quick Reassign — only when lead is still owned by a salesperson and not in terminal/onboarded stage */}
-                          {lead.assigned_to && !['stg_project_onboarded', 'stg_lost'].includes(lead.current_stage_id) && lead.onboarding_status !== 'moved_to_planning' && (
+                          {lead.assigned_to && !['stg_project_onboarded', 'stg_lost'].includes(lead.current_stage_id) && lead.onboarding_status !== 'moved_to_planning' ? (
                             <Button
                               variant="ghost"
                               size="sm"
@@ -2086,11 +2088,13 @@ export default function CRMSales() {
                             >
                               <UserCheck className="h-4 w-4" />
                             </Button>
-                          )}
-                          <Button 
-                            variant="ghost" 
+                          ) : <span className="h-7 w-7 shrink-0" aria-hidden="true" />}
+                          <Button
+                            variant="ghost"
                             size="sm"
+                            className="h-7 w-7 p-0"
                             onClick={(e) => { e.stopPropagation(); openLeadDetail(lead); }}
+                            title="View lead"
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
