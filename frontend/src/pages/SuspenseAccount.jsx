@@ -1,11 +1,11 @@
 import { useState, useEffect, Fragment } from 'react';
 import axios from 'axios';
-import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, ArrowLeft, AlertTriangle, Trash2, ChevronDown, ChevronRight, Eye, ArrowDownCircle, ArrowUpCircle, FileText, Landmark, PiggyBank, TrendingUp, HelpCircle } from 'lucide-react';
+import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, ArrowLeft, AlertTriangle, Trash2, ChevronDown, ChevronRight, Eye, ArrowDownCircle, ArrowUpCircle, FileText, Landmark, PiggyBank, TrendingUp, HelpCircle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -20,6 +20,18 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 // per user request. No more K/L/Cr compaction — accountants need to see
 // the exact rupee amount on every row.
 const fmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+const fmtDateTime = (s) => { try { return new Date(s).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return s || '—'; } };
+
+// Oct 3 2026 — Materials > Vendor ledger dialog icon/color per entry type,
+// same mapping as MaterialVendorPaymentSummary's own timeline dialog so the
+// two views read identically.
+const MV_TYPE_ICON = { payment: ArrowUpCircle, request: ArrowDownCircle, credit: Clock, suspense: Clock };
+const MV_TYPE_BG = {
+  payment: 'bg-green-50 text-green-700 border-green-200',
+  request: 'bg-blue-50 text-blue-700 border-blue-200',
+  credit: 'bg-amber-50 text-amber-700 border-amber-200',
+  suspense: 'bg-purple-50 text-purple-700 border-purple-200',
+};
 
 // ============ Payment-mode breakdown (Aug 27 2026) ============
 // Mirrors the Cashbook's "Payment Modes" tile row (Accounts > Cashbook —
@@ -364,6 +376,36 @@ export default function SuspenseAccountPage() {
     openDeleteDialog('labour', entry);
   };
 
+  // Oct 3 2026 — Materials > Vendor table now matches the Material Vendor
+  // Payment Summary's S.No/Vendor/Projects/Total/Paid/Pending/Suspense/Ledger
+  // format (same cross-project endpoint), instead of the old flat
+  // name+balance list. Fetched once, independently of the mode-tile
+  // overview load above, since it's a different endpoint.
+  const [vendorRows, setVendorRows] = useState([]);
+  const [vendorRowsLoading, setVendorRowsLoading] = useState(true);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await axios.get(`${API}/material-vendor-payments/summary`);
+        setVendorRows(res.data?.rows || []);
+      } catch { setVendorRows([]); }
+      finally { setVendorRowsLoading(false); }
+    })();
+  }, []);
+
+  const [vendorLedgerDlg, setVendorLedgerDlg] = useState({ open: false, vendor: null, data: [], loading: false });
+  const openVendorLedger = async (row) => {
+    setVendorLedgerDlg({ open: true, vendor: row, data: [], loading: true });
+    try {
+      const key = row._key || row.vendor_id || `name:${(row.vendor_name || '').toLowerCase()}`;
+      const res = await axios.get(`${API}/material-vendor-payments/${encodeURIComponent(key)}/ledger`);
+      setVendorLedgerDlg((s) => ({ ...s, data: res.data?.ledger || [], loading: false }));
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to load ledger');
+      setVendorLedgerDlg({ open: false, vendor: null, data: [], loading: false });
+    }
+  };
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="w-10 h-10 border-3 border-amber-500 border-t-transparent rounded-full animate-spin" />
@@ -582,72 +624,68 @@ export default function SuspenseAccountPage() {
             ) : (
               <>
               <SuspenseBalanceModeTiles balances={matSus.balances} colorClass="text-blue-700" testPrefix="material" onSelect={(key, label) => setMatModeDrill({ key, label })} />
+              {/* Oct 3 2026 — Vendor table now matches Material Vendor Payment
+                  Summary's cross-project S.No/Vendor/Projects/Total/Paid/
+                  Pending/Suspense/Ledger format instead of a flat balance
+                  list, so this view carries the same Total/Paid/Pending
+                  context as that page. "Type" is dropped — every row here is
+                  already a material vendor, so it was a redundant column. */}
               <Card><CardContent className="p-0">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase">Vendor</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase">Suspense Balance</th>
-                      <th className="px-4 py-2.5 w-16"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {(matSus.balances || []).map((b) => {
-                      const k = `mat-${b.name}`;
-                      const open = !!expandedSuspense[k];
-                      const entries = b.entries || [];
-                      return (
-                        <Fragment key={k}>
-                          <tr className="cursor-pointer hover:bg-gray-50" onClick={() => toggleExpanded(k)} data-testid={`mat-balance-${b.name}`}>
-                            <td className="px-4 py-3 text-sm font-medium">
-                              <div className="flex items-center gap-2">
-                                {open ? <ChevronDown className="h-3.5 w-3.5 text-gray-400" /> : <ChevronRight className="h-3.5 w-3.5 text-gray-400" />}
-                                <span>{b.name}</span>
-                                <span className="text-[10px] text-gray-400">({entries.length} {entries.length === 1 ? 'entry' : 'entries'})</span>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-right text-sm font-bold text-blue-600">{fmt(b.balance)}</td>
-                            <td className="px-4 py-3 text-right"></td>
-                          </tr>
-                          {open && entries.length > 0 && (
-                            <tr key={`${k}-detail`} className="bg-blue-50/30">
-                              <td colSpan={3} className="px-4 py-2">
-                                <div className="space-y-1">
-                                  {entries.map((e, i) => {
-                                    const modeLabel = e.mode ? e.mode.replace(/_/g, ' ').toUpperCase() : null;
-                                    const dateStr = e.date ? new Date(e.date).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
-                                    return (
-                                    <div key={e.ledger_id || i} className="flex items-center justify-between gap-2 bg-white rounded px-3 py-2 border border-blue-100" data-testid={`mat-entry-${e.ledger_id || i}`}>
-                                      <div className="text-xs min-w-0 flex-1">
-                                        <div className="font-medium text-gray-800 truncate">{e.label || 'Material suspense'}</div>
-                                        {e.description && <div className="text-[10px] text-gray-500 truncate">{e.description}</div>}
-                                        <div className="text-[10px] text-gray-400 mt-0.5 flex flex-wrap gap-x-1.5">
-                                          {e.project_name && <span>Project: <span className="text-gray-600">{e.project_name}</span></span>}
-                                          {modeLabel && <span>· Mode: <span className="text-gray-600">{modeLabel}</span></span>}
-                                          {e.status && <span>· <span className="text-gray-600 capitalize">{e.status.replace(/_/g, ' ')}</span></span>}
-                                          {dateStr && <span>· {dateStr}</span>}
-                                        </div>
-                                      </div>
-                                      <div className="flex items-center gap-3 shrink-0">
-                                        <span className="text-sm font-bold text-blue-700">{fmt(e.balance)}</span>
-                                        {canDelete && (
-                                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:bg-red-50" onClick={(ev) => { ev.stopPropagation(); deleteMaterialEntry(e); }} data-testid={`delete-mat-${e.ledger_id || i}`}>
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                          </Button>
-                                        )}
-                                      </div>
-                                    </div>
-                                    );
-                                  })}
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                {vendorRowsLoading ? (
+                  <p className="text-center text-xs text-gray-400 py-8">Loading...</p>
+                ) : vendorRows.length === 0 ? (
+                  <p className="text-center text-xs text-gray-400 py-10">No material vendors yet</p>
+                ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs" data-testid="mat-vendor-summary-table">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="text-center px-3 py-2.5 font-semibold text-gray-500 uppercase text-[11px] w-12">S.No</th>
+                        <th className="text-left px-3 py-2.5 font-semibold text-gray-500 uppercase text-[11px]">Vendor</th>
+                        <th className="text-left px-3 py-2.5 font-semibold text-gray-500 uppercase text-[11px]">Projects</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-gray-500 uppercase text-[11px]">Total</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-green-700 uppercase text-[11px]">Paid</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-blue-700 uppercase text-[11px]">Pending</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-amber-700 uppercase text-[11px]">Suspense</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-gray-500 uppercase text-[11px] w-20">Ledger</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {vendorRows.map((r, i) => (
+                        <tr key={r._key || i} className="hover:bg-blue-50/40" data-testid={`mat-vendor-row-${i}`}>
+                          <td className="px-3 py-2.5 text-center text-gray-500">{i + 1}</td>
+                          <td className="px-3 py-2.5 font-medium text-gray-900">{r.vendor_name}</td>
+                          <td className="px-3 py-2.5 text-gray-700 max-w-[260px]" title={(r.projects || []).join(', ')}>
+                            {(r.projects || []).slice(0, 3).join(', ')}{(r.projects || []).length > 3 ? ` +${r.projects.length - 3} more` : ''}{!r.projects?.length && '—'}
+                          </td>
+                          <td className="px-3 py-2.5 text-right">{fmt(r.total_value)}</td>
+                          <td className="px-3 py-2.5 text-right text-green-700 font-semibold">{fmt(r.paid_amount)}</td>
+                          <td className="px-3 py-2.5 text-right text-blue-700">{fmt(r.pending_amount)}</td>
+                          <td className="px-3 py-2.5 text-right font-bold" data-testid={`mat-vendor-suspense-${i}`}>
+                            <span className={Number(r.suspense_balance || 0) < -0.5 ? 'text-rose-700' : Number(r.suspense_balance || 0) > 0.5 ? 'text-amber-700' : 'text-gray-400'}>
+                              {fmt(r.suspense_balance)}
+                            </span>
+                            {Number(r.suspense_balance || 0) < -0.5 && (
+                              <p
+                                className="text-[9px] text-rose-700 font-semibold mt-0.5 underline decoration-dotted cursor-help"
+                                title={`Data integrity issue — this vendor's suspense is overdrawn by ${fmt(r.suspense_overdrawn_by || Math.abs(Number(r.suspense_balance || 0)))}. Debits exceed credits, which normally means a duplicated payment or a deleted credit. This is NOT money the vendor owes. Open the ledger to investigate.`}
+                              >
+                                ⚠ overdrawn — check ledger
+                              </p>
+                            )}
+                            {Number(r.suspense_balance || 0) > 0.5 && <p className="text-[9px] text-amber-600 font-normal mt-0.5">credit avl.</p>}
+                          </td>
+                          <td className="px-3 py-2.5 text-right">
+                            <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 border-blue-300 text-blue-700 hover:bg-blue-50" onClick={() => openVendorLedger(r)} data-testid={`mat-vendor-ledger-btn-${i}`}>
+                              <Eye className="h-3 w-3" /> View
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                )}
               </CardContent></Card>
               </>
             )}
@@ -802,6 +840,64 @@ export default function SuspenseAccountPage() {
                         ))}
                       </ul>
                     )}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Materials > Vendor "Ledger" view — cross-project activity timeline,
+          same endpoint/shape as Material Vendor Payment Summary's dialog. */}
+      <Dialog open={vendorLedgerDlg.open} onOpenChange={(v) => !v && setVendorLedgerDlg({ open: false, vendor: null, data: [], loading: false })}>
+        <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto" data-testid="mat-vendor-ledger-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <Package className="h-4 w-4 text-blue-600" /> {vendorLedgerDlg.vendor?.vendor_name} · Activity Timeline
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Total <span className="font-semibold">{fmt(vendorLedgerDlg.vendor?.total_value)}</span>
+              {' · '}Paid <span className="font-semibold text-green-700">{fmt(vendorLedgerDlg.vendor?.paid_amount)}</span>
+              {' · '}Pending <span className="font-semibold text-blue-700">{fmt(vendorLedgerDlg.vendor?.pending_amount)}</span>
+              {' · '}Suspense <span className="font-semibold text-amber-700">{fmt(vendorLedgerDlg.vendor?.suspense_balance)}</span>
+            </DialogDescription>
+          </DialogHeader>
+          {vendorLedgerDlg.loading ? (
+            <p className="text-center text-xs text-gray-400 py-6">Loading timeline…</p>
+          ) : vendorLedgerDlg.data.length === 0 ? (
+            <p className="text-center text-xs text-gray-400 py-6">No activity yet</p>
+          ) : (
+            <ol className="relative border-l-2 border-blue-100 ml-3 space-y-3 py-2">
+              {vendorLedgerDlg.data.map((l, i) => {
+                const Icon = MV_TYPE_ICON[l.type] || Clock;
+                return (
+                  <li key={i} className="ml-4" data-testid={`mat-vendor-ledger-entry-${i}`}>
+                    <span className={`absolute -left-3 flex items-center justify-center w-6 h-6 rounded-full border ${MV_TYPE_BG[l.type] || 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </span>
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <Badge variant="outline" className={`text-[9px] capitalize ${MV_TYPE_BG[l.type] || ''}`}>{l.type}</Badge>
+                      <span className={`text-sm font-semibold ${l.type === 'payment' ? 'text-green-700' : l.type === 'credit' ? 'text-amber-700' : 'text-blue-700'}`}>
+                        {l.type === 'payment' ? '+' : l.type === 'credit' ? '⏳' : ''}{fmt(l.amount)}
+                      </span>
+                      <span className="text-[10px] text-gray-400">{fmtDateTime(l.date)}</span>
+                      {l.type === 'request' && l.pending_with ? (
+                        <Badge variant="outline" className="text-[9px] bg-orange-50 text-orange-700 border-orange-300 font-semibold">
+                          With {l.pending_with}
+                        </Badge>
+                      ) : l.status && (
+                        <Badge variant="outline" className="text-[9px] bg-gray-50 text-gray-700 border-gray-200 capitalize">{(l.status || '').replace(/_/g, ' ')}</Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-700 mt-0.5">{l.notes}</p>
+                    <div className="text-[10px] text-gray-500 mt-0.5 flex flex-wrap gap-2">
+                      {l.project && <span>Project: <span className="text-gray-700">{l.project}</span></span>}
+                      {l.material && <span>· Material: <span className="text-gray-700">{l.material}</span></span>}
+                      {l.payment_mode && <span>· Mode: <span className="text-gray-700 uppercase">{(l.payment_mode || '').replace(/_/g, ' ')}</span></span>}
+                      {l.reference && <span>· Ref: <span className="text-gray-700">{l.reference}</span></span>}
+                      {l.due_date && <span>· Due: <span className="text-gray-700">{(l.due_date || '').slice(0, 10)}</span></span>}
+                    </div>
                   </li>
                 );
               })}
