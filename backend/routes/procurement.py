@@ -4835,14 +4835,39 @@ def _mv_vendor_key(vendor_id: Optional[str], vendor_name: Optional[str]) -> str:
 
 
 @router.get("/material-vendor-payments/summary")
-async def material_vendor_payments_summary(user: User = Depends(get_current_user)):
+async def material_vendor_payments_summary(
+    date_from: Optional[str] = None, date_to: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
     """Cross-project payment summary per Material Vendor.
 
     Columns surfaced in the UI:
       S.No | Vendor | Type | Projects | Total | Paid | Pending | Suspense | Ledger
+
+    Oct 3 2026 — date_from/date_to (YYYY-MM-DD, inclusive) recompute every
+    figure from only the rows dated inside that window, rather than merely
+    hiding/showing whole vendors — a request raised last month and paid
+    today is Total but not Paid under this month's filter, same as the
+    underlying rows' own created_at. Each of the five source collections
+    (requests, legacy expenses, payments, vendor credits, suspense) is
+    filtered independently by its own date field before accumulating, so a
+    vendor with zero activity in range naturally drops out via the existing
+    empty-row skip below — no separate "any activity in range" pass needed.
     """
     if user.role not in [UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PROCUREMENT]:
         raise HTTPException(status_code=403, detail="Permission denied")
+
+    def _in_range(date_val) -> bool:
+        if not date_from and not date_to:
+            return True
+        d = str(date_val or "")[:10]
+        if not d:
+            return False
+        if date_from and d < date_from:
+            return False
+        if date_to and d > date_to:
+            return False
+        return True
 
     (material_requests, material_exps_legacy, recorded_payments, vendor_credits, suspense_entries, vendor_master_docs, projects_list) = await asyncio.gather(
         db.material_requests.find({}, {"_id": 0}).to_list(5000),
@@ -4931,6 +4956,8 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
         pid = mr.get("project_id")
         if pid and pid not in live_project_ids:
             continue  # skip rows tied to soft-deleted projects
+        if not _in_range(mr.get("created_at")):
+            continue
         b, key = _ensure(mr.get("vendor_id"), mr.get("vendor_name"))
         amt = float(mr.get("final_price") or mr.get("estimated_price") or 0)
         status = (mr.get("status") or "").lower()
@@ -4969,6 +4996,8 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
         pid = me.get("project_id")
         if pid and pid not in live_project_ids:
             continue
+        if not _in_range(me.get("created_at")):
+            continue
         b, key = _ensure(me.get("vendor_id"), me.get("vendor_name"))
         amt = float(me.get("final_amount") or me.get("amount") or 0)
         status = (me.get("status") or "").lower()
@@ -5002,6 +5031,8 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
         pid = rx.get("project_id")
         if pid and pid not in live_project_ids:
             continue
+        if not _in_range(rx.get("created_at")):
+            continue
         b, key = _ensure(rx.get("vendor_id"), rx.get("vendor_name"))
         amt = float(rx.get("amount") or 0)
         b["paid_amount"] += amt
@@ -5032,6 +5063,8 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
     for vc in vendor_credits:
         pid = vc.get("project_id")
         if pid and pid not in live_project_ids:
+            continue
+        if not _in_range(vc.get("created_at") or vc.get("delivered_at")):
             continue
         b, key = _ensure(vc.get("vendor_id"), vc.get("vendor_name"))
         outstanding = float(vc.get("balance") if vc.get("balance") is not None else (vc.get("amount") or 0))
@@ -5089,6 +5122,12 @@ async def material_vendor_payments_summary(user: User = Depends(get_current_user
             continue
         pid = se.get("project_id")
         if pid and pid not in live_project_ids:
+            continue
+        # With a date range active, Suspense becomes net credit/debit
+        # MOVEMENT within that window (consistent with Total/Paid/Pending
+        # also being period activity, not running balances) rather than the
+        # all-time live pool balance.
+        if not _in_range(se.get("created_at")):
             continue
         # Skip suspense whose linked expense no longer exists in the Cashbook.
         linked = se.get("linked_expense_id") or se.get("expense_id")
@@ -5311,9 +5350,56 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
             "notes": se.get("description") or "Suspense entry",
         })
 
+    # Oct 3 2026 — Per-cheque breakdown of this vendor's LIVE suspense
+    # balance, for the ledger dialog's subtitle (e.g. "#041296 ₹20,000 +
+    # #607981 ₹21,500"). True-FIFO replay restricted to the same LIVE
+    # (non-excluded) entries the balance above already uses — oldest credit
+    # serves oldest debit first, and whatever's left unconsumed in each
+    # credit IS the live balance, grouped by the cheque(s) that funded it.
+    # Unlike the bounce-reversal replay elsewhere, this only needs each
+    # credit's own remaining total, not which debit took which slice.
+    _live_fifo_entries = [
+        se for se in suspense_entries
+        if _matches(se) and _project_ok(se)
+        and abs(float(se.get("amount") or 0)) >= 0.5
+        and (not (se.get("linked_expense_id") or se.get("expense_id"))
+             or (se.get("linked_expense_id") or se.get("expense_id")) in _live_expense_ids_l)
+    ]
+    _live_fifo_entries.sort(key=lambda e: (e.get("created_at") or "", e.get("entry_id") or ""))
+    _queue: List[List[Any]] = []  # [entry, remaining]
+    for se in _live_fifo_entries:
+        amt = float(se.get("amount") or 0)
+        if amt > 0.5:
+            _queue.append([se, amt])
+        elif amt < -0.5:
+            remaining = -amt
+            while remaining > 0.5 and _queue:
+                head = _queue[0]
+                take = min(remaining, head[1])
+                head[1] -= take
+                remaining -= take
+                if head[1] <= 0.5:
+                    _queue.pop(0)
+    _cheque_ids_needed = {cid for e, rem in _queue for cid in (e.get("linked_cheque_ids") or [])}
+    _cheque_num_by_id: Dict[str, Any] = {}
+    if _cheque_ids_needed:
+        async for c in db.cheques.find({"cheque_id": {"$in": list(_cheque_ids_needed)}}, {"_id": 0, "cheque_id": 1, "cheque_number": 1}):
+            _cheque_num_by_id[c["cheque_id"]] = c.get("cheque_number")
+    _suspense_by_cheque: Dict[str, float] = {}
+    for e, rem in _queue:
+        if rem <= 0.5:
+            continue
+        cids = e.get("linked_cheque_ids") or []
+        label = " + ".join(f"#{_cheque_num_by_id.get(cid) or cid}" for cid in cids) if cids else (e.get("payment_mode") or "Other").replace("_", " ").title()
+        _suspense_by_cheque[label] = round(_suspense_by_cheque.get(label, 0.0) + rem, 2)
+    suspense_by_cheque = sorted(
+        [{"label": k, "balance": v} for k, v in _suspense_by_cheque.items()],
+        key=lambda r: -r["balance"],
+    )
+
     # Newest first
     timeline.sort(key=lambda l: (l.get("date") or ""), reverse=True)
-    return {"ledger": timeline, "count": len(timeline)}
+    return {"ledger": timeline, "count": len(timeline), "suspense_by_cheque": suspense_by_cheque}
 
 
 # =====================================================================

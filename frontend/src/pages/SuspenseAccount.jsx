@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from 'react';
 import axios from 'axios';
-import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, ArrowLeft, AlertTriangle, Trash2, ChevronDown, ChevronRight, Eye, ArrowDownCircle, ArrowUpCircle, FileText, Landmark, PiggyBank, TrendingUp, HelpCircle, Clock } from 'lucide-react';
+import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, ArrowLeft, AlertTriangle, Trash2, ChevronDown, ChevronRight, Eye, ArrowDownCircle, ArrowUpCircle, FileText, Landmark, PiggyBank, TrendingUp, HelpCircle, Clock, Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -379,30 +379,40 @@ export default function SuspenseAccountPage() {
   // Oct 3 2026 — Materials > Vendor table now matches the Material Vendor
   // Payment Summary's S.No/Vendor/Projects/Total/Paid/Pending/Suspense/Ledger
   // format (same cross-project endpoint), instead of the old flat
-  // name+balance list. Fetched once, independently of the mode-tile
-  // overview load above, since it's a different endpoint.
+  // name+balance list. Re-fetched whenever the date range changes — the
+  // backend recomputes every figure from only rows dated inside that
+  // window, not just hides/shows vendors. Vendor-name search is client-side
+  // only, so it doesn't need a refetch.
   const [vendorRows, setVendorRows] = useState([]);
   const [vendorRowsLoading, setVendorRowsLoading] = useState(true);
+  const [vendorSearch, setVendorSearch] = useState('');
+  const [vendorDateFrom, setVendorDateFrom] = useState('');
+  const [vendorDateTo, setVendorDateTo] = useState('');
   useEffect(() => {
     (async () => {
+      setVendorRowsLoading(true);
       try {
-        const res = await axios.get(`${API}/material-vendor-payments/summary`);
+        const params = {};
+        if (vendorDateFrom) params.date_from = vendorDateFrom;
+        if (vendorDateTo) params.date_to = vendorDateTo;
+        const res = await axios.get(`${API}/material-vendor-payments/summary`, { params });
         setVendorRows(res.data?.rows || []);
       } catch { setVendorRows([]); }
       finally { setVendorRowsLoading(false); }
     })();
-  }, []);
+  }, [vendorDateFrom, vendorDateTo]);
+  const filteredVendorRows = vendorRows.filter(r => !vendorSearch.trim() || (r.vendor_name || '').toLowerCase().includes(vendorSearch.trim().toLowerCase()));
 
-  const [vendorLedgerDlg, setVendorLedgerDlg] = useState({ open: false, vendor: null, data: [], loading: false });
+  const [vendorLedgerDlg, setVendorLedgerDlg] = useState({ open: false, vendor: null, data: [], suspenseByCheque: [], loading: false });
   const openVendorLedger = async (row) => {
-    setVendorLedgerDlg({ open: true, vendor: row, data: [], loading: true });
+    setVendorLedgerDlg({ open: true, vendor: row, data: [], suspenseByCheque: [], loading: true });
     try {
       const key = row._key || row.vendor_id || `name:${(row.vendor_name || '').toLowerCase()}`;
       const res = await axios.get(`${API}/material-vendor-payments/${encodeURIComponent(key)}/ledger`);
-      setVendorLedgerDlg((s) => ({ ...s, data: res.data?.ledger || [], loading: false }));
+      setVendorLedgerDlg((s) => ({ ...s, data: res.data?.ledger || [], suspenseByCheque: res.data?.suspense_by_cheque || [], loading: false }));
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Failed to load ledger');
-      setVendorLedgerDlg({ open: false, vendor: null, data: [], loading: false });
+      setVendorLedgerDlg({ open: false, vendor: null, data: [], suspenseByCheque: [], loading: false });
     }
   };
 
@@ -631,10 +641,52 @@ export default function SuspenseAccountPage() {
                   context as that page. "Type" is dropped — every row here is
                   already a material vendor, so it was a redundant column. */}
               <Card><CardContent className="p-0">
+                {/* Oct 3 2026 — vendor-name search (client-side) + date range
+                    (server-recomputed — see material_vendor_payments_summary's
+                    date_from/date_to). */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 border-b bg-gray-50/60">
+                  <div className="relative flex-1 min-w-[180px]">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                    <Input
+                      value={vendorSearch}
+                      onChange={(e) => setVendorSearch(e.target.value)}
+                      placeholder="Search vendor..."
+                      className="h-8 pl-8 text-xs bg-white"
+                      data-testid="mat-vendor-search"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      type="date"
+                      value={vendorDateFrom}
+                      onChange={(e) => setVendorDateFrom(e.target.value)}
+                      className="h-8 text-xs bg-white w-[140px]"
+                      data-testid="mat-vendor-date-from"
+                    />
+                    <span className="text-xs text-gray-400">to</span>
+                    <Input
+                      type="date"
+                      value={vendorDateTo}
+                      onChange={(e) => setVendorDateTo(e.target.value)}
+                      className="h-8 text-xs bg-white w-[140px]"
+                      data-testid="mat-vendor-date-to"
+                    />
+                    {(vendorDateFrom || vendorDateTo) && (
+                      <Button
+                        size="sm" variant="ghost" className="h-8 w-8 p-0 text-gray-400 hover:text-gray-700"
+                        onClick={() => { setVendorDateFrom(''); setVendorDateTo(''); }}
+                        title="Clear date range"
+                        data-testid="mat-vendor-date-clear"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
                 {vendorRowsLoading ? (
                   <p className="text-center text-xs text-gray-400 py-8">Loading...</p>
-                ) : vendorRows.length === 0 ? (
-                  <p className="text-center text-xs text-gray-400 py-10">No material vendors yet</p>
+                ) : filteredVendorRows.length === 0 ? (
+                  <p className="text-center text-xs text-gray-400 py-10">{vendorSearch ? `No vendor matches "${vendorSearch}"` : (vendorDateFrom || vendorDateTo) ? 'No material vendor activity in this date range' : 'No material vendors yet'}</p>
                 ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs" data-testid="mat-vendor-summary-table">
@@ -651,7 +703,7 @@ export default function SuspenseAccountPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {vendorRows.map((r, i) => (
+                      {filteredVendorRows.map((r, i) => (
                         <tr key={r._key || i} className="hover:bg-blue-50/40" data-testid={`mat-vendor-row-${i}`}>
                           <td className="px-3 py-2.5 text-center text-gray-500">{i + 1}</td>
                           <td className="px-3 py-2.5 font-medium text-gray-900">{r.vendor_name}</td>
@@ -862,6 +914,22 @@ export default function SuspenseAccountPage() {
               {' · '}Pending <span className="font-semibold text-blue-700">{fmt(vendorLedgerDlg.vendor?.pending_amount)}</span>
               {' · '}Suspense <span className="font-semibold text-amber-700">{fmt(vendorLedgerDlg.vendor?.suspense_balance)}</span>
             </DialogDescription>
+            {/* Oct 3 2026 — which cheque(s) the live Suspense figure above is
+                actually sitting on, and how much of each is still unused —
+                e.g. "#041296 ₹20,000 + #607981 ₹21,500". Entries with no
+                cheque behind them (cash/bank excess) are labelled by mode
+                instead. Omitted entirely when there's nothing left to show
+                (zero/negative live balance). */}
+            {vendorLedgerDlg.suspenseByCheque.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] pt-0.5" data-testid="mat-vendor-suspense-by-cheque">
+                <span className="text-gray-400">Suspense by cheque:</span>
+                {vendorLedgerDlg.suspenseByCheque.map((c, i) => (
+                  <Badge key={i} variant="outline" className="text-[10px] bg-amber-50 text-amber-800 border-amber-200 font-normal">
+                    {c.label} <span className="font-semibold ml-1">{fmt(c.balance)}</span>
+                  </Badge>
+                ))}
+              </div>
+            )}
           </DialogHeader>
           {vendorLedgerDlg.loading ? (
             <p className="text-center text-xs text-gray-400 py-6">Loading timeline…</p>
