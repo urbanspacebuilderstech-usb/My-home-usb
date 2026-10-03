@@ -902,7 +902,7 @@ export default function SuspenseAccountPage() {
 
       {/* Materials > Vendor "Ledger" view — cross-project activity timeline,
           same endpoint/shape as Material Vendor Payment Summary's dialog. */}
-      <Dialog open={vendorLedgerDlg.open} onOpenChange={(v) => !v && setVendorLedgerDlg({ open: false, vendor: null, data: [], loading: false })}>
+      <Dialog open={vendorLedgerDlg.open} onOpenChange={(v) => !v && setVendorLedgerDlg({ open: false, vendor: null, data: [], suspenseByCheque: [], loading: false })}>
         <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto" data-testid="mat-vendor-ledger-dialog">
           <DialogHeader>
             <DialogTitle className="text-base flex items-center gap-2">
