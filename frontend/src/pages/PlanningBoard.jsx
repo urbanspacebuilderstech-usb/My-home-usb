@@ -2036,7 +2036,10 @@ export default function PlanningBoard({ embedded = false }) {
                                 ? { label: 'Requested — Awaiting CRE / Accountant', cls: 'bg-blue-100 text-blue-700' }
                                 : (stageStatusConfig[effectiveStatus] || stageStatusConfig.pending);
                               const releaseDate = (e.expected_payment_date || '').slice(0, 10);
-                              const isCollected = isFullyCollected;
+                              // A past month's row keeps the balance that month ended on;
+                              // the Release Date (a new payment request) is about the stage
+                              // now, so it locks once the stage is fully paid.
+                              const isCollected = isFullyCollected || ((e.amount || 0) > 0 && (e.amount_received || 0) >= (e.amount || 0));
                               return (
                                 <React.Fragment key={e.entry_id}>
                                 <tr className="hover:bg-gray-50" data-testid={`schedule-row-${e.entry_id}`}>

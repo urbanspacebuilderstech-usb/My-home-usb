@@ -306,9 +306,11 @@ export default function CREBoard() {
 
     setPsLoading(true);
     try {
+      // Oct 5 2026 — a single month asks for that month's own figures
+      // (month_amount / month_received), same as Planning's schedule.
       const params = psAllMonths
         ? { all_months: true, _: Date.now() }
-        : { month: m, year: y, _: Date.now() };
+        : { month: m, year: y, split_by_month: true, _: Date.now() };
       const r = await axios.get(`${API}/planning/monthly-schedule`, { params, signal: controller.signal });
       setPsData(r.data || { entries: [], summary: {} });
     } catch (err) {
@@ -1291,6 +1293,19 @@ export default function CREBoard() {
                 }
                 return true;
               });
+              // Oct 5 2026 — a single month's rows carry that month's own
+              // figures: month_amount is what was still due when the month
+              // began (a stage part-paid last month shows only its carried
+              // balance) and month_received what was collected during it, so
+              // a payment collected today lands in this month. They drive the
+              // columns, sub-tabs and tiles. All Months rows have no such
+              // fields and fall back to the stage totals. The Collect dialog
+              // still gets the stage totals (e.amount / e.amount_received).
+              const psMoney = (e) => {
+                const amount = e.month_amount ?? (e.amount || 0);
+                const received = e.month_received ?? (e.amount_received || 0);
+                return { amount, received, balance: amount - received };
+              };
               // Classify each entry as collected vs pending.
               //   Collected when:  (status is paid/collected) OR (workflow_status=collected)
               //                    OR (math says balance ≤ ₹1 — the stage is fully received)
@@ -1301,7 +1316,7 @@ export default function CREBoard() {
               const isCollectedEntry = (e) => {
                 const hasPendingApproval = (e.pending_approval_count || 0) > 0;
                 if (hasPendingApproval) return false;
-                const balance = (e.amount || 0) - (e.amount_received || 0);
+                const { balance } = psMoney(e);
                 const s = (e.stage_status || e.status || '').toLowerCase();
                 const ws = (e.workflow_status || '').toLowerCase();
                 // Only treat as Collected when balance is effectively zero AND
@@ -1318,8 +1333,7 @@ export default function CREBoard() {
                 const hasPendingApproval = (e.pending_approval_count || 0) > 0;
                 if (hasPendingApproval) return false;
                 if (isCollectedEntry(e)) return false;
-                const received = e.amount_received || 0;
-                const balance = (e.amount || 0) - received;
+                const { received, balance } = psMoney(e);
                 return received > 0 && balance > 0;
               };
               const partialEntries = dateFiltered.filter(isPartialEntry);
@@ -1401,8 +1415,7 @@ export default function CREBoard() {
                       which sub-tab is open. */}
                   {isSuperAdmin && (() => {
                     const psSummary = entries.reduce((acc, e) => {
-                      const amt = Number(e.amount) || 0;
-                      const got = Number(e.amount_received) || 0;
+                      const { amount: amt, received: got } = psMoney(e);
                       acc.planned += amt;
                       // Same expression as the row's own Balance column
                       // (amount - amount_received, unclamped), so the tiles
@@ -1423,8 +1436,8 @@ export default function CREBoard() {
                     // same ₹45,200 the earlier fix established; it only
                     // changes Pending/Partial/All, which previously showed 0
                     // or (on All) the same figure either way.
-                    const collectedTotal = entries.reduce((s, e) => s + (Number(e.amount_received) || 0), 0);
-                    const receivedCount = entries.filter(e => (Number(e.amount_received) || 0) > 0).length;
+                    const collectedTotal = entries.reduce((s, e) => s + psMoney(e).received, 0);
+                    const receivedCount = entries.filter(e => psMoney(e).received > 0).length;
                     const outstandingCount = entries.filter(e => !isCollectedEntry(e)).length;
                     // Sep 29 2026 (v2) — "This Month Collected": money
                     // actually received during the REAL current calendar
@@ -1436,10 +1449,21 @@ export default function CREBoard() {
                     // `month`/`year` which stay pinned to the stage's
                     // PLANNED month) — populated for any row with money
                     // received, partial or fully collected alike.
+                    //
+                    // Oct 5 2026 — in a single month, rows carry what was
+                    // collected during that month (month_received), so the
+                    // tile is exactly that, for the month on screen. The old
+                    // sum added each stage's whole received total, so a stage
+                    // part-paid last month counted last month's money again.
                     const _today = new Date();
-                    const thisMonthCollected = entries
-                      .filter(e => e.collection_month === _today.getMonth() + 1 && e.collection_year === _today.getFullYear())
-                      .reduce((s, e) => s + (Number(e.amount_received) || 0), 0);
+                    const thisMonthCollected = psAllMonths
+                      ? entries
+                          .filter(e => e.collection_month === _today.getMonth() + 1 && e.collection_year === _today.getFullYear())
+                          .reduce((s, e) => s + (Number(e.amount_received) || 0), 0)
+                      : entries.reduce((s, e) => s + psMoney(e).received, 0);
+                    const thisMonthLabel = psAllMonths
+                      ? MONTHS[_today.getMonth()] + ' ' + _today.getFullYear()
+                      : MONTHS[psMonth - 1] + ' ' + psYear;
                     const tiles = [
                       { key: 'planned', label: 'Total Planned',
                         value: formatCurrency(psSummary.planned),
@@ -1451,7 +1475,7 @@ export default function CREBoard() {
                         border: 'border-l-emerald-500', text: 'text-emerald-700' },
                       { key: 'this_month_collected', label: 'This Month Collected',
                         value: formatCurrency(thisMonthCollected),
-                        sub: MONTHS[_today.getMonth()] + ' ' + _today.getFullYear(),
+                        sub: thisMonthLabel,
                         border: 'border-l-teal-500', text: 'text-teal-700' },
                       { key: 'balance', label: 'Balance',
                         value: formatCurrency(psSummary.balance),
@@ -1578,15 +1602,19 @@ export default function CREBoard() {
                               {entries.length === 0 ? (
                                 <tr><td colSpan="9" className="p-8 text-center text-gray-400">No payments scheduled for {MONTHS[psMonth - 1]} {psYear}.</td></tr>
                               ) : entries.map((e) => {
-                                const balance = (e.amount || 0) - (e.amount_received || 0);
+                                const { amount: rowAmount, received: rowReceived, balance } = psMoney(e);
                                 const pendingApprovalAmt = e.pending_approval_amount || 0;
                                 const hasPendingApproval = (e.pending_approval_count || 0) > 0;
                                 // "Collected" must require zero balance regardless of stage_status — a
                                 // stage may still be flagged `collected` server-side while the
                                 // amount_received < amount (e.g. cheque-bounce reduction). Use the
                                 // actual money math, not the cached status string.
-                                const isCollected = !hasPendingApproval && balance <= 0 && (e.amount_received || 0) >= (e.amount || 0) && (e.amount || 0) > 0;
-                                const isPartial = !hasPendingApproval && (e.amount_received || 0) > 0 && balance > 0;
+                                const isCollected = !hasPendingApproval && balance <= 0 && rowReceived >= rowAmount && rowAmount > 0;
+                                const isPartial = !hasPendingApproval && rowReceived > 0 && balance > 0;
+                                // A past month's row keeps the balance that month ended on,
+                                // but Collect is about the stage now: no Collect once it is
+                                // fully paid.
+                                const stageFullyPaid = (e.amount || 0) > 0 && (e.amount_received || 0) >= (e.amount || 0);
                                 let badge;
                                 if (hasPendingApproval) badge = <Badge className="bg-orange-100 text-orange-700 text-[11px] whitespace-nowrap">Pending Accountant Approval</Badge>;
                                 else if (isCollected) badge = <Badge className="bg-green-100 text-green-700 text-[11px]">Collected</Badge>;
@@ -1629,9 +1657,9 @@ export default function CREBoard() {
                                     <td className="px-4 py-2.5 text-xs text-gray-700">
                                       {e.expected_payment_date ? new Date(e.expected_payment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (e.no_date_set ? <span className="italic text-amber-600">Unscheduled</span> : '-')}
                                     </td>
-                                    <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(e.amount)}</td>
+                                    <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(rowAmount)}</td>
                                     <td className="px-4 py-2.5 text-right text-green-600">
-                                      {formatCurrency(e.amount_received || 0)}
+                                      {formatCurrency(rowReceived)}
                                       {pendingApprovalAmt > 0 && (
                                         <p className="text-[10px] text-orange-600">+{formatCurrency(pendingApprovalAmt)} pending</p>
                                       )}
@@ -1653,7 +1681,7 @@ export default function CREBoard() {
                                             <Eye className="h-4 w-4" />
                                           </Button>
                                         )}
-                                        {isCollected ? (
+                                        {isCollected || (stageFullyPaid && !hasPendingApproval) ? (
                                           <span className="text-[11px] text-gray-400">—</span>
                                         ) : hasPendingApproval ? (
                                           <span className="text-[11px] text-orange-600 font-medium">Awaiting approval</span>
