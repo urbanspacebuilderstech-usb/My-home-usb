@@ -54,16 +54,7 @@ def chips(entries):
         bucket[lab] = round(bucket.get(lab, 0.0) + amt, 2)
         if amt > 0.5 and lab not in first_credit:
             first_credit[lab] = ts
-    deficit = round(sum(v for v in bucket.values() if v < -0.5), 2)
-    if deficit < -0.5:
-        for lab in sorted([l for l, v in bucket.items() if v > 0.5],
-                          key=lambda l: first_credit.get(l, "")):
-            if deficit >= -0.5:
-                break
-            take = min(bucket[lab], -deficit)
-            bucket[lab] = round(bucket[lab] - take, 2)
-            deficit = round(deficit + take, 2)
-    return {l: v for l, v in bucket.items() if v > 0.5}
+    return {l: v for l, v in bucket.items() if abs(v) > 0.5}
 
 
 def total(c):
@@ -100,8 +91,14 @@ def test_cheque_001684_shows_its_own_remainder():
 
 def test_the_other_cheques_are_right_too():
     c = chips(SATHISKUMAR)
-    assert c["#000015"] == 12206.60
+    assert c["#000015"] == 13653.60, "its own arithmetic, undocked"
     assert c["#825413"] == 25698.00
+
+
+def test_the_unattributed_shortfall_is_shown_not_hidden():
+    """An 18,963 debit ran against a 17,516 restore credit with no cheque
+    behind either. That -1,447 is a real data problem and stays on screen."""
+    assert chips(SATHISKUMAR)["Cheque"] == -1447.00
 
 
 def test_the_chips_still_sum_to_the_balance():
@@ -109,8 +106,10 @@ def test_the_chips_still_sum_to_the_balance():
 
 
 def test_the_v2_number_was_two_cheques_conflated():
-    """16,069 was #001684's 3,862.40 plus #000015's 12,206.60."""
+    """16,069 was #001684's 3,862.40 plus the 12,206.60 that v3 showed for
+    #000015 - itself its true 13,653.60 less the 1,447 v3 wrongly docked."""
     assert round(3862.40 + 12206.60, 2) == 16069.00
+    assert round(13653.60 - 1447.00, 2) == 12206.60
 
 
 def test_001684_arithmetic_matches_the_expense_list():
@@ -147,21 +146,24 @@ def test_order_does_not_change_the_split():
     assert forward == shuffled
 
 
-def test_a_deficit_settles_against_the_oldest_credit():
-    """Not the oldest ENTRY - the oldest funding. #1's credit is older, so it
-    absorbs the unattributed overspend and #2 keeps its own."""
+def test_a_deficit_keeps_its_own_chip():
+    """Superseded Oct 5 2026 (v4): this used to settle an unattributed deficit
+    against the named cheques, oldest credit first. That docked SATHISKUMAR
+    AGENCY's cheque #000015 by 1,447 for spending it never funded, dropping
+    its chip from 13,653.60 to 12,206.60. A named cheque must show its own
+    arithmetic; the shortfall stays visible as its own chip instead."""
     c = chips([(+1000.0, "#1", "2026-01-01"), (+1000.0, "#2", "2026-02-01"),
                (-300.0, "Cheque", "2026-03-01")])
-    assert c == {"#1": 700.0, "#2": 1000.0}
+    assert c == {"#1": 1000.0, "#2": 1000.0, "Cheque": -300.0}
 
 
 def test_a_fully_spent_cheque_shows_no_chip():
     assert chips([(+500.0, "#1", "a"), (-500.0, "#1", "b")]) == {}
 
 
-def test_no_negative_chip_is_ever_shown():
+def test_a_negative_bucket_is_shown_rather_than_absorbed():
     c = chips([(+1000.0, "#1", "a"), (-200.0, "Cheque", "b")])
-    assert all(v > 0 for v in c.values())
+    assert c == {"#1": 1000.0, "Cheque": -200.0}
     assert total(c) == 800.0
 
 
@@ -218,7 +220,7 @@ def test_ambiguous_or_absent_text_is_not_guessed():
 def test_the_endpoint_nets_per_cheque():
     src = _src()
     assert "_bucket[lab] = round(_bucket.get(lab, 0.0) + amt, 2)" in src
-    assert "_suspense_by_cheque = {l: v for l, v in _bucket.items() if v > 0.5}" in src
+    assert "_suspense_by_cheque = {l: v for l, v in _bucket.items() if abs(v) > 0.5}" in src
 
 
 def test_the_old_date_fifo_is_gone():
@@ -236,10 +238,11 @@ def test_a_real_link_outranks_the_description():
     assert block.index("_CHEQUE_IN_DESCRIPTION") < block.index("_expense_by_id_l")
 
 
-def test_the_deficit_settles_by_first_credit_not_first_entry():
+def test_no_bucket_is_settled_against_another():
+    """v4 - a cheque must not be docked for spending it did not fund."""
     src = _src()
-    assert '_first_credit[lab] = se.get("created_at")' in src
-    assert 'key=lambda l: _first_credit.get(l, "")' in src
+    assert "_first_credit" not in src
+    assert "_suspense_by_cheque = {l: v for l, v in _bucket.items() if abs(v) > 0.5}" in src
 
 
 def test_the_labelling_writes_nothing():

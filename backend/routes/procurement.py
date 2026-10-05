@@ -5424,24 +5424,19 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
         return (se.get("payment_mode") or "Other").replace("_", " ").title()
 
     _bucket: Dict[str, float] = {}
-    _first_credit: Dict[str, str] = {}
     for se in _live_fifo_entries:
         amt = float(se.get("amount") or 0)
         lab = _label_for(se)
         _bucket[lab] = round(_bucket.get(lab, 0.0) + amt, 2)
-        if amt > 0.5 and lab not in _first_credit:
-            _first_credit[lab] = se.get("created_at") or ""
 
-    _deficit = round(sum(v for v in _bucket.values() if v < -0.5), 2)  # <= 0
-    if _deficit < -0.5:
-        for lab in sorted([l for l, v in _bucket.items() if v > 0.5],
-                          key=lambda l: _first_credit.get(l, "")):
-            if _deficit >= -0.5:
-                break
-            take = min(_bucket[lab], -_deficit)
-            _bucket[lab] = round(_bucket[lab] - take, 2)
-            _deficit = round(_deficit + take, 2)
-    _suspense_by_cheque = {l: v for l, v in _bucket.items() if v > 0.5}
+    # Oct 5 2026 (v4) - a bucket with no cheque behind it used to have its
+    # deficit SETTLED against the named cheques, oldest credit first. That
+    # charged SATHISKUMAR AGENCY's -1,447 of unattributed overspend to cheque
+    # #000015, dropping its chip from its true 13,653.60 to 12,206.60 -
+    # a cheque being docked for spending it did not fund. It now keeps its own
+    # chip, so every named cheque shows its own arithmetic and the shortfall
+    # stays visible instead of being quietly spread.
+    _suspense_by_cheque = {l: v for l, v in _bucket.items() if abs(v) > 0.5}
 
     suspense_by_cheque = sorted(
         [{"label": k, "balance": v} for k, v in _suspense_by_cheque.items()],
@@ -5552,6 +5547,27 @@ async def admin_vendor_suspense_trace(vendor_name: str, user: User = Depends(get
             "linked_expense_source": src.get("source"),
             "linked_expense_is_deleted": bool(src.get("is_deleted")),
             "cheque_number": src.get("cheque_number") or se.get("cheque_number"),
+            # Oct 5 2026 - which chip this entry lands in, resolved exactly the
+            # way the ledger endpoint resolves it, plus WHICH of the three
+            # sources answered. SATHISKUMAR AGENCY's 12,207 chip came back
+            # labelled "Cheque" when its entries name cheque 000015, and the
+            # three sources cannot be told apart from the outside.
+            "chip_label": (
+                " + ".join(f"#{c}" for c in se["linked_cheque_ids"])
+                if se.get("linked_cheque_ids") else
+                (lambda f: f"#{f[0]}" if len(f) == 1 else
+                    (f"#{src['cheque_number']}" if src.get("cheque_number")
+                     else (se.get("payment_mode") or "Other").replace("_", " ").title()))(
+                    sorted(set(_CHEQUE_IN_DESCRIPTION.findall(str(se.get("description") or "")))))
+            ),
+            "chip_label_source": (
+                "linked_cheque_ids" if se.get("linked_cheque_ids")
+                else "description" if len(set(_CHEQUE_IN_DESCRIPTION.findall(
+                    str(se.get("description") or "")))) == 1
+                else "linked_expense.cheque_number" if src.get("cheque_number")
+                else "payment_mode fallback"
+            ),
+            "linked_cheque_ids": se.get("linked_cheque_ids"),
             "project": project_map.get(pid) or src.get("project_name") or pid,
             "counted_by_summary": in_summary,
             "shown_in_ledger": in_ledger,
