@@ -5458,6 +5458,15 @@ function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint, onDelete
   const main = (incomeEntries || []).filter(e => !isDT(e) && !isCarryForward(e));
   const dt = (incomeEntries || []).filter(e => isDT(e) && !isCarryForward(e));
   const list = tab === 'main' ? main : (tab === 'dt' ? dt : carryForward);
+  // Oct 5 2026 — Main Income rendered all 900+ rows in one list. Page it
+  // 200 at a time with the same Prev/Next bar as the Expense table; reset
+  // to page 1 when the sub-tab or the filtered list changes.
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [tab, list.length]);
+  const totalPages = Math.max(1, Math.ceil(list.length / DRILLDOWN_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * DRILLDOWN_PAGE_SIZE;
+  const pageRows = list.slice(pageStart, pageStart + DRILLDOWN_PAGE_SIZE);
   const dtStatusBadge = (s) => {
     const map = {
       pending_cre_recv: { label: 'CRE: Mark Received', cls: 'bg-blue-100 text-blue-700' },
@@ -5491,6 +5500,16 @@ function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint, onDelete
       </div>
       <Card>
         <CardContent className="px-0">
+          <DrilldownPaginationBar
+            pageStart={pageStart}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            total={list.length}
+            onPrev={() => setPage(p => Math.max(1, p - 1))}
+            onNext={() => setPage(p => Math.min(totalPages, p + 1))}
+            testIdSuffix="-income-top"
+            borderClass="border-b"
+          />
           <div className="overflow-x-auto">
             <table className="w-full text-xs" data-testid={`cashbook-income-${tab}-table`}>
               <thead>
@@ -5506,9 +5525,9 @@ function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint, onDelete
                 </tr>
               </thead>
               <tbody>
-                {list.map((entry, i) => (
-                  <tr key={entry.income_id || i} className="border-b hover:bg-gray-50">
-                    <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                {pageRows.map((entry, i) => (
+                  <tr key={entry.income_id || pageStart + i} className="border-b hover:bg-gray-50">
+                    <td className="px-3 py-2 text-gray-400">{pageStart + i + 1}</td>
                     <td className="px-3 py-2">
                       {new Date(entry.approved_at || entry.payment_date || entry.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                       {' '}<span className="text-gray-400">{new Date(entry.approved_at || entry.payment_date || entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -5576,6 +5595,15 @@ function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint, onDelete
               </tbody>
             </table>
           </div>
+          <DrilldownPaginationBar
+            pageStart={pageStart}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            total={list.length}
+            onPrev={() => setPage(p => Math.max(1, p - 1))}
+            onNext={() => setPage(p => Math.min(totalPages, p + 1))}
+            testIdSuffix="-income-bottom"
+          />
         </CardContent>
       </Card>
       <DTSelectToPayDialog
