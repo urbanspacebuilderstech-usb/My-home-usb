@@ -5408,7 +5408,18 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
     def _label_for(se):
         cids = se.get("linked_cheque_ids") or []
         if cids:
-            return " + ".join(f"#{_cheque_num_by_id.get(cid) or cid}" for cid in cids)
+            # Oct 5 2026 (v5) - only when EVERY id resolves to a real cheque
+            # number. SATHISKUMAR AGENCY's 80,435.20 credit points at
+            # chq_ea841d6c, a cheque record that no longer exists, so this used
+            # to label it "#chq_ea841d6c" - an id that can never match the
+            # "#000015" its own four debits carry, leaving the credit in one
+            # bucket and its spending in another. Its description names the
+            # cheque plainly ("Excess from cheque(s) 000015"), so an
+            # unresolvable id now falls through to that instead of winning with
+            # a label nothing else can share.
+            _nums = [_cheque_num_by_id.get(cid) for cid in cids]
+            if all(_nums):
+                return " + ".join(f"#{n}" for n in _nums)
         # The excess-restore repair scripts recorded the cheque in prose only
         # ("cheque #001684 tendered 200,000 against a 19,630 bill"), so read it
         # back out. Only when the text names exactly ONE - two or none and we

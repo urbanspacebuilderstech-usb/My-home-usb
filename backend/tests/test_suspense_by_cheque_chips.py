@@ -258,3 +258,39 @@ def test_the_case_is_documented():
     assert "SATHISKUMAR AGENCY" in src
     assert "001684" in src
     assert "3,862.40" in src
+
+
+# --------------------------------------------------------------------------
+# An unresolvable cheque id must not win the label (v5)
+# --------------------------------------------------------------------------
+
+def test_an_unresolvable_cheque_id_falls_through_to_the_description():
+    """SATHISKUMAR AGENCY's 80,435.20 credit carries
+    linked_cheque_ids ["chq_ea841d6c"], a cheque record that no longer
+    resolves. Labelling it "#chq_ea841d6c" put the credit in a bucket its own
+    four debits - which carry "#000015" from their linked expense - could
+    never join, so #000015 showed only debits and never appeared as a chip.
+    Its description names the cheque plainly, so an id that cannot be resolved
+    must defer to it."""
+    src = _src()
+    assert "_nums = [_cheque_num_by_id.get(cid) for cid in cids]" in src
+    assert "if all(_nums):" in src
+    assert '" + ".join(f"#{_cheque_num_by_id.get(cid) or cid}" for cid in cids)' not in src
+
+
+def test_a_resolvable_id_still_wins():
+    """#825413's credit carries chq_b1d00e1f, which does resolve - that must
+    keep taking priority over the description."""
+    src = _src()
+    block = src[src.index("def _label_for(se):"):]
+    block = block[:block.index("_bucket: Dict[str, float] = {}")]
+    assert block.index("if all(_nums):") < block.index("_CHEQUE_IN_DESCRIPTION")
+
+
+def test_the_credit_and_its_debits_now_share_a_bucket():
+    """The arithmetic the fix restores: 80,435.20 credit less its own
+    66,781.60 of debits = 13,653.60, which is what the Expense list shows."""
+    entries = [(+80435.20, "#000015", "a"), (-19564.80, "#000015", "b"),
+               (-18442.87, "#000015", "c"), (-16519.80, "#000015", "d"),
+               (-12254.13, "#000015", "e")]
+    assert chips(entries)["#000015"] == 13653.60
