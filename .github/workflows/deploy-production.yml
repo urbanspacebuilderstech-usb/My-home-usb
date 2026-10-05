@@ -79,8 +79,11 @@ jobs:
             fi
             cd ..
 
-            echo "==> Preparing fresh build directory"
-            rm -rf frontend/build
+            # The live build stays in place while the new one uploads; it used
+            # to be deleted here, so the site would not load until the copy
+            # finished. The new build is staged and swapped in after restart.
+            echo "==> Preparing staging build directory"
+            rm -rf frontend/build_next
 
       - name: Copy built frontend to VPS
         uses: appleboy/scp-action@v0.1.7
@@ -90,7 +93,9 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
           source: "frontend/build/"
-          target: "${{ secrets.VPS_APP_PATH }}"
+          target: "${{ secrets.VPS_APP_PATH }}/frontend/build_next"
+          # Drop the leading "frontend/build/" so files land directly in build_next
+          strip_components: 2
           overwrite: true
 
       - name: Restart services
@@ -154,6 +159,31 @@ jobs:
               exit 1
             fi
             pm2 save
+
+            # Until the backend has finished starting, nginx answers every API
+            # call with 502. Wait for it so the new frontend goes live together
+            # with a working backend, and the log shows how long the gap was.
+            echo "==> Waiting for backend to answer"
+            set +e
+            BACKEND_UP=0
+            for i in $(seq 1 60); do
+              if curl -sf -o /dev/null http://127.0.0.1:8001/api/auth/setup-status; then
+                BACKEND_UP=1
+                echo "Backend up after ~${i}s"
+                break
+              fi
+              sleep 1
+            done
+            set -e
+            if [ "$BACKEND_UP" -ne 1 ]; then
+              echo "WARNING: backend not answering after 60s, check: pm2 logs backend"
+            fi
+
+            echo "==> Switching to the new frontend build"
+            ls frontend/build_next/index.html
+            rm -rf frontend/build_prev
+            if [ -d frontend/build ]; then mv frontend/build frontend/build_prev; fi
+            mv frontend/build_next frontend/build
 
             echo "==> Verifying deployment"
             ls frontend/build/index.html

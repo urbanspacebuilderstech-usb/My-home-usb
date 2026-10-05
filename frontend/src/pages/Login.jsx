@@ -12,6 +12,42 @@ import { toast } from 'sonner';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// Oct 5 2026 — A deploy restarts the backend, and for those seconds nginx
+// answers 502/504 (or the connection drops). That used to surface as a bare
+// "Login failed", which reads like a wrong password. Sign-in requests now
+// wait for the server to come back (~40 s) before giving up. Retrying is safe
+// here: a repeated login only creates one more session.
+const SERVER_DOWN_STATUSES = new Set([502, 503, 504]);
+const SERVER_DOWN_RETRY_DELAYS_MS = [2000, 3000, 5000, 5000, 5000, 10000, 10000];
+const SERVER_WAIT_TOAST_ID = 'login-server-wait';
+
+function isServerUnavailable(error) {
+  if (error.response) return SERVER_DOWN_STATUSES.has(error.response.status);
+  return Boolean(error.request);
+}
+
+async function postAuth(url, body) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await axios.post(url, body, { withCredentials: true });
+    } catch (error) {
+      if (!isServerUnavailable(error) || attempt >= SERVER_DOWN_RETRY_DELAYS_MS.length) throw error;
+      toast.loading('Server is restarting after an update. Signing you in as soon as it is back…', { id: SERVER_WAIT_TOAST_ID });
+      await new Promise(resolve => setTimeout(resolve, SERVER_DOWN_RETRY_DELAYS_MS[attempt]));
+    }
+  }
+}
+
+function loginErrorMessage(error) {
+  if (typeof error.response?.data?.detail === 'string') return error.response.data.detail;
+  if (isServerUnavailable(error)) {
+    return navigator.onLine === false
+      ? 'No internet connection. Check your network and try again.'
+      : 'Server is still restarting. Please try again in a minute.';
+  }
+  return 'Login failed';
+}
+
 function getRoleRedirect(role) {
   const roleRoutes = {
     site_engineer: '/site-engineer',
@@ -112,8 +148,9 @@ export default function Login() {
       // Mid-pairing the code proves the client scanned the QR, so it goes to the
       // enrol endpoint, which attaches the device and signs them in in one step.
       const response = setup2FA
-        ? await axios.post(`${API}/auth/2fa/enroll`, { email, password, code: totpCode }, { withCredentials: true })
-        : await axios.post(`${API}/auth/login`, needs2FA ? { email, password, totp_code: totpCode } : { email, password }, { withCredentials: true });
+        ? await postAuth(`${API}/auth/2fa/enroll`, { email, password, code: totpCode })
+        : await postAuth(`${API}/auth/login`, needs2FA ? { email, password, totp_code: totpCode } : { email, password });
+      toast.dismiss(SERVER_WAIT_TOAST_ID);
       const data = response.data;
       if (data.requires_2fa) {
         setNeeds2FA(true);
@@ -144,7 +181,8 @@ export default function Login() {
       const target = getRoleRedirect(data.role);
       navigate(target, { replace: true });
     } catch (error) {
-      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Login failed');
+      toast.dismiss(SERVER_WAIT_TOAST_ID);
+      toast.error(loginErrorMessage(error));
     } finally {
       setIsLoading(false);
     }
@@ -154,7 +192,8 @@ export default function Login() {
     const emailToUse = (typeof emailOverride === 'string') ? emailOverride : selectedEmail;
     setIsLoading(true);
     try {
-      const response = await axios.post(`${API}/auth/demo-login`, { email: emailToUse }, { withCredentials: true });
+      const response = await postAuth(`${API}/auth/demo-login`, { email: emailToUse });
+      toast.dismiss(SERVER_WAIT_TOAST_ID);
       const user = response.data;
       toast.success(`Welcome, ${user.name}!`);
       if (window.__clearAuthCache) window.__clearAuthCache();
@@ -165,7 +204,8 @@ export default function Login() {
       const target = getRoleRedirect(user.role);
       navigate(target, { replace: true });
     } catch (error) {
-      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Login failed');
+      toast.dismiss(SERVER_WAIT_TOAST_ID);
+      toast.error(loginErrorMessage(error));
     } finally {
       setIsLoading(false);
     }
