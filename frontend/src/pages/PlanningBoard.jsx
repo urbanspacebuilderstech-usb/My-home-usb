@@ -447,14 +447,15 @@ export default function PlanningBoard({ embedded = false }) {
       : scheduleSubTab === 'completed' ? scheduleFilteredEntries.filter(isCompletedScheduleEntry)
       : scheduleFilteredEntries
   ), [scheduleFilteredEntries, scheduleSubTab]);
-  // Oct 5 2026 — summary cards follow the Project / Date filters and the
-  // selected sub-tab, so they always total the rows in the table. Same sums
-  // the backend's `summary` uses, which only ever covered the whole month.
+  // Oct 5 2026 — summary cards follow the Project / Date filters. Total
+  // Planned is what the month was planned to collect, so it stays the same
+  // on every sub-tab; Collected and Balance total the selected sub-tab's rows.
   const scheduleSummary = React.useMemo(() => {
-    const planned = scheduleTabEntries.reduce((s, e) => s + scheduleRowMoney(e).amount, 0);
+    const planned = scheduleFilteredEntries.reduce((s, e) => s + scheduleRowMoney(e).amount, 0);
     const received = scheduleTabEntries.reduce((s, e) => s + scheduleRowMoney(e).received, 0);
-    return { stages: scheduleTabEntries.length, planned, received, balance: planned - received };
-  }, [scheduleTabEntries]);
+    const balance = scheduleTabEntries.reduce((s, e) => s + scheduleRowMoney(e).balance, 0);
+    return { stages: scheduleFilteredEntries.length, planned, received, balance };
+  }, [scheduleFilteredEntries, scheduleTabEntries]);
   const [addStagesDialog, setAddStagesDialog] = useState(false);
   const [availableStages, setAvailableStages] = useState([]);
   const [selectedStageIds, setSelectedStageIds] = useState([]);
