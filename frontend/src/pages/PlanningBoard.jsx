@@ -456,9 +456,6 @@ export default function PlanningBoard({ embedded = false }) {
     const balance = scheduleTabEntries.reduce((s, e) => s + scheduleRowMoney(e).balance, 0);
     return { stages: scheduleFilteredEntries.length, planned, received, balance };
   }, [scheduleFilteredEntries, scheduleTabEntries]);
-  const [addStagesDialog, setAddStagesDialog] = useState(false);
-  const [availableStages, setAvailableStages] = useState([]);
-  const [selectedStageIds, setSelectedStageIds] = useState([]);
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [scheduleError, setScheduleError] = useState('');
   // Until the shown month's request lands, the rows in hand belong to another
@@ -1270,25 +1267,6 @@ export default function PlanningBoard({ embedded = false }) {
     }
   };
 
-  const openAddStagesDialog = async () => {
-    try {
-      const r = await axios.get(`${API}/planning/monthly-schedule/available-stages?month=${scheduleMonth}&year=${scheduleYear}`);
-      setAvailableStages(r.data || []);
-      setSelectedStageIds([]);
-      setAddStagesDialog(true);
-    } catch { toast.error('Failed to load stages'); }
-  };
-
-  const handleAddStagesToSchedule = async () => {
-    if (selectedStageIds.length === 0) { toast.error('Select at least one stage'); return; }
-    try {
-      await axios.post(`${API}/planning/monthly-schedule/add-stages`, { month: scheduleMonth, year: scheduleYear, stage_ids: selectedStageIds });
-      toast.success(`Added ${selectedStageIds.length} stages`);
-      setAddStagesDialog(false);
-      fetchMonthlyScheduleFor(scheduleMonth, scheduleYear);
-    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
-  };
-
   const handleRemoveScheduleEntry = async (entryId) => {
     if (!confirm('Remove this stage from the schedule?')) return;
     try {
@@ -1932,7 +1910,6 @@ export default function PlanningBoard({ embedded = false }) {
                           testId="planning-ps-project-filter"
                           width="w-56"
                         />
-                        <Button onClick={openAddStagesDialog} className="bg-amber-600 hover:bg-amber-700" data-testid="add-stages-btn"><Plus className="h-4 w-4 mr-1" />Add Stages</Button>
                       </div>
                     </div>
                   </CardContent>
@@ -1983,7 +1960,7 @@ export default function PlanningBoard({ embedded = false }) {
                 <Card>
                   <CardContent className="p-0">
                     {/* A refresh of the month already on screen (after a Release Date
-                        change, Remove, Add Stages) keeps the rows up instead of
+                        change or a Remove) keeps the rows up instead of
                         blanking the table, which also keeps the scroll position. */}
                     {scheduleShowsOtherMonth ? (
                       scheduleError && !scheduleLoading ? (
@@ -2033,7 +2010,7 @@ export default function PlanningBoard({ embedded = false }) {
                                 : hasPendingApproval
                                 ? { label: 'Pending Accountant Approval', cls: 'bg-orange-100 text-orange-700' }
                                 : e.workflow_status === 'requested' && !isFullyCollected
-                                ? { label: 'Requested — Awaiting CRE / Accountant', cls: 'bg-blue-100 text-blue-700' }
+                                ? { label: 'Requested — Awaiting CRE', cls: 'bg-blue-100 text-blue-700' }
                                 : (stageStatusConfig[effectiveStatus] || stageStatusConfig.pending);
                               const releaseDate = (e.expected_payment_date || '').slice(0, 10);
                               // A past month's row keeps the balance that month ended on;
@@ -3509,53 +3486,6 @@ export default function PlanningBoard({ embedded = false }) {
             </TabsContent>
           </Tabs>
           <DialogFooter><Button variant="outline" onClick={() => setVendorDialog(false)}>Cancel</Button><Button onClick={handleSaveVendor} className="bg-teal-600 hover:bg-teal-700" data-testid="save-vendor-btn">{editingVendor ? 'Update' : 'Create'}</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Stages to Monthly Schedule Dialog */}
-      <Dialog open={addStagesDialog} onOpenChange={setAddStagesDialog}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Add Stages to {MONTH_NAMES[scheduleMonth]} {scheduleYear} Schedule</DialogTitle>
-            <DialogDescription>Select project payment stages to include in this month's collection plan.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            {availableStages.length === 0 ? (
-              <p className="text-center text-gray-500 py-4">No available stages. All stages are either fully collected or already scheduled.</p>
-            ) : (
-              <div className="border rounded-lg overflow-hidden">
-                <div className="bg-gray-50 px-4 py-2 flex items-center justify-between">
-                  <span className="text-sm font-medium">{availableStages.length} stages available</span>
-                  <Button size="sm" variant="ghost" className="text-xs"
-                    onClick={() => setSelectedStageIds(selectedStageIds.length === availableStages.length ? [] : availableStages.map(s => s.stage_id))}>
-                    {selectedStageIds.length === availableStages.length ? 'Deselect All' : 'Select All'}
-                  </Button>
-                </div>
-                {availableStages.map(s => (
-                  <label key={s.stage_id} className="flex items-center gap-3 px-4 py-3 hover:bg-blue-50 cursor-pointer border-t" data-testid={`stage-option-${s.stage_id}`}>
-                    <input type="checkbox" checked={selectedStageIds.includes(s.stage_id)} onChange={(e) => {
-                      if (e.target.checked) setSelectedStageIds([...selectedStageIds, s.stage_id]);
-                      else setSelectedStageIds(selectedStageIds.filter(id => id !== s.stage_id));
-                    }} className="w-4 h-4 text-amber-600 rounded" />
-                    <div className="flex-1">
-                      <p className="font-medium text-sm">{s.project_name} <span className="text-gray-500">— {s.client_name}</span></p>
-                      <p className="text-xs text-gray-500">{s.stage_name} ({s.stage_label})</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold text-sm">{formatCurrency(s.amount)}</p>
-                      {(s.amount_received || 0) > 0 && <p className="text-xs text-green-600">Received: {formatCurrency(s.amount_received)}</p>}
-                    </div>
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddStagesDialog(false)}>Cancel</Button>
-            <Button onClick={handleAddStagesToSchedule} disabled={selectedStageIds.length === 0} className="bg-amber-600 hover:bg-amber-700" data-testid="confirm-add-stages">
-              Add {selectedStageIds.length} Stage{selectedStageIds.length !== 1 ? 's' : ''}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 

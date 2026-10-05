@@ -2044,7 +2044,7 @@ async def get_monthly_schedule(
     pending_income_task = db.income.aggregate([
         {"$match": {"status": "pending_approval", "category": "payment_collection"}},
         {"$group": {
-            "_id": {"project_id": "$project_id", "stage": "$stage"},
+            "_id": {"project_id": "$project_id", "stage": "$stage", "payment_stage_id": "$payment_stage_id"},
             "total": {"$sum": "$amount"},
             "count": {"$sum": 1},
         }},
@@ -2446,12 +2446,27 @@ async def get_monthly_schedule(
         ).to_list(2000)
         project_cache = {p["project_id"]: p for p in proj_docs}
 
-    pending_by_stage = {}
+    # Oct 5 2026 — collections awaiting approval are matched to their stage by
+    # payment_stage_id, which every collection records. Matching only by
+    # (project, stage label) gave one stage's pending money to every stage of
+    # the project with a blank label (the collection's copied label was blank
+    # too), so all of them showed "+₹400 pending" / Pending Accountant Approval
+    # and CRE lost their Collect buttons. The label still matches older
+    # collections that have no payment_stage_id, but never a blank one.
+    pending_by_stage_id: Dict[str, Dict[str, float]] = {}
+    pending_by_label: Dict[Any, Dict[str, float]] = {}
     if matching_stages:
         # Already fetched above, in parallel with the stage reads.
         for item in pending_inc:
-            key = (item["_id"]["project_id"], item["_id"]["stage"])
-            pending_by_stage[key] = {"total": item["total"], "count": item["count"]}
+            key = item.get("_id") or {}
+            if key.get("payment_stage_id"):
+                bucket = pending_by_stage_id.setdefault(key["payment_stage_id"], {"total": 0, "count": 0})
+            elif key.get("stage"):
+                bucket = pending_by_label.setdefault((key.get("project_id"), key["stage"]), {"total": 0, "count": 0})
+            else:
+                continue
+            bucket["total"] += item["total"]
+            bucket["count"] += item["count"]
 
     # 5. Build the response entries
     enriched = []
@@ -2459,8 +2474,10 @@ async def get_monthly_schedule(
         stage = m["stage"]
         proj = project_cache.get(stage.get("project_id"), {})
         stage_label = stage.get("stage_label", stage.get("stage_name", ""))
-        pkey = (stage.get("project_id"), stage_label)
-        pending = pending_by_stage.get(pkey, {"total": 0, "count": 0})
+        _none = {"total": 0, "count": 0}
+        _by_id = pending_by_stage_id.get(stage.get("stage_id"), _none)
+        _by_label = pending_by_label.get((stage.get("project_id"), stage_label), _none) if stage_label else _none
+        pending = {"total": _by_id["total"] + _by_label["total"], "count": _by_id["count"] + _by_label["count"]}
 
         manual = m["manual_entry"] or {}
         days_overdue = 0
