@@ -159,7 +159,7 @@ function PettyModeTiles({ rows, onSelect }) {
 // clickable, same as the Cashbook's Payment Modes tiles: clicking a tile
 // opens a flat drilldown of just that mode's entries (see
 // SuspenseModeDrilldown below) instead of only showing the summed total.
-function SuspenseBalanceModeTiles({ balances, colorClass, testPrefix, onSelect }) {
+function SuspenseBalanceModeTiles({ balances, colorClass, testPrefix, onSelect, hideUnattributed = false }) {
   const breakdown = {};
   SUSPENSE_MODE_BUCKETS.forEach(b => { breakdown[b.key] = 0; });
   (balances || []).forEach(b => {
@@ -167,9 +167,15 @@ function SuspenseBalanceModeTiles({ balances, colorClass, testPrefix, onSelect }
       breakdown[suspenseBucketOf(e)] += Number(e.balance || 0);
     });
   });
+  // Oct 5 2026 — Labour drops the Unattributed tile per request (same as
+  // Petty Cash); Materials keeps it. Entries still classify into
+  // "unattributed" above, they just don't get their own tile.
+  const tiles = hideUnattributed
+    ? SUSPENSE_MODE_BUCKETS.filter(b => b.key !== 'unattributed')
+    : SUSPENSE_MODE_BUCKETS;
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 mb-4" data-testid={`${testPrefix}-mode-tiles`}>
-      {SUSPENSE_MODE_BUCKETS.map(b => {
+    <div className={`grid grid-cols-2 sm:grid-cols-3 ${hideUnattributed ? 'lg:grid-cols-5' : 'lg:grid-cols-6'} gap-2.5 mb-4`} data-testid={`${testPrefix}-mode-tiles`}>
+      {tiles.map(b => {
         const Icon = b.Icon;
         return (
           <div
@@ -765,7 +771,7 @@ export default function SuspenseAccountPage() {
               <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No labour suspense balances</CardContent></Card>
             ) : (
               <>
-              <SuspenseBalanceModeTiles balances={labSus.balances} colorClass="text-purple-700" testPrefix="labour" onSelect={(key, label) => setLabModeDrill({ key, label })} />
+              <SuspenseBalanceModeTiles balances={labSus.balances} colorClass="text-purple-700" testPrefix="labour" hideUnattributed onSelect={(key, label) => setLabModeDrill({ key, label })} />
               <Card><CardContent className="p-0">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
