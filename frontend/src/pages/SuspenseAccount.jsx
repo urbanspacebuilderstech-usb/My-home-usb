@@ -108,9 +108,15 @@ function PettyModeTiles({ rows, onSelect }) {
     breakdown[key].issued += Number(pc.amount_issued || 0);
     breakdown[key].spent += Number(pc.amount_spent || 0);
   });
+  // Oct 5 2026 — Petty Cash drops the Unattributed tile per request;
+  // Materials/Labour (SuspenseBalanceModeTiles, same shared
+  // SUSPENSE_MODE_BUCKETS list) keep it as-is. Entries still classify into
+  // "unattributed" above so the lookup above never breaks — they just
+  // don't get their own tile here, same as before this change.
+  const tiles = SUSPENSE_MODE_BUCKETS.filter(b => b.key !== 'unattributed');
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 mb-4" data-testid="petty-mode-tiles">
-      {SUSPENSE_MODE_BUCKETS.map(b => {
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mb-4" data-testid="petty-mode-tiles">
+      {tiles.map(b => {
         const d = breakdown[b.key];
         const bal = d.issued - d.spent;
         const Icon = b.Icon;
