@@ -5367,10 +5367,34 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
     ]
     _live_fifo_entries.sort(key=lambda e: (e.get("created_at") or "", e.get("entry_id") or ""))
     _queue: List[List[Any]] = []  # [entry, remaining]
+    # Oct 5 2026 - a debit that arrives while the queue is empty used to be
+    # DISCARDED: the `while ... and _queue` loop simply exited and the unfunded
+    # remainder went nowhere. The chips then showed credit as still available
+    # that had in fact already been spent, and stopped summing to the Suspense
+    # figure beside them.
+    #
+    # SATHISKUMAR AGENCY: nine debits in Jul-Aug all drew on cheque #001684,
+    # but the credit for that cheque was not written until 1 Sep, as a repair
+    # entry ("Restore 180,370 missing seed credit - cheque #001684 tendered
+    # 200,000 against a 19,630 bill; the excess was never written to the
+    # pool"). Replaying by created_at therefore meets the debits before their
+    # funding exists. 1,62,854 of debits were dropped and the chips read
+    # 1,78,923 + 25,698 = 2,04,621 against a true balance of 41,767.
+    #
+    # Unmatched debits are now carried forward and absorbed by the next credit,
+    # so the queue always sums to the real balance however out of order the
+    # ledger is. Same vendor now reads 16,069 + 25,698 = 41,767.
+    _unfunded_debit = 0.0
     for se in _live_fifo_entries:
         amt = float(se.get("amount") or 0)
         if amt > 0.5:
-            _queue.append([se, amt])
+            rem = amt
+            if _unfunded_debit > 0.5:
+                take = min(rem, _unfunded_debit)
+                rem -= take
+                _unfunded_debit -= take
+            if rem > 0.5:
+                _queue.append([se, rem])
         elif amt < -0.5:
             remaining = -amt
             while remaining > 0.5 and _queue:
@@ -5380,6 +5404,8 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
                 remaining -= take
                 if head[1] <= 0.5:
                     _queue.pop(0)
+            if remaining > 0.5:
+                _unfunded_debit += remaining
     _cheque_ids_needed = {cid for e, rem in _queue for cid in (e.get("linked_cheque_ids") or [])}
     _cheque_num_by_id: Dict[str, Any] = {}
     if _cheque_ids_needed:

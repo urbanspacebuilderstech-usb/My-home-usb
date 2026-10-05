@@ -134,10 +134,20 @@ def test_filter_uses_exactly_the_four_id_fields():
 
 
 def test_timing_log_present():
-    """Per-phase timings are how we find out where the time actually goes."""
+    """Per-phase timings are how we find out where the time actually goes.
+
+    Relaxed Oct 5 2026: this pinned the exact prefix
+    "monthly-schedule all_months=%s db=%.3fs", which broke when 0b4a89b5
+    inserted a `resync=%.3fs` phase ahead of `db`. Adding a phase is the
+    behaviour this test exists to encourage, so it now checks that the line
+    still names each phase rather than their exact order - a brittle literal
+    would keep punishing the improvement.
+    """
     fn, src = _endpoint()
     seg = ast.get_source_segment(src, fn) or ""
-    assert "monthly-schedule all_months=%s db=%.3fs" in seg
+    assert "monthly-schedule all_months=%s" in seg
+    for phase in ("db=%.3fs", "process=%.3fs", "total=%.3fs"):
+        assert phase in seg, phase
     assert "_t0 = time.perf_counter()" in seg
     for var in ("_t_db", "_t_end", "_n_fetched"):
         assert var in seg
