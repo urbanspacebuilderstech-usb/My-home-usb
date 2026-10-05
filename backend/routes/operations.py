@@ -4326,7 +4326,9 @@ async def get_cheques(
     if is_post_dated is not None:
         query["is_post_dated"] = is_post_dated
     
-    cheques = await db.cheques.find(query, {"_id": 0}).sort("cheque_date", -1).to_list(500)
+    # No cap: the Cheque Management tabs and project dropdown filter this list
+    # client-side, so a fixed limit silently hid cheques beyond the cut-off.
+    cheques = await db.cheques.find(query, {"_id": 0}).sort("cheque_date", -1).to_list(None)
 
     # ── Backfill project_name on the fly. Older cheques only stored
     # project_id, so the Cheque Management table showed "-" for them. We
