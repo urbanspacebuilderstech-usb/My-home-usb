@@ -418,10 +418,22 @@ export default function PlanningBoard({ embedded = false }) {
     if (scheduleProjectFilter) entries = entries.filter(e => e.project_id === scheduleProjectFilter);
     return entries;
   }, [monthlySchedule.entries, scheduleDateFrom, scheduleDateTo, scheduleProjectFilter]);
+  // Oct 5 2026 — summary cards follow the Project / Date filters, so picking
+  // one project shows that project's totals. Same sums the backend's
+  // `summary` uses, which only ever covered the whole month.
+  const scheduleSummary = React.useMemo(() => {
+    const planned = scheduleFilteredEntries.reduce((s, e) => s + (e.amount || 0), 0);
+    const received = scheduleFilteredEntries.reduce((s, e) => s + (e.amount_received || 0), 0);
+    return { stages: scheduleFilteredEntries.length, planned, received, balance: planned - received };
+  }, [scheduleFilteredEntries]);
   const [addStagesDialog, setAddStagesDialog] = useState(false);
   const [availableStages, setAvailableStages] = useState([]);
   const [selectedStageIds, setSelectedStageIds] = useState([]);
   const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [scheduleError, setScheduleError] = useState('');
+  // Until the shown month's request lands, the rows in hand belong to another
+  // month (or to none, on first open) and must not be shown as this month's.
+  const scheduleShowsOtherMonth = monthlySchedule.month !== scheduleMonth || monthlySchedule.year !== scheduleYear;
 
   const [vendorLoading, setVendorLoading] = useState(false);
 
@@ -526,10 +538,13 @@ export default function PlanningBoard({ embedded = false }) {
       if (packages.length === 0) fetchPackages();
     }
     if (sub === 'payment_schedule') {
-      fetchMonthlySchedule();
-      if (allProjectsForScheduleFilter.length === 0) {
-        axios.get(`${API}/projects`).then(r => setAllProjectsForScheduleFilter(r.data || [])).catch(() => {});
-      }
+      // The project list is a heavy call. Sent alongside the schedule, the two
+      // competed on the server and the schedule came back later, so it waits.
+      fetchMonthlySchedule().finally(() => {
+        if (allProjectsForScheduleFilter.length === 0) {
+          axios.get(`${API}/projects`).then(r => setAllProjectsForScheduleFilter(r.data || [])).catch(() => {});
+        }
+      });
     }
   };
 
@@ -729,13 +744,7 @@ export default function PlanningBoard({ embedded = false }) {
     }
   };
 
-  const fetchMonthlySchedule = async () => {
-    try {
-      setScheduleLoading(true);
-      const r = await axios.get(`${API}/planning/monthly-schedule?month=${scheduleMonth}&year=${scheduleYear}`);
-      setMonthlySchedule(r.data || { entries: [], summary: {} });
-    } catch { /* ignore */ } finally { setScheduleLoading(false); }
-  };
+  const fetchMonthlySchedule = () => fetchMonthlyScheduleFor(scheduleMonth, scheduleYear);
 
   const fetchMaterials = async () => { try { const r = await axios.get(`${API}/materials?active_only=false`); setMaterials(r.data); } catch {} };
   // Planning-locked package material catalog: { name → variants[{ package_name, brand, unit, estimated_rate }] }
@@ -1202,15 +1211,33 @@ export default function PlanningBoard({ embedded = false }) {
     if (m > 12) { m = 1; y++; }
     if (m < 1) { m = 12; y--; }
     setScheduleMonth(m); setScheduleYear(y);
-    setTimeout(() => fetchMonthlyScheduleFor(m, y), 100);
+    fetchMonthlyScheduleFor(m, y);
   };
 
+  // Oct 5 2026 — same approach as CRE Board's Payment Schedule. Clicking
+  // through months left every earlier request running, so the one the user
+  // was waiting for queued behind stale ones, and a slower earlier response
+  // could land last and show the wrong month. The superseded request is
+  // aborted. Failures used to be swallowed, leaving an empty table that read
+  // as "no stages"; they now show an error with Retry.
+  const scheduleAbortRef = React.useRef(null);
   const fetchMonthlyScheduleFor = async (m, y) => {
+    if (scheduleAbortRef.current) scheduleAbortRef.current.abort();
+    const controller = new AbortController();
+    scheduleAbortRef.current = controller;
+    setScheduleLoading(true);
+    setScheduleError('');
     try {
-      setScheduleLoading(true);
-      const r = await axios.get(`${API}/planning/monthly-schedule?month=${m}&year=${y}`);
+      const r = await axios.get(`${API}/planning/monthly-schedule`, { params: { month: m, year: y }, signal: controller.signal });
       setMonthlySchedule(r.data || { entries: [], summary: {} });
-    } catch { } finally { setScheduleLoading(false); }
+    } catch (err) {
+      if (axios.isCancel?.(err) || err.code === 'ERR_CANCELED' || err.name === 'CanceledError') return;
+      const msg = err.response?.data?.detail || 'Failed to load payment schedule';
+      setScheduleError(msg);
+      toast.error(msg);
+    } finally {
+      if (scheduleAbortRef.current === controller) setScheduleLoading(false);
+    }
   };
 
   const openAddStagesDialog = async () => {
@@ -1850,7 +1877,10 @@ export default function PlanningBoard({ embedded = false }) {
                         <Button size="sm" variant="outline" onClick={() => handleScheduleMonthChange(-1)} data-testid="schedule-prev-month"><ArrowRight className="h-4 w-4 rotate-180" /></Button>
                         <div className="text-center min-w-[140px]">
                           <p className="text-lg font-bold text-gray-900" data-testid="schedule-current-month">{MONTH_NAMES[scheduleMonth]} {scheduleYear}</p>
-                          <p className="text-xs text-gray-500">Payment Schedule</p>
+                          <p className="text-xs text-gray-500 inline-flex items-center gap-1" data-testid="schedule-subtitle">
+                            {scheduleLoading && <Loader2 className="h-3 w-3 animate-spin" />}
+                            {scheduleLoading ? 'Loading…' : 'Payment Schedule'}
+                          </p>
                         </div>
                         <Button size="sm" variant="outline" onClick={() => handleScheduleMonthChange(1)} data-testid="schedule-next-month"><ArrowRight className="h-4 w-4" /></Button>
                       </div>
@@ -1878,18 +1908,16 @@ export default function PlanningBoard({ embedded = false }) {
                   </CardContent>
                 </Card>
 
-                {/* Summary Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                  <Card className="border-l-4 border-l-indigo-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Total Planned</p><p className="text-lg font-bold text-indigo-700">{formatCurrency(monthlySchedule.summary?.total_planned)}</p><p className="text-[10px] text-gray-400">{monthlySchedule.summary?.total_entries || 0} stages</p></CardContent></Card>
-                  <Card className="border-l-4 border-l-green-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Collected</p><p className="text-lg font-bold text-green-700">{formatCurrency(monthlySchedule.summary?.total_received)}</p></CardContent></Card>
-                  <Card className="border-l-4 border-l-red-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Balance</p><p className="text-lg font-bold text-red-700">{formatCurrency(monthlySchedule.summary?.total_balance)}</p></CardContent></Card>
-                  <Card className="border-l-4 border-l-amber-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Pending</p><p className="text-lg font-bold text-amber-700">{monthlySchedule.summary?.pending_count || 0}</p></CardContent></Card>
-                  <Card className="border-l-4 border-l-blue-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Collected</p><p className="text-lg font-bold text-blue-700">{monthlySchedule.summary?.collected_count || 0}</p></CardContent></Card>
+                {/* Summary Cards — scoped to the Project / Date filters */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" data-testid="planning-ps-summary">
+                  <Card className="border-l-4 border-l-indigo-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Total Planned</p><p className="text-lg font-bold text-indigo-700" data-testid="planning-ps-total-planned">{scheduleShowsOtherMonth ? '—' : formatCurrency(scheduleSummary.planned)}</p><p className="text-[10px] text-gray-400">{scheduleShowsOtherMonth ? '' : `${scheduleSummary.stages} stages`}</p></CardContent></Card>
+                  <Card className="border-l-4 border-l-green-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Collected</p><p className="text-lg font-bold text-green-700" data-testid="planning-ps-total-collected">{scheduleShowsOtherMonth ? '—' : formatCurrency(scheduleSummary.received)}</p></CardContent></Card>
+                  <Card className="border-l-4 border-l-red-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Balance</p><p className="text-lg font-bold text-red-700" data-testid="planning-ps-total-balance">{scheduleShowsOtherMonth ? '—' : formatCurrency(scheduleSummary.balance)}</p></CardContent></Card>
                 </div>
 
                 {/* Sub-tabs: Pending | Collected | All */}
                 {(() => {
-                  const allEntries = scheduleFilteredEntries;
+                  const allEntries = scheduleShowsOtherMonth ? [] : scheduleFilteredEntries;
                   const isCollectedEntry = (e) => {
                     const hasPendingApproval = (e.pending_approval_count || 0) > 0;
                     if (hasPendingApproval) return false;
@@ -1937,7 +1965,17 @@ export default function PlanningBoard({ embedded = false }) {
                 {/* Schedule Table */}
                 <Card>
                   <CardContent className="p-0">
-                    {scheduleLoading ? (<div className="p-8 text-center text-gray-400">Loading...</div>) : (
+                    {/* A refresh of the month already on screen (after a Release Date
+                        change, Remove, Add Stages) keeps the rows up instead of
+                        blanking the table, which also keeps the scroll position. */}
+                    {scheduleShowsOtherMonth ? (
+                      scheduleError && !scheduleLoading ? (
+                        <div className="p-8 text-center space-y-2" data-testid="planning-ps-error">
+                          <p className="text-sm text-red-600">{scheduleError}</p>
+                          <Button size="sm" variant="outline" onClick={fetchMonthlySchedule} data-testid="planning-ps-retry">Retry</Button>
+                        </div>
+                      ) : (<div className="p-8 text-center text-gray-400">Loading...</div>)
+                    ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm" data-testid="payment-schedule-table">
                           <thead className="bg-gray-50 border-y">

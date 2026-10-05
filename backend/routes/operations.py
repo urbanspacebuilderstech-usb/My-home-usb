@@ -1903,11 +1903,15 @@ async def get_monthly_schedule(
     # already sent to CRE shows up here immediately instead of staying
     # stale until someone manually re-clicks "Req Payment". No-op per stage
     # when nothing has drifted.
+    # Oct 5 2026 — timed on its own: it ran before `_t0` below, so none of the
+    # recorded timings ever included it.
+    _t_resync = time.perf_counter()
     try:
         from routes.projects import _resync_all_section_addition_stages
         await _resync_all_section_addition_stages()
     except Exception:
         import logging; logging.getLogger(__name__).warning("section-addition stage auto-resync failed", exc_info=True)
+    _resync_seconds = time.perf_counter() - _t_resync
 
     today = datetime.now(timezone.utc).date()
     today_month = today.month
@@ -2511,14 +2515,15 @@ async def get_monthly_schedule(
     }
     _t_end = time.perf_counter()
     logger.info(
-        "monthly-schedule all_months=%s db=%.3fs process=%.3fs total=%.3fs "
+        "monthly-schedule all_months=%s resync=%.3fs db=%.3fs process=%.3fs total=%.3fs "
         "stages_fetched=%d stages_kept=%d manual=%d rows=%d",
-        bool(all_months), _t_db - _t0, _t_end - _t_db, _t_end - _t0,
+        bool(all_months), _resync_seconds, _t_db - _t0, _t_end - _t_db, _t_end - _t0,
         _n_fetched, len(stages_cursor), len(raw_manual), len(enriched),
     )
     _SCHEDULE_TIMINGS.append({
         "at": datetime.now(timezone.utc).isoformat(),
         "all_months": bool(all_months),
+        "resync_seconds": round(_resync_seconds, 3),
         "db_seconds": round(_t_db - _t0, 3),
         "process_seconds": round(_t_end - _t_db, 3),
         "total_seconds": round(_t_end - _t0, 3),

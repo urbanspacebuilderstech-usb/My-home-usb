@@ -6155,6 +6155,30 @@ async def _compute_section_eligible_costs(project_id: str, section_id: str, exis
     )
     section_client_ok = (section or {}).get("client_approval_status") == "client_approved"
     costs = await db.additional_costs.find({"project_id": project_id, "section_id": section_id}, {"_id": 0}).to_list(1000)
+    linked_stages = await _linked_stage_docs({c.get("linked_stage_id") for c in costs})
+    return _section_eligible_from_rows(costs, section_client_ok, existing_stage_id, linked_stages)
+
+
+async def _linked_stage_docs(stage_ids) -> Dict[str, Dict[str, Any]]:
+    """stage_id -> exactly what `find_one({"stage_id": id}, {"_id": 0,
+    "is_section_addition": 1})` returns, for many ids in one read. A stage
+    without the field comes back as {} (falsy), same as that find_one did, so
+    `_section_eligible_from_rows` keeps treating such a row as eligible."""
+    ids = [s for s in stage_ids if s]
+    if not ids:
+        return {}
+    docs = await db.payment_stages.find(
+        {"stage_id": {"$in": ids}}, {"_id": 0, "stage_id": 1, "is_section_addition": 1}
+    ).to_list(None)
+    out: Dict[str, Dict[str, Any]] = {}
+    for d in docs:
+        out.setdefault(d["stage_id"], {k: v for k, v in d.items() if k != "stage_id"})
+    return out
+
+
+def _section_eligible_from_rows(costs, section_client_ok: bool, existing_stage_id: Optional[str], linked_stages: Dict[str, Dict[str, Any]]):
+    """The eligibility rules of `_compute_section_eligible_costs`, on rows
+    already in hand. `linked_stages` comes from `_linked_stage_docs`."""
     eligible = []
     for c in costs:
         if (c.get("client_approval_status") != "client_approved") and not section_client_ok:
@@ -6166,7 +6190,7 @@ async def _compute_section_eligible_costs(project_id: str, section_id: str, exis
             continue
         existing_stage_id_on_row = c.get("linked_stage_id")
         if existing_stage_id_on_row and existing_stage_id_on_row != existing_stage_id:
-            other = await db.payment_stages.find_one({"stage_id": existing_stage_id_on_row}, {"_id": 0, "is_section_addition": 1})
+            other = linked_stages.get(existing_stage_id_on_row)
             if other and not other.get("is_section_addition"):
                 continue
         eligible.append({"cost_id": c["cost_id"], "balance": balance, "amount": float(amount)})
@@ -6201,12 +6225,44 @@ async def _resync_all_section_addition_stages(project_id: Optional[str] = None):
     stages = await db.payment_stages.find(
         query, {"_id": 0, "stage_id": 1, "project_id": 1, "linked_section_id": 1, "amount": 1, "amount_received": 1}
     ).to_list(2000)
+    stages = [s for s in stages if s.get("linked_section_id") and s.get("project_id") and s.get("stage_id")]
+    if not stages:
+        return
+
+    # Oct 5 2026 — this runs before every Payment Schedule load, and used to
+    # await three or more reads per section stage, one after another (the
+    # section, its rows, each row's linked stage, then the rows again for
+    # amount_received). The same documents are now read in three queries for
+    # all stages together and grouped here.
+    section_ids = list({s["linked_section_id"] for s in stages})
+    project_ids = list({s["project_id"] for s in stages})
+    section_docs, cost_docs = await asyncio.gather(
+        db.addition_sections.find(
+            {"section_id": {"$in": section_ids}, "project_id": {"$in": project_ids}},
+            {"_id": 0, "section_id": 1, "project_id": 1, "client_approval_status": 1},
+        ).to_list(None),
+        db.additional_costs.find(
+            {"section_id": {"$in": section_ids}, "project_id": {"$in": project_ids}},
+            {"_id": 0, "cost_id": 1, "project_id": 1, "section_id": 1, "client_approval_status": 1,
+             "estimated_amount": 1, "actual_amount": 1, "qty": 1, "price": 1,
+             "income_received": 1, "linked_stage_id": 1},
+        ).to_list(None),
+    )
+    section_client_ok: Dict[Any, bool] = {}
+    for d in section_docs:
+        section_client_ok.setdefault((d.get("project_id"), d.get("section_id")), d.get("client_approval_status") == "client_approved")
+    rows_by_section: Dict[Any, List[Dict[str, Any]]] = {}
+    for c in cost_docs:
+        rows_by_section.setdefault((c.get("project_id"), c.get("section_id")), []).append(c)
+    linked_stages = await _linked_stage_docs({c.get("linked_stage_id") for c in cost_docs})
+
     for stage in stages:
-        section_id = stage.get("linked_section_id")
-        if not section_id:
-            continue
+        key = (stage["project_id"], stage["linked_section_id"])
+        section_rows = rows_by_section.get(key, [])
         try:
-            eligible, section_total = await _compute_section_eligible_costs(stage["project_id"], section_id, stage["stage_id"])
+            eligible, section_total = _section_eligible_from_rows(
+                section_rows, section_client_ok.get(key, False), stage["stage_id"], linked_stages
+            )
         except Exception:
             continue
         if not eligible:
@@ -6222,10 +6278,6 @@ async def _resync_all_section_addition_stages(project_id: Optional[str] = None):
         # CRE Payment Schedule showing a stale Received figure (sometimes
         # exceeding the total, with a negative Balance) while the project's
         # Additional tab already shows the corrected number.
-        section_rows = await db.additional_costs.find(
-            {"project_id": stage["project_id"], "section_id": section_id},
-            {"_id": 0, "income_received": 1},
-        ).to_list(1000)
         healed_received = sum(float(r.get("income_received") or 0) for r in section_rows)
         current_amount = float(stage.get("amount") or 0)
         current_received = float(stage.get("amount_received") or 0)
@@ -6247,6 +6299,13 @@ async def _resync_all_section_addition_stages(project_id: Optional[str] = None):
             {"cost_id": {"$in": cost_ids}},
             {"$set": {"linked_stage_id": stage["stage_id"], "payment_requested": True}}
         )
+        # Later stages in this loop used to re-read these rows and see the new
+        # link, so mirror the write into the rows already in hand.
+        relinked = set(cost_ids)
+        for r in section_rows:
+            if r.get("cost_id") in relinked:
+                r["linked_stage_id"] = stage["stage_id"]
+                r["payment_requested"] = True
 
 
 @router.post("/projects/{project_id}/addition-sections/{section_id}/request-payment")
