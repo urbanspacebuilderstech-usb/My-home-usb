@@ -1877,6 +1877,7 @@ async def get_monthly_schedule(
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2020, le=2050),
     all_months: bool = Query(False, description="When true, return every payable stage across every month (ignores month/year filter)."),
+    split_by_month: bool = Query(False, description="Month view only: one row per stage per month, with month_amount / month_received / month_balance for that month alone (see below)."),
     user: User = Depends(get_current_user)
 ):
     """Monthly payment schedule with **strict single-step carryover**.
@@ -2132,10 +2133,15 @@ async def get_monthly_schedule(
     EXCLUDED_INC_STATUSES = {"rejected", "accountant_rejected", "under_correction", "pending_approval", "cheque_bounced"}
     _stage_ids_for_heal = [s["stage_id"] for s in stages_cursor if s.get("stage_id")]
     _heal_ops = []
+    split = split_by_month and not all_months
+    # stage_id -> [((year, month), amount)] of its counted incomes, for
+    # `split_by_month`. Same rows and same exclusions as the heal below.
+    receipts_by_stage: Dict[str, List[Any]] = {}
     if _stage_ids_for_heal:
         _income_rows_for_heal = await db.income.find(
             {"payment_stage_id": {"$in": _stage_ids_for_heal}},
-            {"_id": 0, "payment_stage_id": 1, "amount": 1, "status": 1},
+            {"_id": 0, "payment_stage_id": 1, "amount": 1, "status": 1,
+             "payment_date": 1, "received_date": 1, "created_at": 1},
         ).to_list(20000)
         _received_by_stage: Dict[str, float] = {}
         for _inc in _income_rows_for_heal:
@@ -2143,6 +2149,13 @@ async def get_monthly_schedule(
                 continue
             _sid = _inc.get("payment_stage_id")
             _received_by_stage[_sid] = _received_by_stage.get(_sid, 0.0) + float(_inc.get("amount") or 0)
+            if split:
+                # payment_date is the real collection date the collect flows
+                # record (they stamp the stage's collected_at with it too).
+                _d = (_parse_date(_inc.get("payment_date")) or _parse_date(_inc.get("received_date"))
+                      or _parse_date(_inc.get("created_at")))
+                _ym = (_d.year, _d.month) if _d else None
+                receipts_by_stage.setdefault(_sid, []).append((_ym, float(_inc.get("amount") or 0)))
 
         _now_iso = datetime.now(timezone.utc).isoformat()
         # Sep 29 2026 — this used to `await update_one` once per drifted
@@ -2193,7 +2206,68 @@ async def get_monthly_schedule(
         return (d.month, d.year) if d else (None, None)
 
     matching_stages = []
-    for stage in stages_cursor:
+
+    # Oct 5 2026 — `split_by_month` (Planning Board). The rows below show a
+    # stage's whole history on every row: a stage part-paid in September and
+    # carried into October showed September's collection again in October,
+    # and a payment collected in October could not be told apart from it.
+    # In this mode a stage appears in each month it received money, and in
+    # the month its balance is due (its planned month, or the current month
+    # once overdue — the same carry rule as below). Each row carries that
+    # month's own figures: month_amount (outstanding when the month began),
+    # month_received (collected during it) and month_balance. One row per
+    # stage per month, so no virtual collected/balance rows.
+    view_ym = (year, month)
+    today_ym = (today_year, today_month)
+
+    def _receipts_by_month(stage) -> Dict[Any, float]:
+        """(year, month) -> amount received, adding up to amount_received.
+        Money not traceable to a dated income (legacy rows, an addition's
+        cost-level receipt) is placed at the stage's last collection date, as
+        the rows below do. Future-dated receipts count as this month."""
+        by_month: Dict[Any, float] = {}
+        for ym, amt in receipts_by_stage.get(stage.get("stage_id"), []):
+            ym = min(ym or today_ym, today_ym)
+            by_month[ym] = by_month.get(ym, 0.0) + amt
+        rest = float(stage.get("amount_received") or 0) - sum(by_month.values())
+        if abs(rest) > 0.5:
+            m_, y_ = _last_collection_month(stage)
+            ym = min((y_, m_), today_ym) if m_ else today_ym
+            by_month[ym] = by_month.get(ym, 0.0) + rest
+        return by_month
+
+    if split:
+        for stage in stages_cursor:
+            sid = stage.get("stage_id")
+            manual = manual_by_stage.get(sid)
+            planned_month, planned_year = _planned_month_for_stage(stage, manual)
+            if not planned_month or (sid, month, year) in hide_keys:
+                continue
+            amt = float(stage.get("amount") or 0)
+            rec = float(stage.get("amount_received") or 0)
+            # Open = money still outstanding. A ~₹0 stage stays open until it
+            # is marked paid, so it keeps showing as it always did.
+            is_open = (amt - rec > TOL) or (rec <= TOL and stage.get("status") not in ("paid", "collected"))
+            receipts = _receipts_by_month(stage)
+            months = {ym for ym, a in receipts.items() if a > 0.5}
+            planned_ym = (planned_year, planned_month)
+            if is_open:
+                months.add(max(planned_ym, today_ym))
+            if view_ym not in months:
+                continue
+            before = sum(a for ym, a in receipts.items() if ym < view_ym)
+            matching_stages.append({
+                "stage": stage,
+                "manual_entry": manual,
+                "planned_month": planned_month,
+                "planned_year": planned_year,
+                # Carried = due in an earlier month, with money still
+                # outstanding when this month began.
+                "is_carryover": planned_ym < view_ym and amt - before > TOL,
+                "month_split": True,
+            })
+
+    for stage in ([] if split else stages_cursor):
         manual = manual_by_stage.get(stage.get("stage_id"))
         planned_month, planned_year = _planned_month_for_stage(stage, manual)
         if not planned_month:
@@ -2449,7 +2523,7 @@ async def get_monthly_schedule(
                        or _parse_date(stage.get("due_date")))
             if _coll_d:
                 _coll_month, _coll_year = _coll_d.month, _coll_d.year
-        enriched.append({
+        row = {
             "entry_id": f"{entry_id_base}{virtual_suffix}" if virtual_suffix else entry_id_base,
             "stage_id": stage.get("stage_id"),
             "project_id": stage.get("project_id"),
@@ -2483,13 +2557,26 @@ async def get_monthly_schedule(
             "project_value": proj.get("total_value", 0),
             "added_by": manual.get("added_by"),
             "added_at": manual.get("added_at"),
-        })
+        }
+        if m.get("month_split"):
+            # After 3b, so an addition's amount is its full cost here too.
+            receipts = _receipts_by_month(stage)
+            month_amount = float(disp_amount or 0) - sum(a for ym, a in receipts.items() if ym < view_ym)
+            month_received = receipts.get(view_ym, 0.0)
+            row["month_amount"] = round(month_amount, 2)
+            row["month_received"] = round(month_received, 2)
+            row["month_balance"] = round(month_amount - month_received, 2)
+            if view_ym < today_ym:
+                # Awaiting approval is about now, not a past month.
+                row["pending_approval_amount"] = 0
+                row["pending_approval_count"] = 0
+        enriched.append(row)
 
     enriched.sort(key=lambda e: (e.get("expected_payment_date") or "", e.get("project_name") or ""))
 
     # 6. Summary — outstanding = sum of balances on uncollected entries
-    total_planned = sum(e["amount"] for e in enriched)
-    total_received = sum(e["amount_received"] for e in enriched)
+    total_planned = sum(e["month_amount" if split else "amount"] for e in enriched)
+    total_received = sum(e["month_received" if split else "amount_received"] for e in enriched)
     carryover_count = sum(1 for e in enriched if e["is_carryover"])
     requested_count = sum(1 for e in enriched if e["workflow_status"] in ("requested", "pending_collection"))
     collected_count = sum(1 for e in enriched if e["stage_status"] in ("paid", "collected"))

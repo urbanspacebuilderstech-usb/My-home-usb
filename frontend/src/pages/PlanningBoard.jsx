@@ -248,19 +248,27 @@ function LiveMapSection() {
   );
 }
 
-// Payment Schedule: which rows the Collected sub-tab holds (the rest are
+// Payment Schedule rows carry the viewed month's own figures (asked for with
+// `split_by_month`): month_amount is what was still due when the month began,
+// so a stage part-paid last month shows only its carried balance, and
+// month_received is what was collected during the month. Falls back to the
+// stage totals if a row lacks them.
+const scheduleRowMoney = (e) => {
+  const amount = e.month_amount ?? (e.amount || 0);
+  const received = e.month_received ?? (e.amount_received || 0);
+  return { amount, received, balance: amount - received };
+};
+
+// Payment Schedule: which rows the Completed sub-tab holds (the rest are
 // Pending). Shared by the sub-tab counts, the table and the summary cards.
-const isCollectedScheduleEntry = (e) => {
-  const hasPendingApproval = (e.pending_approval_count || 0) > 0;
-  if (hasPendingApproval) return false;
-  const s = (e.stage_status || e.status || '').toLowerCase();
-  const ws = (e.workflow_status || '').toLowerCase();
-  if (s === 'paid' || s === 'collected') return true;
-  if (ws === 'collected') {
-    const balance = (e.amount || 0) - (e.amount_received || 0);
-    return balance <= 1;
-  }
-  return false;
+// The allowance absorbs rounding (₹159 short of ₹9.5L reads as completed)
+// without calling a ₹100 stage with ₹0 received collected, which the old
+// flat ₹1,000 allowance did.
+const isCompletedScheduleEntry = (e) => {
+  if ((e.pending_approval_count || 0) > 0) return false;
+  const { amount, received, balance } = scheduleRowMoney(e);
+  if (amount <= 0 && received <= 0) return ['paid', 'collected'].includes((e.stage_status || '').toLowerCase());
+  return balance <= Math.min(1000, Math.abs(amount) * 0.001);
 };
 
 export default function PlanningBoard({ embedded = false }) {
@@ -417,7 +425,7 @@ export default function PlanningBoard({ embedded = false }) {
   const [monthlySchedule, setMonthlySchedule] = useState({ entries: [], summary: {} });
   const [scheduleMonth, setScheduleMonth] = useState(new Date().getMonth() + 1);
   const [scheduleYear, setScheduleYear] = useState(new Date().getFullYear());
-  const [scheduleSubTab, setScheduleSubTab] = useState('pending'); // pending | collected | all
+  const [scheduleSubTab, setScheduleSubTab] = useState('all'); // all | completed | pending
   // Sep 29 2026 — Date + Project filters on top of the month/year navigation,
   // narrowing the already-fetched month's entries client-side (date, by
   // Release Date) and by project (fetched separately from GET /projects,
@@ -433,18 +441,18 @@ export default function PlanningBoard({ embedded = false }) {
     if (scheduleProjectFilter) entries = entries.filter(e => e.project_id === scheduleProjectFilter);
     return entries;
   }, [monthlySchedule.entries, scheduleDateFrom, scheduleDateTo, scheduleProjectFilter]);
-  // The rows of the selected Pending / Collected / All sub-tab.
+  // The rows of the selected All / Completed / Pending sub-tab.
   const scheduleTabEntries = React.useMemo(() => (
-    scheduleSubTab === 'pending' ? scheduleFilteredEntries.filter(e => !isCollectedScheduleEntry(e))
-      : scheduleSubTab === 'collected' ? scheduleFilteredEntries.filter(isCollectedScheduleEntry)
+    scheduleSubTab === 'pending' ? scheduleFilteredEntries.filter(e => !isCompletedScheduleEntry(e))
+      : scheduleSubTab === 'completed' ? scheduleFilteredEntries.filter(isCompletedScheduleEntry)
       : scheduleFilteredEntries
   ), [scheduleFilteredEntries, scheduleSubTab]);
   // Oct 5 2026 — summary cards follow the Project / Date filters and the
   // selected sub-tab, so they always total the rows in the table. Same sums
   // the backend's `summary` uses, which only ever covered the whole month.
   const scheduleSummary = React.useMemo(() => {
-    const planned = scheduleTabEntries.reduce((s, e) => s + (e.amount || 0), 0);
-    const received = scheduleTabEntries.reduce((s, e) => s + (e.amount_received || 0), 0);
+    const planned = scheduleTabEntries.reduce((s, e) => s + scheduleRowMoney(e).amount, 0);
+    const received = scheduleTabEntries.reduce((s, e) => s + scheduleRowMoney(e).received, 0);
     return { stages: scheduleTabEntries.length, planned, received, balance: planned - received };
   }, [scheduleTabEntries]);
   const [addStagesDialog, setAddStagesDialog] = useState(false);
@@ -1249,7 +1257,7 @@ export default function PlanningBoard({ embedded = false }) {
     setScheduleLoading(true);
     setScheduleError('');
     try {
-      const r = await axios.get(`${API}/planning/monthly-schedule`, { params: { month: m, year: y }, signal: controller.signal });
+      const r = await axios.get(`${API}/planning/monthly-schedule`, { params: { month: m, year: y, split_by_month: true }, signal: controller.signal });
       setMonthlySchedule(r.data || { entries: [], summary: {} });
     } catch (err) {
       if (axios.isCancel?.(err) || err.code === 'ERR_CANCELED' || err.name === 'CanceledError') return;
@@ -1939,14 +1947,14 @@ export default function PlanningBoard({ embedded = false }) {
                 {/* Sub-tabs: Pending | Collected | All */}
                 {(() => {
                   const allEntries = scheduleShowsOtherMonth ? [] : scheduleFilteredEntries;
-                  const collectedCount = allEntries.filter(isCollectedScheduleEntry).length;
-                  const counts = { pending: allEntries.length - collectedCount, collected: collectedCount, all: allEntries.length };
+                  const completedCount = allEntries.filter(isCompletedScheduleEntry).length;
+                  const counts = { pending: allEntries.length - completedCount, completed: completedCount, all: allEntries.length };
                   return (
                     <div className="flex gap-2 flex-wrap" data-testid="planning-ps-subtabs">
                       {[
-                        { key: 'pending', label: 'Pending', count: counts.pending, activeBg: 'bg-amber-600' },
-                        { key: 'collected', label: 'Collected', count: counts.collected, activeBg: 'bg-emerald-600' },
                         { key: 'all', label: 'All', count: counts.all, activeBg: 'bg-slate-700' },
+                        { key: 'completed', label: 'Completed', count: counts.completed, activeBg: 'bg-emerald-600' },
+                        { key: 'pending', label: 'Pending', count: counts.pending, activeBg: 'bg-amber-600' },
                       ].map(t => (
                         <button
                           key={t.key}
@@ -2004,22 +2012,15 @@ export default function PlanningBoard({ embedded = false }) {
                               return filteredEntries.length === 0 ? (
                               <tr><td colSpan="8" className="p-8 text-center text-gray-400">No {scheduleSubTab === 'all' ? '' : scheduleSubTab + ' '}stages for {MONTH_NAMES[scheduleMonth]} {scheduleYear}.</td></tr>
                             ) : filteredEntries.map((e) => {
-                              const balance = (e.amount || 0) - (e.amount_received || 0);
+                              // This month's figures; status is derived from them so the badge,
+                              // the sub-tab and the cards always agree.
+                              const { amount: rowAmount, received, balance } = scheduleRowMoney(e);
                               const hasPendingApproval = (e.pending_approval_count || 0) > 0;
-                              // Derive an effective status from the actual received-vs-amount math
-                              // so rounding-edge cases (e.g. balance ₹159 of ₹9.5L) and fully-collected
-                              // rows don't show as "Not Collected" when stage.status hasn't been
-                              // refreshed yet by the Accountant approval flow.
-                              const TOLERANCE = 1000; // ₹1k rounding tolerance — anything within is "Collected"
-                              const received = e.amount_received || 0;
-                              const amount = e.amount || 0;
-                              const isFullyCollected = amount > 0 && balance <= TOLERANCE;
-                              const isPartial = received > 0 && balance > TOLERANCE;
-                              const effectiveStatus = isFullyCollected ? 'collected' : isPartial ? 'partial' : (e.status || 'pending');
+                              const isFullyCollected = isCompletedScheduleEntry(e);
+                              const effectiveStatus = isFullyCollected ? 'collected' : received > 0 ? 'partial' : 'pending';
                               const stageStatusConfig = {
                                 pending:   { label: 'Not Collected',           cls: 'bg-gray-100 text-gray-700' },
                                 partial:   { label: 'Partially Collected',    cls: 'bg-amber-100 text-amber-700' },
-                                paid:      { label: 'Collected',               cls: 'bg-green-100 text-green-700' },
                                 collected: { label: 'Collected',               cls: 'bg-green-100 text-green-700' },
                               };
                               const isCRERejected = e.workflow_status === 'cre_rejected' || (e.cre_rejection_reason && e.workflow_status !== 'requested' && e.workflow_status !== 'collected');
@@ -2047,9 +2048,9 @@ export default function PlanningBoard({ embedded = false }) {
                                       </Badge>
                                     )}
                                   </td>
-                                  <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(e.amount)}</td>
+                                  <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(rowAmount)}</td>
                                   <td className="px-4 py-2.5 text-right text-green-600">
-                                    {formatCurrency(e.amount_received || 0)}
+                                    {formatCurrency(received)}
                                     {(e.pending_approval_amount || 0) > 0 && (
                                       <p className="text-[10px] text-orange-600">+{formatCurrency(e.pending_approval_amount)} pending</p>
                                     )}
