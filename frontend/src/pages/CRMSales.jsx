@@ -2326,7 +2326,7 @@ export default function CRMSales() {
                         {lead.remarks?.length > 0 && ['stg_re_to_client'].includes(lead.current_stage_id) && (
                           <div className="mt-1 px-2 py-1 rounded bg-blue-50 border border-blue-200 text-xs text-blue-700">
                             <MessageSquare className="inline h-3 w-3 mr-1" />
-                            <span className="font-medium">{lead.remarks[lead.remarks.length - 1].by_name}:</span>{' '}
+                            <span className="font-medium">{lead.remarks[lead.remarks.length - 1].by_name || lead.remarks[lead.remarks.length - 1].added_by_name}:</span>{' '}
                             <span className="truncate">{lead.remarks[lead.remarks.length - 1].text}</span>
                           </div>
                         )}
@@ -3173,9 +3173,17 @@ export default function CRMSales() {
                   </div>
                   <div className="space-y-2">
                     {(leadDetail?.remarks || []).length === 0 && <p className="text-sm text-gray-400 text-center py-4">No remarks yet</p>}
-                    {(leadDetail?.remarks || []).map((r, i) => (
-                      <div key={i} className="p-3 rounded-lg bg-gray-50 border"><p className="text-sm">{r.remark}</p><p className="text-xs text-gray-400 mt-1">{r.created_at ? new Date(r.created_at).toLocaleString('en-IN') : ''} {r.created_by_name ? `by ${r.created_by_name}` : ''}</p></div>
-                    ))}
+                    {/* Remarks are stored as { text, added_by_name, created_at } by
+                        this tab's Add, and as { text, by_name, date } by a move to
+                        RE - Client. This read `remark` / `created_by_name`, which
+                        neither writes, so only the date showed. */}
+                    {(leadDetail?.remarks || []).map((r, i) => {
+                      const at = r.created_at || r.date;
+                      const by = r.added_by_name || r.by_name;
+                      return (
+                        <div key={i} className="p-3 rounded-lg bg-gray-50 border"><p className="text-sm whitespace-pre-wrap">{r.text || r.remark}</p><p className="text-xs text-gray-400 mt-1">{at ? new Date(at).toLocaleString('en-IN') : ''} {by ? `by ${by}` : ''}</p></div>
+                      );
+                    })}
                   </div>
                 </TabsContent>
               </Tabs>
