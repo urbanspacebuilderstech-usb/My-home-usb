@@ -248,6 +248,21 @@ function LiveMapSection() {
   );
 }
 
+// Payment Schedule: which rows the Collected sub-tab holds (the rest are
+// Pending). Shared by the sub-tab counts, the table and the summary cards.
+const isCollectedScheduleEntry = (e) => {
+  const hasPendingApproval = (e.pending_approval_count || 0) > 0;
+  if (hasPendingApproval) return false;
+  const s = (e.stage_status || e.status || '').toLowerCase();
+  const ws = (e.workflow_status || '').toLowerCase();
+  if (s === 'paid' || s === 'collected') return true;
+  if (ws === 'collected') {
+    const balance = (e.amount || 0) - (e.amount_received || 0);
+    return balance <= 1;
+  }
+  return false;
+};
+
 export default function PlanningBoard({ embedded = false }) {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -418,14 +433,20 @@ export default function PlanningBoard({ embedded = false }) {
     if (scheduleProjectFilter) entries = entries.filter(e => e.project_id === scheduleProjectFilter);
     return entries;
   }, [monthlySchedule.entries, scheduleDateFrom, scheduleDateTo, scheduleProjectFilter]);
-  // Oct 5 2026 — summary cards follow the Project / Date filters, so picking
-  // one project shows that project's totals. Same sums the backend's
-  // `summary` uses, which only ever covered the whole month.
+  // The rows of the selected Pending / Collected / All sub-tab.
+  const scheduleTabEntries = React.useMemo(() => (
+    scheduleSubTab === 'pending' ? scheduleFilteredEntries.filter(e => !isCollectedScheduleEntry(e))
+      : scheduleSubTab === 'collected' ? scheduleFilteredEntries.filter(isCollectedScheduleEntry)
+      : scheduleFilteredEntries
+  ), [scheduleFilteredEntries, scheduleSubTab]);
+  // Oct 5 2026 — summary cards follow the Project / Date filters and the
+  // selected sub-tab, so they always total the rows in the table. Same sums
+  // the backend's `summary` uses, which only ever covered the whole month.
   const scheduleSummary = React.useMemo(() => {
-    const planned = scheduleFilteredEntries.reduce((s, e) => s + (e.amount || 0), 0);
-    const received = scheduleFilteredEntries.reduce((s, e) => s + (e.amount_received || 0), 0);
-    return { stages: scheduleFilteredEntries.length, planned, received, balance: planned - received };
-  }, [scheduleFilteredEntries]);
+    const planned = scheduleTabEntries.reduce((s, e) => s + (e.amount || 0), 0);
+    const received = scheduleTabEntries.reduce((s, e) => s + (e.amount_received || 0), 0);
+    return { stages: scheduleTabEntries.length, planned, received, balance: planned - received };
+  }, [scheduleTabEntries]);
   const [addStagesDialog, setAddStagesDialog] = useState(false);
   const [availableStages, setAvailableStages] = useState([]);
   const [selectedStageIds, setSelectedStageIds] = useState([]);
@@ -1918,21 +1939,8 @@ export default function PlanningBoard({ embedded = false }) {
                 {/* Sub-tabs: Pending | Collected | All */}
                 {(() => {
                   const allEntries = scheduleShowsOtherMonth ? [] : scheduleFilteredEntries;
-                  const isCollectedEntry = (e) => {
-                    const hasPendingApproval = (e.pending_approval_count || 0) > 0;
-                    if (hasPendingApproval) return false;
-                    const s = (e.stage_status || e.status || '').toLowerCase();
-                    const ws = (e.workflow_status || '').toLowerCase();
-                    if (s === 'paid' || s === 'collected') return true;
-                    if (ws === 'collected') {
-                      const balance = (e.amount || 0) - (e.amount_received || 0);
-                      return balance <= 1;
-                    }
-                    return false;
-                  };
-                  const pendingArr = allEntries.filter(e => !isCollectedEntry(e));
-                  const collectedArr = allEntries.filter(isCollectedEntry);
-                  const counts = { pending: pendingArr.length, collected: collectedArr.length, all: allEntries.length };
+                  const collectedCount = allEntries.filter(isCollectedScheduleEntry).length;
+                  const counts = { pending: allEntries.length - collectedCount, collected: collectedCount, all: allEntries.length };
                   return (
                     <div className="flex gap-2 flex-wrap" data-testid="planning-ps-subtabs">
                       {[
@@ -1992,24 +2000,7 @@ export default function PlanningBoard({ embedded = false }) {
                           </thead>
                           <tbody className="divide-y">
                             {(() => {
-                              const allEntries = scheduleFilteredEntries;
-                              const isCollectedEntry = (e) => {
-                                const hasPendingApproval = (e.pending_approval_count || 0) > 0;
-                                if (hasPendingApproval) return false;
-                                const s = (e.stage_status || e.status || '').toLowerCase();
-                                const ws = (e.workflow_status || '').toLowerCase();
-                                if (s === 'paid' || s === 'collected') return true;
-                                if (ws === 'collected') {
-                                  const balance = (e.amount || 0) - (e.amount_received || 0);
-                                  return balance <= 1;
-                                }
-                                return false;
-                              };
-                              const filteredEntries = scheduleSubTab === 'pending'
-                                ? allEntries.filter(e => !isCollectedEntry(e))
-                                : scheduleSubTab === 'collected'
-                                ? allEntries.filter(isCollectedEntry)
-                                : allEntries;
+                              const filteredEntries = scheduleTabEntries;
                               return filteredEntries.length === 0 ? (
                               <tr><td colSpan="8" className="p-8 text-center text-gray-400">No {scheduleSubTab === 'all' ? '' : scheduleSubTab + ' '}stages for {MONTH_NAMES[scheduleMonth]} {scheduleYear}.</td></tr>
                             ) : filteredEntries.map((e) => {
