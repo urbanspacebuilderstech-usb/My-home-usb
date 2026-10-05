@@ -316,6 +316,8 @@ export default function CRMSales() {
   // visitType: null = Office Visit, 'client_land' = Client Site Visit,
   // 'ongoing_project' = USB Project Visit.
   const [visitRemarkDialog, setVisitRemarkDialog] = useState({ open: false, leadId: null, visitType: null, index: null, remarks: '' });
+  // Summary tab › RE-Request › eye icon: what Sales typed for that RE.
+  const [reRequestView, setReRequestView] = useState(null);
   const [apptDialog, setApptDialog] = useState(false);
   const [apptForm, setApptForm] = useState({ date: '', time: '', type: '' });
   
@@ -3047,6 +3049,15 @@ export default function CRMSales() {
                                   <span className="text-gray-500 text-[10px] whitespace-nowrap">
                                     {r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN') : ''}
                                   </span>
+                                  <button
+                                    type="button"
+                                    className="text-blue-600 hover:text-blue-800 shrink-0"
+                                    title="View what was sent with this RE request"
+                                    onClick={() => setReRequestView(r)}
+                                    data-testid={`summary-re-request-view-${r.re_project_id}`}
+                                  >
+                                    <Eye className="h-3.5 w-3.5" />
+                                  </button>
                                 </div>
                               ))}
                             </div>
@@ -3756,6 +3767,53 @@ export default function CRMSales() {
         </DialogContent>
       </Dialog>
 
+
+      {/* Summary tab › RE-Request › eye icon. Shows what Sales typed for that
+          RE: the Client Requirement sent with the RE - Request move (carried
+          onto later revisions), the client's reason when a revision was asked
+          for, and the remarks for Planning when the RE was regenerated. */}
+      <Dialog open={!!reRequestView} onOpenChange={(o) => { if (!o) setReRequestView(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-amber-600" />
+              {reRequestView?.label} · RE Request
+            </DialogTitle>
+            <DialogDescription>
+              {reRequestView?.status_label}
+              {reRequestView?.created_at ? ` · Requested ${new Date(reRequestView.created_at).toLocaleString('en-IN')}` : ''}
+            </DialogDescription>
+          </DialogHeader>
+          {(() => {
+            const r = reRequestView || {};
+            const fmt = (at) => (at ? new Date(at).toLocaleString('en-IN') : '');
+            const sections = [
+              { key: 'requirement', title: 'Client Requirement', text: r.rough_requirement, by: r.rough_requirement_by, at: r.rough_requirement_at },
+              { key: 'revision', title: 'Changes asked by client', text: r.revision_reason },
+              { key: 'regenerate', title: 'Remarks for Planning', text: r.regenerate_remarks, by: r.regenerate_requested_by_name, at: r.regenerate_requested_at },
+            ].filter(s => (s.text || '').trim());
+            if (sections.length === 0) {
+              return <p className="text-sm text-gray-500 py-4 text-center" data-testid="re-request-view-empty">Nothing was typed for this RE request.</p>;
+            }
+            return (
+              <div className="space-y-3 max-h-[60vh] overflow-y-auto" data-testid="re-request-view">
+                {sections.map(s => (
+                  <div key={s.key}>
+                    <p className="text-xs font-semibold text-gray-600 mb-1">{s.title}</p>
+                    <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm whitespace-pre-wrap break-words">{s.text}</div>
+                    {(s.by || s.at) && (
+                      <p className="text-[11px] text-gray-400 mt-1">{[s.by && `by ${s.by}`, fmt(s.at)].filter(Boolean).join(' · ')}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReRequestView(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={roughEstDialog} onOpenChange={setRoughEstDialog}>
         <DialogContent className="max-w-lg">

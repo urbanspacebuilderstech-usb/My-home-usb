@@ -3036,6 +3036,16 @@ async def get_lead_summary_panel(lead_id: str, user: User = Depends(get_current_
                     "gm_approved_at": p.get("gm_approved_at"),
                     "sent_to_client_at": p.get("sent_to_client_at"),
                     "revision_reason": p.get("revision_reason"),
+                    # Oct 5 2026 — what Sales typed for this RE, for the
+                    # Summary tab's view popup: the Client Requirement from
+                    # the RE - Request move, and the remarks for Planning
+                    # when an RE was regenerated.
+                    "rough_requirement": p.get("rough_requirement"),
+                    "rough_requirement_by": p.get("rough_requirement_by"),
+                    "rough_requirement_at": p.get("rough_requirement_at"),
+                    "regenerate_remarks": p.get("regenerate_remarks"),
+                    "regenerate_requested_by_name": p.get("regenerate_requested_by_name"),
+                    "regenerate_requested_at": p.get("regenerate_requested_at"),
                 })
 
     site_visits = lead.get("site_visits") or ([lead["site_visit_data"]] if lead.get("site_visit_data") else [])
