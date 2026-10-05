@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 from enum import Enum
+import re
 import uuid
 import os
 import io
@@ -5184,6 +5185,15 @@ async def material_vendor_payments_summary(
     return fast_json({"count": len(rows), "rows": rows})
 
 
+# Oct 5 2026 - pulls a cheque number out of a suspense entry's description
+# for the "Suspense by cheque" chips, used only when the entry carries no
+# linked_cheque_ids. Requires the literal word "cheque" immediately before
+# the digits and at least four of them, so an amount elsewhere in the same
+# sentence cannot be mistaken for a cheque number - "cheque #001684 tendered
+# 200,000 against a 19,630 bill" yields 001684 and nothing else.
+_CHEQUE_IN_DESCRIPTION = re.compile(r"cheque\(?s?\)?\s*#?\s*(\d{4,})", re.I)
+
+
 @router.get("/material-vendor-payments/{vendor_key}/ledger")
 async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(get_current_user)):
     """Timeline for a single material vendor — recompute on demand so we don't
@@ -5416,7 +5426,24 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
         if rem <= 0.5:
             continue
         cids = e.get("linked_cheque_ids") or []
-        label = " + ".join(f"#{_cheque_num_by_id.get(cid) or cid}" for cid in cids) if cids else (e.get("payment_mode") or "Other").replace("_", " ").title()
+        if cids:
+            label = " + ".join(f"#{_cheque_num_by_id.get(cid) or cid}" for cid in cids)
+        else:
+            # Entries written by the excess-restore repair scripts carry no
+            # linked_cheque_ids, so this fell back to the payment MODE and
+            # rendered as a bare "Cheque 16,069" with no number - the one
+            # SATHISKUMAR AGENCY chip that could not be identified. Those
+            # scripts did record the cheque, just in prose, so read it back
+            # out. Only when the text names exactly ONE cheque: on two or none
+            # we keep the honest mode label rather than guess. This is weaker
+            # evidence than a real link and does not create one - it only
+            # labels the chip.
+            _found = sorted(set(
+                _CHEQUE_IN_DESCRIPTION.findall(str(e.get("description") or ""))))
+            if len(_found) == 1:
+                label = f"#{_found[0]}"
+            else:
+                label = (e.get("payment_mode") or "Other").replace("_", " ").title()
         _suspense_by_cheque[label] = round(_suspense_by_cheque.get(label, 0.0) + rem, 2)
     suspense_by_cheque = sorted(
         [{"label": k, "balance": v} for k, v in _suspense_by_cheque.items()],

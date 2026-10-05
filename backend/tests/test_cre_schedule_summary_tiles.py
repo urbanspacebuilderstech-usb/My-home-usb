@@ -138,11 +138,22 @@ def test_the_tile_scope_is_always_derived_from_the_filtered_set():
 
 
 def test_balance_matches_the_row_expression_and_is_not_clamped():
+    """Balance must be amount - received, unclamped, and must be the SAME
+    arithmetic the table's own Balance column uses.
+
+    Superseded Oct 5 2026: this used to assert the tiles and the row each
+    contained the literal `(e.amount || 0) - (e.amount_received || 0)`.
+    25e0cdb2 extracted a shared `psMoney(e)` helper that both now call, which
+    guarantees structurally what the two literals could only assert in
+    parallel - a strictly better arrangement. The check moved to the helper.
+    """
     src = _src()
-    assert "acc.balance += amt - got;" in src
-    assert "acc.balance += Math.max(0, amt - got);" not in src
-    # the row's own column, for comparison
-    assert "const balance = (e.amount || 0) - (e.amount_received || 0);" in src
+    assert "const psMoney = (e) => {" in src
+    assert "return { amount, received, balance: amount - received };" in src
+    assert "Math.max(0, amount - received)" not in src
+    # the tiles and the row must both go through it
+    assert "const { amount: amt, received: got } = psMoney(e);" in src
+    assert "const { balance } = psMoney(e);" in src
 
 
 def test_the_tiles_sit_above_the_filter_chips():
@@ -186,7 +197,14 @@ def test_the_per_row_money_columns_are_not_gated():
     """A CRE must still see Amount / Received / Balance on the stages they
     work - only the board-wide rollup is hidden."""
     src = _src()
-    assert "const balance = (e.amount || 0) - (e.amount_received || 0);" in src
-    row_block = src[src.index("const balance = (e.amount || 0)"):]
+    row_block = src[src.index("const { balance } = psMoney(e);"):]
     row_block = row_block[:3000]
     assert "isSuperAdmin" not in row_block
+
+
+def test_the_month_scoped_figures_fall_back_to_stage_totals():
+    """month_amount / month_received only exist on a single-month response;
+    All Months rows must still report the stage totals rather than zero."""
+    src = _src()
+    assert "e.month_amount ?? (e.amount || 0)" in src
+    assert "e.month_received ?? (e.amount_received || 0)" in src

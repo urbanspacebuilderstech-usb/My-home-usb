@@ -171,3 +171,75 @@ def test_the_case_is_documented():
     src = _src()
     assert "SATHISKUMAR AGENCY" in src
     assert "001684" in src
+
+
+# --------------------------------------------------------------------------
+# Labelling a chip whose entry has no linked cheque
+# --------------------------------------------------------------------------
+
+def _label_regex():
+    """The real pattern, read out of the module source."""
+    import re as _re
+    m = _re.search(r'_CHEQUE_IN_DESCRIPTION = re\.compile\((r"[^"]+"), re\.I\)', _src())
+    assert m, "_CHEQUE_IN_DESCRIPTION not found"
+    return _re.compile(eval(m.group(1)), _re.I)
+
+
+def label_for(description):
+    """Mirrors the fallback: a number only when the text names exactly one."""
+    found = sorted(set(_label_regex().findall(description or "")))
+    return f"#{found[0]}" if len(found) == 1 else None
+
+
+@pytest.mark.parametrize("description,expected", [
+    ("Excess from cheque(s) 000015 on material bill (mexp_dc5bd18cf621)", "#000015"),
+    ("Excess from cheque #825413 - bulk backfilled after the excess-to-suspense flow was restored", "#825413"),
+])
+def test_a_cheque_named_in_the_description_is_used(description, expected):
+    assert label_for(description) == expected
+
+
+def test_the_reported_entry_now_names_its_cheque():
+    """se_a11fbf9873 - the 16,069 chip that rendered as a bare "Cheque"."""
+    d = ("Restore 180,370 missing seed credit - cheque #001684 tendered 200,000 "
+         "against a 19,630 bill (swipe exp_e0cee333fc29); the excess was never "
+         "written to the pool.")
+    assert label_for(d) == "#001684"
+
+
+def test_amounts_in_the_same_sentence_are_not_mistaken_for_cheques():
+    """200,000 and 19,630 sit beside the cheque number in that very text."""
+    d = "cheque #001684 tendered 200,000 against a 19,630 bill"
+    assert label_for(d) == "#001684"
+
+
+def test_no_cheque_named_means_no_guess():
+    d = ("Restore 17,516 to suspense - USB-MR034 was funded from this pool "
+         "(audit 11 Aug: credit_used=17,516, leg_count=0)")
+    assert label_for(d) is None
+
+
+def test_two_cheques_named_means_no_guess():
+    """Ambiguous text keeps the honest mode label rather than picking one."""
+    assert label_for("Excess from cheque 1111 and cheque 2222") is None
+
+
+def test_a_short_number_is_not_treated_as_a_cheque():
+    assert label_for("cheque 12 something") is None
+
+
+def test_the_fallback_only_runs_when_there_is_no_real_link():
+    """A linked cheque must always win - the description is weaker evidence."""
+    src = _src()
+    block = src[src.index("if cids:"):]
+    block = block[:block.index("_suspense_by_cheque[label]")]
+    assert block.index('" + ".join(f"#{_cheque_num_by_id') < block.index("_CHEQUE_IN_DESCRIPTION.findall")
+
+
+def test_the_fallback_creates_no_data():
+    """It labels a chip; it must not write a link back onto the entry."""
+    src = _src()
+    block = src[src.index("_CHEQUE_IN_DESCRIPTION.findall"):]
+    block = block[:block.index("_suspense_by_cheque[label]")]
+    for w in ("update_one", "insert_one", "update_many", "bulk_write"):
+        assert w not in block
