@@ -1,26 +1,34 @@
-"""The "Suspense by cheque" chips must sum to the Suspense figure (Oct 5 2026).
+"""The "Suspense by cheque" chips (Oct 5 2026).
 
-Accounts > Suspense A/c > Materials > View, SATHISKUMAR AGENCY:
+Accounts > Suspense A/c > Materials > View, SATHISKUMAR AGENCY. Three rounds,
+each number kept here so the progression stays legible:
 
-    header   Suspense 41,767
-    chips    Cheque 1,78,923  +  #825413 25,698   =  2,04,621
+    v1   Cheque 1,78,923 + #825413 25,698  = 2,04,621   vs a 41,767 balance
+    v2   Cheque   16,069 + #825413 25,698  =   41,767   balance right, split wrong
+    v3   #001684 3,862.40 + #000015 12,206.60 + #825413 25,698 = 41,767
 
-The header was right. The chips come from a separate FIFO replay in the vendor
-ledger endpoint, and that replay DISCARDED any debit arriving while the credit
-queue was empty - the `while remaining > 0.5 and _queue` loop just exited and
-the unfunded remainder went nowhere. Credit already spent therefore kept
-showing as available.
+v1 DISCARDED any debit arriving while the credit queue was empty - the
+`while remaining > 0.5 and _queue` loop simply exited and the unfunded
+remainder went nowhere, losing 1,62,854 of real spending. That happened
+because nine debits drew on cheque #001684 in Jul-Aug while #001684's credit
+was not written until 1 Sep, by a repair script ("Restore 180,370 missing seed
+credit - cheque #001684 tendered 200,000 against a 19,630 bill").
 
-Why the queue was empty: nine debits in Jul-Aug all drew on cheque #001684,
-but the credit for that cheque was not written until 1 Sep, as a repair entry
-("Restore 180,370 missing seed credit - cheque #001684 tendered 200,000
-against a 19,630 bill; the excess was never written to the pool"). Replaying
-by created_at meets those debits before their funding exists.
+v2 carried those debits forward so the chips summed correctly, but still
+replayed oldest-credit-against-oldest-debit, which lets one cheque's debits
+eat another cheque's credit. #001684 showed 16,069 when its own arithmetic is
 
-A first guess was that the summary and the ledger applied different filters
-and the ledger was dropping debits. The live trace disproved it: all 19
-entries came back counted_by_summary=true AND shown_in_ledger=true, with
-credits_dropped_by_summary=0. The ordering, not the filtering, was the fault.
+    200000 face - 19630 paid straight to a bill by swipe = 180370 excess
+    180370 - 176507.60 of debits tagged to it            =   3862.40
+
+and the Expense list agrees: 2,00,000 - 1,96,138 = 3,862. The extra 12,206.60
+was #000015's own remainder folded in.
+
+v3 nets per cheque. Every entry already names one - credits through
+linked_cheque_ids or their description, debits through the recorded_expense
+they point at. A bucket with no cheque behind it can go negative (here an
+18,963 debit against a 17,516 restore credit); that deficit settles against
+the other buckets oldest-CREDIT-first.
 """
 import io
 import os
@@ -36,210 +44,214 @@ def _src():
 
 
 # --------------------------------------------------------------------------
-# The replay, mirrored from the endpoint
+# The attribution, mirrored from the endpoint
 # --------------------------------------------------------------------------
 
-def replay(entries, carry_unmatched=True):
-    """entries: [(amount, label)] in created_at order. Returns the chips."""
-    queue, unfunded = [], 0.0
-    for amt, label in entries:
-        if amt > 0.5:
-            rem = amt
-            if carry_unmatched and unfunded > 0.5:
-                take = min(rem, unfunded)
-                rem -= take
-                unfunded -= take
-            if rem > 0.5:
-                queue.append([label, rem])
-        elif amt < -0.5:
-            remaining = -amt
-            while remaining > 0.5 and queue:
-                take = min(remaining, queue[0][1])
-                queue[0][1] -= take
-                remaining -= take
-                if queue[0][1] <= 0.5:
-                    queue.pop(0)
-            if carry_unmatched:
-                unfunded += remaining
-    return queue
+def chips(entries):
+    """entries: [(amount, cheque_label, created_at)] -> {label: balance}"""
+    bucket, first_credit = {}, {}
+    for amt, lab, ts in entries:
+        bucket[lab] = round(bucket.get(lab, 0.0) + amt, 2)
+        if amt > 0.5 and lab not in first_credit:
+            first_credit[lab] = ts
+    deficit = round(sum(v for v in bucket.values() if v < -0.5), 2)
+    if deficit < -0.5:
+        for lab in sorted([l for l, v in bucket.items() if v > 0.5],
+                          key=lambda l: first_credit.get(l, "")):
+            if deficit >= -0.5:
+                break
+            take = min(bucket[lab], -deficit)
+            bucket[lab] = round(bucket[lab] - take, 2)
+            deficit = round(deficit + take, 2)
+    return {l: v for l, v in bucket.items() if v > 0.5}
 
 
-def chips_total(queue):
-    return round(sum(r for _, r in queue), 2)
+def total(c):
+    return round(sum(c.values()), 2)
 
 
-# The real SATHISKUMAR AGENCY ledger, in created_at order.
+# The real SATHISKUMAR AGENCY ledger.
 SATHISKUMAR = [
-    (-16308.00, "001684"), (-17516.00, "001684"), (-19630.00, "001684"),
-    (-19630.00, "001684"), (-17516.00, "001684"), (-17516.00, "001684"),
-    (-19630.00, "001684"), (-16855.80, "001684"), (-15049.80, "001684"),
-    (+80435.20, "Cheque"),
-    (-16856.00, "001684"), (-19564.80, "000015"), (-18442.87, "000015"),
-    (-16519.80, "000015"), (-12254.13, "000015"),
-    (+17516.00, "Cheque"), (+180370.00, "Cheque"),
-    (-18963.00, "(none)"),
-    (+25698.00, "#825413"),
+    (-16308.00, "#001684", "2026-07-03T12:35"), (-17516.00, "#001684", "2026-07-03T12:36:02"),
+    (-19630.00, "#001684", "2026-07-03T12:36:24"), (-19630.00, "#001684", "2026-07-03T12:36:35"),
+    (-17516.00, "#001684", "2026-07-03T12:36:47"), (-17516.00, "#001684", "2026-07-07T09:44"),
+    (-19630.00, "#001684", "2026-07-07T09:45"), (-16855.80, "#001684", "2026-08-11T06:25"),
+    (-15049.80, "#001684", "2026-08-11T06:34"),
+    (+80435.20, "#000015", "2026-08-11T14:13"),
+    (-16856.00, "#001684", "2026-08-11T14:14"), (-19564.80, "#000015", "2026-08-11T14:16"),
+    (-18442.87, "#000015", "2026-08-11T14:18:07"), (-16519.80, "#000015", "2026-08-11T14:18:57"),
+    (-12254.13, "#000015", "2026-08-12T14:26"),
+    (+17516.00, "Cheque", "2026-08-18T11:09"),
+    (+180370.00, "#001684", "2026-09-01T12:50"),
+    (-18963.00, "Cheque", "2026-09-01T13:44"),
+    (+25698.00, "#825413", "2026-09-18T13:03"),
 ]
 TRUE_BALANCE = 41767.00
 
 
-def test_the_real_ledger_balances_to_the_header_figure():
-    assert round(sum(a for a, _ in SATHISKUMAR), 2) == TRUE_BALANCE
+def test_the_ledger_balances_to_the_header_figure():
+    assert round(sum(a for a, _, _ in SATHISKUMAR), 2) == TRUE_BALANCE
 
 
-def test_the_chips_now_sum_to_that_balance():
-    assert chips_total(replay(SATHISKUMAR)) == TRUE_BALANCE
+def test_cheque_001684_shows_its_own_remainder():
+    """The reported case. 2,00,000 - 1,96,138 = 3,862 on the Expense list."""
+    assert chips(SATHISKUMAR)["#001684"] == 3862.40
 
 
-def test_the_old_behaviour_reproduced_the_reported_number():
-    """Proof this was the cause and not something upstream."""
-    assert chips_total(replay(SATHISKUMAR, carry_unmatched=False)) == 204621.00
+def test_the_other_cheques_are_right_too():
+    c = chips(SATHISKUMAR)
+    assert c["#000015"] == 12206.60
+    assert c["#825413"] == 25698.00
 
 
-def test_the_overstatement_was_exactly_the_discarded_debits():
-    old = chips_total(replay(SATHISKUMAR, carry_unmatched=False))
-    new = chips_total(replay(SATHISKUMAR))
-    assert round(old - new, 2) == 162854.00
+def test_the_chips_still_sum_to_the_balance():
+    assert total(chips(SATHISKUMAR)) == TRUE_BALANCE
 
 
-def test_the_chip_labels_are_unchanged_apart_from_the_amount():
-    q = replay(SATHISKUMAR)
-    assert [l for l, _ in q] == ["Cheque", "#825413"]
-    assert [round(r, 2) for _, r in q] == [16069.00, 25698.00]
+def test_the_v2_number_was_two_cheques_conflated():
+    """16,069 was #001684's 3,862.40 plus #000015's 12,206.60."""
+    assert round(3862.40 + 12206.60, 2) == 16069.00
+
+
+def test_001684_arithmetic_matches_the_expense_list():
+    face, swipe = 200000.00, 19630.00
+    debits = round(sum(-a for a, l, _ in SATHISKUMAR if l == "#001684" and a < 0), 2)
+    assert debits == 176507.60
+    assert round(face - swipe - debits, 2) == 3862.40
+    assert round(swipe + debits, 2) == 196137.60      # the 1,96,138 on screen
 
 
 # --------------------------------------------------------------------------
-# General properties
+# Properties
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("entries", [
-    [(+1000.0, "a"), (-400.0, "x")],
-    [(-400.0, "x"), (+1000.0, "a")],          # debit first
-    [(-400.0, "x"), (-100.0, "y"), (+1000.0, "a")],
-    [(+500.0, "a"), (-900.0, "x"), (+1000.0, "b")],
+    [(+1000.0, "#1", "a"), (-400.0, "#1", "b")],
+    [(-400.0, "#1", "a"), (+1000.0, "#1", "b")],
+    [(+1000.0, "#1", "a"), (-400.0, "#2", "b"), (+500.0, "#2", "c")],
+    [(+600.0, "#1", "a"), (+400.0, "#2", "b"), (-900.0, "#1", "c")],
 ])
 def test_chips_always_sum_to_credits_minus_debits(entries):
-    assert chips_total(replay(entries)) == round(sum(a for a, _ in entries), 2)
+    assert total(chips(entries)) == round(sum(a for a, _, _ in entries), 2)
 
 
-def test_order_no_longer_changes_the_total():
-    """The whole defect was that it did."""
-    forward = chips_total(replay([(+1000.0, "a"), (-400.0, "x")]))
-    reversed_ = chips_total(replay([(-400.0, "x"), (+1000.0, "a")]))
-    assert forward == reversed_ == 600.0
+def test_one_cheque_cannot_eat_another_cheques_credit():
+    """The whole v2 defect. #2 spent nothing, so it keeps all 500."""
+    c = chips([(+500.0, "#1", "a"), (+500.0, "#2", "b"), (-500.0, "#1", "c")])
+    assert c == {"#2": 500.0}
 
 
-def test_a_fully_spent_pool_shows_no_chips():
-    assert replay([(+500.0, "a"), (-500.0, "x")]) == []
+def test_order_does_not_change_the_split():
+    forward = chips([(+500.0, "#1", "a"), (-200.0, "#1", "b"), (+300.0, "#2", "c")])
+    shuffled = chips([(+300.0, "#2", "c"), (-200.0, "#1", "b"), (+500.0, "#1", "a")])
+    assert forward == shuffled
 
 
-def test_debits_beyond_every_credit_do_not_produce_negative_chips():
-    """An over-drawn pool shows nothing rather than a negative chip."""
-    q = replay([(+100.0, "a"), (-500.0, "x")])
-    assert q == []
+def test_a_deficit_settles_against_the_oldest_credit():
+    """Not the oldest ENTRY - the oldest funding. #1's credit is older, so it
+    absorbs the unattributed overspend and #2 keeps its own."""
+    c = chips([(+1000.0, "#1", "2026-01-01"), (+1000.0, "#2", "2026-02-01"),
+               (-300.0, "Cheque", "2026-03-01")])
+    assert c == {"#1": 700.0, "#2": 1000.0}
 
 
-def test_a_later_credit_absorbs_an_earlier_overdraw():
-    q = replay([(-500.0, "x"), (+800.0, "a")])
-    assert chips_total(q) == 300.0
+def test_a_fully_spent_cheque_shows_no_chip():
+    assert chips([(+500.0, "#1", "a"), (-500.0, "#1", "b")]) == {}
 
 
-def test_sub_rupee_noise_is_ignored_as_before():
-    q = replay([(+1000.0, "a"), (-0.4, "x"), (+0.3, "b")])
-    assert chips_total(q) == 1000.0
+def test_no_negative_chip_is_ever_shown():
+    c = chips([(+1000.0, "#1", "a"), (-200.0, "Cheque", "b")])
+    assert all(v > 0 for v in c.values())
+    assert total(c) == 800.0
 
 
-# --------------------------------------------------------------------------
-# Structural guards
-# --------------------------------------------------------------------------
-
-def test_the_endpoint_carries_unmatched_debits():
-    src = _src()
-    assert "_unfunded_debit = 0.0" in src
-    assert "_unfunded_debit += remaining" in src
-    assert "take = min(rem, _unfunded_debit)" in src
-
-
-def test_a_credit_is_only_queued_after_settling_the_backlog():
-    src = _src()
-    block = src[src.index("_unfunded_debit = 0.0"):]
-    block = block[:block.index("_cheque_ids_needed")]
-    assert block.index("_unfunded_debit -= take") < block.index("_queue.append([se, rem])")
-
-
-def test_the_case_is_documented():
-    src = _src()
-    assert "SATHISKUMAR AGENCY" in src
-    assert "001684" in src
+def test_sub_rupee_noise_is_ignored():
+    c = chips([(+1000.0, "#1", "a"), (-0.4, "#1", "b")])
+    assert total(c) == 999.60
 
 
 # --------------------------------------------------------------------------
-# Labelling a chip whose entry has no linked cheque
+# Labelling
 # --------------------------------------------------------------------------
 
 def _label_regex():
-    """The real pattern, read out of the module source."""
     import re as _re
     m = _re.search(r'_CHEQUE_IN_DESCRIPTION = re\.compile\((r"[^"]+"), re\.I\)', _src())
     assert m, "_CHEQUE_IN_DESCRIPTION not found"
     return _re.compile(eval(m.group(1)), _re.I)
 
 
-def label_for(description):
-    """Mirrors the fallback: a number only when the text names exactly one."""
+def label_from_description(description):
     found = sorted(set(_label_regex().findall(description or "")))
     return f"#{found[0]}" if len(found) == 1 else None
 
 
 @pytest.mark.parametrize("description,expected", [
     ("Excess from cheque(s) 000015 on material bill (mexp_dc5bd18cf621)", "#000015"),
-    ("Excess from cheque #825413 - bulk backfilled after the excess-to-suspense flow was restored", "#825413"),
+    ("Excess from cheque #825413 - bulk backfilled", "#825413"),
 ])
 def test_a_cheque_named_in_the_description_is_used(description, expected):
-    assert label_for(description) == expected
+    assert label_from_description(description) == expected
 
 
-def test_the_reported_entry_now_names_its_cheque():
-    """se_a11fbf9873 - the 16,069 chip that rendered as a bare "Cheque"."""
+def test_the_restore_entry_names_its_cheque():
     d = ("Restore 180,370 missing seed credit - cheque #001684 tendered 200,000 "
-         "against a 19,630 bill (swipe exp_e0cee333fc29); the excess was never "
-         "written to the pool.")
-    assert label_for(d) == "#001684"
+         "against a 19,630 bill (swipe exp_e0cee333fc29)")
+    assert label_from_description(d) == "#001684"
 
 
 def test_amounts_in_the_same_sentence_are_not_mistaken_for_cheques():
-    """200,000 and 19,630 sit beside the cheque number in that very text."""
-    d = "cheque #001684 tendered 200,000 against a 19,630 bill"
-    assert label_for(d) == "#001684"
+    assert label_from_description(
+        "cheque #001684 tendered 200,000 against a 19,630 bill") == "#001684"
 
 
-def test_no_cheque_named_means_no_guess():
-    d = ("Restore 17,516 to suspense - USB-MR034 was funded from this pool "
-         "(audit 11 Aug: credit_used=17,516, leg_count=0)")
-    assert label_for(d) is None
+def test_ambiguous_or_absent_text_is_not_guessed():
+    assert label_from_description("Restore 17,516 - USB-MR034 funded from this pool") is None
+    assert label_from_description("Excess from cheque 1111 and cheque 2222") is None
+    assert label_from_description("cheque 12 something") is None
 
 
-def test_two_cheques_named_means_no_guess():
-    """Ambiguous text keeps the honest mode label rather than picking one."""
-    assert label_for("Excess from cheque 1111 and cheque 2222") is None
+# --------------------------------------------------------------------------
+# Structural guards
+# --------------------------------------------------------------------------
 
-
-def test_a_short_number_is_not_treated_as_a_cheque():
-    assert label_for("cheque 12 something") is None
-
-
-def test_the_fallback_only_runs_when_there_is_no_real_link():
-    """A linked cheque must always win - the description is weaker evidence."""
+def test_the_endpoint_nets_per_cheque():
     src = _src()
-    block = src[src.index("if cids:"):]
-    block = block[:block.index("_suspense_by_cheque[label]")]
-    assert block.index('" + ".join(f"#{_cheque_num_by_id') < block.index("_CHEQUE_IN_DESCRIPTION.findall")
+    assert "_bucket[lab] = round(_bucket.get(lab, 0.0) + amt, 2)" in src
+    assert "_suspense_by_cheque = {l: v for l, v in _bucket.items() if v > 0.5}" in src
 
 
-def test_the_fallback_creates_no_data():
-    """It labels a chip; it must not write a link back onto the entry."""
+def test_the_old_date_fifo_is_gone():
+    """A queue replay by date is what conflated the two cheques."""
     src = _src()
-    block = src[src.index("_CHEQUE_IN_DESCRIPTION.findall"):]
-    block = block[:block.index("_suspense_by_cheque[label]")]
-    for w in ("update_one", "insert_one", "update_many", "bulk_write"):
+    assert "_unfunded_debit" not in src
+    assert "_queue.append([se, rem])" not in src
+
+
+def test_a_real_link_outranks_the_description():
+    src = _src()
+    block = src[src.index("def _label_for(se):"):]
+    block = block[:block.index("_bucket: Dict[str, float] = {}")]
+    assert block.index("linked_cheque_ids") < block.index("_CHEQUE_IN_DESCRIPTION")
+    assert block.index("_CHEQUE_IN_DESCRIPTION") < block.index("_expense_by_id_l")
+
+
+def test_the_deficit_settles_by_first_credit_not_first_entry():
+    src = _src()
+    assert '_first_credit[lab] = se.get("created_at")' in src
+    assert 'key=lambda l: _first_credit.get(l, "")' in src
+
+
+def test_the_labelling_writes_nothing():
+    src = _src()
+    block = src[src.index("def _label_for(se):"):]
+    block = block[:block.index("suspense_by_cheque = sorted(")]
+    for w in ("update_one", "insert_one", "update_many", "bulk_write", "delete_one"):
         assert w not in block
+
+
+def test_the_case_is_documented():
+    src = _src()
+    assert "SATHISKUMAR AGENCY" in src
+    assert "001684" in src
+    assert "3,862.40" in src

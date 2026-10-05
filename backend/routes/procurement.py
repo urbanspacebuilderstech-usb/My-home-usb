@@ -5376,75 +5376,73 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
              or (se.get("linked_expense_id") or se.get("expense_id")) in _live_expense_ids_l)
     ]
     _live_fifo_entries.sort(key=lambda e: (e.get("created_at") or "", e.get("entry_id") or ""))
-    _queue: List[List[Any]] = []  # [entry, remaining]
-    # Oct 5 2026 - a debit that arrives while the queue is empty used to be
-    # DISCARDED: the `while ... and _queue` loop simply exited and the unfunded
-    # remainder went nowhere. The chips then showed credit as still available
-    # that had in fact already been spent, and stopped summing to the Suspense
-    # figure beside them.
+    # Oct 5 2026 (v3) - attribute each entry to the cheque it names, instead
+    # of replaying oldest-credit-against-oldest-debit and ignoring cheques.
     #
-    # SATHISKUMAR AGENCY: nine debits in Jul-Aug all drew on cheque #001684,
-    # but the credit for that cheque was not written until 1 Sep, as a repair
-    # entry ("Restore 180,370 missing seed credit - cheque #001684 tendered
-    # 200,000 against a 19,630 bill; the excess was never written to the
-    # pool"). Replaying by created_at therefore meets the debits before their
-    # funding exists. 1,62,854 of debits were dropped and the chips read
-    # 1,78,923 + 25,698 = 2,04,621 against a true balance of 41,767.
+    # v2 carried unfunded debits forward so the chips at least summed to the
+    # Suspense figure. They still split it wrongly, because a FIFO by date
+    # lets one cheque's debits eat another cheque's credit.
+    # SATHISKUMAR AGENCY, cheque #001684: 2,00,000 tendered, 19,630 straight to a
+    # bill by swipe, 1,80,370 excess to suspense, and 1,76,507.60 of suspense
+    # debits tagged to it - so 3,862.40 is left, and the Expense list shows
+    # exactly that (2,00,000 - 1,96,138). The chip said 16,069, because
+    # #000015's own 12,206.60 remainder had been folded into it.
     #
-    # Unmatched debits are now carried forward and absorbed by the next credit,
-    # so the queue always sums to the real balance however out of order the
-    # ledger is. Same vendor now reads 16,069 + 25,698 = 41,767.
-    _unfunded_debit = 0.0
-    for se in _live_fifo_entries:
-        amt = float(se.get("amount") or 0)
-        if amt > 0.5:
-            rem = amt
-            if _unfunded_debit > 0.5:
-                take = min(rem, _unfunded_debit)
-                rem -= take
-                _unfunded_debit -= take
-            if rem > 0.5:
-                _queue.append([se, rem])
-        elif amt < -0.5:
-            remaining = -amt
-            while remaining > 0.5 and _queue:
-                head = _queue[0]
-                take = min(remaining, head[1])
-                head[1] -= take
-                remaining -= take
-                if head[1] <= 0.5:
-                    _queue.pop(0)
-            if remaining > 0.5:
-                _unfunded_debit += remaining
-    _cheque_ids_needed = {cid for e, rem in _queue for cid in (e.get("linked_cheque_ids") or [])}
+    # Every entry already names its cheque: credits through linked_cheque_ids
+    # or their description, debits through the recorded_expense they point at.
+    # Netting per cheque gives each one its own remainder.
+    #
+    # A bucket can still go negative where spending had no cheque behind it
+    # (here a 18,963 debit against a 17,516 restore credit, -1,447). That
+    # deficit is settled against the other buckets oldest-CREDIT-first, which
+    # is the same "spend the money that arrived earliest" principle the FIFO
+    # was reaching for - applied to funding rather than to dates. Since the
+    # chips are only drawn at all when the balance is positive, the positives
+    # always cover it.
+    _cheque_ids_needed = {cid for se in _live_fifo_entries for cid in (se.get("linked_cheque_ids") or [])}
     _cheque_num_by_id: Dict[str, Any] = {}
     if _cheque_ids_needed:
         async for c in db.cheques.find({"cheque_id": {"$in": list(_cheque_ids_needed)}}, {"_id": 0, "cheque_id": 1, "cheque_number": 1}):
             _cheque_num_by_id[c["cheque_id"]] = c.get("cheque_number")
-    _suspense_by_cheque: Dict[str, float] = {}
-    for e, rem in _queue:
-        if rem <= 0.5:
-            continue
-        cids = e.get("linked_cheque_ids") or []
+
+    def _label_for(se):
+        cids = se.get("linked_cheque_ids") or []
         if cids:
-            label = " + ".join(f"#{_cheque_num_by_id.get(cid) or cid}" for cid in cids)
-        else:
-            # Entries written by the excess-restore repair scripts carry no
-            # linked_cheque_ids, so this fell back to the payment MODE and
-            # rendered as a bare "Cheque 16,069" with no number - the one
-            # SATHISKUMAR AGENCY chip that could not be identified. Those
-            # scripts did record the cheque, just in prose, so read it back
-            # out. Only when the text names exactly ONE cheque: on two or none
-            # we keep the honest mode label rather than guess. This is weaker
-            # evidence than a real link and does not create one - it only
-            # labels the chip.
-            _found = sorted(set(
-                _CHEQUE_IN_DESCRIPTION.findall(str(e.get("description") or ""))))
-            if len(_found) == 1:
-                label = f"#{_found[0]}"
-            else:
-                label = (e.get("payment_mode") or "Other").replace("_", " ").title()
-        _suspense_by_cheque[label] = round(_suspense_by_cheque.get(label, 0.0) + rem, 2)
+            return " + ".join(f"#{_cheque_num_by_id.get(cid) or cid}" for cid in cids)
+        # The excess-restore repair scripts recorded the cheque in prose only
+        # ("cheque #001684 tendered 200,000 against a 19,630 bill"), so read it
+        # back out. Only when the text names exactly ONE - two or none and we
+        # keep an honest non-committal label rather than guess. The \d{4,}
+        # bound is what stops the amounts in that same sentence being taken
+        # for cheque numbers.
+        _found = sorted(set(_CHEQUE_IN_DESCRIPTION.findall(str(se.get("description") or ""))))
+        if len(_found) == 1:
+            return f"#{_found[0]}"
+        _src = _expense_by_id_l.get(se.get("linked_expense_id") or se.get("expense_id")) or {}
+        if _src.get("cheque_number"):
+            return f"#{_src['cheque_number']}"
+        return (se.get("payment_mode") or "Other").replace("_", " ").title()
+
+    _bucket: Dict[str, float] = {}
+    _first_credit: Dict[str, str] = {}
+    for se in _live_fifo_entries:
+        amt = float(se.get("amount") or 0)
+        lab = _label_for(se)
+        _bucket[lab] = round(_bucket.get(lab, 0.0) + amt, 2)
+        if amt > 0.5 and lab not in _first_credit:
+            _first_credit[lab] = se.get("created_at") or ""
+
+    _deficit = round(sum(v for v in _bucket.values() if v < -0.5), 2)  # <= 0
+    if _deficit < -0.5:
+        for lab in sorted([l for l, v in _bucket.items() if v > 0.5],
+                          key=lambda l: _first_credit.get(l, "")):
+            if _deficit >= -0.5:
+                break
+            take = min(_bucket[lab], -_deficit)
+            _bucket[lab] = round(_bucket[lab] - take, 2)
+            _deficit = round(_deficit + take, 2)
+    _suspense_by_cheque = {l: v for l, v in _bucket.items() if v > 0.5}
+
     suspense_by_cheque = sorted(
         [{"label": k, "balance": v} for k, v in _suspense_by_cheque.items()],
         key=lambda r: -r["balance"],
