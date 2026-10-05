@@ -237,8 +237,9 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
     return out.sort((a, b) => a.localeCompare(b));
   }, [cheques]);
 
-  // Filtering
-  const filtered = useMemo(() => {
+  // Search + project filter, applied before the tab filter. The tab counts and
+  // summary cards are computed from this same set so they match the table.
+  const scoped = useMemo(() => {
     const term = search.trim().toLowerCase();
     return cheques.filter(c => {
       // Search match
@@ -251,6 +252,13 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
         const pname = c.project_name || 'Unassigned';
         if (pname !== projectFilter) return false;
       }
+      return true;
+    });
+  }, [cheques, search, projectFilter]);
+
+  // Filtering
+  const filtered = useMemo(() => {
+    return scoped.filter(c => {
       // The "Disabled" tab is exclusive — only disabled cheques.
       // All other tabs hide disabled cheques.
       if (activeTab === 'disabled') return !!c.is_disabled;
@@ -280,7 +288,7 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
       if (activeTab === 'outgoing') return c.cheque_type === 'outgoing';
       return true;
     });
-  }, [cheques, search, activeTab, projectFilter]);
+  }, [scoped, activeTab]);
 
   // Project-wise grouping (simple: name -> rows)
   const projectGroups = useMemo(() => {
@@ -301,8 +309,8 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
   const stats = useMemo(() => {
     // Disabled cheques are excluded from every "alive" tab/summary and
     // counted separately in their own bucket.
-    const alive = cheques.filter(c => !c.is_disabled);
-    const disabledRows = cheques.filter(c => !!c.is_disabled);
+    const alive = scoped.filter(c => !c.is_disabled);
+    const disabledRows = scoped.filter(c => !!c.is_disabled);
     const incoming = alive.filter(c => c.cheque_type === 'incoming');
     const outgoing = alive.filter(c => c.cheque_type === 'outgoing');
     // Strict per-tab classifications (must mirror the tab filter logic below)
@@ -334,7 +342,7 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
       disabled_count: disabledRows.length,
       disabled_amount: sumAmt(disabledRows),
     };
-  }, [cheques]);
+  }, [scoped]);
 
   if (loading) {
     return <div className="flex items-center justify-center py-12 text-gray-400 gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Loading cheques…</div>;
