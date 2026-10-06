@@ -5747,6 +5747,14 @@ function ProjectWiseLabourTab({ dateFrom, dateTo, setDateFrom, setDateTo }) {
     acc.unskilledAmount += r.unskilled_amount || 0;
     return acc;
   }, { workers: 0, skilledCount: 0, skilledAmount: 0, unskilledCount: 0, unskilledAmount: 0 });
+  // Summary tiles follow the same search-filtered rows as the table footer.
+  const activeProjects = filtered.filter(r => (r.total_workers || 0) > 0).length;
+  const tiles = [
+    { key: 'total', label: 'Total Labour Cost', value: fmtFull(totals.skilledAmount + totals.unskilledAmount), sub: `${activeProjects} of ${filtered.length} projects active`, cls: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
+    { key: 'workers', label: 'Total Workers', value: totals.workers.toLocaleString('en-IN'), sub: `${totals.skilledCount.toLocaleString('en-IN')} skilled · ${totals.unskilledCount.toLocaleString('en-IN')} unskilled`, cls: 'bg-gray-50 border-gray-200 text-gray-800' },
+    { key: 'skilled', label: 'Skilled', value: fmtFull(totals.skilledAmount), sub: `${totals.skilledCount.toLocaleString('en-IN')} workers`, cls: 'bg-blue-50 border-blue-200 text-blue-700' },
+    { key: 'unskilled', label: 'Unskilled', value: fmtFull(totals.unskilledAmount), sub: `${totals.unskilledCount.toLocaleString('en-IN')} workers`, cls: 'bg-amber-50 border-amber-200 text-amber-700' },
+  ];
 
   return (
     <div className="space-y-3">
@@ -5769,6 +5777,19 @@ function ProjectWiseLabourTab({ dateFrom, dateTo, setDateFrom, setDateTo }) {
           </div>
         </CardContent>
       </Card>
+      <div className="flex gap-1.5 sm:gap-3 overflow-x-auto" data-testid="pw-labour-tiles">
+        {tiles.map(t => (
+          <div
+            key={t.key}
+            data-testid={`pw-labour-tile-${t.key}`}
+            className={`flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${t.cls}`}
+          >
+            <span className="text-[9px] sm:text-xs font-medium text-center leading-tight">{t.label}</span>
+            <span className="text-base sm:text-2xl font-bold mt-0.5">{t.value}</span>
+            <span className="text-[9px] sm:text-[11px] opacity-75 text-center leading-tight mt-0.5">{t.sub}</span>
+          </div>
+        ))}
+      </div>
       <Card>
         <CardContent className="p-0 overflow-x-auto">
           <table className="w-full text-sm" data-testid="pw-labour-table">
