@@ -3697,11 +3697,23 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
             "label": src.get("description") or "Labour suspense",
             "project_id": pid,
             "project_name": src.get("project_name") or project_map.get(pid, ""),
-            "mode": (row.get("payment_mode") or src.get("payment_method")
-                     or ("cheque" if row.get("cheque_no") else None)),
+            # Oct 6 2026 - a cheque number ON THIS ROW now outranks the linked
+            # expense's payment_method. It used to be the last resort, so a
+            # cheque excess whose expense recorded method "cash" was filed
+            # under Cash while every debit that spent it was filed under
+            # Cheque. Labour read CASH 1,86,949 / CHEQUE -81,017 on a 1,05,932
+            # total, out of just two rows - sl_37be6835 ("Cheque 350532 excess
+            # from approved 1,480", cheque_no 350532) and sl_5ded242b ("Cheque
+            # 521266 excess...", cheque_no 521266). Both name their cheque in
+            # the description AND carry cheque_no; neither is cash. A tile
+            # cannot truthfully go negative, and that was the proof.
+            "mode": (row.get("payment_mode")
+                     or ("cheque" if row.get("cheque_no") else None)
+                     or src.get("payment_method")),
             "mode_bucket": classify_suspense_bucket(
-                row.get("payment_mode") or src.get("payment_method")
-                or ("cheque" if row.get("cheque_no") else None)),
+                row.get("payment_mode")
+                or ("cheque" if row.get("cheque_no") else None)
+                or src.get("payment_method")),
             "status": src.get("status"),
             "date": row.get("date") or src.get("created_at"),
             "amount": signed,
@@ -14958,10 +14970,10 @@ async def labour_suspense_mode_audit(user: User = Depends(get_current_user)):
         own = row.get("payment_mode")
         from_exp = src.get("payment_method")
         from_cheque_no = "cheque" if row.get("cheque_no") else None
-        mode = own or from_exp or from_cheque_no
+        mode = own or from_cheque_no or from_exp
         where = ("ledger row payment_mode" if own
+                 else "cheque_no on the row" if from_cheque_no
                  else "linked expense payment_method" if from_exp
-                 else "cheque_no present" if from_cheque_no
                  else "nothing - unattributed")
         bucket = classify_suspense_bucket(mode)
 
@@ -15013,10 +15025,18 @@ async def labour_suspense_mode_audit(user: User = Depends(get_current_user)):
             "which means debits are being filed under a different mode from the "
             "credits they consume."
             % ", ".join("%s %s" % (m, v["net"]) for m, v in negatives.items()))
-    if credit_sources != debit_sources:
+    if set(credit_sources) != set(debit_sources):
         findings.append(
-            "Credits and debits derive their mode from different places. "
-            "credits: %s / debits: %s" % (credit_sources, debit_sources))
+            "Credits and debits derive their mode from different SOURCES. "
+            "credits: %s / debits: %s" % (sorted(credit_sources), sorted(debit_sources)))
+    _mislabelled = [
+        e for c in by_contractor.values() for e in c["entries"]
+        if e.get("cheque_no") and e.get("mode_bucket") != "cheque"]
+    if _mislabelled:
+        findings.append(
+            "%d row(s) carry a cheque_no but are filed under another mode: %s"
+            % (len(_mislabelled),
+               ", ".join("%s=%s" % (e["ledger_id"], e["mode_bucket"]) for e in _mislabelled[:10])))
     if not findings:
         findings.append("No mode asymmetry found; the split is sound.")
 
