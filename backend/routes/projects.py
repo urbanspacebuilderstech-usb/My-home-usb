@@ -261,14 +261,17 @@ async def get_dashboard_projects_overview(user: User = Depends(get_current_user)
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin access required")
 
-    counts_raw = await db.projects.aggregate([
-        {"$match": {
-            "is_deleted": {"$ne": True},
-            "planning_status": {"$in": ["new", "active", "delivered"]},
-        }},
-        {"$group": {"_id": "$planning_status", "count": {"$sum": 1}}},
-    ]).to_list(10)
-    counts = {c["_id"]: c["count"] for c in counts_raw}
+    # Oct 6 2026 — the projects themselves, not just counts, so each figure
+    # on the card can open the list behind it. Counts are taken from this
+    # same list so the number and the list can never disagree.
+    projects = await db.projects.find(
+        {"is_deleted": {"$ne": True}, "planning_status": {"$in": ["new", "active", "delivered"]}},
+        {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "planning_status": 1,
+         "location": 1, "created_at": 1},
+    ).sort("name", 1).to_list(5000)
+    counts = {}
+    for p in projects:
+        counts[p.get("planning_status")] = counts.get(p.get("planning_status"), 0) + 1
     new_count = counts.get("new", 0)
     ongoing_count = counts.get("active", 0)
     completed_count = counts.get("delivered", 0)
@@ -277,6 +280,7 @@ async def get_dashboard_projects_overview(user: User = Depends(get_current_user)
         "new": new_count,
         "ongoing": ongoing_count,
         "completed": completed_count,
+        "projects": projects,
     }
 
 

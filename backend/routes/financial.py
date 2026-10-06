@@ -6963,29 +6963,65 @@ async def get_dashboard_labour_summary(
             q["date"]["$gte"] = start_date
         if end_date:
             q["date"]["$lte"] = end_date
-    dlrs = await db.daily_labour_reports.find(q, {"_id": 0, "entries": 1}).to_list(20000)
+    dlrs = await db.daily_labour_reports.find(
+        q, {"_id": 0, "entries": 1, "project_id": 1, "contractor_name": 1, "date": 1},
+    ).to_list(20000)
 
-    buckets = {
-        "skilled": {"count": 0, "amount": 0.0},
-        "semi_skilled": {"count": 0, "amount": 0.0},
-        "unskilled": {"count": 0, "amount": 0.0},
-    }
+    def _empty():
+        return {"count": 0, "amount": 0.0}
+
+    buckets = {"skilled": _empty(), "semi_skilled": _empty(), "unskilled": _empty()}
+    # Oct 6 2026 — the same entries, also kept per (project, contractor) so
+    # each Labour figure on the Dashboard can open the rows behind it.
+    by_site: Dict[tuple, Dict[str, Any]] = {}
     for d in dlrs:
+        key = (d.get("project_id") or "", d.get("contractor_name") or "")
+        site = by_site.setdefault(key, {
+            "project_id": key[0], "contractor_name": key[1], "dates": set(),
+            "skilled": _empty(), "semi_skilled": _empty(), "unskilled": _empty(),
+        })
+        if d.get("date"):
+            site["dates"].add(d["date"])
         for e in (d.get("entries") or []):
             b = _labour_skill_bucket(e.get("type"))
-            buckets[b]["count"] += int(e.get("count") or 0)
-            buckets[b]["amount"] += float(e.get("total_cost") or 0)
+            count, amount = int(e.get("count") or 0), float(e.get("total_cost") or 0)
+            buckets[b]["count"] += count
+            buckets[b]["amount"] += amount
+            site[b]["count"] += count
+            site[b]["amount"] += amount
 
     total_count = sum(b["count"] for b in buckets.values())
     total_amount = sum(b["amount"] for b in buckets.values())
     for b in buckets.values():
         b["amount"] = round(b["amount"], 2)
 
+    pids = [k[0] for k in by_site if k[0]]
+    name_map = {p["project_id"]: p.get("name", "") for p in await db.projects.find(
+        {"project_id": {"$in": pids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(5000)} if pids else {}
+    rows = []
+    for site in by_site.values():
+        parts = [site[b] for b in ("skilled", "semi_skilled", "unskilled")]
+        for p in parts:
+            p["amount"] = round(p["amount"], 2)
+        rows.append({
+            "project_id": site["project_id"],
+            "project_name": name_map.get(site["project_id"]) or "Unknown",
+            "contractor_name": site["contractor_name"],
+            "days": len(site["dates"]),
+            "skilled": site["skilled"],
+            "semi_skilled": site["semi_skilled"],
+            "unskilled": site["unskilled"],
+            "total": {"count": sum(p["count"] for p in parts),
+                      "amount": round(sum(p["amount"] for p in parts), 2)},
+        })
+    rows.sort(key=lambda r: -r["total"]["amount"])
+
     return {
         "total": {"count": total_count, "amount": round(total_amount, 2)},
         "skilled": buckets["skilled"],
         "semi_skilled": buckets["semi_skilled"],
         "unskilled": buckets["unskilled"],
+        "rows": rows,
     }
 
 

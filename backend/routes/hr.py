@@ -1245,14 +1245,34 @@ async def get_dashboard_hr_summary(date: Optional[str] = None, user: User = Depe
         raise HTTPException(status_code=403, detail="Super Admin access required")
 
     target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    total_staff = await db.staff.count_documents({"status": "active"})
-    present = await db.attendance.count_documents({"date": target_date, "status": {"$in": ["present", "wfh"]}})
-    absent = max(0, total_staff - present)
+    # Oct 6 2026 — every active employee with their attendance for the day,
+    # so Total / Present / Absent each open the people behind them. Present
+    # is counted from this same list (active staff only), so the figure and
+    # the list always agree.
+    staff = await db.staff.find(
+        {"status": "active"},
+        {"_id": 0, "staff_id": 1, "name": 1, "designation": 1, "department": 1, "phone": 1},
+    ).sort("name", 1).to_list(5000)
+    att = {a["staff_id"]: a for a in await db.attendance.find(
+        {"date": target_date, "staff_id": {"$in": [s.get("staff_id") for s in staff]}},
+        {"_id": 0, "staff_id": 1, "status": 1, "check_in": 1, "check_out": 1, "is_late": 1},
+    ).to_list(5000)}
+    for s in staff:
+        a = att.get(s.get("staff_id")) or {}
+        s["attendance_status"] = a.get("status") or "absent"
+        s["check_in"] = a.get("check_in")
+        s["check_out"] = a.get("check_out")
+        s["is_late"] = bool(a.get("is_late"))
+        s["is_present"] = s["attendance_status"] in ("present", "wfh")
+    total_staff = len(staff)
+    present = sum(1 for s in staff if s["is_present"])
     return {
         "date": target_date,
         "total_staff": total_staff,
         "present": present,
-        "absent": absent,
+        "absent": total_staff - present,
+        "wfh": sum(1 for s in staff if s["attendance_status"] == "wfh"),
+        "staff": staff,
     }
 
 

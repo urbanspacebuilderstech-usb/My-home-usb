@@ -23,7 +23,11 @@ const TABS = [
 
 export default function FinanceBoard() {
   const [user, setUser] = useState(null);
-  const [active, setActive] = useState('accounts');
+  // `?tab=` opens a specific tab — the Super Admin Dashboard links here.
+  const [active, setActive] = useState(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    return TABS.some(x => x.value === t) ? t : 'accounts';
+  });
 
   useEffect(() => {
     axios.get(`${API}/auth/me`)
