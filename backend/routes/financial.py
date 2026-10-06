@@ -14871,3 +14871,169 @@ async def backfill_reversal_apply(
                  "with its reversal beside it, and the duplicate allocation is "
                  "marked reversed_duplicate rather than removed."),
     }
+
+
+@router.get("/admin/labour-suspense-mode-audit")
+async def labour_suspense_mode_audit(user: User = Depends(get_current_user)):
+    """TEMPORARY read-only audit of the Labour Suspense payment-mode tiles.
+
+    Oct 6 2026 - Accounts > Suspense A/c > Labour shows CASH 1,86,949 and
+    CHEQUE -81,017 against a 1,05,932 total. The total is right (it matches
+    the four contractors), but a negative suspense balance is impossible in
+    reality - you cannot have spent more of a mode than went in - so the
+    split across modes is misassigned.
+
+    Suspected cause, which this proves or disproves: each ledger row takes its
+    mode from
+
+        row.payment_mode  or  linked_expense.payment_method  or  cheque_no
+
+    A CREDIT usually carries its own payment_mode (how the money arrived). A
+    DEBIT often does not, so it falls through to the mode of the expense that
+    SPENT it. Cash-funded suspense settled through a cheque-mode payment would
+    then post +cash and -cheque, inflating one tile and driving the other
+    negative - exactly the shape on screen.
+
+    Reports every row with its mode, where that mode came from, and the
+    credit/debit split per mode, so the asymmetry is visible per contractor.
+
+    Reads only. No writes.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    ledger_rows, labour_exps = await asyncio.gather(
+        db.contractor_suspense_ledger.find({}, {"_id": 0}).to_list(5000),
+        db.recorded_expenses.find(
+            {"category": "labour"},
+            {"_id": 0, "expense_id": 1, "request_id": 1, "linked_request_ids": 1,
+             "contractor_id": 1, "status": 1, "is_deleted": 1, "description": 1,
+             "payment_method": 1, "created_at": 1},
+        ).to_list(5000),
+    )
+
+    _EXCL = {"rejected", "accountant_rejected", "accounts_rejected",
+             "under_correction", "cheque_bounced"}
+    live_prs: Dict[str, set] = {}
+    for e in labour_exps:
+        if (e.get("status") or "").lower() in _EXCL or e.get("is_deleted"):
+            continue
+        cid = e.get("contractor_id")
+        if not cid:
+            continue
+        s = live_prs.setdefault(cid, set())
+        if e.get("request_id"):
+            s.add(e["request_id"])
+        for pr in (e.get("linked_request_ids") or []):
+            s.add(pr)
+
+    exp_by_request: Dict[str, Dict[str, Any]] = {}
+    for e in labour_exps:
+        rid = e.get("request_id")
+        if rid and rid not in exp_by_request:
+            exp_by_request[rid] = e
+
+    by_contractor: Dict[str, Dict[str, Any]] = {}
+    by_mode: Dict[str, Dict[str, float]] = {}
+    for row in ledger_rows:
+        st = (row.get("source_type") or "").lower()
+        if st.startswith("expense_delete_reversal") or st.startswith("susp_heal"):
+            continue
+        cid = row.get("contractor_id")
+        ref = row.get("reference_id")
+        if not ref or ref not in live_prs.get(cid, set()):
+            continue
+        cname = row.get("contractor_name") or "Unknown Contractor"
+        amt = _f(row.get("amount"))
+        mv = (row.get("type") or row.get("movement") or "").lower()
+        signed = amt if mv == "credit" else -amt
+        src = exp_by_request.get(ref) or {}
+
+        own = row.get("payment_mode")
+        from_exp = src.get("payment_method")
+        from_cheque_no = "cheque" if row.get("cheque_no") else None
+        mode = own or from_exp or from_cheque_no
+        where = ("ledger row payment_mode" if own
+                 else "linked expense payment_method" if from_exp
+                 else "cheque_no present" if from_cheque_no
+                 else "nothing - unattributed")
+        bucket = classify_suspense_bucket(mode)
+
+        b = by_mode.setdefault(bucket, {"credits": 0.0, "debits": 0.0, "net": 0.0,
+                                        "credit_rows": 0, "debit_rows": 0})
+        if signed >= 0:
+            b["credits"] = round(b["credits"] + signed, 2)
+            b["credit_rows"] += 1
+        else:
+            b["debits"] = round(b["debits"] + signed, 2)
+            b["debit_rows"] += 1
+        b["net"] = round(b["net"] + signed, 2)
+
+        c = by_contractor.setdefault(cname, {"contractor_name": cname, "balance": 0.0,
+                                             "entries": []})
+        c["balance"] = round(c["balance"] + signed, 2)
+        c["entries"].append({
+            "ledger_id": row.get("ledger_id"),
+            "kind": "credit" if signed >= 0 else "debit",
+            "amount": signed,
+            "mode": mode,
+            "mode_bucket": bucket,
+            "mode_came_from": where,
+            "row_payment_mode": own,
+            "linked_expense_payment_method": from_exp,
+            "cheque_no": row.get("cheque_no"),
+            "reference_id": ref,
+            "description": row.get("notes") or row.get("remarks") or "",
+            "linked_expense_description": src.get("description"),
+            "date": row.get("date") or src.get("created_at"),
+        })
+    for c in by_contractor.values():
+        c["entries"].sort(key=lambda e: str(e.get("date") or ""))
+
+    # ---- is the asymmetry real? ----------------------------------------
+    credit_sources: Dict[str, int] = {}
+    debit_sources: Dict[str, int] = {}
+    for c in by_contractor.values():
+        for e in c["entries"]:
+            d = credit_sources if e["kind"] == "credit" else debit_sources
+            d[e["mode_came_from"]] = d.get(e["mode_came_from"], 0) + 1
+
+    negatives = {m: v for m, v in by_mode.items() if v["net"] < -0.5}
+    findings = []
+    if negatives:
+        findings.append(
+            "Negative mode balance(s): %s. A suspense tile cannot truthfully go "
+            "below zero - more was spent from that mode than ever entered it, "
+            "which means debits are being filed under a different mode from the "
+            "credits they consume."
+            % ", ".join("%s %s" % (m, v["net"]) for m, v in negatives.items()))
+    if credit_sources != debit_sources:
+        findings.append(
+            "Credits and debits derive their mode from different places. "
+            "credits: %s / debits: %s" % (credit_sources, debit_sources))
+    if not findings:
+        findings.append("No mode asymmetry found; the split is sound.")
+
+    return fast_json({
+        "write_performed": False,
+        "read_only": True,
+        "ledger_rows_examined": len(ledger_rows),
+        "rows_counted": sum(len(c["entries"]) for c in by_contractor.values()),
+        "total_balance": round(sum(c["balance"] for c in by_contractor.values()), 2),
+        "by_mode": by_mode,
+        "where_the_mode_came_from": {"credits": credit_sources, "debits": debit_sources},
+        "findings": findings,
+        "reading": (
+            "by_mode.net is what each tile shows. If one is negative while "
+            "another is inflated by a similar amount, the two halves of the "
+            "same movement were filed under different modes - look at "
+            "where_the_mode_came_from to see which side fell back."
+        ),
+        "contractors": sorted(by_contractor.values(), key=lambda c: -abs(c["balance"])),
+    })
