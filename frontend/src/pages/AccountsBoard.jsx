@@ -6205,8 +6205,9 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
         {pwSubTabBar}
         {/* Oct 6 2026 — the same Inventory dashboard as Planning > Dashboard >
             DLR & DPR > Inventory (own Today→Today range, not the shared month
-            range above, so the pills match Planning's on open). */}
-        <InventorySummaryPanel />
+            range above, so the pills match Planning's on open), one row per
+            project with its request lines in a popup. */}
+        <InventorySummaryPanel groupByProject />
       </div>
     );
   }
