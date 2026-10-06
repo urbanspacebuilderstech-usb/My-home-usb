@@ -6412,7 +6412,7 @@ async def get_cashbook_filtered(
     # caller filters the expense collections identically.
     expense_q = build_expense_query(project_id=project_id, start_date=start_date, end_date=end_date)
 
-    (incomes, expense_source_docs, projects_list, petty_cash_docs) = await asyncio.gather(
+    (incomes, expense_source_docs, projects_list, petty_cash_docs, pc_spend_groups) = await asyncio.gather(
         db.income.find(income_q, {"_id": 0}).sort("created_at", -1).to_list(2000),
         # Canonical expense sources (recorded / labour / material requests /
         # legacy material POs / petty cash) — one definition, shared with
@@ -6440,11 +6440,34 @@ async def get_cashbook_filtered(
                            {"_id": 0, "petty_cash_id": 1, "project_id": 1,
                             "amount_requested": 1, "amount_issued": 1,
                             "amount_spent": 1, "status": 1, "created_at": 1,
-                            "purpose": 1, "requested_by_name": 1}).to_list(5000),
+                            "purpose": 1, "requested_by": 1,
+                            "requested_by_name": 1}).to_list(5000),
+        # Oct 6 2026 - where each petty cash request was spent, per project.
+        # Requests are usually raised with no project ("General"), but every
+        # SE expense charged to one is tagged with a project. `approved` is
+        # the status at which that expense is added to the request's
+        # amount_spent, so these sums line up with the Spent tile.
+        db.recorded_expenses.aggregate([
+            {"$match": {"linked_petty_cash_id": {"$nin": [None, ""]},
+                        "status": "approved", "is_deleted": {"$ne": True}}},
+            {"$group": {"_id": {"pc": "$linked_petty_cash_id", "project": "$project_id"},
+                        "project_name": {"$first": "$project_name"},
+                        "amount": {"$sum": "$amount"}}},
+        ]).to_list(20000),
     )
     (recorded_exps, labour_exps, material_reqs, material_exps_legacy, direct_exps) = expense_source_docs
 
     project_map = {p["project_id"]: p["name"] for p in projects_list}
+    pc_spent_by_project: Dict[str, list] = {}
+    for g in pc_spend_groups:
+        pc_id, pid = g["_id"].get("pc"), g["_id"].get("project")
+        if not pc_id or not pid:
+            continue
+        pc_spent_by_project.setdefault(pc_id, []).append({
+            "project_id": pid,
+            "project_name": project_map.get(pid) or g.get("project_name") or "",
+            "amount": round(float(g.get("amount") or 0), 2),
+        })
 
     # Feb 12 2026 — Enrich the Stage column. Some incomes were captured with
     # just the stage number/label (e.g. "1", "2", "3") because the income
@@ -6792,8 +6815,11 @@ async def get_cashbook_filtered(
         # Sep 26 2026 - raw petty_cash rows for the Project Wise > Petty Cash
         # summary tiles (Issued / A/C Approved / Spent / Balance). Grouping
         # and filtering stay client-side, as that tab already does.
+        # Oct 6 2026 - `spent_by_project` lets the tab split a request
+        # across the projects it was spent on.
         "petty_cash_rows": [
-            {**pc, "project_name": project_map.get(pc.get("project_id"), "")}
+            {**pc, "project_name": project_map.get(pc.get("project_id"), ""),
+             "spent_by_project": pc_spent_by_project.get(pc.get("petty_cash_id"), [])}
             for pc in petty_cash_docs
         ],
         "projects": projects_list,

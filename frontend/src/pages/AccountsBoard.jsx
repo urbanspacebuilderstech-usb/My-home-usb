@@ -5840,6 +5840,41 @@ function ProjectWiseLabourTab({ dateFrom, dateTo, setDateFrom, setDateTo }) {
 // Client-side only — reuses the SAME expense_entries the Overview sub-tab
 // already fetched (no extra API call), filtered to expense_type/category
 // "petty_cash" and grouped by project.
+// Oct 6 2026 — Petty cash is usually requested with no project ("General"),
+// but every rupee an SE spends from it is charged to a project (the backend
+// ships those approved spends per request as `spent_by_project`). Split each
+// request across the projects it was spent on; whatever is left (issued but
+// not yet spent) stays on the request's own project, or on one "Not yet spent
+// on a project" row for General requests. Each share is capped by what is
+// left on the request, so every column still sums to the request's own
+// Issued / A/C Approved / Spent and the table reconciles with the tiles.
+const PC_UNALLOCATED_KEY = '__pc_not_on_project__';
+const PC_UNALLOCATED_LABEL = 'Not yet spent on a project';
+function allocatePettyCash(rows) {
+  const pieces = [];
+  (rows || []).forEach(pc => {
+    let issued = Number(pc.amount_issued) || 0;
+    let approved = pc.status && pc.status !== 'requested' ? Number(pc.amount_requested) || 0 : 0;
+    let spent = Number(pc.amount_spent) || 0;
+    (pc.spent_by_project || []).forEach(sp => {
+      const s = Math.min(Number(sp.amount) || 0, spent);
+      if (!sp.project_id || s <= 0) return;
+      const i = Math.min(s, issued);
+      const a = Math.min(s, approved);
+      pieces.push({ key: sp.project_id, project_name: sp.project_name || 'Unknown', issued: i, approved: a, spent: s, pc });
+      issued -= i; approved -= a; spent -= s;
+    });
+    if (pc.project_id || issued || approved || spent) {
+      pieces.push({
+        key: pc.project_id || PC_UNALLOCATED_KEY,
+        project_name: pc.project_id ? (pc.project_name || 'Unknown') : PC_UNALLOCATED_LABEL,
+        issued, approved, spent, pc,
+      });
+    }
+  });
+  return pieces;
+}
+
 function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateFrom, dateTo, setDateFrom, setDateTo }) {
   const [search, setSearch] = useState('');
   const [seFilter, setSeFilter] = useState('');
@@ -5883,26 +5918,29 @@ function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateF
   // pcTotals comment above).
   //
   // Petty cash requests can be raised with NO project ("global" — see
-  // request_petty_cash, which stores project_id as "" and project_name as
-  // "General" in that case). Grouping on project_id alone therefore dropped
-  // every such row silently — with enough of those, the whole table showed
-  // "No petty cash entries" even though the tiles (which don't group) still
-  // totalled real money. Fall back to project_name as the group key so a
-  // General bucket still surfaces as its own row instead of vanishing.
+  // request_petty_cash, which stores project_id as ""). The endpoint ships
+  // those with a blank project_name, so grouping on project_id/project_name
+  // dropped every one of them and the table read "No petty cash entries"
+  // while the tiles still totalled real money. allocatePettyCash() moves
+  // each request onto the projects it was spent on instead, and parks the
+  // unspent remainder of General requests on its own row (Oct 6 2026).
+  const pcPieces = React.useMemo(() => allocatePettyCash(sePettyCashRows), [sePettyCashRows]);
   const pcByProject = React.useMemo(() => {
     const map = {};
-    sePettyCashRows.forEach(pc => {
-      const key = pc.project_id || pc.project_name;
-      if (!key) return;
-      if (!map[key]) map[key] = { project_id: pc.project_id || key, project_name: pc.project_name || 'Unknown', issued: 0, approved: 0, spent: 0 };
-      map[key].issued += Number(pc.amount_issued) || 0;
-      map[key].spent += Number(pc.amount_spent) || 0;
-      if (pc.status && pc.status !== 'requested') map[key].approved += Number(pc.amount_requested) || 0;
+    pcPieces.forEach(piece => {
+      const key = piece.key;
+      if (!map[key]) map[key] = { project_id: key, project_name: piece.project_name, issued: 0, approved: 0, spent: 0, requests: [] };
+      map[key].issued += piece.issued;
+      map[key].approved += piece.approved;
+      map[key].spent += piece.spent;
+      map[key].requests.push(piece);
     });
     return Object.values(map)
       .map(p => ({ ...p, balance: p.issued - p.spent, rows: byProject[p.project_id]?.rows || [] }))
-      .sort((a, b) => (a.project_name || '').localeCompare(b.project_name || ''));
-  }, [sePettyCashRows, byProject]);
+      // The not-on-a-project row sorts last, after the real projects.
+      .sort((a, b) => (a.project_id === PC_UNALLOCATED_KEY) - (b.project_id === PC_UNALLOCATED_KEY)
+        || (a.project_name || '').localeCompare(b.project_name || ''));
+  }, [pcPieces, byProject]);
 
   const filtered = pcByProject.filter(r => !search || (r.project_name || '').toLowerCase().includes(search.toLowerCase()));
   const grandTotal = {
@@ -5924,16 +5962,20 @@ function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateF
   //   Spent        - reported back as spent by the SE
   //   Balance      - Issued - Spent, i.e. cash still sitting with SEs. Same
   //                  formula the Daily Closing dialog uses.
+  //
+  // Oct 6 2026 — summed from the same per-project pieces as the table, so a
+  // project search narrows the tiles to exactly the rows shown. With no
+  // search the pieces add back up to the raw petty_cash figures.
   const pcTotals = React.useMemo(() => {
     const t = { issued: 0, approved: 0, spent: 0 };
-    sePettyCashRows.forEach(pc => {
-      if (search && !(pc.project_name || '').toLowerCase().includes(search.toLowerCase())) return;
-      t.issued += Number(pc.amount_issued) || 0;
-      t.spent += Number(pc.amount_spent) || 0;
-      if (pc.status && pc.status !== 'requested') t.approved += Number(pc.amount_requested) || 0;
+    pcPieces.forEach(piece => {
+      if (search && !(piece.project_name || '').toLowerCase().includes(search.toLowerCase())) return;
+      t.issued += piece.issued;
+      t.approved += piece.approved;
+      t.spent += piece.spent;
     });
     return { ...t, balance: t.issued - t.spent };
-  }, [sePettyCashRows, search]);
+  }, [pcPieces, search]);
 
   return (
     <div className="space-y-3">
@@ -6033,7 +6075,40 @@ function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateF
           <DialogHeader>
             <DialogTitle>{viewProject?.project_name} — Petty Cash Entries</DialogTitle>
           </DialogHeader>
+          {/* Oct 6 2026 — which petty cash requests make up this row, and how
+              much of each was issued / spent here. */}
+          {(viewProject?.requests || []).length > 0 && (
+            <div className="overflow-x-auto" data-testid="pw-pettycash-detail-requests">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1">From petty cash requests</p>
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase">Date</th>
+                    <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase">Site Engineer</th>
+                    <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase">Purpose</th>
+                    <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase">Issued</th>
+                    <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase">Spent</th>
+                    <th className="px-2 py-1.5 text-right text-[10px] font-semibold text-gray-500 uppercase">Balance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {viewProject.requests.map((piece, i) => (
+                    <tr key={`${piece.pc.petty_cash_id || i}-${i}`}>
+                      <td className="px-2 py-1.5 text-gray-600 whitespace-nowrap">{piece.pc.created_at ? new Date(piece.pc.created_at).toLocaleDateString('en-GB') : '—'}</td>
+                      <td className="px-2 py-1.5 text-gray-700">{piece.pc.requested_by_name || '—'}</td>
+                      <td className="px-2 py-1.5 text-gray-700">{piece.pc.purpose || '—'}</td>
+                      <td className="px-2 py-1.5 text-right text-indigo-700">{fmtFull(piece.issued)}</td>
+                      <td className="px-2 py-1.5 text-right text-red-700">{fmtFull(piece.spent)}</td>
+                      <td className="px-2 py-1.5 text-right font-semibold text-emerald-700">{fmtFull(piece.issued - piece.spent)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {(viewProject?.rows || []).length > 0 && (
           <div className="overflow-x-auto">
+            <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1">Cashbook entries</p>
             <table className="w-full text-xs">
               <thead className="bg-gray-50 border-b">
                 <tr>
@@ -6055,6 +6130,10 @@ function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateF
               </tbody>
             </table>
           </div>
+          )}
+          {!(viewProject?.requests || []).length && !(viewProject?.rows || []).length && (
+            <p className="text-sm text-gray-400 text-center py-6">No petty cash entries for this project.</p>
+          )}
         </DialogContent>
       </Dialog>
     </div>

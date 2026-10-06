@@ -85,25 +85,61 @@ def test_each_bound_can_stand_alone():
 # The tile arithmetic, mirrored from the component
 # --------------------------------------------------------------------------
 
+UNALLOCATED = "Not yet spent on a project"
+
+
+def allocate(rows):
+    """Mirror of allocatePettyCash() (Oct 6 2026): split each request across
+    the projects it was spent on; the unspent remainder stays on the
+    request's own project, or on the not-on-a-project row."""
+    pieces = []
+    for pc in rows:
+        issued = pc.get("amount_issued") or 0
+        approved = (pc.get("amount_requested") or 0) if pc.get("status") and pc["status"] != "requested" else 0
+        spent = pc.get("amount_spent") or 0
+        for sp in pc.get("spent_by_project") or []:
+            s = min(sp.get("amount") or 0, spent)
+            if not sp.get("project_id") or s <= 0:
+                continue
+            i, a = min(s, issued), min(s, approved)
+            pieces.append({"name": sp.get("project_name") or "Unknown",
+                           "issued": i, "approved": a, "spent": s})
+            issued, approved, spent = issued - i, approved - a, spent - s
+        if pc.get("project_id") or issued or approved or spent:
+            pieces.append({"name": (pc.get("project_name") or "Unknown") if pc.get("project_id") else UNALLOCATED,
+                           "issued": issued, "approved": approved, "spent": spent})
+    return pieces
+
+
+def by_project(rows):
+    out = {}
+    for p in allocate(rows):
+        r = out.setdefault(p["name"], {"issued": 0, "approved": 0, "spent": 0})
+        for k in ("issued", "approved", "spent"):
+            r[k] += p[k]
+    for r in out.values():
+        r["balance"] = r["issued"] - r["spent"]
+    return out
+
+
 def tiles(rows, search=""):
     issued = approved = spent = 0.0
-    for pc in rows:
-        if search and search.lower() not in (pc.get("project_name") or "").lower():
+    for p in allocate(rows):
+        if search and search.lower() not in p["name"].lower():
             continue
-        issued += pc.get("amount_issued") or 0
-        spent += pc.get("amount_spent") or 0
-        if pc.get("status") and pc["status"] != "requested":
-            approved += pc.get("amount_requested") or 0
+        issued += p["issued"]
+        approved += p["approved"]
+        spent += p["spent"]
     return {"issued": issued, "approved": approved, "spent": spent,
             "balance": issued - spent}
 
 
 ROWS = [
-    {"project_name": "Mr Gopinath", "status": "settled",
+    {"project_id": "p_gopi", "project_name": "Mr Gopinath", "status": "settled",
      "amount_requested": 5000, "amount_issued": 5000, "amount_spent": 4200},
-    {"project_name": "Mr Gopinath", "status": "issued",
+    {"project_id": "p_gopi", "project_name": "Mr Gopinath", "status": "issued",
      "amount_requested": 3000, "amount_issued": 3000, "amount_spent": 0},
-    {"project_name": "Mrs Lavanya", "status": "requested",
+    {"project_id": "p_lav", "project_name": "Mrs Lavanya", "status": "requested",
      "amount_requested": 2000, "amount_issued": 0, "amount_spent": 0},
 ]
 
@@ -153,6 +189,79 @@ def test_absent_amounts_are_treated_as_zero(missing):
 
 
 # --------------------------------------------------------------------------
+# Splitting requests across the projects they were spent on (Oct 6 2026)
+# --------------------------------------------------------------------------
+
+GENERAL = {"project_id": "", "project_name": "", "status": "issued",
+           "amount_requested": 15000, "amount_issued": 15000, "amount_spent": 0}
+
+
+def test_unspent_general_request_still_gets_a_row():
+    """The bug: General requests have no project, so the table dropped them
+    and read 'No petty cash entries' while the tiles showed 15,000."""
+    rows = by_project([GENERAL])
+    assert rows == {UNALLOCATED: {"issued": 15000, "approved": 15000,
+                                  "spent": 0, "balance": 15000}}
+
+
+def test_general_request_moves_onto_the_projects_it_was_spent_on():
+    pc = dict(GENERAL, amount_spent=7000, spent_by_project=[
+        {"project_id": "p_a", "project_name": "Project A", "amount": 5000},
+        {"project_id": "p_b", "project_name": "Project B", "amount": 2000},
+    ])
+    rows = by_project([pc])
+    assert rows["Project A"] == {"issued": 5000, "approved": 5000, "spent": 5000, "balance": 0}
+    assert rows["Project B"] == {"issued": 2000, "approved": 2000, "spent": 2000, "balance": 0}
+    assert rows[UNALLOCATED] == {"issued": 8000, "approved": 8000, "spent": 0, "balance": 8000}, (
+        "cash still with the SE stays off the projects until it is spent")
+
+
+def test_columns_still_add_up_to_the_raw_request_totals():
+    pc = dict(GENERAL, amount_spent=7000, spent_by_project=[
+        {"project_id": "p_a", "project_name": "Project A", "amount": 5000},
+        {"project_id": "p_b", "project_name": "Project B", "amount": 2000},
+    ])
+    rows = by_project([pc] + ROWS)
+    for k in ("issued", "approved", "spent"):
+        assert sum(r[k] for r in rows.values()) == tiles([pc] + ROWS)[k]
+    assert tiles([pc] + ROWS)["issued"] == 15000 + 8000
+
+
+def test_project_request_spent_elsewhere_keeps_its_remainder():
+    pc = {"project_id": "p_gopi", "project_name": "Mr Gopinath", "status": "issued",
+          "amount_requested": 5000, "amount_issued": 5000, "amount_spent": 1500,
+          "spent_by_project": [{"project_id": "p_lav", "project_name": "Mrs Lavanya", "amount": 1500}]}
+    rows = by_project([pc])
+    assert rows["Mrs Lavanya"]["spent"] == 1500
+    assert rows["Mr Gopinath"] == {"issued": 3500, "approved": 3500, "spent": 0, "balance": 3500}
+
+
+def test_spends_beyond_the_requests_own_spent_figure_are_capped():
+    """amount_spent is what the request itself says was spent; the per-
+    project split can never claim more than that."""
+    pc = dict(GENERAL, amount_spent=3000, spent_by_project=[
+        {"project_id": "p_a", "project_name": "Project A", "amount": 4000}])
+    rows = by_project([pc])
+    assert rows["Project A"]["spent"] == 3000
+    assert tiles([pc])["spent"] == 3000
+
+
+def test_overspent_request_shows_the_overspend_on_the_project():
+    pc = dict(GENERAL, amount_issued=1000, amount_requested=1000, amount_spent=1200,
+              spent_by_project=[{"project_id": "p_a", "project_name": "Project A", "amount": 1200}])
+    rows = by_project([pc])
+    assert rows["Project A"] == {"issued": 1000, "approved": 1000, "spent": 1200, "balance": -200}
+    assert UNALLOCATED not in rows
+
+
+def test_search_narrows_tiles_to_the_matching_project_rows():
+    pc = dict(GENERAL, amount_spent=5000, spent_by_project=[
+        {"project_id": "p_a", "project_name": "Project A", "amount": 5000}])
+    assert tiles([pc], search="project a") == {"issued": 5000, "approved": 5000,
+                                               "spent": 5000, "balance": 0}
+
+
+# --------------------------------------------------------------------------
 # Structural guards
 # --------------------------------------------------------------------------
 
@@ -179,8 +288,21 @@ def test_component_reads_the_rows_not_the_expense_legs():
     assert "pettyCashRows={filteredData?.petty_cash_rows || []}" in ui
     assert "function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows," in ui
     # the tiles must not be derived from the recorded_expenses totals
-    assert "t.issued += Number(pc.amount_issued) || 0;" in ui
+    assert "let issued = Number(pc.amount_issued) || 0;" in ui
+    assert "allocatePettyCash(sePettyCashRows)" in ui
     assert "balance: t.issued - t.spent" in ui
+
+
+def test_endpoint_ships_spend_per_project_for_each_request():
+    node, src = _func("get_cashbook_filtered")
+    seg = ast.get_source_segment(src, node) or ""
+    head = seg.split("asyncio.gather(", 1)[1].split("\n    )", 1)[0]
+    assert "db.recorded_expenses.aggregate(" in head, "fetched in the same gather, no extra round trip"
+    assert '"linked_petty_cash_id"' in head
+    assert '"status": "approved"' in head, (
+        "approved is when an SE expense is added to the request's amount_spent")
+    assert '"spent_by_project": pc_spent_by_project.get(' in seg
+    assert '"requested_by": 1' in head, "the Site Engineer filter keys on requested_by"
 
 
 def test_all_four_tiles_are_rendered():
@@ -194,5 +316,5 @@ def test_all_four_tiles_are_rendered():
 
 def test_tiles_respect_the_search_box():
     ui = _src(BOARD)
-    seg = ui.split("const pcTotals", 1)[1].split("}, [pettyCashRows, search]);", 1)[0]
+    seg = ui.split("const pcTotals", 1)[1].split("}, [pcPieces, search]);", 1)[0]
     assert "if (search &&" in seg, "tiles must match the rows shown in the table"
