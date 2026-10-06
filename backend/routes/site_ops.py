@@ -1536,8 +1536,11 @@ async def get_material_rate_breakdown(
     allocated the same way the per-request Current Stock column already is
     (oldest-received batch drained first) — a batch shown as fully consumed
     there must show its own full quantity consumed here too, not the
-    material's total consumption across every other request's batch as well."""
-    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN]:
+    material's total consumption across every other request's batch as well.
+
+    Oct 6 2026 — also opened to Accountant: Finance Board > Project Wise >
+    Material now renders Planning's Inventory table, ⓘ popup included."""
+    if user.role not in [UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
 
     rows = []

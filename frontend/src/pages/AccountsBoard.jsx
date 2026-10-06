@@ -16,6 +16,7 @@ import { CashbookDateFilter, filterByDateRange } from '../components/CashbookDat
 import ChequeListView from '../components/ChequeListView';
 import MetaDateFilter from '../components/MetaDateFilter';
 import MaterialSearchSelect from '../components/MaterialSearchSelect';
+import InventorySummaryPanel from '../components/InventorySummaryPanel';
 import PayApprovalDialog from '../components/PayApprovalDialog';
 import DTSelectToPayDialog from '../components/DTSelectToPayDialog';
 import PhotoLightbox from '../components/PhotoLightbox';
@@ -5712,108 +5713,6 @@ function ApprovalExpenseTable({ items, type, idField, amountField, altAmountFiel
 }
 
 
-// ============ PROJECT WISE > MATERIAL sub-tab ============
-// Aug 29 2026 — Same project-list shape as the Overview sub-tab, but pulls
-// from Planning's own /planning/inventory-summary (now also opened to
-// Accountant/Super Admin) so this never drifts from Planning's Inventory
-// tab — one project-wise material rollup, not a second parallel formula.
-function ProjectWiseMaterialTab({ dateFrom, dateTo, setDateFrom, setDateTo }) {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [search, setSearch] = useState('');
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const params = new URLSearchParams();
-        if (dateFrom) params.append('start_date', dateFrom);
-        if (dateTo) params.append('end_date', dateTo);
-        const res = await axios.get(`${API}/planning/inventory-summary?${params}`);
-        if (cancelled) return;
-        // Roll the per-request rows up to one row per project: Total
-        // Material Value = sum of Current SV (current stock value) across
-        // every material; Today Stock Out Value = sum of today_out × rate.
-        const byProject = {};
-        (res.data?.rows || []).forEach(r => {
-          const key = r.project_id;
-          if (!byProject[key]) byProject[key] = { project_id: r.project_id, project_name: r.project_name, total_value: 0, today_out_value: 0 };
-          const rate = Number(r.unit_rate) || 0;
-          byProject[key].total_value += r.current_sv != null ? Number(r.current_sv) || 0 : (Number(r.current_stock) || 0) * rate;
-          byProject[key].today_out_value += (Number(r.today_out) || 0) * rate;
-        });
-        setRows(Object.values(byProject).sort((a, b) => (a.project_name || '').localeCompare(b.project_name || '')));
-      } catch {
-        if (!cancelled) setRows([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [dateFrom, dateTo]);
-
-  const filtered = rows.filter(r => !search || (r.project_name || '').toLowerCase().includes(search.toLowerCase()));
-  const totals = filtered.reduce((acc, r) => { acc.total += r.total_value; acc.out += r.today_out_value; return acc; }, { total: 0, out: 0 });
-
-  return (
-    <div className="space-y-3">
-      <Card>
-        <CardContent className="p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <CashbookDateFilter dateFrom={dateFrom} dateTo={dateTo} setDateFrom={setDateFrom} setDateTo={setDateTo} testIdPrefix="pwmaterial" accent="amber" />
-            {loading && <RefreshCw className="h-4 w-4 animate-spin text-amber-600" />}
-            <div className="relative ml-auto w-full sm:w-72">
-              <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search project name..."
-                data-testid="pw-material-search"
-                className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full text-sm" data-testid="pw-material-table">
-            <thead className="bg-gray-50 border-y">
-              <tr>
-                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
-                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
-                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Total Material Value</th>
-                <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Today Material Stock Out Value</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {filtered.length === 0 ? (
-                <tr><td colSpan={4} className="px-3 py-8 text-center text-gray-400 text-sm">{loading ? 'Loading…' : 'No data'}</td></tr>
-              ) : filtered.map((r, idx) => (
-                <tr key={r.project_id} className="hover:bg-gray-50" data-testid={`pw-material-row-${idx}`}>
-                  <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
-                  <td className="px-3 py-2 font-medium text-gray-900">{r.project_name}</td>
-                  <td className="px-3 py-2 text-right text-indigo-700 font-semibold">{fmtFull(r.total_value)}</td>
-                  <td className="px-3 py-2 text-right text-red-700 font-semibold">{fmtFull(r.today_out_value)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot className="bg-gray-50 border-t font-semibold">
-              <tr>
-                <td className="px-3 py-2" colSpan={2}>Total</td>
-                <td className="px-3 py-2 text-right">{fmtFull(totals.total)}</td>
-                <td className="px-3 py-2 text-right">{fmtFull(totals.out)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
 // ============ PROJECT WISE > LABOUR sub-tab ============
 function ProjectWiseLabourTab({ dateFrom, dateTo, setDateFrom, setDateTo }) {
   const [rows, setRows] = useState([]);
@@ -6188,8 +6087,9 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
   const [projSearch, setProjSearch] = useState('');
 
   // Aug 29 2026 — Overview | Material | Labour | Petty Cash sub-tabs.
-  // Material/Labour/Petty Cash share this same date range so switching
-  // sub-tabs doesn't reset "respective to the date filter".
+  // Labour/Petty Cash share this same date range so switching sub-tabs
+  // doesn't reset "respective to the date filter". Material is Planning's
+  // Inventory dashboard and keeps its own Today→Today range (Oct 6 2026).
   const [pwSubTab, setPwSubTab] = useState('overview');
   const pwSubTabBar = (
     <div className="flex items-center gap-1 border-b mb-1" data-testid="project-wise-subtabs">
@@ -6303,7 +6203,10 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
     return (
       <div className="space-y-4" data-testid="project-summary-tab">
         {pwSubTabBar}
-        <ProjectWiseMaterialTab dateFrom={projDateFrom} dateTo={projDateTo} setDateFrom={setProjDateFrom} setDateTo={setProjDateTo} />
+        {/* Oct 6 2026 — the same Inventory dashboard as Planning > Dashboard >
+            DLR & DPR > Inventory (own Today→Today range, not the shared month
+            range above, so the pills match Planning's on open). */}
+        <InventorySummaryPanel />
       </div>
     );
   }
