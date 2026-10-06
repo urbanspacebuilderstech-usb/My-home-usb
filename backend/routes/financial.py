@@ -9924,6 +9924,93 @@ async def suspense_funded_mode_repair_apply(expense_ids: str, user: User = Depen
     return {"write_performed": any(r.get("written") for r in results), "results": results}
 
 
+# ── Oct 6 2026 — USB-MR511 / SATHISKUMAR AGENCY: name the cheque ──
+# The mode repair above set USB-MR511 (18,963) to "cheque" but no cheque
+# number: it was funded 17,516 by the USB-MR034 restore credit (which names no
+# cheque) + 1,447 by cheque #001684's seed credit. So the Expense list showed
+# no "#" and the vendor timeline drew a "Cheque -1,447" chip (17,516 restore
+# credit - 18,963 debit, both unnamed) while #001684's chip read 3,862 instead
+# of 2,415. MR034 was paid 11 Aug, when every suspense-funded bill of this
+# vendor ran on #001684 (exp_d775c504932f / exp_9a7873f2e856 /
+# exp_4f4b6fa46805), so both rows belong to #001684.
+#   - bill: cheque_id/cheque_number on its recorded_expense. Suspense-funded
+#     rows are excluded from the cheque's spend (trace_cheque_usage), so the
+#     cheque's available balance does not move.
+#   - restore credit: the cheque is named in its DESCRIPTION, not via
+#     linked_cheque_ids — a positive credit with linked_cheque_ids would be
+#     counted by _cheque_seeded_suspense as money the cheque seeded.
+_MR511 = {"expense_id": "exp_137eef0a9ccf", "restore_entry_id": "se_2499341b08",
+          "cheque_id": "chq_8e7e0aae", "cheque_number": "001684"}
+_MR511_RESTORE_NOTE = " Pool of cheque #001684 (USB-MR034 was paid from it on 11 Aug)."
+
+
+async def _plan_mr511_cheque_tag() -> Dict[str, Any]:
+    exp = await db.recorded_expenses.find_one({"expense_id": _MR511["expense_id"]}, {"_id": 0})
+    credit = await db.suspense_entries.find_one({"entry_id": _MR511["restore_entry_id"]}, {"_id": 0})
+    cheque = await db.cheques.find_one({"cheque_id": _MR511["cheque_id"]}, {"_id": 0, "cheque_number": 1})
+    problems = []
+    if not exp:
+        problems.append("bill expense not found")
+    elif (exp.get("payment_method") or "").lower() != "cheque":
+        problems.append(f"bill mode is '{exp.get('payment_method')}', expected 'cheque' (run the mode repair first)")
+    if not credit:
+        problems.append("restore credit not found")
+    if (cheque or {}).get("cheque_number") != _MR511["cheque_number"]:
+        problems.append("cheque chq_8e7e0aae is not #001684")
+    bill_done = bool(exp) and exp.get("cheque_number") == _MR511["cheque_number"]
+    credit_done = bool(credit) and _MR511["cheque_number"] in str(credit.get("description") or "")
+    desc = (exp or {}).get("description") or ""
+    return {
+        "problems": problems,
+        "bill": {"expense_id": _MR511["expense_id"], "already_tagged": bill_done,
+                 "before": {k: (exp or {}).get(k) for k in ("payment_method", "cheque_id", "cheque_number", "description")},
+                 "after": {"cheque_id": _MR511["cheque_id"], "cheque_ids": [_MR511["cheque_id"]],
+                           "cheque_number": _MR511["cheque_number"],
+                           "description": desc.replace("(via cheque suspense)", "(via Cheque #001684 suspense)")}},
+        "restore_credit": {"entry_id": _MR511["restore_entry_id"], "already_tagged": credit_done,
+                           "amount": (credit or {}).get("amount"),
+                           "before_description": (credit or {}).get("description"),
+                           "after_description": str((credit or {}).get("description") or "") + _MR511_RESTORE_NOTE},
+        "expected_timeline_chips": {"#001684": "3,862.40 + 17,516 - 18,963 = 2,415.40",
+                                    "Cheque": "removed (was -1,447)", "total": "unchanged"},
+        "cheque_available_balance": "unchanged — suspense-funded bills are not counted against the cheque",
+    }
+
+
+@router.get("/admin/usb-mr511-cheque-tag-dryrun")
+async def usb_mr511_cheque_tag_dryrun(user: User = Depends(get_current_user)):
+    """READ-ONLY: what naming cheque #001684 on USB-MR511 would change."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return {"write_performed": False, **(await _plan_mr511_cheque_tag())}
+
+
+@router.post("/admin/usb-mr511-cheque-tag-apply")
+async def usb_mr511_cheque_tag_apply(user: User = Depends(get_current_user)):
+    """Name cheque #001684 on USB-MR511's bill + the MR034 restore credit.
+    Each write is filtered on the row not being tagged yet, so re-runs no-op."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    plan = await _plan_mr511_cheque_tag()
+    if plan["problems"]:
+        raise HTTPException(status_code=409, detail="; ".join(plan["problems"]))
+    now = datetime.now(timezone.utc).isoformat()
+    r1 = await db.recorded_expenses.update_one(
+        {"expense_id": _MR511["expense_id"], "payment_method": "cheque",
+         "$or": [{"cheque_number": None}, {"cheque_number": ""}, {"cheque_number": {"$exists": False}}]},
+        {"$set": {**plan["bill"]["after"], "cheque_tag_repair": {
+            "before": plan["bill"]["before"], "repaired_at": now, "repaired_by": user.user_id}}})
+    r2 = await db.suspense_entries.update_one(
+        {"entry_id": _MR511["restore_entry_id"],
+         "description": {"$not": {"$regex": _MR511["cheque_number"]}}},
+        {"$set": {"description": plan["restore_credit"]["after_description"],
+                  "previous_description": plan["restore_credit"]["before_description"],
+                  "cheque_tag_repaired_at": now}})
+    result = {"bill_updated": r1.modified_count, "restore_credit_updated": r2.modified_count}
+    await create_audit_log(user.user_id, "usb_mr511_cheque_tag", "recorded_expense", _MR511["expense_id"], result)
+    return {"write_performed": bool(r1.modified_count or r2.modified_count), **result}
+
+
 @router.get("/approvals/{req_type}/{request_id}/pay-context")
 async def get_pay_context(req_type: str, request_id: str, user: User = Depends(get_current_user)):
     """Returns request details + current suspense balance + active opened cheques (for the dialog)."""
