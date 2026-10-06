@@ -9640,12 +9640,15 @@ async def _resolve_suspense_funding_source(
     remaining_to_source = credit_used
     source_entry = None
     source_expense = None
+    first_funding = None
     for head in queue:
         if remaining_to_source <= 0.5:
             break
         se = head["entry"]
         take = min(head["remaining"], remaining_to_source)
         remaining_to_source -= take
+        if first_funding is None:
+            first_funding = se
         if source_entry is None:
             linked = se.get("linked_expense_id")
             if linked:
@@ -9653,7 +9656,246 @@ async def _resolve_suspense_funding_source(
                 if src and (src.get("payment_method") or "").strip():
                     source_entry = se
                     source_expense = src
-    return source_entry, source_expense
+    if source_expense is not None:
+        return source_entry, source_expense, None
+
+    # Oct 6 2026 — No funding credit has a linked expense with a mode (e.g.
+    # the USB-MR034 restore credit, inserted by a repair script with no link
+    # and no mode). This used to fall straight through to "suspense", which
+    # the caller then saved as the bill's payment mode — USB-MR511 (SATHISKUMAR
+    # AGENCY, 18,963) showed "Mode: Suspense A/c" in the Cashbook and its debit
+    # sat in the Unattributed tile at -18,963 while Cheque read 18,963 high.
+    # Fall back to the mode recorded ON the funding credit, then to the mode
+    # every credit of this vendor agrees on. Still None only when the source
+    # genuinely cannot be determined.
+    fallback = _suspense_credit_own_mode(first_funding) if first_funding else None
+    if not fallback:
+        fallback = await _suspense_credit_consensus_mode(entries)
+    return first_funding, None, fallback
+
+
+def _suspense_credit_own_mode(se: Dict[str, Any]) -> Optional[str]:
+    """Mode stored on a suspense credit itself, if it names a real tile mode."""
+    pm = (se.get("payment_mode") or "").strip()
+    if pm and classify_suspense_bucket(pm) != "unattributed":
+        return pm
+    if se.get("cheque_id") or se.get("linked_cheque_ids") or se.get("cheque_no"):
+        return "cheque"
+    return None
+
+
+async def _suspense_credit_consensus_mode(entries: List[Dict[str, Any]]) -> Optional[str]:
+    """The single tile mode shared by every credit of this vendor, or None."""
+    credits = [e for e in entries if float(e.get("amount") or 0) > 0.5]
+    linked_ids = [e.get("linked_expense_id") for e in credits if e.get("linked_expense_id")]
+    method_by_exp: Dict[str, str] = {}
+    if linked_ids:
+        docs = await db.recorded_expenses.find(
+            {"expense_id": {"$in": linked_ids}}, {"_id": 0, "expense_id": 1, "payment_method": 1}
+        ).to_list(len(linked_ids))
+        method_by_exp = {d["expense_id"]: d.get("payment_method") for d in docs}
+    buckets = set()
+    for e in credits:
+        mode = _suspense_credit_own_mode(e) or method_by_exp.get(e.get("linked_expense_id"))
+        b = classify_suspense_bucket(mode)
+        if b != "unattributed":
+            buckets.add(b)
+    return buckets.pop() if len(buckets) == 1 else None
+
+
+# ── Oct 6 2026 — repair suspense-funded bills saved with mode "suspense" ──
+# Before the fallback above existed, a bill paid from the suspense pool whose
+# funding credit had no linked expense was saved with payment_method
+# "suspense" (Cashbook: "Mode: Suspense A/c") and its debit landed in the
+# Unattributed tile (USB-MR511 / SATHISKUMAR AGENCY / 18,963). These two
+# endpoints re-resolve the mode as of the moment the bill was paid and stamp
+# it on the bill's recorded_expense + its suspense debit. Amounts, balances
+# and links are never touched.
+_SUSPENSE_MODE_TAGS = {"suspense", "suspense_account", "suspense a/c"}
+
+
+async def _plan_suspense_mode_repair(expense_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    q: Dict[str, Any] = {"$or": [{"source": "approval_suspense"}, {"credit_applied": {"$gt": 0.5}}],
+                         "is_deleted": {"$ne": True}}
+    if expense_ids:
+        q["expense_id"] = {"$in": expense_ids}
+    rows = await db.recorded_expenses.find(q, {"_id": 0}).to_list(5000)
+    rows = [r for r in rows if (r.get("payment_method") or "").strip().lower() in _SUSPENSE_MODE_TAGS]
+    plans = []
+    for r in rows:
+        exp_id = r["expense_id"]
+        debit = await db.suspense_entries.find_one(
+            {"linked_expense_id": exp_id, "amount": {"$lt": 0}}, {"_id": 0})
+        if not debit and r.get("request_id"):
+            # Pre-Aug-1 debits linked to the request, not the suspense row.
+            debit = await db.suspense_entries.find_one(
+                {"linked_request_id": r["request_id"], "amount": {"$lt": 0},
+                 "type": r.get("category")}, {"_id": 0})
+        plan = {"expense_id": exp_id, "request_id": r.get("request_id"), "vendor_name": r.get("vendor_name"),
+                "category": r.get("category"), "amount": r.get("amount"), "description": r.get("description"),
+                "paid_at": r.get("created_at"), "current_payment_method": r.get("payment_method"),
+                "debit_entry_id": (debit or {}).get("entry_id"),
+                "debit_payment_mode": (debit or {}).get("payment_mode"),
+                "funding_credits": [], "proposed_payment_method": None, "proposed_cheque_id": None,
+                "proposed_cheque_number": None, "resolvable": False, "reason": ""}
+        if not debit:
+            plan["reason"] = "no suspense debit links to this expense"
+            plans.append(plan)
+            continue
+        key = {k: debit[k] for k in ("vendor_name", "contractor_name", "site_engineer_id") if debit.get(k)}
+        if not key:
+            plan["reason"] = "debit has no vendor/contractor key"
+            plans.append(plan)
+            continue
+        allrows = await db.suspense_entries.find({"type": debit.get("type"), **key}, {"_id": 0}).sort(
+            [("created_at", 1), ("entry_id", 1)]).to_list(20000)
+        # Only the ledger as it stood when this bill was paid.
+        before = []
+        for e in allrows:
+            if e.get("entry_id") == debit.get("entry_id"):
+                break
+            before.append(e)
+        if debit.get("type") == "material":
+            _excl = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+            ids = [e.get("linked_expense_id") or e.get("expense_id") for e in before
+                   if e.get("linked_expense_id") or e.get("expense_id")]
+            live = set()
+            if ids:
+                docs = await db.recorded_expenses.find(
+                    {"expense_id": {"$in": ids}}, {"_id": 0, "expense_id": 1, "status": 1, "is_deleted": 1}
+                ).to_list(len(ids))
+                live = {d["expense_id"] for d in docs
+                        if (d.get("status") or "").lower() not in _excl and not d.get("is_deleted")}
+            before = [e for e in before if not (e.get("linked_expense_id") or e.get("expense_id"))
+                      or (e.get("linked_expense_id") or e.get("expense_id")) in live]
+        queue: List[Dict[str, Any]] = []
+        for e in before:
+            amt = float(e.get("amount") or 0)
+            if amt > 0.5:
+                queue.append({"entry": e, "remaining": amt})
+            elif amt < -0.5:
+                d = -amt
+                while d > 0.5 and queue:
+                    take = min(queue[0]["remaining"], d)
+                    queue[0]["remaining"] -= take
+                    d -= take
+                    if queue[0]["remaining"] <= 0.5:
+                        queue.pop(0)
+        need = -float(debit.get("amount") or 0)
+        mode = None
+        cheque_id = None
+        cheque_no = None
+        for h in queue:
+            if need <= 0.5:
+                break
+            e = h["entry"]
+            take = min(h["remaining"], need)
+            need -= take
+            linked_method = None
+            src = None
+            if e.get("linked_expense_id"):
+                src = await db.recorded_expenses.find_one({"expense_id": e["linked_expense_id"]}, {"_id": 0})
+                lm = ((src or {}).get("payment_method") or "").strip()
+                if lm and lm.lower() not in _SUSPENSE_MODE_TAGS:
+                    linked_method = lm
+            own = _suspense_credit_own_mode(e)
+            plan["funding_credits"].append({
+                "entry_id": e.get("entry_id"), "description": e.get("description"),
+                "amount_taken": round(take, 2), "linked_expense_method": linked_method, "own_mode": own})
+            if mode is None and (linked_method or own):
+                mode = linked_method or own
+                if mode == "cheque":
+                    if linked_method and src:
+                        ids_ = src.get("cheque_ids") or []
+                        cheque_id = src.get("cheque_id") or (ids_[0] if ids_ else None)
+                    else:
+                        ids_ = e.get("linked_cheque_ids") or ([e["cheque_id"]] if e.get("cheque_id") else [])
+                        cheque_id = ids_[0] if ids_ else None
+                        cheque_no = e.get("cheque_no")
+        if mode is None:
+            mode = await _suspense_credit_consensus_mode(before)
+            if mode:
+                plan["reason"] = f"funding credit(s) carry no mode; every earlier credit of this vendor is '{mode}'"
+        else:
+            plan["reason"] = "mode of the funding credit"
+        if cheque_id and not cheque_no:
+            ch = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0, "cheque_number": 1})
+            cheque_no = (ch or {}).get("cheque_number")
+        if mode:
+            plan.update({"proposed_payment_method": mode, "proposed_cheque_id": cheque_id,
+                         "proposed_cheque_number": cheque_no, "resolvable": True})
+        else:
+            plan["reason"] = "funding source cannot be determined from the ledger — left as is"
+        plans.append(plan)
+    return plans
+
+
+@router.get("/admin/suspense-funded-mode-repair-dryrun")
+async def suspense_funded_mode_repair_dryrun(expense_ids: Optional[str] = None,
+                                             user: User = Depends(get_current_user)):
+    """READ-ONLY: every suspense-funded bill saved with mode "suspense", the
+    credit(s) that funded it, and the mode the apply endpoint would stamp."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    ids = [e.strip() for e in (expense_ids or "").split(",") if e.strip()] or None
+    plans = await _plan_suspense_mode_repair(ids)
+    return {"write_performed": False, "count": len(plans),
+            "resolvable": sum(1 for p in plans if p["resolvable"]), "plans": plans}
+
+
+@router.post("/admin/suspense-funded-mode-repair-apply")
+async def suspense_funded_mode_repair_apply(expense_ids: str, user: User = Depends(get_current_user)):
+    """Stamp the resolved mode on the named bills (ids from the dry run).
+
+    Writes only payment_method / cheque fields / description hint on the
+    recorded_expense and payment_mode on its suspense debit. Both updates are
+    filtered on the mode still being "suspense"/blank, so a re-run is a no-op
+    and a row that already has a real mode is never overwritten.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    ids = [e.strip() for e in (expense_ids or "").split(",") if e.strip()]
+    if not ids:
+        raise HTTPException(status_code=400, detail="expense_ids is required (comma-separated)")
+    plans = await _plan_suspense_mode_repair(ids)
+    now = datetime.now(timezone.utc).isoformat()
+    results = []
+    for p in plans:
+        if not p["resolvable"]:
+            results.append({"expense_id": p["expense_id"], "written": False, "reason": p["reason"]})
+            continue
+        mode = p["proposed_payment_method"]
+        chq_no = p["proposed_cheque_number"]
+        if mode == "cheque" and chq_no:
+            hint = f" (via Cheque #{chq_no} suspense)"
+        else:
+            hint = f" (via {mode.replace('_', ' ')} suspense)"
+        desc = p.get("description") or ""
+        new_desc = desc.replace(" (via suspense)", hint) if " (via suspense)" in desc else desc
+        exp_set = {"payment_method": mode, "description": new_desc,
+                   "mode_repair": {"previous_payment_method": p["current_payment_method"],
+                                   "previous_description": desc, "repaired_at": now,
+                                   "repaired_by": user.user_id, "reason": p["reason"],
+                                   "funding_credits": [c["entry_id"] for c in p["funding_credits"]]}}
+        if p["proposed_cheque_id"]:
+            exp_set.update({"cheque_id": p["proposed_cheque_id"], "cheque_ids": [p["proposed_cheque_id"]]})
+        if chq_no:
+            exp_set["cheque_number"] = chq_no
+        r1 = await db.recorded_expenses.update_one(
+            {"expense_id": p["expense_id"], "payment_method": p["current_payment_method"]}, {"$set": exp_set})
+        r2 = await db.suspense_entries.update_one(
+            {"entry_id": p["debit_entry_id"],
+             "$or": [{"payment_mode": {"$in": [None, "", *_SUSPENSE_MODE_TAGS]}},
+                     {"payment_mode": {"$exists": False}}]},
+            {"$set": {"payment_mode": mode, "mode_repaired_at": now,
+                      "previous_payment_mode": p["debit_payment_mode"]}})
+        results.append({"expense_id": p["expense_id"], "debit_entry_id": p["debit_entry_id"],
+                        "payment_method": mode, "cheque_number": chq_no,
+                        "expense_updated": r1.modified_count, "debit_updated": r2.modified_count,
+                        "written": bool(r1.modified_count or r2.modified_count)})
+    await create_audit_log(user.user_id, "suspense_mode_repair", "recorded_expense", ",".join(ids),
+                           {"results": results})
+    return {"write_performed": any(r.get("written") for r in results), "results": results}
 
 
 @router.get("/approvals/{req_type}/{request_id}/pay-context")
@@ -10223,20 +10465,27 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     # (_resolve_suspense_funding_source), not just "the oldest credit that
     # happens to have a valid link" — see that function's docstring for why.
     if credit_used > 0.5:
-        source_entry, source_expense = await _resolve_suspense_funding_source(
+        source_entry, source_expense, fallback_method = await _resolve_suspense_funding_source(
             suspense_type, vendor_name, req, credit_used
         )
-        inherited_method = (source_expense or {}).get("payment_method") or "suspense"
+        inherited_method = (source_expense or {}).get("payment_method") or fallback_method or "suspense"
         inherited_cheque_id = None
         inherited_cheque_ids = []
         if source_expense and inherited_method == "cheque":
             inherited_cheque_ids = source_expense.get("cheque_ids") or []
             inherited_cheque_id = source_expense.get("cheque_id") or (inherited_cheque_ids[0] if inherited_cheque_ids else None)
+        elif source_entry and inherited_method == "cheque":
+            # Fallback path: take the cheque from the funding credit itself.
+            inherited_cheque_ids = source_entry.get("linked_cheque_ids") or (
+                [source_entry["cheque_id"]] if source_entry.get("cheque_id") else [])
+            inherited_cheque_id = inherited_cheque_ids[0] if inherited_cheque_ids else None
         inherited_ref = (source_expense or {}).get("transaction_id")
         source_cheque_no = None
         if inherited_cheque_id:
             ch = await db.cheques.find_one({"cheque_id": inherited_cheque_id}, {"_id": 0, "cheque_number": 1})
             source_cheque_no = (ch or {}).get("cheque_number")
+        elif source_entry and inherited_method == "cheque":
+            source_cheque_no = source_entry.get("cheque_no")
 
         suspense_expense_id = primary_expense_id if not legs else f"exp_{uuid.uuid4().hex[:12]}"
         # Description highlights the source (cheque #, bank ref) so accountants
