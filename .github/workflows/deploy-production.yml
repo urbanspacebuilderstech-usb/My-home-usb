@@ -6,15 +6,83 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# One deploy at a time. "Work out what changed" compares with the last
+# successful deploy, which only describes what is on the VPS when two deploys
+# cannot interleave there. A push landing mid-deploy waits; if a newer one
+# follows, the waiting one is dropped and the newer one covers both.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   build:
     name: Build frontend on GitHub runner
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Read this workflow's earlier runs to find the last successful deploy.
+      actions: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Full history, so the commit the last deploy shipped can be diffed.
+          fetch-depth: 0
+
+      # Oct 6 2026 — Every push rebuilt and uploaded the frontend and restarted
+      # the backend, though of the last 60 commits 29 touched only frontend/
+      # and 16 only backend/. This diffs the commit being deployed against the
+      # one the last successful deploy shipped and turns on only the halves
+      # that differ. Diffing against the last *successful* deploy, not the
+      # previous push, means a failed or cancelled deploy's changes ride along
+      # with the next one.
+      #
+      # The VPS runs nothing else from this repo: backend/ under pm2, the
+      # scripts in hostinger_setup/, and the frontend build. A new top-level
+      # folder the VPS reads at runtime must be added to the backend pattern
+      # below, or changes to it will not deploy.
+      #
+      # Anything out of the ordinary deploys both halves: a manual run, a
+      # re-run, no earlier successful deploy, its commit gone after a
+      # force-push, a failed API call, or a change to this file.
+      - name: Work out what changed since the last deploy
+        id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          deploy_all() {
+            echo "Deploying frontend and backend: $1"
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          if [ "${{ github.event_name }}" != "push" ]; then deploy_all "manual run"; fi
+          if [ "${{ github.run_attempt }}" != "1" ]; then deploy_all "re-run"; fi
+
+          # Latest by start time, so a re-run of an older deploy counts as
+          # what is on the VPS now.
+          BASE=$(gh api "repos/${{ github.repository }}/actions/workflows/deploy-production.yml/runs?branch=main&status=success&per_page=20" \
+            --jq '.workflow_runs | max_by(.run_started_at) | .head_sha // empty') \
+            || deploy_all "could not look up the last deploy"
+          if [ -z "$BASE" ]; then deploy_all "no earlier successful deploy"; fi
+          if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then deploy_all "last deployed commit $BASE is no longer in history"; fi
+
+          # --no-renames lists both ends of a move between folders.
+          CHANGED=$(git diff --name-only --no-renames "$BASE" "$GITHUB_SHA")
+          echo "Last successful deploy shipped $BASE. Changed since:"
+          echo "$CHANGED"
+          if grep -qx '\.github/workflows/deploy-production\.yml' <<< "$CHANGED"; then deploy_all "this workflow changed"; fi
+
+          FRONTEND=false
+          BACKEND=false
+          if grep -q '^frontend/' <<< "$CHANGED"; then FRONTEND=true; fi
+          if grep -qE '^(backend|hostinger_setup)/' <<< "$CHANGED"; then BACKEND=true; fi
+          echo "Deploying frontend=$FRONTEND backend=$BACKEND"
+          echo "frontend=$FRONTEND" >> "$GITHUB_OUTPUT"
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
+        if: steps.changes.outputs.frontend == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -22,12 +90,14 @@ jobs:
           cache-dependency-path: frontend/yarn.lock
 
       - name: Install dependencies
+        if: steps.changes.outputs.frontend == 'true'
         working-directory: frontend
         run: yarn install --frozen-lockfile
 
       # webpack + babel-loader persistent cache. Restored after install so a
       # warm build only recompiles the files that changed.
       - name: Restore webpack build cache
+        if: steps.changes.outputs.frontend == 'true'
         uses: actions/cache@v4
         with:
           path: frontend/node_modules/.cache
@@ -36,6 +106,7 @@ jobs:
             cra-build-${{ hashFiles('frontend/yarn.lock', 'frontend/craco.config.js') }}-
 
       - name: Build with production env
+        if: steps.changes.outputs.frontend == 'true'
         working-directory: frontend
         env:
           CI: false
@@ -46,7 +117,10 @@ jobs:
           echo "REACT_APP_BACKEND_URL=https://myhomeusb.com" > .env
           yarn build
 
+      # Only when the backend restarts: new code on disk under a process that
+      # keeps running can be half-loaded by its function-level imports.
       - name: Update backend code on VPS
+        if: steps.changes.outputs.backend == 'true'
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -79,13 +153,11 @@ jobs:
             fi
             cd ..
 
-            # The live build stays in place while the new one uploads; it used
-            # to be deleted here, so the site would not load until the copy
-            # finished. The new build is staged and swapped in after restart.
-            echo "==> Preparing staging build directory"
-            rm -rf frontend/build_next
-
+      # The live build stays in place while the new one uploads; it used to be
+      # deleted first, so the site would not load until the copy finished. The
+      # new build is staged in build_next and swapped in by "Restart services".
       - name: Copy built frontend to VPS
+        if: steps.changes.outputs.frontend == 'true'
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -97,8 +169,13 @@ jobs:
           # Drop the leading "frontend/build/" so files land directly in build_next
           strip_components: 2
           overwrite: true
+          # Empty build_next first, so nothing left by a failed earlier upload
+          # ships with this build. Done here rather than in "Update backend
+          # code on VPS", which no longer runs on frontend-only deploys.
+          rm: true
 
       - name: Restart services
+        if: steps.changes.outputs.frontend == 'true' || steps.changes.outputs.backend == 'true'
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -109,6 +186,11 @@ jobs:
           script: |
             set -e
             cd ${{ secrets.VPS_APP_PATH }}
+            # From "Work out what changed": only the halves that changed run.
+            # Their blocks are `if` without `else`, as script_stop requires.
+            DEPLOY_FRONTEND=${{ steps.changes.outputs.frontend }}
+            DEPLOY_BACKEND=${{ steps.changes.outputs.backend }}
+            echo "==> Deploying frontend=$DEPLOY_FRONTEND backend=$DEPLOY_BACKEND"
 
             echo "==> Restoring production frontend .env on VPS"
             echo "REACT_APP_BACKEND_URL=https://myhomeusb.com" > frontend/.env
@@ -118,72 +200,76 @@ jobs:
               fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab || true
             fi
 
-            # Sep 30 2026 — Several backend workers instead of one, so a slow
-            # request no longer freezes the ERP for everyone. uvicorn reads
-            # WEB_CONCURRENCY; `pm2 start all --update-env` below passes it on.
-            # Each step is one line that exits 0 (script_stop aborts on any
-            # non-zero line); the scripts explain their choices.
-            echo "==> Sizing backend workers"
-            BACKEND_SIZING=$(bash hostinger_setup/backend_workers.sh || echo "1 script-failed")
-            export WEB_CONCURRENCY=$(echo "$BACKEND_SIZING" | awk '{ n = $1 + 0; if (n < 1) n = 1; print n }')
-            # Shown by GET /api/health, so the choice can be checked from outside.
-            export WORKERS_SIZED_BY=$(echo "$BACKEND_SIZING" | awk '{ print $2 }')
-            echo "WEB_CONCURRENCY=$WEB_CONCURRENCY ($WORKERS_SIZED_BY)"
-            # --update-env copies this shell's whole environment into the app,
-            # PATH included; keep the venv first as ecosystem.config.js does.
-            export PATH="$PWD/backend/venv/bin:$PATH"
-
             echo "==> nginx: gzip + long cache for hashed /static/ files"
             bash hostinger_setup/nginx_static_cache.sh || true
 
-            echo "==> Restarting PM2 backend (retrying on transient resource-throttle kills)"
-            set +e
-            RESTART_OK=0
-            for attempt in 1 2 3; do
-              echo "--- Attempt $attempt ---"
-              # `restart`, not `start`: PM2 5's `start all` drops --update-env
-              # (restartExistingNameSpace calls _operate without the options),
-              # so no env change ever reached the backend. Stopping first still
-              # frees memory before the new processes start.
-              pm2 stop all && pm2 restart all --update-env
-              if [ $? -eq 0 ]; then
-                RESTART_OK=1
-                break
-              fi
-              echo "Attempt $attempt failed, waiting 15s before retry..."
-              sleep 15
-            done
-            set -e
-            if [ "$RESTART_OK" -ne 1 ]; then
-              echo "PM2 restart failed after 3 attempts"
-              exit 1
-            fi
-            pm2 save
+            if [ "$DEPLOY_BACKEND" = "true" ]; then
+              # Sep 30 2026 — Several backend workers instead of one, so a slow
+              # request no longer freezes the ERP for everyone. uvicorn reads
+              # WEB_CONCURRENCY; `pm2 start all --update-env` below passes it on.
+              # Each step is one line that exits 0 (script_stop aborts on any
+              # non-zero line); the scripts explain their choices.
+              echo "==> Sizing backend workers"
+              BACKEND_SIZING=$(bash hostinger_setup/backend_workers.sh || echo "1 script-failed")
+              export WEB_CONCURRENCY=$(echo "$BACKEND_SIZING" | awk '{ n = $1 + 0; if (n < 1) n = 1; print n }')
+              # Shown by GET /api/health, so the choice can be checked from outside.
+              export WORKERS_SIZED_BY=$(echo "$BACKEND_SIZING" | awk '{ print $2 }')
+              echo "WEB_CONCURRENCY=$WEB_CONCURRENCY ($WORKERS_SIZED_BY)"
+              # --update-env copies this shell's whole environment into the app,
+              # PATH included; keep the venv first as ecosystem.config.js does.
+              export PATH="$PWD/backend/venv/bin:$PATH"
 
-            # Until the backend has finished starting, nginx answers every API
-            # call with 502. Wait for it so the new frontend goes live together
-            # with a working backend, and the log shows how long the gap was.
-            echo "==> Waiting for backend to answer"
-            set +e
-            BACKEND_UP=0
-            for i in $(seq 1 60); do
-              if curl -sf -o /dev/null http://127.0.0.1:8001/api/auth/setup-status; then
-                BACKEND_UP=1
-                echo "Backend up after ~${i}s"
-                break
+              echo "==> Restarting PM2 backend (retrying on transient resource-throttle kills)"
+              set +e
+              RESTART_OK=0
+              for attempt in 1 2 3; do
+                echo "--- Attempt $attempt ---"
+                # `restart`, not `start`: PM2 5's `start all` drops --update-env
+                # (restartExistingNameSpace calls _operate without the options),
+                # so no env change ever reached the backend. Stopping first still
+                # frees memory before the new processes start.
+                pm2 stop all && pm2 restart all --update-env
+                if [ $? -eq 0 ]; then
+                  RESTART_OK=1
+                  break
+                fi
+                echo "Attempt $attempt failed, waiting 15s before retry..."
+                sleep 15
+              done
+              set -e
+              if [ "$RESTART_OK" -ne 1 ]; then
+                echo "PM2 restart failed after 3 attempts"
+                exit 1
               fi
-              sleep 1
-            done
-            set -e
-            if [ "$BACKEND_UP" -ne 1 ]; then
-              echo "WARNING: backend not answering after 60s, check: pm2 logs backend"
+              pm2 save
+
+              # Until the backend has finished starting, nginx answers every API
+              # call with 502. Wait for it so the new frontend goes live together
+              # with a working backend, and the log shows how long the gap was.
+              echo "==> Waiting for backend to answer"
+              set +e
+              BACKEND_UP=0
+              for i in $(seq 1 60); do
+                if curl -sf -o /dev/null http://127.0.0.1:8001/api/auth/setup-status; then
+                  BACKEND_UP=1
+                  echo "Backend up after ~${i}s"
+                  break
+                fi
+                sleep 1
+              done
+              set -e
+              if [ "$BACKEND_UP" -ne 1 ]; then
+                echo "WARNING: backend not answering after 60s, check: pm2 logs backend"
+              fi
             fi
 
-            echo "==> Switching to the new frontend build"
-            ls frontend/build_next/index.html
-            rm -rf frontend/build_prev
-            if [ -d frontend/build ]; then mv frontend/build frontend/build_prev; fi
-            mv frontend/build_next frontend/build
+            if [ "$DEPLOY_FRONTEND" = "true" ]; then
+              echo "==> Switching to the new frontend build"
+              ls frontend/build_next/index.html
+              rm -rf frontend/build_prev
+              if [ -d frontend/build ]; then mv frontend/build frontend/build_prev; fi
+              mv frontend/build_next frontend/build
+            fi
 
             echo "==> Verifying deployment"
             ls frontend/build/index.html
