@@ -228,8 +228,11 @@ jobs:
                 # (restartExistingNameSpace calls _operate without the options),
                 # so no env change ever reached the backend. Stopping first still
                 # frees memory before the new processes start.
-                pm2 stop all && pm2 restart all --update-env
-                if [ $? -eq 0 ]; then
+                # Oct 6 2026 — Inside the `if` so a failure reaches the retry.
+                # On a line of its own, script_stop's exit check ended the
+                # deploy at the first failed attempt with the backend stopped;
+                # `set +e` does not turn that check off.
+                if pm2 stop all && pm2 restart all --update-env; then
                   RESTART_OK=1
                   break
                 fi
