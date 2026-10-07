@@ -2004,6 +2004,7 @@ async def get_monthly_schedule(
         "paid_at": 1, "collected_at": 1, "created_at": 1, "updated_at": 1,
         "is_addition": 1, "is_section_addition": 1, "linked_addition_id": 1,
         "contractor_id": 1, "vendor_id": 1, "rab_number": 1, "rab_request_id": 1,
+        "accountant_rejection_reason": 1, "accountant_rejected_at": 1, "accountant_rejected_by_name": 1,
     }
     MANUAL_FIELDS = {
         "_id": 0, "entry_id": 1, "stage_id": 1, "month": 1, "year": 1,
@@ -2562,6 +2563,12 @@ async def get_monthly_schedule(
             "pending_approval_count": pending["count"] if virtual_kind != "collected_portion" else 0,
             "stage_status": row_stage_status,
             "workflow_status": stage.get("workflow_status", "approved"),
+            # Set while an Accountant-rejected collection is waiting for CRE to
+            # re-collect (cleared by the next collect). CRE shows Re-Collect;
+            # Planning shows "Accountant Rejected".
+            "accountant_rejection_reason": stage.get("accountant_rejection_reason"),
+            "accountant_rejected_at": stage.get("accountant_rejected_at"),
+            "accountant_rejected_by_name": stage.get("accountant_rejected_by_name"),
             "due_date": stage.get("due_date"),
             "expected_payment_date": stage.get("expected_payment_date") or stage.get("due_date"),
             "requested_at": stage.get("requested_at"),

@@ -4112,6 +4112,11 @@ async def submit_payment_schedule(project_id: str, user: User = Depends(get_curr
     return {"message": f"Payment schedule submitted. {result.modified_count} stages sent for collection.", "count": result.modified_count}
 
 
+# Stage fields stamped by an Accountant reject of a payment collection
+# (financial.reject_income); cleared when CRE collects again.
+_ACCOUNTANT_REJECTION_UNSET = {"accountant_rejection_reason": "", "accountant_rejected_at": "", "accountant_rejected_by_name": ""}
+
+
 @router.post("/payment-stages/{stage_id}/collect")
 async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInput, user: User = Depends(get_current_user)):
     """CRE collects payment for a stage"""
@@ -4172,8 +4177,10 @@ async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInpu
     if new_status == "paid":
         update_data["paid_at"] = payment_date
     
-    await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": update_data})
-    
+    # A fresh collection answers any earlier Accountant rejection — clear it so
+    # the Payment Schedule stops showing Re-Collect / "Accountant Rejected".
+    await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": update_data, "$unset": _ACCOUNTANT_REJECTION_UNSET})
+
     # Process payment entries (multi-mode) or legacy single mode
     entries = collection.payment_entries or []
     if not entries and collection.payment_mode:
@@ -4442,7 +4449,7 @@ async def collect_payment_bulk(
         }
         if new_status == "paid":
             stage_update["paid_at"] = payment_date
-        await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": stage_update})
+        await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": stage_update, "$unset": _ACCOUNTANT_REJECTION_UNSET})
 
         # Income record for each stage
         income_record = {

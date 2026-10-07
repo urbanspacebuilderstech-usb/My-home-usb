@@ -1615,9 +1615,14 @@ export default function CREBoard() {
                                 // but Collect is about the stage now: no Collect once it is
                                 // fully paid.
                                 const stageFullyPaid = (e.amount || 0) > 0 && (e.amount_received || 0) >= (e.amount || 0);
+                                // Accountant rejected the last collection: the stage is back at
+                                // 'requested' until CRE collects again (which clears the reason).
+                                const isAccRejected = !!e.accountant_rejection_reason && e.workflow_status === 'requested'
+                                  && !hasPendingApproval && !isCollected && !stageFullyPaid;
                                 let badge;
                                 if (hasPendingApproval) badge = <Badge className="bg-orange-100 text-orange-700 text-[11px] whitespace-nowrap">Pending Accountant Approval</Badge>;
                                 else if (isCollected) badge = <Badge className="bg-green-100 text-green-700 text-[11px]">Collected</Badge>;
+                                else if (isAccRejected) badge = <Badge className="bg-red-100 text-red-700 border-red-300 text-[11px] whitespace-nowrap">Accountant Rejected</Badge>;
                                 else if (isPartial) badge = <Badge className="bg-amber-100 text-amber-700 text-[11px]">Partial</Badge>;
                                 else if (e.workflow_status === 'requested') badge = <Badge className="bg-purple-100 text-purple-700 text-[11px]">Planning Requested</Badge>;
                                 else badge = <Badge className="bg-gray-100 text-gray-700 text-[11px]">Pending</Badge>;
@@ -1665,7 +1670,18 @@ export default function CREBoard() {
                                       )}
                                     </td>
                                     <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(balance)}</td>
-                                    <td className="px-4 py-2.5 text-center">{badge}</td>
+                                    <td className="px-4 py-2.5 text-center">
+                                      {badge}
+                                      {isAccRejected && (
+                                        <p
+                                          className="mt-1 text-[10px] text-red-600 max-w-[200px] mx-auto truncate"
+                                          title={`${e.accountant_rejection_reason}${e.accountant_rejected_by_name ? ` — ${e.accountant_rejected_by_name}` : ''}`}
+                                          data-testid={`ps-acc-reject-reason-${e.entry_id || e.stage_id}`}
+                                        >
+                                          {e.accountant_rejection_reason}{e.accountant_rejected_by_name ? ` — ${e.accountant_rejected_by_name}` : ''}
+                                        </p>
+                                      )}
+                                    </td>
                                     <td className="px-4 py-2.5 text-center">
                                       <div className="inline-flex items-center justify-center gap-1">
                                         {/* Super-Admin only — view full lifecycle */}
@@ -1688,11 +1704,11 @@ export default function CREBoard() {
                                         ) : (
                                           <Button
                                             size="sm"
-                                            className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700"
+                                            className={`h-7 px-2 text-xs ${isAccRejected ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
                                             onClick={() => openCollectDialog({ ...e, stage_id: e.stage_id })}
                                             data-testid={`ps-collect-${e.entry_id || e.stage_id}`}
                                           >
-                                            <IndianRupee className="h-3.5 w-3.5 mr-1" /> Collect
+                                            <IndianRupee className="h-3.5 w-3.5 mr-1" /> {isAccRejected ? 'Re-Collect' : 'Collect'}
                                           </Button>
                                         )}
                                       </div>
@@ -2095,6 +2111,12 @@ export default function CREBoard() {
             <DialogDescription>{selectedPaymentStage?.project_name} - {selectedPaymentStage?.stage_name}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {selectedPaymentStage?.accountant_rejection_reason && selectedPaymentStage?.workflow_status === 'requested' && (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800" data-testid="collect-acc-rejected-banner">
+                <span className="font-semibold">Previous collection rejected by Accountant{selectedPaymentStage.accountant_rejected_by_name ? ` (${selectedPaymentStage.accountant_rejected_by_name})` : ''}:</span>{' '}
+                "{selectedPaymentStage.accountant_rejection_reason}". Enter the corrected payment details below.
+              </div>
+            )}
             {/* Top tri-card kept only as a quick at-a-glance header. The
                 full stage breakdown (Pending / Allocated / Remaining /
                 Result) lives in the Smart Collect block below. */}
