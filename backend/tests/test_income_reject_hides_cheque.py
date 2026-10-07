@@ -1,5 +1,5 @@
 """Accountant rejecting a CRE cheque collection:
-   - the cheque leaves Cheque Management's live tabs (disabled, with the reason),
+   - the cheque is no longer listed in Cheque Management (any tab),
    - the stage carries the rejection reason so CRE sees Re-Collect,
    - a fresh collection clears that reason.
 """
@@ -62,19 +62,22 @@ def test_reject_disables_cheque_and_flags_stage_until_recollect():
     acc = _session(ACCOUNTANT)
     project_id, stage_id = _collectible_stage(cre)
 
+    def listed(session, path):
+        return any(c.get("cheque_number") == cheque_number for c in session.get(f"{BASE_URL}/api/{path}").json())
+
     cheque_number = f"T{uuid.uuid4().hex[:6]}"
     ref = _collect_cheque(cre, stage_id, cheque_number)
+    assert listed(acc, "accountant/cheques")
     pending = acc.get(f"{BASE_URL}/api/approvals/unified").json().get("income", [])
     income = next((i for i in pending if i.get("payment_reference") == ref), None)
     assert income, "collected income not in the accountant's pending list"
 
     r = acc.post(f"{BASE_URL}/api/approvals/income/{income['income_id']}/reject", params={"reason": "wrong cheque no"})
     assert r.status_code == 200, r.text
-    assert cheque_number in r.json().get("cheques_disabled", [])
 
-    cheque = next(c for c in acc.get(f"{BASE_URL}/api/accountant/cheques").json() if c.get("cheque_number") == cheque_number)
-    assert cheque["is_disabled"] is True
-    assert "wrong cheque no" in cheque["disable_reason"]
+    assert not listed(acc, "accountant/cheques")
+    assert not listed(cre, "cre/cheques")
+    assert not listed(cre, f"projects/{project_id}/cheques")
 
     st = _stage(cre, project_id, stage_id)
     assert st["workflow_status"] == "requested"

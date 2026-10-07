@@ -2839,70 +2839,6 @@ async def resubmit_income(income_id: str, payload: Dict[str, Any], user: User = 
     return {"message": "Income resubmitted for accountant approval", "status": "pending_approval"}
 
 
-async def _disable_rejected_income_cheques(inc: dict, user: User, reason: str) -> List[str]:
-    """Accountant rejected this income, so its cheque is no longer a valid
-    receipt. Move it out of Cheque Management's live tabs into Disabled (where
-    a manually-disabled cheque goes), so a re-collected replacement cheque is
-    not listed alongside it as a second live cheque.
-
-    Only untouched cheques: one CRE has opened, or that is deposited, cleared
-    or used for an expense, is left for a person to sort out. A bulk-collection
-    cheque covers several incomes, so it is disabled only once all of them are
-    rejected. Returns the disabled cheque numbers.
-    """
-    income_id = inc.get("income_id")
-    links = [{"income_id": income_id}]
-    bulk_id = inc.get("bulk_collection_id")
-    if bulk_id:
-        live_sibling = await db.income.find_one(
-            {"bulk_collection_id": bulk_id, "income_id": {"$ne": income_id}, "status": {"$ne": "rejected"}},
-            {"_id": 1},
-        )
-        if not live_sibling:
-            links.append({"bulk_collection_id": bulk_id})
-    cheques = await db.cheques.find(
-        {
-            "$or": links,
-            "cheque_type": "incoming",
-            "is_disabled": {"$ne": True},
-            "is_opened": {"$ne": True},
-            "used_for_expense_id": {"$in": [None, ""]},
-            "status": {"$nin": ["deleted", "bounced", "cancelled", "cleared", "deposited"]},
-        },
-        {"_id": 0, "cheque_id": 1, "cheque_number": 1},
-    ).to_list(50)
-    if not cheques:
-        return []
-    now = datetime.now(timezone.utc).isoformat()
-    await db.cheques.update_many(
-        {"cheque_id": {"$in": [c["cheque_id"] for c in cheques]}},
-        {"$set": {
-            "is_disabled": True,
-            "disabled_at": now,
-            "disabled_by": user.user_id,
-            "disabled_by_name": user.name,
-            "disable_reason": f"Payment rejected by Accountant: {reason or 'No remarks'}",
-            # Lets a resubmit of this income bring the cheque back.
-            "disabled_by_income_reject": income_id,
-            "updated_at": now,
-        }},
-    )
-    return [c.get("cheque_number") or c["cheque_id"] for c in cheques]
-
-
-async def _restore_rejected_income_cheques(inc: dict):
-    """Undo _disable_rejected_income_cheques when a rejected income is
-    resubmitted — its cheque is a live receipt again."""
-    links = [{"disabled_by_income_reject": inc.get("income_id")}]
-    if inc.get("bulk_collection_id"):
-        links.append({"bulk_collection_id": inc["bulk_collection_id"], "disabled_by_income_reject": {"$nin": [None, ""]}})
-    await db.cheques.update_many(
-        {"$or": links, "is_disabled": True},
-        {"$set": {"is_disabled": False, "updated_at": datetime.now(timezone.utc).isoformat()},
-         "$unset": {"disabled_at": "", "disabled_by": "", "disabled_by_name": "", "disable_reason": "", "disabled_by_income_reject": ""}},
-    )
-
-
 @router.post("/approvals/income/{income_id}/reject")
 async def reject_income(income_id: str, reason: str = "", user: User = Depends(get_current_user)):
     """Reject an income entry — sets status='rejected' so it returns to CRE for re-submission.
@@ -2940,8 +2876,6 @@ async def reject_income(income_id: str, reason: str = "", user: User = Depends(g
     )
     if not result:
         raise HTTPException(status_code=404, detail="Income entry not found or already processed")
-
-    cheques_disabled = await _disable_rejected_income_cheques(inc, user, reason)
 
     # Post-approval reversal: cashflow ledger + payment_stage rollback so the
     # amount stops counting everywhere (Cashbook totals, Cashflow Engine
@@ -3129,12 +3063,11 @@ async def reject_income(income_id: str, reason: str = "", user: User = Depends(g
                 except Exception:
                     pass
 
-    await create_audit_log(user.user_id, "reject", "income", income_id, {"reason": reason, "was_approved": was_approved, "lead_id": lead_id, "cheques_disabled": cheques_disabled})
+    await create_audit_log(user.user_id, "reject", "income", income_id, {"reason": reason, "was_approved": was_approved, "lead_id": lead_id})
     return {
         "message": "Income rejected. Cashbook & cashflow rolled back." if was_approved else "Income rejected and returned for correction",
         "was_approved_before_reject": was_approved,
         "lead_bounced": bool(lead_id),
-        "cheques_disabled": cheques_disabled,
     }
 
 
@@ -3196,8 +3129,6 @@ async def resubmit_rejected_income(income_id: str, data: IncomeResubmitRequest, 
             await create_notification(rejector_id, f"Income ₹{inc.get('amount', 0):,.0f} resubmitted by {user.name} — please review.")
     except Exception:
         pass
-
-    await _restore_rejected_income_cheques(inc)
 
     return {"message": "Income resubmitted for approval"}
 

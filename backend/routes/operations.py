@@ -4420,6 +4420,54 @@ async def delete_transaction(transaction_id: str, user: User = Depends(get_curre
 
 # ==================== CHEQUE MANAGEMENT ENDPOINTS ====================
 
+_REJECTED_INCOME_STATUSES = {"rejected", "accountant_rejected"}
+
+
+async def _hide_rejected_collection_cheques(cheques: list) -> list:
+    """Drop cheques whose collection the Accountant rejected — they are not
+    receipts, and the CRE re-collects with a new cheque, so listing both made
+    Cheque Management show two live cheques for one payment.
+
+    Worked out from the linked income on every read rather than stored on the
+    cheque, so cheques rejected before this existed are covered too, and a
+    resubmitted income brings its cheque straight back. A bulk-collection
+    cheque covers several incomes and is hidden only when all are rejected.
+    Only untouched cheques: one CRE has opened, or that is deposited, cleared,
+    bounced or used for an expense, stays listed for a person to sort out.
+    """
+    def _untouched(c):
+        return (c.get("cheque_type") == "incoming" and not c.get("is_opened")
+                and not c.get("used_for_expense_id")
+                and (c.get("status") or "") not in ("deposited", "cleared", "bounced"))
+
+    cand = [c for c in cheques if _untouched(c) and (c.get("income_id") or c.get("bulk_collection_id"))]
+    if not cand:
+        return cheques
+    income_ids = list({c["income_id"] for c in cand if c.get("income_id")})
+    bulk_ids = {c["bulk_collection_id"] for c in cand if not c.get("income_id") and c.get("bulk_collection_id")}
+    or_clauses = []
+    if income_ids:
+        or_clauses.append({"income_id": {"$in": income_ids}})
+    if bulk_ids:
+        or_clauses.append({"bulk_collection_id": {"$in": list(bulk_ids)}})
+    incomes = await db.income.find(
+        {"$or": or_clauses}, {"_id": 0, "income_id": 1, "bulk_collection_id": 1, "status": 1}
+    ).to_list(None)
+
+    rejected_incomes = {i["income_id"] for i in incomes if i.get("status") in _REJECTED_INCOME_STATUSES}
+    bulk_all_rejected: Dict[str, bool] = {}
+    for i in incomes:
+        b = i.get("bulk_collection_id")
+        if b in bulk_ids:
+            bulk_all_rejected[b] = bulk_all_rejected.get(b, True) and i.get("status") in _REJECTED_INCOME_STATUSES
+
+    hidden = {
+        c["cheque_id"] for c in cand
+        if (c["income_id"] in rejected_incomes if c.get("income_id") else bulk_all_rejected.get(c.get("bulk_collection_id"), False))
+    }
+    return [c for c in cheques if c.get("cheque_id") not in hidden]
+
+
 @router.get("/accountant/cheques")
 async def get_cheques(
     status: Optional[str] = None,
@@ -4458,7 +4506,7 @@ async def get_cheques(
         for c in cheques:
             if not c.get("project_name") and c.get("project_id") in name_map:
                 c["project_name"] = name_map[c["project_id"]]
-    return cheques
+    return await _hide_rejected_collection_cheques(cheques)
 
 
 class ChequeCreate(BaseModel):
@@ -4597,14 +4645,14 @@ async def get_cre_cheques(project_id: Optional[str] = None, user: User = Depends
         for c in cheques:
             if not c.get("project_name") and c.get("project_id") in name_map:
                 c["project_name"] = name_map[c["project_id"]]
-    return cheques
+    return await _hide_rejected_collection_cheques(cheques)
 
 
 @router.get("/projects/{project_id}/cheques")
 async def get_project_cheques(project_id: str, user: User = Depends(get_current_user)):
     """List ALL cheques (incoming + outgoing) tied to a project — for the Project Detail Cheques tab."""
     cheques = await db.cheques.find({"project_id": project_id, "status": {"$ne": "deleted"}}, {"_id": 0}).sort("cheque_date", -1).to_list(2000)
-    return cheques
+    return await _hide_rejected_collection_cheques(cheques)
 
 
 @router.patch("/cre/cheques/{cheque_id}/open")
