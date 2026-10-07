@@ -3,290 +3,320 @@ import autoTable from 'jspdf-autotable';
 
 const COMPANY_INFO = {
   name: 'URBAN SPACE BUILDERS',
-  tagline: 'Building Dreams Into Reality',
-  address: 'No.123, Construction Lane, Chennai - 600001',
-  phone: '+91 44 2345 6789',
+  phone: '9150030450',
   email: 'info@urbanspacebuilders.com',
-  website: 'www.urbanspacebuilders.com',
-  gstin: 'GSTIN: 33XXXXX1234X1Z5'
+  state: '33-Tamil Nadu'
 };
 
-const formatPDFCurrency = (amount) => {
-  const formatted = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(amount || 0);
-  return `Rs. ${formatted}`;
+const STANDARD_NOTE =
+  'Based upon soil test report foundation details will be worked out and cost may vary depends upon the structural design.\n' +
+  '(If Pile foundation, double matt reinforcement for pile cap etc. the cost for the same will be additional)';
+
+const TERMS = [
+  '1) The estimation shows you construction cost in Chennai area.',
+  '2) Price may vary depending on location, site actual measurements, material cost at the time of project and design, building specification.',
+  '3) Our team will work out detailed quote understanding requirement.',
+  '4) Site near by land required for making Labour shed and material shed (Land provided is in client scope)',
+  '5) EB, Construction water, Borewell, Soil test, Borewell yield point checking, etc are all in client scope.',
+  '6) Unit rate will be freezed at the time of project finalization.',
+  '7) Elevation cost will be additional quotation will be provided at the time of drawing finalization.',
+  '8) Sqft rate considered for Safe bearing capacity of soil is 230 Kn/m2',
+  'Thanks for doing business with us!'
+];
+
+// Landscape A4, laid out like the Excel estimate sheet: one fixed column grid
+// shared by every table so their borders line up into a single sheet.
+const MARGIN = 10;
+const AMBER = [255, 192, 0];
+const COLUMN_STYLES = {
+  0: { cellWidth: 22, halign: 'center' },
+  1: { cellWidth: 149 },
+  2: { cellWidth: 24, halign: 'right' },
+  3: { cellWidth: 20, halign: 'center' },
+  4: { cellWidth: 28, halign: 'right' },
+  5: { cellWidth: 34, halign: 'right' }
 };
+
+// The Excel sheet is printed "fit to one page"; do the same by stepping the
+// font down until the estimate fits. If even the smallest size runs over,
+// print at the normal size across pages instead.
+const FONT_SIZES = [8, 7.5, 7, 6.5, 6];
+
+const sheetOptions = (fontSize) => ({
+  theme: 'grid',
+  margin: { top: MARGIN, right: MARGIN, bottom: MARGIN, left: MARGIN },
+  columnStyles: COLUMN_STYLES,
+  styles: {
+    font: 'helvetica',
+    fontSize,
+    textColor: [0, 0, 0],
+    lineColor: [0, 0, 0],
+    lineWidth: 0.2,
+    cellPadding: [fontSize * 0.1, 1.5],
+    valign: 'middle'
+  }
+});
+
+const formatQty = (qty) => {
+  const n = Math.abs(Number(qty) || 0);
+  return n ? String(Number(n.toFixed(2))) : '';
+};
+const formatRate = (rate) => {
+  const n = Math.abs(Number(rate) || 0);
+  return n ? new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(n) : '';
+};
+const formatAmount = (amount) => {
+  const n = Math.abs(Number(amount) || 0);
+  return n ? new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n) : '-';
+};
+
+// Item names are usually pasted from Excel: wrapped in quotes with doubled
+// inner quotes, and padded with long runs of spaces standing in for line
+// breaks. Treat those runs as line breaks so each floor sits on its own line.
+function cleanText(text) {
+  let s = String(text || '').trim();
+  if (s.length > 1 && s.startsWith('"') && s.endsWith('"')) {
+    s = s.slice(1, -1).replace(/""/g, '"');
+  }
+  return s
+    .split(/\r?\n|[ \t]{6,}/)
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
+const ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+  'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+const twoDigitWords = (n) => (n < 20 ? ONES[n] : `${TENS[Math.floor(n / 10)]}${n % 10 ? ` ${ONES[n % 10]}` : ''}`);
+const threeDigitWords = (n) => [
+  n >= 100 && `${ONES[Math.floor(n / 100)]} Hundred`,
+  n % 100 && twoDigitWords(n % 100)
+].filter(Boolean).join(' ');
+
+// Indian numbering: 1,83,85,248 → One Crore Eighty Three Lakh Eighty Five Thousand Two Hundred Forty Eight
+function indianWords(n) {
+  return [
+    n >= 1e7 && `${indianWords(Math.floor(n / 1e7))} Crore`,
+    Math.floor((n % 1e7) / 1e5) && `${twoDigitWords(Math.floor((n % 1e7) / 1e5))} Lakh`,
+    Math.floor((n % 1e5) / 1e3) && `${twoDigitWords(Math.floor((n % 1e5) / 1e3))} Thousand`,
+    n % 1e3 && threeDigitWords(n % 1e3)
+  ].filter(Boolean).join(' ');
+}
+
+const amountInWords = (amount) => {
+  const n = Math.round(Math.abs(Number(amount) || 0));
+  return n ? `Rupees ${indianWords(n)} Only` : 'Rupees Zero Only';
+};
+
+// logo.png is the mark centred on a large white square; crop it to the mark
+// so it fills the header cell. Cached after the first successful load.
+let logoCache = null;
+async function loadLogo() {
+  if (logoCache) return logoCache;
+  try {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = '/logo.png';
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let minX = width, minY = height, maxX = -1, maxY = -1;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 4;
+        if (data[i + 3] > 32 && Math.min(data[i], data[i + 1], data[i + 2]) < 230) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0) return null;
+    const w = maxX - minX + 1;
+    const h = maxY - minY + 1;
+    const out = document.createElement('canvas');
+    out.width = w;
+    out.height = h;
+    out.getContext('2d').drawImage(canvas, minX, minY, w, h, 0, 0, w, h);
+    logoCache = { dataUrl: out.toDataURL('image/png'), ratio: w / h };
+    return logoCache;
+  } catch {
+    return null;
+  }
+}
+
+function drawCompanyBlock(doc, cell, logo, fontSize) {
+  if (logo) {
+    const h = cell.height - 4;
+    doc.addImage(logo.dataUrl, 'PNG', cell.x + 3, cell.y + 2, h * logo.ratio, h);
+  }
+  const right = cell.x + cell.width - 3;
+  doc.setTextColor(0, 0, 0);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(fontSize + 4);
+  doc.text(COMPANY_INFO.name, right, cell.y + cell.height * 0.4, { align: 'right' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(fontSize - 0.5);
+  doc.text(`Phone no.: ${COMPANY_INFO.phone}   Email: ${COMPANY_INFO.email}`, right, cell.y + cell.height * 0.66, { align: 'right' });
+  doc.text(`State: ${COMPANY_INFO.state}`, right, cell.y + cell.height * 0.86, { align: 'right' });
+}
+
+function drawSignatureBlock(doc, cell, fontSize) {
+  const centerX = cell.x + cell.width / 2;
+  doc.setTextColor(0, 0, 0);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(fontSize + 0.5);
+  doc.text(`For, ${COMPANY_INFO.name}`, centerX, cell.y + 8, { align: 'center' });
+  doc.text('Authorized Signatory', centerX, cell.y + cell.height - 4, { align: 'center' });
+}
+
+function buildEstimate(project, logo, fontSize) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const sheet = sheetOptions(fontSize);
+  const bold = { fontStyle: 'bold' };
+
+  // ─── TITLE, COMPANY & CLIENT DETAILS ───
+  const label = { fontStyle: 'bold', fontSize: fontSize - 0.5, halign: 'left' };
+  const value = { fontStyle: 'bold', fontSize: fontSize + 1, halign: 'left' };
+  const infoRow = (leftLabel, leftValue, rightLabel, rightValue) => [
+    { content: leftLabel, styles: label },
+    { content: leftValue || '', styles: value },
+    { content: rightLabel, styles: { ...label, halign: 'right' } },
+    { content: rightValue || '', colSpan: 3, styles: value }
+  ];
+
+  autoTable(doc, {
+    ...sheet,
+    startY: MARGIN,
+    body: [
+      [{ content: 'Estimate', colSpan: 6, styles: { halign: 'center', fontStyle: 'bold', fontSize: fontSize + 3 } }],
+      [{ content: '', colSpan: 6, styles: { minCellHeight: fontSize * 2 } }],
+      infoRow('Estimate for :', project.client_name, 'Estimate No :', project.re_number || project.re_project_id),
+      infoRow('Site Location :', project.location, 'CRN Number :', ''),
+      infoRow('Mobile No :', project.client_phone, 'Date :', new Date().toLocaleDateString('en-GB').replace(/\//g, '-')),
+      infoRow('Alternate No :', project.alternative_phone, 'Revision :', String(project.revision || 0))
+    ],
+    didDrawCell: (data) => {
+      if (data.section === 'body' && data.row.index === 1 && data.column.index === 0) {
+        drawCompanyBlock(doc, data.cell, logo, fontSize);
+      }
+    }
+  });
+
+  // ─── SCOPE ITEMS, DISCOUNT & TOTALS ───
+  // Lines with a negative amount (entered as a negative rate) are discounts:
+  // listed under "Discount" and taken off the Total.
+  const items = (project.rough_scope_items || []).map(item => ({
+    ...item,
+    amount: Number(item.total ?? (Number(item.quantity) || 0) * (Number(item.rate) || 0)) || 0
+  }));
+  const charges = items.filter(item => item.amount >= 0);
+  const discounts = items.filter(item => item.amount < 0);
+  const grossTotal = charges.reduce((sum, item) => sum + item.amount, 0);
+  const discountTotal = discounts.reduce((sum, item) => sum - item.amount, 0);
+  const projectValue = items.length ? grossTotal - discountTotal : (project.estimated_total || 0);
+
+  const itemRow = (item, slNo) => [
+    slNo ?? '',
+    cleanText(item.description || item.name) || '-',
+    formatQty(item.quantity),
+    item.unit || '',
+    formatRate(item.rate),
+    { content: formatAmount(item.amount), styles: slNo ? bold : {} }
+  ];
+  const summaryRow = (text, amount) => [
+    '',
+    { content: text, styles: bold },
+    '', '', '',
+    { content: amount, styles: bold }
+  ];
+
+  const body = charges.map((item, idx) => itemRow(item, idx + 1));
+  if (!items.length) {
+    body.push(['', { content: 'No scope items added', styles: { fontStyle: 'italic', textColor: [120, 120, 120] } }, '', '', '', '']);
+  }
+  if (discounts.length) {
+    body.push(summaryRow('Total', formatAmount(grossTotal)));
+    body.push(summaryRow('Discount', ''));
+    discounts.forEach(item => body.push(itemRow(item)));
+    body.push(summaryRow('Total discount', formatAmount(discountTotal)));
+  }
+  body.push(summaryRow('Total Project Value', formatAmount(projectValue)));
+  body.push([
+    { content: 'Note:', styles: { ...bold, halign: 'left' } },
+    { content: [STANDARD_NOTE, cleanText(project.planning_notes)].filter(Boolean).join('\n') },
+    { content: '', colSpan: 4 }
+  ]);
+
+  autoTable(doc, {
+    ...sheet,
+    startY: doc.lastAutoTable.finalY,
+    rowPageBreak: 'avoid',
+    head: [['Sl.No', 'Item name', 'Quantity', 'Unit', 'Price / Unit', 'Amount']],
+    headStyles: { fillColor: AMBER, textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center' },
+    body
+  });
+
+  // ─── AMOUNT IN WORDS, TERMS & SIGNATURE ───
+  const band = (text) => ({ content: text, colSpan: 2, styles: { fillColor: AMBER, fontStyle: 'bold', halign: 'center' } });
+
+  autoTable(doc, {
+    ...sheet,
+    startY: doc.lastAutoTable.finalY,
+    pageBreak: 'avoid',
+    rowPageBreak: 'avoid',
+    body: [
+      [band('Estimate Amount in Words'), { content: '', colSpan: 4, rowSpan: 2 }],
+      [{ content: amountInWords(projectValue), colSpan: 2, styles: { fontStyle: 'bold', halign: 'left' } }],
+      [band('Terms and Conditions'), { content: '', colSpan: 4, rowSpan: 2 }],
+      [{ content: TERMS.join('\n'), colSpan: 2, styles: { fontSize: fontSize - 0.5, halign: 'left' } }]
+    ],
+    didDrawCell: (data) => {
+      if (data.section === 'body' && data.row.index === 2 && data.column.index === 2) {
+        drawSignatureBlock(doc, data.cell, fontSize);
+      }
+    }
+  });
+
+  return doc;
+}
+
+function addPageNumbers(doc) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const pageCount = doc.getNumberOfPages();
+  for (let page = 1; page <= pageCount; page++) {
+    doc.setPage(page);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(110, 110, 110);
+    doc.text(`Page ${page} of ${pageCount}`, pageWidth - MARGIN, pageHeight - 4, { align: 'right' });
+  }
+}
 
 export async function generateREPDF(project) {
   if (!project) return;
 
-  const doc = new jsPDF();
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 15;
-  const contentWidth = pageWidth - margin * 2;
-
-  // ─── WATERMARK (render first so it's behind everything) ───
-  doc.setTextColor(245, 245, 245);
-  doc.setFontSize(50);
-  doc.setFont('helvetica', 'bold');
-  doc.text('URBAN SPACE', pageWidth / 2, pageHeight / 2 - 10, { align: 'center', angle: 35 });
-  doc.text('BUILDERS', pageWidth / 2, pageHeight / 2 + 15, { align: 'center', angle: 35 });
-
-  // ─── HEADER / LETTERPAD ───
-  let logoLoaded = false;
-  try {
-    const logoImg = new Image();
-    logoImg.crossOrigin = 'anonymous';
-    await new Promise((resolve, reject) => {
-      logoImg.onload = resolve;
-      logoImg.onerror = reject;
-      logoImg.src = '/logo.png';
-    });
-    doc.addImage(logoImg, 'PNG', margin, 8, 20, 20);
-    logoLoaded = true;
-  } catch {
-    // fallback: text only
+  const logo = await loadLogo();
+  let doc = null;
+  for (const fontSize of FONT_SIZES) {
+    doc = buildEstimate(project, logo, fontSize);
+    if (doc.getNumberOfPages() === 1) break;
   }
-
-  const textStartX = logoLoaded ? margin + 24 : margin;
-
-  // Company Name
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(18);
-  doc.setTextColor(30, 30, 30);
-  doc.text(COMPANY_INFO.name, textStartX, 17);
-
-  // Tagline
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(130, 130, 130);
-  doc.text(COMPANY_INFO.tagline, textStartX, 23);
-
-  // Contact info (right-aligned)
-  const contactX = pageWidth - margin;
-  doc.setFontSize(8.5);
-  doc.setTextColor(70, 70, 70);
-  doc.text(COMPANY_INFO.phone, contactX, 12, { align: 'right' });
-  doc.text(COMPANY_INFO.email, contactX, 17, { align: 'right' });
-  doc.text(COMPANY_INFO.website, contactX, 22, { align: 'right' });
-  doc.setFontSize(7.5);
-  doc.setTextColor(110, 110, 110);
-  doc.text(COMPANY_INFO.address, contactX, 27, { align: 'right' });
-
-  // Header separator line
-  doc.setDrawColor(50, 50, 50);
-  doc.setLineWidth(0.7);
-  doc.line(margin, 32, pageWidth - margin, 32);
-
-  // ─── DOCUMENT TITLE (centered, no box) ───
-  let y = 44;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(20);
-  doc.setTextColor(40, 40, 40);
-  doc.text('ROUGH ESTIMATE', pageWidth / 2, y, { align: 'center' });
-
-  // Ref and Date centered
-  y += 8;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(120, 120, 120);
-  doc.text(`Ref: ${project.re_project_id || '-'}`, pageWidth / 2, y, { align: 'center' });
-  y += 5;
-  doc.text(`Date: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}`, pageWidth / 2, y, { align: 'center' });
-
-  // ─── CLIENT INFORMATION (bordered box) ───
-  y += 10;
-  const clientBoxY = y;
-  const boxPadding = 4;
-  const fieldRowHeight = 7;
-
-  // Section heading
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(40, 40, 40);
-  doc.text('CLIENT INFORMATION', margin + boxPadding, y + boxPadding + 3);
-
-  // Fields inside the box
-  const clientFieldsY = y + boxPadding + 10;
-  const halfWidth = contentWidth / 2;
-
-  const drawLabelValue = (label, value, x, yy) => {
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(120, 120, 120);
-    doc.text(label, x, yy);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(40, 40, 40);
-    const labelW = doc.getTextWidth(label);
-    doc.text(String(value || '-'), x + labelW + 2, yy);
-  };
-
-  drawLabelValue('Name: ', project.client_name, margin + boxPadding, clientFieldsY);
-  drawLabelValue('Phone: ', project.client_phone, margin + halfWidth, clientFieldsY);
-  drawLabelValue('Email: ', project.client_email, margin + boxPadding, clientFieldsY + fieldRowHeight);
-  drawLabelValue('Location: ', project.location, margin + halfWidth, clientFieldsY + fieldRowHeight);
-
-  const clientBoxHeight = boxPadding + 10 + fieldRowHeight * 2 + boxPadding;
-  doc.setDrawColor(200, 200, 200);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(margin, clientBoxY, contentWidth, clientBoxHeight, 1.5, 1.5, 'S');
-
-  // ─── PROJECT DETAILS (bordered box) ───
-  y = clientBoxY + clientBoxHeight + 6;
-  const projectBoxY = y;
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(40, 40, 40);
-  doc.text('PROJECT DETAILS', margin + boxPadding, y + boxPadding + 3);
-
-  const projectFieldsY = y + boxPadding + 10;
-  drawLabelValue('Project Name: ', project.project_name, margin + boxPadding, projectFieldsY);
-  drawLabelValue('Square Feet: ', project.sqft ? `${project.sqft} sqft` : '-', margin + halfWidth, projectFieldsY);
-  drawLabelValue('Building Type: ', project.building_type || '-', margin + boxPadding, projectFieldsY + fieldRowHeight);
-  drawLabelValue('Handover: ', project.handover_months ? `${project.handover_months} months` : '-', margin + halfWidth, projectFieldsY + fieldRowHeight);
-
-  const projectBoxHeight = boxPadding + 10 + fieldRowHeight * 2 + boxPadding;
-  doc.setDrawColor(200, 200, 200);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(margin, projectBoxY, contentWidth, projectBoxHeight, 1.5, 1.5, 'S');
-
-  // ─── SCOPE OF WORKS ───
-  y = projectBoxY + projectBoxHeight + 10;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(40, 40, 40);
-  doc.text('SCOPE OF WORKS', margin, y);
-  y += 5;
-
-  const scopeItems = project.rough_scope_items || [];
-  const total = project.estimated_total || scopeItems.reduce((sum, item) => sum + (item.total || 0), 0);
-
-  if (scopeItems.length > 0) {
-    const tableData = scopeItems.map((item, idx) => [
-      idx + 1,
-      item.description || item.name || '-',
-      item.quantity || '-',
-      item.unit || '-',
-      formatPDFCurrency(item.rate || 0),
-      formatPDFCurrency(item.total || 0)
-    ]);
-
-    autoTable(doc, {
-      startY: y,
-      head: [['S.No', 'Description', 'Qty', 'Unit', 'Rate', 'Amount']],
-      body: tableData,
-      theme: 'grid',
-      headStyles: {
-        fillColor: [55, 55, 55],
-        textColor: [255, 255, 255],
-        fontSize: 8,
-        fontStyle: 'bold',
-        cellPadding: 3,
-        halign: 'center'
-      },
-      bodyStyles: {
-        fontSize: 8,
-        textColor: [50, 50, 50],
-        cellPadding: 2.5
-      },
-      alternateRowStyles: {
-        fillColor: [248, 248, 250]
-      },
-      columnStyles: {
-        0: { cellWidth: 14, halign: 'center' },
-        1: { cellWidth: 'auto' },
-        2: { cellWidth: 16, halign: 'center' },
-        3: { cellWidth: 16, halign: 'center' },
-        4: { cellWidth: 34, halign: 'right' },
-        5: { cellWidth: 38, halign: 'right' }
-      },
-      margin: { left: margin, right: margin },
-      tableLineColor: [210, 210, 210],
-      tableLineWidth: 0.2
-    });
-
-    y = doc.lastAutoTable.finalY + 8;
-  } else {
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(9);
-    doc.setTextColor(160, 160, 160);
-    doc.text('No scope items added', margin + 4, y + 4);
-    y += 14;
+  if (doc.getNumberOfPages() > 1) {
+    doc = buildEstimate(project, logo, FONT_SIZES[0]);
+    addPageNumbers(doc);
   }
-
-  // ─── ESTIMATED TOTAL (purple box) ───
-  const totalBoxWidth = 90;
-  const totalBoxHeight = 34;
-  const totalBoxX = pageWidth - margin - totalBoxWidth;
-  const totalBoxY = y;
-
-  // Purple background
-  doc.setFillColor(128, 0, 190);
-  doc.roundedRect(totalBoxX, totalBoxY, totalBoxWidth, totalBoxHeight, 3, 3, 'F');
-
-  // Label
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.setTextColor(255, 255, 255);
-  doc.text('ESTIMATED TOTAL', totalBoxX + totalBoxWidth / 2, totalBoxY + 10, { align: 'center' });
-
-  // Amount
-  doc.setFontSize(14);
-  doc.text(formatPDFCurrency(total), totalBoxX + totalBoxWidth / 2, totalBoxY + 22, { align: 'center' });
-
-  y = totalBoxY + totalBoxHeight + 10;
-
-  // ─── PLANNING NOTES ───
-  if (project.planning_notes) {
-    if (y > pageHeight - 50) { doc.addPage(); y = 20; }
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(50, 50, 50);
-    doc.text('Notes:', margin, y);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(100, 100, 100);
-    const splitNotes = doc.splitTextToSize(project.planning_notes, contentWidth - 4);
-    doc.text(splitNotes, margin + 2, y + 5);
-    y += 5 + splitNotes.length * 4;
-  }
-
-  // ─── DISCLAIMER ───
-  const disclaimerY = Math.max(y + 6, pageHeight - 38);
-  if (disclaimerY < pageHeight - 20) {
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(7);
-    doc.setTextColor(140, 140, 140);
-    doc.text(
-      'This is a rough estimate and subject to change based on site conditions and final specifications.',
-      pageWidth / 2, disclaimerY, { align: 'center' }
-    );
-  }
-
-  // ─── FOOTER ───
-  const footerY = pageHeight - 16;
-  doc.setDrawColor(180, 180, 180);
-  doc.setLineWidth(0.3);
-  doc.line(margin, footerY - 4, pageWidth - margin, footerY - 4);
-
-  // Left: Company name
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.setTextColor(60, 60, 60);
-  doc.text('URBAN SPACE BUILDERS', margin, footerY);
-
-  // Center: Terms
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.5);
-  doc.setTextColor(130, 130, 130);
-  doc.text('Terms & Conditions | Privacy Policy', pageWidth / 2, footerY, { align: 'center' });
-
-  // Right: GSTIN + timestamp
-  doc.setFontSize(6.5);
-  doc.text(COMPANY_INFO.gstin, pageWidth - margin, footerY - 2, { align: 'right' });
-  const timestamp = new Date().toLocaleString('en-IN', { day: 'numeric', month: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true });
-  doc.text(`Generated on ${timestamp}`, pageWidth - margin, footerY + 3, { align: 'right' });
 
   // Save
   const fileName = `RE_${project.project_name || project.client_name}_${new Date().toISOString().split('T')[0]}.pdf`;
