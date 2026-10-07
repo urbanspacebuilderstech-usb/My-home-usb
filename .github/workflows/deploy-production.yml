@@ -156,8 +156,18 @@ jobs:
       # The live build stays in place while the new one uploads; it used to be
       # deleted first, so the site would not load until the copy finished. The
       # new build is staged in build_next and swapped in by "Restart services".
+      #
+      # Oct 7 2026 — The VPS now and then SIGKILLs the receiving end mid-upload
+      # ("Process exited with status 137 from signal KILL"); three of four
+      # deploys that day failed here or in Restart services, and a plain re-run
+      # went through. So the copy gets three tries, 15s apart, like the PM2
+      # restart. Each try empties build_next first (rm: true), so a killed
+      # upload leaves nothing behind. Only the last try can fail the job, which
+      # skips Restart services and keeps the live build untouched.
       - name: Copy built frontend to VPS
+        id: copy1
         if: steps.changes.outputs.frontend == 'true'
+        continue-on-error: true
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -172,6 +182,44 @@ jobs:
           # Empty build_next first, so nothing left by a failed earlier upload
           # ships with this build. Done here rather than in "Update backend
           # code on VPS", which no longer runs on frontend-only deploys.
+          rm: true
+
+      - name: Wait before copy retry 1
+        if: steps.copy1.outcome == 'failure'
+        run: sleep 15
+
+      - name: Copy built frontend to VPS (retry 1)
+        id: copy2
+        if: steps.copy1.outcome == 'failure'
+        continue-on-error: true
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "frontend/build/"
+          target: "${{ secrets.VPS_APP_PATH }}/frontend/build_next"
+          strip_components: 2
+          overwrite: true
+          rm: true
+
+      - name: Wait before copy retry 2
+        if: steps.copy2.outcome == 'failure'
+        run: sleep 15
+
+      - name: Copy built frontend to VPS (retry 2)
+        if: steps.copy2.outcome == 'failure'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "frontend/build/"
+          target: "${{ secrets.VPS_APP_PATH }}/frontend/build_next"
+          strip_components: 2
+          overwrite: true
           rm: true
 
       - name: Restart services
