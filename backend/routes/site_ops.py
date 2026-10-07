@@ -2078,6 +2078,50 @@ async def create_material_request(
     return req_dict
 
 
+# Fields an SE edit (PATCH below, or the edits sent with a resubmit) can never touch.
+_SE_MR_PROTECTED_FIELDS = {
+    "request_id", "order_id", "project_id", "project_name", "site_engineer_id",
+    "site_engineer_name", "status", "created_at", "planning_approved_by",
+    "planning_approved_at", "procurement_approved_by", "procurement_approved_at",
+    "accountant_approved_by", "accountant_approved_at", "po_id", "po_generated_at",
+    "dispatched_at", "received_at", "rejected_by", "rejection_reason",
+    "receipt_otp", "receipt_otp_verified", "vendor_id", "vendor_name",
+    "assigned_vendor_id", "assigned_vendor_name", "total_amount",
+    "payment_type", "advance_amount", "balance_amount", "unit_rate",
+    "transport_cost", "discount", "credit_period_days", "payment_reference",
+}
+
+
+def _planning_resubmit_fields(request: dict, user: User, now: str, note: str = "") -> dict:
+    """$set fields that put a Planning-rejected request back in Planning's
+    "New Request (SE)" queue. The last rejection reason stays on the doc so
+    Planning can see what they asked for alongside the SE's reply."""
+    return {
+        "status": "planning_initial_pending",
+        "planning_initial_resubmitted_at": now,
+        "planning_initial_resubmitted_by": user.user_id,
+        "planning_initial_resubmitted_by_name": user.name,
+        "planning_initial_resubmit_note": note,
+        "planning_initial_resubmit_count": int(request.get("planning_initial_resubmit_count") or 0) + 1,
+        "updated_at": now,
+    }
+
+
+async def _notify_planning_resubmitted(request: dict, note: str = ""):
+    try:
+        planning_users = await db.users.find(
+            {"role": {"$in": ["planning", "planning_person", "super_admin"]}, "is_active": {"$ne": False}},
+            {"_id": 0, "user_id": 1},
+        ).to_list(50)
+        msg = f"Material request resubmitted by SE: {request.get('material_name')}"
+        if note:
+            msg += f" — {note}"
+        for p in planning_users:
+            await create_notification(p["user_id"], msg)
+    except Exception:
+        pass
+
+
 @router.patch("/site-engineer/material-requests/{request_id}")
 async def update_material_request(
     request_id: str,
@@ -2095,22 +2139,9 @@ async def update_material_request(
     if request.get("site_engineer_id") != user.user_id:
         raise HTTPException(status_code=403, detail="You can only edit your own requests")
 
-    # Fields that can never be edited
-    protected_fields = {
-        "request_id", "order_id", "project_id", "project_name", "site_engineer_id",
-        "site_engineer_name", "status", "created_at", "planning_approved_by",
-        "planning_approved_at", "procurement_approved_by", "procurement_approved_at",
-        "accountant_approved_by", "accountant_approved_at", "po_id", "po_generated_at",
-        "dispatched_at", "received_at", "rejected_by", "rejection_reason",
-        "receipt_otp", "receipt_otp_verified", "vendor_id", "vendor_name",
-        "assigned_vendor_id", "assigned_vendor_name", "total_amount",
-        "payment_type", "advance_amount", "balance_amount", "unit_rate",
-        "transport_cost", "discount", "credit_period_days", "payment_reference",
-    }
-
     allowed_updates = {}
     for key, value in updates.items():
-        if key not in protected_fields:
+        if key not in _SE_MR_PROTECTED_FIELDS:
             allowed_updates[key] = value
 
     if not allowed_updates:
@@ -2119,9 +2150,9 @@ async def update_material_request(
     allowed_updates["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     # If the request was rejected by Planning's initial review, editing auto-resubmits it.
-    if request.get("status") == "planning_initial_rejected":
-        allowed_updates["status"] = "planning_initial_pending"
-        allowed_updates["planning_initial_resubmitted_at"] = allowed_updates["updated_at"]
+    resubmitting = request.get("status") == "planning_initial_rejected"
+    if resubmitting:
+        allowed_updates.update(_planning_resubmit_fields(request, user, allowed_updates["updated_at"]))
 
     await db.material_requests.update_one(
         {"request_id": request_id},
@@ -2129,19 +2160,53 @@ async def update_material_request(
     )
 
     # If this is a resubmit after planning-initial rejection, ping Planning again.
-    if allowed_updates.get("status") == "planning_initial_pending" and request.get("status") == "planning_initial_rejected":
-        try:
-            planning_users = await db.users.find(
-                {"role": {"$in": ["planning", "planning_person", "super_admin"]}, "is_active": {"$ne": False}},
-                {"_id": 0, "user_id": 1},
-            ).to_list(50)
-            for p in planning_users:
-                await create_notification(p["user_id"], f"Material request resubmitted by SE: {request.get('material_name')}")
-        except Exception:
-            pass
+    if resubmitting:
+        await _notify_planning_resubmitted(request)
 
     updated = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
     await create_audit_log(user.user_id, "update", "material_request", request_id, allowed_updates)
+    return updated
+
+
+@router.post("/site-engineer/material-requests/{request_id}/resubmit-planning")
+async def resubmit_material_request_to_planning(
+    request_id: str,
+    data: dict = None,
+    user: User = Depends(get_current_user),
+):
+    """Send a request Planning rejected at initial review back to Planning.
+
+    Body (both optional): `note` — the SE's reply to the rejection reason;
+    `updates` — corrected fields, filtered exactly like the PATCH above.
+    Unlike that PATCH, nothing has to change: an SE whose request was
+    rejected for a missing explanation can resend it with just a note.
+    """
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can resubmit material requests")
+
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if user.role != UserRole.SUPER_ADMIN and request.get("site_engineer_id") != user.user_id:
+        raise HTTPException(status_code=403, detail="You can only resubmit your own requests")
+    if request.get("status") != "planning_initial_rejected":
+        raise HTTPException(status_code=400, detail="Only a request rejected by Planning can be resubmitted")
+
+    payload = data or {}
+    note = (payload.get("note") or "").strip()
+    updates = payload.get("updates") or {}
+    if not isinstance(updates, dict):
+        raise HTTPException(status_code=400, detail="Invalid updates")
+
+    now = datetime.now(timezone.utc).isoformat()
+    fields = {k: v for k, v in updates.items() if k not in _SE_MR_PROTECTED_FIELDS}
+    fields.update(_planning_resubmit_fields(request, user, now, note))
+
+    await db.material_requests.update_one({"request_id": request_id}, {"$set": fields})
+    await _notify_planning_resubmitted(request, note)
+
+    updated = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    await create_audit_log(user.user_id, "planning_initial_resubmit", "material_request", request_id, fields)
     return updated
 
 
@@ -2153,8 +2218,8 @@ async def delete_material_request(
     """SE / Sr.SE can delete their OWN material request only while it hasn't
     been APPROVED by Planning yet — `planning_initial_pending` (untouched)
     and `planning_initial_rejected` (Planning declined it at initial review)
-    are both still "not approved" states with no live edit/resubmit path, so
-    the SE can clear them and raise a corrected request. Once any approval
+    are both still "not approved" states, so the SE can clear them and raise
+    a corrected request (or resubmit a rejected one). Once any approval
     flag is set (planning_initial / PM / procurement / accounts / final),
     the delete endpoint refuses to preserve audit chain.
     Super Admin bypasses both checks.

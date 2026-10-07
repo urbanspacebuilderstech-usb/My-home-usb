@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   Clock, CheckCircle, XCircle, Truck, Package, Save, 
-  Calendar, User, MapPin, FileText, ArrowRight, Pencil, X
+  Calendar, User, MapPin, FileText, ArrowRight, Pencil, X, Send
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -91,11 +91,25 @@ function buildTimeline(req) {
     color: 'text-red-600',
   });
   if (req.planning_initial_rejected_at) events.push({
-    label: `Planning Rejected (Initial Review)${req.planning_initial_rejection_reason ? `: "${req.planning_initial_rejection_reason}"` : ''} — edit & resubmit`,
+    label: `Planning Rejected (Initial Review)${req.planning_initial_rejection_reason ? `: "${req.planning_initial_rejection_reason}"` : ''}${req.status === 'planning_initial_rejected' ? ' — edit & resubmit' : ''}`,
     by: req.planning_initial_rejected_by_name || 'Planning',
     date: req.planning_initial_rejected_at,
     icon: XCircle,
     color: 'text-red-600',
+  });
+  if (req.planning_initial_resubmitted_at) events.push({
+    label: `Resubmitted to Planning${req.planning_initial_resubmit_note ? `: "${req.planning_initial_resubmit_note}"` : ''}`,
+    by: req.planning_initial_resubmitted_by_name || req.site_engineer_name || 'Site Engineer',
+    date: req.planning_initial_resubmitted_at,
+    icon: ArrowRight,
+    color: 'text-amber-600',
+  });
+  if (req.planning_initial_approved_at) events.push({
+    label: 'Planning Approved (Initial Review)',
+    by: req.planning_initial_approved_by_name || 'Planning',
+    date: req.planning_initial_approved_at,
+    icon: CheckCircle,
+    color: 'text-amber-600',
   });
   // Accountant — surface awaiting state if present (no timestamp from server but
   // status indicates we're waiting on them).
@@ -200,7 +214,7 @@ function buildTimeline(req) {
   });
 }
 
-export default function OrderDetailDialog({ open, onClose, order, onUpdate, onResubmit, onRejectToProcurement }) {
+export default function OrderDetailDialog({ open, onClose, order, onUpdate, onResubmit, onRejectToProcurement, canResubmitToPlanning = false }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({});
@@ -212,6 +226,10 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate, onRe
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectingToProc, setRejectingToProc] = useState(false);
+  // Planning rejected the request at initial review — the SE's own project
+  // page opts in via canResubmitToPlanning to send it back with a reply.
+  const [resubmitNote, setResubmitNote] = useState('');
+  const [resubmitting, setResubmitting] = useState(false);
 
   useEffect(() => {
     if (order) {
@@ -228,6 +246,7 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate, onRe
       setEditing(false);
       setRejectMode(false);
       setRejectReason('');
+      setResubmitNote('');
     }
   }, [order]);
 
@@ -243,18 +262,55 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate, onRe
   // the missing piece to actually trigger that existing behavior.
   const canEdit = ['requested', 'planning_approved', 'planning_initial_rejected'].includes(order.status);
 
+  const isPlanningRejected = order.status === 'planning_initial_rejected';
+
+  const collectUpdates = () => {
+    const updates = {};
+    if (form.material_name !== order.material_name) updates.material_name = form.material_name;
+    if (parseFloat(form.quantity) !== order.quantity) updates.quantity = parseFloat(form.quantity);
+    if (form.unit !== order.unit) updates.unit = form.unit;
+    if (form.remarks !== (order.remarks || '')) updates.remarks = form.remarks;
+    if (form.urgency !== (order.urgency || 'medium')) updates.urgency = form.urgency;
+    if (form.stage !== (order.stage || '')) updates.stage = form.stage;
+    if (form.required_date !== (order.required_date || '')) updates.required_date = form.required_date;
+    if (form.expected_delivery !== (order.expected_delivery || '')) updates.expected_delivery = form.expected_delivery;
+    return updates;
+  };
+
+  // Sends a Planning-rejected request back to Planning's New Request queue,
+  // with any edits made in the form and the SE's reply. Works with no edits
+  // at all, unlike Save (which needs a changed field to resubmit).
+  const handleResubmitToPlanning = async () => {
+    const updates = editing ? collectUpdates() : {};
+    if ('material_name' in updates && !updates.material_name.trim()) {
+      toast.error('Material name cannot be empty');
+      return;
+    }
+    if ('quantity' in updates && !(updates.quantity > 0)) {
+      toast.error('Enter a valid quantity');
+      return;
+    }
+    setResubmitting(true);
+    try {
+      await axios.post(`${API}/site-engineer/material-requests/${order.request_id}/resubmit-planning`, {
+        note: resubmitNote.trim(),
+        updates,
+      });
+      toast.success('Resubmitted to Planning');
+      setEditing(false);
+      if (onUpdate) onUpdate();
+      onClose();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to resubmit');
+    } finally {
+      setResubmitting(false);
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
-      const updates = {};
-      if (form.material_name !== order.material_name) updates.material_name = form.material_name;
-      if (parseFloat(form.quantity) !== order.quantity) updates.quantity = parseFloat(form.quantity);
-      if (form.unit !== order.unit) updates.unit = form.unit;
-      if (form.remarks !== (order.remarks || '')) updates.remarks = form.remarks;
-      if (form.urgency !== (order.urgency || 'medium')) updates.urgency = form.urgency;
-      if (form.stage !== (order.stage || '')) updates.stage = form.stage;
-      if (form.required_date !== (order.required_date || '')) updates.required_date = form.required_date;
-      if (form.expected_delivery !== (order.expected_delivery || '')) updates.expected_delivery = form.expected_delivery;
+      const updates = collectUpdates();
 
       if (Object.keys(updates).length === 0) {
         toast.info('No changes to save');
@@ -322,6 +378,41 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate, onRe
         </div>
 
         <div className="px-4 py-4 sm:px-6">
+          {/* Planning rejected at initial review — the reason is shown in every
+              view; the reply + resubmit controls only on the SE's own page. */}
+          {isPlanningRejected && (
+            <div className="mb-4 bg-rose-50/70 rounded-lg p-3 border border-rose-200 space-y-2" data-testid="order-planning-rejected-panel">
+              <h3 className="text-xs sm:text-sm font-semibold text-rose-800 flex items-center gap-2">
+                <XCircle className="h-4 w-4 text-rose-600" />
+                Rejected by Planning{order.planning_initial_rejected_by_name ? ` (${order.planning_initial_rejected_by_name})` : ''}
+              </h3>
+              {order.planning_initial_rejection_reason && (
+                <p className="text-sm text-rose-900" data-testid="order-planning-rejection-reason">Reason: "{order.planning_initial_rejection_reason}"</p>
+              )}
+              {canResubmitToPlanning && (
+                <>
+                  <Label className="text-xs text-gray-600">Reply to Planning (optional)</Label>
+                  <Textarea
+                    value={resubmitNote}
+                    onChange={(e) => setResubmitNote(e.target.value)}
+                    rows={2}
+                    className="text-sm bg-white"
+                    placeholder="e.g. what you changed, or why this material is needed"
+                    data-testid="order-resubmit-note"
+                  />
+                  {!editing && (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[11px] text-gray-500">Need to change the quantity or details? Use Edit first.</span>
+                      <Button size="sm" className="gap-1 bg-orange-600 hover:bg-orange-700 text-xs" onClick={handleResubmitToPlanning} disabled={resubmitting} data-testid="order-resubmit-planning-btn">
+                        <Send className="h-3 w-3" /> {resubmitting ? 'Resubmitting...' : 'Resubmit to Planning'}
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           <Tabs defaultValue="details" className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-4">
               <TabsTrigger value="details" data-testid="order-tab-details">Details</TabsTrigger>
@@ -696,10 +787,16 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate, onRe
           {/* Save Button when Editing */}
           {editing && (
             <div className="sticky bottom-0 bg-white border-t pt-3 pb-1 flex gap-2 justify-end">
-              <Button variant="outline" size="sm" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
-              <Button size="sm" onClick={handleSave} disabled={saving} className="gap-1 bg-orange-600 hover:bg-orange-700" data-testid="save-order-btn">
-                <Save className="h-3 w-3" /> {saving ? 'Saving...' : 'Save Changes'}
-              </Button>
+              <Button variant="outline" size="sm" onClick={() => setEditing(false)} disabled={saving || resubmitting}>Cancel</Button>
+              {isPlanningRejected && canResubmitToPlanning ? (
+                <Button size="sm" onClick={handleResubmitToPlanning} disabled={resubmitting} className="gap-1 bg-orange-600 hover:bg-orange-700" data-testid="save-resubmit-planning-btn">
+                  <Send className="h-3 w-3" /> {resubmitting ? 'Resubmitting...' : 'Save & Resubmit to Planning'}
+                </Button>
+              ) : (
+                <Button size="sm" onClick={handleSave} disabled={saving} className="gap-1 bg-orange-600 hover:bg-orange-700" data-testid="save-order-btn">
+                  <Save className="h-3 w-3" /> {saving ? 'Saving...' : 'Save Changes'}
+                </Button>
+              )}
             </div>
           )}
         </div>

@@ -235,6 +235,47 @@ def test_planning_initial_reject_then_se_resubmit():
     assert r.json()["quantity"] == 3
 
 
+def test_planning_initial_reject_then_explicit_resubmit():
+    se = _se_session()
+    pl = _planning_session()
+    pid = _first_project(se)
+    req = _create_request(se, pid)
+    rid = req["request_id"]
+    url = f"{API}/site-engineer/material-requests/{rid}/resubmit-planning"
+    # Not rejected yet → can't resubmit
+    r = se.post(url, json={"note": "early"})
+    assert r.status_code == 400, r.text
+    r = pl.patch(
+        f"{API}/procurement-simple/material-requests/{rid}/planning-initial-reject",
+        json={"reason": "why is this needed?"},
+    )
+    assert r.status_code == 200, r.text
+    # Planning can't resubmit on the SE's behalf
+    r = pl.post(url, json={"note": "x"})
+    assert r.status_code == 403, r.text
+    # Note only, no edits — still resubmits
+    r = se.post(url, json={"note": "  needed for slab shuttering  ", "updates": {"status": "delivered"}})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "planning_initial_pending"
+    assert body["planning_initial_resubmit_note"] == "needed for slab shuttering"
+    assert body["planning_initial_resubmit_count"] == 1
+    assert body["planning_initial_rejection_reason"] == "why is this needed?"
+    # Reject again, resubmit with an edit
+    r = pl.patch(
+        f"{API}/procurement-simple/material-requests/{rid}/planning-initial-reject",
+        json={"reason": "reduce qty"},
+    )
+    assert r.status_code == 200, r.text
+    r = se.post(url, json={"updates": {"quantity": 2}})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "planning_initial_pending"
+    assert body["quantity"] == 2
+    assert body["planning_initial_resubmit_note"] == ""
+    assert body["planning_initial_resubmit_count"] == 2
+
+
 def test_procurement_cannot_see_initial_pending():
     se = _se_session()
     _ = _planning_session()

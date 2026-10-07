@@ -35,6 +35,8 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const STATUS_CONFIG = {
+  planning_initial_pending: { label: 'Awaiting Planning', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
+  planning_initial_rejected: { label: 'Planning Rejected', color: 'bg-rose-100 text-rose-800', icon: XCircle },
   requested: { label: 'Requested', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
   pm_approved: { label: 'PM Approved', color: 'bg-blue-100 text-blue-800', icon: CheckCircle },
   planning_approved: { label: 'Planning OK', color: 'bg-amber-50 text-amber-800', icon: CheckCircle },
@@ -1869,6 +1871,12 @@ export default function SiteEngineerProject() {
                                   {req.payment_mode && (
                                     <p className="text-purple-700"><strong>Payment:</strong> {req.payment_mode}</p>
                                   )}
+                                  {(req.status || '').toLowerCase() === 'planning_initial_rejected' && (
+                                    <p className="text-rose-700" data-testid={`se-mat-planning-rejected-${req.request_id}`}>
+                                      <strong>Planning rejected{req.planning_initial_rejected_by_name ? ` (${req.planning_initial_rejected_by_name})` : ''}:</strong>{' '}
+                                      {req.planning_initial_rejection_reason ? `"${req.planning_initial_rejection_reason}"` : '—'}
+                                    </p>
+                                  )}
                                 </div>
                                 <MaterialStageFlow status={req.status} />
                               </div>
@@ -1900,8 +1908,8 @@ export default function SiteEngineerProject() {
                                 </button>
                                 {/* Delete: SE can delete their own material request ONLY while
                                     Planning hasn't APPROVED it yet — untouched (pending) or
-                                    rejected at initial review both count, since a rejected
-                                    request has no live edit/resubmit path. Once any approval
+                                    rejected at initial review both count (a rejected one can
+                                    also be resubmitted instead). Once any approval
                                     flag is set (planning_initial / PM / procurement / final)
                                     the delete icon disappears so audit chain is preserved. */}
                                 {['planning_initial_pending', 'planning_initial_rejected'].includes((req.status || '').toLowerCase()) && (
@@ -1924,6 +1932,18 @@ export default function SiteEngineerProject() {
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </button>
+                                )}
+                                {/* Planning rejected it at initial review — opens the detail
+                                    dialog, where the SE can edit, reply and resubmit. */}
+                                {(req.status || '').toLowerCase() === 'planning_initial_rejected' && (
+                                  <Button
+                                    size="sm"
+                                    onClick={(e) => { e.stopPropagation(); setSelectedOrder(req); }}
+                                    className="gap-1 bg-orange-600 hover:bg-orange-700 text-xs whitespace-nowrap"
+                                    data-testid={`se-mat-resubmit-${req.request_id}`}
+                                  >
+                                    <Send className="h-3 w-3" />Resubmit
+                                  </Button>
                                 )}
                                 {isReceivable && (
                                   <Button
@@ -2631,6 +2651,7 @@ export default function SiteEngineerProject() {
         onClose={() => setSelectedOrder(null)}
         order={selectedOrder}
         onUpdate={() => fetchData(false)}
+        canResubmitToPlanning
         onResubmit={(order) => { setSelectedOrder(null); openReceiveDialog(order); }}
         onRejectToProcurement={async (order, reason) => {
           try {

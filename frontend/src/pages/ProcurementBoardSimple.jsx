@@ -1691,7 +1691,7 @@ function buildTimeline(r, qtyHistory = [], applied = {}) {
   }
   push(r.planning_initial_approved_at, 'emerald', 'Planning initial approved', r.planning_initial_approved_by_name, '');
   push(r.planning_initial_rejected_at, 'red', 'Planning initial rejected', r.planning_initial_rejected_by_name, r.planning_initial_rejection_reason);
-  push(r.planning_initial_resubmitted_at, 'amber', 'SE resubmitted after planning rework', r.site_engineer_name, '');
+  push(r.planning_initial_resubmitted_at, 'amber', 'SE resubmitted after planning rework', r.planning_initial_resubmitted_by_name || r.site_engineer_name, r.planning_initial_resubmit_note || '');
   push(r.pm_approved_at, 'emerald', 'PM approved', r.pm_approved_by_name, '');
   push(r.pm_rejected_at, 'red', 'PM rejected', r.pm_rejected_by_name, r.pm_rejection_reason);
   // Values AS ASSIGNED. verify-approve and change-vendor overwrite unit_price /

@@ -1196,6 +1196,7 @@ function RequestTimeline({ req, type }) {
   add(req.created_at || req.requested_at, 'Request Created', req.requested_by_name || req.created_by_name, 'gray');
   add(req.planning_initial_approved_at, 'Planning Head — Initial Approval', req.planning_initial_approved_by_name, 'amber');
   add(req.planning_initial_rejected_at, 'Planning Head — Rejected at Initial Review', req.planning_initial_rejected_by_name, 'red', req.planning_initial_rejection_reason);
+  add(req.planning_initial_resubmitted_at, 'Site Engineer — Resubmitted to Planning', req.planning_initial_resubmitted_by_name || req.site_engineer_name, 'amber', req.planning_initial_resubmit_note);
   add(req.procurement_assigned_at || req.procurement_priced_at, 'Procurement — Vendor & Pricing Submitted', req.procurement_assigned_by_name || req.procurement_priced_by_name, 'orange', req.vendor_name ? `Vendor: ${req.vendor_name}` : null);
   add(req.revision_sent_at, 'Sent for Revision by Planning', req.revision_sent_by_name, 'orange', req.revision_remarks);
   add(req.accounts_approved_at, 'Accountant — Payment Approved', req.accounts_approved_by_name, 'cyan');
@@ -1639,6 +1640,17 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
         {status === 'procurement_revision' && req.revision_remarks && (
           <div className="mt-2 pt-2 border-t border-orange-200 text-[11px] text-orange-700 truncate">
             <span className="font-semibold">Revision sent:</span> "{req.revision_remarks}"
+          </div>
+        )}
+        {status === 'planning_initial_pending' && req.planning_initial_resubmitted_at && (
+          <div
+            className="mt-2 pt-2 border-t border-amber-200 text-[11px] text-amber-800 truncate"
+            title={req.planning_initial_resubmit_note || undefined}
+            data-testid="planning-se-resubmit-banner"
+          >
+            <span className="font-semibold">Resubmitted by SE{req.planning_initial_resubmit_count > 1 ? ` (×${req.planning_initial_resubmit_count})` : ''}</span>
+            {req.planning_initial_rejection_reason && <> · you rejected: "{req.planning_initial_rejection_reason}"</>}
+            {req.planning_initial_resubmit_note && <> · SE reply: "{req.planning_initial_resubmit_note}"</>}
           </div>
         )}
         {status === 'planning_initial_pending' && req.procurement_rejected_at && (
