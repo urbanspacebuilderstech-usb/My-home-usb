@@ -225,6 +225,37 @@ def classify_payment_mode(mode) -> str:
 SUSPENSE_TILE_BUCKETS = {"cash", "current_account", "savings_account", "cheque", "direct_transfer"}
 
 
+def _material_suspense_mode(se: Dict[str, Any], src: Dict[str, Any]):
+    """Which payment mode a material suspense entry belongs to.
+
+    Oct 7 2026 - precedence, strongest evidence first:
+
+      1. the entry's own payment_mode - the most direct statement there is
+      2. a cheque behind it, on the entry or on the expense it points at.
+         `cheque_no` may hold the printed number OR a raw "chq_" id (see
+         _resolve_cheque_numbers); either way its presence means cheque.
+      3. the linked expense's payment_method
+
+    (3) used to be the only source after (1), which is how a cheque-funded
+    entry with no payment_mode of its own was filed as "unattributed" while
+    the Expense list showed the same expense as a cheque payment. The labour
+    path has had a cheque fallback all along; this brings material into line.
+    """
+    own = se.get("payment_mode")
+    if own:
+        return own
+    for v in (se.get("cheque_no"), se.get("cheque_number"), se.get("cheque_id"),
+              src.get("cheque_no"), src.get("cheque_number"), src.get("cheque_id")):
+        if v:
+            return "cheque"
+    for ids in (se.get("cheque_ids"), src.get("cheque_ids")):
+        if ids:
+            return "cheque"
+    if se.get("linked_cheque_ids"):
+        return "cheque"
+    return src.get("payment_method")
+
+
 def classify_suspense_bucket(mode) -> str:
     """Which Suspense A/c tile an entry belongs in.
 
@@ -3565,8 +3596,13 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
         db.contractor_suspense_ledger.find({}, {"_id": 0}).to_list(5000),
         db.recorded_expenses.find(
             {"category": "material"},
+            # Oct 7 2026 - the cheque fields are fetched so a suspense entry
+            # can be filed under the cheque that funded it. Without them
+            # `src.get("cheque_number")` was always None, and a cheque-funded
+            # entry with no payment_mode of its own fell to "unattributed".
             {"_id": 0, "expense_id": 1, "status": 1, "is_deleted": 1, "description": 1,
-             "payment_method": 1, "project_id": 1, "project_name": 1, "created_at": 1},
+             "payment_method": 1, "project_id": 1, "project_name": 1, "created_at": 1,
+             "cheque_number": 1, "cheque_no": 1, "cheque_id": 1, "cheque_ids": 1},
         ).to_list(5000),
         db.recorded_expenses.find(
             {"category": "labour"},
@@ -3635,9 +3671,18 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
             # `mode_bucket` is classified server-side with the canonical map so
             # the tiles cannot disagree with the rest of the app, and a genuinely
             # unknown mode becomes "unattributed" rather than silently "cash".
-            "mode": se.get("payment_mode") or src.get("payment_method"),
-            "mode_bucket": classify_suspense_bucket(se.get("payment_mode") or src.get("payment_method")),
-            "mode_reason": suspense_bucket_reason(se.get("payment_mode") or src.get("payment_method")),
+            # Oct 7 2026 - a cheque behind the entry now outranks the linked
+            # expense's payment_method, matching the labour path which has had
+            # that fallback all along. Material had none at all, so
+            # se_c8729f5736 (P sand, Mr Gopinath - nanmangalam, 18,963,
+            # "Suspense applied to material bill") showed as UNATTRIBUTED
+            # while the Expense list showed the very same expense
+            # exp_137eef0a9ccf as "Cheque #1684" - the description even says
+            # "(via Cheque #001684 suspense)". The cheque was always there;
+            # nothing looked for it.
+            "mode": _material_suspense_mode(se, src),
+            "mode_bucket": classify_suspense_bucket(_material_suspense_mode(se, src)),
+            "mode_reason": suspense_bucket_reason(_material_suspense_mode(se, src)),
             "status": src.get("status"),
             "date": se.get("created_at") or src.get("created_at"),
             "amount": amt,
