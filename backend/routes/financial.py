@@ -15711,3 +15711,251 @@ async def cash_bucket_audit(user: User = Depends(get_current_user)):
         "mislabelled_expenses": mislabelled[:60],
         "mislabelled_count": len(mislabelled),
     })
+
+
+# --- TEMPORARY DIAGNOSTIC (Oct 7 2026) -------------------------------------
+# Close Books > CASH shows "Surplus 18,963". Remove with the other
+# /admin/* scan endpoints once the figure has been traced and cleared.
+
+DAILY_CLOSING_LOCK_KEYS = {
+    "cash": "cash",
+    "current_account": "current_account",
+    "savings_account": "savings",
+    "cheque": "cheque",
+    "direct_transfer": "direct_transfer",
+}
+
+
+@router.get("/admin/cash-movement-since-close")
+async def cash_movement_since_close(
+    date: Optional[str] = None,
+    mode: str = "cash",
+    user: User = Depends(get_current_user),
+):
+    """TEMPORARY read-only: trace a Close Books surplus to the transactions.
+
+    Why a surplus appears at all. On the first close of a day the dialog does
+    not ask the accountant to retype the source rows - it COPIES them from the
+    previous close, labels and amounts both, so only what changed needs
+    editing. The `book` figure beside them is recomputed live from
+    income - expense. So the moment money leaves a mode, the carried-forward
+    rows still show yesterday's cash while the book has already dropped:
+
+        surplus = previous actual - today's book
+                = previous variance + (expense out - income in) since then
+
+    which is money that has genuinely left the mode and has not yet been taken
+    off a source row. It is not a double count and nothing is missing - the
+    accountant just has to reduce whichever row it came out of.
+
+    This endpoint does that arithmetic from the canonical cashbook engine, so
+    the predicted surplus can be checked against the dialog, and lists every
+    transaction in the window so the figure can be found instead of hunted.
+
+    Reads only. No writes.
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    if not date:
+        date = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
+
+    # The previous saved close for THIS mode (one doc per date+mode).
+    prev_rows = await db.daily_closings.find(
+        {"date": {"$lt": date}, "mode": mode}, {"_id": 0}
+    ).sort("date", -1).to_list(1)
+    prev = prev_rows[0] if prev_rows else None
+    since = prev["date"] if prev else None
+
+    # Everything below mirrors /accountant/cashbook-filtered exactly - same
+    # engine, same approved-status filters, same real-project exclusion - so
+    # the numbers here and the dialog's `book` cannot disagree. Fetched once
+    # unfiltered and split in Python, so today's balance and the window total
+    # are guaranteed to be consistent with each other.
+    income_status_filter = {"$or": [
+        {"status": "approved"},
+        {"status": {"$exists": False}},
+        {"status": None},
+    ]}
+    (incomes, expense_source_docs, projects_list, lock_doc) = await asyncio.gather(
+        db.income.find(income_status_filter, {"_id": 0}).to_list(20000),
+        fetch_expense_source_docs({}),
+        db.projects.find(
+            {
+                "planning_status": {"$in": ["new", "active", "delivered"]},
+                "name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "RE - Mr. Joseph Vijay", "RE - Mr. Joseph Vijay ", "RE-Mr. Joseph Vijay", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]},
+            },
+            {"_id": 0, "project_id": 1, "name": 1},
+        ).to_list(5000),
+        db.closing_balances.find_one(
+            {"_id": CLOSING_BALANCE_DOC_ID}, {"_id": 0, "buckets": 1}
+        ),
+    )
+    recorded_exps, labour_exps, material_reqs, material_exps_legacy, _direct = expense_source_docs
+    project_map = {p["project_id"]: p.get("name") for p in projects_list}
+    real_pid_set = set(project_map)
+    all_expenses = build_expense_rows(
+        recorded_exps, labour_exps, material_reqs, material_exps_legacy, project_map
+    )
+
+    def _day(doc):
+        return str(doc.get("created_at") or doc.get("date") or "")[:10]
+
+    def _in_window(doc):
+        d = _day(doc)
+        if not d or d > date:
+            return False
+        return (d > since) if since else True
+
+    inc_all, exp_all = 0.0, 0.0
+    inc_rows, exp_rows = [], []
+
+    for i in incomes:
+        if i.get("project_id") not in real_pid_set:
+            continue
+        # Income classifies on payment_mode ALONE here - same as the cashbook.
+        if classify_payment_mode(i.get("payment_mode")) != mode:
+            continue
+        amt = _f(i.get("amount"))
+        inc_all += amt
+        if _in_window(i):
+            inc_rows.append({
+                "income_id": i.get("income_id"),
+                "amount": amt,
+                "date": str(i.get("created_at") or "")[:19],
+                "project": project_map.get(i.get("project_id")),
+                "client": i.get("client_name"),
+                "stage": i.get("stage"),
+            })
+
+    for e in all_expenses:
+        if e.get("project_id") not in real_pid_set:
+            continue
+        if classify_payment_mode(e.get("payment_method") or e.get("payment_mode")) != mode:
+            continue
+        amt = _f(e.get("amount"))
+        exp_all += amt
+        if _in_window(e):
+            exp_rows.append({
+                "expense_id": e.get("expense_id"),
+                "amount": amt,
+                "date": str(e.get("created_at") or "")[:19],
+                "type": e.get("expense_type"),
+                "category": e.get("category"),
+                "vendor": e.get("vendor_name"),
+                "project": project_map.get(e.get("project_id")),
+                "description": e.get("description") or e.get("item_name"),
+                "cheque_number": e.get("cheque_number"),
+            })
+
+    # Carry-forward opening balance for this mode (the dialog adds it to the
+    # expense side: balOf = inc - (exp + cfExp)). Constant day to day, so it
+    # cancels out of the movement, but today's book needs it.
+    buckets = (lock_doc or {}).get("buckets") or {}
+    lock_exp = _f((buckets.get(DAILY_CLOSING_LOCK_KEYS.get(mode, mode)) or {}).get("expense"))
+
+    today_book = round(inc_all - (exp_all + lock_exp), 2)
+    inc_total = round(sum(r["amount"] for r in inc_rows), 2)
+    exp_total = round(sum(r["amount"] for r in exp_rows), 2)
+    net_out = round(exp_total - inc_total, 2)
+
+    prev_actual = _f((prev or {}).get("actual_balance"))
+    prev_computed = _f((prev or {}).get("computed_balance"))
+    prev_variance = _f((prev or {}).get("variance"))
+    # What the dialog will show today, if nobody has edited the rows yet.
+    surplus_now = round(prev_actual - today_book, 2) if prev else None
+    predicted = round(prev_variance + net_out, 2) if prev else None
+
+    # Which single transaction, or which day, accounts for the whole figure.
+    target = surplus_now if surplus_now else net_out
+    exact = [r for r in exp_rows if abs(r["amount"] - target) < 0.5]
+    by_day: Dict[str, Dict[str, float]] = {}
+    for r in exp_rows:
+        by_day.setdefault(r["date"][:10], {"out": 0.0, "in": 0.0})["out"] += r["amount"]
+    for r in inc_rows:
+        by_day.setdefault(r["date"][:10], {"out": 0.0, "in": 0.0})["in"] += r["amount"]
+    day_list = [{"date": d, "expense_out": round(v["out"], 2),
+                 "income_in": round(v["in"], 2),
+                 "net_out": round(v["out"] - v["in"], 2)}
+                for d, v in sorted(by_day.items())]
+
+    exp_rows.sort(key=lambda r: -r["amount"])
+    inc_rows.sort(key=lambda r: -r["amount"])
+
+    findings = []
+    if not prev:
+        findings.append(
+            "No earlier close saved for %s, so there is nothing being carried "
+            "forward and a surplus cannot come from this cause." % mode)
+    else:
+        if abs((predicted or 0) - (surplus_now or 0)) < 1.0:
+            findings.append(
+                "Confirmed: the surplus of %s is previous variance (%s) plus "
+                "net money out since the %s close (%s). Nothing is missing - "
+                "it is spending that has not been taken off a source row yet."
+                % (surplus_now, prev_variance, since, net_out))
+        else:
+            findings.append(
+                "The surplus (%s) does NOT equal previous variance (%s) plus "
+                "net out (%s = %s). Something else is moving the book - do not "
+                "adjust a source row on the strength of this."
+                % (surplus_now, prev_variance, net_out, predicted))
+        if exact:
+            findings.append(
+                "One single expense matches the whole figure: %s."
+                % ", ".join("%s %s" % (r["expense_id"], r["amount"]) for r in exact))
+        if not exp_rows and not inc_rows:
+            findings.append(
+                "No transactions at all in this mode since the %s close, so "
+                "the surplus cannot be explained by movement. Check whether a "
+                "source row was mistyped at that close instead." % since)
+
+    return fast_json({
+        "write_performed": False,
+        "read_only": True,
+        "mode": mode,
+        "window": {
+            "after": since,
+            "up_to": date,
+            "note": ("transactions dated after the last saved close for this mode"
+                     if since else "no previous close for this mode - whole history"),
+        },
+        "previous_close": {
+            "date": since,
+            "actual_balance": prev_actual,
+            "computed_balance": prev_computed,
+            "variance": prev_variance,
+            "closed_by": (prev or {}).get("closed_by_name"),
+            "source_rows_being_carried_forward": (prev or {}).get("sub_entries") or [],
+        } if prev else None,
+        "today": {
+            "book_balance_now": today_book,
+            "income_total": round(inc_all, 2),
+            "expense_total": round(exp_all, 2),
+            "carry_forward_expense": lock_exp,
+            "surplus_the_dialog_will_show": surplus_now,
+        },
+        "movement_since_that_close": {
+            "income_in": inc_total,
+            "expense_out": exp_total,
+            "net_out": net_out,
+            "predicted_surplus": predicted,
+            "arithmetic": "previous variance + net out = predicted surplus",
+        },
+        "findings": findings,
+        "single_expense_matching_the_figure": exact,
+        "by_day": day_list,
+        "expenses": exp_rows[:100],
+        "incomes": inc_rows[:100],
+        "counts": {"expenses": len(exp_rows), "incomes": len(inc_rows)},
+        "how_to_clear_it": (
+            "Reduce the source row the money came out of by the net_out shown "
+            "above, in Close Books, then close. Do not change any transaction."
+        ),
+    })
