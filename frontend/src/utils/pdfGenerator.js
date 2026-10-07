@@ -1,5 +1,8 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import axios from 'axios';
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const COMPANY_INFO = {
   name: 'URBAN SPACE BUILDERS',
@@ -110,18 +113,31 @@ const amountInWords = (amount) => {
   return n ? `Rupees ${indianWords(n)} Only` : 'Rupees Zero Only';
 };
 
-// logo.png is the mark centred on a large white square; crop it to the mark
-// so it fills the header cell. Cached after the first successful load.
-let logoCache = null;
+// The Login Logo from Settings → App Branding. An upload overwrites
+// /logo.webp and bumps its version, so /api/branding gives the current
+// cache-busted URL.
+async function brandingLogoUrl() {
+  try {
+    const res = await axios.get(`${API}/branding`);
+    return res.data?.logo_url || '/logo.webp';
+  } catch {
+    return '/logo.webp';
+  }
+}
+
+// Crop the logo to its visible mark, so padding in the uploaded file does not
+// shrink it in the header cell. Cached per URL, i.e. until a new upload.
+let logoCache = { url: null, logo: null };
 async function loadLogo() {
-  if (logoCache) return logoCache;
+  const url = await brandingLogoUrl();
+  if (logoCache.url === url) return logoCache.logo;
   try {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     await new Promise((resolve, reject) => {
       img.onload = resolve;
       img.onerror = reject;
-      img.src = '/logo.png';
+      img.src = url;
     });
     const canvas = document.createElement('canvas');
     canvas.width = img.naturalWidth;
@@ -148,8 +164,8 @@ async function loadLogo() {
     out.width = w;
     out.height = h;
     out.getContext('2d').drawImage(canvas, minX, minY, w, h, 0, 0, w, h);
-    logoCache = { dataUrl: out.toDataURL('image/png'), ratio: w / h };
-    return logoCache;
+    logoCache = { url, logo: { dataUrl: out.toDataURL('image/png'), ratio: w / h } };
+    return logoCache.logo;
   } catch {
     return null;
   }
