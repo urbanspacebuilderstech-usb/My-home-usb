@@ -45,13 +45,33 @@ const newRow = () => ({ label: '', amount: '' });
 // AccountsBoard.jsx's classifyMode / SuspenseAccount.jsx's
 // classifySuspenseMode, trimmed to the 5 modes this dialog tracks.
 const classifySuspenseMode = (raw) => {
-  const m = (raw || '').toString().toLowerCase();
-  if (m.includes('saving')) return 'savings_account';
-  if (m.includes('current') || m.includes('bank') || m.includes('neft') || m.includes('rtgs') || m.includes('imps')) return 'current_account';
+  // Oct 7 2026 — unknown must NEVER become Cash. This fell back to 'cash' for
+  // anything it did not recognise, including a completely absent mode, so
+  // every mode-less suspense entry was quietly added to the Cash suggestion.
+  // The backend's classify_suspense_bucket and SuspenseAccount.jsx were both
+  // changed to "unattributed" on 2 Sep 2026 (9f23e884, "Classify suspense
+  // modes canonically; never fall back to Cash") — this third copy was not in
+  // that commit and has disagreed with them ever since.
+  if (raw === null || raw === undefined || String(raw).trim() === '') return 'unattributed';
+  const m = String(raw).toLowerCase().trim().replace(/\s+/g, '_');
+  if (m.includes('savings') || m.includes('saving')) return 'savings_account';
+  if (m.includes('current') || m.includes('bank') || m.includes('neft') || m.includes('rtgs') || m.includes('imps') || m.includes('upi') || m.includes('escrow')) return 'current_account';
   if (m.includes('cheque') || m.includes('check')) return 'cheque';
-  if (m.includes('transfer')) return 'direct_transfer';
-  return 'cash';
+  // petty/suspense MUST be tested before the bare 'cash' check — "petty_cash"
+  // contains "cash", so testing cash first files it as Cash while the backend
+  // calls it petty_cash. Same order as classify_payment_mode.
+  if (m.includes('petty')) return 'unattributed';
+  if (m.includes('suspense')) return 'unattributed';
+  if (m.includes('transfer') || m === 'dt' || m === 'cash_dt') return 'direct_transfer';
+  if (m.includes('cash')) return 'cash';
+  return 'unattributed';
 };
+
+// Only money that belongs in one of the five countable places can be
+// suggested as a source — "unattributed" is not somewhere you can count cash,
+// so it is left out of the suggestions entirely rather than parked in Cash.
+// Suspense A/c already shows that figure on its own tile.
+const TRACKED = new Set(MODES.map(m => m.key));
 // Kept in sync with SuspenseAccount.jsx's ACCOUNT_APPROVED_PETTY / backend
 // PETTY_ACTIVE_STATUSES so this matches what the Suspense A/c > Petty Cash
 // tab itself shows.
@@ -140,16 +160,24 @@ export default function DailyClosingDialog({ open, onClose, date, computed, onSa
         const d = r.data || {};
         const breakdown = {};
         MODES.forEach(m => { breakdown[m.key] = 0; });
+        // The API classifies server-side with the canonical map and sends it
+        // as `mode_bucket`. Trust that wherever it is present so this dialog
+        // can never drift from the Suspense A/c page again; the local mirror
+        // above is only for petty cash rows, which carry no bucket.
+        const add = (key, amount) => {
+          if (!TRACKED.has(key)) return;   // unattributed money has no tile
+          breakdown[key] += Number(amount || 0);
+        };
         (d.petty_cash?.all_requests || []).forEach(pc => {
           if (!ACCOUNT_APPROVED_PETTY.has((pc.status || '').toLowerCase())) return;
-          const key = classifySuspenseMode(pc.payment_mode || pc.mode);
-          breakdown[key] += Number(pc.amount_issued || 0) - Number(pc.amount_spent || 0);
+          add(classifySuspenseMode(pc.payment_mode || pc.mode),
+              Number(pc.amount_issued || 0) - Number(pc.amount_spent || 0));
         });
         (d.material_suspense?.balances || []).forEach(b => {
-          (b.entries || []).forEach(e => { breakdown[classifySuspenseMode(e.mode)] += Number(e.balance || 0); });
+          (b.entries || []).forEach(e => add(e.mode_bucket || classifySuspenseMode(e.mode), e.balance));
         });
         (d.labour_suspense?.balances || []).forEach(b => {
-          (b.entries || []).forEach(e => { breakdown[classifySuspenseMode(e.mode)] += Number(e.balance || 0); });
+          (b.entries || []).forEach(e => add(e.mode_bucket || classifySuspenseMode(e.mode), e.balance));
         });
         setSuspenseByMode(breakdown);
       } catch (e) {
