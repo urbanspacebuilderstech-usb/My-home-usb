@@ -15500,3 +15500,134 @@ async def labour_suspense_mode_audit(user: User = Depends(get_current_user)):
         ),
         "contractors": sorted(by_contractor.values(), key=lambda c: -abs(c["balance"])),
     })
+
+
+@router.get("/admin/cash-bucket-audit")
+async def cash_bucket_audit(user: User = Depends(get_current_user)):
+    """TEMPORARY read-only audit: expenses counted as CASH that are not cash.
+
+    Oct 7 2026 - Close Books shows Surplus 18,963 on the CASH column. The book
+    figure is income(cash) - expense(cash), so a surplus means the books
+    believe more cash left than actually did.
+
+    classify_payment_mode answers "cash" for a null mode:
+
+        if not mode:
+            return "cash"
+
+    and expense_by_mode classifies on payment_method ALONE:
+
+        mode = classify_mode(e.get("payment_method") or e.get("payment_mode"))
+
+    So an expense with a cheque behind it but no payment_method recorded is
+    counted as a cash expense - while the Expense list shows it as a cheque,
+    because _resolve_cheque_numbers reads cheque_id / cheque_ids instead.
+    exp_137eef0a9ccf (P sand, Cheque #1684, USB-MR511, 18,963) is exactly that
+    shape, and 18,963 is exactly the surplus.
+
+    This lists every expense with cheque evidence but no payment_method, and
+    totals them per bucket, so the hypothesis is proved or killed by numbers
+    rather than by inspection.
+
+    Reads only. No writes.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    rows = await db.recorded_expenses.find(
+        {}, {"_id": 0, "expense_id": 1, "amount": 1, "payment_method": 1,
+             "payment_mode": 1, "cheque_number": 1, "cheque_no": 1,
+             "cheque_id": 1, "cheque_ids": 1, "status": 1, "is_deleted": 1,
+             "description": 1, "vendor_name": 1, "category": 1,
+             "created_at": 1, "source": 1},
+    ).to_list(50000)
+
+    _EXCL = {"rejected", "accountant_rejected", "accounts_rejected",
+             "under_correction", "cheque_bounced"}
+
+    def _has_cheque(e):
+        return bool(e.get("cheque_number") or e.get("cheque_no")
+                    or e.get("cheque_id") or e.get("cheque_ids"))
+
+    live, mislabelled, by_bucket = 0, [], {}
+    for e in rows:
+        if (e.get("status") or "").lower() in _EXCL or e.get("is_deleted"):
+            continue
+        live += 1
+        raw = e.get("payment_method") or e.get("payment_mode")
+        bucket = classify_payment_mode(raw)
+        amt = _f(e.get("amount"))
+        b = by_bucket.setdefault(bucket, {"count": 0, "amount": 0.0,
+                                          "no_mode_count": 0, "no_mode_amount": 0.0,
+                                          "no_mode_with_cheque_count": 0,
+                                          "no_mode_with_cheque_amount": 0.0})
+        b["count"] += 1
+        b["amount"] = round(b["amount"] + amt, 2)
+        if not raw:
+            b["no_mode_count"] += 1
+            b["no_mode_amount"] = round(b["no_mode_amount"] + amt, 2)
+            if _has_cheque(e):
+                b["no_mode_with_cheque_count"] += 1
+                b["no_mode_with_cheque_amount"] = round(
+                    b["no_mode_with_cheque_amount"] + amt, 2)
+                mislabelled.append({
+                    "expense_id": e.get("expense_id"),
+                    "amount": amt,
+                    "counted_as": bucket,
+                    "should_be": "cheque",
+                    "payment_method": e.get("payment_method"),
+                    "payment_mode": e.get("payment_mode"),
+                    "cheque_number": e.get("cheque_number"),
+                    "cheque_no": e.get("cheque_no"),
+                    "cheque_id": e.get("cheque_id"),
+                    "cheque_ids": e.get("cheque_ids"),
+                    "category": e.get("category"),
+                    "source": e.get("source"),
+                    "vendor_name": e.get("vendor_name"),
+                    "description": e.get("description"),
+                    "created_at": e.get("created_at"),
+                })
+    mislabelled.sort(key=lambda r: -r["amount"])
+
+    cash = by_bucket.get("cash", {})
+    findings = []
+    if cash.get("no_mode_with_cheque_amount", 0) > 0.5:
+        findings.append(
+            "%s of cheque-backed expenses are counted as CASH because they "
+            "carry no payment_method. That lowers the CASH book balance by the "
+            "same amount, which is what a Close Books surplus on CASH looks "
+            "like." % cash["no_mode_with_cheque_amount"])
+    if cash.get("no_mode_amount", 0) > 0.5:
+        findings.append(
+            "%s of expenses in the CASH bucket have no payment_method at all "
+            "(%s of that has a cheque behind it). classify_payment_mode "
+            'answers cash for a null, so anything unrecorded lands here.'
+            % (cash.get("no_mode_amount"), cash.get("no_mode_with_cheque_amount", 0)))
+    if not findings:
+        findings.append("No cheque-backed expense is being counted as cash.")
+
+    return fast_json({
+        "write_performed": False,
+        "read_only": True,
+        "live_expenses_examined": live,
+        "by_bucket": by_bucket,
+        "cash_bucket_summary": {
+            "total_counted_as_cash": cash.get("amount", 0.0),
+            "of_which_have_no_payment_method": cash.get("no_mode_amount", 0.0),
+            "of_which_also_have_a_cheque": cash.get("no_mode_with_cheque_amount", 0.0),
+        },
+        "findings": findings,
+        "reading": (
+            "If `of_which_also_have_a_cheque` matches the Close Books CASH "
+            "surplus, the surplus is this: cheque payments deducted from the "
+            "cash book because their payment_method was never recorded."
+        ),
+        "mislabelled_expenses": mislabelled[:60],
+        "mislabelled_count": len(mislabelled),
+    })
