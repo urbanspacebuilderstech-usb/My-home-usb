@@ -16271,3 +16271,255 @@ async def cheque_bounce_bill_trace(
         } for e in all_entries[-60:]],
     }
     return fast_json(out)
+
+
+# --- TEMPORARY DIAGNOSTIC (Oct 8 2026) -------------------------------------
+# Every rupee that ever touched one material bill, for USB-MR1017. Remove
+# with the other /admin/* scans.
+
+
+@router.get("/admin/material-money-trail")
+async def material_money_trail(
+    request_number: str = "USB-MR1017",
+    request_id: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """TEMPORARY read-only: every payment that ever touched one material bill.
+
+    Oct 8 2026 - USB-MR1017 (SS AGENCY, Mr Nagarajan - Ponmar, 38,700) is
+    reported as having been paid 32,700 from cheque #041296 and 6,000 from a
+    different cheque. The records show ONE payment of 2,300, all of it from
+    #041296. Before anything is repaired, the question "was 6,000 ever paid
+    from another cheque?" has to be answered from data rather than from a
+    screen, because the two answers lead to opposite repairs:
+
+      * if no, the bill is correct and nothing should change;
+      * if yes, a real payment was never recorded at all, which is a far
+        more serious problem than a mis-stated balance.
+
+    So this casts the widest net it can and hides nothing:
+
+      * every recorded_expenses row referencing the request, the bill, or
+        any leg - with NO status filter and deleted rows included, because
+        "Send back to Approvals" HARD-deletes the leg and its suspense debit
+        (see send_material_back_to_approvals), which is how USB-MR1188's
+        30,600 payment vanished and silently re-dealt the FIFO allocation;
+      * every suspense entry naming any of those ids;
+      * every cheque reachable from any of them, with its own status;
+      * the audit trail for all of those ids, including entries that only
+        mention an id inside `details`;
+      * one merged timeline, oldest first.
+
+    Reads only. No writes.
+    """
+    if user.role not in (UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT):
+        raise HTTPException(status_code=403, detail="Super admin or accountant only")
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    q = {"request_id": request_id} if request_id else {"request_number": request_number}
+    req = await db.material_requests.find_one(q, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="material request not found: %s" % q)
+
+    rid = req.get("request_id")
+    vendor = req.get("vendor_name")
+    bill_amount = _f(req.get("estimated_price") or req.get("final_price"))
+
+    mexps = await db.material_expenses.find(
+        {"$or": [{"source_request_id": rid}, {"request_id": rid}]}, {"_id": 0}).to_list(50)
+    bill_ids = [m.get("expense_id") for m in mexps if m.get("expense_id")]
+    ids = set([rid] + bill_ids)
+
+    # ---- every leg, no status filter, deleted rows included ---------------
+    legs = await db.recorded_expenses.find({"$or": [
+        {"request_id": {"$in": list(ids)}},
+        {"source_request_id": {"$in": list(ids)}},
+        {"approval_id": {"$in": list(ids)}},
+        {"material_request_id": {"$in": list(ids)}},
+        {"material_expense_id": {"$in": list(ids)}},
+    ]}, {"_id": 0}).to_list(200)
+    leg_ids = [l.get("expense_id") for l in legs if l.get("expense_id")]
+    ids |= set(leg_ids)
+
+    # ---- suspense entries naming any of those -----------------------------
+    susp = await db.suspense_entries.find({"$or": [
+        {"linked_request_id": {"$in": list(ids)}},
+        {"linked_expense_id": {"$in": list(ids)}},
+        {"reversed_entry_id": {"$in": list(ids)}},
+    ]}, {"_id": 0}).to_list(200)
+
+    # ---- every cheque reachable from any of it ----------------------------
+    cheque_ids: set = set()
+    for l in legs:
+        if l.get("cheque_id"):
+            cheque_ids.add(l["cheque_id"])
+        for c in (l.get("cheque_ids") or []):
+            cheque_ids.add(c)
+    for s in susp:
+        for c in (s.get("linked_cheque_ids") or []):
+            cheque_ids.add(c)
+        if s.get("cheque_id"):
+            cheque_ids.add(s["cheque_id"])
+    cheques = await db.cheques.find({"$or": [
+        {"cheque_id": {"$in": list(cheque_ids)}},
+        {"used_for_expense_id": {"$in": list(ids)}},
+    ]}, {"_id": 0}).to_list(100) if (cheque_ids or ids) else []
+
+    # ---- audit trail ------------------------------------------------------
+    all_ids = ids | cheque_ids | {s.get("entry_id") for s in susp if s.get("entry_id")}
+    direct = await db.audit_logs.find(
+        {"resource_id": {"$in": list(all_ids)}}, {"_id": 0}).to_list(500)
+    # Entries that only mention an id inside `details` - scanned in Python
+    # because the shape of `details` varies per action.
+    recent = await db.audit_logs.find(
+        {"timestamp": {"$gte": "2026-09-01"}}, {"_id": 0}
+    ).sort("timestamp", -1).to_list(20000)
+    seen_aud = {a.get("audit_id") for a in direct}
+    mentioned = []
+    for a in recent:
+        if a.get("audit_id") in seen_aud:
+            continue
+        blob = str(a.get("details") or "") + str(a.get("resource_id") or "")
+        if any(i and i in blob for i in all_ids):
+            mentioned.append(a)
+    users = await db.users.find(
+        {"user_id": {"$in": list({a.get("user_id") for a in direct + mentioned})}},
+        {"_id": 0, "user_id": 1, "name": 1}).to_list(200)
+    uname = {u["user_id"]: u.get("name") for u in users}
+
+    def _aud(a):
+        return {"when": a.get("timestamp"), "action": a.get("action"),
+                "by": uname.get(a.get("user_id")) or a.get("user_id"),
+                "resource_type": a.get("resource_type"),
+                "resource_id": a.get("resource_id"),
+                "details": a.get("details")}
+
+    audit = sorted([_aud(a) for a in direct + mentioned], key=lambda r: r["when"] or "")
+
+    # ---- the answer -------------------------------------------------------
+    live_legs = [l for l in legs
+                 if not l.get("is_deleted")
+                 and (l.get("status") or "").lower() != "cheque_bounced"]
+    bounced_legs = [l for l in legs if (l.get("status") or "").lower() == "cheque_bounced"]
+    chq_by_id = {c.get("cheque_id"): c for c in cheques}
+
+    def _leg_cheques(l):
+        out = []
+        for c in ([l.get("cheque_id")] if l.get("cheque_id") else []) + (l.get("cheque_ids") or []):
+            doc = chq_by_id.get(c) or {}
+            out.append({"cheque_id": c, "cheque_number": doc.get("cheque_number") or l.get("cheque_number"),
+                        "cheque_status": doc.get("status")})
+        if not out and l.get("cheque_number"):
+            out.append({"cheque_id": None, "cheque_number": l.get("cheque_number"),
+                        "cheque_status": None})
+        return out
+
+    leg_rows = [{
+        "expense_id": l.get("expense_id"), "amount": _f(l.get("amount")),
+        "when": l.get("created_at"), "status": l.get("status"),
+        "is_deleted": bool(l.get("is_deleted")),
+        "source": l.get("source"), "payment_method": l.get("payment_method"),
+        "payment_phase": l.get("payment_phase"),
+        "credit_applied": _f(l.get("credit_applied")),
+        "tendered_amount": _f(l.get("tendered_amount")),
+        "cheques": _leg_cheques(l),
+        "counts_as_money_still_good": l in live_legs,
+        "description": l.get("description"),
+    } for l in sorted(legs, key=lambda r: r.get("created_at") or "")]
+
+    numbers_seen = sorted({c["cheque_number"] for r in leg_rows for c in r["cheques"]
+                           if c.get("cheque_number")})
+    total_ever = round(sum(r["amount"] for r in leg_rows), 2)
+    still_good = round(sum(_f(l.get("amount")) for l in live_legs), 2)
+
+    timeline = []
+    for r in leg_rows:
+        timeline.append({"when": r["when"], "what": "payment leg %s recorded" % r["expense_id"],
+                         "amount": r["amount"],
+                         "detail": "%s · status %s" % (r["payment_method"], r["status"])})
+    for s in susp:
+        timeline.append({"when": s.get("created_at"),
+                         "what": "suspense %s %s" % (
+                             "credit" if _f(s.get("amount")) > 0 else "debit", s.get("entry_id")),
+                         "amount": _f(s.get("amount")), "detail": s.get("description")})
+    for a in audit:
+        timeline.append({"when": a["when"], "what": "audit: %s" % a["action"],
+                         "amount": None, "detail": "by %s on %s" % (a["by"], a["resource_id"])})
+    timeline = sorted([t for t in timeline if t["when"]], key=lambda r: r["when"])
+
+    findings = []
+    if not numbers_seen:
+        findings.append("No cheque is recorded against this bill at all.")
+    else:
+        findings.append(
+            "Every cheque that ever touched this bill: %s. If a cheque you "
+            "expect is NOT in that list, the payment was never recorded here."
+            % ", ".join("#%s" % n for n in numbers_seen))
+    findings.append(
+        "Total ever paid against a bill of %s: %s, across %d leg(s). Of that, "
+        "%s is still good money; %s was reclaimed when a cheque bounced."
+        % (format(bill_amount, ","), format(total_ever, ","), len(leg_rows),
+           format(still_good, ","),
+           format(round(sum(_f(l.get("amount")) for l in bounced_legs), 2), ",")))
+    if len(numbers_seen) < 2:
+        findings.append(
+            "Only one cheque is involved, so a second cheque paying part of "
+            "this bill is not supported by any record here.")
+    if not legs:
+        findings.append(
+            "NO payment leg exists at all. If the bill says it was paid, the "
+            "leg was hard-deleted - 'Send back to Approvals' does exactly "
+            "that, and the audit trail below will name who ran it.")
+
+    return fast_json({
+        "write_performed": False, "read_only": True,
+        "request": {"request_id": rid, "request_number": req.get("request_number"),
+                    "material_name": req.get("material_name"), "vendor_name": vendor,
+                    "project_name": req.get("project_name"), "status": req.get("status"),
+                    "bill_amount": bill_amount,
+                    "advance_paid_amount": _f(req.get("advance_paid_amount")),
+                    "balance_paid_amount": _f(req.get("balance_paid_amount")),
+                    "cheque_bounced": req.get("cheque_bounced")},
+        "bill_rows": [{"expense_id": m.get("expense_id"),
+                       "paid_amount": _f(m.get("paid_amount")),
+                       "remaining_balance": _f(m.get("remaining_balance")),
+                       "status": m.get("status"),
+                       "cheque_bounced": m.get("cheque_bounced"),
+                       "paid_via_expense_id": m.get("paid_via_expense_id"),
+                       "paid_via_expense_still_exists":
+                           m.get("paid_via_expense_id") in leg_ids
+                           if m.get("paid_via_expense_id") else None}
+                      for m in mexps],
+        "answer": {
+            "bill_amount": bill_amount,
+            "total_ever_paid": total_ever,
+            "still_good_money": still_good,
+            "reclaimed_on_bounce": round(total_ever - still_good, 2),
+            "cheques_ever_involved": numbers_seen,
+            "number_of_payments_ever": len(leg_rows),
+        },
+        "findings": findings,
+        "every_payment_ever": leg_rows,
+        "suspense_entries": [{
+            "entry_id": s.get("entry_id"), "amount": _f(s.get("amount")),
+            "source_type": s.get("source_type"),
+            "reversed_entry_id": s.get("reversed_entry_id"),
+            "linked_request_id": s.get("linked_request_id"),
+            "linked_expense_id": s.get("linked_expense_id"),
+            "linked_cheque_ids": s.get("linked_cheque_ids"),
+            "description": s.get("description"), "created_at": s.get("created_at"),
+        } for s in sorted(susp, key=lambda r: r.get("created_at") or "")],
+        "cheques": [{"cheque_id": c.get("cheque_id"),
+                     "cheque_number": c.get("cheque_number"),
+                     "amount": _f(c.get("amount")), "status": c.get("status"),
+                     "used_for_expense_id": c.get("used_for_expense_id"),
+                     "bounce_reason": c.get("bounce_reason"),
+                     "bounced_at": c.get("bounced_at")} for c in cheques],
+        "audit_trail": audit,
+        "timeline": timeline,
+    })

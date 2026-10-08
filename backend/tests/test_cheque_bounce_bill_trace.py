@@ -332,3 +332,81 @@ def test_a_restore_entry_can_be_tied_back_to_its_debit():
     Without reversed_entry_id there is no way to see what it reversed."""
     body = ast.get_source_segment(_src(), _fn("cheque_bounce_bill_trace"))
     assert '"reversed_entry_id": e.get("reversed_entry_id"),' in body
+
+
+# --------------------------------------------------------------------------
+# The money trail (Oct 8 2026)
+#
+# "was 6,000 ever paid on USB-MR1017 from another cheque?" decides between
+# two opposite repairs, so the answer has to come from data. The trail must
+# look everywhere a payment can hide - including rows that were HARD-deleted,
+# since "Send back to Approvals" removes the leg and its suspense debit
+# outright, which is how USB-MR1188's 30,600 disappeared.
+# --------------------------------------------------------------------------
+
+def test_the_trail_does_not_filter_by_status():
+    """A bounced or deleted leg is still evidence of a payment having been
+    made. Filtering them out would answer the question wrongly."""
+    body = ast.get_source_segment(_src(), _fn("material_money_trail"))
+    legs = body[body.index("legs = await db.recorded_expenses.find"):]
+    legs = legs[:legs.index(".to_list(200)")]
+    assert '"status"' not in legs
+    assert "is_deleted" not in legs
+
+
+def test_the_trail_searches_every_id_a_leg_can_be_linked_by():
+    body = ast.get_source_segment(_src(), _fn("material_money_trail"))
+    for f in ("request_id", "source_request_id", "approval_id",
+              "material_request_id", "material_expense_id"):
+        assert '{"%s": {"$in": list(ids)}}' % f in body
+
+
+def test_it_lists_every_cheque_that_ever_touched_the_bill():
+    """The whole question is whether a SECOND cheque is involved."""
+    body = ast.get_source_segment(_src(), _fn("material_money_trail"))
+    assert '"cheques_ever_involved": numbers_seen,' in body
+
+
+def test_it_says_so_when_only_one_cheque_is_involved():
+    body = ast.get_source_segment(_src(), _fn("material_money_trail"))
+    assert "if len(numbers_seen) < 2:" in body
+
+
+def test_it_flags_a_bill_whose_payment_row_is_gone():
+    """paid_via_expense_id pointing at a row that no longer exists is the
+    signature of the hard delete."""
+    body = ast.get_source_segment(_src(), _fn("material_money_trail"))
+    assert '"paid_via_expense_still_exists":' in body
+
+
+def test_it_reads_the_audit_trail_including_details_only_mentions():
+    """A delete names its target in `details`, not always resource_id."""
+    body = ast.get_source_segment(_src(), _fn("material_money_trail"))
+    assert "db.audit_logs.find" in body
+    assert "blob = str(a.get(\"details\") or \"\")" in body
+
+
+def test_the_send_back_flow_still_hard_deletes_both_rows():
+    """The trail's explanation depends on this. If it ever becomes a soft
+    delete, deleted legs would be findable and this changes."""
+    src = _src()
+    assert 'await db.suspense_entries.delete_one({"entry_id": r["entry_id"]})' in src
+    assert 'await db.recorded_expenses.delete_one({"expense_id": m.get("expense_id")})' in src
+
+
+def test_the_money_trail_cannot_write():
+    for node in ast.walk(_fn("material_money_trail")):
+        if isinstance(node, ast.Call):
+            name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+            assert name not in WRITE_METHODS, "%s at line %d" % (name, node.lineno)
+
+
+def test_every_db_call_in_the_money_trail_is_a_read():
+    reads = {"find", "find_one", "aggregate", "count_documents", "distinct",
+             "sort", "to_list"}
+    for node in ast.walk(_fn("material_money_trail")):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            v = node.func.value
+            if isinstance(v, ast.Attribute) and isinstance(v.value, ast.Name) \
+                    and v.value.id == "db":
+                assert node.func.attr in reads, node.func.attr
