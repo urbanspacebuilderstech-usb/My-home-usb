@@ -205,7 +205,13 @@ export default function InventorySummaryPanel({ scopeLabel = 'All Projects', onR
       // list. Unpaid/Partial rows stay visible even at 0 stock —
       // money is still owed on them, so Accounts still needs to
       // see them regardless of stock level.
-      !(Number(r.current_stock) === 0 && r.payment_status === 'paid')
+      // Oct 8 2026 — but only once nothing moved in the selected range. A
+      // paid row Out Stocked to 0 today vanished the moment the SE emptied
+      // it (a partial Out Stock left it listed), taking its Today Out value
+      // with it. The server already keeps an exhausted batch on the day it
+      // moved; this now agrees.
+      !(Number(r.current_stock) === 0 && r.payment_status === 'paid'
+        && !(Number(r.today_in) > 0) && !(Number(r.today_out) > 0))
     );
   }, [rows, projectSearch, materialSearch, paymentFilter]);
   const totals = sumValues(filteredRows);
