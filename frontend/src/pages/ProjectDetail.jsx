@@ -7203,10 +7203,13 @@ export default function ProjectDetail() {
                           statusBadge = <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-300 whitespace-nowrap">🔴 Accountant Rejected</span>;
                         } else if (isPaid) {
                           statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Collected</span>;
+                        } else if (isRequested) {
+                          // Checked before Partially Collected: a collection flips
+                          // workflow_status to 'collected', so 'requested' on a
+                          // partial stage means Req Payment was raised for the balance.
+                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700">Requested</span>;
                         } else if (isPartial) {
                           statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Partially Collected</span>;
-                        } else if (isRequested) {
-                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700">Requested</span>;
                         } else {
                           statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Pending</span>;
                         }
@@ -7396,8 +7399,8 @@ export default function ProjectDetail() {
                                     <Eye className="h-4 w-4 text-blue-600" />
                                   </Button>
                                 )}
-                                {/* Request Payment - for partial stages always, or pending stages not yet requested */}
-                                {canManage && balance > 0 && !isPaid && (isPartial || (!isRequested)) && (
+                                {/* Request Payment - for pending or partial stages not yet requested */}
+                                {canManage && balance > 0 && !isPaid && !isRequested && (
                                   <Button
                                     data-testid={`req-payment-${stage.stage_id}`}
                                     variant="outline"
