@@ -52,7 +52,7 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
-import { MultiPaymentInput } from '../components/MultiPaymentInput';
+import { MultiPaymentInput, getChequeEntriesError } from '../components/MultiPaymentInput';
 import { NumericInput } from '../components/NumericInput';
 import ChequeListView from '../components/ChequeListView';
 import CreateClientPortalDialog from '../components/CreateClientPortalDialog';
@@ -460,6 +460,8 @@ export default function CREBoard() {
     const totalPayEntries = advancePaymentEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
     if (advancePaymentEntries.length === 0 || totalPayEntries <= 0) { toast.error('Add at least one payment entry'); return; }
     if (Math.abs(totalPayEntries - parseFloat(advanceAmount)) > 1) { toast.error(`Payment entries (₹${totalPayEntries.toLocaleString('en-IN')}) must equal advance amount (₹${parseFloat(advanceAmount).toLocaleString('en-IN')})`); return; }
+    const chequeError = getChequeEntriesError(advancePaymentEntries);
+    if (chequeError) { toast.error(chequeError); return; }
     if (!accountantConfirmed) { toast.error('Please confirm accountant verification'); return; }
     try {
       const endpoint = selectedDeal.deal_type === 're_project'
@@ -710,10 +712,13 @@ export default function CREBoard() {
       const mode = collectPaymentEntries[0]?.payment_mode || 'bank_transfer';
       const ref = collectPaymentEntries[0]?.reference || '';
       const cheque_details = mode === 'cheque' ? (collectPaymentEntries[0]?.cheque_details || []) : null;
-      if (mode === 'cheque' && (!cheque_details || cheque_details.length === 0 || !cheque_details[0]?.cheque_number)) {
-        toast.error('Please add at least one cheque number before confirming');
+      const entriesTotal = collectPaymentEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+      if (Math.abs(entriesTotal - bulkAmt) >= 0.01) {
+        toast.error(`Payment entries (${formatCurrency(entriesTotal)}) must equal Amount Received from Client (${formatCurrency(bulkAmt)})`);
         return;
       }
+      const chequeError = getChequeEntriesError(collectPaymentEntries);
+      if (chequeError) { toast.error(chequeError); return; }
       try {
         // If CRE picked specific stages, send explicit allocations so the
         // backend only credits those (legacy: empty → FIFO across all pending).
@@ -767,17 +772,9 @@ export default function CREBoard() {
     const balance = (selectedPaymentStage.amount || 0) - (selectedPaymentStage.amount_received || 0);
     if (totalPayEntries > balance + 1) { toast.error(`Amount exceeds remaining balance of ${formatCurrency(balance)}`); return; }
 
-    // Validate cheque entries: each cheque-mode payment must have cheque details with at least cheque_number
-    for (let i = 0; i < collectPaymentEntries.length; i++) {
-      const e = collectPaymentEntries[i];
-      if (e.payment_mode === 'cheque') {
-        const valid = (e.cheque_details || []).filter(c => c && c.cheque_number && String(c.cheque_number).trim());
-        if (valid.length === 0) {
-          toast.error(`Payment ${i + 1}: Please click "+ Add Cheque" and enter at least one cheque number before confirming`);
-          return;
-        }
-      }
-    }
+    // Each cheque-mode payment needs cheque numbers whose amounts add up exactly to the payment
+    const chequeError = getChequeEntriesError(collectPaymentEntries);
+    if (chequeError) { toast.error(chequeError); return; }
 
     try {
       const payload = {
@@ -2145,7 +2142,13 @@ export default function CREBoard() {
                     type="number"
                     inputMode="numeric"
                     value={bulkCollectAmount}
-                    onChange={(e) => setBulkCollectAmount(e.target.value)}
+                    onChange={(e) => {
+                      setBulkCollectAmount(e.target.value);
+                      // Keep a lone payment line in step with the client amount — Confirm requires them to match.
+                      if (collectPaymentEntries.length === 1) {
+                        setCollectPaymentEntries([{ ...collectPaymentEntries[0], amount: e.target.value }]);
+                      }
+                    }}
                     placeholder={`e.g. ${outstandingStages.reduce((s, x) => s + x.balance, 0)}`}
                     className="mt-1 text-sm"
                     data-testid="bulk-collect-amount-input"

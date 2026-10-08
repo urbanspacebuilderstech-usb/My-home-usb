@@ -4117,6 +4117,23 @@ async def submit_payment_schedule(project_id: str, user: User = Depends(get_curr
 _ACCOUNTANT_REJECTION_UNSET = {"accountant_rejection_reason": "", "accountant_rejected_at": "", "accountant_rejected_by_name": ""}
 
 
+def _check_cheque_total(cheques, expected: float, prefix: str = "") -> None:
+    """Reject a cheque collection whose cheque amounts don't add up exactly to
+    the amount being collected (e.g. ₹10 recorded as cheques of 3 + 3 + 3),
+    so an uncollected balance never reaches the Accountant for approval."""
+    rows = [c for c in (cheques or []) if c and str(c.get("cheque_number") or "").strip()]
+    if not rows:
+        return
+    total = sum(float(c.get("amount") or 0) for c in rows)
+    if abs(total - expected) >= 0.01:
+        diff = expected - total
+        raise HTTPException(
+            status_code=400,
+            detail=(f"{prefix}Cheques add up to ₹{total:,.0f} but the payment is ₹{expected:,.0f} "
+                    f"(₹{abs(diff):,.0f} {'short' if diff > 0 else 'over'}). Please enter the cheque amounts correctly."),
+        )
+
+
 @router.post("/payment-stages/{stage_id}/collect")
 async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInput, user: User = Depends(get_current_user)):
     """CRE collects payment for a stage"""
@@ -4137,7 +4154,13 @@ async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInpu
     project = await db.projects.find_one({"project_id": stage["project_id"]}, {"_id": 0})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found for this payment stage")
-    
+
+    for i, entry in enumerate(collection.payment_entries or [], start=1):
+        if entry.get("payment_mode") == "cheque":
+            _check_cheque_total(entry.get("cheque_details"), float(entry.get("amount") or 0), f"Payment {i}: ")
+    if not collection.payment_entries and collection.payment_mode == "cheque":
+        _check_cheque_total(collection.cheque_details, collection.amount_received)
+
     # Calculate new received amount
     current_received = stage.get("amount_received", 0)
     new_received = current_received + collection.amount_received
@@ -4318,6 +4341,8 @@ async def collect_payment_bulk(
     incoming_amount = float(body.amount or 0)
     if incoming_amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be greater than zero")
+    if body.payment_mode == "cheque":
+        _check_cheque_total(body.cheque_details, incoming_amount)
 
     # FIFO order: stages first requested by Planning are paid first.
     # Sort key — `requested_at` ascending, fall back to stage_number/sort_order/created_at.

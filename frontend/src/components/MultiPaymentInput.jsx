@@ -20,6 +20,35 @@ const PAYMENT_MODES = [
 
 const fmtCurrency = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
 
+// Cheque total vs the payment line it belongs to. Exact match (no ₹1
+// tolerance) — a ₹10 payment split into 3 + 3 + 3 must not reach the
+// Accountant with ₹1 uncollected.
+const chequeTotal = (entry) => (entry.cheque_details || []).reduce((s, c) => s + (parseFloat(c?.amount) || 0), 0);
+const chequeShortfall = (entry) => (parseFloat(entry.amount) || 0) - chequeTotal(entry);
+const isChequeMismatch = (entry) => entry.payment_mode === 'cheque' && Math.abs(chequeShortfall(entry)) >= 0.01;
+
+// Returns an error message for the first invalid cheque payment, or null.
+// Callers run this before submitting so a mismatch blocks Confirm.
+export function getChequeEntriesError(entries) {
+  for (let i = 0; i < (entries || []).length; i++) {
+    const e = entries[i];
+    if (e.payment_mode !== 'cheque') continue;
+    const cheques = e.cheque_details || [];
+    if (!cheques.some(c => c && String(c.cheque_number || '').trim())) {
+      return `Payment ${i + 1}: Please click "+ Add Cheque" and enter at least one cheque number before confirming`;
+    }
+    const badRow = cheques.findIndex(c => !String(c?.cheque_number || '').trim() || !(parseFloat(c?.amount) > 0));
+    if (badRow !== -1) {
+      return `Payment ${i + 1}, cheque ${badRow + 1}: enter both the cheque number and its amount (or delete the row)`;
+    }
+    if (isChequeMismatch(e)) {
+      const diff = chequeShortfall(e);
+      return `Payment ${i + 1}: cheques add up to ${fmtCurrency(chequeTotal(e))} but the payment is ${fmtCurrency(parseFloat(e.amount) || 0)} — ${fmtCurrency(Math.abs(diff))} ${diff > 0 ? 'short' : 'over'}. Please enter the cheque amounts correctly.`;
+    }
+  }
+  return null;
+}
+
 export function MultiPaymentInput({ totalAmount, entries, onChange, allowPartial = false }) {
   const [expandedIdx, setExpandedIdx] = useState(null);
 
@@ -43,7 +72,7 @@ export function MultiPaymentInput({ totalAmount, entries, onChange, allowPartial
     if (field === 'payment_mode' && value === 'cheque') {
       const existing = updated[idx].cheque_details || [];
       if (existing.length === 0) {
-        updated[idx].cheque_details = [{ cheque_number: '', bank_name: '', amount: '', cheque_date: '' }];
+        updated[idx].cheque_details = [{ cheque_number: '', bank_name: '', amount: updated[idx].amount || '', cheque_date: '' }];
       }
       setExpandedIdx(idx);
     }
@@ -133,7 +162,7 @@ export function MultiPaymentInput({ totalAmount, entries, onChange, allowPartial
                     value={entry.reference} onChange={(e) => updateEntry(idx, 'reference', e.target.value)} />
                 )}
                 {entry.payment_mode === 'cheque' && (
-                  <Button type="button" size="sm" variant="ghost" className="h-7 text-[10px] gap-0.5 px-1.5"
+                  <Button type="button" size="sm" variant="ghost" className={`h-7 text-[10px] gap-0.5 px-1.5 ${isChequeMismatch(entry) ? 'text-red-600' : ''}`}
                     onClick={() => setExpandedIdx(isExpanded ? null : idx)}>
                     {(entry.cheque_details || []).length} cheque{(entry.cheque_details || []).length !== 1 ? 's' : ''}
                     {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
@@ -170,6 +199,13 @@ export function MultiPaymentInput({ totalAmount, entries, onChange, allowPartial
                     onClick={() => addCheque(idx)} data-testid={`add-cheque-${idx}`}>
                     <Plus className="h-2.5 w-2.5" /> Add Cheque
                   </Button>
+                </div>
+              )}
+
+              {/* Shown even when collapsed so a mismatch can't be missed */}
+              {isChequeMismatch(entry) && (
+                <div className="mt-2 ml-6 text-[11px] rounded border border-red-200 bg-red-50 text-red-700 px-2 py-1" data-testid={`cheque-mismatch-${idx}`}>
+                  Cheques total {fmtCurrency(chequeTotal(entry))} but this payment is {fmtCurrency(parseFloat(entry.amount) || 0)} — {fmtCurrency(Math.abs(chequeShortfall(entry)))} {chequeShortfall(entry) > 0 ? 'short' : 'over'}. Enter the cheque amounts correctly.
                 </div>
               )}
             </CardContent>

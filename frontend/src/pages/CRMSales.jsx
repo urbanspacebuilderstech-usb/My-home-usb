@@ -10,7 +10,7 @@ import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { MultiPaymentInput } from '../components/MultiPaymentInput';
+import { MultiPaymentInput, getChequeEntriesError } from '../components/MultiPaymentInput';
 import { NumericInput } from '../components/NumericInput';
 import CreateProspectUserDialog from '../components/CreateProspectUserDialog';
 import {
@@ -1038,6 +1038,8 @@ export default function CRMSales() {
     const totalPayEntries = convertPaymentEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
     if (convertPaymentEntries.length === 0 || totalPayEntries <= 0) { toast.error('Add at least one payment entry'); return; }
     if (Math.abs(totalPayEntries - parseFloat(convertAdvanceAmount)) > 1) { toast.error(`Payment entries (₹${totalPayEntries.toLocaleString('en-IN')}) must equal advance amount (₹${parseFloat(convertAdvanceAmount).toLocaleString('en-IN')})`); return; }
+    const chequeError = getChequeEntriesError(convertPaymentEntries);
+    if (chequeError) { toast.error(chequeError); return; }
     if (!convertAccountantConfirmed) { toast.error('Please confirm accountant verification'); return; }
     try {
       // If the lead has already been converted once and the Accountant rejected
