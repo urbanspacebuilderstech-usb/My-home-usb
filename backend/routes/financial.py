@@ -15970,6 +15970,7 @@ async def cash_movement_since_close(
 async def cheque_bounce_bill_trace(
     request_number: str = "USB-MR1017",
     request_id: Optional[str] = None,
+    bill_expense_id: Optional[str] = None,
     cheque_number: str = "041296",
     user: User = Depends(get_current_user),
 ):
@@ -16014,7 +16015,15 @@ async def cheque_bounce_bill_trace(
         except (TypeError, ValueError):
             return 0.0
 
-    q = {"request_id": request_id} if request_id else {"request_number": request_number}
+    if bill_expense_id:
+        # Entering from the bill side: find the request that owns it.
+        _bill = await db.material_expenses.find_one(
+            {"expense_id": bill_expense_id}, {"_id": 0, "source_request_id": 1})
+        if not _bill:
+            raise HTTPException(status_code=404, detail="bill not found: %s" % bill_expense_id)
+        q = {"request_id": _bill.get("source_request_id")}
+    else:
+        q = {"request_id": request_id} if request_id else {"request_number": request_number}
     req = await db.material_requests.find_one(q, {"_id": 0})
     if not req:
         raise HTTPException(status_code=404, detail="material request not found: %s" % q)
@@ -16167,7 +16176,14 @@ async def cheque_bounce_bill_trace(
         if not debit:
             continue
         bounced_amt = round(sum(a for cid, a in sources.items() if cid in bounced_credit_ids), 2)
+        # Oct 8 2026 - good money is what the replay ACTUALLY drew from
+        # non-bounced credits. Deriving it as (full - bounced) silently
+        # invents funding whenever the credit queue ran dry mid-debit, and
+        # SS AGENCY has 1,00,000 of exactly that (se_3cfa5d7d87 drew 21,500
+        # of its 62,000 and the rest was never funded by anything).
+        good_amt = round(sum(a for cid, a in sources.items() if cid not in bounced_credit_ids), 2)
         full = abs(_f(debit.get("amount")))
+        unfunded = round(full - bounced_amt - good_amt, 2)
         provenance.append({
             "debit_entry_id": debit_id,
             "debit_amount": full,
@@ -16177,7 +16193,8 @@ async def cheque_bounce_bill_trace(
                            "is_the_bounced_cheque": cid in bounced_credit_ids}
                           for cid, a in sources.items()],
             "funded_by_bounced_cheque": bounced_amt,
-            "funded_by_good_money": round(full - bounced_amt, 2),
+            "funded_by_good_money": good_amt,
+            "not_funded_by_any_credit": unfunded,
             "fully_bounced": bounced_amt >= full - 0.5,
             "description": debit.get("description"),
             "created_at": debit.get("created_at"),
@@ -16244,6 +16261,8 @@ async def cheque_bounce_bill_trace(
             "payment_mode": e.get("payment_mode"),
             "source_type": e.get("source_type"),
             "is_a_reversal_entry": e.get("source_type") == "cheque_bounce_reversal",
+            "reversed_entry_id": e.get("reversed_entry_id"),
+            "cheque_id": e.get("cheque_id"),
             "linked_request_id": e.get("linked_request_id"),
             "linked_expense_id": e.get("linked_expense_id"),
             "linked_cheque_ids": e.get("linked_cheque_ids"),

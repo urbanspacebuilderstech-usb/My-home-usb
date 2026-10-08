@@ -264,3 +264,71 @@ def test_the_case_is_documented():
     body = ast.get_source_segment(_src(), _fn("cheque_bounce_bill_trace"))
     assert "USB-MR1017" in body
     assert "041296" in body
+
+
+# --------------------------------------------------------------------------
+# Under-funded debits (Oct 8 2026)
+#
+# SS AGENCY's ledger has 1,00,000 of debits that no credit ever funded - the
+# FIFO queue ran dry and the vendor's suspense sits at -38,800. On such a
+# debit, deriving good money as (full - bounced) invents funding that was
+# never there: se_3cfa5d7d87 drew 21,500 of its 62,000 and reported 62,000.
+# --------------------------------------------------------------------------
+
+def good_money(full, sources, bounced_ids):
+    """What the trace reports now - actual draws, not a subtraction."""
+    return round(sum(a for c, a in sources.items() if c not in bounced_ids), 2)
+
+
+def test_good_money_counts_only_what_was_actually_drawn():
+    """se_3cfa5d7d87: 62,000 debit, only 21,500 funded."""
+    assert good_money(62000, {"c1": 21500.0}, set()) == 21500.0
+
+
+def test_the_old_subtraction_overstated_it():
+    """Proof of what changed - this is the figure a repair would have used."""
+    full, bounced = 62000, 0
+    assert full - bounced == 62000        # wrong: 40,500 was never funded
+    assert good_money(full, {"c1": 21500.0}, set()) == 21500.0
+
+
+def test_an_entirely_unfunded_debit_has_no_good_money():
+    """se_87702f8af6 / se_42947b88a9 - the queue was empty."""
+    assert good_money(23800, {}, set()) == 0.0
+
+
+def test_unfunded_is_reported_separately():
+    body = ast.get_source_segment(_src(), _fn("cheque_bounce_bill_trace"))
+    assert '"not_funded_by_any_credit": unfunded,' in body
+    assert "unfunded = round(full - bounced_amt - good_amt, 2)" in body
+
+
+def test_a_fully_funded_debit_is_unaffected_by_the_fix():
+    """USB-MR1017 and the 38,700 partial bill are both fully funded, so the
+    verdict for them reads the same either way."""
+    assert good_money(2300, {"bad": 2300.0}, {"bad"}) == 0.0
+    assert good_money(38700, {"good": 24600.0, "bad": 14100.0}, {"bad"}) == 24600.0
+
+
+def test_the_three_way_split_adds_up():
+    full, sources, bad = 62000, {"c1": 21500.0}, set()
+    g = good_money(full, sources, bad)
+    b = round(sum(a for c, a in sources.items() if c in bad), 2)
+    assert round(g + b + (full - g - b), 2) == full
+
+
+# ---- tracing the bill that is actually affected --------------------------
+
+def test_a_bill_can_be_traced_by_its_own_id():
+    """The affected bill is usually NOT the one being looked at: USB-MR1017
+    was correct and mexp_7862eb0a6514 was the part-funded one."""
+    body = ast.get_source_segment(_src(), _fn("cheque_bounce_bill_trace"))
+    assert "bill_expense_id: Optional[str] = None," in body
+    assert 'q = {"request_id": _bill.get("source_request_id")}' in body
+
+
+def test_a_restore_entry_can_be_tied_back_to_its_debit():
+    """se_c5b745607a restores 6,000 for a bill with no debit in the ledger.
+    Without reversed_entry_id there is no way to see what it reversed."""
+    body = ast.get_source_segment(_src(), _fn("cheque_bounce_bill_trace"))
+    assert '"reversed_entry_id": e.get("reversed_entry_id"),' in body
