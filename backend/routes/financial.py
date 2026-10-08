@@ -1620,6 +1620,75 @@ async def delete_income_entry(income_id: str, user: User = Depends(get_current_u
     return {"message": "Income entry deleted and project totals rolled back", "summary": summary}
 
 
+# Oct 8 2026 — "Send Back to Approvals" for Cashbook → Income → Main Income,
+# replacing the destructive delete there (same pattern as the petty cash /
+# material send-backs below). Undoes what approval did and re-queues the
+# entry as pending_approval:
+#   1. Reverse the cashflow_ledger split (re-approval re-allocates it).
+#   2. Recompute the linked payment stage's amount_received from its incomes
+#      — the canonical "sum of approved incomes" — so the stage stops showing
+#      this amount as received while it waits in Approvals.
+# Project advance_amount / income_project are left alone: approval never
+# credited them, so re-approval won't either.
+@router.post("/cashbook/income/{income_id}/send-back-to-approvals")
+async def send_income_back_to_approvals(income_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can send income back to Approvals")
+
+    inc = await db.income.find_one({"income_id": income_id}, {"_id": 0})
+    if not inc:
+        raise HTTPException(status_code=404, detail="Income entry not found")
+    prev_status = (inc.get("status") or "").lower()
+    # Anything the Cashbook shows can be sent back; these statuses never reach it.
+    if prev_status in ("pending_approval", "rejected", "accountant_rejected", "under_correction", "cheque_bounced"):
+        raise HTTPException(status_code=400, detail=f"This income is not in the Cashbook (current: '{prev_status}')")
+    if inc.get("source") == "carry_forward_lock" or classify_payment_mode(inc.get("payment_mode")) == "direct_transfer":
+        raise HTTPException(status_code=400, detail="Carry Forward and Direct Transfer entries can't be sent back to Approvals")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    history = inc.get("correction_history", [])
+    history.append({
+        "action": "sent_back_to_approvals",
+        "by": user.user_id,
+        "by_name": user.name,
+        "at": now_iso,
+        "extra": {"prev_status": prev_status or None},
+    })
+    await db.income.update_one(
+        {"income_id": income_id},
+        {"$set": {
+            "status": "pending_approval",
+            "prev_approved_status": prev_status or None,
+            "pulled_back_from_cashbook": True,
+            "sent_back_to_approvals_at": now_iso,
+            "sent_back_to_approvals_by": user.user_id,
+            "sent_back_to_approvals_by_name": user.name,
+            "correction_history": history,
+            "updated_at": now_iso,
+        }, "$unset": {"approved_by": "", "approved_at": ""}}
+    )
+
+    try:
+        from routes.cashflow import reverse_allocation
+        await reverse_allocation(income_id, kind="income")
+    except Exception as e:
+        import logging; logging.getLogger(__name__).warning(f"cashflow reverse_allocation failed in income send-back {income_id}: {e}")
+
+    stage_id = inc.get("payment_stage_id")
+    if stage_id:
+        stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
+        if stage:
+            from routes.projects import _resync_payment_stage_from_incomes
+            await _resync_payment_stage_from_incomes(stage_id, stage, user)
+            await _sync_addition_cost_received(stage_id)
+
+    await create_audit_log(user.user_id, "send_back", "income", income_id, {
+        "action": "send_back_to_approvals", "prev_status": prev_status or None,
+        "amount": float(inc.get("amount", 0) or 0),
+    })
+    return {"message": "Income sent back to Approvals", "status": "pending_approval"}
+
+
 @router.delete("/cashbook/expense/{expense_type}/{record_id}")
 async def delete_cashbook_expense(expense_type: str, record_id: str, user: User = Depends(get_current_user)):
     """Delete an expense from the cashbook view.
@@ -2558,8 +2627,10 @@ async def approve_income(income_id: str, user: User = Depends(get_current_user))
     if not result:
         raise HTTPException(status_code=404, detail="Income entry not found or already processed")
     
-    # If this is an advance payment, auto-route to Planning Head (NEW Feb 2026 workflow — skip CRE)
-    if result.get("category") == "advance_payment" and result.get("project_id"):
+    # If this is an advance payment, auto-route to Planning Head (NEW Feb 2026 workflow — skip CRE).
+    # Skipped for income sent back from the Cashbook: it was routed on its first
+    # approval, and re-running this would reset an in-progress project to "new".
+    if result.get("category") == "advance_payment" and result.get("project_id") and not result.get("pulled_back_from_cashbook"):
         _now_iso = datetime.now(timezone.utc).isoformat()
         project_upd = await db.projects.find_one_and_update(
             {"project_id": result["project_id"]},
@@ -2647,6 +2718,13 @@ async def approve_income(income_id: str, user: User = Depends(get_current_user))
                 if stage_set:
                     stage_set["updated_at"] = datetime.now(timezone.utc).isoformat()
                     await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": stage_set})
+                # Income sent back from the Cashbook had its amount taken off
+                # the stage; recompute so re-approving puts it back.
+                if result.get("pulled_back_from_cashbook"):
+                    from routes.projects import _resync_payment_stage_from_incomes
+                    full_stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
+                    if full_stage:
+                        stage = await _resync_payment_stage_from_incomes(stage_id, full_stage, user)
             if stage and stage.get("is_addition") and stage.get("linked_addition_id"):
                 cost_id = stage["linked_addition_id"]
                 # Adopt the stage's received total as the cost's income_received.
@@ -2944,7 +3022,9 @@ async def reject_income(income_id: str, reason: str = "", user: User = Depends(g
             # approved (e.g. Mr Sudharsan: 2 rejected + 1 approved cheque
             # showed Received=₹0 instead of ₹3.44L). Only re-decrement when
             # we're rejecting from pending_approval (no prior credit reversal).
-            if was_approved:
+            # Income sent back from the Cashbook was already taken off the
+            # stage by the send-back, so it must not be decremented again.
+            if was_approved or inc.get("pulled_back_from_cashbook"):
                 set_payload = {
                     "workflow_status": "requested",
                     "accountant_rejection_reason": reason or "Rejected by Accountant",

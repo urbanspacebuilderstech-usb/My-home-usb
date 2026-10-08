@@ -2356,6 +2356,21 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
 
   const handleDeleteIncome = async (entry) => {
     if (!entry?.income_id) { toast.error('Missing income id'); return; }
+    // Oct 8 2026 — Main Income rows go back to Approvals instead of being
+    // purged; Direct Transfer and Carry Forward rows still hard-delete.
+    const isDT = entry.payment_mode === 'direct_transfer' || classifyMode(entry.payment_mode) === 'direct_transfer';
+    if (!isDT && entry.source !== 'carry_forward_lock') {
+      if (!window.confirm(`Send this income entry of ₹${(entry.amount || 0).toLocaleString('en-IN')} back to Approvals for re-review?\n\nIt leaves the Cashbook and the cashflow allocation is reversed until it is approved again.`)) return;
+      try {
+        await axios.post(`${API}/cashbook/income/${entry.income_id}/send-back-to-approvals`);
+        toast.success('Sent back to Approvals');
+        fetchCashbook();
+        onRefresh && onRefresh();
+      } catch (err) {
+        toast.error(err.response?.data?.detail || 'Failed to send back');
+      }
+      return;
+    }
     if (!window.confirm(`Delete this income entry of ₹${(entry.amount || 0).toLocaleString('en-IN')}?\n\nThis will also adjust the project's recorded income. This action cannot be undone.`)) return;
     try {
       await axios.delete(`${API}/income/${entry.income_id}`);
@@ -4511,7 +4526,8 @@ function ApprovalsTab() {
     ? rows
     : rows.filter(r => (r.project_id || r.project_name) === appProjectFilter);
   // Apply unified date filter to data arrays (client-side, using created_at)
-  const filteredIncome = byProject(filterByDateRange(data.income || [], appDateFrom, appDateTo, r => r.created_at));
+  // Income sent back from the Cashbook files under the month it came back, not its original creation month.
+  const filteredIncome = byProject(filterByDateRange(data.income || [], appDateFrom, appDateTo, r => r.sent_back_to_approvals_at || r.created_at));
   const filteredMaterials = byProject(filterByDateRange(data.materials || [], appDateFrom, appDateTo, r => r.created_at));
   const filteredLabour = byProject(filterByDateRange(data.labour || [], appDateFrom, appDateTo, r => r.created_at));
   const filteredVendor = byProject(filterByDateRange(data.vendor || [], appDateFrom, appDateTo, r => r.created_at));
@@ -5579,7 +5595,7 @@ function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint, onDelete
                             className="h-6 w-6 p-0 text-red-600 hover:bg-red-50"
                             onClick={() => onDelete(entry)}
                             data-testid={`income-delete-btn-${entry.income_id}`}
-                            title="Delete income entry"
+                            title={tab === 'main' ? 'Send back to Approvals' : 'Delete income entry'}
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
