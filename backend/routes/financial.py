@@ -15959,3 +15959,296 @@ async def cash_movement_since_close(
             "above, in Close Books, then close. Do not change any transaction."
         ),
     })
+
+
+# --- TEMPORARY DIAGNOSTIC (Oct 8 2026) -------------------------------------
+# USB-MR1017 / SS AGENCY / Cheque #041296. Remove with the other /admin/*
+# scans once the bounce split has been settled.
+
+
+@router.get("/admin/cheque-bounce-bill-trace")
+async def cheque_bounce_bill_trace(
+    request_number: str = "USB-MR1017",
+    request_id: Optional[str] = None,
+    cheque_number: str = "041296",
+    user: User = Depends(get_current_user),
+):
+    """TEMPORARY read-only: which cheque funded which rupee of one bill.
+
+    Oct 8 2026 - USB-MR1017 (SS AGENCY, Mr Nagarajan - Ponmar, 38,700) sits in
+    Approvals showing 38,700 / 0 after Cheque #041296 bounced. The report is
+    that only part of that bill came from #041296 and the rest from good
+    money, so the bill should read `partially_paid` with only the bounced part
+    owing - not be wiped back to fully unpaid.
+
+    Two code paths reverse a bounced cheque and they do NOT agree:
+
+      * the DIRECT leg (bounce_cheque, the `req_type == "material"` branch)
+        sets `paid_amount: None` unconditionally - it never asks how much of
+        the bill this cheque actually funded;
+
+      * `_reverse_cheque_material_suspense_and_bills` computes
+        `new_paid = old_paid - reduction` and writes `partially_paid` with a
+        recomputed `remaining_balance` when anything survives.
+
+    The direct branch runs FIRST, so by the time the proportional one reads
+    `paid_amount` it is already 0 and `max(0, 0 - reduction)` keeps it there.
+
+    Before changing any of that, the actual split has to be known. The money
+    is apportioned by a true-FIFO replay of the vendor's suspense ledger, and
+    inference from the UI is not good enough: the restore entry on the
+    timeline is 6,000, which is the opposite of the reported 32,700/6,000
+    split. This endpoint re-runs that exact replay - same ordering, same
+    `cheque_bounce_reversal` exclusion, same thresholds as production - and
+    reports, per debit, which credit funded it and how much of it came from
+    the bounced cheque specifically.
+
+    Reads only. No writes.
+    """
+    if user.role not in (UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT):
+        raise HTTPException(status_code=403, detail="Super admin or accountant only")
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    q = {"request_id": request_id} if request_id else {"request_number": request_number}
+    req = await db.material_requests.find_one(q, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="material request not found: %s" % q)
+
+    rid = req.get("request_id")
+    vendor = req.get("vendor_name")
+    out: Dict[str, Any] = {"write_performed": False, "read_only": True}
+
+    out["request"] = {
+        "request_id": rid, "request_number": req.get("request_number"),
+        "material_name": req.get("material_name"), "vendor_name": vendor,
+        "project_name": req.get("project_name"), "status": req.get("status"),
+        "estimated_price": _f(req.get("estimated_price")),
+        "final_price": _f(req.get("final_price")),
+        "advance_paid_amount": _f(req.get("advance_paid_amount")),
+        "balance_paid_amount": _f(req.get("balance_paid_amount")),
+        "cheque_bounced": req.get("cheque_bounced"),
+        "bounced_from_cheque_number": req.get("bounced_from_cheque_number"),
+    }
+
+    # ---- the approval row(s) the Approvals board actually reads ----------
+    mexps = await db.material_expenses.find(
+        {"$or": [{"source_request_id": rid}, {"request_id": rid}]}, {"_id": 0}).to_list(50)
+    bill_ids = [m.get("expense_id") for m in mexps if m.get("expense_id")]
+
+    def _bill_amount(m):
+        # Mirrors _reverse_cheque_material_suspense_and_bills exactly.
+        return _f(m.get("final_amount") or m.get("estimated_cost")
+                  or m.get("estimated_price") or m.get("final_price") or 0)
+
+    out["bill_rows"] = [{
+        "expense_id": m.get("expense_id"),
+        "bill_amount_as_the_reverser_reads_it": _bill_amount(m),
+        "paid_amount": _f(m.get("paid_amount")),
+        "remaining_balance": _f(m.get("remaining_balance")),
+        "status": m.get("status"),
+        "cheque_bounced": m.get("cheque_bounced"),
+        "bounced_from_cheque_number": m.get("bounced_from_cheque_number"),
+        "bounced_from_cheque_amount": _f(m.get("bounced_from_cheque_amount")),
+        "bounced_at": m.get("bounced_at"),
+        "paid_via_expense_id": m.get("paid_via_expense_id"),
+        "source_request_id": m.get("source_request_id"),
+    } for m in mexps]
+
+    # ---- every cashbook leg pointing at this bill ------------------------
+    legs = await db.recorded_expenses.find(
+        {"$or": [{"request_id": rid}, {"source_request_id": rid},
+                 {"request_id": {"$in": bill_ids}}, {"approval_id": {"$in": bill_ids}}]},
+        {"_id": 0}).to_list(100)
+    out["payment_legs"] = [{
+        "expense_id": l.get("expense_id"), "amount": _f(l.get("amount")),
+        "tendered_amount": _f(l.get("tendered_amount")),
+        "credit_applied": _f(l.get("credit_applied")),
+        "new_suspense_credit": _f(l.get("new_suspense_credit")),
+        "payment_method": l.get("payment_method"), "status": l.get("status"),
+        "source": l.get("source"), "payment_phase": l.get("payment_phase"),
+        "cheque_number": l.get("cheque_number"), "cheque_no": l.get("cheque_no"),
+        "cheque_id": l.get("cheque_id"), "cheque_ids": l.get("cheque_ids"),
+        # written ONLY by the proportional path - its presence proves which
+        # branch touched this leg.
+        "partial_bounce_deducted": _f(l.get("partial_bounce_deducted")),
+        "last_partial_bounce_cheque_id": l.get("last_partial_bounce_cheque_id"),
+        "description": l.get("description"), "created_at": l.get("created_at"),
+    } for l in legs]
+
+    # ---- the cheque --------------------------------------------------------
+    chq = await db.cheques.find_one(
+        {"$or": [{"cheque_number": cheque_number},
+                 {"cheque_number": cheque_number.lstrip("0")},
+                 {"cheque_id": cheque_number}]}, {"_id": 0})
+    out["cheque"] = {
+        "found": bool(chq),
+        "cheque_id": (chq or {}).get("cheque_id"),
+        "cheque_number": (chq or {}).get("cheque_number"),
+        "amount": _f((chq or {}).get("amount")),
+        "status": (chq or {}).get("status"),
+        "vendor_name": (chq or {}).get("vendor_name"),
+        "used_for_expense_id": (chq or {}).get("used_for_expense_id"),
+        "bounce_reason": (chq or {}).get("bounce_reason"),
+        "bounced_at": (chq or {}).get("bounced_at"),
+    }
+    cheque_id = (chq or {}).get("cheque_id")
+
+    # ---- WHICH PATH touched this bill -------------------------------------
+    # The direct branch fires only for the ONE leg named by the cheque's
+    # used_for_expense_id, and reopens whatever bill that leg points at.
+    direct_leg = None
+    if (chq or {}).get("used_for_expense_id"):
+        direct_leg = await db.recorded_expenses.find_one(
+            {"expense_id": chq["used_for_expense_id"]}, {"_id": 0})
+    direct_target = None
+    if direct_leg:
+        direct_target = direct_leg.get("approval_id") or direct_leg.get("request_id")
+    out["which_reversal_path_hit_this_bill"] = {
+        "cheque_used_for_expense_id": (chq or {}).get("used_for_expense_id"),
+        "that_leg_points_at_bill": direct_target,
+        "this_bills_ids": bill_ids,
+        "direct_path_hit_it": bool(direct_target and direct_target in bill_ids),
+        "direct_path_behaviour": "sets paid_amount: None - full wipe, no apportioning",
+        "proportional_path_behaviour": "new_paid = old_paid - bounced_portion, partially_paid if any survives",
+        "note": ("If direct_path_hit_it is true, the wipe ran FIRST and the "
+                 "proportional path could only ever compute max(0, 0 - x) = 0."),
+    }
+
+    # ---- the vendor's ledger, and the FIFO replay --------------------------
+    all_entries = await db.suspense_entries.find(
+        {"type": "material", "vendor_name": vendor}, {"_id": 0},
+    ).sort([("created_at", 1), ("entry_id", 1)]).to_list(20000) if vendor else []
+
+    # Production replays with its OWN reversal entries removed, so the
+    # apportioning is reproduced on the same input it saw.
+    entries = [e for e in all_entries if e.get("source_type") != "cheque_bounce_reversal"]
+    by_id = {e["entry_id"]: e for e in entries if e.get("entry_id")}
+
+    queue: List[List[Any]] = []
+    consumed: Dict[str, Dict[str, float]] = {}
+    for se in entries:
+        amt = _f(se.get("amount"))
+        eid = se.get("entry_id")
+        if amt > 0.5:
+            queue.append([eid, amt])
+        elif amt < -0.5:
+            remaining = -amt
+            while remaining > 0.5 and queue:
+                head = queue[0]
+                take = min(remaining, head[1])
+                consumed.setdefault(eid, {})
+                consumed[eid][head[0]] = consumed[eid].get(head[0], 0.0) + take
+                head[1] -= take
+                remaining -= take
+                if head[1] <= 0.5:
+                    queue.pop(0)
+
+    bounced_credit_ids = {
+        e["entry_id"] for e in entries
+        if _f(e.get("amount")) > 0.5 and cheque_id
+        and cheque_id in (e.get("linked_cheque_ids") or [])
+    }
+
+    out["bounced_cheque_credits"] = [{
+        "entry_id": e["entry_id"], "amount": _f(e.get("amount")),
+        "description": e.get("description"), "created_at": e.get("created_at"),
+        "linked_request_id": e.get("linked_request_id"),
+    } for e in entries if e.get("entry_id") in bounced_credit_ids]
+
+    # Per-debit provenance.
+    provenance = []
+    for debit_id, sources in consumed.items():
+        debit = by_id.get(debit_id)
+        if not debit:
+            continue
+        bounced_amt = round(sum(a for cid, a in sources.items() if cid in bounced_credit_ids), 2)
+        full = abs(_f(debit.get("amount")))
+        provenance.append({
+            "debit_entry_id": debit_id,
+            "debit_amount": full,
+            "linked_request_id": debit.get("linked_request_id"),
+            "is_this_bill": debit.get("linked_request_id") in bill_ids,
+            "funded_by": [{"credit_entry_id": cid, "amount": round(a, 2),
+                           "is_the_bounced_cheque": cid in bounced_credit_ids}
+                          for cid, a in sources.items()],
+            "funded_by_bounced_cheque": bounced_amt,
+            "funded_by_good_money": round(full - bounced_amt, 2),
+            "fully_bounced": bounced_amt >= full - 0.5,
+            "description": debit.get("description"),
+            "created_at": debit.get("created_at"),
+        })
+    provenance.sort(key=lambda r: (not r["is_this_bill"], r["created_at"] or ""))
+    out["fifo_provenance"] = provenance
+
+    # ---- what this means for THIS bill ------------------------------------
+    verdict = []
+    for m in mexps:
+        eid = m.get("expense_id")
+        rows = [p for p in provenance if p["linked_request_id"] == eid]
+        reduction = round(sum(p["funded_by_bounced_cheque"] for p in rows), 2)
+        good = round(sum(p["funded_by_good_money"] for p in rows), 2)
+        bill_amt = _bill_amount(m)
+        drawn = round(sum(p["debit_amount"] for p in rows), 2)
+        correct_paid = good
+        verdict.append({
+            "bill_expense_id": eid,
+            "bill_amount": bill_amt,
+            "suspense_drawn_for_this_bill": drawn,
+            "of_which_from_the_bounced_cheque": reduction,
+            "of_which_from_good_money": good,
+            "current_paid_amount": _f(m.get("paid_amount")),
+            "current_status": m.get("status"),
+            "correct_paid_amount_after_bounce": correct_paid,
+            "correct_remaining_balance": round(max(0.0, bill_amt - correct_paid), 2),
+            "correct_status": ("partially_paid" if correct_paid > 0.5
+                               else "pending_accounts_approval"),
+            "is_currently_wrong": (correct_paid > 0.5
+                                   and _f(m.get("paid_amount")) <= 0.5),
+        })
+    out["verdict_per_bill"] = verdict
+
+    wrong = [v for v in verdict if v["is_currently_wrong"]]
+    findings = []
+    if not vendor:
+        findings.append("This request has no vendor_name, so no suspense ledger can be replayed.")
+    elif not bounced_credit_ids:
+        findings.append(
+            "No suspense credit on this vendor is linked to cheque %s, so this bill's "
+            "money did not come through that cheque's suspense at all. If it is still "
+            "showing bounced, it was reversed by the DIRECT path, not this one."
+            % cheque_number)
+    for v in wrong:
+        findings.append(
+            "Bill %s: %s came from good money and only %s from the bounced cheque, but "
+            "paid_amount is now %s. It should read partially_paid with %s paid and %s "
+            "owing." % (v["bill_expense_id"], v["of_which_from_good_money"],
+                        v["of_which_from_the_bounced_cheque"], v["current_paid_amount"],
+                        v["correct_paid_amount_after_bounce"], v["correct_remaining_balance"]))
+    if not wrong and verdict:
+        findings.append(
+            "No bill here is understated: the whole amount drawn for it came from the "
+            "bounced cheque, so returning it in full to Approvals is correct.")
+    out["findings"] = findings
+
+    out["live_vendor_ledger"] = {
+        "vendor_name": vendor,
+        "balance_including_reversals": round(sum(_f(e.get("amount")) for e in all_entries), 2),
+        "entry_count": len(all_entries),
+        "entries": [{
+            "entry_id": e.get("entry_id"), "amount": _f(e.get("amount")),
+            "payment_mode": e.get("payment_mode"),
+            "source_type": e.get("source_type"),
+            "is_a_reversal_entry": e.get("source_type") == "cheque_bounce_reversal",
+            "linked_request_id": e.get("linked_request_id"),
+            "linked_expense_id": e.get("linked_expense_id"),
+            "linked_cheque_ids": e.get("linked_cheque_ids"),
+            "description": e.get("description"),
+            "created_at": e.get("created_at"),
+        } for e in all_entries[-60:]],
+    }
+    return fast_json(out)
