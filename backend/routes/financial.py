@@ -2137,6 +2137,19 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
             amt = float(r.get("amount") or 0)
             if amt < -0.5 and r.get("entry_id"):
                 await db.suspense_entries.delete_one({"entry_id": r["entry_id"]})
+                # Oct 9 2026 — A cheque bounce can already have handed back
+                # PART of this debit: when only some of it was funded by the
+                # bounced credit, _reverse_cheque_material_suspense_and_bills
+                # leaves the debit standing and adds a "Restore" credit for
+                # that part. Deleting the debit hands back ALL of it, so the
+                # Restore must go with it or that part is returned twice —
+                # SS AGENCY / Cheque #041296: a ₹30,600 payment with a ₹6,000
+                # Restore was sent back here, and the pool gained ₹36,600.
+                await db.suspense_entries.delete_many({
+                    "source_type": "cheque_bounce_reversal",
+                    "reversed_entry_id": r["entry_id"],
+                    "amount": {"$gt": 0.5},
+                })
             elif amt > 0.5 and r.get("entry_id"):
                 # This credit's originating expense (exp_id) is about to be
                 # deleted below. _live_vendor_suspense_balance and
@@ -13986,6 +13999,11 @@ async def expense_delete_dryrun(
                 {"linked_request_id": parent_req, "amount": {"$gte": -t - 0.5, "$lte": -t + 0.5}}, {"_id": 0})
     rows_considered = own_rows + ([stray] if stray else [])
     to_delete = [r["entry_id"] for r in rows_considered if float(r.get("amount") or 0) < -0.5 and r.get("entry_id")]
+    # A bounce Restore that already handed back part of a deleted debit goes
+    # with it, as in the real branch.
+    restores_deleted = [r["entry_id"] async for r in db.suspense_entries.find(
+        {"source_type": "cheque_bounce_reversal", "reversed_entry_id": {"$in": to_delete},
+         "amount": {"$gt": 0.5}}, {"_id": 0, "entry_id": 1})] if to_delete else []
     to_detach = [r["entry_id"] for r in rows_considered if float(r.get("amount") or 0) > 0.5 and r.get("entry_id")]
     to_insert_credit = round(amount, 2) if created_excess and amount > 0.5 else 0.0
 
@@ -14072,12 +14090,12 @@ async def expense_delete_dryrun(
         return round(tot, 2)
 
     paid_before, sus_before = _vendor_paid(mat_exps), _vendor_suspense(mat_exps, sus)
-    # Simulated post-delete world: drop the expense, drop the debit rows,
-    # detach the credit rows, add any reversal credit.
+    # Simulated post-delete world: drop the expense, drop the debit rows and
+    # their bounce Restores, detach the credit rows, add any reversal credit.
     exps_after = [r for r in mat_exps if r.get("expense_id") != expense_id]
     sus_after = []
     for e in sus:
-        if e.get("entry_id") in to_delete:
+        if e.get("entry_id") in to_delete or e.get("entry_id") in restores_deleted:
             continue
         if e.get("entry_id") in to_detach:
             e = {k: v for k, v in e.items() if k not in ("linked_expense_id", "linked_request_id")}
@@ -14088,6 +14106,7 @@ async def expense_delete_dryrun(
     paid_after, sus_after_bal = _vendor_paid(exps_after), _vendor_suspense(exps_after, sus_after)
 
     writes = ([{"collection": "suspense_entries", "op": "delete", "id": i} for i in to_delete]
+              + [{"collection": "suspense_entries", "op": "delete bounce restore", "id": i} for i in restores_deleted]
               + [{"collection": "suspense_entries", "op": "unset links", "id": i} for i in to_detach]
               + ([{"collection": "suspense_entries", "op": "insert reversal credit",
                    "amount": to_insert_credit}] if to_insert_credit else [])
@@ -14133,7 +14152,8 @@ async def expense_delete_dryrun(
                  "before": {k: (bill or {}).get(k) for k in
                             ("status", "paid_amount", "remaining_balance", "final_amount")},
                  "after": bill_after},
-        "suspense_effect": {"rows_deleted": to_delete, "rows_detached": to_detach,
+        "suspense_effect": {"rows_deleted": to_delete, "bounce_restores_deleted": restores_deleted,
+                            "rows_detached": to_detach,
                             "reversal_credit_inserted": to_insert_credit},
         "cheques": cheques_examined,
         "vendor_totals": {"vendor": vendor,

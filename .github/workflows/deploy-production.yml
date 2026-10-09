@@ -153,6 +153,27 @@ jobs:
             fi
             cd ..
 
+      # ONE-OFF, Oct 9 2026 — dry run only (no --apply), read-only against the
+      # DB. Checks and previews the -₹6,000 correction for SS AGENCY, whose
+      # Cheque 041296 Restore (se_c5b745607a) was returned a second time when
+      # its payment was sent back to Approvals. Remove this step once reviewed.
+      # continue-on-error: the script exits 1 when it refuses, and that must
+      # not skip Restart services below.
+      - name: One-off - dry-run SS AGENCY cheque 041296 double-restore repair
+        if: steps.changes.outputs.backend == 'true'
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: false
+          script: |
+            cd ${{ secrets.VPS_APP_PATH }}/backend
+            if [ -d venv ]; then source venv/bin/activate; fi
+            python scripts/repair_ss_agency_041296_double_restore.py
+
       # The live build stays in place while the new one uploads; it used to be
       # deleted first, so the site would not load until the copy finished. The
       # new build is staged in build_next and swapped in by "Restart services".
