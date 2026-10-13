@@ -1486,6 +1486,36 @@ async def update_planning_status(project_id: str, request: Request, user: User =
     return {"message": f"Project moved to {new_status}"}
 
 
+# The four tabs of Planning > Dashboard > All Projects. Together they are the
+# project list the rest of the app should offer when it asks "which project?"
+# (Suspense A/c > Petty Cash's Project filter reads it via planning_tab_query).
+PLANNING_PROJECT_TABS = ("new", "active", "delivered", "archived")
+
+
+def planning_tab_query(planning_status: str) -> Dict[str, Any]:
+    """Mongo filter for one Planning > All Projects tab."""
+    # Always exclude soft-deleted projects from planning views
+    deleted_clause = {"$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]}
+    if planning_status == "archived":
+        # Archive tab — show ONLY archived (but not soft-deleted) projects
+        return {"is_archived": True, "$or": deleted_clause["$or"]}
+    not_archived = {"$or": [
+        {"is_archived": {"$exists": False}},
+        {"is_archived": False},
+    ]}
+    if planning_status == "new":
+        # ONLY projects explicitly moved to Planning by CRE (after accountant verification).
+        # Two requirements:
+        #   1. planning_status == "new"
+        #   2. sent_to_planning_at must exist (legacy data fix — projects converted
+        #      before the pending_planning gate could have planning_status='new'
+        #      but were never explicitly handed over by CRE).
+        return {"planning_status": "new",
+                "sent_to_planning_at": {"$exists": True, "$ne": None},
+                "$and": [not_archived, deleted_clause]}
+    return {"planning_status": planning_status, "$and": [not_archived, deleted_clause]}
+
+
 @router.get("/planning/projects-filtered")
 async def get_planning_projects_filtered(
     planning_status: Optional[str] = None,
@@ -1503,45 +1533,14 @@ async def get_planning_projects_filtered(
     query = {}
     date_field = "created_at"
 
-    # Always exclude soft-deleted projects from planning views
-    deleted_clause = {"$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]}
-
     if planning_status:
-        if planning_status == "archived":
-            # Archive tab — show ONLY archived (but not soft-deleted) projects
-            query["is_archived"] = True
-            query["$or"] = deleted_clause["$or"]
-            date_field = "archived_at"
-        elif planning_status == "new":
-            # ONLY projects explicitly moved to Planning by CRE (after accountant verification).
-            # Two requirements:
-            #   1. planning_status == "new"
-            #   2. sent_to_planning_at must exist (legacy data fix — projects converted
-            #      before the pending_planning gate could have planning_status='new'
-            #      but were never explicitly handed over by CRE).
-            query["planning_status"] = "new"
-            query["sent_to_planning_at"] = {"$exists": True, "$ne": None}
-            query["$and"] = [
-                {"$or": [
-                    {"is_archived": {"$exists": False}},
-                    {"is_archived": False},
-                ]},
-                deleted_clause,
-            ]
-            date_field = "planning_new_date"
-        else:
-            query["planning_status"] = planning_status
-            query["$and"] = [
-                {"$or": [
-                    {"is_archived": {"$exists": False}},
-                    {"is_archived": False},
-                ]},
-                deleted_clause,
-            ]
-            if planning_status == "active":
-                date_field = "planning_active_date"
-            elif planning_status == "delivered":
-                date_field = "planning_delivered_date"
+        query = planning_tab_query(planning_status)
+        date_field = {
+            "archived": "archived_at",
+            "new": "planning_new_date",
+            "active": "planning_active_date",
+            "delivered": "planning_delivered_date",
+        }.get(planning_status, "created_at")
 
     logger.info(f"Planning projects filter: query={query}, date_field={date_field}")
 

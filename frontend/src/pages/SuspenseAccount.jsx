@@ -564,7 +564,8 @@ export default function SuspenseAccountPage() {
               // Oct 13 2026 — search / site engineer / project filters. Applied
               // before the mode tiles are built, so the tiles' figures change
               // with them. Site Engineer lists every SE on the tab; Project
-              // lists every project (see pettyMatchesProject).
+              // lists the projects on Planning > All Projects (see
+              // pettyMatchesProject for how a request matches one).
               const q = pettySearch.trim().toLowerCase();
               const filteredPetty = visiblePetty.filter(pc => {
                 if (pettySe !== 'all' && (pc.requested_by_name || '') !== pettySe) return false;
@@ -574,7 +575,8 @@ export default function SuspenseAccountPage() {
                   .some(v => String(v || '').toLowerCase().includes(q));
               });
               const pettySeOptions = [...new Set(visiblePetty.map(pc => pc.requested_by_name).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-              const pettyProjectOptions = projects.filter(p => p.project_id && p.name).sort((a, b) => a.name.localeCompare(b.name));
+              const pettyProjectOptions = (data?.planning_projects ?? projects)
+                .filter(p => p.project_id && p.name).sort((a, b) => a.name.localeCompare(b.name));
               const pettyFiltersOn = !!q || pettySe !== 'all' || pettyProject !== 'all';
               // Aug 27 2026 — clicking a mode tile narrows the same table down
               // to just that mode's rows (rather than opening a separate

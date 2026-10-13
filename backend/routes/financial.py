@@ -3667,10 +3667,12 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
     #   Material → db.suspense_entries (Pay & Settle balances)
     #   Labour  → db.contractor_suspense_ledger (credit/debit per contractor)
     _EXCLUDED_EXPENSE_STATUSES = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+    from routes.operations import PLANNING_PROJECT_TABS, planning_tab_query
 
     (petty_cash, projects_list, ac_approved_rexps,
      mat_suspense_entries, contractor_suspense_rows,
-     material_recorded_exps, labour_recorded_exps, pc_spend_groups) = await asyncio.gather(
+     material_recorded_exps, labour_recorded_exps, pc_spend_groups,
+     planning_projects) = await asyncio.gather(
         db.petty_cash.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000),
         db.recorded_expenses.find(
@@ -3715,6 +3717,13 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
                         "project_name": {"$first": "$project_name"},
                         "amount": {"$sum": "$amount"}}},
         ]).to_list(20000),
+        # The projects Planning > All Projects lists (New / Current /
+        # Delivered / Archive) - what the Petty Cash Project filter offers.
+        # `projects` above stays the full list, for naming every entry.
+        db.projects.find(
+            {"$or": [planning_tab_query(s) for s in PLANNING_PROJECT_TABS]},
+            {"_id": 0, "project_id": 1, "name": 1},
+        ).to_list(1000),
     )
 
     # Roll up A/C-approved totals by petty_cash bucket so the frontend can
@@ -3913,6 +3922,7 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
             + sum(b["balance"] for b in labour_suspense.values())
         ),
         "projects": projects_list,
+        "planning_projects": planning_projects,
     })
 
 
