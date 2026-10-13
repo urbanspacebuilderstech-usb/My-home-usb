@@ -96,6 +96,20 @@ const suspenseBucketOf = (entry) => (
     : classifySuspenseMode(entry?.mode)
 );
 
+// Petty Cash table's Mode / Project labels. Shared with the tab's search box
+// so a search for "HDFC Savings" or "General" matches exactly what the row
+// shows.
+const PETTY_MODE_LABELS = {
+  cash: 'Cash', hdfc_current: 'HDFC Current', hdfc_savings: 'HDFC Savings',
+  cheque: 'Cheque', direct_transfer: 'CASH D/T', suspense: 'Suspense', escrow: 'Escrow',
+  current_account: 'HDFC Current', savings_account: 'HDFC Savings',
+};
+const pettyModeLabel = (pc) => {
+  const raw = (pc.payment_mode || pc.mode || '').toString();
+  return PETTY_MODE_LABELS[raw] || (raw ? raw.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '-');
+};
+const pettyProjectLabel = (pc) => pc.project_name || 'General';
+
 // Petty Cash tab — each tile shows Issued / Spent / Balance for that mode,
 // matching the 3 columns already on the Petty Cash table. Aug 27 2026 —
 // clickable, same as the Materials/Labour mode tiles: clicking narrows the
@@ -323,6 +337,12 @@ export default function SuspenseAccountPage() {
   const [matModeDrill, setMatModeDrill] = useState(null);
   const [labModeDrill, setLabModeDrill] = useState(null);
   const [pettyModeDrill, setPettyModeDrill] = useState(null);
+  // Oct 13 2026 — Petty Cash filters below the mode tiles. The tiles are built
+  // from the filtered rows, so their Issued / Spent / Balance follow the
+  // search, site engineer and project picked here.
+  const [pettySearch, setPettySearch] = useState('');
+  const [pettySe, setPettySe] = useState('all');
+  const [pettyProject, setPettyProject] = useState('all');
   const toggleExpanded = (key) => setExpandedSuspense(s => ({ ...s, [key]: !s[key] }));
 
   // Jul 03 2026 — Rich delete confirmation dialog that fetches the cascade
@@ -531,7 +551,19 @@ export default function SuspenseAccountPage() {
               // Approvals queue and shouldn't pollute the Suspense ledger.
               // Filter list is defined once above (`ACCOUNT_APPROVED_PETTY`)
               // and kept in sync with backend `PETTY_ACTIVE_STATUSES`.
-              const filteredPetty = visiblePetty;
+              // Oct 13 2026 — search / site engineer / project filters. Applied
+              // before the mode tiles are built, so the tiles' figures change
+              // with them; the dropdowns list every SE / project on the tab.
+              const q = pettySearch.trim().toLowerCase();
+              const filteredPetty = visiblePetty.filter(pc => {
+                if (pettySe !== 'all' && (pc.requested_by_name || '') !== pettySe) return false;
+                if (pettyProject !== 'all' && pettyProjectLabel(pc) !== pettyProject) return false;
+                return !q || [pc.purpose || 'Petty Cash', pettyProjectLabel(pc), pc.requested_by_name, pettyModeLabel(pc)]
+                  .some(v => String(v || '').toLowerCase().includes(q));
+              });
+              const pettySeOptions = [...new Set(visiblePetty.map(pc => pc.requested_by_name).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+              const pettyProjectOptions = [...new Set(visiblePetty.map(pettyProjectLabel))].sort((a, b) => a.localeCompare(b));
+              const pettyFiltersOn = !!q || pettySe !== 'all' || pettyProject !== 'all';
               // Aug 27 2026 — clicking a mode tile narrows the same table down
               // to just that mode's rows (rather than opening a separate
               // component), since the table already has everything a Petty
@@ -539,7 +571,7 @@ export default function SuspenseAccountPage() {
               const rows = pettyModeDrill
                 ? filteredPetty.filter(pc => classifySuspenseMode(pc.payment_mode || pc.mode) === pettyModeDrill.key)
                 : filteredPetty;
-              return filteredPetty.length === 0 ? (
+              return visiblePetty.length === 0 ? (
                 <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No accountant-approved petty cash entries</CardContent></Card>
               ) : (
                 <>
@@ -554,7 +586,50 @@ export default function SuspenseAccountPage() {
                 ) : (
                   <PettyModeTiles rows={filteredPetty} onSelect={(key, label) => setPettyModeDrill({ key, label })} />
                 )}
-                <Card><CardContent className="p-0 overflow-x-auto">
+                <Card><CardContent className="p-0">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 border-b bg-gray-50/60" data-testid="petty-filters">
+                  <div className="relative flex-1 min-w-[180px]">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                    <Input
+                      value={pettySearch}
+                      onChange={(e) => setPettySearch(e.target.value)}
+                      placeholder="Search purpose, project, SE, mode..."
+                      className="h-8 pl-8 text-xs bg-white"
+                      data-testid="petty-search"
+                    />
+                  </div>
+                  <Select value={pettySe} onValueChange={setPettySe}>
+                    <SelectTrigger className="h-8 text-xs bg-white sm:w-[200px]" data-testid="petty-se-filter">
+                      <SelectValue placeholder="Site Engineer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Site Engineers</SelectItem>
+                      {pettySeOptions.map(n => <SelectItem key={n} value={n}>{n}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Select value={pettyProject} onValueChange={setPettyProject}>
+                    <SelectTrigger className="h-8 text-xs bg-white sm:w-[200px]" data-testid="petty-project-filter">
+                      <SelectValue placeholder="Project" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Projects</SelectItem>
+                      {pettyProjectOptions.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  {pettyFiltersOn && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-gray-500 whitespace-nowrap" data-testid="petty-filter-count">{filteredPetty.length} of {visiblePetty.length}</span>
+                      <Button
+                        size="sm" variant="ghost" className="h-8 gap-1 text-xs text-gray-500 hover:text-gray-800"
+                        onClick={() => { setPettySearch(''); setPettySe('all'); setPettyProject('all'); }}
+                        data-testid="petty-filters-clear"
+                      >
+                        <X className="h-3.5 w-3.5" /> Clear
+                      </Button>
+                    </div>
+                  )}
+                </div>
+                <div className="overflow-x-auto">
                 <table className="w-full text-xs" data-testid="suspense-petty-table">
                   <thead className="bg-gray-50 border-b">
                     <tr>
@@ -573,7 +648,7 @@ export default function SuspenseAccountPage() {
                   </thead>
                   <tbody className="divide-y">
                     {rows.length === 0 && (
-                      <tr><td colSpan={11} className="px-2 py-8 text-center text-gray-400 text-sm">No entries for this mode</td></tr>
+                      <tr><td colSpan={11} className="px-2 py-8 text-center text-gray-400 text-sm">{pettyFiltersOn ? 'No petty cash entries match these filters' : 'No entries for this mode'}</td></tr>
                     )}
                     {rows.map((pc, idx) => {
                       const issued = Number(pc.amount_issued || 0);
@@ -582,20 +657,14 @@ export default function SuspenseAccountPage() {
                       const balance = issued - spent;
                       const dt = pc.issued_at || pc.created_at;
                       const dtStr = dt ? new Date(dt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
-                      const modeRaw = (pc.payment_mode || pc.mode || '').toString();
-                      const modeMap = {
-                        cash: 'Cash', hdfc_current: 'HDFC Current', hdfc_savings: 'HDFC Savings',
-                        cheque: 'Cheque', direct_transfer: 'CASH D/T', suspense: 'Suspense', escrow: 'Escrow',
-                        current_account: 'HDFC Current', savings_account: 'HDFC Savings',
-                      };
-                      const modeLabel = modeMap[modeRaw] || (modeRaw ? modeRaw.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '-');
+                      const modeLabel = pettyModeLabel(pc);
                       return (
                         <tr key={pc.petty_cash_id} className="hover:bg-gray-50" data-testid={`petty-${pc.petty_cash_id}`}>
                           <td className="px-2 py-2 text-gray-600">{idx + 1}</td>
                           <td className="px-2 py-2 whitespace-nowrap text-gray-600">{dtStr}</td>
                           <td className="px-2 py-2 whitespace-nowrap"><Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">{modeLabel}</Badge></td>
                           <td className="px-2 py-2 font-medium text-gray-800 max-w-[180px] truncate" title={pc.purpose || 'Petty Cash'}>{pc.purpose || 'Petty Cash'}</td>
-                          <td className="px-2 py-2 text-gray-600 max-w-[140px] truncate" title={pc.project_name || 'General'}>{pc.project_name || 'General'}</td>
+                          <td className="px-2 py-2 text-gray-600 max-w-[140px] truncate" title={pettyProjectLabel(pc)}>{pettyProjectLabel(pc)}</td>
                           <td className="px-2 py-2 text-gray-600 whitespace-nowrap">{pc.requested_by_name || '-'}</td>
                           <td className="px-2 py-2 text-right font-semibold text-amber-700">{fmt(issued)}</td>
                           <td className="px-2 py-2 text-right font-semibold text-blue-700" data-testid={`petty-ac-approved-${pc.petty_cash_id}`}>{fmt(acApproved)}</td>
@@ -623,6 +692,7 @@ export default function SuspenseAccountPage() {
                     })}
                   </tbody>
                 </table>
+                </div>
               </CardContent></Card>
                 </>
               );
