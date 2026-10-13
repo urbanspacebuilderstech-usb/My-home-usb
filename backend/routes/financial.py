@@ -3670,7 +3670,7 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
 
     (petty_cash, projects_list, ac_approved_rexps,
      mat_suspense_entries, contractor_suspense_rows,
-     material_recorded_exps, labour_recorded_exps) = await asyncio.gather(
+     material_recorded_exps, labour_recorded_exps, pc_spend_groups) = await asyncio.gather(
         db.petty_cash.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000),
         db.recorded_expenses.find(
@@ -3702,6 +3702,19 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
             {"_id": 0, "contractor_id": 1, "request_id": 1, "linked_request_ids": 1, "status": 1, "is_deleted": 1,
              "description": 1, "payment_method": 1, "project_id": 1, "project_name": 1, "created_at": 1},
         ).to_list(5000),
+        # Oct 13 2026 - where each petty cash request was spent, per project,
+        # for the Petty Cash tab's Project filter. Requests are mostly raised
+        # with no project ("General"); the project lives on the SE expenses
+        # charged to them. Same rule as /accountant/cashbook-filtered's
+        # spent_by_project: `approved` is when an expense is added to the
+        # request's amount_spent.
+        db.recorded_expenses.aggregate([
+            {"$match": {"linked_petty_cash_id": {"$nin": [None, ""]},
+                        "status": "approved", "is_deleted": {"$ne": True}}},
+            {"$group": {"_id": {"pc": "$linked_petty_cash_id", "project": "$project_id"},
+                        "project_name": {"$first": "$project_name"},
+                        "amount": {"$sum": "$amount"}}},
+        ]).to_list(20000),
     )
 
     # Roll up A/C-approved totals by petty_cash bucket so the frontend can
@@ -3722,6 +3735,22 @@ async def get_suspense_overview(user: User = Depends(get_current_user)):
     petty_balance = petty_total_issued - petty_total_spent
 
     project_map = {p["project_id"]: p.get("name") for p in projects_list}
+
+    # Oct 13 2026 - each request carries its own project's name and the
+    # projects it was spent on, so the Petty Cash tab can filter by project.
+    pc_spent_by_project: Dict[str, list] = {}
+    for g in pc_spend_groups:
+        pc_id, pid = g["_id"].get("pc"), g["_id"].get("project")
+        if not pc_id or not pid:
+            continue
+        pc_spent_by_project.setdefault(pc_id, []).append({
+            "project_id": pid,
+            "project_name": project_map.get(pid) or g.get("project_name") or "",
+            "amount": round(float(g.get("amount") or 0), 2),
+        })
+    for p in petty_cash:
+        p["project_name"] = p.get("project_name") or project_map.get(p.get("project_id")) or ""
+        p["spent_by_project"] = pc_spent_by_project.get(p.get("petty_cash_id"), [])
 
     # ---- Material Suspense (Pay & Settle) ----
     # Build live-material-expense set → drop suspense_entries whose

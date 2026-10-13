@@ -109,6 +109,16 @@ const pettyModeLabel = (pc) => {
   return PETTY_MODE_LABELS[raw] || (raw ? raw.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '-');
 };
 const pettyProjectLabel = (pc) => pc.project_name || 'General';
+// Oct 13 2026 — requests are mostly raised with no project ("General") and
+// charged to projects through the SE expenses booked against them, so the
+// Project filter matches either: the request's own project, or any project
+// it was spent on (`spent_by_project`, sent by /suspense/overview).
+const PETTY_GENERAL = '__general__';
+const pettyMatchesProject = (pc, projectId) => (
+  projectId === PETTY_GENERAL
+    ? !pc.project_id
+    : pc.project_id === projectId || (pc.spent_by_project || []).some(s => s.project_id === projectId)
+);
 
 // Petty Cash tab — each tile shows Issued / Spent / Balance for that mode,
 // matching the 3 columns already on the Petty Cash table. Aug 27 2026 —
@@ -553,16 +563,18 @@ export default function SuspenseAccountPage() {
               // and kept in sync with backend `PETTY_ACTIVE_STATUSES`.
               // Oct 13 2026 — search / site engineer / project filters. Applied
               // before the mode tiles are built, so the tiles' figures change
-              // with them; the dropdowns list every SE / project on the tab.
+              // with them. Site Engineer lists every SE on the tab; Project
+              // lists every project (see pettyMatchesProject).
               const q = pettySearch.trim().toLowerCase();
               const filteredPetty = visiblePetty.filter(pc => {
                 if (pettySe !== 'all' && (pc.requested_by_name || '') !== pettySe) return false;
-                if (pettyProject !== 'all' && pettyProjectLabel(pc) !== pettyProject) return false;
-                return !q || [pc.purpose || 'Petty Cash', pettyProjectLabel(pc), pc.requested_by_name, pettyModeLabel(pc)]
+                if (pettyProject !== 'all' && !pettyMatchesProject(pc, pettyProject)) return false;
+                return !q || [pc.purpose || 'Petty Cash', pettyProjectLabel(pc), pc.requested_by_name, pettyModeLabel(pc),
+                  ...(pc.spent_by_project || []).map(s => s.project_name)]
                   .some(v => String(v || '').toLowerCase().includes(q));
               });
               const pettySeOptions = [...new Set(visiblePetty.map(pc => pc.requested_by_name).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-              const pettyProjectOptions = [...new Set(visiblePetty.map(pettyProjectLabel))].sort((a, b) => a.localeCompare(b));
+              const pettyProjectOptions = projects.filter(p => p.project_id && p.name).sort((a, b) => a.name.localeCompare(b.name));
               const pettyFiltersOn = !!q || pettySe !== 'all' || pettyProject !== 'all';
               // Aug 27 2026 — clicking a mode tile narrows the same table down
               // to just that mode's rows (rather than opening a separate
@@ -613,7 +625,8 @@ export default function SuspenseAccountPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Projects</SelectItem>
-                      {pettyProjectOptions.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                      <SelectItem value={PETTY_GENERAL}>General (no project)</SelectItem>
+                      {pettyProjectOptions.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                   {pettyFiltersOn && (
@@ -658,13 +671,24 @@ export default function SuspenseAccountPage() {
                       const dt = pc.issued_at || pc.created_at;
                       const dtStr = dt ? new Date(dt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
                       const modeLabel = pettyModeLabel(pc);
+                      const spentOn = pc.spent_by_project || [];
                       return (
                         <tr key={pc.petty_cash_id} className="hover:bg-gray-50" data-testid={`petty-${pc.petty_cash_id}`}>
                           <td className="px-2 py-2 text-gray-600">{idx + 1}</td>
                           <td className="px-2 py-2 whitespace-nowrap text-gray-600">{dtStr}</td>
                           <td className="px-2 py-2 whitespace-nowrap"><Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">{modeLabel}</Badge></td>
                           <td className="px-2 py-2 font-medium text-gray-800 max-w-[180px] truncate" title={pc.purpose || 'Petty Cash'}>{pc.purpose || 'Petty Cash'}</td>
-                          <td className="px-2 py-2 text-gray-600 max-w-[140px] truncate" title={pettyProjectLabel(pc)}>{pettyProjectLabel(pc)}</td>
+                          <td
+                            className="px-2 py-2 text-gray-600 max-w-[160px]"
+                            title={[pettyProjectLabel(pc), ...spentOn.map(s => `Spent on ${s.project_name || 'Unknown project'}: ${fmt(s.amount)}`)].join('\n')}
+                          >
+                            <div className="truncate">{pettyProjectLabel(pc)}</div>
+                            {spentOn.length > 0 && (
+                              <div className="truncate text-[10px] text-gray-400" data-testid={`petty-spent-on-${pc.petty_cash_id}`}>
+                                Spent on: {spentOn.map(s => s.project_name || 'Unknown project').join(', ')}
+                              </div>
+                            )}
+                          </td>
                           <td className="px-2 py-2 text-gray-600 whitespace-nowrap">{pc.requested_by_name || '-'}</td>
                           <td className="px-2 py-2 text-right font-semibold text-amber-700">{fmt(issued)}</td>
                           <td className="px-2 py-2 text-right font-semibold text-blue-700" data-testid={`petty-ac-approved-${pc.petty_cash_id}`}>{fmt(acApproved)}</td>
