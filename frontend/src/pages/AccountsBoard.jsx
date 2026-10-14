@@ -1933,6 +1933,7 @@ function IndirectExpenseSection({ userRole }) {
                       <th className="px-3 py-2 text-center font-semibold text-gray-600 w-12">S.No</th>
                       <th className="px-3 py-2 text-left font-semibold text-gray-600">Project(s)</th>
                       <th className="px-3 py-2 text-left font-semibold text-gray-600">Description</th>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-600">Mode</th>
                       <th className="px-3 py-2 text-left font-semibold text-gray-600">Category</th>
                       <th className="px-3 py-2 text-left font-semibold text-gray-600">Vendor</th>
                       <th className="px-3 py-2 text-right font-semibold text-gray-600">Amount</th>
@@ -1942,7 +1943,7 @@ function IndirectExpenseSection({ userRole }) {
                   </thead>
                   <tbody className="divide-y">
                     {filteredCosts.length === 0 ? (
-                      <tr><td colSpan="8" className="px-4 py-8 text-center text-gray-400">No indirect cost entries</td></tr>
+                      <tr><td colSpan="9" className="px-4 py-8 text-center text-gray-400">No indirect cost entries</td></tr>
                     ) : filteredCosts.map((cost, idx) => {
                       const linkedAllocs = (allocations || []).filter(a => a.indirect_cost_id === cost.indirect_cost_id);
                       const projectNames = linkedAllocs.map(a => (a.project_name || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
@@ -1956,6 +1957,15 @@ function IndirectExpenseSection({ userRole }) {
                           }
                         </td>
                         <td className="px-3 py-2 font-medium">{cost.description}</td>
+                        {/* Oct 14 2026 — the real payment mode (Cheque, HDFC Savings, …)
+                            with the same badge the Cashbook Income table uses. */}
+                        <td className="px-3 py-2">
+                          {cost.payment_method ? (
+                            <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(cost.payment_method)] || ''}`}>
+                              {MODE_LABELS[classifyMode(cost.payment_method)] || cost.payment_method}
+                            </Badge>
+                          ) : <span className="text-gray-400">-</span>}
+                        </td>
                         <td className="px-3 py-2"><Badge variant="outline" className="text-[10px]">{getCategoryLabel(cost.category)}</Badge></td>
                         <td className="px-3 py-2 text-gray-600">{cost.vendor_name || '-'}</td>
                         <td className="px-3 py-2 text-right font-bold text-violet-700">{fmtI(cost.amount)}</td>
