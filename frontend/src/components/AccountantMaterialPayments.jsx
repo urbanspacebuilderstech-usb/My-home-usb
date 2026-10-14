@@ -302,7 +302,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                   </div>
                   <span className="text-base font-bold text-emerald-700">{fmt(req.balance_due > 0 ? req.balance_due : (req.remaining_balance > 0 ? req.remaining_balance : due))}</span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
                   <div>
                     <p className="text-[10px] uppercase text-gray-400 font-semibold">Material</p>
                     <p className="font-medium truncate">{req.material_name}</p>
@@ -318,6 +318,12 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                   <div>
                     <p className="text-[10px] uppercase text-gray-400 font-semibold">Total / Paid</p>
                     <p className="font-medium">{fmt(total)} / {fmt(req.partially_collected ? (req.collected_amount || 0) : paid)}</p>
+                  </div>
+                  {/* Oct 14 2026 — the vendor's live suspense credit (same figure the
+                      Release Payment dialog offers to apply). */}
+                  <div data-testid={`acc-mat-suspense-${req.request_id}`}>
+                    <p className="text-[10px] uppercase text-gray-400 font-semibold">Suspense Amount</p>
+                    <p className={`font-medium ${(req.vendor_suspense_balance || 0) > 0.5 ? 'text-amber-700' : 'text-gray-500'}`}>{fmt(req.vendor_suspense_balance || 0)}</p>
                   </div>
                   <AccountsReceivedDate value={req.accounts_received_at} testId={`acc-mat-received-${req.request_id}`} />
                 </div>

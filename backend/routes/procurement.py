@@ -4350,8 +4350,17 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
         r["project_name"] = (projects.get(r.get("project_id")) or {}).get("name", r.get("project_name") or "Unknown")
     # Aug 18 2026 — "Accounts Received" date on every Approvals card. Same
     # field name and resolution rules as the other two Approvals tabs.
-    from routes.financial import stamp_accounts_received
+    from routes.financial import stamp_accounts_received, _live_vendor_suspense_balance
     stamp_accounts_received(rows, "material_request")
+    # Oct 14 2026 — "Suspense Amount" on every Approvals > Materials card: the
+    # vendor's currently-spendable suspense credit, from the same function the
+    # Release Payment dialog uses so the card and the dialog always agree.
+    # One lookup per distinct vendor, run concurrently.
+    _vendors = sorted({r.get("vendor_name") for r in rows if r.get("vendor_name")})
+    _bals = await asyncio.gather(*[_live_vendor_suspense_balance("material", v, {}) for v in _vendors])
+    _bal_by_vendor = {v: round(b, 2) for v, b in zip(_vendors, _bals)}
+    for r in rows:
+        r["vendor_suspense_balance"] = _bal_by_vendor.get(r.get("vendor_name"), 0.0)
     return {"count": len(rows), "requests": rows}
 
 
