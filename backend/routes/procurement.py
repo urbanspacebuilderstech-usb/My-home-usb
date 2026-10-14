@@ -4196,6 +4196,24 @@ def fmt_money(n):
 # =====================================================================
 # PHASE 3 — Accountant release (full / advance / balance) + Transit + Delivery
 # =====================================================================
+@router.get("/procurement-simple/accountant/vendor-suspense")
+async def procurement_simple_accountant_vendor_suspense(vendor: List[str] = Query(default=[]),
+                                                        user: User = Depends(get_current_user)):
+    """Live material suspense balance per vendor name (repeat ?vendor=).
+
+    Oct 14 2026 — for the Approvals > Materials "Legacy" cards (bills with no
+    procurement request), which are not in the accountant queue and so never
+    got its vendor_suspense_balance. Same function as the queue and the
+    Release Payment dialog, so all three agree.
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    from routes.financial import _live_vendor_suspense_balance
+    names = sorted({v.strip() for v in vendor if v and v.strip()})[:200]
+    bals = await asyncio.gather(*[_live_vendor_suspense_balance("material", v, {}) for v in names])
+    return {"balances": {v: round(b, 2) for v, b in zip(names, bals)}}
+
+
 @router.get("/procurement-simple/accountant/queue")
 async def procurement_simple_accountant_queue(user: User = Depends(get_current_user)):
     """Accountant's material payment queue.

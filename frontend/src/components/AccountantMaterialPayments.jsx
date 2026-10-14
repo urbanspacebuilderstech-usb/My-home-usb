@@ -164,6 +164,19 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
   const liveExpenseIds = new Set(items.map(i => i.expense_id).filter(Boolean));
   const legacyToShow = (legacyExpenses || []).filter(e => e.expense_id && !liveExpenseIds.has(e.expense_id));
 
+  // Oct 14 2026 — Legacy cards aren't in the queue, so they don't carry the
+  // queue's vendor_suspense_balance. Fetch the same figure for their vendors.
+  const [legacySuspense, setLegacySuspense] = useState({});
+  const legacyVendorKey = Array.from(new Set(legacyToShow.map(e => e.vendor_name).filter(Boolean))).sort().join('\u0001');
+  useEffect(() => {
+    if (!legacyVendorKey) { setLegacySuspense({}); return; }
+    const qs = new URLSearchParams();
+    legacyVendorKey.split('\u0001').forEach(v => qs.append('vendor', v));
+    axios.get(`${API}/procurement-simple/accountant/vendor-suspense?${qs.toString()}`)
+      .then(r => setLegacySuspense(r.data?.balances || {}))
+      .catch(() => setLegacySuspense({}));
+  }, [legacyVendorKey]);
+
   // Jul 7 2026 — "Partially Collected" sub-tab: separates partially-paid
   // entries from fresh pending ones. Same payment modes & actions in both.
   const [subTab, setSubTab] = useState('pending');
@@ -429,7 +442,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                   </div>
                   <span className="text-base font-bold text-emerald-700">{fmt(headlineAmt)}</span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
                   <div>
                     <p className="text-[10px] uppercase text-gray-400 font-semibold">Material</p>
                     <p className="font-medium truncate">{exp.material_name || exp.description || '-'}</p>
@@ -442,9 +455,15 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     <p className="text-[10px] uppercase text-gray-400 font-semibold">Project</p>
                     <p className="font-medium truncate">{exp.project_name || '-'}</p>
                   </div>
+                  {/* Oct 14 2026 — same Total / Paid + Suspense Amount fields as the
+                      live cards above (Status dropped per request). */}
                   <div>
-                    <p className="text-[10px] uppercase text-gray-400 font-semibold">Status</p>
-                    <p className="font-medium truncate">{(exp.status || '').replace(/_/g, ' ')}</p>
+                    <p className="text-[10px] uppercase text-gray-400 font-semibold">Total / Paid</p>
+                    <p className="font-medium">{fmt(amt)} / {fmt(exp.total_paid || exp.paid_amount || 0)}</p>
+                  </div>
+                  <div data-testid={`acc-mat-suspense-legacy-${exp.expense_id}`}>
+                    <p className="text-[10px] uppercase text-gray-400 font-semibold">Suspense Amount</p>
+                    <p className={`font-medium ${(legacySuspense[exp.vendor_name] || 0) > 0.5 ? 'text-amber-700' : 'text-gray-500'}`}>{fmt(legacySuspense[exp.vendor_name] || 0)}</p>
                   </div>
                   <AccountsReceivedDate value={exp.accounts_received_at} testId={`acc-mat-received-legacy-${exp.expense_id}`} />
                 </div>
