@@ -184,8 +184,6 @@ function ContractorCard({ c, scope, open, onToggle }) {
   const w = c.worked?.[scope] || {};
   const woNumbers = c.work_orders.map(wo => wo.work_order_number).filter(Boolean);
   const paid = (c.paid || 0) + (c.advance || 0);
-  const paidPct = Math.min(100, pct(paid, c.total_value));
-  const pendPct = Math.min(100 - paidPct, pct(c.pending || 0, c.total_value));
   const rates = c.work_orders.length === 1 ? c.work_orders[0].labour_rates : null;
   const testKey = (c.contractor_id || c.contractor_name || '').replace(/\s+/g, '-');
 
@@ -236,12 +234,6 @@ function ContractorCard({ c, scope, open, onToggle }) {
           </div>
         </div>
       </button>
-      {c.total_value > 0 && (
-        <div className="h-1 bg-gray-100 flex" title={`Paid ${paidPct}% · Awaiting approval ${pendPct}%`}>
-          <div className="bg-green-500" style={{ width: `${paidPct}%` }} />
-          <div className="bg-violet-400" style={{ width: `${pendPct}%` }} />
-        </div>
-      )}
       {open && (
         <div className="p-3 space-y-3 border-t">
           <WorkerMix w={w} rates={rates} testId={`pw-labour-detail-mix-${testKey}`} />
@@ -301,8 +293,6 @@ export default function ProjectLabourDetailDialog({ project, dateFrom, dateTo, o
   const allOpen = contractors.length > 0 && contractors.every(c => expanded[c.key]);
 
   const paidAll = t ? (t.paid || 0) + (t.advance || 0) : 0;
-  const paidPct = t ? Math.min(100, pct(paidAll, t.contract_value)) : 0;
-  const pendPct = t ? Math.min(100 - paidPct, pct(t.pending || 0, t.contract_value)) : 0;
   const tiles = t ? [
     { key: 'contract', label: 'Contract Value', value: fmtFull(t.contract_value), sub: `${plural(t.contractors, 'contractor')} · ${plural(t.work_orders, 'work order')}`, cls: 'bg-indigo-50 border-indigo-200 text-indigo-800' },
     { key: 'paid', label: 'Paid to Contractors', value: fmtFull(paidAll), sub: `${pct(paidAll, t.contract_value)}% of contract${t.advance ? ` · incl. ${fmtFull(t.advance)} advance` : ''}`, cls: 'bg-green-50 border-green-200 text-green-800' },
@@ -312,8 +302,6 @@ export default function ProjectLabourDetailDialog({ project, dateFrom, dateTo, o
       : { key: 'balance', label: 'Balance to Pay', value: fmtFull(t.balance), sub: `${t.stages_paid} of ${plural(t.stages_total, 'stage')} fully paid`, cls: 'bg-amber-50 border-amber-200 text-amber-800' },
     { key: 'workers', label: 'Workers', value: (w.workers || 0).toLocaleString('en-IN'), sub: `${plural(w.days || 0, 'day')} · ${fmtFull(w.cost)} labour cost`, cls: 'bg-sky-50 border-sky-200 text-sky-800 col-span-2 sm:col-span-1' },
   ] : [];
-  const releasedOnly = t ? (t.paid || 0) : 0;
-  const cbMismatch = cb && Math.abs((cb.on_work_orders || 0) - releasedOnly) > 1;
 
   return (
     <Dialog open={!!project} onOpenChange={(o) => { if (!o) onClose?.(); }}>
@@ -339,29 +327,6 @@ export default function ProjectLabourDetailDialog({ project, dateFrom, dateTo, o
 
         {!loading && data && (
           <div className="space-y-4 min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-gray-500">Workers &amp; labour cost for</span>
-              <div className="inline-flex rounded-md border bg-gray-50 p-0.5" role="group" data-testid="pw-labour-detail-scope">
-                {hasRange && (
-                  <button
-                    type="button"
-                    onClick={() => setScope('range')}
-                    aria-pressed={scope === 'range'}
-                    className={`px-2.5 py-1 rounded ${scope === 'range' ? 'bg-white shadow-sm text-amber-700 font-semibold' : 'text-gray-600 hover:text-gray-900'}`}
-                    data-testid="pw-labour-detail-scope-range"
-                  >{periodLabel}</button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setScope('all')}
-                  aria-pressed={scope === 'all'}
-                  className={`px-2.5 py-1 rounded ${scope === 'all' ? 'bg-white shadow-sm text-amber-700 font-semibold' : 'text-gray-600 hover:text-gray-900'}`}
-                  data-testid="pw-labour-detail-scope-all"
-                >All time</button>
-              </div>
-              <span className="text-gray-400">Contract, paid and balance are always all-time.</span>
-            </div>
-
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2" data-testid="pw-labour-detail-tiles">
               {tiles.map(tile => (
                 <div key={tile.key} className={`rounded-xl border px-3 py-2.5 ${tile.cls}`} data-testid={`pw-labour-detail-tile-${tile.key}`}>
@@ -372,38 +337,7 @@ export default function ProjectLabourDetailDialog({ project, dateFrom, dateTo, o
               ))}
             </div>
 
-            {t.contract_value > 0 && (
-              <div>
-                <div className="flex justify-between text-[11px] text-gray-500 mb-1">
-                  <span><span className="inline-block h-2 w-2 rounded-full bg-green-500 mr-1" />Paid {paidPct}%</span>
-                  <span><span className="inline-block h-2 w-2 rounded-full bg-violet-400 mr-1" />Awaiting approval {pendPct}%</span>
-                  <span><span className="inline-block h-2 w-2 rounded-full bg-gray-200 mr-1" />Balance {Math.max(0, 100 - paidPct - pendPct)}%</span>
-                </div>
-                <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden flex">
-                  <div className="bg-green-500" style={{ width: `${paidPct}%` }} />
-                  <div className="bg-violet-400" style={{ width: `${pendPct}%` }} />
-                </div>
-              </div>
-            )}
-
             {(w.workers || 0) > 0 && <WorkerMix w={w} testId="pw-labour-detail-mix-project" />}
-
-            {cb && (
-              <div className="rounded-lg border bg-gray-50 px-3 py-2 text-[11px] text-gray-600 space-y-1" data-testid="pw-labour-detail-cashbook">
-                <p>
-                  <span className="font-semibold text-gray-700">Cashbook labour expense (all time): {fmtFull(cb.labour_total)}</span>
-                  {' — '}{fmtFull(cb.on_work_orders)} against these work orders
-                  {cb.other_total ? <> + {fmtFull(cb.other_total)} other (listed below)</> : null}
-                  {cb.labour_carry_forward ? <> · Labour carry forward (opening balance) {fmtFull(cb.labour_carry_forward)}</> : null}
-                </p>
-                {cbMismatch && (
-                  <p className="text-amber-700 flex items-start gap-1">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
-                    Stage releases on the work orders total {fmtFull(releasedOnly)}, but the cashbook rows against them total {fmtFull(cb.on_work_orders)}.
-                  </p>
-                )}
-              </div>
-            )}
 
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
