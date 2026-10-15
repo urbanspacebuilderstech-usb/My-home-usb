@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import MaterialSearchSelect from './MaterialSearchSelect';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -19,6 +20,26 @@ const PAYMENT_PILL = {
   unpaid: { label: 'Unpaid', cls: 'text-red-700 bg-red-50 border-red-200' },
 };
 const paymentKey = (status) => (status === 'paid' || status === 'partial' ? status : 'unpaid');
+
+// Oct 15 2026 — the server drops a batch once its stock is 0 and nothing moved
+// in the selected range, whatever its payment status, so an unpaid batch used
+// up yesterday vanished today (Mr. Arun's Binding wire, USB-MR1773). Asking
+// the same endpoint for an all-time range keeps every collected batch: its
+// receive date always falls in range, so Today In becomes the received qty
+// and Today Out everything used to date.
+const ALL_TIME_RANGE = { start_date: '1970-01-01', end_date: '9999-12-31' };
+
+// Received qty for an all-time row. Falls back to stock + used for a batch
+// with no receive date, which the server leaves at Today In 0.
+const receivedQty = (r) => Number(r.today_in) || ((Number(r.current_stock) || 0) + (Number(r.today_out) || 0));
+
+const sumUnpaid = (rows) => rows.reduce((acc, r) => {
+  const rate = Number(r.unit_rate) || 0;
+  acc.total += receivedQty(r) * rate;
+  acc.stock += (Number(r.current_stock) || 0) * rate;
+  acc.used += (Number(r.today_out) || 0) * rate;
+  return acc;
+}, { total: 0, stock: 0, used: 0 });
 
 // Current SV falls back to stock × rate for rows the server didn't price.
 const sumValues = (rows) => rows.reduce((acc, r) => {
@@ -124,6 +145,78 @@ function InventoryRowsTable({ rows, showProject = true, onRowClick, onRateInfo, 
   );
 }
 
+// Unpaid Material Value tab: every unpaid request ever collected for the
+// project, in stock or used up. Rows come from the all-time fetch, so Today
+// In / Today Out read as Received / Used here.
+function UnpaidRowsTable({ rows, onRateInfo }) {
+  const qty = (v) => Math.round(Number(v) || 0).toLocaleString('en-IN');
+  return (
+    <table className="w-full text-sm">
+      <thead className="bg-gray-50 border-y">
+        <tr>
+          <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
+          <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Material</th>
+          <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Request</th>
+          <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Payment</th>
+          <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Unit</th>
+          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Unit (Rate)</th>
+          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Received</th>
+          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Used</th>
+          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Current Stock</th>
+          <th className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase">Unpaid Value</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y">
+        {rows.map((row, idx) => {
+          const outOfStock = !(Number(row.current_stock) > 0);
+          return (
+            <tr key={`${row.project_id}-${row.material_name}-${row.request_number || idx}`} className="hover:bg-gray-50" data-testid={`inv-unpaid-row-${idx}`}>
+              <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
+              <td className="px-3 py-2 text-gray-700">{row.material_name}</td>
+              <td className="px-3 py-2 text-gray-500 font-mono text-[11px]">{row.request_number || '—'}</td>
+              <td className="px-3 py-2">
+                <span className={`inline-flex text-[10px] font-semibold border px-1.5 py-0.5 rounded-full ${PAYMENT_PILL.unpaid.cls}`}>{PAYMENT_PILL.unpaid.label}</span>
+              </td>
+              <td className="px-3 py-2 text-gray-500">{row.unit || '—'}</td>
+              <td className="px-3 py-2 text-right text-gray-600">
+                <span className="inline-flex items-center gap-1 justify-end">
+                  {row.unit_rate > 0 ? formatCurrency(row.unit_rate) : '—'}
+                  {row.rate_reconciled && (
+                    <span
+                      className="text-[9px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1 rounded"
+                      title={`Derived from this request's total. Stored unit price is ${formatCurrency(row.stored_unit_rate)}, which does not match the billed amount.`}
+                    >
+                      adj
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onRateInfo(row)}
+                    className="text-gray-300 hover:text-indigo-600"
+                    title="See this request's own rate detail and Out Stock history"
+                    data-testid={`inv-unpaid-rate-info-${row.project_id}-${row.material_name}`}
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              </td>
+              <td className="px-3 py-2 text-right text-gray-700">{qty(receivedQty(row))}</td>
+              <td className="px-3 py-2 text-right text-red-700">{qty(row.today_out)}</td>
+              <td className="px-3 py-2 text-right font-medium whitespace-nowrap">
+                {qty(row.current_stock)}
+                {outOfStock && (
+                  <span className="ml-1.5 text-[9px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 px-1 rounded">Out of stock</span>
+                )}
+              </td>
+              <td className="px-3 py-2 text-right text-red-700 font-semibold whitespace-nowrap">{formatCurrency(receivedQty(row) * (Number(row.unit_rate) || 0))}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
 /**
  * Oct 6 2026 — Project-wise Inventory dashboard (value pills + per-request
  * stock table + rate-breakdown popup). Lifted out of Planning > Dashboard >
@@ -147,6 +240,8 @@ export default function InventorySummaryPanel({ scopeLabel = 'All Projects', onR
   // advance_amount/balance_amount (see site_ops.py's _material_payment_status).
   const [paymentFilter, setPaymentFilter] = useState(''); // '' = All
   const [openProjectId, setOpenProjectId] = useState(null);
+  const [popupTab, setPopupTab] = useState('inventory');
+  const [unpaidAll, setUnpaidAll] = useState({ loading: false, rows: [] }); // all-time rows, see ALL_TIME_RANGE
   const [rateBreakdown, setRateBreakdown] = useState({ open: false, projectName: '', materialName: '', requestNumber: '', loading: false, data: null });
 
   useEffect(() => {
@@ -167,6 +262,27 @@ export default function InventorySummaryPanel({ scopeLabel = 'All Projects', onR
     })();
     return () => { cancelled = true; };
   }, [startDate, endDate]);
+
+  // Fetched each time a project popup opens, so a bill paid since the last
+  // look drops off the Unpaid tab without a page reload.
+  useEffect(() => {
+    if (!openProjectId) return undefined;
+    setPopupTab('inventory');
+    let cancelled = false;
+    (async () => {
+      setUnpaidAll(s => ({ ...s, loading: true }));
+      try {
+        const res = await axios.get(`${API}/planning/inventory-summary`, { params: ALL_TIME_RANGE });
+        if (!cancelled) setUnpaidAll({ loading: false, rows: res.data?.rows || [] });
+      } catch {
+        if (!cancelled) {
+          setUnpaidAll({ loading: false, rows: [] });
+          toast.error('Failed to load unpaid materials');
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [openProjectId]);
 
   const openRateBreakdown = async (row) => {
     const { project_id: projectId, project_name: projectName, material_name: materialName, request_number: requestNumber = '' } = row;
@@ -232,6 +348,20 @@ export default function InventorySummaryPanel({ scopeLabel = 'All Projects', onR
     });
   }, [groupByProject, filteredRows]);
   const openGroup = openProjectId ? projectGroups.find(g => g.project_id === openProjectId) : null;
+
+  // Unpaid only (Partial has its own pill and filter). Honours the Material
+  // filter like the Inventory tab; the date range doesn't apply, since the
+  // point is to keep a batch listed after the day it was used up.
+  const openUnpaidRows = useMemo(() => {
+    if (!openProjectId) return [];
+    const materialSearchLower = materialSearch.map(n => n.toLowerCase());
+    return unpaidAll.rows.filter(r =>
+      r.project_id === openProjectId &&
+      r.payment_status === 'unpaid' &&
+      (materialSearchLower.length === 0 || materialSearchLower.includes((r.material_name || '').toLowerCase()))
+    );
+  }, [openProjectId, unpaidAll.rows, materialSearch]);
+  const openUnpaidTotals = sumUnpaid(openUnpaidRows);
 
   return (
     <>
@@ -374,10 +504,52 @@ export default function InventorySummaryPanel({ scopeLabel = 'All Projects', onR
                   {openGroup.rows.length} material request{openGroup.rows.length === 1 ? '' : 's'} for {startDate === endDate ? startDate : `${startDate} to ${endDate}`}. Click ⓘ for a request's rate and Out Stock history.
                 </DialogDescription>
               </DialogHeader>
-              <ValuePills totals={openGroup.totals} testId="inv-project-value-pills" />
-              <div className="overflow-x-auto pb-4">
-                <InventoryRowsTable rows={openGroup.rows} showProject={false} onRowClick={onRowClick} onRateInfo={openRateBreakdown} testIdPrefix="inv-project-detail" />
-              </div>
+              <Tabs value={popupTab} onValueChange={setPopupTab} className="w-full">
+                <div className="px-6">
+                  <TabsList className="bg-gray-50 p-1 h-auto gap-1" data-testid="inv-project-tabs">
+                    <TabsTrigger value="inventory" className="text-xs data-[state=active]:text-indigo-700" data-testid="inv-project-tab-inventory">
+                      Inventory ({openGroup.rows.length})
+                    </TabsTrigger>
+                    <TabsTrigger value="unpaid" className="text-xs data-[state=active]:text-red-700" data-testid="inv-project-tab-unpaid">
+                      Unpaid Material Value {unpaidAll.loading ? '' : `(${openUnpaidRows.length})`}
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+                <TabsContent value="inventory" className="mt-3">
+                  <ValuePills totals={openGroup.totals} testId="inv-project-value-pills" />
+                  <div className="overflow-x-auto pb-4">
+                    <InventoryRowsTable rows={openGroup.rows} showProject={false} onRowClick={onRowClick} onRateInfo={openRateBreakdown} testIdPrefix="inv-project-detail" />
+                  </div>
+                </TabsContent>
+                <TabsContent value="unpaid" className="mt-3" data-testid="inv-project-unpaid">
+                  <p className="px-6 pb-2 text-xs text-gray-500">
+                    Every unpaid material request collected on this project's site, whatever the selected dates, including ones already used up. Unpaid Value = Unit (Rate) × Received.
+                  </p>
+                  {unpaidAll.loading ? (
+                    <div className="flex items-center justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-indigo-600" /></div>
+                  ) : openUnpaidRows.length === 0 ? (
+                    <p className="text-center text-gray-400 py-10 text-sm" data-testid="inv-unpaid-empty">No unpaid material for this project.</p>
+                  ) : (
+                    <>
+                      <div className="flex gap-1.5 sm:gap-3 px-4 pb-4 pt-1 overflow-x-auto" data-testid="inv-unpaid-value-pills">
+                        {[
+                          { label: 'Unpaid Material Value', value: formatCurrency(openUnpaidTotals.total), cls: 'bg-red-50 border-red-200 text-red-700' },
+                          { label: 'Still in Stock', value: formatCurrency(openUnpaidTotals.stock), cls: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
+                          { label: 'Already Used', value: formatCurrency(openUnpaidTotals.used), cls: 'bg-amber-50 border-amber-200 text-amber-700' },
+                        ].map(p => (
+                          <div key={p.label} className={`flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${p.cls}`}>
+                            <span className="text-[9px] sm:text-xs font-medium text-center leading-tight">{p.label}</span>
+                            <span className="text-base sm:text-2xl font-bold mt-0.5">{p.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="overflow-x-auto pb-4">
+                        <UnpaidRowsTable rows={openUnpaidRows} onRateInfo={openRateBreakdown} />
+                      </div>
+                    </>
+                  )}
+                </TabsContent>
+              </Tabs>
             </>
           )}
         </DialogContent>
