@@ -3037,7 +3037,8 @@ async def reject_income(income_id: str, reason: str = "", user: User = Depends(g
             # we're rejecting from pending_approval (no prior credit reversal).
             # Income sent back from the Cashbook was already taken off the
             # stage by the send-back, so it must not be decremented again.
-            if was_approved or inc.get("pulled_back_from_cashbook"):
+            # Same for a bounced cheque's income: bounce_cheque took it off.
+            if was_approved or inc.get("pulled_back_from_cashbook") or prev_status == "cheque_bounced":
                 set_payload = {
                     "workflow_status": "requested",
                     "accountant_rejection_reason": reason or "Rejected by Accountant",
@@ -3358,11 +3359,11 @@ async def get_income_cheques(income_id: str, user: User = Depends(get_current_us
     income = await db.income.find_one({"income_id": income_id}, {"_id": 0})
     if not income:
         raise HTTPException(status_code=404, detail="Income not found")
-    # Oct 15 2026 — An income sent back by deleting its cheque has no live
-    # cheque left to verify. It used to fall through to the bulk_collection_id
+    # Oct 15 2026 — An income sent back by deleting its cheque (or whose
+    # cheque bounced) has no live cheque left to verify. It used to fall through to the bulk_collection_id
     # match below and list the collection's OTHER cheques, whose money is not
     # in this income.
-    if income.get("cheque_deleted"):
+    if income.get("cheque_deleted") or income.get("status") == "cheque_bounced":
         return {"cheques": []}
 
     base_filter = {
@@ -7560,8 +7561,11 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
             or_clauses.append({"payment_mode": "cheque", "payment_reference": cheque["cheque_number"], "project_id": cheque["project_id"]})
         else:
             or_clauses.append({"payment_mode": "cheque", "payment_reference": cheque["cheque_number"], "amount": cheque.get("amount")})
+    # Oct 15 2026 — a share already sent back by deleting ANOTHER cheque in
+    # the same collection is that cheque's money, not this one's.
     linked_incomes = await db.income.find(
-        {"$or": or_clauses, "status": {"$nin": ["cheque_bounced", "rejected"]}},
+        {"$or": or_clauses, "status": {"$nin": ["cheque_bounced", "rejected"]},
+         "cheque_deleted_id": None},
         {"_id": 0},
     ).to_list(500)
     # De-duplicate
@@ -7625,21 +7629,46 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
                 "status": new_status,
                 "bounced_at": now,
                 "bounced_by_cheque_id": cheque_id,
+                "bounced_cheque_number": cheque.get("cheque_number"),
                 "bounce_reason": payload.reason.strip(),
                 "updated_at": now,
             }
             remaining -= deduct
+            split_id = None
         else:
             # Partial reduction — keep income visible with smaller amount
             deduct = remaining
             new_amt = round(inc_amt - deduct, 2)
             already = float(income.get("partial_bounce_deducted") or 0)
+            # Oct 15 2026 — The bounced share also gets its own cheque_bounced
+            # row (excluded from every total, like a full bounce), so it lands
+            # in Approvals for the Accountant to Close / Reject, which sends
+            # the stage to CRE. Before, a partial bounce left nothing to act on.
+            split_id = f"inc_{uuid.uuid4().hex[:12]}"
+            split = {k: v for k, v in income.items()
+                     if k not in _DELETED_CHEQUE_SPLIT_DROP
+                     and not k.startswith(("partial_bounce", "last_partial_bounce"))}
+            split.update({
+                "income_id": split_id,
+                "amount": round(deduct, 2),
+                "status": "cheque_bounced",
+                "cheque_id": cheque_id,
+                "split_from_income_id": income_id,
+                "bounced_at": now,
+                "bounced_by_cheque_id": cheque_id,
+                "bounced_cheque_number": cheque.get("cheque_number"),
+                "bounce_reason": payload.reason.strip(),
+                "created_at": now,
+                "updated_at": now,
+            })
+            await db.income.insert_one(split)
             update = {
                 "amount": new_amt,
                 "partial_bounce_deducted": already + deduct,
                 "last_partial_bounce_at": now,
                 "last_partial_bounce_cheque_id": cheque_id,
                 "last_partial_bounce_reason": payload.reason.strip(),
+                "last_partial_bounce_split_income_id": split_id,
                 "updated_at": now,
             }
             remaining = 0
@@ -7652,11 +7681,16 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
         #     reduced amount so Direct/Indirect pools stay accurate.
         try:
             from routes.cashflow import reverse_allocation, allocate_income
-            await reverse_allocation(income_id, kind="income")
-            if new_status != "cheque_bounced":
-                refreshed = await db.income.find_one({"income_id": income_id}, {"_id": 0})
-                if refreshed:
-                    await allocate_income(refreshed)
+            removed = await reverse_allocation(income_id, kind="income")
+            # Only an income that had a split (i.e. was approved) gets one back.
+            if new_status != "cheque_bounced" and removed:
+                await allocate_income(
+                    income_id=income_id,
+                    project_id=project_id,
+                    amount=new_amt,
+                    project_name=income.get("project_name", ""),
+                    source="income_approved",
+                )
         except Exception as e:
             import logging; logging.getLogger(__name__).warning(f"cashflow reverse_allocation failed for bounced income {income_id}: {e}")
         if stage_id:
@@ -7667,6 +7701,7 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
             "income_id": income_id,
             "deducted": deduct,
             "new_status": new_status,
+            "bounced_share_income_id": split_id,
         })
 
     # Now apply the per-stage reductions
@@ -7687,7 +7722,10 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
             paid_at = None
         else:
             new_status = "pending"
-            new_workflow = "requested" if old_stage.get("requested_at") else "pending"
+            # Oct 15 2026 — The bounced income waits in Approvals first; the
+            # Accountant's Close / Reject is what returns the stage to CRE
+            # (reject_income sets workflow_status="requested").
+            new_workflow = old_stage.get("workflow_status") or "collected"
             paid_at = None
         update = {
             "amount_received": new_received,
@@ -8638,7 +8676,9 @@ async def _send_deleted_cheque_incomes_to_approvals(cheque: Dict[str, Any], reas
         # Only part of it was this cheque's money: split that share out.
         share = remaining
         split_id = f"inc_{uuid.uuid4().hex[:12]}"
-        split = {k: v for k, v in inc.items() if k not in _DELETED_CHEQUE_SPLIT_DROP}
+        split = {k: v for k, v in inc.items()
+                 if k not in _DELETED_CHEQUE_SPLIT_DROP
+                 and not k.startswith(("partial_bounce", "last_partial_bounce"))}
         split.update({
             "income_id": split_id,
             "amount": share,

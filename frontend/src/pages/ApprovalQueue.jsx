@@ -125,6 +125,8 @@ export default function ApprovalQueue() {
 
   const [projectCheques, setProjectCheques] = useState([]);
   const [chequeVerifications, setChequeVerifications] = useState({});
+  // Income whose cheque was deleted or bounced: nothing to verify, only reject.
+  const chequeGone = (inc) => !!inc && (inc.cheque_deleted || inc.status === 'cheque_bounced');
 
   const openReviewDialog = async (income) => {
     let mode = 'cash';
@@ -383,16 +385,22 @@ export default function ApprovalQueue() {
                 </div>
               )}
 
-              {/* Sent back by deleting its cheque — nothing to verify, only reject */}
-              {reviewDialog.income.cheque_deleted && (
+              {/* Its cheque was deleted or bounced — nothing to verify, only reject */}
+              {chequeGone(reviewDialog.income) && (
                 <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 space-y-1" data-testid="review-cheque-deleted">
-                  <p className="font-semibold">Cheque #{reviewDialog.income.cheque_deleted_number} was deleted — nothing to verify.</p>
-                  {reviewDialog.income.cheque_deleted_reason && <p>Reason: {reviewDialog.income.cheque_deleted_reason}</p>}
+                  <p className="font-semibold">
+                    {reviewDialog.income.cheque_deleted
+                      ? `Cheque #${reviewDialog.income.cheque_deleted_number} was deleted`
+                      : `Cheque${reviewDialog.income.bounced_cheque_number ? ` #${reviewDialog.income.bounced_cheque_number}` : ''} bounced`} — nothing to verify.
+                  </p>
+                  {(reviewDialog.income.cheque_deleted_reason || reviewDialog.income.bounce_reason) && (
+                    <p>Reason: {reviewDialog.income.cheque_deleted_reason || reviewDialog.income.bounce_reason}</p>
+                  )}
                   <p>Reject this income so the payment stage returns to CRE to re-collect in another mode.</p>
                 </div>
               )}
 
-              {reviewForm.verification_mode === 'cheque' && !reviewDialog.income.cheque_deleted && (
+              {reviewForm.verification_mode === 'cheque' && !chequeGone(reviewDialog.income) && (
                 <div>
                   <Label className="text-sm font-semibold mb-2 block">Cheque Verification ({projectCheques.length} cheque{projectCheques.length !== 1 ? 's' : ''})</Label>
                   {projectCheques.length === 0 && (
@@ -451,7 +459,7 @@ export default function ApprovalQueue() {
                 <Textarea value={reviewForm.notes} onChange={(e) => setReviewForm({ ...reviewForm, notes: e.target.value })} placeholder="Any additional notes..." rows={2} className="mt-1" />
               </div>
 
-              {reviewDialog.income.cheque_deleted ? (
+              {chequeGone(reviewDialog.income) ? (
                 <Button
                   className="w-full bg-red-600 hover:bg-red-700"
                   onClick={() => {

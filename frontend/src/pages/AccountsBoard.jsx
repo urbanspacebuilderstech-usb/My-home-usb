@@ -4537,7 +4537,9 @@ function ApprovalsTab() {
     : rows.filter(r => (r.project_id || r.project_name) === appProjectFilter);
   // Apply unified date filter to data arrays (client-side, using created_at)
   // Income sent back from the Cashbook files under the month it came back, not its original creation month.
-  const filteredIncome = byProject(filterByDateRange(data.income || [], appDateFrom, appDateTo, r => r.sent_back_to_approvals_at || r.created_at));
+  // A bounced / deleted cheque's income is dated by when it came back, so it
+  // shows in the current month even when it was collected earlier.
+  const filteredIncome = byProject(filterByDateRange(data.income || [], appDateFrom, appDateTo, r => r.sent_back_to_approvals_at || r.cheque_deleted_at || r.bounced_at || r.created_at));
   const filteredMaterials = byProject(filterByDateRange(data.materials || [], appDateFrom, appDateTo, r => r.created_at));
   const filteredLabour = byProject(filterByDateRange(data.labour || [], appDateFrom, appDateTo, r => r.created_at));
   const filteredVendor = byProject(filterByDateRange(data.vendor || [], appDateFrom, appDateTo, r => r.created_at));
@@ -4797,7 +4799,7 @@ function ApprovalsTab() {
                               {inc.stage || inc.remarks || inc.description || 'Payment'}
                               {isChequeBounced && (
                                 <p className="text-[10px] text-rose-600 mt-0.5" data-testid={`approval-income-bounce-reason-${inc.income_id}`}>
-                                  ⚠ Cheque bounced{inc.bounce_reason ? ` — ${inc.bounce_reason}` : ''}
+                                  ⚠ Cheque{inc.bounced_cheque_number ? ` #${inc.bounced_cheque_number}` : ''} bounced{inc.bounce_reason ? ` — ${inc.bounce_reason}` : ''}. Close / Reject so CRE can re-collect.
                                 </p>
                               )}
                               {inc.cheque_deleted && (

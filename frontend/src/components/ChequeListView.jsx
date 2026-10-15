@@ -214,7 +214,7 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
         charges: parseFloat(bounceDialog.charges) || 0,
       });
       const parts = [];
-      if (r.data.income_reversed) parts.push('Payment Schedule re-collect row created');
+      if (r.data.income_reversed) parts.push('Income sent to Approvals — Close / Reject it there so CRE can re-collect');
       if (r.data.expense_reversed) parts.push('Material approval re-opened');
       toast.success(`Cheque bounced. ${parts.join(' · ') || 'Status updated'}`);
       setBounceDialog({ open: false, cheque: null, reason: '', charges: '' });
