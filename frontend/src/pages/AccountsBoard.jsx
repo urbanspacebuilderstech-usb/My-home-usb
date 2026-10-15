@@ -5224,8 +5224,17 @@ function ApprovalsTab() {
                 </div>
               )}
 
+              {/* Sent back by deleting its cheque — nothing to verify, only reject */}
+              {reviewDialog.income.cheque_deleted && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 space-y-1" data-testid="review-cheque-deleted">
+                  <p className="font-semibold">Cheque #{reviewDialog.income.cheque_deleted_number} was deleted — nothing to verify.</p>
+                  {reviewDialog.income.cheque_deleted_reason && <p>Reason: {reviewDialog.income.cheque_deleted_reason}</p>}
+                  <p>Reject this income so the payment stage returns to CRE to re-collect in another mode.</p>
+                </div>
+              )}
+
               {/* Cheque - Show all project cheques for verification */}
-              {reviewForm.verification_mode === 'cheque' && (
+              {reviewForm.verification_mode === 'cheque' && !reviewDialog.income.cheque_deleted && (
                 <div data-testid="review-cheque-section">
                   <Label className="text-sm font-semibold mb-2 block">Cheque Verification ({projectCheques.length} cheque{projectCheques.length !== 1 ? 's' : ''})</Label>
                   {projectCheques.length === 0 && (
@@ -5372,7 +5381,8 @@ function ApprovalsTab() {
                 <Button
                   className="bg-green-600 hover:bg-green-700"
                   onClick={handleSubmitReview}
-                  disabled={processing}
+                  disabled={processing || reviewDialog.income.cheque_deleted}
+                  title={reviewDialog.income.cheque_deleted ? 'Its cheque was deleted — reject instead' : undefined}
                   data-testid="submit-review-btn"
                 >
                   {processing ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : <CheckCircle className="h-4 w-4 mr-1" />}

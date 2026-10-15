@@ -3358,6 +3358,12 @@ async def get_income_cheques(income_id: str, user: User = Depends(get_current_us
     income = await db.income.find_one({"income_id": income_id}, {"_id": 0})
     if not income:
         raise HTTPException(status_code=404, detail="Income not found")
+    # Oct 15 2026 — An income sent back by deleting its cheque has no live
+    # cheque left to verify. It used to fall through to the bulk_collection_id
+    # match below and list the collection's OTHER cheques, whose money is not
+    # in this income.
+    if income.get("cheque_deleted"):
+        return {"cheques": []}
 
     base_filter = {
         "cheque_type": "incoming",

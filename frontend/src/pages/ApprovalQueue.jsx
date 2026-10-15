@@ -383,7 +383,16 @@ export default function ApprovalQueue() {
                 </div>
               )}
 
-              {reviewForm.verification_mode === 'cheque' && (
+              {/* Sent back by deleting its cheque — nothing to verify, only reject */}
+              {reviewDialog.income.cheque_deleted && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 space-y-1" data-testid="review-cheque-deleted">
+                  <p className="font-semibold">Cheque #{reviewDialog.income.cheque_deleted_number} was deleted — nothing to verify.</p>
+                  {reviewDialog.income.cheque_deleted_reason && <p>Reason: {reviewDialog.income.cheque_deleted_reason}</p>}
+                  <p>Reject this income so the payment stage returns to CRE to re-collect in another mode.</p>
+                </div>
+              )}
+
+              {reviewForm.verification_mode === 'cheque' && !reviewDialog.income.cheque_deleted && (
                 <div>
                   <Label className="text-sm font-semibold mb-2 block">Cheque Verification ({projectCheques.length} cheque{projectCheques.length !== 1 ? 's' : ''})</Label>
                   {projectCheques.length === 0 && (
@@ -442,10 +451,24 @@ export default function ApprovalQueue() {
                 <Textarea value={reviewForm.notes} onChange={(e) => setReviewForm({ ...reviewForm, notes: e.target.value })} placeholder="Any additional notes..." rows={2} className="mt-1" />
               </div>
 
-              <Button className="w-full bg-green-600 hover:bg-green-700" onClick={handleSubmitReview} disabled={processing} data-testid="submit-review-btn">
-                {processing ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : <CheckCircle className="h-4 w-4 mr-1" />}
-                Record Payment
-              </Button>
+              {reviewDialog.income.cheque_deleted ? (
+                <Button
+                  className="w-full bg-red-600 hover:bg-red-700"
+                  onClick={() => {
+                    const id = reviewDialog.income.income_id;
+                    setReviewDialog({ open: false, income: null });
+                    setRejectDialog({ open: true, type: 'income', id, reason: '' });
+                  }}
+                  data-testid="reject-income-btn"
+                >
+                  <XCircle className="h-4 w-4 mr-1" /> Reject
+                </Button>
+              ) : (
+                <Button className="w-full bg-green-600 hover:bg-green-700" onClick={handleSubmitReview} disabled={processing} data-testid="submit-review-btn">
+                  {processing ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : <CheckCircle className="h-4 w-4 mr-1" />}
+                  Record Payment
+                </Button>
+              )}
             </div>
           )}
         </DialogContent>

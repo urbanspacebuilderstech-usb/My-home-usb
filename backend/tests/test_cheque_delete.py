@@ -137,6 +137,10 @@ def test_delete_linked_cheque_sends_income_back_to_approvals():
         assert inc["status"] == "pending_approval"
         assert inc["pulled_back_from_cashbook"] is True
         assert inc["cheque_deleted"] is True and inc["cheque_deleted_id"] == cheque_id
+
+        # Review shows no cheques to verify — not the collection's other cheques.
+        r = sess.get(f"{API}/approvals/income/{inc_id}/cheques", timeout=20)
+        assert r.status_code == 200 and r.json()["cheques"] == []
     finally:
         asyncio.get_event_loop().run_until_complete(cleanup())
 
