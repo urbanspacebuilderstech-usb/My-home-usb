@@ -8529,6 +8529,7 @@ async def list_bounced_cheques(user: User = Depends(get_current_user)):
 
 class ChequeDeleteRequest(BaseModel):
     password: str
+    reason: Optional[str] = None
 
 
 class ChequeDisableRequest(BaseModel):
@@ -8546,16 +8547,286 @@ class ChequeHardDeleteRequest(BaseModel):
     reason: str
 
 
+# Oct 15 2026 — A cheque can be deleted even when money was recorded against
+# it. Its money never arrived, so everything it paid goes back to the
+# Accountant:
+#   • Client side: each income it paid lands in Approvals (pending ones stay
+#     there, Cashbook ones go through the existing send-back). When it paid
+#     only part of an income (several cheques in one collection) just its
+#     share is split out. The Accountant rejects it there, and the existing
+#     reject returns the payment stage to CRE to re-collect.
+#   • Vendor side: every payment it funded goes back to the Accountant's
+#     queue, the same way bounce_cheque re-queues it.
+_DELETED_CHEQUE_INCOME_SKIP = ["cheque_bounced", "rejected", "accountant_rejected",
+                               "accounts_rejected", "under_correction"]
+# Approval stamps that must not be copied onto a split-out (unapproved) share.
+_DELETED_CHEQUE_SPLIT_DROP = {"_id", "approved_by", "approved_at", "verification",
+                              "correction_history", "prev_approved_status",
+                              "sent_back_to_approvals_at", "sent_back_to_approvals_by",
+                              "sent_back_to_approvals_by_name", "pulled_back_from_cashbook",
+                              "cheque_deleted_split_out", "cheque_deleted_split_income_id"}
+
+
+async def _send_deleted_cheque_incomes_to_approvals(cheque: Dict[str, Any], reason: str,
+                                                    user: User, now: str) -> Dict[str, Any]:
+    cheque_id = cheque["cheque_id"]
+    # Same income matching as bounce_cheque.
+    or_clauses: List[Dict[str, Any]] = [{"cheque_id": cheque_id}]
+    if cheque.get("income_id"):
+        or_clauses.append({"income_id": cheque["income_id"]})
+    if cheque.get("bulk_collection_id"):
+        or_clauses.append({"bulk_collection_id": cheque["bulk_collection_id"]})
+    if cheque.get("cheque_number"):
+        if cheque.get("project_id"):
+            or_clauses.append({"payment_mode": "cheque", "payment_reference": cheque["cheque_number"], "project_id": cheque["project_id"]})
+        else:
+            or_clauses.append({"payment_mode": "cheque", "payment_reference": cheque["cheque_number"], "amount": cheque.get("amount")})
+    # A share already sent back for ANOTHER deleted cheque in the same
+    # collection is that cheque's money, not this one's.
+    linked = await db.income.find(
+        {"$or": or_clauses, "status": {"$nin": _DELETED_CHEQUE_INCOME_SKIP},
+         "cheque_deleted_id": {"$in": [None, cheque_id]}}, {"_id": 0},
+    ).to_list(500)
+    linked = list({i["income_id"]: i for i in linked if i.get("income_id")}.values())
+    # Newest first, as bounce_cheque does: the latest payment absorbs the loss.
+    linked.sort(key=lambda i: str(i.get("created_at") or ""), reverse=True)
+
+    tag = {
+        "cheque_deleted": True,
+        "cheque_deleted_id": cheque_id,
+        "cheque_deleted_number": cheque.get("cheque_number"),
+        "cheque_deleted_reason": reason,
+        "cheque_deleted_at": now,
+        "cheque_deleted_by": user.user_id,
+        "cheque_deleted_by_name": user.name,
+    }
+    summary: Dict[str, Any] = {"sent_back": [], "already_pending": [], "split_out": [], "skipped": []}
+    remaining = round(float(cheque.get("amount") or 0), 2)
+
+    for inc in linked:
+        if remaining <= 0.005:
+            break
+        income_id = inc["income_id"]
+        amt = round(float(inc.get("amount") or 0), 2)
+        if amt <= 0.005:
+            continue
+        status = (inc.get("status") or "").lower()
+        in_cashbook = status not in ("pending_approval", "pending")
+
+        # Whole income was this cheque's money.
+        if amt <= remaining + 0.005:
+            if in_cashbook:
+                try:
+                    await send_income_back_to_approvals(income_id, user)
+                except HTTPException as e:
+                    summary["skipped"].append({"income_id": income_id, "amount": amt, "reason": e.detail})
+                    remaining = round(remaining - amt, 2)
+                    continue
+                summary["sent_back"].append({"income_id": income_id, "amount": amt})
+            else:
+                summary["already_pending"].append({"income_id": income_id, "amount": amt})
+            await db.income.update_one({"income_id": income_id}, {"$set": tag})
+            remaining = round(remaining - amt, 2)
+            continue
+
+        # Only part of it was this cheque's money: split that share out.
+        share = remaining
+        split_id = f"inc_{uuid.uuid4().hex[:12]}"
+        split = {k: v for k, v in inc.items() if k not in _DELETED_CHEQUE_SPLIT_DROP}
+        split.update({
+            "income_id": split_id,
+            "amount": share,
+            "status": "pending_approval",
+            "cheque_id": cheque_id,
+            "split_from_income_id": income_id,
+            # Tells reject_income the stage was already taken off (Cashbook
+            # case) so it doesn't decrement amount_received a second time.
+            "pulled_back_from_cashbook": in_cashbook,
+            "prev_approved_status": (status or None) if in_cashbook else None,
+            "correction_history": [{
+                "action": "split_out_for_deleted_cheque", "by": user.user_id, "by_name": user.name,
+                "at": now, "extra": {"from_income_id": income_id, "prev_status": status or None},
+            }],
+            "created_at": now,
+            "updated_at": now,
+            **tag,
+        })
+        await db.income.insert_one(split)
+        history = list(inc.get("correction_history") or [])
+        history.append({
+            "action": "cheque_deleted_share_split_out", "by": user.user_id, "by_name": user.name,
+            "at": now, "extra": {"split_income_id": split_id, "amount": share, "cheque_id": cheque_id},
+        })
+        await db.income.update_one({"income_id": income_id}, {"$set": {
+            "amount": round(amt - share, 2),
+            "cheque_deleted_split_out": round(float(inc.get("cheque_deleted_split_out") or 0) + share, 2),
+            "cheque_deleted_split_income_id": split_id,
+            "correction_history": history,
+            "updated_at": now,
+        }})
+        if in_cashbook:
+            # Re-split the reduced income in the Cashflow Engine (as approval
+            # does), then resync the stage the way the send-back does.
+            try:
+                from routes.cashflow import reverse_allocation, allocate_income
+                await reverse_allocation(income_id, kind="income")
+                if amt - share > 0.005:
+                    await allocate_income(
+                        income_id=income_id,
+                        project_id=inc.get("project_id"),
+                        amount=round(amt - share, 2),
+                        project_name=inc.get("project_name", ""),
+                        source="income_approved",
+                    )
+            except Exception as e:
+                logger.warning(f"cashflow re-allocation failed for split income {income_id}: {e}")
+            stage_id = inc.get("payment_stage_id")
+            if stage_id:
+                stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
+                if stage:
+                    from routes.projects import _resync_payment_stage_from_incomes
+                    await _resync_payment_stage_from_incomes(stage_id, stage, user)
+                    await _sync_addition_cost_received(stage_id)
+        summary["split_out"].append({"income_id": income_id, "split_income_id": split_id,
+                                     "amount": share, "was_in_cashbook": in_cashbook})
+        remaining = 0.0
+
+    summary["unmatched_amount"] = max(0.0, remaining)
+    return summary
+
+
+async def _send_deleted_cheque_vendor_payments_back(cheque: Dict[str, Any], reason_line: str,
+                                                    user: User, now: str) -> Dict[str, Any]:
+    cheque_id = cheque["cheque_id"]
+    # The fully-drawn expense plus every live draw recorded against the cheque.
+    expense_ids: List[str] = []
+    if cheque.get("used_for_expense_id"):
+        expense_ids.append(cheque["used_for_expense_id"])
+    allocs = await db.cheque_allocations.find(
+        {"cheque_id": cheque_id, "status": "active"}, {"_id": 0, "expense_id": 1},
+    ).to_list(200)
+    for a in allocs:
+        if a.get("expense_id") and a["expense_id"] not in expense_ids:
+            expense_ids.append(a["expense_id"])
+
+    summary: Dict[str, Any] = {"expenses_sent_back": [], "expenses_skipped": []}
+    for expense_id in expense_ids:
+        rec_exp = await db.recorded_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+        if (not rec_exp or rec_exp.get("is_deleted")
+                or (rec_exp.get("status") or "").lower() in _PAID_LEG_EXCLUDED_STATUS):
+            summary["expenses_skipped"].append(expense_id)
+            continue
+        # Mirrors bounce_cheque step 2b. cheque_bounced is the status every
+        # Cashbook / cashflow total already excludes.
+        await db.recorded_expenses.update_one(
+            {"expense_id": expense_id},
+            {"$set": {
+                "status": "cheque_bounced",
+                "bounced_at": now,
+                "bounced_by_cheque_id": cheque_id,
+                "bounce_reason": reason_line,
+                "cheque_deleted": True,
+                "updated_at": now,
+            }}
+        )
+        try:
+            from routes.cashflow import reverse_allocation
+            await reverse_allocation(expense_id, kind="expense")
+        except Exception as e:
+            logger.warning(f"cashflow reverse_allocation failed for expense {expense_id} of deleted cheque: {e}")
+        req_id = rec_exp.get("approval_id") or rec_exp.get("request_id")
+        req_type = rec_exp.get("request_type") or rec_exp.get("expense_type") or rec_exp.get("category")
+        await reopen_labour_rab_after_bounce(rec_exp, cheque, reason_line, now)
+        if req_id and req_type == "material":
+            await db.material_expenses.update_one(
+                {"expense_id": req_id},
+                {"$set": {
+                    "status": "pending_accounts_approval",
+                    "cheque_bounced": True,
+                    "bounced_from_cheque_id": cheque_id,
+                    "bounced_from_cheque_number": cheque.get("cheque_number"),
+                    "bounced_from_cheque_amount": cheque.get("amount"),
+                    "bounce_reason": reason_line,
+                    "bounced_at": now,
+                    "paid_via_expense_id": None,
+                    "paid_at": None,
+                    "paid_amount": None,
+                    "updated_at": now,
+                }}
+            )
+            mexp = await db.material_expenses.find_one({"expense_id": req_id}, {"_id": 0})
+            if mexp and mexp.get("source_request_id"):
+                await db.material_requests.update_one(
+                    {"request_id": mexp["source_request_id"]},
+                    {"$set": {
+                        "cheque_bounced": True,
+                        "bounced_from_cheque_id": cheque_id,
+                        "bounced_from_cheque_number": cheque.get("cheque_number"),
+                        "bounced_from_cheque_amount": cheque.get("amount"),
+                        "bounce_reason": reason_line,
+                        "bounced_at": now,
+                        "updated_at": now,
+                    }}
+                )
+        elif req_id and req_type == "labour":
+            await db.labour_expenses.update_one(
+                {"labour_expense_id": req_id},
+                {"$set": {
+                    "status": "pending_accounts_approval",
+                    "cheque_bounced": True,
+                    "bounced_from_cheque_id": cheque_id,
+                    "bounced_from_cheque_number": cheque.get("cheque_number"),
+                    "bounce_reason": reason_line,
+                    "bounced_at": now,
+                    "paid_via_expense_id": None,
+                    "paid_at": None,
+                    "updated_at": now,
+                }}
+            )
+        elif req_id and req_type == "petty_cash":
+            await db.petty_cash.update_one(
+                {"petty_cash_id": req_id},
+                {"$set": {
+                    "status": "awaiting_accountant",
+                    "cheque_bounced": True,
+                    "bounced_from_cheque_id": cheque_id,
+                    "bounced_from_cheque_number": cheque.get("cheque_number"),
+                    "bounce_reason": reason_line,
+                    "bounced_at": now,
+                    "updated_at": now,
+                }}
+            )
+        summary["expenses_sent_back"].append({"expense_id": expense_id, "request_id": req_id,
+                                              "request_type": req_type, "amount": rec_exp.get("amount")})
+
+    # Bounce steps 2c / 2d: suspense credits this cheque created. These run
+    # after the step above, which they rely on.
+    _chq = {**cheque, "cheque_id": cheque_id, "bounce_reason": reason_line}
+    try:
+        pooled = await _reverse_cheque_pooled_suspense_credit(_chq, user, dry_run=False)
+        summary["pooled_suspense_credit_reversed"] = pooled.get("total_credit_reversed", 0.0)
+    except Exception as e:
+        logger.warning(f"pooled suspense credit reversal failed for deleted cheque {cheque_id}: {e}")
+    try:
+        material = await _reverse_cheque_material_suspense_and_bills(_chq, user, now)
+        summary["material_bills_sent_to_approvals"] = (len(material.get("bills_reversed", []))
+                                                       + len(material.get("bills_partially_reversed", [])))
+    except Exception as e:
+        logger.warning(f"material suspense/bill reversal failed for deleted cheque {cheque_id}: {e}")
+    return summary
+
+
 @router.delete("/accountant/cheques/{cheque_id}")
 async def delete_cheque(cheque_id: str, payload: ChequeDeleteRequest, user: User = Depends(get_current_user)):
-    """Soft-delete an orphan cheque.
+    """Soft-delete a cheque, linked or not.
 
     Rules (per user spec):
       • Only Super Admin and Accountant can delete.
       • User must re-authenticate with their own password.
-      • Deletion only allowed when the cheque has NO valid linked income or
-        expense — i.e. the cheque is orphaned (references that no longer
-        resolve to existing records, or the cheque was never used).
+      • Whatever the cheque paid goes back to the Accountant (see the helpers
+        above): incomes to Approvals for rejection → CRE re-collects; vendor
+        payments back to the Accountant's queue. A bounced cheque was already
+        reversed, so it is just hidden.
       • Soft delete only — sets status='deleted' so audit trail is preserved.
     """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
@@ -8577,40 +8848,28 @@ async def delete_cheque(cheque_id: str, payload: ChequeDeleteRequest, user: User
     if cheque.get("status") == "deleted":
         raise HTTPException(status_code=400, detail="Cheque already deleted")
 
-    # 3. Orphan check — block delete if ANY linked income/expense actually exists
-    # Income side
-    has_real_income = False
-    if cheque.get("income_id"):
-        if await db.income.find_one({"income_id": cheque["income_id"]}, {"_id": 0, "income_id": 1}):
-            has_real_income = True
-    if not has_real_income:
-        # Look for any income that references back to this cheque
-        if await db.income.find_one({"cheque_id": cheque_id}, {"_id": 0, "income_id": 1}):
-            has_real_income = True
-    if not has_real_income and cheque.get("bulk_collection_id"):
-        if await db.income.find_one({"bulk_collection_id": cheque["bulk_collection_id"]}, {"_id": 0, "income_id": 1}):
-            has_real_income = True
-    # Expense side
-    has_real_expense = False
-    if cheque.get("used_for_expense_id"):
-        if await db.recorded_expenses.find_one({"expense_id": cheque["used_for_expense_id"]}, {"_id": 0, "expense_id": 1}):
-            has_real_expense = True
+    now = datetime.now(timezone.utc).isoformat()
+    reason = (payload.reason or "").strip()
+    reason_line = "Cheque deleted" + (f" — {reason}" if reason else "")
 
-    if has_real_income or has_real_expense:
-        raise HTTPException(
-            status_code=400,
-            detail="Cheque is linked to an existing income or expense — use Bounce to reverse first, then delete is not needed.",
-        )
+    # 3. Send back whatever it paid. Runs before the soft delete so a failure
+    # leaves the cheque in place to retry (each step skips work already done).
+    income_summary: Dict[str, Any] = {}
+    vendor_summary: Dict[str, Any] = {}
+    if cheque.get("status") != "bounced":
+        income_summary = await _send_deleted_cheque_incomes_to_approvals(cheque, reason, user, now)
+        vendor_summary = await _send_deleted_cheque_vendor_payments_back(cheque, reason_line, user, now)
 
     # 4. Soft delete + audit
-    now = datetime.now(timezone.utc).isoformat()
     await db.cheques.update_one(
         {"cheque_id": cheque_id},
         {"$set": {
             "status": "deleted",
+            "status_before_delete": cheque.get("status"),
             "deleted_at": now,
             "deleted_by": user.user_id,
             "deleted_by_name": user.name,
+            "deleted_reason": reason,
             "updated_at": now,
         }}
     )
@@ -8618,10 +8877,24 @@ async def delete_cheque(cheque_id: str, payload: ChequeDeleteRequest, user: User
         "cheque_number": cheque.get("cheque_number"),
         "amount": cheque.get("amount"),
         "party_name": cheque.get("party_name"),
-        "had_orphan_refs": bool(cheque.get("income_id") or cheque.get("used_for_expense_id") or cheque.get("project_id")),
+        "reason": reason,
+        "incomes": income_summary,
+        "vendor": vendor_summary,
     })
 
-    return {"message": f"Cheque {cheque.get('cheque_number')} deleted (orphan)", "cheque_id": cheque_id}
+    n_incomes = sum(len(income_summary.get(k, [])) for k in ("sent_back", "already_pending", "split_out"))
+    n_vendor = len(vendor_summary.get("expenses_sent_back", [])) + int(vendor_summary.get("material_bills_sent_to_approvals") or 0)
+    parts = [f"Cheque {cheque.get('cheque_number')} deleted."]
+    if n_incomes:
+        parts.append(f"{n_incomes} income(s) are in Approvals — reject them so CRE can re-collect.")
+    if n_vendor:
+        parts.append(f"{n_vendor} vendor payment(s) sent back to the Accountant.")
+    return {
+        "message": " ".join(parts),
+        "cheque_id": cheque_id,
+        "incomes": income_summary,
+        "vendor": vendor_summary,
+    }
 
 
 async def _verify_user_password(user: User, password: str):

@@ -53,21 +53,22 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
   const canHardDelete = userRole === 'super_admin';
   const [bounceDialog, setBounceDialog] = useState({ open: false, cheque: null, reason: '', charges: '' });
   const [usageDialog, setUsageDialog] = useState({ open: false, cheque: null, data: null, loading: false });
-  const [deleteDialog, setDeleteDialog] = useState({ open: false, cheque: null, password: '' });
+  const [deleteDialog, setDeleteDialog] = useState({ open: false, cheque: null, reason: '', password: '' });
   const [disableDialog, setDisableDialog] = useState({ open: false, cheque: null, reason: '', password: '' });
   const [retrieveDialog, setRetrieveDialog] = useState({ open: false, cheque: null, reason: '', password: '' });
   const [hardDeleteDialog, setHardDeleteDialog] = useState({ open: false, cheque: null, reason: '', password: '' });
 
   const handleDelete = async () => {
     if (!deleteDialog.cheque) return;
+    if (!deleteDialog.reason.trim()) { toast.error('Reason is required'); return; }
     if (!deleteDialog.password) { toast.error('Password required'); return; }
     try {
       setSubmitting(true);
-      await axios.delete(`${API}/accountant/cheques/${deleteDialog.cheque.cheque_id}`, {
-        data: { password: deleteDialog.password },
+      const res = await axios.delete(`${API}/accountant/cheques/${deleteDialog.cheque.cheque_id}`, {
+        data: { password: deleteDialog.password, reason: deleteDialog.reason.trim() },
       });
-      toast.success(`Cheque ${deleteDialog.cheque.cheque_number} deleted`);
-      setDeleteDialog({ open: false, cheque: null, password: '' });
+      toast.success(res?.data?.message || `Cheque ${deleteDialog.cheque.cheque_number} deleted`, { duration: 8000 });
+      setDeleteDialog({ open: false, cheque: null, reason: '', password: '' });
       fetchCheques();
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Failed to delete cheque');
@@ -480,7 +481,7 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                   onRequestOpen={(c) => setRequestDialog({ open: true, cheque: c, remarks: '' })}
                   onBounce={(c) => setBounceDialog({ open: true, cheque: c, reason: '', charges: '' })}
                   onView={openUsageDialog}
-                  onDelete={(c) => setDeleteDialog({ open: true, cheque: c, password: '' })}
+                  onDelete={(c) => setDeleteDialog({ open: true, cheque: c, reason: '', password: '' })}
                   onDisable={(c) => setDisableDialog({ open: true, cheque: c, reason: '', password: '' })}
                   onRetrieve={(c) => setRetrieveDialog({ open: true, cheque: c, reason: '', password: '' })}
                   onHardDelete={(c) => setHardDeleteDialog({ open: true, cheque: c, reason: '', password: '' })}
@@ -503,7 +504,7 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                 onRequestOpen={(c) => setRequestDialog({ open: true, cheque: c, remarks: '' })}
                 onBounce={(c) => setBounceDialog({ open: true, cheque: c, reason: '', charges: '' })}
                 onView={openUsageDialog}
-                onDelete={(c) => setDeleteDialog({ open: true, cheque: c, password: '' })}
+                onDelete={(c) => setDeleteDialog({ open: true, cheque: c, reason: '', password: '' })}
                 onDisable={(c) => setDisableDialog({ open: true, cheque: c, reason: '', password: '' })}
                 onRetrieve={(c) => setRetrieveDialog({ open: true, cheque: c, reason: '', password: '' })}
                 onHardDelete={(c) => setHardDeleteDialog({ open: true, cheque: c, reason: '', password: '' })}
@@ -668,8 +669,8 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
         </DialogContent>
       </Dialog>
 
-      {/* Delete Cheque dialog — orphan-only, password-confirmed */}
-      <Dialog open={deleteDialog.open} onOpenChange={(o) => !o && setDeleteDialog({ open: false, cheque: null, password: '' })}>
+      {/* Delete Cheque dialog — any cheque, reason + password-confirmed */}
+      <Dialog open={deleteDialog.open} onOpenChange={(o) => !o && setDeleteDialog({ open: false, cheque: null, reason: '', password: '' })}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-600">
@@ -685,7 +686,18 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                 <div><span className="text-gray-500">Party</span><p className="font-medium">{deleteDialog.cheque.party_name || '—'}</p></div>
               </div>
               <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-800 leading-relaxed">
-                Only <strong>orphan cheques</strong> can be deleted — cheques that reference incomes/expenses that no longer exist. If this cheque is linked to a real collection or payment, you must <strong>Bounce</strong> it instead. Deletion is a <strong>soft delete</strong> (hidden from lists, kept for audit).
+                Any income this cheque paid goes to <strong>Approvals</strong> — reject it there and the payment stage returns to <strong>CRE</strong> to re-collect in another mode. Any vendor payment it made goes back to the Accountant to pay again. Deletion is a <strong>soft delete</strong> (hidden from lists, kept for audit).
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Reason <span className="text-red-500">*</span></label>
+                <Textarea
+                  rows={2}
+                  value={deleteDialog.reason}
+                  onChange={(e) => setDeleteDialog({ ...deleteDialog, reason: e.target.value })}
+                  placeholder="e.g. Wrong cheque entered / Client paying by bank transfer instead"
+                  autoFocus
+                  data-testid="cheque-delete-reason"
+                />
               </div>
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Confirm with your password <span className="text-red-500">*</span></label>
@@ -694,15 +706,14 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                   value={deleteDialog.password}
                   onChange={(e) => setDeleteDialog({ ...deleteDialog, password: e.target.value })}
                   placeholder="Your login password"
-                  autoFocus
                   data-testid="cheque-delete-password"
                 />
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialog({ open: false, cheque: null, password: '' })} disabled={submitting}>Cancel</Button>
-            <Button className="bg-red-600 hover:bg-red-700" onClick={handleDelete} disabled={submitting || !deleteDialog.password} data-testid="cheque-delete-confirm">
+            <Button variant="outline" onClick={() => setDeleteDialog({ open: false, cheque: null, reason: '', password: '' })} disabled={submitting}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700" onClick={handleDelete} disabled={submitting || !deleteDialog.password || !deleteDialog.reason.trim()} data-testid="cheque-delete-confirm">
               {submitting ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Deleting…</> : <><Trash2 className="h-4 w-4 mr-1" /> Delete Cheque</>}
             </Button>
           </DialogFooter>
@@ -1055,13 +1066,13 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, canD
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
                         )}
-                        {/* Delete (orphan only) */}
+                        {/* Delete — anything it paid goes back to the Accountant */}
                         {canDelete && c.status !== 'deleted' && onDelete && (
                           <Button
                             size="sm"
                             variant="ghost"
                             className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
-                            title="Delete cheque (orphan only)"
+                            title="Delete cheque"
                             onClick={() => onDelete(c)}
                             data-testid={`cheque-delete-btn-${c.cheque_id}`}
                           >

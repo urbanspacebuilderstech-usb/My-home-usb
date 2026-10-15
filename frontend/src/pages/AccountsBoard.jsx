@@ -4800,6 +4800,11 @@ function ApprovalsTab() {
                                   ⚠ Cheque bounced{inc.bounce_reason ? ` — ${inc.bounce_reason}` : ''}
                                 </p>
                               )}
+                              {inc.cheque_deleted && (
+                                <p className="text-[10px] text-rose-600 mt-0.5" data-testid={`approval-income-cheque-deleted-${inc.income_id}`}>
+                                  ⚠ Cheque #{inc.cheque_deleted_number} deleted{inc.cheque_deleted_reason ? ` — ${inc.cheque_deleted_reason}` : ''}{isPending ? '. Reject so CRE can re-collect.' : ''}
+                                </p>
+                              )}
                             </td>
                             <td className="px-3 py-2">
                               <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(inc.payment_mode)]}`}>

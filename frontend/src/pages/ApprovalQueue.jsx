@@ -283,6 +283,11 @@ export default function ApprovalQueue() {
                             {inc.payment_mode} {inc.reference_number ? `• Ref: ${inc.reference_number}` : ''} {inc.remarks ? `• ${inc.remarks}` : ''}
                           </p>
                           <p className="text-xs text-gray-400 mt-0.5">{new Date(inc.created_at).toLocaleDateString()}</p>
+                          {inc.cheque_deleted && (
+                            <p className="text-xs text-rose-600 mt-0.5" data-testid={`income-cheque-deleted-${inc.income_id}`}>
+                              ⚠ Cheque #{inc.cheque_deleted_number} deleted{inc.cheque_deleted_reason ? ` — ${inc.cheque_deleted_reason}` : ''}. Reject so CRE can re-collect.
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="text-lg font-bold text-green-600">{fmt(inc.amount)}</span>

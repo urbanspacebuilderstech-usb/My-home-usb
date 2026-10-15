@@ -1,9 +1,10 @@
-"""Password-protected orphan cheque delete.
+"""Password-protected cheque delete.
 
 Rules:
   • Only Super Admin / Accountant can delete.
   • Must re-authenticate with their own password.
-  • Only orphan cheques (no real linked income/expense) can be deleted.
+  • Any cheque can be deleted; an income it paid goes back to Approvals
+    (reject there → CRE re-collects).
   • Soft delete only: status -> 'deleted'.
 """
 import os
@@ -81,7 +82,7 @@ def test_delete_orphan_cheque_with_correct_password():
         asyncio.get_event_loop().run_until_complete(cleanup())
 
 
-def test_delete_blocked_when_cheque_has_real_income():
+def test_delete_linked_cheque_sends_income_back_to_approvals():
     from motor.motor_asyncio import AsyncIOMotorClient
     cli = AsyncIOMotorClient(os.environ["MONGO_URL"])
     db = cli[os.environ["DB_NAME"]]
@@ -122,15 +123,20 @@ def test_delete_blocked_when_cheque_has_real_income():
     asyncio.get_event_loop().run_until_complete(setup())
     try:
         sess = _login("accountant@constructionos.com", "Demo@1234")
-        r = sess.delete(f"{API}/accountant/cheques/{cheque_id}", json={"password": "Demo@1234"}, timeout=20)
-        assert r.status_code == 400, r.text
-        assert "linked" in r.json()["detail"].lower()
+        r = sess.delete(f"{API}/accountant/cheques/{cheque_id}",
+                        json={"password": "Demo@1234", "reason": "client paying by NEFT"}, timeout=20)
+        assert r.status_code == 200, r.text
+        assert r.json()["incomes"]["sent_back"] == [{"income_id": inc_id, "amount": 50000.0}]
 
-        # Cheque must still be issued (not deleted)
         async def fetch():
-            return await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
-        c = asyncio.get_event_loop().run_until_complete(fetch())
-        assert c["status"] != "deleted"
+            return (await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0}),
+                    await db.income.find_one({"income_id": inc_id}, {"_id": 0}))
+        c, inc = asyncio.get_event_loop().run_until_complete(fetch())
+        assert c["status"] == "deleted"
+        assert c["deleted_reason"] == "client paying by NEFT"
+        assert inc["status"] == "pending_approval"
+        assert inc["pulled_back_from_cashbook"] is True
+        assert inc["cheque_deleted"] is True and inc["cheque_deleted_id"] == cheque_id
     finally:
         asyncio.get_event_loop().run_until_complete(cleanup())
 
