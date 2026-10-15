@@ -7127,6 +7127,355 @@ async def get_project_wise_labour_summary(
     return {"rows": rows}
 
 
+# Oct 15 2026 — Project Wise > Labour: clicking a project opens this
+# breakdown — contractor → work order → stage, with how many workers each
+# stage used (DLR), what the contractor has been paid, and what is left.
+# Read-only on purpose: GET /projects/{id}/work-orders self-heals stage
+# figures with a write, so released / pending are recomputed here from each
+# stage's payment_requests with the same formula as
+# projects._resync_wo_stage_progress instead of calling it.
+_PW_LABOUR_PENDING_PR = ("requested", "pm_approved", "qc_approved", "planning_approved")
+
+
+def _pw_labour_worked():
+    return {
+        "workers": 0, "cost": 0.0, "dates": set(),
+        "skilled": {"count": 0, "amount": 0.0},
+        "semi_skilled": {"count": 0, "amount": 0.0},
+        "unskilled": {"count": 0, "amount": 0.0},
+    }
+
+
+def _pw_labour_add_dlr(w: Dict[str, Any], d: Dict[str, Any]) -> None:
+    if d.get("date"):
+        w["dates"].add(str(d["date"])[:10])
+    for e in (d.get("entries") or []):
+        b = _labour_skill_bucket(e.get("type"))
+        cnt = int(e.get("count") or 0)
+        cost = float(e.get("total_cost") or 0)
+        w["workers"] += cnt
+        w["cost"] += cost
+        w[b]["count"] += cnt
+        w[b]["amount"] += cost
+
+
+def _pw_labour_worked_out(w: Dict[str, Any]) -> Dict[str, Any]:
+    dates = sorted(w["dates"])
+    return {
+        "workers": w["workers"],
+        "cost": round(w["cost"], 2),
+        "days": len(dates),
+        "first_date": dates[0] if dates else None,
+        "last_date": dates[-1] if dates else None,
+        "skilled": {"count": w["skilled"]["count"], "amount": round(w["skilled"]["amount"], 2)},
+        "semi_skilled": {"count": w["semi_skilled"]["count"], "amount": round(w["semi_skilled"]["amount"], 2)},
+        "unskilled": {"count": w["unskilled"]["count"], "amount": round(w["unskilled"]["amount"], 2)},
+    }
+
+
+@router.get("/accountant/project-wise/labour-summary/{project_id}")
+async def get_project_wise_labour_detail(
+    project_id: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """One project's labour position for the Project Wise > Labour popup.
+
+    Contract value, paid, pending and balance are ALL-TIME (a balance only
+    means something cumulatively) and come from active work orders only —
+    the same scope as /labour-contractor-payments/summary. Worker figures
+    from DLRs are returned twice: `range` (start_date..end_date, so the
+    popup agrees with the row that was clicked) and `all` (all-time)."""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "project_id": 1, "name": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    wos, dlrs, advances, cf_doc, expense_docs = await asyncio.gather(
+        db.project_work_orders.find({"project_id": project_id}, {"_id": 0}).sort("created_at", 1).to_list(500),
+        db.daily_labour_reports.find(
+            {"project_id": project_id},
+            {"_id": 0, "work_order_id": 1, "contractor_id": 1, "contractor_name": 1,
+             "stage_id": 1, "stage_name": 1, "date": 1, "entries": 1},
+        ).to_list(20000),
+        db.labour_advance_requests.find(
+            {"project_id": project_id, "status": "approved"}, {"_id": 0, "stage_id": 1, "amount": 1},
+        ).to_list(2000),
+        db.project_carry_forwards.find_one({"project_id": project_id}, {"_id": 0, "labour_carry_forward": 1}),
+        fetch_expense_source_docs(build_expense_query(project_id=project_id)),
+    )
+
+    def _in_range(date_val) -> bool:
+        d = str(date_val or "")[:10]
+        if start_date and (not d or d < start_date):
+            return False
+        if end_date and (not d or d > end_date):
+            return False
+        return True
+
+    advance_by_stage: Dict[str, float] = {}
+    for a in advances:
+        if a.get("stage_id"):
+            advance_by_stage[a["stage_id"]] = advance_by_stage.get(a["stage_id"], 0.0) + float(a.get("amount") or 0)
+
+    # ---- Work orders → stage skeletons -------------------------------------
+    active_wos = [wo for wo in wos if wo.get("is_active") is not False]
+    active_wo_ids = {wo.get("work_order_id") for wo in active_wos}
+    removed_wos = {wo.get("work_order_id"): wo for wo in wos if wo.get("is_active") is False}
+    removed_wo_ids = set(removed_wos)
+    wo_nodes: Dict[str, Dict[str, Any]] = {}
+    for wo in active_wos:
+        stages: Dict[str, Dict[str, Any]] = {}
+        for st in (wo.get("stages") or []):
+            sid = st.get("stage_id") or f"idx:{len(stages)}"
+            prs = st.get("payment_requests") or []
+            stages[sid] = {
+                "stage_id": sid,
+                "name": st.get("name") or st.get("stage_name") or "Stage",
+                "type": st.get("type"),
+                "value": st.get("value"),
+                "amount": float(st.get("amount") or 0),
+                "is_open": bool(st.get("is_open")),
+                "is_additional": bool(st.get("linked_section_id")),
+                "paid": sum(float(p.get("approved_amount") or 0) for p in prs if p.get("status") == "approved"),
+                "advance": advance_by_stage.get(st.get("stage_id"), 0.0),
+                "pending": sum(float(p.get("amount") or 0) for p in prs if p.get("status") in _PW_LABOUR_PENDING_PR),
+                "pending_count": sum(1 for p in prs if p.get("status") in _PW_LABOUR_PENDING_PR),
+                "rework": any(p.get("status") == "se_rework" for p in prs),
+                "on_work_order": True,
+                "_w": {"range": _pw_labour_worked(), "all": _pw_labour_worked()},
+            }
+        wo_nodes[wo["work_order_id"]] = {
+            "work_order_id": wo.get("work_order_id"),
+            "work_order_number": wo.get("work_order_number"),
+            "contractor_id": wo.get("contractor_id"),
+            "contractor_name": wo.get("contractor_name") or "Unknown contractor",
+            "contractor_type": wo.get("contractor_type") or "",
+            "removed": False,
+            "no_work_order": False,
+            "scope_total": float(wo.get("scope_total") or 0),
+            "additional_total": float(wo.get("additional_total") or 0),
+            "deduction_total": float(wo.get("deduction_total") or 0),
+            "total_value": float(wo.get("total_value") or 0),
+            "labour_rates": wo.get("labour_rates") or {},
+            "created_at": wo.get("created_at"),
+            "_stages": stages,
+            "_w": {"range": _pw_labour_worked(), "all": _pw_labour_worked()},
+        }
+
+    # ---- DLRs → workers per stage ------------------------------------------
+    # Every DLR of the project is placed somewhere so the popup's worker
+    # total always equals the Labour table row. DLRs on a removed / unknown
+    # work order get their own group (contract 0, nothing paid).
+    for d in dlrs:
+        wo_id = d.get("work_order_id") or ""
+        node = wo_nodes.get(wo_id)
+        if node is None:
+            key = wo_id or f"name:{(d.get('contractor_name') or '').strip().lower()}"
+            old_wo = removed_wos.get(wo_id) or {}
+            node = wo_nodes.setdefault(key, {
+                "work_order_id": wo_id or None,
+                "work_order_number": old_wo.get("work_order_number"),
+                "contractor_id": d.get("contractor_id"),
+                "contractor_name": d.get("contractor_name") or "Unknown contractor",
+                "contractor_type": old_wo.get("contractor_type") or "",
+                "removed": wo_id in removed_wo_ids,
+                "no_work_order": wo_id not in removed_wo_ids,
+                "scope_total": 0.0, "additional_total": 0.0, "deduction_total": 0.0, "total_value": 0.0,
+                "labour_rates": {},
+                "created_at": None,
+                "_stages": {},
+                "_w": {"range": _pw_labour_worked(), "all": _pw_labour_worked()},
+            })
+        sid = d.get("stage_id") or ""
+        stage = node["_stages"].get(sid)
+        if stage is None:
+            sname = (d.get("stage_name") or "").strip() or "No stage recorded"
+            skey = f"dlr:{sid or sname.lower()}"
+            stage = node["_stages"].setdefault(skey, {
+                "stage_id": skey, "name": sname, "type": None, "value": None,
+                "amount": 0.0, "is_open": False, "is_additional": False,
+                "paid": 0.0, "advance": 0.0, "pending": 0.0, "pending_count": 0, "rework": False,
+                "on_work_order": False,
+                "_w": {"range": _pw_labour_worked(), "all": _pw_labour_worked()},
+            })
+        in_range = _in_range(d.get("date"))
+        for w in (stage["_w"], node["_w"]):
+            _pw_labour_add_dlr(w["all"], d)
+            if in_range:
+                _pw_labour_add_dlr(w["range"], d)
+
+    # ---- Serialise: stage → work order → contractor -------------------------
+    def _stage_status(s: Dict[str, Any], worked_all: int) -> str:
+        if not s["on_work_order"]:
+            return "not_on_work_order"
+        paid_total = s["paid"] + s["advance"]
+        if s["amount"] > 0 and paid_total >= s["amount"] - 0.5:
+            return "paid"
+        if s["rework"]:
+            return "rework"
+        if s["pending"] > 0:
+            return "payment_pending"
+        if paid_total > 0:
+            return "part_paid"
+        if worked_all > 0:
+            return "in_progress"
+        if s["is_open"]:
+            return "open"
+        return "not_started"
+
+    contractors: Dict[str, Dict[str, Any]] = {}
+    for node in wo_nodes.values():
+        stages_out = []
+        for s in node.pop("_stages").values():
+            w = s.pop("_w")
+            worked = {"range": _pw_labour_worked_out(w["range"]), "all": _pw_labour_worked_out(w["all"])}
+            s["status"] = _stage_status(s, worked["all"]["workers"])
+            s["balance"] = round(s["amount"] - s["paid"] - s["advance"], 2)
+            for k in ("amount", "paid", "advance", "pending"):
+                s[k] = round(s[k], 2)
+            s["worked"] = worked
+            stages_out.append(s)
+        w = node.pop("_w")
+        node["worked"] = {"range": _pw_labour_worked_out(w["range"]), "all": _pw_labour_worked_out(w["all"])}
+        wo_dates = {"range": w["range"]["dates"], "all": w["all"]["dates"]}
+        node["stages"] = stages_out
+        listed = [s for s in stages_out if s["on_work_order"]]
+        node["paid"] = round(sum(s["paid"] for s in listed), 2)
+        node["advance"] = round(sum(s["advance"] for s in listed), 2)
+        node["pending"] = round(sum(s["pending"] for s in listed), 2)
+        node["pending_count"] = sum(s["pending_count"] for s in listed)
+        node["balance"] = round(node["total_value"] - node["paid"] - node["advance"], 2)
+        node["stages_total"] = len(listed)
+        node["stages_paid"] = sum(1 for s in listed if s["status"] == "paid")
+        node["stages_worked"] = sum(1 for s in listed if s["worked"]["all"]["workers"] > 0)
+
+        ckey = node.get("contractor_id") or f"name:{node['contractor_name'].strip().lower()}"
+        c = contractors.setdefault(ckey, {
+            "key": ckey,
+            "contractor_id": node.get("contractor_id"),
+            "contractor_name": node["contractor_name"],
+            "contractor_type": node.get("contractor_type") or "",
+            "work_orders": [],
+            "_dates": {"range": set(), "all": set()},
+        })
+        if not c["contractor_type"] and node.get("contractor_type"):
+            c["contractor_type"] = node["contractor_type"]
+        c["work_orders"].append(node)
+        for scope in ("range", "all"):
+            c["_dates"][scope] |= wo_dates[scope]
+
+    def _sum_worked(parts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        out = {"workers": 0, "cost": 0.0, "days": 0, "first_date": None, "last_date": None,
+               "skilled": {"count": 0, "amount": 0.0}, "semi_skilled": {"count": 0, "amount": 0.0},
+               "unskilled": {"count": 0, "amount": 0.0}}
+        for p in parts:
+            out["workers"] += p["workers"]
+            out["cost"] += p["cost"]
+            for b in ("skilled", "semi_skilled", "unskilled"):
+                out[b]["count"] += p[b]["count"]
+                out[b]["amount"] += p[b]["amount"]
+            if p["first_date"] and (not out["first_date"] or p["first_date"] < out["first_date"]):
+                out["first_date"] = p["first_date"]
+            if p["last_date"] and (not out["last_date"] or p["last_date"] > out["last_date"]):
+                out["last_date"] = p["last_date"]
+        out["cost"] = round(out["cost"], 2)
+        for b in ("skilled", "semi_skilled", "unskilled"):
+            out[b]["amount"] = round(out[b]["amount"], 2)
+        return out
+
+    contractor_rows = []
+    for c in contractors.values():
+        c_wos = c["work_orders"]
+        for k in ("total_value", "paid", "advance", "pending", "balance"):
+            c[k] = round(sum(wo[k] for wo in c_wos), 2)
+        c["pending_count"] = sum(wo["pending_count"] for wo in c_wos)
+        c["stages_total"] = sum(wo["stages_total"] for wo in c_wos)
+        c["stages_paid"] = sum(wo["stages_paid"] for wo in c_wos)
+        c["stages_worked"] = sum(wo["stages_worked"] for wo in c_wos)
+        c["on_work_order"] = any(not (wo["removed"] or wo["no_work_order"]) for wo in c_wos)
+        # Days are distinct dates across all of the contractor's DLRs, not a
+        # sum per work order (two WOs can work the same day).
+        c_dates = c.pop("_dates")
+        c["worked"] = {}
+        for scope in ("range", "all"):
+            agg = _sum_worked([wo["worked"][scope] for wo in c_wos])
+            agg["days"] = len(c_dates[scope])
+            c["worked"][scope] = agg
+        contractor_rows.append(c)
+    # Contractors on an active work order first, then by name.
+    contractor_rows.sort(key=lambda c: (not c["on_work_order"], c["contractor_name"].lower()))
+
+    # ---- Cashbook reconciliation -------------------------------------------
+    # The same canonical rows the Cashbook / Project Wise Labour figure uses.
+    recorded_exps, labour_exps, material_reqs, material_exps_legacy, _direct = expense_docs
+    cashbook_rows = [
+        r for r in build_expense_rows(recorded_exps, labour_exps, material_reqs, material_exps_legacy)
+        if r.get("expense_type") == "labour"
+    ]
+    on_wo_total = 0.0
+    other_rows = []
+    for r in cashbook_rows:
+        amt = float(r.get("amount") or 0)
+        if r.get("work_order_id") and r.get("work_order_id") in active_wo_ids:
+            on_wo_total += amt
+            continue
+        other_rows.append({
+            "expense_id": r.get("expense_id"),
+            "date": r.get("payment_date") or r.get("date") or r.get("created_at"),
+            "description": r.get("description") or "",
+            "paid_to": r.get("contractor_name") or r.get("vendor_name") or "",
+            "payment_method": r.get("payment_method") or r.get("payment_mode") or "",
+            "amount": round(amt, 2),
+        })
+    other_rows.sort(key=lambda x: str(x.get("date") or ""), reverse=True)
+
+    all_wos_out = [wo for c in contractor_rows for wo in c["work_orders"]]
+    totals = {
+        "contract_value": round(sum(c["total_value"] for c in contractor_rows), 2),
+        "paid": round(sum(c["paid"] for c in contractor_rows), 2),
+        "advance": round(sum(c["advance"] for c in contractor_rows), 2),
+        "pending": round(sum(c["pending"] for c in contractor_rows), 2),
+        "pending_count": sum(c["pending_count"] for c in contractor_rows),
+        "balance": round(sum(c["balance"] for c in contractor_rows), 2),
+        "contractors": sum(1 for c in contractor_rows if c["on_work_order"]),
+        "work_orders": sum(1 for wo in all_wos_out if not (wo["removed"] or wo["no_work_order"])),
+        "stages_total": sum(c["stages_total"] for c in contractor_rows),
+        "stages_paid": sum(c["stages_paid"] for c in contractor_rows),
+        "worked": {
+            scope: {
+                **_sum_worked([wo["worked"][scope] for wo in all_wos_out]),
+                "days": len({str(d["date"])[:10] for d in dlrs
+                             if d.get("date") and (scope == "all" or _in_range(d["date"]))}),
+            }
+            for scope in ("range", "all")
+        },
+        "contractors_worked": {
+            scope: sum(1 for c in contractor_rows if c["worked"][scope]["workers"] > 0)
+            for scope in ("range", "all")
+        },
+    }
+
+    return {
+        "project_id": project_id,
+        "project_name": project.get("name") or "",
+        "start_date": start_date,
+        "end_date": end_date,
+        "totals": totals,
+        "contractors": contractor_rows,
+        "cashbook": {
+            "labour_total": round(sum(float(r.get("amount") or 0) for r in cashbook_rows), 2),
+            "on_work_orders": round(on_wo_total, 2),
+            "other_total": round(sum(r["amount"] for r in other_rows), 2),
+            "other_rows": other_rows,
+            "labour_carry_forward": float((cf_doc or {}).get("labour_carry_forward") or 0),
+        },
+    }
+
+
 @router.get("/dashboard/labour-summary")
 async def get_dashboard_labour_summary(
     start_date: Optional[str] = None,

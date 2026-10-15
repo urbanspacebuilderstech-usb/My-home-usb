@@ -76,6 +76,7 @@ import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import AccountantLabourPayments from '../components/AccountantLabourPayments';
+import ProjectLabourDetailDialog from '../components/ProjectLabourDetailDialog';
 import AccountantMaterialPayments from '../components/AccountantMaterialPayments';
 import AccountantCreditSettlements from '../components/AccountantCreditSettlements';
 import IssueCashDialog from '../components/IssueCashDialog';
@@ -5761,6 +5762,8 @@ function ProjectWiseLabourTab({ dateFrom, dateTo, setDateFrom, setDateTo }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  // Oct 15 2026 — clicking a project row opens its contractor / stage popup.
+  const [detailProject, setDetailProject] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -5851,9 +5854,17 @@ function ProjectWiseLabourTab({ dateFrom, dateTo, setDateFrom, setDateTo }) {
               {filtered.length === 0 ? (
                 <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400 text-sm">{loading ? 'Loading…' : 'No data'}</td></tr>
               ) : filtered.map((r, idx) => (
-                <tr key={r.project_id} className="hover:bg-gray-50" data-testid={`pw-labour-row-${idx}`}>
+                <tr
+                  key={r.project_id}
+                  className="hover:bg-amber-50 cursor-pointer focus:outline-none focus-visible:bg-amber-50"
+                  onClick={() => setDetailProject(r)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailProject(r); } }}
+                  tabIndex={0}
+                  title="View contractors, stages and payments"
+                  data-testid={`pw-labour-row-${idx}`}
+                >
                   <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
-                  <td className="px-3 py-2 font-medium text-gray-900">{r.project_name}</td>
+                  <td className="px-3 py-2 font-medium text-amber-700 hover:underline">{r.project_name}</td>
                   <td className="px-3 py-2 text-right font-semibold">{r.total_workers || 0}</td>
                   <td className="px-3 py-2 text-right text-blue-700">{r.skilled_count || 0}</td>
                   <td className="px-3 py-2 text-right text-blue-700">{fmtFull(r.skilled_amount)}</td>
@@ -5875,6 +5886,12 @@ function ProjectWiseLabourTab({ dateFrom, dateTo, setDateFrom, setDateTo }) {
           </table>
         </CardContent>
       </Card>
+      <ProjectLabourDetailDialog
+        project={detailProject}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        onClose={() => setDetailProject(null)}
+      />
     </div>
   );
 }
