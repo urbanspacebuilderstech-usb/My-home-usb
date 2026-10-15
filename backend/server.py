@@ -110,6 +110,7 @@ from routes.final_estimates import router as final_estimates_router
 from routes.pre_construction import router as pre_construction_router
 from routes.cashflow import router as cashflow_router
 from routes.expense_split import router as expense_split_router
+from routes.project_balance import router as project_balance_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
@@ -133,6 +134,7 @@ app.include_router(final_estimates_router, prefix="/api")
 app.include_router(pre_construction_router, prefix="/api")
 app.include_router(cashflow_router, prefix="/api")
 app.include_router(expense_split_router, prefix="/api")
+app.include_router(project_balance_router, prefix="/api")
 
 from core.perf import RequestTimingMiddleware, start_monitoring, router as perf_router
 from core.etag import ETagMiddleware

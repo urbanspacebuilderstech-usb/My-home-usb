@@ -17,6 +17,7 @@ import ChequeListView from '../components/ChequeListView';
 import MetaDateFilter from '../components/MetaDateFilter';
 import MaterialSearchSelect from '../components/MaterialSearchSelect';
 import InventorySummaryPanel from '../components/InventorySummaryPanel';
+import ProjectWiseBalanceTab from '../components/ProjectWiseBalanceTab';
 import PayApprovalDialog from '../components/PayApprovalDialog';
 import DTSelectToPayDialog from '../components/DTSelectToPayDialog';
 import PhotoLightbox from '../components/PhotoLightbox';
@@ -6258,6 +6259,7 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
         { k: 'material', label: 'Material' },
         { k: 'labour', label: 'Labour' },
         { k: 'petty_cash', label: 'Petty Cash' },
+        { k: 'balance', label: 'Balance' },
       ].map(t => (
         <button
           key={t.k}
@@ -6392,6 +6394,16 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
           setDateFrom={setProjDateFrom}
           setDateTo={setProjDateTo}
         />
+      </div>
+    );
+  }
+  // Oct 15 2026 — all-time per project: receivable, material / labour
+  // payable, funds in hand. Ignores the shared date range on purpose.
+  if (pwSubTab === 'balance') {
+    return (
+      <div className="space-y-4" data-testid="project-summary-tab">
+        {pwSubTabBar}
+        <ProjectWiseBalanceTab Amount={MaskedValue} />
       </div>
     );
   }
