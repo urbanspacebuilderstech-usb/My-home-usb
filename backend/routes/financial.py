@@ -1642,8 +1642,11 @@ async def send_income_back_to_approvals(income_id: str, user: User = Depends(get
     # Anything the Cashbook shows can be sent back; these statuses never reach it.
     if prev_status in ("pending_approval", "rejected", "accountant_rejected", "under_correction", "cheque_bounced"):
         raise HTTPException(status_code=400, detail=f"This income is not in the Cashbook (current: '{prev_status}')")
-    if inc.get("source") == "carry_forward_lock" or classify_payment_mode(inc.get("payment_mode")) == "direct_transfer":
-        raise HTTPException(status_code=400, detail="Carry Forward and Direct Transfer entries can't be sent back to Approvals")
+    # Oct 15 2026 — Direct Transfer income goes back too: the DT expense rows
+    # its approval created stay put, and re-approving does not recreate them.
+    # A Carry Forward row is an opening balance, not an entry anyone approves.
+    if inc.get("source") == "carry_forward_lock":
+        raise HTTPException(status_code=400, detail="Carry Forward entries can't be sent back to Approvals")
 
     now_iso = datetime.now(timezone.utc).isoformat()
     history = inc.get("correction_history", [])
@@ -2324,6 +2327,110 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
     audit_fields = {"action": "send_back_to_approvals", "record_id": record_id, "from": coll_name, "by": user.user_id, "by_name": user.name}
     await create_audit_log(user.user_id, "send_back", "material_expense", record_id, audit_fields)
     return {"message": "Sent back to Approvals → Materials", "from": coll_name}
+
+
+# Oct 15 2026 — Deleting ANY expense from the Cashbook (the Expense list or a
+# tile drill-down) sends it back to the Accountant's approval instead of
+# purging it; USB-MR511 was hard-deleted from the Cheque tile and vanished
+# from every screen. One entry point for every expense type:
+#   • petty cash / material → the two send-backs above
+#   • a labour RAB release → the RAB returns to the Accountant's Labour queue
+#     (what delete_cashbook_expense already does for it), after this
+#     payment's cheque draws are handed back
+#   • a legacy labour_expenses row → Approvals → Labour
+#   • any other recorded expense → Approvals → Record Expense, the queue a
+#     pulled-back petty cash entry already lands in
+_SEND_BACK_NOT_IN_CASHBOOK = {"pm_approved", "pm_rejected", "pending", "requested", "rejected",
+                              "accountant_rejected", "accounts_rejected", "under_correction",
+                              "cheque_bounced"}
+
+
+@router.post("/cashbook/expense/{record_id}/send-back-to-approvals")
+async def send_expense_back_to_approvals(record_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can send expenses back to Approvals")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    sent_back = {
+        "pulled_back_from_cashbook": True,
+        "sent_back_to_approvals_at": now_iso,
+        "sent_back_to_approvals_by": user.user_id,
+        "sent_back_to_approvals_by_name": user.name,
+        "updated_at": now_iso,
+    }
+
+    rec = await db.recorded_expenses.find_one({"expense_id": record_id}, {"_id": 0})
+    if rec:
+        category = (rec.get("category") or "").lower()
+        if category == "petty_cash":
+            return await send_petty_cash_back_to_approvals(record_id, user)
+        if category == "material":
+            return await send_material_back_to_approvals(record_id, user)
+        status = (rec.get("status") or "").lower()
+        if status in _SEND_BACK_NOT_IN_CASHBOOK or rec.get("is_deleted"):
+            raise HTTPException(status_code=400, detail=f"This expense is not in the Cashbook (current: '{status}')")
+
+        if rec.get("work_order_id") and rec.get("stage_id") and rec.get("request_id"):
+            # The RAB is what the Accountant approves; delete_cashbook_expense
+            # re-opens it (planning_approved) and hands back any contractor
+            # suspense this release used. Its cheque draws come back first so
+            # the re-release can draw them again.
+            await reverse_cheque_allocations_for_expense(
+                record_id, reason=f"expense {record_id} sent back to approvals", user_id=user.user_id)
+            await delete_cashbook_expense("labour", record_id, user)
+            return {"message": "Sent back to Approvals → Labour (RAB re-opened)", "from": "recorded_expenses"}
+
+        await db.recorded_expenses.update_one({"expense_id": record_id}, {"$set": {
+            **sent_back, "status": "pm_approved", "prev_approved_status": status or None,
+        }})
+        try:
+            from routes.cashflow import reverse_allocation
+            await reverse_allocation(record_id, kind="expense")
+        except Exception as e:
+            logger.warning(f"cashflow reverse_allocation failed in expense send-back {record_id}: {e}")
+        # accountant_approve_recorded_expense adds the amount to its petty cash
+        # bucket, so take it off now or re-approval counts it twice.
+        if rec.get("linked_petty_cash_id") and status == "approved":
+            await db.petty_cash.update_one(
+                {"petty_cash_id": rec["linked_petty_cash_id"]},
+                {"$inc": {"amount_spent": -float(rec.get("amount") or 0)}, "$set": {"updated_at": now_iso}},
+            )
+        await create_audit_log(user.user_id, "send_back", "recorded_expense", record_id, {
+            "action": "send_back_to_approvals", "prev_status": status or None,
+            "amount": rec.get("amount"), "category": category,
+        })
+        return {"message": "Sent back to Approvals → Record Expense", "from": "recorded_expenses"}
+
+    lab = await db.labour_expenses.find_one(
+        {"$or": [{"labour_expense_id": record_id}, {"expense_id": record_id}]}, {"_id": 0})
+    if lab:
+        status = (lab.get("status") or "").lower()
+        if status != "accounts_approved":
+            raise HTTPException(status_code=400, detail=f"This expense is not in the Cashbook (current: '{status}')")
+        id_field = "labour_expense_id" if lab.get("labour_expense_id") == record_id else "expense_id"
+        await db.labour_expenses.update_one({id_field: record_id}, {"$set": {
+            **sent_back, "status": "pending_accounts_approval", "prev_approved_status": status,
+        }})
+        try:
+            from routes.cashflow import reverse_allocation
+            for probe_id in {record_id, lab.get("labour_expense_id"), lab.get("expense_id")}:
+                if probe_id:
+                    await reverse_allocation(probe_id, kind="expense")
+        except Exception as e:
+            logger.warning(f"cashflow reverse_allocation failed in labour send-back {record_id}: {e}")
+        await create_audit_log(user.user_id, "send_back", "labour_expense", record_id, {
+            "action": "send_back_to_approvals", "amount": lab.get("total_amount"),
+        })
+        return {"message": "Sent back to Approvals → Labour", "from": "labour_expenses"}
+
+    if (await db.material_requests.find_one({"$or": [{"request_id": record_id}, {"expense_id": record_id}]}, {"_id": 1})
+            or await db.material_expenses.find_one(
+                {"$or": [{"material_expense_id": record_id}, {"expense_id": record_id}]}, {"_id": 1})):
+        return await send_material_back_to_approvals(record_id, user)
+    if (await db.direct_expenses.find_one(
+            {"$or": [{"direct_expense_id": record_id}, {"petty_cash_id": record_id}]}, {"_id": 1})
+            or await db.petty_cash.find_one({"petty_cash_id": record_id}, {"_id": 1})):
+        return await send_petty_cash_back_to_approvals(record_id, user)
+    raise HTTPException(status_code=404, detail="Expense not found — refresh and try again. It may already have been sent back.")
 
 
 @router.post("/admin/recompute-material-payment-tracking")

@@ -537,7 +537,7 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
                             className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
                             onClick={() => onDelete && onDelete(e)}
                             data-testid={`drilldown-delete-${e.income_id || e.expense_id || e.request_id || (pageStart + i)}`}
-                            title={type === 'income' ? 'Delete income entry' : 'Delete expense'}
+                            title="Send back to Approvals"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -2368,10 +2368,10 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
 
   const handleDeleteIncome = async (entry) => {
     if (!entry?.income_id) { toast.error('Missing income id'); return; }
-    // Oct 8 2026 — Main Income rows go back to Approvals instead of being
-    // purged; Direct Transfer and Carry Forward rows still hard-delete.
-    const isDT = entry.payment_mode === 'direct_transfer' || classifyMode(entry.payment_mode) === 'direct_transfer';
-    if (!isDT && entry.source !== 'carry_forward_lock') {
+    // Oct 8 2026 — Income rows go back to Approvals instead of being purged.
+    // Oct 15 2026 — Direct Transfer rows too; only a Carry Forward row (an
+    // opening balance nobody approves) still hard-deletes.
+    if (entry.source !== 'carry_forward_lock') {
       if (!window.confirm(`Send this income entry of ₹${(entry.amount || 0).toLocaleString('en-IN')} back to Approvals for re-review?\n\nIt leaves the Cashbook and the cashflow allocation is reversed until it is approved again.`)) return;
       try {
         await axios.post(`${API}/cashbook/income/${entry.income_id}/send-back-to-approvals`);
@@ -2428,18 +2428,21 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
     }
   };
 
+  // Oct 15 2026 — Deleting any expense, from the Expense list or a tile
+  // drill-down, sends it back to Approvals; nothing is purged from here any
+  // more. The backend routes it to the right queue by type.
   const handleDeleteExpense = async (entry) => {
     const recordId = entry.expense_id || entry.request_id;
     if (!recordId) { toast.error('Missing expense id'); return; }
     const expType = entry.expense_type || entry.category || 'recorded';
-    if (!window.confirm(`Delete this ${expType} expense of ₹${(entry.amount || 0).toLocaleString('en-IN')}?\n\nThis action cannot be undone.`)) return;
+    if (!window.confirm(`Send this ${expType} expense of ₹${(entry.amount || 0).toLocaleString('en-IN')} back to Approvals for re-review?\n\nIt leaves the Cashbook and the cashflow allocation is reversed until it is approved again.`)) return;
     try {
-      await axios.delete(`${API}/cashbook/expense/${expType}/${recordId}`);
-      toast.success('Expense deleted');
+      const res = await axios.post(`${API}/cashbook/expense/${recordId}/send-back-to-approvals`);
+      toast.success(res?.data?.message || 'Sent back to Approvals');
       fetchCashbook();
       onRefresh && onRefresh();
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Failed to delete expense');
+      toast.error(err.response?.data?.detail || 'Failed to send back');
     }
   };
 
@@ -3359,7 +3362,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                                 className="h-6 w-6 p-0 text-red-600 hover:bg-red-50"
                                 onClick={() => handleDeleteExpense(entry)}
                                 data-testid={`expense-delete-btn-${entry.expense_id || entry.request_id || i}`}
-                                title="Delete expense"
+                                title="Send back to Approvals"
                               >
                                 <Trash2 className="h-3 w-3" />
                               </Button>
@@ -5624,7 +5627,7 @@ function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint, onDelete
                             className="h-6 w-6 p-0 text-red-600 hover:bg-red-50"
                             onClick={() => onDelete(entry)}
                             data-testid={`income-delete-btn-${entry.income_id}`}
-                            title={tab === 'main' ? 'Send back to Approvals' : 'Delete income entry'}
+                            title={tab === 'cf' ? 'Delete income entry' : 'Send back to Approvals'}
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>

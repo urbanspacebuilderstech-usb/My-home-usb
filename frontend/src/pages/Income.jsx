@@ -156,14 +156,16 @@ export default function Income({ embedded = false }) {
     }
   };
 
+  // Oct 15 2026 — Deleting income sends it back to Approvals, as it does in
+  // Accounts → Cashbook; nothing is purged from here.
   const handleDeleteIncome = async (incomeId) => {
-    if (!confirm('Delete this income entry?')) return;
+    if (!confirm('Send this income entry back to Approvals for re-review?')) return;
     try {
-      await axios.delete(`${API}/income/${incomeId}`);
-      toast.success('Income entry deleted');
+      await axios.post(`${API}/cashbook/income/${incomeId}/send-back-to-approvals`);
+      toast.success('Sent back to Approvals');
       fetchData(false);
     } catch (error) {
-      toast.error('Failed to delete income entry');
+      toast.error(error.response?.data?.detail || 'Failed to send back');
     }
   };
 
