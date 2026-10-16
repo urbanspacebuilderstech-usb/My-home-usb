@@ -10999,6 +10999,137 @@ async def usb_mr511_cheque_tag_apply(user: User = Depends(get_current_user)):
     return {"write_performed": bool(r1.modified_count or r2.modified_count), **result}
 
 
+# ── Oct 16 2026 — USB-MR511: put the bill back in Approvals ──
+# On Oct 12 the bill's only payment row (exp_137eef0a9ccf, 18,963 drawn from
+# SATHISKUMAR AGENCY's suspense) was deleted from the Cheque tile drill-down,
+# which hard-deletes (delete_cashbook_expense) instead of sending back. That
+# left the bill "paid" with nothing paying it, so it can never reach
+# Approvals → Materials, and left its debit pointing at a row that no longer
+# exists. Every balance already ignores such a debit, so the vendor's pool
+# already shows the 18,963 as available again.
+# The repair does what a send-back would have done:
+#   - send_material_back_to_approvals on the bill: back to
+#     pending_accounts_approval, payment fields cleared, the parent request
+#     reset with it (there is no payment row left for it to reverse);
+#   - delete the orphaned debit, which a send-back reaches only through the
+#     payment row and so cannot find on its own.
+_MR511_SENDBACK = {"bill_id": "mexp_13ab1263c1e3", "request_id": "mreq_f6b13b50d3dc",
+                   "debit_entry_id": "se_c8729f5736", "amount": 18963.0}
+
+
+def _mr511_sendback_decide(bill, request, bill_rows_for_request, payment_row_exists, live_legs, debit, restores):
+    """Pure: which steps the repair must take, or why it must not run at all.
+    Steps already done are simply absent, so a re-run plans nothing."""
+    problems, steps = [], []
+    if not bill:
+        problems.append("bill %s not found" % _MR511_SENDBACK["bill_id"])
+    if not request:
+        problems.append("request %s not found" % _MR511_SENDBACK["request_id"])
+    if bill and request and bill.get("source_request_id") != request.get("request_id"):
+        problems.append("bill's source_request_id is '%s', expected %s"
+                        % (bill.get("source_request_id"), request.get("request_id")))
+    # The send-back resets EVERY bill row of the request; a second (e.g.
+    # superseded) row would come back to life as a duplicate card.
+    if bill_rows_for_request != 1:
+        problems.append("%s bill rows carry this request, expected exactly 1" % bill_rows_for_request)
+    if payment_row_exists:
+        problems.append("payment row %s exists again; use the normal Send back to Approvals"
+                        % _MR511["expense_id"])
+    if live_legs:
+        problems.append("bill has payment rows %s; it has been paid again" % ", ".join(live_legs))
+    status = ((bill or {}).get("status") or "").lower()
+    if status == "paid":
+        steps.append("send_back")
+    elif bill and status != "pending_accounts_approval":
+        problems.append("bill status is '%s', expected 'paid'" % status)
+    if debit:
+        if (abs(float(debit.get("amount") or 0) + _MR511_SENDBACK["amount"]) > 0.5
+                or debit.get("linked_expense_id") != _MR511["expense_id"]):
+            problems.append("%s is not MR511's -18,963 debit on %s"
+                            % (_MR511_SENDBACK["debit_entry_id"], _MR511["expense_id"]))
+        elif restores:
+            problems.append("cheque-bounce Restore(s) %s point at the debit" % ", ".join(restores))
+        else:
+            steps.append("delete_debit")
+    return {"problems": problems, "steps": steps}
+
+
+async def _plan_mr511_sendback() -> Dict[str, Any]:
+    ids = list(_MR511_SENDBACK[k] for k in ("bill_id", "request_id"))
+    bill = await db.material_expenses.find_one({"expense_id": _MR511_SENDBACK["bill_id"]}, {"_id": 0})
+    request = await db.material_requests.find_one({"request_id": _MR511_SENDBACK["request_id"]}, {"_id": 0})
+    bill_rows_for_request = await db.material_expenses.count_documents({"$or": [
+        {"source_request_id": _MR511_SENDBACK["request_id"]}, {"request_id": _MR511_SENDBACK["request_id"]}]})
+    payment_row =await db.recorded_expenses.find_one({"expense_id": _MR511["expense_id"]}, {"_id": 0, "expense_id": 1})
+    legs = await db.recorded_expenses.find({"$or": [
+        {"request_id": {"$in": ids}}, {"material_request_id": {"$in": ids}},
+        {"material_expense_id": {"$in": ids}}, {"source_request_id": {"$in": ids}},
+    ]}, {"_id": 0, "expense_id": 1, "status": 1}).to_list(50)
+    live_legs = [l["expense_id"] for l in legs
+                 if (l.get("status") or "").lower() not in _PAID_LEG_EXCLUDED_STATUS]
+    debit = await db.suspense_entries.find_one({"entry_id": _MR511_SENDBACK["debit_entry_id"]}, {"_id": 0})
+    restores = [r.get("entry_id") for r in await db.suspense_entries.find(
+        {"source_type": "cheque_bounce_reversal", "reversed_entry_id": _MR511_SENDBACK["debit_entry_id"]},
+        {"_id": 0, "entry_id": 1}).to_list(20)]
+    cashflow_rows = await db.cashflow_ledger.count_documents({"source_id": {"$in": ids}, "kind": "expense"})
+    vendor = (bill or {}).get("vendor_name") or "SATHISKUMAR AGENCY"
+    available = await _live_vendor_suspense_balance("material", vendor, bill or {})
+    decision = _mr511_sendback_decide(bill, request, bill_rows_for_request, bool(payment_row),
+                                      live_legs, debit, restores)
+    return {
+        **decision,
+        "bill": {"expense_id": _MR511_SENDBACK["bill_id"], "status": (bill or {}).get("status"),
+                 "after": "pending_accounts_approval — listed in Approvals → Materials for 18,963"
+                          if "send_back" in decision["steps"] else "unchanged"},
+        "request": {"request_id": _MR511_SENDBACK["request_id"], "request_number": (request or {}).get("request_number"),
+                    "status": (request or {}).get("status"),
+                    "after": "pending_accounts_approval" if "send_back" in decision["steps"] else "unchanged"},
+        "payment_row": {"expense_id": _MR511["expense_id"], "exists": bool(payment_row)},
+        "orphaned_debit": {"entry_id": _MR511_SENDBACK["debit_entry_id"], "exists": bool(debit),
+                           "amount": (debit or {}).get("amount"),
+                           "after": "deleted" if "delete_debit" in decision["steps"] else "unchanged"},
+        "cashflow_rows_removed_by_send_back": cashflow_rows if "send_back" in decision["steps"] else 0,
+        "vendor_suspense_available": {"vendor": vendor, "now": round(available, 2),
+                                      "after": "unchanged — the orphaned debit is already ignored"},
+        "not_touched": "cheques, income, cashbook balances, every other bill",
+    }
+
+
+@router.get("/admin/usb-mr511-sendback-dryrun")
+async def usb_mr511_sendback_dryrun(user: User = Depends(get_current_user)):
+    """READ-ONLY: what putting USB-MR511 back in Approvals would change."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return {"write_performed": False, **(await _plan_mr511_sendback())}
+
+
+@router.post("/admin/usb-mr511-sendback-apply")
+async def usb_mr511_sendback_apply(user: User = Depends(get_current_user)):
+    """Send USB-MR511 back to Approvals and delete its orphaned debit.
+    Refuses on any surprise; steps already done are skipped, so re-runs no-op."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    plan = await _plan_mr511_sendback()
+    if plan["problems"]:
+        raise HTTPException(status_code=409, detail="; ".join(plan["problems"]))
+    result: Dict[str, Any] = {"sent_back": None, "debit_deleted": 0}
+    if "send_back" in plan["steps"]:
+        result["sent_back"] = await send_material_back_to_approvals(_MR511_SENDBACK["bill_id"], user)
+    if "delete_debit" in plan["steps"]:
+        res = await db.suspense_entries.delete_one({
+            "entry_id": _MR511_SENDBACK["debit_entry_id"], "linked_expense_id": _MR511["expense_id"],
+            "amount": {"$gte": -_MR511_SENDBACK["amount"] - 0.5, "$lte": -_MR511_SENDBACK["amount"] + 0.5},
+        })
+        result["debit_deleted"] = res.deleted_count
+    after = await _plan_mr511_sendback()
+    result["after"] = {"bill_status": after["bill"]["status"], "request_status": after["request"]["status"],
+                       "orphaned_debit_exists": after["orphaned_debit"]["exists"],
+                       "vendor_suspense_available": after["vendor_suspense_available"]["now"]}
+    await create_audit_log(user.user_id, "usb_mr511_sendback", "material_expense", _MR511_SENDBACK["bill_id"],
+                           {"steps": plan["steps"], **{k: v for k, v in result.items() if k != "sent_back"}})
+    return {"write_performed": bool(result["sent_back"] or result["debit_deleted"]), **result}
+
+
 @router.get("/approvals/{req_type}/{request_id}/pay-context")
 async def get_pay_context(req_type: str, request_id: str, user: User = Depends(get_current_user)):
     """Returns request details + current suspense balance + active opened cheques (for the dialog)."""
