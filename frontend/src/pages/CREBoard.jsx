@@ -611,7 +611,10 @@ export default function CREBoard() {
 
   const openCollectDialog = async (stage) => {
     setSelectedPaymentStage(stage);
-    const balance = (stage.amount || 0) - (stage.amount_received || 0);
+    // collect_cap: a Re-Collect while other collections of the stage still
+    // wait in Approvals — only the money not waiting there can be collected.
+    const cap = stage.collect_cap ?? null;
+    const balance = cap ?? ((stage.amount || 0) - (stage.amount_received || 0));
     setCollectForm({ amount: balance, mode: 'bank_transfer', reference: '', remarks: '', num_cheques: 1, cheque_details: [] });
     setBulkCollectAmount('');
     // Seed the picker with the clicked stage so the Smart Collect block
@@ -648,7 +651,9 @@ export default function CREBoard() {
           `${API}/projects/${stage.project_id}/outstanding-stages`,
           { params }
         );
-        const apiStages = res.data?.stages || [];
+        const apiStages = (res.data?.stages || []).map(s => (
+          cap != null && s.stage_id === stage.stage_id ? { ...s, balance: Math.min(s.balance, cap) } : s
+        ));
         // Merge: ensure the clicked stage is in the list even if the API
         // didn't include it (e.g. workflow_status not set on legacy rows).
         const hasClicked = apiStages.some(s => s.stage_id === stage.stage_id);
@@ -741,6 +746,12 @@ export default function CREBoard() {
           const plan = computeFIFOAllocation(bulkAmt, ordered);
           manualAllocations = plan.filter(p => p.allocated > 0).map(p => ({ stage_id: p.stage_id, amount: p.allocated }));
         }
+        const cap = selectedPaymentStage.collect_cap;
+        const capped = cap != null && (manualAllocations || []).find(a => a.stage_id === selectedPaymentStage.stage_id);
+        if (capped && capped.amount > cap + 1) {
+          toast.error(`Only ${formatCurrency(cap)} can be collected on this stage now — ${formatCurrency(selectedPaymentStage.pending_approval_amount)} is still waiting in Accountant Approvals.`);
+          return;
+        }
         const res = await axios.post(`${API}/projects/${selectedPaymentStage.project_id}/collect-payment-bulk`, {
           amount: bulkAmt,
           payment_mode: mode,
@@ -769,7 +780,7 @@ export default function CREBoard() {
     // Legacy single-stage path
     const totalPayEntries = collectPaymentEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
     if (collectPaymentEntries.length === 0 || totalPayEntries <= 0) { toast.error('Add at least one payment entry'); return; }
-    const balance = (selectedPaymentStage.amount || 0) - (selectedPaymentStage.amount_received || 0);
+    const balance = selectedPaymentStage.collect_cap ?? ((selectedPaymentStage.amount || 0) - (selectedPaymentStage.amount_received || 0));
     if (totalPayEntries > balance + 1) { toast.error(`Amount exceeds remaining balance of ${formatCurrency(balance)}`); return; }
 
     // Each cheque-mode payment needs cheque numbers whose amounts add up exactly to the payment
@@ -1616,8 +1627,18 @@ export default function CREBoard() {
                                 // 'requested' until CRE collects again (which clears the reason).
                                 const isAccRejected = !!e.accountant_rejection_reason && e.workflow_status === 'requested'
                                   && !hasPendingApproval && !isCollected && !stageFullyPaid;
+                                // Oct 16 2026 — the Accountant rejected one collection of the
+                                // stage (e.g. one of several deleted cheques) while others still
+                                // wait in Approvals. The rejected money is back with CRE, so
+                                // Re-Collect opens for what is not waiting there; the rows still
+                                // in Approvals keep their share locked until they are rejected.
+                                const reCollectable = Math.round(((e.amount || 0) - (e.amount_received || 0) - pendingApprovalAmt) * 100) / 100;
+                                const isAccRejectedBesidePending = hasPendingApproval && !!e.accountant_rejection_reason
+                                  && e.workflow_status === 'requested' && !stageFullyPaid && reCollectable > 0.5;
+                                const showAccRejected = isAccRejected || isAccRejectedBesidePending;
                                 let badge;
-                                if (hasPendingApproval) badge = <Badge className="bg-orange-100 text-orange-700 text-[11px] whitespace-nowrap">Pending Accountant Approval</Badge>;
+                                if (isAccRejectedBesidePending) badge = <Badge className="bg-red-100 text-red-700 border-red-300 text-[11px] whitespace-nowrap">Accountant Rejected</Badge>;
+                                else if (hasPendingApproval) badge = <Badge className="bg-orange-100 text-orange-700 text-[11px] whitespace-nowrap">Pending Accountant Approval</Badge>;
                                 else if (isCollected) badge = <Badge className="bg-green-100 text-green-700 text-[11px]">Collected</Badge>;
                                 else if (isAccRejected) badge = <Badge className="bg-red-100 text-red-700 border-red-300 text-[11px] whitespace-nowrap">Accountant Rejected</Badge>;
                                 else if (isPartial) badge = <Badge className="bg-amber-100 text-amber-700 text-[11px]">Partial</Badge>;
@@ -1669,13 +1690,18 @@ export default function CREBoard() {
                                     <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(balance)}</td>
                                     <td className="px-4 py-2.5 text-center">
                                       {badge}
-                                      {isAccRejected && (
+                                      {showAccRejected && (
                                         <p
                                           className="mt-1 text-[10px] text-red-600 max-w-[200px] mx-auto truncate"
                                           title={`${e.accountant_rejection_reason}${e.accountant_rejected_by_name ? ` — ${e.accountant_rejected_by_name}` : ''}`}
                                           data-testid={`ps-acc-reject-reason-${e.entry_id || e.stage_id}`}
                                         >
                                           {e.accountant_rejection_reason}{e.accountant_rejected_by_name ? ` — ${e.accountant_rejected_by_name}` : ''}
+                                        </p>
+                                      )}
+                                      {isAccRejectedBesidePending && (
+                                        <p className="mt-0.5 text-[10px] text-orange-600 whitespace-nowrap" data-testid={`ps-recollect-cap-${e.entry_id || e.stage_id}`}>
+                                          {formatCurrency(reCollectable)} to re-collect · {formatCurrency(pendingApprovalAmt)} in Approvals
                                         </p>
                                       )}
                                     </td>
@@ -1696,16 +1722,16 @@ export default function CREBoard() {
                                         )}
                                         {isCollected || (stageFullyPaid && !hasPendingApproval) ? (
                                           <span className="text-[11px] text-gray-400">—</span>
-                                        ) : hasPendingApproval ? (
+                                        ) : hasPendingApproval && !isAccRejectedBesidePending ? (
                                           <span className="text-[11px] text-orange-600 font-medium">Awaiting approval</span>
                                         ) : (
                                           <Button
                                             size="sm"
-                                            className={`h-7 px-2 text-xs ${isAccRejected ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
-                                            onClick={() => openCollectDialog({ ...e, stage_id: e.stage_id })}
+                                            className={`h-7 px-2 text-xs ${showAccRejected ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
+                                            onClick={() => openCollectDialog({ ...e, stage_id: e.stage_id, collect_cap: isAccRejectedBesidePending ? reCollectable : null })}
                                             data-testid={`ps-collect-${e.entry_id || e.stage_id}`}
                                           >
-                                            <IndianRupee className="h-3.5 w-3.5 mr-1" /> {isAccRejected ? 'Re-Collect' : 'Collect'}
+                                            <IndianRupee className="h-3.5 w-3.5 mr-1" /> {showAccRejected ? 'Re-Collect' : 'Collect'}
                                           </Button>
                                         )}
                                       </div>
@@ -2122,6 +2148,12 @@ export default function CREBoard() {
               <div><p className="text-xs text-gray-500">Already Received</p><p className="font-semibold text-green-600">{formatCurrency(selectedPaymentStage?.amount_received || 0)}</p></div>
               <div><p className="text-xs text-gray-500">Balance</p><p className="font-semibold text-red-600">{formatCurrency((selectedPaymentStage?.amount || 0) - (selectedPaymentStage?.amount_received || 0))}</p></div>
             </div>
+            {selectedPaymentStage?.collect_cap != null && (
+              <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800" data-testid="collect-cap-banner">
+                {formatCurrency(selectedPaymentStage.pending_approval_amount)} of this balance is still waiting in Accountant Approvals.
+                Collect up to <span className="font-semibold">{formatCurrency(selectedPaymentStage.collect_cap)}</span> now; the rest opens up as the Accountant rejects it.
+              </div>
+            )}
 
             {/* Smart Bulk Collect — always shown in CRE Collect so the picker
                 + allocation table is the single source of truth, even when
@@ -2309,7 +2341,7 @@ export default function CREBoard() {
             <MultiPaymentInput
               totalAmount={(parseFloat(bulkCollectAmount) > 0)
                 ? parseFloat(bulkCollectAmount)
-                : (selectedPaymentStage?.amount || 0) - (selectedPaymentStage?.amount_received || 0)}
+                : selectedPaymentStage?.collect_cap ?? ((selectedPaymentStage?.amount || 0) - (selectedPaymentStage?.amount_received || 0))}
               entries={collectPaymentEntries}
               onChange={setCollectPaymentEntries}
               allowPartial={true}
