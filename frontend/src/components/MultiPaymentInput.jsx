@@ -27,6 +27,12 @@ const chequeTotal = (entry) => (entry.cheque_details || []).reduce((s, c) => s +
 const chequeShortfall = (entry) => (parseFloat(entry.amount) || 0) - chequeTotal(entry);
 const isChequeMismatch = (entry) => entry.payment_mode === 'cheque' && Math.abs(chequeShortfall(entry)) >= 0.01;
 
+// Clicking anywhere in a date box opens the calendar, not just the icon.
+// showPicker() throws outside a user gesture / in some iframes — ignore.
+const openDatePicker = (e) => {
+  try { e.currentTarget.showPicker?.(); } catch { /* typing still works */ }
+};
+
 // Returns an error message for the first invalid cheque payment, or null.
 // Callers run this before submitting so a mismatch blocks Confirm.
 export function getChequeEntriesError(entries) {
@@ -151,8 +157,9 @@ export function MultiPaymentInput({ totalAmount, entries, onChange, allowPartial
                   data-testid={`payment-amount-${idx}`} />
                 <Input
                   type="date"
-                  className="h-7 w-[125px] text-[11px]"
+                  className="h-7 w-[140px] shrink-0 px-2 text-[11px] cursor-pointer"
                   value={entry.payment_date || ''}
+                  onClick={openDatePicker}
                   onChange={(e) => updateEntry(idx, 'payment_date', e.target.value)}
                   title="Payment date (defaults to today)"
                   data-testid={`payment-date-${idx}`}
@@ -187,8 +194,10 @@ export function MultiPaymentInput({ totalAmount, entries, onChange, allowPartial
                         value={chq.bank_name} onChange={(e) => updateCheque(idx, ci, 'bank_name', e.target.value)} />
                       <NumericInput placeholder="Amount" className="h-7 w-[140px] text-[11px] font-semibold"
                         value={chq.amount} onChange={(e) => updateCheque(idx, ci, 'amount', e.target.value)} />
-                      <Input type="date" className="h-7 w-[120px] text-[10px]"
-                        value={chq.cheque_date} onChange={(e) => updateCheque(idx, ci, 'cheque_date', e.target.value)} />
+                      <Input type="date" className="h-7 w-[140px] px-2 text-[10px] cursor-pointer"
+                        value={chq.cheque_date || ''} onClick={openDatePicker}
+                        onChange={(e) => updateCheque(idx, ci, 'cheque_date', e.target.value)}
+                        title="Cheque date" data-testid={`cheque-date-${idx}-${ci}`} />
                       <Button type="button" size="sm" variant="ghost" className="h-5 w-5 p-0 text-red-400"
                         onClick={() => removeCheque(idx, ci)}>
                         <Trash2 className="h-2.5 w-2.5" />
