@@ -2674,6 +2674,14 @@ async def get_unified_approvals(
     stamp_accounts_received(petty_cash, "petty_cash")
     stamp_accounts_received(recorded_expenses_q, "recorded_expense")
 
+    # Oct 20 2026 — a bill whose paid_amount was wiped while its payment row
+    # survives (USB-MR1255) reported "0 paid" and sat in Pending. The Legacy
+    # card reads this instead; the stored field is left as it is.
+    _recovered_paid = await recover_wiped_paid_amounts(materials)
+    for item in materials:
+        if item.get("expense_id") in _recovered_paid:
+            item["collected_amount"] = _recovered_paid[item["expense_id"]]
+
     # material_expenses mirror rows don't carry the human-friendly USB-MR
     # sequential number themselves — only the live material_requests parent
     # does — so attach it here via source_request_id, otherwise the
@@ -10310,6 +10318,80 @@ def _prior_phase_paid_to_exclude(payment_phase, bill_amount, parent_balance,
     return max(0.0, parent_advance_paid or 0.0)
 
 
+# Oct 20 2026 - USB-MR1255 (M-Sand / OM MURUGA EARTH, Mr. Muralikannan).
+# 15,895.37 of a 16,885 bill was settled on Oct 8 from the vendor's suspense
+# (Cashbook: "M-Sand (via Cheque #105863 suspense)"), and that payment row is
+# still live. Later the bill came back as pending with paid_amount wiped but
+# remaining_balance 989.63 and last_partial_paid_at left behind. Every reader
+# keyed off paid_amount, so the card said "0 of 16,885 paid" in Pending while
+# its own Balance said 990, and Pay & Settle asked for the full 16,885 again.
+#
+# A wiped paid_amount is recovered only when two independent records agree:
+# the bill's own surviving payment rows (keyed request_id == this bill, which
+# is how pay_approval writes them) plus its stored remaining_balance must add
+# up to the bill. A row borrowed from another bill, a phase-reused mirror, or a
+# bounced leg breaks that sum, and then nothing is recovered.
+_PAID_RECOVERY_STATUSES = {"partially_paid", "pending_accounts_approval",
+                           "pending_balance_payment", "pending_advance_payment"}
+
+
+def _num(v) -> float:
+    # These run over every row of the Approvals list; one odd value must not
+    # take the whole list down.
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _material_bill_amount(bill: Dict[str, Any]) -> float:
+    return _num(bill.get("final_amount") or bill.get("estimated_cost")
+                or bill.get("estimated_price") or bill.get("final_price"))
+
+
+def _is_paid_recovery_candidate(bill: Dict[str, Any]) -> bool:
+    return (_num(bill.get("paid_amount")) <= 0.5
+            and str(bill.get("status") or "").lower() in _PAID_RECOVERY_STATUSES
+            and bool(bill.get("last_partial_paid_at"))
+            and bool(bill.get("expense_id"))
+            and _num(bill.get("remaining_balance")) > 0.5
+            and _material_bill_amount(bill) > 0.5)
+
+
+def corroborated_paid_from_legs(bill: Dict[str, Any], legs: List[Dict[str, Any]]) -> float:
+    """Pure: the paid figure a wiped bill really carries, or 0 if unproven."""
+    if not _is_paid_recovery_candidate(bill):
+        return 0.0
+    paid = round(sum(
+        _num(l.get("amount")) for l in legs
+        if l.get("request_id") == bill["expense_id"]
+        and not l.get("is_deleted")
+        and str(l.get("status") or "").lower() not in _PAID_LEG_EXCLUDED_STATUS
+    ), 2)
+    if paid <= 0.5:
+        return 0.0
+    if abs(paid + _num(bill.get("remaining_balance")) - _material_bill_amount(bill)) > 0.5:
+        return 0.0
+    return paid
+
+
+async def recover_wiped_paid_amounts(bills: List[Dict[str, Any]]) -> Dict[str, float]:
+    """expense_id -> recovered paid figure, for the bills that qualify. One query."""
+    candidates = [b for b in bills if _is_paid_recovery_candidate(b)]
+    if not candidates:
+        return {}
+    legs = await db.recorded_expenses.find(
+        {"request_id": {"$in": [b["expense_id"] for b in candidates]}},
+        {"_id": 0, "request_id": 1, "amount": 1, "status": 1, "is_deleted": 1},
+    ).to_list(5000)
+    out: Dict[str, float] = {}
+    for b in candidates:
+        paid = corroborated_paid_from_legs(b, legs)
+        if paid > 0.5:
+            out[b["expense_id"]] = paid
+    return out
+
+
 async def _reconciled_already_paid(req: Dict[str, Any]) -> float:
     """How much of this bill is *actually* still paid for.
 
@@ -10332,10 +10414,16 @@ async def _reconciled_already_paid(req: Dict[str, Any]) -> float:
       • no legs and no such proof → keep the stored value untouched, because
         absence of legs alone could just be a linkage this doesn't know about,
         and under-counting would invite a double payment.
+
+    Oct 20 2026 — the one exception that RAISES the figure: a stored 0 whose
+    bill still carries live payment rows and a remaining_balance that together
+    add up to the bill (see corroborated_paid_from_legs). Trusting that 0 is
+    the under-count the rule above warns about — USB-MR1255 offered 16,885
+    for a bill with 15,895.37 already paid.
     """
     stored = float(req.get("paid_amount") or 0)
     if stored <= 0.5:
-        return 0.0
+        return (await recover_wiped_paid_amounts([req])).get(req.get("expense_id"), 0.0)
     ids = [i for i in {req.get("expense_id"), req.get("source_request_id"),
                        req.get("request_id"), req.get("material_expense_id")} if i]
     if not ids:
@@ -11130,6 +11218,198 @@ async def usb_mr511_sendback_apply(user: User = Depends(get_current_user)):
     return {"write_performed": bool(result["sent_back"] or result["debit_deleted"]), **result}
 
 
+# ── Oct 20 2026 — USB-MR1255: put back the paid amount that was wiped ──
+# M-Sand / OM MURUGA EARTH (Mr. Muralikannan), bill 16,885. On Oct 8 15,895.37
+# of it was settled from the vendor's suspense (Cashbook: "M-Sand (via Cheque
+# #105863 suspense)"), leaving 989.63. The bill later came back pending with
+# paid_amount wiped but remaining_balance 989.63 and last_partial_paid_at
+# kept, so its card read "0 of 16,885 paid" in Pending and Pay & Settle asked
+# for the full 16,885. recover_wiped_paid_amounts already corrects what the
+# screens show; this writes the figure back onto the bill itself.
+# Only paid_amount / remaining_balance change. Status is left alone so the
+# card stays where it is listed today. It refuses unless the payment row, its
+# suspense debit and Cheque #105863 are all still good, so it can never mark
+# as paid money that a bounce took back.
+_MR1255 = {"request_number": "USB-MR1255", "bill_amount": 16885.0,
+           "paid": 15895.37, "cheque_number": "105863"}
+_MR1255_BAD_CHEQUE_STATUS = {"bounced", "deleted", "cancelled", "rejected", "disabled"}
+
+
+def _mr1255_paid_repair_decide(request, bills, legs, broad_paid, cheques, debits, restores):
+    """Pure: which write the repair must make, or why it must not run at all.
+    Once applied, a re-run plans nothing."""
+    problems, steps = [], []
+    want_paid, want_bill = _MR1255["paid"], _MR1255["bill_amount"]
+    if not request:
+        problems.append("request %s not found" % _MR1255["request_number"])
+    if len(bills) != 1:
+        problems.append("%d live bill rows carry this request, expected exactly 1" % len(bills))
+    bill = bills[0] if len(bills) == 1 else {}
+    if bill:
+        amount = _material_bill_amount(bill)
+        if abs(amount - want_bill) > 0.5:
+            problems.append("bill amount is %s, expected %s" % (amount, want_bill))
+        status = (bill.get("status") or "").lower()
+        if status not in _PAID_RECOVERY_STATUSES:
+            problems.append("bill status is '%s', so it is no longer waiting for payment" % status)
+        remaining = float(bill.get("remaining_balance") or 0)
+        if abs(remaining - round(want_bill - want_paid, 2)) > 0.5:
+            problems.append("remaining_balance is %s, expected %s" % (remaining, round(want_bill - want_paid, 2)))
+        stored = float(bill.get("paid_amount") or 0)
+        if stored <= 0.5:
+            steps.append("restore_paid_amount")
+        elif abs(stored - want_paid) > 0.005:
+            problems.append("paid_amount is %s, expected 0 (wiped) or %s (already repaired)" % (stored, want_paid))
+
+    live = [l for l in legs if not l.get("is_deleted")
+            and (l.get("status") or "").lower() not in _PAID_LEG_EXCLUDED_STATUS]
+    paid = round(sum(float(l.get("amount") or 0) for l in live), 2)
+    if abs(paid - want_paid) > 0.005:
+        problems.append("live payment rows on the bill total %s, expected %s" % (paid, want_paid))
+    if abs(broad_paid - paid) > 0.005:
+        problems.append("payment rows matched by any link total %s, not %s - a row from another "
+                        "bill may be attached here" % (broad_paid, paid))
+
+    if not cheques:
+        problems.append("Cheque #%s not found, so it cannot be confirmed as still good" % _MR1255["cheque_number"])
+    for c in cheques:
+        if str(c.get("cheque_number") or "") != _MR1255["cheque_number"]:
+            problems.append("payment is linked to Cheque #%s, expected #%s"
+                            % (c.get("cheque_number"), _MR1255["cheque_number"]))
+        if (c.get("status") or "").lower() in _MR1255_BAD_CHEQUE_STATUS:
+            problems.append("Cheque #%s is %s - the money behind this payment came back"
+                            % (c.get("cheque_number"), c.get("status")))
+
+    debit_total = round(sum(float(d.get("amount") or 0) for d in debits), 2)
+    if abs(debit_total + paid) > 0.5:
+        problems.append("suspense debits behind the payment total %s, expected -%s" % (debit_total, paid))
+    if restores:
+        problems.append("cheque-bounce Restore(s) %s point at that debit" % ", ".join(restores))
+    return {"problems": problems, "steps": steps}
+
+
+async def _plan_mr1255_paid_repair() -> Dict[str, Any]:
+    request = await db.material_requests.find_one({"request_number": _MR1255["request_number"]}, {"_id": 0})
+    rid = (request or {}).get("request_id")
+    bills = await db.material_expenses.find(
+        {"$or": [{"source_request_id": rid}, {"request_id": rid}], "status": {"$ne": "superseded"}},
+        {"_id": 0}).to_list(20) if rid else []
+    bill = bills[0] if len(bills) == 1 else {}
+    bill_id = bill.get("expense_id")
+    legs = await db.recorded_expenses.find({"request_id": bill_id}, {"_id": 0}).to_list(50) if bill_id else []
+    ids = [i for i in (bill_id, rid) if i]
+    broad = await db.recorded_expenses.find({"$or": [
+        {"request_id": {"$in": ids}}, {"material_request_id": {"$in": ids}},
+        {"material_expense_id": {"$in": ids}}, {"source_request_id": {"$in": ids}},
+        {"approval_id": {"$in": ids}},
+    ]}, {"_id": 0, "expense_id": 1, "amount": 1, "status": 1, "is_deleted": 1}).to_list(50) if ids else []
+
+    def _good(l):
+        return not l.get("is_deleted") and (l.get("status") or "").lower() not in _PAID_LEG_EXCLUDED_STATUS
+
+    broad_paid = round(sum(float(l.get("amount") or 0)
+                           for l in {l.get("expense_id"): l for l in broad}.values() if _good(l)), 2)
+    live = [l for l in legs if _good(l)]
+    paid = round(sum(float(l.get("amount") or 0) for l in live), 2)
+    live_ids = [l["expense_id"] for l in live if l.get("expense_id")]
+    chq_ids = sorted({c for l in live for c in [l.get("cheque_id"), *(l.get("cheque_ids") or [])] if c})
+    cheques = await db.cheques.find(
+        {"cheque_id": {"$in": chq_ids}} if chq_ids else {"cheque_number": _MR1255["cheque_number"]},
+        {"_id": 0}).to_list(20)
+    debits = await db.suspense_entries.find(
+        {"linked_expense_id": {"$in": live_ids}, "amount": {"$lt": -0.5}}, {"_id": 0}).to_list(20) if live_ids else []
+    restores = [r.get("entry_id") for r in await db.suspense_entries.find(
+        {"source_type": "cheque_bounce_reversal", "reversed_entry_id": {"$in": [d.get("entry_id") for d in debits]}},
+        {"_id": 0, "entry_id": 1}).to_list(20)] if debits else []
+
+    # Everything recorded against the bill, its payment rows and the cheque,
+    # oldest first - this is what names the action that wiped paid_amount.
+    hist_ids = list({*ids, *live_ids, *(c.get("cheque_id") for c in cheques if c.get("cheque_id"))})
+    audit = await db.audit_logs.find({"resource_id": {"$in": hist_ids}}, {"_id": 0}).to_list(300) if hist_ids else []
+    names = {u["user_id"]: u.get("name") for u in await db.users.find(
+        {"user_id": {"$in": list({a.get("user_id") for a in audit if a.get("user_id")})}},
+        {"_id": 0, "user_id": 1, "name": 1}).to_list(100)}
+
+    decision = _mr1255_paid_repair_decide(request, bills, legs, broad_paid, cheques, debits, restores)
+    amount = _material_bill_amount(bill) if bill else 0.0
+    fixing = "restore_paid_amount" in decision["steps"]
+    return {
+        **decision,
+        "bill": {**{k: bill.get(k) for k in (
+            "expense_id", "status", "paid_amount", "remaining_balance", "last_partial_paid_at",
+            "paid_via_expense_id", "cheque_bounced", "bounced_from_cheque_number", "bounce_reason",
+            "bounced_at", "pulled_back_from_cashbook", "sent_back_to_approvals_at", "updated_at")},
+                 "amount": amount},
+        "request": {k: (request or {}).get(k) for k in (
+            "request_id", "request_number", "status", "expense_id", "payment_mode", "cheque_bounced")},
+        "payment": {"total": paid, "rows": [{k: l.get(k) for k in (
+            "expense_id", "amount", "status", "source", "payment_method", "cheque_id", "credit_applied",
+            "description", "created_at")} for l in live]},
+        "cheques": [{k: c.get(k) for k in (
+            "cheque_id", "cheque_number", "amount", "status", "party_name", "project_name",
+            "bounced_at", "bounce_reason", "used_for_expense_id")} for c in cheques],
+        "suspense_debits": [{k: d.get(k) for k in ("entry_id", "amount", "description", "created_at")}
+                            for d in debits],
+        "history": sorted([{"when": a.get("timestamp"), "action": a.get("action"),
+                            "by": names.get(a.get("user_id")) or a.get("user_id"),
+                            "resource_type": a.get("resource_type"), "resource_id": a.get("resource_id"),
+                            "details": a.get("details")} for a in audit], key=lambda r: str(r["when"] or "")),
+        "after": {"paid_amount": paid, "remaining_balance": round(amount - paid, 2),
+                  "card": "Partially Collected - %s of %s paid, Balance %s" % (paid, amount, round(amount - paid, 2)),
+                  "pay_and_settle_net_payable": round(amount - paid, 2)} if fixing else "unchanged",
+        "not_touched": "bill status, payment rows, suspense, cheques, cashbook, every other bill",
+    }
+
+
+@router.get("/admin/usb-mr1255-paid-repair-dryrun")
+async def usb_mr1255_paid_repair_dryrun(user: User = Depends(get_current_user)):
+    """READ-ONLY: what restoring USB-MR1255's paid amount would change, and its history."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return {"write_performed": False, **(await _plan_mr1255_paid_repair())}
+
+
+@router.post("/admin/usb-mr1255-paid-repair-apply")
+async def usb_mr1255_paid_repair_apply(user: User = Depends(get_current_user)):
+    """Write USB-MR1255's surviving payment back onto its paid_amount.
+    Refuses on any surprise; once applied, a re-run is a no-op."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    plan = await _plan_mr1255_paid_repair()
+    if plan["problems"]:
+        raise HTTPException(status_code=409, detail="; ".join(plan["problems"]))
+    if "restore_paid_amount" not in plan["steps"]:
+        return {"write_performed": False, "message": "Already repaired - nothing to do", "bill": plan["bill"]}
+    bill, paid = plan["bill"], plan["payment"]["total"]
+    now = datetime.now(timezone.utc).isoformat()
+    # The filter pins the value just checked, so a bill paid in between is left alone.
+    res = await db.material_expenses.update_one(
+        {"expense_id": bill["expense_id"], "paid_amount": bill["paid_amount"]},
+        {"$set": {
+            "paid_amount": paid,
+            "remaining_balance": round(bill["amount"] - paid, 2),
+            "paid_amount_repaired_at": now,
+            "paid_amount_repaired_by": user.user_id,
+            "paid_amount_repaired_from": bill["paid_amount"],
+            "paid_amount_repair_reason": "USB-MR1255: payment row survives, paid_amount had been wiped",
+            "updated_at": now,
+        }},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=409, detail="The bill changed during the repair - nothing was written. Re-run the dry run.")
+    after = await _plan_mr1255_paid_repair()
+    await create_audit_log(user.user_id, "usb_mr1255_paid_repair", "material_expense", bill["expense_id"], {
+        "paid_amount_from": bill["paid_amount"], "paid_amount_to": paid,
+        "remaining_balance_to": round(bill["amount"] - paid, 2),
+        "payment_rows": [r["expense_id"] for r in plan["payment"]["rows"]],
+        "cheques": [[c["cheque_number"], c["status"]] for c in plan["cheques"]],
+    })
+    return {"write_performed": True,
+            "before": {"paid_amount": bill["paid_amount"], "remaining_balance": bill["remaining_balance"]},
+            "after": {k: after["bill"][k] for k in ("status", "paid_amount", "remaining_balance")},
+            "problems_after": after["problems"]}
+
+
 @router.get("/approvals/{req_type}/{request_id}/pay-context")
 async def get_pay_context(req_type: str, request_id: str, user: User = Depends(get_current_user)):
     """Returns request details + current suspense balance + active opened cheques (for the dialog)."""
@@ -11285,7 +11565,11 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
     # must not be deducted from it a second time (USB-MR1801).
     already_paid = max(0.0, already_paid - _prior_phase_paid_to_exclude(
         payment_phase, bill_amount, balance_amount or 0.0, parent_advance_paid))
-    is_continuation = already_paid > 0 and req.get("status") == "partially_paid"
+    # Oct 20 2026 — was also gated on status == "partially_paid". pay_approval
+    # nets already_paid off whatever the status, and the dialog's Net Payable
+    # does too, so a part-paid bill sitting in a pending status (USB-MR1255)
+    # showed Net Payable 990 with the leg pre-filled at the full 16,885.
+    is_continuation = already_paid > 0
     if is_continuation:
         # credit_used stays 0 here too (matches the no-auto-netting default
         # above) — the accountant still opts in per leg via apply_suspense.

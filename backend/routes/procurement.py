@@ -4281,12 +4281,20 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
         rows.extend(extra_rows)
         _req_ids_all.extend(r["request_id"] for r in extra_rows if r.get("request_id"))
     _mirrors_by_req: dict = {}
+    _all_mirrors: list = []
     if _req_ids_all:
         async for m in db.material_expenses.find(
             {"source_request_id": {"$in": _req_ids_all}},
-            {"_id": 0, "expense_id": 1, "source_request_id": 1, "status": 1, "paid_amount": 1, "payment_phase": 1, "remaining_balance": 1},
+            {"_id": 0, "expense_id": 1, "source_request_id": 1, "status": 1, "paid_amount": 1, "payment_phase": 1, "remaining_balance": 1,
+             "last_partial_paid_at": 1, "final_amount": 1, "estimated_cost": 1, "estimated_price": 1, "final_price": 1},
         ):
             _mirrors_by_req.setdefault(m.get("source_request_id"), []).append(m)
+            _all_mirrors.append(m)
+    # Oct 20 2026 — a mirror whose paid_amount was wiped while its payment
+    # row survives (USB-MR1255) counts what it really collected, as proven by
+    # recover_wiped_paid_amounts.
+    from routes.financial import recover_wiped_paid_amounts
+    _recovered_paid = await recover_wiped_paid_amounts(_all_mirrors)
     kept = []
     for r in rows:
         adv_paid = float(r.get("advance_paid_amount") or 0) + float(r.get("balance_paid_amount") or 0)
@@ -4294,6 +4302,9 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
         for m in _mirrors_by_req.get(r.get("request_id"), []):
             if m.get("status") == "partially_paid":
                 mirror_partial += float(m.get("paid_amount") or 0)
+            # Only mirrors whose stored paid_amount is ~0 are ever recovered,
+            # so this never adds on top of a real figure from the line above.
+            mirror_partial += _recovered_paid.get(m.get("expense_id"), 0.0)
         total_amt = float(r.get("total_amount") or r.get("estimated_price") or 0)
         collected = adv_paid + mirror_partial
         bal = max(0.0, total_amt - collected)

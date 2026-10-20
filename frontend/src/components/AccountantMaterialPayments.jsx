@@ -181,9 +181,13 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
   // entries from fresh pending ones. Same payment modes & actions in both.
   const [subTab, setSubTab] = useState('pending');
   const isPartial = (req) => req.status === 'partially_paid' || !!req.last_partial_paid_at || !!req.partially_collected;
+  // Oct 20 2026 — `collected_amount` is set by /approvals/unified when the
+  // stored paid_amount was wiped but the bill's payment row survives
+  // (USB-MR1255: 15,895.37 paid, card read "0 paid" and sat in Pending).
+  const legacyPaid = (exp) => exp.collected_amount || exp.total_paid || exp.paid_amount || 0;
   const isLegacyPartial = (exp) => {
     const amt = exp.final_amount || exp.estimated_cost || exp.estimated_price || 0;
-    const paid = exp.total_paid || exp.paid_amount || 0;
+    const paid = legacyPaid(exp);
     return paid > 0 && paid < amt;
   };
   const partialItems = items.filter(isPartial);
@@ -420,7 +424,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
               <CardContent className="p-3 sm:p-4">
                 {isPartial && exp.remaining_balance > 0 && (
                   <div className="mb-2 bg-yellow-50 border border-yellow-200 rounded px-2 py-1.5 text-[11px] text-yellow-800 flex items-center justify-between">
-                    <span><span className="font-semibold">Partially Paid:</span> {fmt(exp.paid_amount || 0)} of {fmt(amt)} paid</span>
+                    <span><span className="font-semibold">Partially Paid:</span> {fmt(legacyPaid(exp))} of {fmt(amt)} paid</span>
                     <span className="font-bold">Balance: {fmt(exp.remaining_balance)}</span>
                   </div>
                 )}
@@ -459,7 +463,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                       live cards above (Status dropped per request). */}
                   <div>
                     <p className="text-[10px] uppercase text-gray-400 font-semibold">Total / Paid</p>
-                    <p className="font-medium">{fmt(amt)} / {fmt(exp.total_paid || exp.paid_amount || 0)}</p>
+                    <p className="font-medium">{fmt(amt)} / {fmt(legacyPaid(exp))}</p>
                   </div>
                   <div data-testid={`acc-mat-suspense-legacy-${exp.expense_id}`}>
                     <p className="text-[10px] uppercase text-gray-400 font-semibold">Suspense Amount</p>
