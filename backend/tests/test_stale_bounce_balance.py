@@ -345,3 +345,58 @@ def test_the_card_documents_the_case():
     src = _card()
     assert "USB-MR1156" in src
     assert "521267" in src
+
+
+# --------------------------------------------------------------------------
+# The stale "Partially Paid" badge (Oct 20 2026)
+#
+# After both its cheques bounced, USB-MR1156 still showed
+# "Partially Paid: ₹0 of ₹16,445 paid" — a banner that contradicts itself.
+# Two rules on one card disagreed:
+#
+#   tab filter  isLegacyPartial  paid > 0 && paid < amount   -> Pending  ✓
+#   badge       isPartial        status==partially_paid
+#                                || last_partial_paid_at     -> Partial  ✗
+#
+# pay_approval stamps last_partial_paid_at on a part-payment; the bounce
+# reversed the money and left the stamp. Same family as remaining_balance.
+# --------------------------------------------------------------------------
+
+def test_a_full_reversal_clears_the_part_payment_stamps():
+    src = _src()
+    assert "_BOUNCE_CLEARS_PARTIAL_STAMPS = {" in src
+    for f in ("last_partial_paid_at", "last_partial_paid_by", "last_partial_paid_by_name"):
+        assert '"%s": "",' % f in src
+
+
+def test_all_three_reversal_paths_clear_them():
+    """Two direct paths plus the proportional one."""
+    assert _src().count("_BOUNCE_CLEARS_PARTIAL_STAMPS)") == 3
+
+
+def test_a_part_paid_bill_keeps_its_stamps():
+    """The condition that matters. A bill still holding good money IS
+    partially paid, and the badge is right to say so."""
+    body = ast.get_source_segment(_src(), _fn("_reverse_cheque_material_suspense_and_bills"))
+    assert "if new_paid <= 0.5:\n                _upd2[\"$unset\"]" in body
+
+
+def test_remaining_balance_is_set_not_unset():
+    """Both would hide the badge, but setting it keeps the field meaningful
+    rather than missing. The two must not fight over the same key."""
+    src = _src()
+    assert '"remaining_balance"' not in src[src.index("_BOUNCE_CLEARS_PARTIAL_STAMPS = {"):
+                                            src.index("_BOUNCE_CLEARS_PARTIAL_STAMPS = {") + 400]
+
+
+def test_the_badge_and_the_tab_disagreed_on_the_same_card():
+    """Documents the two rules, so the next person sees why it looked odd."""
+    card = _card()
+    assert "paid > 0 && paid < amt" in card                       # the tab
+    assert "exp.status === 'partially_paid' || !!exp.last_partial_paid_at" in card  # the badge
+
+
+def test_the_stamp_is_what_drives_the_badge():
+    """Not remaining_balance — which is why clearing the stamp is the fix."""
+    card = _card()
+    assert "!!exp.last_partial_paid_at" in card

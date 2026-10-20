@@ -7990,6 +7990,24 @@ async def reopen_labour_rab_after_bounce(rec_exp: Dict[str, Any], cheque: Dict[s
             "settled_before_bounce": round(max(0.0, prior_approved - amount), 2)}
 
 
+# Oct 20 2026 - stamped by pay_approval when a bill is PART-paid, and read by
+# the Approvals card to decide the "Partially Paid" badge. A bounce that
+# unpays the bill in full has to clear them, or the badge keeps claiming a
+# part-payment that was reversed: USB-MR1156 showed "Partially Paid: 0 of
+# 16,445 paid" for twelve days after both its cheques bounced, while the tab
+# filter - which asks whether any money is actually paid - correctly left it
+# under Pending. Two rules, one card, opposite answers.
+#
+# `remaining_balance` is deliberately NOT in here: both reversal paths now
+# SET it to the full bill amount, which says the same thing without leaving
+# the field missing. See _material_bill_full_amount.
+_BOUNCE_CLEARS_PARTIAL_STAMPS = {
+    "last_partial_paid_at": "",
+    "last_partial_paid_by": "",
+    "last_partial_paid_by_name": "",
+}
+
+
 async def _material_bill_full_amount(expense_id: str) -> Optional[float]:
     """The figure `remaining_balance` must be reset to when a bounce unpays a
     material bill in full.
@@ -8312,7 +8330,10 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
                 _full = await _material_bill_full_amount(req_id)
                 if _full is not None:
                     _reset["remaining_balance"] = _full
-                _upd: Dict[str, Any] = {"$set": _reset}
+                # This path unpays the bill in full, so the part-payment
+                # stamps are no longer true of it.
+                _upd: Dict[str, Any] = {"$set": _reset,
+                                        "$unset": dict(_BOUNCE_CLEARS_PARTIAL_STAMPS)}
                 # A bill can be hit by SEVERAL bounced cheques. The scalar
                 # above keeps only the last one, so the card could never name
                 # them all - accumulate alongside it without changing it.
@@ -8881,6 +8902,11 @@ async def _reverse_cheque_material_suspense_and_bills(
             plan["bills_partially_reversed"].append({"expense_id": expense_id, "reduced_by": reduction, "new_paid_amount": new_paid})
         if not dry_run:
             _upd2: Dict[str, Any] = {"$set": update}
+            # Only a FULL reversal clears the stamps. A bill left genuinely
+            # part-paid must keep them - it really is partially paid, and the
+            # badge is right to say so.
+            if new_paid <= 0.5:
+                _upd2["$unset"] = dict(_BOUNCE_CLEARS_PARTIAL_STAMPS)
             # Oct 20 2026 - keep both paths recording every cheque that hit
             # this bill, so the Approvals badge can name them all.
             if cheque.get("cheque_number"):
@@ -9316,7 +9342,8 @@ async def _send_deleted_cheque_vendor_payments_back(cheque: Dict[str, Any], reas
             _full = await _material_bill_full_amount(req_id)
             if _full is not None:
                 _reset["remaining_balance"] = _full
-            _upd: Dict[str, Any] = {"$set": _reset}
+            _upd: Dict[str, Any] = {"$set": _reset,
+                                    "$unset": dict(_BOUNCE_CLEARS_PARTIAL_STAMPS)}
             if cheque.get("cheque_number"):
                 _upd["$addToSet"] = {"bounced_from_cheque_numbers": cheque.get("cheque_number")}
             await db.material_expenses.update_one({"expense_id": req_id}, _upd)
