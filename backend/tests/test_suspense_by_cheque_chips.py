@@ -29,6 +29,14 @@ linked_cheque_ids or their description, debits through the recorded_expense
 they point at. A bucket with no cheque behind it can go negative (here an
 18,963 debit against a 17,516 restore credit); that deficit settles against
 the other buckets oldest-CREDIT-first.
+
+v6 (Oct 20 2026) - SS AGENCY: #607981 -90,400 beside #001681 59,500 and
+#001682 30,900, Suspense 0. A debit is tagged with the FIRST credit it drew
+on only, so one that ran past #607981's money into the next two credits sat
+wholly on #607981. A payment can never take more than the vendor holds, so a
+CHEQUE below zero is that overflow and settles against the next credits in
+line, oldest first. New debits record `funded_by` and are split exactly.
+Spending with no cheque behind it still keeps its own chip (v4).
 """
 import io
 import os
@@ -37,6 +45,7 @@ import pytest
 
 BACKEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROCUREMENT = os.path.join(BACKEND, "routes", "procurement.py")
+FINANCIAL = os.path.join(BACKEND, "routes", "financial.py")
 
 
 def _src():
@@ -52,8 +61,17 @@ def chips(entries):
     bucket, first_credit = {}, {}
     for amt, lab, ts in entries:
         bucket[lab] = round(bucket.get(lab, 0.0) + amt, 2)
-        if amt > 0.5 and lab not in first_credit:
-            first_credit[lab] = ts
+        if amt > 0.5:
+            first_credit[lab] = min(first_credit.get(lab, ts), ts)
+    for lab in sorted((l for l, v in bucket.items() if v < -0.5 and l.startswith("#")),
+                      key=lambda l: first_credit.get(l, "")):
+        for other in sorted((l for l, v in bucket.items() if v > 0.5),
+                            key=lambda l: first_credit.get(l, "")):
+            if bucket[lab] >= -0.5:
+                break
+            take = round(min(bucket[other], -bucket[lab]), 2)
+            bucket[other] = round(bucket[other] - take, 2)
+            bucket[lab] = round(bucket[lab] + take, 2)
     return {l: v for l, v in bucket.items() if abs(v) > 0.5}
 
 
@@ -147,7 +165,8 @@ def test_order_does_not_change_the_split():
 
 
 def test_a_deficit_keeps_its_own_chip():
-    """Superseded Oct 5 2026 (v4): this used to settle an unattributed deficit
+    """Still true after v6, which settles only a CHEQUE's own overflow.
+    Superseded Oct 5 2026 (v4): this used to settle an unattributed deficit
     against the named cheques, oldest credit first. That docked SATHISKUMAR
     AGENCY's cheque #000015 by 1,447 for spending it never funded, dropping
     its chip from 13,653.60 to 12,206.60. A named cheque must show its own
@@ -238,11 +257,52 @@ def test_a_real_link_outranks_the_description():
     assert block.index("_CHEQUE_IN_DESCRIPTION") < block.index("_expense_by_id_l")
 
 
-def test_no_bucket_is_settled_against_another():
-    """v4 - a cheque must not be docked for spending it did not fund."""
+def test_only_an_overspent_cheque_is_settled():
+    """v4 still holds - a cheque is never docked for spending with no cheque
+    behind it. v6 settles only a bucket labelled with a cheque ("#...") that
+    ends below zero, which can only be its own overflow into the next credits."""
     src = _src()
-    assert "_first_credit" not in src
+    assert 'if v < -0.5 and l.startswith("#")' in src
     assert "_suspense_by_cheque = {l: v for l, v in _bucket.items() if abs(v) > 0.5}" in src
+
+
+# --------------------------------------------------------------------------
+# v6 - a cheque cannot be overspent
+# --------------------------------------------------------------------------
+
+def test_ss_agency_overflow_lands_on_the_cheques_it_came_from():
+    """A draw that took 24,600 from #607981 and the rest from the next two
+    credits used to read #607981 -90,400 / #001681 59,500 / #001682 30,900."""
+    entries = [(+24600.0, "#607981", "2026-09-29"), (+59500.0, "#001681", "2026-10-01"),
+               (+30900.0, "#001682", "2026-10-02"), (-115000.0, "#607981", "2026-10-03")]
+    assert chips(entries) == {}
+    assert total(chips(entries)) == round(sum(a for a, _, _ in entries), 2) == 0.0
+
+
+def test_the_oldest_credit_is_drawn_first():
+    entries = [(+100.0, "#1", "2026-01"), (+1000.0, "#2", "2026-03"), (+1000.0, "#3", "2026-02"),
+               (-600.0, "#1", "2026-04")]
+    assert chips(entries) == {"#2": 1000.0, "#3": 500.0}
+
+
+def test_a_cheque_overflow_can_draw_on_cash_credit_too():
+    entries = [(+100.0, "#1", "a"), (+500.0, "Cash", "b"), (-300.0, "#1", "c")]
+    assert chips(entries) == {"Cash": 300.0}
+
+
+def test_a_vendor_that_is_short_overall_still_shows_it():
+    """Nothing left to settle against: the shortfall stays visible."""
+    assert chips([(+100.0, "#1", "a"), (-300.0, "#1", "b")]) == {"#1": -200.0}
+
+
+def test_new_debits_are_split_by_what_they_drew_on():
+    src = _src()
+    assert 'parts = se.get("funded_by") if amt < -0.5 else None' in src
+    fin = io.open(FINANCIAL, encoding="utf8").read()
+    assert 'funded_by.append({"entry_id": se.get("entry_id"), "amount": round(take, 2)})' in fin
+    assert "return source_entry, source_expense, None, funded_by" in fin
+    assert "return first_funding, None, fallback, funded_by" in fin
+    assert '"funded_by": suspense_funded_by,' in fin
 
 
 def test_the_labelling_writes_nothing():

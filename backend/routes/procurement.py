@@ -5472,11 +5472,54 @@ async def material_vendor_payment_ledger(vendor_key: str, user: User = Depends(g
             return f"#{_src['cheque_number']}"
         return (se.get("payment_mode") or "Other").replace("_", " ").title()
 
+    _labels = {id(se): _label_for(se) for se in _live_fifo_entries}
+    _live_by_entry_id = {se.get("entry_id"): se for se in _live_fifo_entries if se.get("entry_id")}
     _bucket: Dict[str, float] = {}
     for se in _live_fifo_entries:
         amt = float(se.get("amount") or 0)
-        lab = _label_for(se)
+        lab = _labels[id(se)]
+        # Oct 20 2026 (v6) - a debit written since pay_approval records
+        # `funded_by` names every credit it drew on, so split it exactly. A
+        # part whose credit is no longer live stays on the debit's own label.
+        parts = se.get("funded_by") if amt < -0.5 else None
+        if parts:
+            left = -amt
+            for p in parts:
+                take = min(left, float(p.get("amount") or 0))
+                if take <= 0.005:
+                    continue
+                src_credit = _live_by_entry_id.get(p.get("entry_id"))
+                plab = _labels[id(src_credit)] if src_credit is not None else lab
+                _bucket[plab] = round(_bucket.get(plab, 0.0) - take, 2)
+                left -= take
+            if left > 0.005:
+                _bucket[lab] = round(_bucket.get(lab, 0.0) - left, 2)
+            continue
         _bucket[lab] = round(_bucket.get(lab, 0.0) + amt, 2)
+
+    # Oct 20 2026 (v6) - older debits carry one cheque only: the FIRST credit
+    # they drew on. One that ran past that cheque's money took the rest from
+    # the next credits in line, oldest first, yet the whole amount sat on the
+    # first cheque - SS AGENCY: #607981 -90,400 beside #001681 59,500 and
+    # #001682 30,900, exactly the 90,400 it really drew from them. A payment
+    # can never take more than the vendor holds (pay_approval's hard floor),
+    # so a CHEQUE that ends below zero is that overflow: settle it against
+    # the credits it came from, oldest first, the order the draw used.
+    # v4 still holds for spending with no cheque behind it ("Cheque", "Cash",
+    # "Other"): that deficit is a real data gap and keeps its own chip.
+    _first_credit_at: Dict[str, str] = {}
+    for se in _live_fifo_entries:
+        if float(se.get("amount") or 0) > 0.5:
+            _first_credit_at.setdefault(_labels[id(se)], str(se.get("created_at") or ""))
+    for lab in sorted((l for l, v in _bucket.items() if v < -0.5 and l.startswith("#")),
+                      key=lambda l: _first_credit_at.get(l, "")):
+        for other in sorted((l for l, v in _bucket.items() if v > 0.5),
+                            key=lambda l: _first_credit_at.get(l, "")):
+            if _bucket[lab] >= -0.5:
+                break
+            take = round(min(_bucket[other], -_bucket[lab]), 2)
+            _bucket[other] = round(_bucket[other] - take, 2)
+            _bucket[lab] = round(_bucket[lab] + take, 2)
 
     # Oct 5 2026 (v4) - a bucket with no cheque behind it used to have its
     # deficit SETTLED against the named cheques, oldest credit first. That

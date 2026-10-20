@@ -10826,12 +10826,19 @@ async def _resolve_suspense_funding_source(
     source_entry = None
     source_expense = None
     first_funding = None
+    # Oct 20 2026 — every credit this draw takes from, not just the first.
+    # The caller tags the payment with ONE cheque; a draw that runs past that
+    # cheque's money into the next one(s) was tagged entirely to the first,
+    # which is how SS AGENCY's Cheque #607981 chip read -90,400 while #001681
+    # / #001682 looked unspent. Stored on the debit as `funded_by`.
+    funded_by: List[Dict[str, Any]] = []
     for head in queue:
         if remaining_to_source <= 0.5:
             break
         se = head["entry"]
         take = min(head["remaining"], remaining_to_source)
         remaining_to_source -= take
+        funded_by.append({"entry_id": se.get("entry_id"), "amount": round(take, 2)})
         if first_funding is None:
             first_funding = se
         if source_entry is None:
@@ -10842,7 +10849,7 @@ async def _resolve_suspense_funding_source(
                     source_entry = se
                     source_expense = src
     if source_expense is not None:
-        return source_entry, source_expense, None
+        return source_entry, source_expense, None, funded_by
 
     # Oct 6 2026 — No funding credit has a linked expense with a mode (e.g.
     # the USB-MR034 restore credit, inserted by a repair script with no link
@@ -10856,7 +10863,7 @@ async def _resolve_suspense_funding_source(
     fallback = _suspense_credit_own_mode(first_funding) if first_funding else None
     if not fallback:
         fallback = await _suspense_credit_consensus_mode(entries)
-    return first_funding, None, fallback
+    return first_funding, None, fallback, funded_by
 
 
 def _suspense_credit_own_mode(se: Dict[str, Any]) -> Optional[str]:
@@ -12315,7 +12322,7 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     # (_resolve_suspense_funding_source), not just "the oldest credit that
     # happens to have a valid link" — see that function's docstring for why.
     if credit_used > 0.5:
-        source_entry, source_expense, fallback_method = await _resolve_suspense_funding_source(
+        source_entry, source_expense, fallback_method, suspense_funded_by = await _resolve_suspense_funding_source(
             suspense_type, vendor_name, req, credit_used
         )
         inherited_method = (source_expense or {}).get("payment_method") or fallback_method or "suspense"
@@ -12426,6 +12433,10 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             "payment_mode": inherited_method,
             "linked_expense_id": suspense_expense_id,
             "linked_request_id": request_id,
+            # Oct 20 2026 — which credits this debit really drew on, and how
+            # much from each (see _resolve_suspense_funding_source). The
+            # "Suspense by cheque" chips split the debit by this.
+            "funded_by": suspense_funded_by,
             "created_at": now,
             "created_by": user.user_id,
         })
