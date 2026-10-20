@@ -428,6 +428,15 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     <span className="font-bold">Balance: {fmt(exp.remaining_balance)}</span>
                   </div>
                 )}
+                {/* Oct 20 2026 — same banner as the live cards above. A bounced or
+                    deleted cheque resets the bill to unpaid; without this a Legacy
+                    card gave no hint why (USB-MR1494 / USB-MR1156). */}
+                {exp.cheque_bounced && (
+                  <div className="mb-2 bg-red-50 border border-red-200 rounded px-2 py-1.5 text-[11px] text-red-700 flex items-start gap-1.5" data-testid={`acc-mat-bounced-legacy-${exp.expense_id}`}>
+                    <span className="font-semibold">⚠ Cheque Bounced:</span>
+                    <span>#{exp.bounced_from_cheque_number} · {fmt(exp.bounced_from_cheque_amount)} · {exp.bounce_reason || 'No reason'}</span>
+                  </div>
+                )}
                 {exp.pulled_back_from_cashbook && exp.last_cheque_number && (
                   <div className="mb-2 bg-blue-50 border border-blue-200 rounded px-2 py-1.5 text-[11px] text-blue-700 flex items-start gap-1.5" data-testid={`acc-mat-last-cheque-legacy-${exp.expense_id}`}>
                     <span className="font-semibold">↩ Sent back from Cashbook:</span>

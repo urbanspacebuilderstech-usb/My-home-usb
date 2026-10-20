@@ -11410,6 +11410,257 @@ async def usb_mr1255_paid_repair_apply(user: User = Depends(get_current_user)):
             "problems_after": after["problems"]}
 
 
+# ── Oct 20 2026 — every bill showing "Partially Paid: 0 of X paid" ──
+# USB-MR1255 was not alone: USB-MR1494 and USB-MR1156 (M Sand / OM MURUGA
+# EARTH, Mr Shiva, 16,445 each) show the same card - a Partially Paid badge
+# and a Balance (185 / 2,890) next to "0 paid", with Pay & Settle asking for
+# the full bill. Only pay_approval stamps last_partial_paid_at, so each one
+# really took a part-payment; something later wiped paid_amount and left the
+# stamps. Two different truths produce that same card:
+#   - the payment row is still live: the bill IS part-paid and paid_amount
+#     must come back (USB-MR1255);
+#   - the row was reversed by a bounced / deleted cheque - bounce_cheque and
+#     _send_deleted_cheque_vendor_payments_back set paid_amount None on the
+#     bill but leave remaining_balance / last_partial_paid_at behind: nothing
+#     is paid and it is the Balance and badge that are false.
+# The scan sorts each bill by its own payment rows and fixes only what the
+# rows prove; anything else is listed as unclear and left alone.
+_WIPED_SCAN_STATUSES = {"requested", "planning_approved", "procurement_priced", "pending_accounts_approval",
+                        "pending_advance_payment", "pending_balance_payment", "partially_paid"}
+_WIPED_FIXABLE = {"paid_amount_wiped", "partly_bounced", "stale_after_bounce"}
+_GONE_CHEQUE_STATUS = {"bounced", "deleted", "cancelled", "rejected", "disabled"}
+_PARTIAL_STAMP_FIELDS = ("remaining_balance", "last_partial_paid_at", "last_partial_paid_by",
+                         "last_partial_paid_by_name")
+_LEG_LINK_FIELDS = ("request_id", "material_request_id", "material_expense_id", "approval_id", "source_request_id")
+
+
+def _is_suspense_leg(leg: Dict[str, Any]) -> bool:
+    return (leg.get("source") or "") == "approval_suspense" or _num(leg.get("credit_applied")) > 0.5
+
+
+def _classify_wiped_bill(bill, legs, broad_live_total, cheque_status, debit_by_leg, restored_legs):
+    """Pure: what a "Partially Paid, 0 paid" bill really is, and the fix if proven.
+
+    legs              recorded_expenses keyed request_id == this bill, any status
+    broad_live_total  live total over every other field a row can link by
+    cheque_status     {cheque_id: status} for the cheques the live rows name
+    debit_by_leg      {leg expense_id: sum of its suspense debits (negative)}
+    restored_legs     leg ids whose debit a cheque-bounce Restore handed back
+    """
+    def out(cls, reason, fix=None):
+        return {"class": cls, "reason": reason, "fix": fix}
+
+    amount = _material_bill_amount(bill)
+    remaining = _num(bill.get("remaining_balance"))
+    kept = [l for l in legs if not l.get("is_deleted")]
+    live = [l for l in kept if str(l.get("status") or "").lower() not in _PAID_LEG_EXCLUDED_STATUS]
+    bounced = [l for l in kept if str(l.get("status") or "").lower() == "cheque_bounced"]
+    paid = round(sum(_num(l.get("amount")) for l in live), 2)
+    came_back = round(sum(_num(l.get("amount")) for l in bounced), 2)
+
+    if amount <= 0.5:
+        return out("unclear", "bill amount is 0")
+    if not kept:
+        return out("unclear", "no payment row exists for this bill any more - it may have been "
+                              "deleted; check before paying")
+    if abs(broad_live_total - paid) > 0.5:
+        return out("unclear", "payment rows linked to this bill another way total %s, not %s"
+                   % (broad_live_total, paid))
+    for l in live:
+        lid = l.get("expense_id")
+        cids = [c for c in [l.get("cheque_id"), *(l.get("cheque_ids") or [])] if c]
+        missing = [c for c in cids if c not in cheque_status]
+        if missing:
+            return out("unclear", "payment %s names cheque record(s) %s that no longer exist"
+                       % (lid, ", ".join(missing)))
+        bad = sorted({str(cheque_status[c]) for c in cids
+                      if str(cheque_status[c] or "").lower() in _GONE_CHEQUE_STATUS})
+        if bad:
+            return out("unclear", "payment %s is tied to a cheque that is %s" % (lid, "/".join(bad)))
+        if _is_suspense_leg(l):
+            if abs(_num(debit_by_leg.get(lid)) + _num(l.get("amount"))) > 0.5:
+                return out("unclear", "suspense payment %s has no matching suspense debit" % lid)
+            if lid in restored_legs:
+                return out("unclear", "suspense payment %s was partly handed back by a cheque bounce" % lid)
+    if paid > 0.5:
+        if abs(paid + came_back + remaining - amount) > 0.5:
+            return out("unclear", "live payments %s + bounced %s + balance %s do not add up to the bill %s"
+                       % (paid, came_back, remaining, amount))
+        fix = {"set": {"paid_amount": paid, "remaining_balance": round(amount - paid, 2)}}
+        if came_back > 0.5:
+            return out("partly_bounced", "%s is still paid; %s came back on a bounced/deleted cheque"
+                       % (paid, came_back), fix)
+        return out("paid_amount_wiped", "%s is paid and still in the Cashbook; only the paid amount was wiped"
+                   % paid, fix)
+    if came_back > 0.5 and (abs(came_back + remaining - amount) <= 0.5 or abs(remaining - amount) <= 0.5):
+        return out("stale_after_bounce", "all %s came back on a bounced/deleted cheque - nothing is paid, "
+                                         "the Partially Paid badge and Balance are left over" % came_back,
+                   {"unset": list(_PARTIAL_STAMP_FIELDS)})
+    return out("unclear", "no live payment, and the balance does not match what came back")
+
+
+def _wiped_bill_after(cls: str, amount: float, fix: Optional[Dict[str, Any]]) -> Any:
+    if cls in ("paid_amount_wiped", "partly_bounced"):
+        p = fix["set"]["paid_amount"]
+        bal = fix["set"]["remaining_balance"]
+        return {"card": "Partially Collected - %s of %s paid, Balance %s" % (p, amount, bal),
+                "pay_and_settle_asks_for": bal}
+    if cls == "stale_after_bounce":
+        return {"card": "Pending - the full %s is due (no Partially Paid badge)" % amount,
+                "pay_and_settle_asks_for": amount}
+    return "unchanged"
+
+
+async def _plan_wiped_paid_scan() -> Dict[str, Any]:
+    raw = await db.material_expenses.find(
+        {"status": {"$in": sorted(_WIPED_SCAN_STATUSES)}}, {"_id": 0}).to_list(10000)
+    bills = [b for b in raw if b.get("expense_id") and b.get("last_partial_paid_at")
+             and _num(b.get("paid_amount")) <= 0.5]
+    if not bills:
+        return {"summary": {"bills_found": 0}, "bills": []}
+
+    bill_ids = [b["expense_id"] for b in bills]
+    link_ids = sorted(set(bill_ids) | {b["source_request_id"] for b in bills if b.get("source_request_id")})
+    rows = await db.recorded_expenses.find(
+        {"$or": [{f: {"$in": link_ids}} for f in _LEG_LINK_FIELDS]}, {"_id": 0}).to_list(20000)
+
+    def _good(l):
+        return not l.get("is_deleted") and str(l.get("status") or "").lower() not in _PAID_LEG_EXCLUDED_STATUS
+
+    narrow = {bid: [r for r in rows if r.get("request_id") == bid] for bid in bill_ids}
+    live_legs = [l for bid in bill_ids for l in narrow[bid] if _good(l)]
+    cheque_ids = sorted({c for l in live_legs for c in [l.get("cheque_id"), *(l.get("cheque_ids") or [])] if c})
+    cheque_status = {c["cheque_id"]: c.get("status") for c in await db.cheques.find(
+        {"cheque_id": {"$in": cheque_ids}}, {"_id": 0, "cheque_id": 1, "status": 1}).to_list(5000)} if cheque_ids else {}
+    susp_leg_ids = [l["expense_id"] for l in live_legs if l.get("expense_id") and _is_suspense_leg(l)]
+    debits = await db.suspense_entries.find(
+        {"linked_expense_id": {"$in": susp_leg_ids}, "amount": {"$lt": -0.5}},
+        {"_id": 0, "entry_id": 1, "linked_expense_id": 1, "amount": 1}).to_list(5000) if susp_leg_ids else []
+    debit_by_leg: Dict[str, float] = {}
+    for d in debits:
+        debit_by_leg[d["linked_expense_id"]] = round(debit_by_leg.get(d["linked_expense_id"], 0.0) + _num(d.get("amount")), 2)
+    leg_of_debit = {d.get("entry_id"): d["linked_expense_id"] for d in debits}
+    restored_legs = {leg_of_debit.get(r.get("reversed_entry_id")) for r in await db.suspense_entries.find(
+        {"source_type": "cheque_bounce_reversal", "reversed_entry_id": {"$in": list(leg_of_debit)}},
+        {"_id": 0, "reversed_entry_id": 1}).to_list(5000)} if leg_of_debit else set()
+    parents = {p["request_id"]: p for p in await db.material_requests.find(
+        {"request_id": {"$in": [i for i in link_ids if i not in set(bill_ids)]}},
+        {"_id": 0, "request_id": 1, "request_number": 1, "project_name": 1, "status": 1}).to_list(5000)}
+
+    # What happened to each bill, so a person can see why it is in this state.
+    hist_ids = set(bill_ids) | {l.get("expense_id") for bid in bill_ids for l in narrow[bid] if l.get("expense_id")}
+    audit = await db.audit_logs.find({"resource_id": {"$in": sorted(hist_ids)}}, {"_id": 0}).to_list(20000)
+    names = {u["user_id"]: u.get("name") for u in await db.users.find(
+        {"user_id": {"$in": list({a.get("user_id") for a in audit if a.get("user_id")})}},
+        {"_id": 0, "user_id": 1, "name": 1}).to_list(1000)}
+
+    report = []
+    for b in bills:
+        bid = b["expense_id"]
+        ids = {bid} | ({b["source_request_id"]} if b.get("source_request_id") else set())
+        broad = {r.get("expense_id"): r for r in rows if any(r.get(f) in ids for f in _LEG_LINK_FIELDS)}
+        broad_live_total = round(sum(_num(r.get("amount")) for r in broad.values() if _good(r)), 2)
+        verdict = _classify_wiped_bill(b, narrow[bid], broad_live_total, cheque_status, debit_by_leg, restored_legs)
+        amount = _material_bill_amount(b)
+        parent = parents.get(b.get("source_request_id")) or {}
+        leg_ids = {l.get("expense_id") for l in narrow[bid]}
+        report.append({
+            "request_number": parent.get("request_number") or b.get("request_number"),
+            "expense_id": bid,
+            "vendor": b.get("vendor_name"),
+            "project": b.get("project_name") or parent.get("project_name"),
+            "material": b.get("material_name"),
+            "status": b.get("status"),
+            "bill_amount": amount,
+            "card_now": {"paid": 0, "balance": _num(b.get("remaining_balance"))},
+            "class": verdict["class"],
+            "reason": verdict["reason"],
+            "fix": verdict["fix"],
+            "after": _wiped_bill_after(verdict["class"], amount, verdict["fix"]),
+            "stored": {k: b.get(k) for k in ("paid_amount", "remaining_balance", "last_partial_paid_at")},
+            "cheque_bounced_flag": {k: b.get(k) for k in (
+                "cheque_bounced", "bounced_from_cheque_number", "bounce_reason", "bounced_at")},
+            "payments": [{k: l.get(k) for k in (
+                "expense_id", "amount", "status", "source", "payment_method", "cheque_id",
+                "description", "created_at", "bounced_at", "bounce_reason")} for l in narrow[bid]],
+            "history": sorted([{"when": a.get("timestamp"), "action": a.get("action"),
+                                "by": names.get(a.get("user_id")) or a.get("user_id"),
+                                "resource_id": a.get("resource_id"), "details": a.get("details")}
+                               for a in audit if a.get("resource_id") == bid or a.get("resource_id") in leg_ids],
+                              key=lambda r: str(r["when"] or ""))[-15:],
+        })
+    report.sort(key=lambda r: (r["class"] not in _WIPED_FIXABLE, str(r["request_number"] or "")))
+    counts: Dict[str, int] = {}
+    for r in report:
+        counts[r["class"]] = counts.get(r["class"], 0) + 1
+    return {
+        "summary": {
+            "bills_found": len(report),
+            "by_class": counts,
+            "will_fix": sum(1 for r in report if r["class"] in _WIPED_FIXABLE),
+            "lines": ["%s | %s | %s | bill %s | %s | %s" % (
+                r["request_number"] or r["expense_id"], r["vendor"], r["project"], r["bill_amount"],
+                r["class"], r["after"]["card"] if isinstance(r["after"], dict) else "left alone: " + r["reason"])
+                for r in report],
+        },
+        "bills": report,
+    }
+
+
+@router.get("/admin/wiped-paid-bills-scan")
+async def wiped_paid_bills_scan(user: User = Depends(get_current_user)):
+    """READ-ONLY: every material bill showing "Partially Paid: 0 paid", what it
+    really is, and the fix the apply would make. Writes nothing."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return fast_json({"write_performed": False, **(await _plan_wiped_paid_scan())})
+
+
+@router.post("/admin/wiped-paid-bills-apply")
+async def wiped_paid_bills_apply(expense_ids: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Fix the bills the scan proves (all of them, or just `expense_ids`).
+    Re-scans first; each write is pinned to the values just read, so a bill
+    paid or changed in between is skipped. Status is never touched."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    only = {e.strip() for e in (expense_ids or "").split(",") if e.strip()}
+    plan = await _plan_wiped_paid_scan()
+    now = datetime.now(timezone.utc).isoformat()
+    results = []
+    for r in plan["bills"]:
+        if only and r["expense_id"] not in only:
+            continue
+        if r["class"] not in _WIPED_FIXABLE:
+            results.append({"request_number": r["request_number"], "expense_id": r["expense_id"],
+                            "written": False, "reason": r["reason"]})
+            continue
+        fix = r["fix"]
+        update: Dict[str, Any] = {"$set": {
+            **fix.get("set", {}),
+            "wiped_paid_repaired_at": now,
+            "wiped_paid_repaired_by": user.user_id,
+            "wiped_paid_repair_class": r["class"],
+            "wiped_paid_repaired_from": r["stored"],
+            "updated_at": now,
+        }}
+        if fix.get("unset"):
+            update["$unset"] = {f: "" for f in fix["unset"]}
+        res = await db.material_expenses.update_one(
+            {"expense_id": r["expense_id"], **r["stored"]}, update)
+        written = res.modified_count == 1
+        results.append({"request_number": r["request_number"], "expense_id": r["expense_id"],
+                        "class": r["class"], "written": written,
+                        "after": r["after"] if written else "skipped - the bill changed since it was read"})
+        if written:
+            await create_audit_log(user.user_id, "wiped_paid_bill_repair", "material_expense", r["expense_id"], {
+                "class": r["class"], "reason": r["reason"], "fix": fix, "before": r["stored"],
+                "payment_rows": [p["expense_id"] for p in r["payments"]],
+            })
+    return {"write_performed": any(x["written"] for x in results),
+            "written": sum(1 for x in results if x["written"]),
+            "results": results}
+
+
 @router.get("/approvals/{req_type}/{request_id}/pay-context")
 async def get_pay_context(req_type: str, request_id: str, user: User = Depends(get_current_user)):
     """Returns request details + current suspense balance + active opened cheques (for the dialog)."""
