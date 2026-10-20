@@ -14,6 +14,30 @@ import AccountsReceivedDate from './AccountsReceivedDate';
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
 
+// Oct 20 2026 — a bill can be hit by SEVERAL bounced cheques, and
+// `bounced_from_cheque_number` is a single field that each bounce overwrites,
+// so the card could only ever name the last one. USB-MR1156 (OM MURUGA EARTH
+// / Mr Shiva, 16,445) was paid by #521267 and #521268 and BOTH bounced, 8
+// seconds apart — the badge showed only #521268 and gave no hint the other
+// had bounced too, which read as though half the bill were still covered.
+// The backend now also accumulates `bounced_from_cheque_numbers`; prefer it
+// and fall back to the scalar for rows written before that.
+const bouncedChequeNumbers = (r) => {
+  const many = Array.isArray(r?.bounced_from_cheque_numbers) ? r.bounced_from_cheque_numbers : [];
+  const list = many.filter(Boolean).map(String);
+  if (list.length) return Array.from(new Set(list));
+  return r?.bounced_from_cheque_number ? [String(r.bounced_from_cheque_number)] : [];
+};
+
+// The stored amount belongs to the LAST cheque only, so showing it next to
+// several numbers would attribute one cheque's value to all of them.
+const bouncedChequeLabel = (r, fmtFn) => {
+  const nums = bouncedChequeNumbers(r);
+  if (!nums.length) return fmtFn(r?.bounced_from_cheque_amount);
+  const joined = nums.map((n) => `#${n}`).join(' + ');
+  return nums.length === 1 ? `${joined} · ${fmtFn(r?.bounced_from_cheque_amount)}` : joined;
+};
+
 /**
  * Accountant queue for material payments coming from the new Procurement flow.
  * Shows requests with status:
@@ -262,8 +286,8 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
               <CardContent className="p-3 sm:p-4">
                 {req.cheque_bounced && (
                   <div className="mb-2 bg-red-50 border border-red-200 rounded px-2 py-1.5 text-[11px] text-red-700 flex items-start gap-1.5">
-                    <span className="font-semibold">⚠ Cheque Bounced:</span>
-                    <span>#{req.bounced_from_cheque_number} · {fmt(req.bounced_from_cheque_amount)} · {req.bounce_reason || 'No reason'}</span>
+                    <span className="font-semibold">⚠ Cheque{bouncedChequeNumbers(req).length > 1 ? 's' : ''} Bounced:</span>
+                    <span>{bouncedChequeLabel(req, fmt)} · {req.bounce_reason || 'No reason'}</span>
                   </div>
                 )}
                 {req.pulled_back_from_cashbook && req.last_cheque_number && (
@@ -433,8 +457,8 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     card gave no hint why (USB-MR1494 / USB-MR1156). */}
                 {exp.cheque_bounced && (
                   <div className="mb-2 bg-red-50 border border-red-200 rounded px-2 py-1.5 text-[11px] text-red-700 flex items-start gap-1.5" data-testid={`acc-mat-bounced-legacy-${exp.expense_id}`}>
-                    <span className="font-semibold">⚠ Cheque Bounced:</span>
-                    <span>#{exp.bounced_from_cheque_number} · {fmt(exp.bounced_from_cheque_amount)} · {exp.bounce_reason || 'No reason'}</span>
+                    <span className="font-semibold">⚠ Cheque{bouncedChequeNumbers(exp).length > 1 ? 's' : ''} Bounced:</span>
+                    <span>{bouncedChequeLabel(exp, fmt)} · {exp.bounce_reason || 'No reason'}</span>
                   </div>
                 )}
                 {exp.pulled_back_from_cashbook && exp.last_cheque_number && (

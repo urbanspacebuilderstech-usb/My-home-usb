@@ -7990,6 +7990,41 @@ async def reopen_labour_rab_after_bounce(rec_exp: Dict[str, Any], cheque: Dict[s
             "settled_before_bounce": round(max(0.0, prior_approved - amount), 2)}
 
 
+async def _material_bill_full_amount(expense_id: str) -> Optional[float]:
+    """The figure `remaining_balance` must be reset to when a bounce unpays a
+    material bill in full.
+
+    Oct 20 2026 - USB-MR1156 (OM MURUGA EARTH / Mr Shiva, 16,445) showed
+    "Balance 2,890" on the Approvals card while Pay & Settle offered the full
+    16,445. Both of its cheques bounced 8 seconds apart:
+
+        06:38:48  #521267 bounces -> the PROPORTIONAL path runs
+                  paid 16,445 - 2,890.37 = 13,554.63
+                  remaining_balance = 16,445 - 13,554.63 = 2,890.37
+        06:38:56  #521268 bounces -> the DIRECT path runs
+                  paid_amount -> None
+                  remaining_balance -> NOT TOUCHED, still 2,890.37
+
+    `_reverse_cheque_material_suspense_and_bills` always writes
+    `remaining_balance` alongside `paid_amount`; the direct path wrote the
+    paid fields and left the balance behind. Whichever path ran LAST decided
+    what the card showed, and the forgetful one ran last, leaving a fossil of
+    the 8-second window between the two bounces.
+
+    Same fallback chain the proportional path uses, so the two cannot disagree
+    about what "the whole bill" means.
+    """
+    bill = await db.material_expenses.find_one(
+        {"expense_id": expense_id},
+        {"_id": 0, "final_amount": 1, "estimated_cost": 1,
+         "estimated_price": 1, "final_price": 1},
+    )
+    if not bill:
+        return None
+    return round(float(bill.get("final_amount") or bill.get("estimated_cost")
+                       or bill.get("estimated_price") or bill.get("final_price") or 0), 2)
+
+
 @router.post("/accountant/cheques/{cheque_id}/bounce")
 async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User = Depends(get_current_user)):
     """Mark a cheque as bounced and cascade reversal on the linked income/expense."""
@@ -8257,22 +8292,33 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
             if _lab:
                 reversal_summary["labour_rab_reopened"] = _lab
             if req_id and req_type == "material":
-                await db.material_expenses.update_one(
-                    {"expense_id": req_id},
-                    {"$set": {
-                        "status": "pending_accounts_approval",
-                        "cheque_bounced": True,
-                        "bounced_from_cheque_id": cheque_id,
-                        "bounced_from_cheque_number": cheque.get("cheque_number"),
-                        "bounced_from_cheque_amount": cheque.get("amount"),
-                        "bounce_reason": payload.reason.strip(),
-                        "bounced_at": now,
-                        "paid_via_expense_id": None,
-                        "paid_at": None,
-                        "paid_amount": None,
-                        "updated_at": now,
-                    }}
-                )
+                _reset = {
+                    "status": "pending_accounts_approval",
+                    "cheque_bounced": True,
+                    "bounced_from_cheque_id": cheque_id,
+                    "bounced_from_cheque_number": cheque.get("cheque_number"),
+                    "bounced_from_cheque_amount": cheque.get("amount"),
+                    "bounce_reason": payload.reason.strip(),
+                    "bounced_at": now,
+                    "paid_via_expense_id": None,
+                    "paid_at": None,
+                    "paid_amount": None,
+                    "updated_at": now,
+                }
+                # Oct 20 2026 - see _material_bill_full_amount. Unpaying the
+                # bill without resetting its balance leaves whatever an
+                # earlier bounce computed, so the card and Pay & Settle
+                # disagree (USB-MR1156: card 2,890, dialog 16,445).
+                _full = await _material_bill_full_amount(req_id)
+                if _full is not None:
+                    _reset["remaining_balance"] = _full
+                _upd: Dict[str, Any] = {"$set": _reset}
+                # A bill can be hit by SEVERAL bounced cheques. The scalar
+                # above keeps only the last one, so the card could never name
+                # them all - accumulate alongside it without changing it.
+                if cheque.get("cheque_number"):
+                    _upd["$addToSet"] = {"bounced_from_cheque_numbers": cheque.get("cheque_number")}
+                await db.material_expenses.update_one({"expense_id": req_id}, _upd)
                 # Flag parent material_request too
                 mexp = await db.material_expenses.find_one({"expense_id": req_id}, {"_id": 0})
                 if mexp and mexp.get("source_request_id"):
@@ -8834,7 +8880,12 @@ async def _reverse_cheque_material_suspense_and_bills(
             })
             plan["bills_partially_reversed"].append({"expense_id": expense_id, "reduced_by": reduction, "new_paid_amount": new_paid})
         if not dry_run:
-            await db.material_expenses.update_one({"expense_id": expense_id}, {"$set": update})
+            _upd2: Dict[str, Any] = {"$set": update}
+            # Oct 20 2026 - keep both paths recording every cheque that hit
+            # this bill, so the Approvals badge can name them all.
+            if cheque.get("cheque_number"):
+                _upd2["$addToSet"] = {"bounced_from_cheque_numbers": cheque.get("cheque_number")}
+            await db.material_expenses.update_one({"expense_id": expense_id}, _upd2)
 
             # Flag the parent material_requests too (informational — matches
             # the existing direct-leg convention above) so SE-facing views agree.
@@ -9248,22 +9299,27 @@ async def _send_deleted_cheque_vendor_payments_back(cheque: Dict[str, Any], reas
         req_type = rec_exp.get("request_type") or rec_exp.get("expense_type") or rec_exp.get("category")
         await reopen_labour_rab_after_bounce(rec_exp, cheque, reason_line, now)
         if req_id and req_type == "material":
-            await db.material_expenses.update_one(
-                {"expense_id": req_id},
-                {"$set": {
-                    "status": "pending_accounts_approval",
-                    "cheque_bounced": True,
-                    "bounced_from_cheque_id": cheque_id,
-                    "bounced_from_cheque_number": cheque.get("cheque_number"),
-                    "bounced_from_cheque_amount": cheque.get("amount"),
-                    "bounce_reason": reason_line,
-                    "bounced_at": now,
-                    "paid_via_expense_id": None,
-                    "paid_at": None,
-                    "paid_amount": None,
-                    "updated_at": now,
-                }}
-            )
+            _reset = {
+                "status": "pending_accounts_approval",
+                "cheque_bounced": True,
+                "bounced_from_cheque_id": cheque_id,
+                "bounced_from_cheque_number": cheque.get("cheque_number"),
+                "bounced_from_cheque_amount": cheque.get("amount"),
+                "bounce_reason": reason_line,
+                "bounced_at": now,
+                "paid_via_expense_id": None,
+                "paid_at": None,
+                "paid_amount": None,
+                "updated_at": now,
+            }
+            # Oct 20 2026 - same omission as the bounce path above.
+            _full = await _material_bill_full_amount(req_id)
+            if _full is not None:
+                _reset["remaining_balance"] = _full
+            _upd: Dict[str, Any] = {"$set": _reset}
+            if cheque.get("cheque_number"):
+                _upd["$addToSet"] = {"bounced_from_cheque_numbers": cheque.get("cheque_number")}
+            await db.material_expenses.update_one({"expense_id": req_id}, _upd)
             mexp = await db.material_expenses.find_one({"expense_id": req_id}, {"_id": 0})
             if mexp and mexp.get("source_request_id"):
                 await db.material_requests.update_one(
@@ -18022,4 +18078,221 @@ async def material_money_trail(
                      "bounced_at": c.get("bounced_at")} for c in cheques],
         "audit_trail": audit,
         "timeline": timeline,
+    })
+
+
+# --- Oct 20 2026: stale remaining_balance left by a bounce ------------------
+# Preview + guarded apply. Remove with the other /admin/* scans once the
+# affected bills have been corrected.
+
+
+def _sb_f(v) -> float:
+    try:
+        return round(float(v or 0), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+async def _stale_balance_candidates() -> List[Dict[str, Any]]:
+    """Material bills a bounce unpaid but whose balance was never reset.
+
+    See _material_bill_full_amount. The direct bounce path used to write the
+    paid fields and leave `remaining_balance` alone, so a bill that was fully
+    unpaid can still be carrying whatever an earlier, partial bounce had
+    computed. USB-MR1156 is the reported case: fully unpaid, yet showing a
+    2,890.37 balance left over from the 8 seconds between its two bounces.
+
+    A bill qualifies only when ALL of these hold, so a genuinely part-paid
+    bill can never be caught:
+
+      * cheque_bounced is set,
+      * paid_amount is absent or zero (nothing is paid),
+      * status is pending_accounts_approval (not partially_paid),
+      * remaining_balance disagrees with the bill's own amount.
+    """
+    rows = await db.material_expenses.find(
+        {"cheque_bounced": True}, {"_id": 0},
+    ).to_list(20000)
+
+    def _f(v):
+        try:
+            return round(float(v or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    out: List[Dict[str, Any]] = []
+    for m in rows:
+        if (m.get("status") or "") != "pending_accounts_approval":
+            continue
+        paid = _f(m.get("paid_amount"))
+        if paid > 0.5:
+            continue
+        full = _f(m.get("final_amount") or m.get("estimated_cost")
+                  or m.get("estimated_price") or m.get("final_price"))
+        if full <= 0.5:
+            continue
+        cur = _f(m.get("remaining_balance"))
+        if abs(cur - full) <= 0.5:
+            continue
+        out.append({
+            "expense_id": m.get("expense_id"),
+            "source_request_id": m.get("source_request_id"),
+            "bill_amount": full,
+            "paid_amount": paid,
+            "remaining_balance_now": cur,
+            "remaining_balance_should_be": full,
+            "understated_by": round(full - cur, 2),
+            "status": m.get("status"),
+            "bounced_from_cheque_number": m.get("bounced_from_cheque_number"),
+            "bounced_from_cheque_numbers": m.get("bounced_from_cheque_numbers"),
+            "bounced_at": m.get("bounced_at"),
+        })
+    out.sort(key=lambda r: -abs(r["understated_by"]))
+    return out
+
+
+async def _bounced_cheque_numbers_for_bill(expense_id: str,
+                                           source_request_id: Optional[str]) -> List[str]:
+    """Every BOUNCED cheque number reachable from this bill's payment legs.
+
+    The scalar `bounced_from_cheque_number` holds only the last bounce, so a
+    bill hit by two cheques names just one of them on the card. USB-MR1156 was
+    paid by #521267 and #521268 and both bounced, 8 seconds apart; the badge
+    shows only #521268. Only cheques whose own record says "bounced" are
+    returned - a good cheque on the same bill must never be listed.
+    """
+    ids = [i for i in [expense_id, source_request_id] if i]
+    legs = await db.recorded_expenses.find({"$or": [
+        {"request_id": {"$in": ids}}, {"source_request_id": {"$in": ids}},
+        {"approval_id": {"$in": ids}},
+    ]}, {"_id": 0, "cheque_id": 1, "cheque_ids": 1, "cheque_number": 1}).to_list(100)
+    cids: set = set()
+    for l in legs:
+        if l.get("cheque_id"):
+            cids.add(l["cheque_id"])
+        for c in (l.get("cheque_ids") or []):
+            cids.add(c)
+    if not cids:
+        return []
+    chqs = await db.cheques.find(
+        {"cheque_id": {"$in": list(cids)}, "status": "bounced"},
+        {"_id": 0, "cheque_number": 1}).to_list(100)
+    return sorted({c["cheque_number"] for c in chqs if c.get("cheque_number")})
+
+
+@router.get("/admin/stale-bounce-balance-scan")
+async def stale_bounce_balance_scan(user: User = Depends(get_current_user)):
+    """Read-only preview of every bill carrying a stale post-bounce balance.
+
+    Shows exactly what a repair would change, and writes nothing.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    cands = await _stale_balance_candidates()
+    for c in cands:
+        c["bounced_cheques_found_on_legs"] = await _bounced_cheque_numbers_for_bill(
+            c["expense_id"], c.get("source_request_id"))
+        req = await db.material_requests.find_one(
+            {"request_id": c.get("source_request_id")},
+            {"_id": 0, "request_number": 1, "vendor_name": 1, "project_name": 1,
+             "material_name": 1}) if c.get("source_request_id") else None
+        c["request_number"] = (req or {}).get("request_number")
+        c["vendor_name"] = (req or {}).get("vendor_name")
+        c["project_name"] = (req or {}).get("project_name")
+        c["material_name"] = (req or {}).get("material_name")
+
+    return fast_json({
+        "write_performed": False,
+        "read_only": True,
+        "affected_bill_count": len(cands),
+        "total_balance_understated": round(sum(c["understated_by"] for c in cands), 2),
+        "what_would_change": (
+            "ONLY remaining_balance, and bounced_from_cheque_numbers where legs "
+            "name more bounced cheques than are recorded. paid_amount, status "
+            "and every payment leg are left exactly as they are."),
+        "bills": cands,
+        "how_to_apply": (
+            "POST /api/admin/stale-bounce-balance-repair-apply with "
+            '{"expense_ids": [...], "confirm": "REPAIR-STALE-BALANCE"}'),
+    })
+
+
+class StaleBalanceRepairRequest(BaseModel):
+    expense_ids: List[str]
+    confirm: str
+
+
+@router.post("/admin/stale-bounce-balance-repair-apply")
+async def stale_bounce_balance_repair_apply(
+    payload: StaleBalanceRepairRequest,
+    user: User = Depends(get_current_user),
+):
+    """Guarded repair: reset remaining_balance on named bills only.
+
+    Each bill is re-checked against the same conditions immediately before it
+    is written, so a row that changed since the preview is skipped rather than
+    overwritten. Only `remaining_balance` and the additive
+    `bounced_from_cheque_numbers` are touched - never paid_amount, never
+    status, never a payment leg, never a suspense entry.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+    if payload.confirm != "REPAIR-STALE-BALANCE":
+        raise HTTPException(status_code=400, detail="confirm token mismatch")
+    if not payload.expense_ids:
+        raise HTTPException(status_code=400, detail="expense_ids is required")
+
+    now = datetime.now(timezone.utc).isoformat()
+    eligible = {c["expense_id"]: c for c in await _stale_balance_candidates()}
+    applied, skipped = [], []
+
+    for eid in payload.expense_ids:
+        c = eligible.get(eid)
+        if not c:
+            skipped.append({"expense_id": eid,
+                            "reason": "no longer matches the stale-balance conditions"})
+            continue
+        found = await _bounced_cheque_numbers_for_bill(eid, c.get("source_request_id"))
+        have = set(c.get("bounced_from_cheque_numbers") or [])
+        set_fields: Dict[str, Any] = {
+            "remaining_balance": c["remaining_balance_should_be"],
+            "stale_balance_repaired_at": now,
+            "stale_balance_repaired_from": c["remaining_balance_now"],
+            "updated_at": now,
+        }
+        upd: Dict[str, Any] = {"$set": set_fields}
+        if found and set(found) - have:
+            upd["$addToSet"] = {"bounced_from_cheque_numbers": {"$each": found}}
+        await db.material_expenses.update_one({"expense_id": eid}, upd)
+        after = await db.material_expenses.find_one(
+            {"expense_id": eid},
+            {"_id": 0, "remaining_balance": 1, "paid_amount": 1, "status": 1,
+             "bounced_from_cheque_numbers": 1})
+        applied.append({
+            "expense_id": eid,
+            "request_number": c.get("request_number"),
+            "before": {"remaining_balance": c["remaining_balance_now"]},
+            "after": {"remaining_balance": _sb_f(after.get("remaining_balance")),
+                      "bounced_from_cheque_numbers": (after or {}).get("bounced_from_cheque_numbers")},
+            "paid_amount_unchanged": _sb_f((after or {}).get("paid_amount")),
+            "status_unchanged": (after or {}).get("status"),
+            "verified": abs(_sb_f((after or {}).get("remaining_balance"))
+                            - c["remaining_balance_should_be"]) <= 0.5,
+        })
+
+    try:
+        await create_audit_log(
+            user.user_id, "stale_bounce_balance_repair", "material_expenses",
+            ",".join(payload.expense_ids)[:200],
+            {"applied": len(applied), "skipped": len(skipped)},
+        )
+    except Exception as e:
+        logger.warning("audit log failed for stale balance repair: %s", e)
+
+    return fast_json({
+        "write_performed": bool(applied),
+        "applied": applied,
+        "skipped": skipped,
+        "all_verified": all(a["verified"] for a in applied) if applied else True,
     })
