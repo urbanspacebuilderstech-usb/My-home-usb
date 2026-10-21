@@ -35,16 +35,32 @@ router = APIRouter()
 def _cre_project_scope_filter(user: User) -> dict:
     """Mongo filter for project visibility on CRE Board screens.
 
-    Spec change (Feb 8, 2026): CRE users now see the **full project pool**
-    just like Super Admin — so every CRE login lands on the same Payment
-    Schedule / Final Estimate / DT Requests counts a Super Admin sees. The
-    previous "scope to team.cre or created_by" restriction was hiding the
-    bulk of the pipeline from CRE staff and caused repeated user reports
-    where one login (super admin) saw 25 pending and another (CRE Arthi K)
-    saw only 2. Returning {} for every authenticated user collapses both
-    views to identical data.
+    A CRE sees the projects they are assigned to on the Project Team tab
+    (`team.cre`) plus any they created themselves. Everyone else — Super
+    Admin, Sales Head, Accountant, Planning — gets {} and sees everything,
+    so this only ever narrows a CRE login.
+
+    History, because this has been changed twice:
+
+      Feb 8 2026   scoping removed, helper made `return {}` for everyone.
+                   The complaint it answered was that one login (super
+                   admin) saw 25 pending and another (CRE Arthi K) saw 2 —
+                   the pipeline was effectively invisible to CRE staff.
+      Oct 21 2026  restored, per explicit user decision: a CRE allocated to
+                   one project must see that project and nothing else.
+
+    That earlier reversal is a real risk and worth understanding rather than
+    repeating: a project with NO `team.cre` is now invisible to every CRE.
+    If CRE boards look empty, the answer is to assign a CRE on the Project
+    Team tab, not to blank this filter again — three other screens
+    (`GET /projects`, Final Estimates, and opening a single project, which
+    answers "Permission denied — project not assigned to you") have enforced
+    exactly this rule throughout, so blanking it here only puts the board
+    back out of step with them.
     """
-    return {}
+    if user.role != UserRole.CRE:
+        return {}
+    return {"$or": [{"team.cre": user.user_id}, {"created_by": user.user_id}]}
 
 
 class CREProjectCreateInput(BaseModel):
@@ -2597,6 +2613,25 @@ async def get_monthly_schedule(
 
     enriched.sort(key=lambda e: (e.get("expected_payment_date") or "", e.get("project_name") or ""))
 
+    # Oct 21 2026 — scope the Payment Schedule to the CRE's own projects.
+    # Every other CRE Board screen goes through _cre_project_scope_filter;
+    # this one never did, so a CRE saw the entire pipeline here (575 rows
+    # across 63 projects) while `GET /projects` and Final Estimates already
+    # showed only their own, and clicking a row they did not own answered
+    # "Permission denied — project not assigned to you".
+    #
+    # Filtering the FINISHED rows rather than each of the several queries
+    # above means no path can leak a project, and it runs before the summary
+    # below, so the totals and tab counts are computed from the same rows the
+    # CRE can actually see. Non-CRE roles get an empty filter and skip the
+    # extra read entirely.
+    _cre_scope = _cre_project_scope_filter(user)
+    if _cre_scope:
+        _allowed_rows = await db.projects.find(
+            _cre_scope, {"_id": 0, "project_id": 1}).to_list(5000)
+        _allowed_ids = {r["project_id"] for r in _allowed_rows if r.get("project_id")}
+        enriched = [row for row in enriched if row.get("project_id") in _allowed_ids]
+
     # 6. Summary — outstanding = sum of balances on uncollected entries
     total_planned = sum(e["month_amount" if split else "amount"] for e in enriched)
     total_received = sum(e["month_received" if split else "amount_received"] for e in enriched)
@@ -4634,6 +4669,18 @@ async def get_cre_cheques(project_id: Optional[str] = None, user: User = Depends
     query = {"cheque_type": "incoming", "status": {"$ne": "deleted"}}
     if project_id:
         query["project_id"] = project_id
+
+    # Oct 21 2026 — scope to the CRE's own projects, like every other CRE
+    # Board screen. A cheque carries the client's name and amount, so an
+    # unscoped list showed a CRE the incoming payments of projects they
+    # cannot even open. Super Admin / GM / Accountant get an empty filter
+    # and are unaffected.
+    _cre_scope = _cre_project_scope_filter(user)
+    if _cre_scope:
+        _allowed = {p["project_id"] for p in await db.projects.find(
+            _cre_scope, {"_id": 0, "project_id": 1}).to_list(5000)}
+        query["project_id"] = ({"$in": sorted(_allowed)} if not project_id
+                               else {"$in": sorted(_allowed & {project_id})})
 
     cheques = await db.cheques.find(query, {"_id": 0}).sort("cheque_date", -1).to_list(2000)
     # Backfill project_name for old rows that only carry project_id.

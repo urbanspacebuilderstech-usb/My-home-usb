@@ -80,14 +80,25 @@ async def list_pre_construction(stage: Optional[str] = None, user: User = Depend
         raise HTTPException(status_code=400, detail=f"Unknown stage: {stage}")
 
     # Pull every active project (exclude soft-deleted / archived)
+    # Oct 21 2026 — a CRE sees only the projects they are assigned to on the
+    # Project Team tab (`team.cre`) or created, matching every other CRE
+    # Board screen and the 403 that opening one of those projects already
+    # gave. Inlined rather than imported from routes.operations, the same
+    # way /cre/additional-costs and the Final Estimates queue do it.
+    _pc_match = {
+        "$or": [
+            {"is_archived": {"$exists": False}},
+            {"is_archived": False},
+        ],
+        "is_deleted": {"$ne": True},
+    }
+    if user.role == UserRole.CRE:
+        _pc_match["$and"] = [{"$or": [
+            {"team.cre": user.user_id},
+            {"created_by": user.user_id},
+        ]}]
     projects = await db.projects.find(
-        {
-            "$or": [
-                {"is_archived": {"$exists": False}},
-                {"is_archived": False},
-            ],
-            "is_deleted": {"$ne": True},
-        },
+        _pc_match,
         {
             "_id": 0,
             "project_id": 1,
