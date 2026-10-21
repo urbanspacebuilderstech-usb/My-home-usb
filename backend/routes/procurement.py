@@ -2665,7 +2665,7 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
             advance_amount = round(estimated_price * advance_pct / 100, 2)
         else:
             try:
-                advance_amount = float(data.get("advance_amount") or 0)
+                advance_amount = round(float(data.get("advance_amount") or 0), 2)
             except (ValueError, TypeError):
                 advance_amount = 0
             if advance_amount <= 0 or advance_amount > estimated_price + 0.01:
@@ -2706,7 +2706,9 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
         "credit_days": credit_days,
         "advance_percent": advance_pct,
         "advance_amount": advance_amount,
-        "balance_amount": max(0.0, estimated_price - advance_amount) if payment_mode == "advance" else 0.0,
+        # Oct 21 2026 - to the paisa: 800 - 358.59 is stored as 441.41, not
+        # 441.40999999999997.
+        "balance_amount": round(max(0.0, estimated_price - advance_amount), 2) if payment_mode == "advance" else 0.0,
         # SE delivery comparison
         "procurement_hours": data.get("procurement_hours"),
         "delivery_delta_hours": data.get("delivery_delta_hours"),
@@ -2838,7 +2840,7 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
             for u in acc_users:
                 await create_notification(
                     u["user_id"],
-                    f"Advance payment pending: {req.get('material_name')} → {vendor_name} (Advance ₹{advance_amount:,.0f} of ₹{estimated_price:,.0f})",
+                    f"Advance payment pending: {req.get('material_name')} → {vendor_name} (Advance {fmt_money_exact(advance_amount)} of {fmt_money_exact(estimated_price)})",
                 )
         except Exception:
             pass
@@ -2997,7 +2999,7 @@ async def procurement_simple_change_vendor(request_id: str, data: dict, user: Us
             advance_amount = round(new_total * advance_pct / 100, 2)
         else:
             try:
-                advance_amount = float(data.get("advance_amount") or 0)
+                advance_amount = round(float(data.get("advance_amount") or 0), 2)
             except (TypeError, ValueError):
                 advance_amount = 0
             if advance_amount <= 0 or advance_amount > new_total + 0.01:
@@ -3067,7 +3069,7 @@ async def procurement_simple_change_vendor(request_id: str, data: dict, user: Us
         # this price change) against the new, correct total.
         if not switching_to_advance:
             current_advance = float(req.get("advance_amount") or 0)
-            set_fields["balance_amount"] = max(0.0, new_total - current_advance)
+            set_fields["balance_amount"] = round(max(0.0, new_total - current_advance), 2)
     if switching_to_advance:
         # Advance requires Accountant approval BEFORE the new vendor's goods
         # move — same rule as the initial assign-vendor flow. Pull the
@@ -3077,7 +3079,7 @@ async def procurement_simple_change_vendor(request_id: str, data: dict, user: Us
             "payment_mode": "advance",
             "advance_percent": advance_pct,
             "advance_amount": advance_amount,
-            "balance_amount": max(0.0, new_total - advance_amount),
+            "balance_amount": round(max(0.0, new_total - advance_amount), 2),
             "status": "pending_advance_payment",
             "next_payment_phase": "advance",
             "pending_next_status": "in_transit",
@@ -3180,7 +3182,7 @@ async def procurement_simple_change_vendor(request_id: str, data: dict, user: Us
             for u in acc_users:
                 await create_notification(
                     u["user_id"],
-                    f"Advance payment pending: {req.get('material_name')} → {new_vendor_name} (Advance ₹{advance_amount:,.0f} of ₹{new_total:,.0f})",
+                    f"Advance payment pending: {req.get('material_name')} → {new_vendor_name} (Advance {fmt_money_exact(advance_amount)} of {fmt_money_exact(new_total)})",
                 )
         except Exception:
             pass
@@ -4191,6 +4193,19 @@ def fmt_money(n):
         return f"₹{float(n):,.0f}"
     except Exception:
         return "₹0"
+
+
+def fmt_money_exact(n):
+    """fmt_money, but keeps paise when there are any: ₹358.59, not ₹359.
+
+    Oct 21 2026 - used for the advance the Accountant is asked to pay, which
+    must read exactly what Procurement entered.
+    """
+    try:
+        v = float(n)
+    except Exception:
+        return "₹0"
+    return f"₹{v:,.0f}" if abs(v - round(v)) < 0.005 else f"₹{v:,.2f}"
 
 
 # =====================================================================

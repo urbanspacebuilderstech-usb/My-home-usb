@@ -12,7 +12,14 @@ import PhotoLightbox from './PhotoLightbox';
 import AccountsReceivedDate from './AccountsReceivedDate';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
+// Oct 21 2026 — keep paise when the amount has them. Rounding to whole
+// rupees showed a 358.59 advance as "₹359" here, while Pay & Settle (and the
+// payment itself) used 358.59.
+const fmt = (n) => {
+  const v = Number(n) || 0;
+  const d = Math.abs(v - Math.round(v)) < 0.005 ? 0 : 2;
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
+};
 
 // Oct 20 2026 — a bill can be hit by SEVERAL bounced cheques, and
 // `bounced_from_cheque_number` is a single field that each bounce overwrites,

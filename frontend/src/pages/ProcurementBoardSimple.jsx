@@ -53,7 +53,17 @@ import { UnitSelect } from '../components/UnitSelect';
 const MATERIAL_CATEGORIES = ['cement','sand','steel','bricks','aggregate','tiles','electrical','plumbing','paint','wood','hardware','other'];
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
+// Oct 21 2026 — paise are shown whenever the amount has them. This used to
+// round to whole rupees, so an advance entered as 358.59 read "₹359" here
+// while 358.59 was what Accounts was actually asked to pay.
+const fmt = (n) => {
+  const v = Number(n) || 0;
+  const d = Math.abs(v - Math.round(v)) < 0.005 ? 0 : 2;
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
+};
+// Same rounding as the backend's round(x, 2), so a percent advance shown
+// here is the figure assign-vendor / change-vendor will store.
+const toPaise = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
 // Plain grouped number — for quantities, where `fmt`'s currency symbol and
 // 0-decimal rounding would both be wrong.
@@ -2119,11 +2129,11 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
     if (paymentMode !== 'advance') return 0;
     if (advanceMode === 'percent') {
       const p = parseFloat(advancePercent) || 0;
-      return Math.round(total * p / 100);
+      return toPaise(total * p / 100);
     }
-    return parseFloat(advanceAmount) || 0;
+    return toPaise(advanceAmount);
   }, [paymentMode, advanceMode, advancePercent, advanceAmount, total]);
-  const balance = paymentMode === 'advance' ? Math.max(0, total - computedAdvance) : 0;
+  const balance = paymentMode === 'advance' ? toPaise(Math.max(0, total - computedAdvance)) : 0;
 
   // Compute Procurement's chosen delivery in HOURS from now, then compare vs SE's asked hours.
   // Late delivery (procurement_hours > se_hours) must be justified before submit.
@@ -2247,7 +2257,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
   // above but against the cv* fields the Change Vendor popup edits.
   const cvTotal = Math.max(0, (parseFloat(cvUnitPrice) || 0) * (parseFloat(cvApprovedQty) || 0) + (parseFloat(cvTransport) || 0) - (parseFloat(cvDiscount) || 0));
   const cvComputedAdvance = cvPaymentMode === 'advance'
-    ? (cvAdvanceMode === 'percent' ? Math.round(cvTotal * (parseFloat(cvAdvancePercent) || 0) / 100) : (parseFloat(cvAdvanceAmount) || 0))
+    ? (cvAdvanceMode === 'percent' ? toPaise(cvTotal * (parseFloat(cvAdvancePercent) || 0) / 100) : toPaise(cvAdvanceAmount))
     : 0;
 
   return (
@@ -2865,7 +2875,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
                   )}
                   <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-orange-200 text-xs">
                     <div className="text-orange-700"><p className="text-[10px] font-semibold uppercase">Advance Now</p><p className="font-bold">{fmt(cvComputedAdvance)}</p></div>
-                    <div className="text-orange-700 text-right"><p className="text-[10px] font-semibold uppercase">Balance on Delivery</p><p className="font-bold">{fmt(Math.max(0, cvTotal - cvComputedAdvance))}</p></div>
+                    <div className="text-orange-700 text-right"><p className="text-[10px] font-semibold uppercase">Balance on Delivery</p><p className="font-bold">{fmt(toPaise(Math.max(0, cvTotal - cvComputedAdvance)))}</p></div>
                   </div>
                   <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">Switching to Advance sends this request back to the Accountant for advance approval before it moves again.</p>
                 </div>
