@@ -739,6 +739,7 @@ export default function HRPortal() {
                   <table className="w-full">
                     <thead className="bg-gray-50 border-b">
                       <tr>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">S.NO</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">EMPLOYEE</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">DEPARTMENT</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">DESIGNATION</th>
@@ -751,9 +752,10 @@ export default function HRPortal() {
                     </thead>
                     <tbody className="divide-y">
                       {filteredStaff.length === 0 ? (
-                        <tr><td colSpan="8" className="px-4 py-8 text-center text-gray-500">No employees found. Click "Add Employee" to get started.</td></tr>
-                      ) : filteredStaff.map(s => (
+                        <tr><td colSpan="9" className="px-4 py-8 text-center text-gray-500">No employees found. Click "Add Employee" to get started.</td></tr>
+                      ) : filteredStaff.map((s, idx) => (
                         <tr key={s.staff_id} className="hover:bg-gray-50/80 cursor-pointer" data-testid={`employee-row-${s.staff_id}`} onClick={() => openViewEmployee(s)}>
+                          <td className="px-4 py-3 text-sm text-gray-500" data-testid={`employee-sno-${s.staff_id}`}>{idx + 1}</td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-3">
                               <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-sm">{s.name?.charAt(0)?.toUpperCase()}</div>
