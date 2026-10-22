@@ -1651,6 +1651,7 @@ function AttendanceTab({ monthlyAtt, attMonth, attYear, setAttMonth, setAttYear,
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">S.No</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Employee</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Designation</th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">Status</th>
@@ -1662,9 +1663,10 @@ function AttendanceTab({ monthlyAtt, attMonth, attYear, setAttMonth, setAttYear,
                 </thead>
                 <tbody className="divide-y">
                   {filteredEmployees.length === 0 ? (
-                    <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No records for this date</td></tr>
-                  ) : filteredEmployees.map(emp => (
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No records for this date</td></tr>
+                  ) : filteredEmployees.map((emp, idx) => (
                     <tr key={emp.staff_id} className="hover:bg-gray-50/50" data-testid={`att-daily-row-${emp.staff_id}`}>
+                      <td className="px-4 py-2.5 text-sm text-gray-500 tabular-nums" data-testid={`att-daily-sno-${emp.staff_id}`}>{idx + 1}</td>
                       <td className="px-4 py-2.5">
                         <p className="font-medium text-gray-900">{emp.name}</p>
                         <p className="text-xs text-gray-400">{emp.employee_code}</p>
@@ -1710,7 +1712,8 @@ function AttendanceTab({ monthlyAtt, attMonth, attYear, setAttMonth, setAttYear,
               <table className="w-full text-xs">
                 <thead className="bg-gray-50 border-b sticky top-0">
                   <tr>
-                    <th className="px-2 py-2 text-left font-semibold text-gray-600 min-w-[140px] sticky left-0 bg-gray-50 z-10">Employee</th>
+                    <th className="px-2 py-2 text-left font-semibold text-gray-600 w-10 min-w-[40px] sticky left-0 bg-gray-50 z-10">S.No</th>
+                    <th className="px-2 py-2 text-left font-semibold text-gray-600 min-w-[140px] sticky left-10 bg-gray-50 z-10">Employee</th>
                     {Array.from({ length: monthlyAtt.days_in_month }, (_, i) => (<th key={i + 1} className="px-1 py-2 text-center font-medium text-gray-500 min-w-[32px]">{i + 1}</th>))}
                     <th className="px-2 py-2 text-center font-semibold text-gray-600 min-w-[40px]">P</th>
                     <th className="px-2 py-2 text-center font-semibold text-gray-600 min-w-[40px]">A</th>
@@ -1718,9 +1721,10 @@ function AttendanceTab({ monthlyAtt, attMonth, attYear, setAttMonth, setAttYear,
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {monthlyAtt.staff?.map(s => (
+                  {monthlyAtt.staff?.map((s, idx) => (
                     <tr key={s.staff_id} className="hover:bg-gray-50/50" data-testid={`att-row-${s.staff_id}`}>
-                      <td className="px-2 py-1.5 sticky left-0 bg-white z-10 border-r"><p className="font-medium text-gray-900 truncate">{s.name}</p><p className="text-gray-400">{s.employee_code}</p></td>
+                      <td className="px-2 py-1.5 w-10 min-w-[40px] sticky left-0 bg-white z-10 text-gray-500 tabular-nums" data-testid={`att-month-sno-${s.staff_id}`}>{idx + 1}</td>
+                      <td className="px-2 py-1.5 sticky left-10 bg-white z-10 border-r"><p className="font-medium text-gray-900 truncate">{s.name}</p><p className="text-gray-400">{s.employee_code}</p></td>
                       {Array.from({ length: monthlyAtt.days_in_month }, (_, i) => {
                         const day = s.days[String(i + 1)];
                         const dateStr = `${attYear}-${String(attMonth).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
@@ -1751,12 +1755,13 @@ function AttendanceTab({ monthlyAtt, attMonth, attYear, setAttMonth, setAttYear,
           <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><Timer className="h-5 w-5 text-orange-500" />Late Arrivals - {MONTHS[attMonth - 1]} {attYear}</CardTitle></CardHeader>
             <CardContent>{lateReport?.employees?.length === 0 ? <p className="text-gray-500 text-center py-4">No late arrivals this month!</p> : (
               <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr>
+                <th className="px-4 py-2 text-left text-xs font-semibold">S.No</th>
                 <th className="px-4 py-2 text-left text-xs font-semibold">Employee</th>
                 <th className="px-4 py-2 text-center text-xs font-semibold">Late Days</th>
                 <th className="px-4 py-2 text-center text-xs font-semibold">Total Late (mins)</th>
                 <th className="px-4 py-2 text-center text-xs font-semibold">Avg Late (mins)</th>
-              </tr></thead><tbody className="divide-y">{lateReport?.employees?.map(e => (
-                <tr key={e.staff_id}><td className="px-4 py-2 font-medium">{e.name}</td><td className="px-4 py-2 text-center"><Badge className="bg-orange-100 text-orange-700">{e.late_days}</Badge></td><td className="px-4 py-2 text-center font-bold text-red-600">{e.total_late_minutes}</td><td className="px-4 py-2 text-center">{e.late_days > 0 ? Math.round(e.total_late_minutes / e.late_days) : 0}</td></tr>
+              </tr></thead><tbody className="divide-y">{lateReport?.employees?.map((e, idx) => (
+                <tr key={e.staff_id}><td className="px-4 py-2 text-gray-500 tabular-nums">{idx + 1}</td><td className="px-4 py-2 font-medium">{e.name}</td><td className="px-4 py-2 text-center"><Badge className="bg-orange-100 text-orange-700">{e.late_days}</Badge></td><td className="px-4 py-2 text-center font-bold text-red-600">{e.total_late_minutes}</td><td className="px-4 py-2 text-center">{e.late_days > 0 ? Math.round(e.total_late_minutes / e.late_days) : 0}</td></tr>
               ))}</tbody></table>
             )}</CardContent>
           </Card>

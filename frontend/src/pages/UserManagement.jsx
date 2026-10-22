@@ -405,12 +405,13 @@ export default function UserManagement() {
               {filteredUsers.length === 0 ? (
                 <div className="px-4 py-8 text-center text-gray-500 text-sm">No users found</div>
               ) : (
-                filteredUsers.map((u) => {
+                filteredUsers.map((u, idx) => {
                   const roleInfo = getRoleInfo(u.role);
                   return (
                     <div key={u.user_id} data-testid={`user-card-mobile-${u.user_id}`} className="p-4">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center gap-3">
+                          <span className="text-xs text-gray-400 tabular-nums w-5 text-right flex-shrink-0" data-testid={`user-sno-mobile-${u.user_id}`}>{idx + 1}</span>
                           <div className="h-10 w-10 rounded-full bg-amber-50 flex items-center justify-center flex-shrink-0">
                             <span className="text-amber-600 font-semibold">
                               {u.name?.charAt(0).toUpperCase() || '?'}
@@ -469,6 +470,7 @@ export default function UserManagement() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">User</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Email</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Role</th>
@@ -483,15 +485,16 @@ export default function UserManagement() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={canManageUsers ? 7 : 6} className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan={canManageUsers ? 8 : 7} className="px-6 py-8 text-center text-gray-500">
                         No users found
                       </td>
                     </tr>
                   ) : (
-                    filteredUsers.map((u) => {
+                    filteredUsers.map((u, idx) => {
                       const roleInfo = getRoleInfo(u.role);
                       return (
                         <tr key={u.user_id} data-testid={`user-row-${u.user_id}`} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 text-sm text-gray-500 tabular-nums" data-testid={`user-sno-${u.user_id}`}>{idx + 1}</td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
                               <div className="h-10 w-10 rounded-full bg-amber-50 flex items-center justify-center">
