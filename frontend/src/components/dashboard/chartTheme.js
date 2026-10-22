@@ -10,6 +10,9 @@ import { useEffect, useState } from 'react';
  *     aqua) — pass all-pairs CVD + normal-vision in both modes. Aqua sits
  *     under 3:1 on white, so the material chart always shows value labels
  *     and a "View data" table.
+ *   • materialOut = categorical slot 4 (yellow), only ever paired with
+ *     material (Inward vs Outward). That pair passes CVD + normal-vision in
+ *     both modes; yellow is also under 3:1 on white, same relief as aqua.
  *   • ordinal4 / ordinal3 = one-hue blue ramps for ordered stages (sales
  *     funnel, skill tiers, project lifecycle) — pass the ordinal checks.
  *     In dark mode the ramp flips so "more" stays the lighter end.
@@ -27,6 +30,7 @@ export const CHART_THEME = {
     income: '#2a78d6',
     expense: '#eb6834',
     material: '#1baf7a',
+    materialOut: '#eda100',
     ordinal4: ['#86b6ef', '#5598e7', '#2a78d6', '#1c5cab'],
     ordinal3: ['#86b6ef', '#3987e5', '#1c5cab'],
     meterFill: '#2a78d6',
@@ -43,6 +47,7 @@ export const CHART_THEME = {
     income: '#3987e5',
     expense: '#d95926',
     material: '#199e70',
+    materialOut: '#c98500',
     ordinal4: ['#184f95', '#256abf', '#3987e5', '#6da7ec'],
     ordinal3: ['#184f95', '#3987e5', '#86b6ef'],
     meterFill: '#3987e5',

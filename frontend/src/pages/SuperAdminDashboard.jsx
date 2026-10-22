@@ -226,7 +226,8 @@ export default function SuperAdminDashboard() {
   // Project-by-project snapshot for the selected period.
   const projectSnapshot = useMemo(() => {
     const stockBy = {};
-    materials.projects.forEach(p => { stockBy[p.project_id] = p.stock; });
+    const movedBy = {};
+    materials.projects.forEach(p => { stockBy[p.project_id] = p.stock; movedBy[p.project_id] = p.in + p.out; });
     return (cashbook?.project_wise || [])
       .map(p => ({
         project_id: p.project_id,
@@ -237,8 +238,12 @@ export default function SuperAdminDashboard() {
         labour: labourByProject[p.project_id] || 0,
         stock: stockBy[p.project_id] || 0,
         receivable: (Number(p.grand_total) || 0) - (Number(p.income) || 0),
+        material_moved: movedBy[p.project_id] || 0,
       }))
-      .filter(p => p.income || p.expense || p.labour || p.stock);
+      // Oct 22 2026 — stock on hand is a running balance, not activity: on
+      // Today it pulled in every project holding stock. Material counts as
+      // activity only when some came in or went out in the period.
+      .filter(p => p.income || p.expense || p.labour || p.material_moved);
   }, [cashbook, materials, labourByProject]);
   const sortedSnapshot = useMemo(() => {
     const { key, dir } = projSort;
@@ -252,11 +257,15 @@ export default function SuperAdminDashboard() {
     .sort((a, b) => (b.income + b.expense) - (a.income + a.expense))
     .slice(0, 8)
     .map(p => ({ ...p, label: p.project_name })), [projectSnapshot]);
-  const stockByProject = useMemo(() => [...materials.projects]
-    .filter(p => p.stock > 0)
-    .sort((a, b) => b.stock - a.stock)
+  // Oct 22 2026 — the chart used to rank stock on hand, which is the same
+  // on every date filter (Today showed ₹1.4 Cr across 46 projects). It now
+  // shows what came in and went out in the selected period.
+  const materialMoved = useMemo(() => [...materials.projects]
+    .filter(p => p.in > 0 || p.out > 0)
+    .sort((a, b) => (b.in + b.out) - (a.in + a.out)), [materials]);
+  const materialByProject = useMemo(() => materialMoved
     .slice(0, 8)
-    .map(p => ({ ...p, label: p.project_name })), [materials]);
+    .map(p => ({ ...p, label: p.project_name })), [materialMoved]);
 
   const open = (kind, chip = '', period = null) => setDetail({ kind, chip, period });
   const goProject = (r) => { if (r.project_id) navigate(`/projects/${r.project_id}`); };
@@ -369,11 +378,21 @@ export default function SuperAdminDashboard() {
         fullPageHref: '/finance-board?tab=projects', fullPageLabel: 'Open Finance Board › Project Wise › Material',
       };
     }
+    if (kind === 'mat_projects') {
+      return {
+        ...base,
+        title: `Material by project · ${periodLabel} — in ${fmt(materials.today_in)} · out ${fmt(materials.today_out)}`,
+        subtitle: 'Material received and used in the period, project by project. Stock on hand is as of now.',
+        rows: materialMoved,
+        columns: [projectCol, money('in', 'Inward', 'text-gray-900 font-semibold'), money('out', 'Outward', 'text-gray-900 font-semibold'), money('stock', 'Stock on hand')],
+        fullPageHref: '/finance-board?tab=projects', fullPageLabel: 'Open Finance Board › Project Wise › Material',
+      };
+    }
     if (kind === 'mat_total') {
       return {
         ...base,
         title: `Material stock — ${fmt(materials.total_value)}`,
-        subtitle: 'Current stock value held at each project.',
+        subtitle: `Stock on hand now at each project. Inward and outward are for ${periodLabel}.`,
         rows: [...materials.projects].sort((a, b) => b.stock - a.stock),
         columns: [projectCol, { key: 'requests', label: 'Requests', align: 'right', sum: r => r.requests, format: num }, money('stock', 'Stock value', 'font-semibold text-gray-900'), money('in', 'Inward'), money('out', 'Outward')],
         fullPageHref: '/finance-board?tab=projects', fullPageLabel: 'Open Finance Board › Project Wise › Material',
@@ -572,7 +591,7 @@ export default function SuperAdminDashboard() {
               sub="Income less expense" onClick={() => open('balance')} testId="dashboard-metric-balance"
             />
             <KpiTile label="Receivable" icon={HandCoins} value={v(inrCompact(s.receivable))} sub="Grand total less income" onClick={() => open('receivable')} testId="dashboard-metric-receivable" />
-            <KpiTile label="Material stock" icon={Package} value={v(inrCompact(materials.total_value))} sub={`${materials.projects_with_stock} projects holding stock`} onClick={() => open('mat_total')} testId="dashboard-metric-mat-total" />
+            <KpiTile label="Material stock" icon={Package} value={v(inrCompact(materials.total_value))} sub={`On hand now · ${materials.projects_with_stock} projects`} onClick={() => open('mat_total')} testId="dashboard-metric-mat-total" />
             <KpiTile label="Labour cost" icon={HardHat} value={v(inrCompact(labour?.total?.amount))} sub={`${num(labour?.total?.count)} labour · ${labourProjects} projects`} onClick={() => open('labour:total')} testId="dashboard-metric-labour-total" />
           </div>
 
@@ -640,21 +659,22 @@ export default function SuperAdminDashboard() {
             </ChartCard>
 
             <ChartCard
-              title="Material stock by project"
-              subtitle={`${fmt(materials.total_value)} held · inward ${inrCompact(materials.today_in)} · outward ${inrCompact(materials.today_out)}`}
-              onViewData={() => open('mat_total')}
+              title="Material by project"
+              subtitle={`Received vs used in the period · ${inrCompact(materials.total_value)} stock on hand now`}
+              legend={<Legend items={[{ label: 'Inward', color: t.material }, { label: 'Outward', color: t.materialOut }]} />}
+              onViewData={() => open('mat_projects')}
               testId="dashboard-chart-material"
             >
-              {stockByProject.length ? (
+              {materialByProject.length ? (
                 <HBars
-                  data={stockByProject}
-                  series={[{ key: 'stock', label: 'Stock value', color: t.material }]}
+                  data={materialByProject}
+                  series={[{ key: 'in', label: 'Inward', color: t.material }, { key: 'out', label: 'Outward', color: t.materialOut }]}
                   valueLabels
                   labelWidth={180}
                   onBarClick={goProject}
                 />
               ) : (
-                <p className="h-[200px] flex items-center justify-center text-sm text-gray-400">No material stock recorded.</p>
+                <p className="h-[200px] flex items-center justify-center text-sm text-gray-400">No material received or used in this period.</p>
               )}
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <button type="button" onClick={() => open('mat_in')} className="rounded-lg border border-gray-200 px-3 py-2 text-left hover:bg-gray-50" data-testid="dashboard-metric-mat-in">
@@ -797,7 +817,7 @@ export default function SuperAdminDashboard() {
                     {sortHeader('expense', 'Expense')}
                     {sortHeader('balance', 'Balance')}
                     {sortHeader('labour', 'Labour')}
-                    {sortHeader('stock', 'Material stock')}
+                    {sortHeader('stock', 'Stock on hand')}
                     {sortHeader('receivable', 'Receivable')}
                   </tr>
                 </thead>
