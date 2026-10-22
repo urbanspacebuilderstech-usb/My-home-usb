@@ -10,11 +10,11 @@ const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const PlainAmount = ({ value, className = '' }) => <span className={className}>{fmtFull(value)}</span>;
 
 const COLUMNS = [
-  { key: 'scope_value', label: 'Scope Value', cls: 'text-blue-700', title: 'Agreed scope value of the project' },
-  { key: 'receivable', label: 'Balance Receivable', cls: 'text-amber-700', title: 'Still to be received from the client: Grand Total (Scope + Additions − Deductions) − Income received' },
-  { key: 'material_payable', label: 'Material Payable', cls: 'text-red-700', title: 'Still to be paid to vendors for material ordered (after Planning approval), including Partial balances and credit purchases' },
-  { key: 'labour_payable', label: 'Labour Payable', cls: 'text-orange-700', title: 'Still to be paid to contractors: active work order value − stage payments released − approved advances' },
-  { key: 'funds_in_hand', label: 'Funds in Hand', cls: '', title: 'Client money left after spending: Income received − Expense, all-time incl. Carry Forward' },
+  { key: 'scope_value', label: 'Scope Value', cls: 'text-blue-700', accent: 'border-l-blue-500', title: 'Agreed scope value of the project' },
+  { key: 'receivable', label: 'Balance Receivable', cls: 'text-amber-700', accent: 'border-l-amber-500', title: 'Still to be received from the client: Grand Total (Scope + Additions − Deductions) − Income received' },
+  { key: 'material_payable', label: 'Material Payable', cls: 'text-red-700', accent: 'border-l-red-500', title: 'Still to be paid to vendors for material ordered (after Planning approval), including Partial balances and credit purchases' },
+  { key: 'labour_payable', label: 'Labour Payable', cls: 'text-orange-700', accent: 'border-l-orange-500', title: 'Still to be paid to contractors: active work order value − stage payments released − approved advances' },
+  { key: 'funds_in_hand', label: 'Funds in Hand', cls: '', accent: '', title: 'Client money left after spending: Income received − Expense, all-time incl. Carry Forward' },
 ];
 
 /**
@@ -27,6 +27,9 @@ const COLUMNS = [
  * formulas as the Overview table (Receivable = grand_total − income,
  * Funds in Hand = its balance). Material / Labour Payable come from
  * /accountant/project-wise/balance-summary.
+ *
+ * The summary cards above the table repeat the Total row, so both follow
+ * the project search.
  *
  * `Amount` renders a money value; AccountsBoard passes its MaskedValue so an
  * Accountant sees the same masking as on the Overview.
@@ -79,6 +82,7 @@ export default function ProjectWiseBalanceTab({ Amount = PlainAmount }) {
     return acc;
   }, {});
   const fundsCls = (v) => (v >= 0 ? 'text-green-700' : 'text-red-600');
+  const fundsAccent = (v) => (v >= 0 ? 'border-l-green-500' : 'border-l-red-500');
 
   return (
     <div className="space-y-3" data-testid="pw-balance-tab">
@@ -101,6 +105,25 @@ export default function ProjectWiseBalanceTab({ Amount = PlainAmount }) {
           </div>
         </CardContent>
       </Card>
+      {filtered.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3" data-testid="pw-balance-summary">
+          {COLUMNS.map(c => {
+            const isFunds = c.key === 'funds_in_hand';
+            const cls = isFunds ? fundsCls(totals[c.key]) : c.cls;
+            const accent = isFunds ? fundsAccent(totals[c.key]) : c.accent;
+            return (
+              <Card key={c.key} title={c.title} className={`border-l-4 ${accent} ${isFunds ? 'col-span-2 lg:col-span-1' : ''}`} data-testid={`pw-balance-card-${c.key}`}>
+                <CardContent className="p-2 sm:p-3">
+                  <p className="text-[10px] sm:text-xs font-semibold text-gray-500">{c.label}</p>
+                  <p className={`text-base sm:text-lg font-bold whitespace-nowrap ${cls}`}>
+                    <Amount value={totals[c.key]} className={cls} />
+                  </p>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
       <Card>
         <CardContent className="p-0 overflow-x-auto">
           <table className="w-full text-sm" data-testid="pw-balance-table">
