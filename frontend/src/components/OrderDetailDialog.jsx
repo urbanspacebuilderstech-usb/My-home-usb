@@ -55,7 +55,7 @@ function formatCurrency(amount) {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
 }
 
-// Oct 22 2026 — also used by Cashbook's MaterialTimelineDialog, which has the
+// Oct 22 2026 — also used by Cashbook's EntryTimelineDialog, which has the
 // real payment legs; it passes skipPaymentStamps so the request's own
 // last/advance/balance payment stamps don't repeat them.
 export function buildTimeline(req, { skipPaymentStamps = false } = {}) {

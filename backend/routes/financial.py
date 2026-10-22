@@ -7215,6 +7215,57 @@ async def get_material_timeline(expense_id: str, user: User = Depends(get_curren
     return {"request": request, "bills": bills, "payments": payments}
 
 
+@router.get("/accountant/income-timeline/{income_id}")
+async def get_income_timeline(income_id: str, user: User = Depends(get_current_user)):
+    """Oct 22 2026 — Cashbook > Income row → eye icon → that income's whole
+    life: the payment stage Planning raised, the CRE's collection and cheque,
+    the accountant's verification / approval, and every correction,
+    rejection, bounce or send-back since (correction_history plus the
+    status stamps on the income itself).
+
+    Reads only — unlike /payment-stages/{id}/detail, which re-syncs the stage
+    on every view and covers all of a stage's incomes.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    income = await db.income.find_one({"income_id": income_id}, {"_id": 0})
+    if not income:
+        raise HTTPException(status_code=404, detail="Income not found")
+
+    if not income.get("project_name") and income.get("project_id"):
+        project = await db.projects.find_one({"project_id": income["project_id"]}, {"_id": 0, "name": 1})
+        income["project_name"] = (project or {}).get("name", "")
+
+    stage_id = income.get("payment_stage_id") or income.get("stage_id")
+    stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0}) if stage_id else None
+
+    cheque_or: List[Dict[str, Any]] = [{"income_id": income_id}]
+    cheque_ids = [c for c in [income.get("cheque_id"), *(income.get("cheque_ids") or [])] if c]
+    if cheque_ids:
+        cheque_or.append({"cheque_id": {"$in": cheque_ids}})
+    if income.get("bulk_collection_id"):
+        cheque_or.append({"bulk_collection_id": income["bulk_collection_id"]})
+    cheques = await db.cheques.find({"$or": cheque_or}, {"_id": 0}).sort("created_at", 1).to_list(20)
+
+    # approved_by / verified_by / collected_by etc. are stored as user ids only.
+    verification = income.get("verification") or {}
+    user_ids = {income.get(k) for k in ("approved_by", "accountant_verified_by", "collected_by",
+                                        "recorded_by", "created_by", "sent_to_planning_by")}
+    user_ids.add(verification.get("verified_by"))
+    user_ids = [u for u in user_ids if u and isinstance(u, str)]
+    users = await db.users.find(
+        {"user_id": {"$in": user_ids}}, {"_id": 0, "user_id": 1, "name": 1}
+    ).to_list(len(user_ids)) if user_ids else []
+
+    return {
+        "income": income,
+        "stage": stage,
+        "cheques": cheques,
+        "user_names": {u["user_id"]: u.get("name") for u in users},
+    }
+
+
 # Aug 29 2026 — Project Wise > Labour sub-tab. Mirrors site_ops.py's
 # `_dlr_skill_bucket` (kept as a local copy to avoid a cross-module import
 # for one 12-line classifier) — same skilled/semi_skilled/unskilled mapping
