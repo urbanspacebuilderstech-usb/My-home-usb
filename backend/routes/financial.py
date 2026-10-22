@@ -7159,6 +7159,62 @@ async def get_cashbook_filtered(
     })
 
 
+@router.get("/accountant/material-timeline/{expense_id}")
+async def get_material_timeline(expense_id: str, user: User = Depends(get_current_user)):
+    """Oct 22 2026 — Cashbook > Expense row → eye icon → the whole life of that
+    material: the SE's request, the bills Procurement sent to Accounts, and
+    every payment leg released against them.
+
+    `expense_id` is the row's id as the Expense table has it: a
+    recorded_expenses payment leg, a material_requests row, or a legacy
+    material_expenses bill. Reaches the parent request the same way
+    _enrich_expense_uploads does (a leg's request_id is usually the bill's
+    "mexp_..." id, whose source_request_id is the request).
+
+    Reads only.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    bill_q = {"$or": [{"expense_id": expense_id}, {"material_expense_id": expense_id}]}
+    row = (await db.recorded_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+           or await db.material_requests.find_one({"request_id": expense_id}, {"_id": 0})
+           or await db.material_expenses.find_one(bill_q, {"_id": 0}))
+    if not row:
+        raise HTTPException(status_code=404, detail="Expense not found")
+
+    rid = row.get("source_request_id") or row.get("request_id") or row.get("material_request_id")
+    if rid and rid.startswith("mexp_"):
+        bill = await db.material_expenses.find_one(
+            {"$or": [{"expense_id": rid}, {"material_expense_id": rid}]},
+            {"_id": 0, "source_request_id": 1})
+        rid = (bill or {}).get("source_request_id")
+    request = await db.material_requests.find_one({"request_id": rid}, {"_id": 0}) if rid else None
+    if not request:
+        raise HTTPException(status_code=404, detail="No material request is linked to this entry")
+
+    if not request.get("project_name") and request.get("project_id"):
+        project = await db.projects.find_one({"project_id": request["project_id"]}, {"_id": 0, "name": 1})
+        request["project_name"] = (project or {}).get("name", "")
+
+    bills = await db.material_expenses.find(
+        {"$or": [{"source_request_id": rid}, {"request_id": rid}]}, {"_id": 0}
+    ).sort("created_at", 1).to_list(50)
+    bill_ids = [i for b in bills for i in (b.get("expense_id"), b.get("material_expense_id")) if i]
+    payments = await db.recorded_expenses.find(
+        {"is_deleted": {"$ne": True}, "$or": [
+            {"request_id": {"$in": [rid] + bill_ids}},
+            {"source_request_id": rid},
+            {"material_request_id": rid},
+            {"material_expense_id": {"$in": bill_ids}},
+        ]},
+        {"_id": 0},
+    ).sort("created_at", 1).to_list(200)
+    await _resolve_cheque_numbers(payments)
+
+    return {"request": request, "bills": bills, "payments": payments}
+
+
 # Aug 29 2026 — Project Wise > Labour sub-tab. Mirrors site_ops.py's
 # `_dlr_skill_bucket` (kept as a local copy to avoid a cross-module import
 # for one 12-line classifier) — same skilled/semi_skilled/unskilled mapping

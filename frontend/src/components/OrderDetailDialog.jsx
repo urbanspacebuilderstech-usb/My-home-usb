@@ -55,7 +55,10 @@ function formatCurrency(amount) {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
 }
 
-function buildTimeline(req) {
+// Oct 22 2026 — also used by Cashbook's MaterialTimelineDialog, which has the
+// real payment legs; it passes skipPaymentStamps so the request's own
+// last/advance/balance payment stamps don't repeat them.
+export function buildTimeline(req, { skipPaymentStamps = false } = {}) {
   const events = [];
   // Each entry must include the canonical timestamp field name so we can sort
   // chronologically. The lifecycle now spans: SE created → Procurement priced
@@ -123,7 +126,7 @@ function buildTimeline(req) {
       pending: true,
     });
   }
-  if (req.last_payment_at) events.push({
+  if (req.last_payment_at && !skipPaymentStamps) events.push({
     label: `Payment Released${req.last_payment_phase ? ` (${req.last_payment_phase})` : ''}`,
     by: req.last_payment_method ? `${req.last_payment_method.toUpperCase()}` : 'Accountant',
     date: req.last_payment_at,
@@ -135,7 +138,7 @@ function buildTimeline(req) {
   // rather than accountant_approved_at / last_payment_at, so without these
   // the timeline showed a gap after Vendor Assigned even when the advance
   // had genuinely been paid and the SE had collected the material.
-  if (req.advance_paid_at) events.push({
+  if (req.advance_paid_at && !skipPaymentStamps) events.push({
     label: `Accountant Released Advance Payment${req.advance_paid_amount ? ` (${formatCurrency(req.advance_paid_amount)})` : ''}`,
     by: req.advance_paid_by_name || 'Accountant',
     date: req.advance_paid_at,
@@ -149,7 +152,7 @@ function buildTimeline(req) {
     icon: Package,
     color: 'text-lime-600',
   });
-  if (req.balance_paid_at) events.push({
+  if (req.balance_paid_at && !skipPaymentStamps) events.push({
     label: `Accountant Released Balance Payment${req.balance_paid_amount ? ` (${formatCurrency(req.balance_paid_amount)})` : ''}`,
     by: req.balance_paid_by_name || 'Accountant',
     date: req.balance_paid_at,

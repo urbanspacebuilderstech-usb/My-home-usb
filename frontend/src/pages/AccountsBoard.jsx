@@ -18,6 +18,7 @@ import MetaDateFilter from '../components/MetaDateFilter';
 import MaterialSearchSelect from '../components/MaterialSearchSelect';
 import InventorySummaryPanel from '../components/InventorySummaryPanel';
 import ProjectWiseBalanceTab from '../components/ProjectWiseBalanceTab';
+import MaterialTimelineDialog from '../components/MaterialTimelineDialog';
 import PayApprovalDialog from '../components/PayApprovalDialog';
 import DTSelectToPayDialog from '../components/DTSelectToPayDialog';
 import PhotoLightbox from '../components/PhotoLightbox';
@@ -441,6 +442,14 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
   const pageStart = (currentPage - 1) * DRILLDOWN_PAGE_SIZE;
   const pageEntries = entries.slice(pageStart, pageStart + DRILLDOWN_PAGE_SIZE);
 
+  // Oct 22 2026 — eye icon on material rows linked to a material request
+  // opens that material's whole timeline (MaterialTimelineDialog). Manually
+  // recorded material expenses have no request behind them, so no icon.
+  const [timelineFor, setTimelineFor] = useState(null);
+  const hasTimeline = (e) => type === 'expense' && e.expense_type === 'material' && !e._isLockRow && e.expense_id
+    && (e.request_id || e.source_request_id || e.request_number);
+  const showActions = canDelete || type === 'expense';
+
   return (
     <div className="space-y-3" data-testid="drilldown-view">
       {!hideHeader && (
@@ -491,12 +500,12 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
                   {type === 'expense' && <th className="text-left px-3 py-2 font-medium text-gray-500">Material Id</th>}
                   {type === 'expense' && <th className="text-left px-3 py-2 font-medium text-gray-500">Vendor</th>}
                   <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
-                  {canDelete && <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>}
+                  {showActions && <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>}
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {entries.length === 0 ? (
-                  <tr><td colSpan={(type === 'expense' ? 9 : 7) + (canDelete ? 1 : 0)} className="px-4 py-8 text-center text-gray-400">No entries found</td></tr>
+                  <tr><td colSpan={(type === 'expense' ? 9 : 7) + (showActions ? 1 : 0)} className="px-4 py-8 text-center text-gray-400">No entries found</td></tr>
                 ) : pageEntries.map((e, i) => (
                   <tr key={pageStart + i} className="hover:bg-gray-50">
                     <td className="px-3 py-2 text-gray-400">{pageStart + i + 1}</td>
@@ -526,22 +535,36 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
                     <td className={`px-3 py-2 text-right font-bold ${type === 'income' ? 'text-green-700' : 'text-red-600'}`}>
                       <MaskedValue value={e.amount} className={type === 'income' ? 'text-green-700' : 'text-red-600'} />
                     </td>
-                    {canDelete && (
+                    {showActions && (
                       <td className="px-3 py-2 text-center">
-                        {e._isLockRow ? (
-                          <span className="text-[10px] text-gray-400" title="Set via Lock Closing Balance — edit there to change">Locked</span>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
-                            onClick={() => onDelete && onDelete(e)}
-                            data-testid={`drilldown-delete-${e.income_id || e.expense_id || e.request_id || (pageStart + i)}`}
-                            title="Send back to Approvals"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
+                        <div className="flex items-center justify-center gap-1">
+                          {hasTimeline(e) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
+                              onClick={() => setTimelineFor(e.expense_id)}
+                              data-testid={`drilldown-timeline-${e.expense_id}`}
+                              title="View material timeline"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          {canDelete && (e._isLockRow ? (
+                            <span className="text-[10px] text-gray-400" title="Set via Lock Closing Balance — edit there to change">Locked</span>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
+                              onClick={() => onDelete && onDelete(e)}
+                              data-testid={`drilldown-delete-${e.income_id || e.expense_id || e.request_id || (pageStart + i)}`}
+                              title="Send back to Approvals"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          ))}
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -560,6 +583,13 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
           />
         </CardContent>
       </Card>
+      <MaterialTimelineDialog
+        open={!!timelineFor}
+        expenseId={timelineFor}
+        onClose={() => setTimelineFor(null)}
+        Amount={MaskedValue}
+        modeLabel={(m) => MODE_LABELS[classifyMode(m)] || 'Cash'}
+      />
     </div>
   );
 }
