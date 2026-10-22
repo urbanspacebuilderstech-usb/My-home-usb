@@ -536,14 +536,18 @@ export default function SuperAdminDashboard() {
       <main className="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-10">
         {/* ── Title + filter row: one row above everything it scopes ── */}
         <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
-          <div>
+          {/* Oct 22 2026 — fixed 20rem basis: whether the filters wrap below
+              depends on the screen width only, not on the period text
+              ("22 Oct 2026" vs "01 Oct 2026 – 22 Oct 2026") — the
+              description wraps inside its column instead. */}
+          <div className="flex-[1_1_20rem] min-w-0">
             <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-gray-900" data-testid="dashboard-title">Executive dashboard</h1>
             <p className="text-sm sm:text-base text-gray-500 mt-1">
               Company-wide performance for {periodLabel}. Click any figure or chart for the details behind it.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2" data-testid="dashboard-date-filter">
-            <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+            <div className="inline-flex flex-wrap rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
               {[
                 { k: 'today', label: 'Today' },
                 { k: 'yesterday', label: 'Yesterday' },
@@ -554,7 +558,7 @@ export default function SuperAdminDashboard() {
                   key={p.k}
                   onClick={() => applyPreset(p.k)}
                   data-testid={`dashboard-preset-${p.k}`}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  className={`px-2 sm:px-3 py-1.5 text-[13px] sm:text-sm font-medium rounded-md whitespace-nowrap transition-colors ${
                     preset === p.k ? 'bg-amber-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
                   }`}
                 >
