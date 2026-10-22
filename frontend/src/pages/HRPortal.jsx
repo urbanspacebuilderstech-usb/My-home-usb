@@ -587,7 +587,10 @@ export default function HRPortal() {
       default: return 0;
     }
   });
+  // Oct 22 2026 — Roles & Credentials lists staff logins only; client
+  // portal accounts are left out.
   const filteredUsers = allUsers.filter(u => {
+    if (u.role === 'client') return false;
     const matchSearch = !userSearch || u.name?.toLowerCase().includes(userSearch.toLowerCase()) || u.email?.toLowerCase().includes(userSearch.toLowerCase());
     const matchRole = !roleFilter || u.role === roleFilter;
     return matchSearch && matchRole;
@@ -891,7 +894,7 @@ export default function HRPortal() {
                       <SelectTrigger className="w-40" data-testid="filter-role"><SelectValue placeholder="All Roles" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All Roles</SelectItem>
-                        {ALL_ROLES.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+                        {ALL_ROLES.filter(r => r.value !== 'client').map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                     <Select value={userSortBy} onValueChange={setUserSortBy}>
@@ -914,6 +917,7 @@ export default function HRPortal() {
                   <table className="w-full">
                     <thead className="bg-gray-50 border-b">
                       <tr>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 w-16">S.NO</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">USER</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">EMAIL</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">ROLE</th>
@@ -924,9 +928,10 @@ export default function HRPortal() {
                     </thead>
                     <tbody className="divide-y">
                       {filteredUsers.length === 0 ? (
-                        <tr><td colSpan="6" className="px-4 py-8 text-center text-gray-500">No users found</td></tr>
-                      ) : filteredUsers.map(u => (
+                        <tr><td colSpan="7" className="px-4 py-8 text-center text-gray-500">No users found</td></tr>
+                      ) : filteredUsers.map((u, idx) => (
                         <tr key={u.user_id} className="hover:bg-gray-50/80" data-testid={`user-row-${u.user_id}`}>
+                          <td className="px-4 py-3 text-center text-sm text-gray-500 tabular-nums">{idx + 1}</td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-3">
                               <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm">{u.name?.charAt(0)?.toUpperCase() || '?'}</div>
