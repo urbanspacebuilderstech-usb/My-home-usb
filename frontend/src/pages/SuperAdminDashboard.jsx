@@ -535,17 +535,8 @@ export default function SuperAdminDashboard() {
       <AppHeader user={user} unreadNotifs={unreadNotifs} />
       <main className="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-10">
         {/* ── Title + filter row: one row above everything it scopes ── */}
-        <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
-          {/* Oct 22 2026 — fixed 20rem basis: whether the filters wrap below
-              depends on the screen width only, not on the period text
-              ("22 Oct 2026" vs "01 Oct 2026 – 22 Oct 2026") — the
-              description wraps inside its column instead. */}
-          <div className="flex-[1_1_20rem] min-w-0">
-            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-gray-900" data-testid="dashboard-title">Executive dashboard</h1>
-            <p className="text-sm sm:text-base text-gray-500 mt-1">
-              Company-wide performance for {periodLabel}. Click any figure or chart for the details behind it.
-            </p>
-          </div>
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-gray-900" data-testid="dashboard-title">Executive dashboard</h1>
           <div className="flex flex-wrap items-center gap-2" data-testid="dashboard-date-filter">
             <div className="inline-flex flex-wrap rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
               {[
