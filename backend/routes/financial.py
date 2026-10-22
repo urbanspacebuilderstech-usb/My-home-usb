@@ -1934,6 +1934,37 @@ async def send_petty_cash_back_to_approvals(record_id: str, user: User = Depends
     return {"message": "Sent back to Approvals → Petty Cash", "from": coll_name}
 
 
+# Oct 22 2026 — pay_approval's phase cascade stamps the parent request with
+# advance_paid_* (advance bill) or balance_paid_* (any other phase) once that
+# bill is fully paid, and a send-back never took the stamp off again. The
+# Procurement board decides "✓ Advance Collected" / Paid purely on these, and
+# verify-approve skips the payment stop once they cover the total, so a
+# taken-back payment kept counting as paid: USB-MR2304 (₹50 advance sent back
+# from the Cashbook, then rejected) still read "Advance ₹50 Collected".
+_PHASE_PAID_STAMPS = {
+    "advance": ("advance_paid_at", "advance_paid_by", "advance_paid_by_name", "advance_paid_amount"),
+    "balance": ("balance_paid_at", "balance_paid_by", "balance_paid_by_name", "balance_paid_amount"),
+}
+
+
+async def _clear_parent_phase_paid_stamp(bill_id: Optional[str]) -> None:
+    """After a send-back, drop the parent request's paid stamp for this bill's
+    phase unless the bill is still fully paid by the payments that remain."""
+    if not bill_id:
+        return
+    bill = await db.material_expenses.find_one(
+        {"$or": [{"expense_id": bill_id}, {"material_expense_id": bill_id}]},
+        {"_id": 0, "source_request_id": 1, "payment_phase": 1, "status": 1},
+    )
+    if not bill or not bill.get("source_request_id") or (bill.get("status") or "").lower() == "paid":
+        return
+    phase = "advance" if (bill.get("payment_phase") or "").lower() == "advance" else "balance"
+    await db.material_requests.update_one(
+        {"request_id": bill["source_request_id"]},
+        {"$unset": {f: "" for f in _PHASE_PAID_STAMPS[phase]}},
+    )
+
+
 # Feb 28 2026 — "Send Back to Approvals" for Material expense rows.
 # Mirrors the petty_cash send-back behaviour:
 #   1. Reverse the cashflow_ledger allocation.
@@ -2046,6 +2077,11 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
         "remaining_balance": "", "last_partial_paid_at": "",
         "last_partial_paid_by": "", "last_partial_paid_by_name": "",
     }
+    # Oct 22 2026 — on a material_expenses row `payment_phase` is which bill it
+    # is (advance / balance / full, set by Procurement), not how it was paid.
+    # Wiping it turned a sent-back advance bill into a "full" one, so paying
+    # it again ran the balance cascade: request → delivered, balance stamp.
+    bill_unset_fields = {k: v for k, v in unset_fields.items() if k != "payment_phase"}
 
     # Aug 14 2026 — Reversing a paid mirror used to unconditionally free
     # EVERY cheque it referenced and hard-delete EVERY suspense_entries row
@@ -2234,7 +2270,7 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
     elif coll_name == "material_expenses":
         await db.material_expenses.update_one(
             {found_field: record_id},
-            {"$set": set_fields, "$unset": unset_fields}
+            {"$set": set_fields, "$unset": bill_unset_fields}
         )
         await _cleanup_mirrors_for_parent(
             parent_expense_id=found.get("expense_id") or found.get("material_expense_id"),
@@ -2247,6 +2283,7 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
                 {"request_id": src},
                 {"$set": {**set_fields, "next_payment_phase": "full"}, "$unset": unset_fields}
             )
+        await _clear_parent_phase_paid_stamp(found.get("expense_id") or found.get("material_expense_id"))
     elif coll_name == "recorded_expenses":
         # Cashbook mirror of a material release. BEFORE deleting, reverse
         # its cheque/suspense footprint with the same ownership-aware logic
@@ -2321,8 +2358,11 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
                 if res.matched_count == 0:
                     await db.material_expenses.update_one(
                         {"$or": [{"expense_id": parent_id}, {"material_expense_id": parent_id}]},
-                        {"$set": set_fields, "$unset": unset_fields}
+                        {"$set": set_fields, "$unset": bill_unset_fields}
                     )
+            # A payment row points at its phase bill, not at the request, so
+            # neither reset above reaches the request's own paid stamp.
+            await _clear_parent_phase_paid_stamp(parent_id)
 
     audit_fields = {"action": "send_back_to_approvals", "record_id": record_id, "from": coll_name, "by": user.user_id, "by_name": user.name}
     await create_audit_log(user.user_id, "send_back", "material_expense", record_id, audit_fields)
@@ -12702,16 +12742,25 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
                 notify_se_msg = None
                 if phase == "advance":
                     parent_update.update({
-                        "status": "in_transit",
-                        "transit_started_at": now,
-                        "transit_started_by": user.user_id,
                         "advance_paid_at": now,
                         "advance_paid_by": user.user_id,
                         "advance_paid_by_name": user.name,
                         "advance_paid_amount": settled_this_phase,
                         "next_payment_phase": "balance",
                     })
-                    notify_se_msg = f"Advance approved — ready to collect: {parent.get('material_name')} → {parent.get('vendor_name', 'Vendor')}"
+                    # Oct 22 2026 — an advance re-paid after a Cashbook
+                    # send-back can land when the SE has long since collected
+                    # the material; releasing it to transit again would undo
+                    # delivery and verification and ask the SE to collect
+                    # twice. Only an advance the material is still waiting
+                    # for releases it.
+                    if not (parent.get("received_at") or parent.get("collected_at")):
+                        parent_update.update({
+                            "status": "in_transit",
+                            "transit_started_at": now,
+                            "transit_started_by": user.user_id,
+                        })
+                        notify_se_msg = f"Advance approved — ready to collect: {parent.get('material_name')} → {parent.get('vendor_name', 'Vendor')}"
                 else:
                     parent_update.update({
                         "balance_paid_at": now,
