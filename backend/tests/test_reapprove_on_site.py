@@ -87,3 +87,19 @@ def test_board_opens_approve_for_accounts_rejected():
     assert "const isActionable = accountsRejected ||" in board
     assert "&& !isAccountsRejected(open)" in board
     assert "onSite ? 'Send to Accounts'" in board
+
+
+def test_queue_heals_only_stamps_no_money_backs():
+    """MR2304's 50 was deleted from the Cashbook before the send-back fix, so
+    its stamp outlived the payment. The queue drops such a stamp, and only
+    when neither a bill (any status) nor a live payment row holds money."""
+    seg = _seg(PROC, "_heal_stale_paid_stamps")
+    assert "if not rb:\n            continue" in seg  # no bill at all: left alone
+    assert '("paid", "completed", "partially_paid")' in seg
+    assert 'float(b.get("paid_amount") or 0) > 0.5' in seg
+    assert "in paid_links" in seg
+    assert "create_audit_log(" in seg
+    queue = _seg(PROC, "procurement_simple_queue")
+    assert "await _heal_stale_paid_stamps(rows, user)" in queue
+    board = _read(BOARD)
+    assert "const splitGone = isAccountsRejected(req) && !advancePaid;" in board

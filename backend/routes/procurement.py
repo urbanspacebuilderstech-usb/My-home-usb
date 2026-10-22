@@ -2437,6 +2437,58 @@ async def list_contractors_by_type(type_id: str, user: User = Depends(get_curren
 # Endpoint set used by the new ProcurementBoardSimple page (4-tab layout).
 # Existing ProcurementBoardV2 endpoints above are untouched for back-compat.
 # =====================================================================
+_STALE_STAMP_LEG_EXCLUDED = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+
+
+async def _heal_stale_paid_stamps(rows: list, user: User) -> None:
+    """Oct 22 2026 — self-heal for advance/balance paid stamps left behind by
+    a Cashbook send-back before ad88a6c8 taken-back payments stopped counting
+    (USB-MR2304: 50 advance deleted, card still "Advance ₹50 Collected",
+    Paid ₹50). A stamp is dropped only when no bill of the request holds any
+    money (any status) and no live payment row points at the request or its
+    bills; a request with no bill at all is left alone. Fixes the rows in
+    place and in the database, so every other screen reads the corrected
+    figure too."""
+    stamped = [r for r in rows if float(r.get("advance_paid_amount") or 0) > 0.5
+               or float(r.get("balance_paid_amount") or 0) > 0.5]
+    if not stamped:
+        return
+    rids = [r["request_id"] for r in stamped if r.get("request_id")]
+    bills = await db.material_expenses.find(
+        {"source_request_id": {"$in": rids}},
+        {"_id": 0, "expense_id": 1, "source_request_id": 1, "status": 1, "paid_amount": 1},
+    ).to_list(5000)
+    bills_by_req: Dict[str, list] = {}
+    for b in bills:
+        bills_by_req.setdefault(b.get("source_request_id"), []).append(b)
+    link_ids = rids + [b["expense_id"] for b in bills if b.get("expense_id")]
+    legs = await db.recorded_expenses.find(
+        {"request_id": {"$in": link_ids}},
+        {"_id": 0, "request_id": 1, "amount": 1, "status": 1, "is_deleted": 1},
+    ).to_list(10000)
+    paid_links = {l.get("request_id") for l in legs
+                  if not l.get("is_deleted") and float(l.get("amount") or 0) > 0.5
+                  and (l.get("status") or "").lower() not in _STALE_STAMP_LEG_EXCLUDED}
+    for r in stamped:
+        rb = bills_by_req.get(r.get("request_id")) or []
+        if not rb:
+            continue
+        if any(float(b.get("paid_amount") or 0) > 0.5
+               or (b.get("status") or "").lower() in ("paid", "completed", "partially_paid") for b in rb):
+            continue
+        if r.get("request_id") in paid_links or any(b.get("expense_id") in paid_links for b in rb):
+            continue
+        stale = {f: r.get(f) for f in _PHASE_STAMP_FIELDS if f in r}
+        await db.material_requests.update_one(
+            {"request_id": r["request_id"]}, {"$unset": {f: "" for f in stale}})
+        for f in stale:
+            r.pop(f, None)
+        await create_audit_log(user.user_id, "heal_stale_paid_stamp", "material_request", r["request_id"], {
+            "request_number": r.get("request_number"), "cleared": stale,
+            "reason": "no bill holds money and no live payment row points at it",
+        })
+
+
 @router.get("/procurement-simple/queue")
 async def procurement_simple_queue(
     queue: str = "pending",  # pending | forwarded | rejected | all
@@ -2467,6 +2519,7 @@ async def procurement_simple_queue(
     rows = await db.material_requests.find(
         {"status": {"$in": target}}, {"_id": 0}
     ).sort("created_at", -1).to_list(500)
+    await _heal_stale_paid_stamps(rows, user)
 
     # Enrich project + SE names
     project_ids = list({r.get("project_id") for r in rows if r.get("project_id")})

@@ -1357,8 +1357,11 @@ function AmountSummary({ req }) {
   const isAdvanceMode = (req.payment_mode || '').toLowerCase() === 'advance';
   const isFinal = ['delivered', 'completed', 'closed'].includes(status);
   const advancePaid = Number(req.advance_paid_amount || 0) > 0;
+  // Oct 22 2026 — an Accounts-rejected request with no advance paid is
+  // re-approved as one bill for the whole amount, so no advance/balance split.
+  const splitGone = isAccountsRejected(req) && !advancePaid;
 
-  if (isAdvanceMode && !isFinal) {
+  if (isAdvanceMode && !isFinal && !splitGone) {
     const advanceAmt = Number(req.advance_amount || 0);
     const balanceAmt = Number(req.balance_amount ?? (total - advanceAmt));
     if (advancePaid) {
