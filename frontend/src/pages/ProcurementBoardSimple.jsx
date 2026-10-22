@@ -112,6 +112,19 @@ const LIFECYCLE_BUCKETS = [
   { key: 'delivered',           label: 'Completed',              Icon: PackageCheck,  cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
 ];
 
+// Oct 22 2026 — Accounts rejecting a verified bill sends the request back to
+// procurement_verifying (still Procurement's Verify action), but it belongs
+// in New Request with the Accounts Rejected tag so it reads as fresh work,
+// not a routine verification (USB-MR2304: ₹50 advance paid, balance bill
+// rejected). accounts_rejected_at is never cleared, so the reject only
+// counts until the SE logs a newer receipt (a Verification reject →
+// re-collect cycle after it).
+function isAccountsRejected(req) {
+  const at = req.accounts_rejected_at;
+  if (!at || (req.status || '').toLowerCase() !== 'procurement_verifying') return false;
+  return !req.received_at || String(at) > String(req.received_at);
+}
+
 function bucketForMaterial(req) {
   const status = (req.status || '').toLowerCase();
   if (status === 'planning_initial_pending') return null; // hidden — Planning hasn't reviewed yet
@@ -122,6 +135,7 @@ function bucketForMaterial(req) {
   // SE marked collected — folds straight into Purchase Verification (no
   // separate "Received Material" tab).
   if (status === 'collected') return 'verifying';
+  if (isAccountsRejected(req)) return 'new_request';
   if (status === 'procurement_verifying') return 'verifying';
   if (['pending_accounts_approval', 'pending_advance_payment', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
   // in_transit, and a verification reject bounced back for SE to re-collect
@@ -566,7 +580,7 @@ function RequestsTab({ dateRange, projectFilter }) {
           {verifyDialog.req && (
             <div className="space-y-3 text-sm">
               {/* Sent back by Accounts — re-verification, not a fresh delivery */}
-              {verifyDialog.req.accounts_rejected_reason && verifyDialog.req.accounts_rejected_at && (
+              {verifyDialog.req.accounts_rejected_reason && isAccountsRejected(verifyDialog.req) && (
                 <div className="bg-red-50 border border-red-200 rounded p-2.5 text-xs" data-testid="proc-verify-accounts-bounced">
                   <p className="font-semibold text-red-800">↩ Sent back by Accounts for re-verification</p>
                   <p className="text-red-700 italic mt-0.5">"{verifyDialog.req.accounts_rejected_reason}"</p>
@@ -1381,7 +1395,8 @@ function RequestCard({ req, onClick, stockInfo = null }) {
   // Exception: `pending_advance_payment` (Advance mode) fires BEFORE the
   // material ever moves to the SE — Accountant must release the advance
   // first — so it must not claim SE Received yet.
-  const seReceived = status !== 'pending_advance_payment' && ['verifying', 'awaiting_accountant', 'delivered'].includes(bucket);
+  const accountsRejected = isAccountsRejected(req);
+  const seReceived = accountsRejected || (status !== 'pending_advance_payment' && ['verifying', 'awaiting_accountant', 'delivered'].includes(bucket));
   const isActionable = ['requested', 'pm_approved', 'procurement_revision'].includes(status);
   const isVerifying = status === 'procurement_verifying';
   const isNewRequest = ['requested', 'pm_approved'].includes(status);
@@ -1453,7 +1468,7 @@ function RequestCard({ req, onClick, stockInfo = null }) {
             <Badge variant="outline" className={`text-[10px] ${cardCfg?.cls || ''}`}>
               {cardCfg?.label || status}
             </Badge>
-            {status === 'procurement_verifying' && req.accounts_rejected_at && (
+            {accountsRejected && (
               <Badge
                 variant="outline"
                 className="text-[10px] bg-red-50 text-red-700 border-red-300"
