@@ -2574,6 +2574,169 @@ async def projects_summary(user: User = Depends(get_current_user)):
 
 
 
+def _accounts_rejected_on_site(req: dict) -> bool:
+    """Oct 22 2026 — Accounts rejecting a delivered bill parks the request at
+    procurement_verifying with accounts_rejected_at. Same rule as the
+    Procurement board's isAccountsRejected: the reject counts until the SE
+    logs a newer receipt (a Verification reject → re-collect cycle)."""
+    at = req.get("accounts_rejected_at")
+    if not at or req.get("status") != "procurement_verifying":
+        return False
+    received = req.get("received_at")
+    return not received or str(at) > str(received)
+
+
+_REAPPROVE_PAID_BILL = {"paid", "completed"}
+_PHASE_STAMP_FIELDS = ("advance_paid_at", "advance_paid_by", "advance_paid_by_name", "advance_paid_amount",
+                       "balance_paid_at", "balance_paid_by", "balance_paid_by_name", "balance_paid_amount")
+
+
+async def _reapprove_on_site(req: dict, data: dict, user: User, *, vendor_id: str, vendor_name: str,
+                             unit_price: float, qty: float, transport: float, discount: float,
+                             total: float, remarks: str, now: str) -> dict:
+    """Oct 22 2026 — Procurement re-approves price and vendor on an
+    Accounts-rejected request whose material is already on site. It skips
+    transit and a second collection and goes straight to Accounts for what
+    is still due (USB-MR2304). Money already paid stays paid and is netted
+    off, even if the vendor changes; Accounts settles that by hand."""
+    request_id = req["request_id"]
+    bills = await db.material_expenses.find(
+        {"source_request_id": request_id, "status": {"$ne": "superseded"}}, {"_id": 0},
+    ).to_list(50)
+    part_paid = [b for b in bills if (b.get("status") or "").lower() == "partially_paid"]
+    if part_paid:
+        raise HTTPException(status_code=400, detail=(
+            f"₹{sum(float(b.get('paid_amount') or 0) for b in part_paid):,.0f} is part-paid on this bill — "
+            "Accounts must settle it or send that payment back before it can be re-approved"))
+    paid_bills = [b for b in bills if (b.get("status") or "").lower() in _REAPPROVE_PAID_BILL]
+    if bills:
+        paid = sum(float(b.get("paid_amount") or b.get("final_amount") or 0) for b in paid_bills)
+    else:
+        paid = float(req.get("advance_paid_amount") or 0) + float(req.get("balance_paid_amount") or 0)
+    paid = round(paid, 2)
+    due = round(max(0.0, total - paid), 2)
+    phase = "balance" if paid > 0.5 else "full"
+
+    update: Dict[str, Any] = {
+        "vendor_id": vendor_id,
+        "vendor_name": vendor_name,
+        "unit_rate": unit_price,
+        "unit_price": unit_price,
+        "approved_quantity": qty,
+        "received_quantity": qty,
+        "transport_cost": transport,
+        "discount": discount,
+        "total_amount": total,
+        "estimated_price": total,
+        "estimated_cost": total,
+        "procurement_remarks": remarks,
+        "procurement_reapproved_by": user.user_id,
+        "procurement_reapproved_by_name": user.name,
+        "procurement_reapproved_at": now,
+        "procurement_reapproved_total": total,
+        "procurement_reapproved_due": due,
+        "next_payment_phase": phase,
+        "pending_next_status": None,
+        "pending_next_extra": None,
+        "updated_at": now,
+    }
+    steel_pricing = data.get("steel_pricing")
+    if isinstance(steel_pricing, list) and steel_pricing:
+        update["steel_pricing"] = [
+            {"diameter_mm": sp.get("diameter_mm"), "rod_count": sp.get("rod_count"),
+             "weight_kg": float(sp.get("weight_kg") or 0), "unit_price": float(sp.get("unit_price") or 0),
+             "line_total": float(sp.get("line_total") or 0)}
+            for sp in steel_pricing
+        ]
+    if phase == "balance":
+        # e.g. the advance really was paid and only the balance bill was rejected.
+        update.update({"status": "pending_balance_payment", "balance_amount": due})
+    else:
+        # Nothing paid and the material is already received: one bill for the
+        # whole amount. An advance split no longer applies.
+        update.update({"status": "pending_accounts_approval", "payment_mode": "post_delivery",
+                       "advance_amount": 0.0, "advance_percent": None, "balance_amount": 0.0})
+    if due <= 0.5:
+        update.update({"status": "delivered", "delivered_at": now})
+    unset: Dict[str, str] = {}
+    if bills and not paid_bills:
+        # No bill holds money, so any advance/balance stamp left behind by an
+        # older send-back is stale (MR2304 still read "Advance ₹50 Collected").
+        unset = {f: "" for f in _PHASE_STAMP_FIELDS if f in req}
+    await db.material_requests.update_one(
+        {"request_id": request_id}, {"$set": update, **({"$unset": unset} if unset else {})})
+
+    open_bills = [b for b in bills if (b.get("status") or "").lower() not in _REAPPROVE_PAID_BILL]
+    keep = None
+    if due > 0.5:
+        keep = next((b for b in open_bills if b.get("status") == "pending_accounts_approval"), None) \
+            or (open_bills[0] if open_bills else None)
+        desc = f"{req.get('material_name', '')} ({qty} {req.get('unit', '')})"
+        bill_fields = {
+            "status": "pending_accounts_approval",
+            "final_amount": due,
+            "estimated_cost": due,
+            "quantity": qty,
+            "unit_price": unit_price,
+            "vendor_id": vendor_id,
+            "vendor_name": vendor_name,
+            "payment_mode": update.get("payment_mode", req.get("payment_mode")),
+            "payment_phase": phase,
+            "description": desc,
+            "reapproved_on_site_at": now,
+            "updated_at": now,
+        }
+        if keep:
+            bill_id = keep["expense_id"]
+            await db.material_expenses.update_one({"expense_id": bill_id}, {"$set": bill_fields})
+        else:
+            bill_id = f"mexp_{uuid.uuid4().hex[:12]}"
+            await db.material_expenses.insert_one({
+                **bill_fields,
+                "expense_id": bill_id,
+                "source_request_id": request_id,
+                "project_id": req.get("project_id"),
+                "project_name": req.get("project_name"),
+                "material_name": req.get("material_name"),
+                "unit": req.get("unit"),
+                "site_engineer_id": req.get("site_engineer_id"),
+                "site_engineer_name": req.get("site_engineer_name"),
+                "request_type": "material",
+                "created_at": now,
+            })
+            await db.material_requests.update_one({"request_id": request_id}, {"$set": {"expense_id": bill_id}})
+    # One live bill per request: the rest would show in Approvals as
+    # duplicates that could be paid a second time.
+    others = [b["expense_id"] for b in open_bills if b.get("expense_id") and b is not keep]
+    if others:
+        await db.material_expenses.update_many(
+            {"expense_id": {"$in": others}},
+            {"$set": {"status": "superseded", "superseded_at": now,
+                      "superseded_reason": "Re-approved by Procurement after Accounts rejected it"}},
+        )
+
+    if due > 0.5:
+        try:
+            accs = await db.users.find(
+                {"role": {"$in": ["accountant", "super_admin"]}, "is_active": {"$ne": False}},
+                {"_id": 0, "user_id": 1},
+            ).to_list(50)
+            for a in accs:
+                await create_notification(
+                    a["user_id"],
+                    f"Re-approved by Procurement & ready for payment ({phase}): {req.get('material_name')} → {vendor_name} — ₹{due:,.0f}",
+                )
+        except Exception:
+            pass
+    await create_audit_log(user.user_id, "reapprove_on_site", "material_request", request_id, {
+        "total": total, "already_paid": paid, "due": due, "phase": phase, "status": update["status"],
+        "vendor_name": vendor_name, "previous_vendor_name": req.get("vendor_name"),
+        "superseded_bills": others, "cleared_stale_stamps": sorted(unset),
+    })
+    return {"message": "Sent to Accounts for payment" if due > 0.5 else "Already fully paid — marked delivered",
+            "status": update["status"], "amount_due": due, "already_paid": paid}
+
+
 @router.patch("/procurement-simple/material-requests/{request_id}/assign-vendor")
 async def procurement_simple_assign_vendor(request_id: str, data: dict, user: User = Depends(get_current_user)):
     """Procurement assigns Vendor + Unit Price + Remarks to a SE material request,
@@ -2596,7 +2759,8 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
     req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
-    if req.get("status") not in ["requested", "pm_approved", "procurement_revision"]:
+    on_site = _accounts_rejected_on_site(req)
+    if req.get("status") not in ["requested", "pm_approved", "procurement_revision"] and not on_site:
         raise HTTPException(status_code=400, detail=f"Cannot assign vendor — current status: {req.get('status')}")
 
     vendor_id = data.get("vendor_id")
@@ -2616,6 +2780,13 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
     estimated_price = max(0.0, unit_price * qty + transport - discount)
     remarks = (data.get("remarks") or "").strip()
     now = datetime.now(timezone.utc).isoformat()
+
+    if on_site:
+        # Delivery already happened: timeline and payment mode no longer apply.
+        return await _reapprove_on_site(
+            req, data, user, vendor_id=vendor_id, vendor_name=vendor_name, unit_price=unit_price,
+            qty=qty, transport=transport, discount=discount, total=round(estimated_price, 2),
+            remarks=remarks, now=now)
 
     # ---- Timeline (date OR days) ----
     timeline_type = (data.get("timeline_type") or "date").lower()

@@ -400,7 +400,8 @@ function RequestsTab({ dateRange, projectFilter }) {
 
   // Card click handler — open the right dialog based on status
   const openCard = (r) => {
-    if ((r.status || '').toLowerCase() === 'procurement_verifying') {
+    // An Accounts-rejected request opens Approve (price & vendor), not Verify.
+    if ((r.status || '').toLowerCase() === 'procurement_verifying' && !isAccountsRejected(r)) {
       // Compute fallback defaults so the inputs ALWAYS start with a value the
       // user can simply confirm — no more empty Received Qty / Unit Price.
       const orderedQty = Number(r.approved_quantity || r.quantity || 0);
@@ -518,7 +519,7 @@ function RequestsTab({ dateRange, projectFilter }) {
 
       <AssignVendorDialog
         item={open}
-        readOnly={open ? !['requested', 'pm_approved', 'procurement_revision'].includes((open.status || '').toLowerCase()) : false}
+        readOnly={open ? !['requested', 'pm_approved', 'procurement_revision'].includes((open.status || '').toLowerCase()) && !isAccountsRejected(open) : false}
         onClose={() => setOpen(null)}
         onDone={() => { setOpen(null); fetchAll(); }}
         onReject={(req) => { setOpen(null); setRejectDialog({ open: true, req, reason: '' }); }}
@@ -1397,7 +1398,7 @@ function RequestCard({ req, onClick, stockInfo = null }) {
   // first — so it must not claim SE Received yet.
   const accountsRejected = isAccountsRejected(req);
   const seReceived = accountsRejected || (status !== 'pending_advance_payment' && ['verifying', 'awaiting_accountant', 'delivered'].includes(bucket));
-  const isActionable = ['requested', 'pm_approved', 'procurement_revision'].includes(status);
+  const isActionable = accountsRejected || ['requested', 'pm_approved', 'procurement_revision'].includes(status);
   const isVerifying = status === 'procurement_verifying';
   const isNewRequest = ['requested', 'pm_approved'].includes(status);
   const [priorityBusy, setPriorityBusy] = useState(false);
@@ -2087,7 +2088,9 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
     setDialogTab('details');
     setVendorId(item.vendor_id || '');
     setUnitPrice(String(item.unit_rate || item.unit_price || ''));
-    setApprovedQty(String(item.approved_quantity ?? item.quantity ?? ''));
+    // On-site re-approval bills what the SE received, not what was ordered.
+    const receivedQty = isAccountsRejected(item) && Number(item.received_quantity) > 0 ? item.received_quantity : null;
+    setApprovedQty(String(receivedQty ?? item.approved_quantity ?? item.quantity ?? ''));
     setTransport(String(item.transport_cost || 0));
     setDiscount(String(item.discount || 0));
     setRemarks(item.procurement_remarks || '');
@@ -2173,6 +2176,10 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
 
   if (!item) return null;
   const selectedVendor = vendors.find(v => v.vendor_id === vendorId);
+  // Oct 22 2026 — Accounts rejected a bill for material already on site:
+  // Approve re-prices it and sends it straight to Accounts (no transit, no
+  // second collection), so delivery timeline and payment mode don't apply.
+  const onSite = isAccountsRejected(item);
 
   const submit = async () => {
     if (!vendorId) { toast.error('Select a vendor'); return; }
@@ -2186,6 +2193,32 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
     } else {
       if (!price || price <= 0) { toast.error('Enter a valid unit price'); return; }
       if (!qty || qty <= 0) { toast.error('Enter a valid quantity'); return; }
+    }
+    if (onSite) {
+      setSubmitting(true);
+      try {
+        const res = await axios.patch(`${API}/procurement-simple/material-requests/${item.request_id}/assign-vendor`, {
+          vendor_id: vendorId,
+          vendor_name: selectedVendor?.name || selectedVendor?.vendor_name || '',
+          unit_price: isSteelBreakdown ? weightedAvgUnitPrice : price,
+          approved_quantity: isSteelBreakdown ? (steelWeightTotal || qty) : qty,
+          transport_cost: tCost,
+          discount: disc,
+          remarks,
+          ...(isSteelBreakdown ? { steel_pricing: steelItems.map((it, idx) => ({
+            diameter_mm: it.diameter_mm,
+            rod_count: it.rod_count,
+            weight_kg: parseFloat(it.calculated_weight_kg || it.weight_kg) || 0,
+            unit_price: parseFloat(steelPrices[idx]) || 0,
+            line_total: steelLineTotals[idx]?.line_total || 0,
+          })) } : {}),
+        });
+        toast.success(`${res.data?.message || 'Sent to Accounts'}${res.data?.amount_due > 0.5 ? ` — ${fmt(res.data.amount_due)} due` : ''}`);
+        onDone();
+      } catch (err) {
+        toast.error(err.response?.data?.detail || 'Failed to re-approve');
+      } finally { setSubmitting(false); }
+      return;
     }
     // Timeline validation
     if (timelineType === 'date' && !timelineDate) { toast.error('Select expected delivery date'); return; }
@@ -2530,6 +2563,18 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
             <span className="text-xl font-bold text-emerald-700">{fmt(total)}</span>
           </div>
 
+          {onSite && (
+            <div className="bg-red-50 border border-red-200 rounded p-3 text-xs space-y-1" data-testid="proc-assign-onsite-note">
+              <p className="font-semibold text-red-800">↩ Rejected by Accounts — material already received on site</p>
+              {item.accounts_rejected_reason && <p className="text-red-700 italic">"{item.accounts_rejected_reason}"</p>}
+              <p className="text-gray-700">
+                Approve sends this straight to Accounts for payment. No transit and no second collection.
+                Any payment already made on it is deducted from the bill.
+              </p>
+            </div>
+          )}
+
+          {!onSite && (<>
           {/* Section — Delivery Timeline */}
           <div className="border-b pb-1.5 mt-3 flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Delivery Timeline</h4></div>
 
@@ -2697,16 +2742,17 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
               </div>
             </div>
           )}
+          </>)}
 
           {/* Section — Remarks / Reason */}
-          <div className="border-b pb-1.5 mt-3 flex items-center gap-1.5"><FileClock className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">{itemStockInfo && itemStockInfo.stock > 0 ? 'Reason for Planning' : 'Notes for Planning'}</h4></div>
+          <div className="border-b pb-1.5 mt-3 flex items-center gap-1.5"><FileClock className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">{onSite ? 'Notes' : (itemStockInfo && itemStockInfo.stock > 0 ? 'Reason for Planning' : 'Notes for Planning')}</h4></div>
           <Textarea
             rows={2}
             value={remarks}
             onChange={(e) => setRemarks(e.target.value)}
             disabled={readOnly}
             className="text-sm"
-            placeholder={itemStockInfo && itemStockInfo.stock > 0 ? 'Enter reason for ordering despite existing stock…' : 'Any notes for Planning…'}
+            placeholder={onSite ? 'What changed on the bill…' : (itemStockInfo && itemStockInfo.stock > 0 ? 'Enter reason for ordering despite existing stock…' : 'Any notes for Planning…')}
             data-testid="proc-assign-remarks"
           />
 
@@ -2784,11 +2830,13 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
           })()}
           {dialogTab === 'details' && !readOnly && (
             <>
-              <Button variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => onReject(item)} disabled={submitting} data-testid="proc-assign-reject">
-                <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
-              </Button>
+              {!onSite && (
+                <Button variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => onReject(item)} disabled={submitting} data-testid="proc-assign-reject">
+                  <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
+                </Button>
+              )}
               <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={submit} disabled={submitting} data-testid="proc-assign-submit">
-                <Send className="h-3.5 w-3.5 mr-1" /> {submitting ? 'Sending…' : (paymentMode === 'advance' ? 'Send for Accountant Approval' : 'Send to Site Engineer')}
+                <Send className="h-3.5 w-3.5 mr-1" /> {submitting ? 'Sending…' : (onSite ? 'Send to Accounts' : (paymentMode === 'advance' ? 'Send for Accountant Approval' : 'Send to Site Engineer'))}
               </Button>
             </>
           )}

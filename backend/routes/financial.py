@@ -10290,15 +10290,9 @@ async def reject_material_expense(expense_id: str, payload: LegacyRejectPayload 
                     p["user_id"],
                     f"Accounts rejected — sent back for {verb}: {parent_req.get('material_name', exp.get('material_name', 'Unknown'))} — {reason}",
                 )
-            if not pre_verification:
-                # Post-verification only — the SE's receipt already added
-                # stock to the Daily Inventory Register; pre_verification
-                # (pending_advance_payment) never reached a receipt.
-                try:
-                    from routes.site_ops import _reverse_material_receipt_inventory
-                    await _reverse_material_receipt_inventory(src, reason)
-                except Exception:
-                    pass
+            # Oct 22 2026 — the SE's stock-in is no longer reversed here: the
+            # material stays on site and Procurement re-approves it straight
+            # to Accounts (see procurement.py _reapprove_on_site).
         elif parent_req:
             upd = await db.material_requests.update_one(
                 {"request_id": src},

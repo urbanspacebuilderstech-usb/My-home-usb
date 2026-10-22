@@ -736,8 +736,9 @@ async def _reverse_material_receipt_inventory(request_id: str, reason: str = "")
     Daily Inventory entry" block in initiate_material_receipt below).
 
     Called whenever a request is rejected/sent back AFTER the SE already
-    logged a receipt (Procurement's verify-reject, Accounts rejecting a
-    post-verification bill, or SE escalating a rejected verification) — the
+    logged a receipt (Procurement's verify-reject, or SE escalating a
+    rejected verification; Accounts rejecting a bill no longer does, since
+    Oct 22 2026 the material stays on site through re-approval) — the
     paperwork being invalidated means that stock-in shouldn't keep counting
     against on-site inventory. Subtracts the received qty from that day's
     inventory row, then cascades the same reduction through every later
@@ -4895,14 +4896,10 @@ async def accountant_reject_material_request(request_id: str, reason: str = "", 
                 p["user_id"],
                 f"Accounts sent back for {verb}: {request.get('material_name', 'Unknown')} — {reason or 'no reason given'}",
             )
-        if target_status == "procurement_verifying":
-            # Post-verification only — the SE's receipt already added stock
-            # to the Daily Inventory Register; pending_advance_payment never
-            # reached a receipt, so there's nothing to reverse there.
-            try:
-                await _reverse_material_receipt_inventory(request_id, reason)
-            except Exception:
-                pass
+        # Oct 22 2026 — the SE's stock-in is no longer reversed here. Accounts
+        # rejects the bill, not the delivery: the material stays on site and
+        # Procurement re-approves it straight to Accounts without a second
+        # collection, so nothing would ever put the stock back.
         return {"message": f"Sent back to Procurement ({target_status})", "status": target_status}
 
     await db.material_requests.update_one(
