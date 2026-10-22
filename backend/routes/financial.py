@@ -12022,7 +12022,9 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
             # figure — this still self-heals a stale mirror (the original
             # Aug 18 2026 bug) but no longer conflates advance with total.
             if payment_phase == "advance" and advance_amount > 0.5:
-                bill_amount = advance_amount
+                # Oct 22 2026 — a top-up advance after a restart charges only
+                # what the money paid before it doesn't cover.
+                bill_amount = max(0.0, advance_amount - float(req.get("advance_paid_before") or 0))
             elif payment_phase == "balance" and balance_amount > 0.5:
                 bill_amount = balance_amount
             elif total_amount > 0.5:
@@ -12177,7 +12179,7 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
         # just its advance portion.
         _phase = req.get("payment_phase")
         if _phase == "advance" and _parent_advance > 0.5:
-            bill_amount = _parent_advance
+            bill_amount = max(0.0, _parent_advance - float(req.get("advance_paid_before") or 0))
         elif _phase == "balance" and _parent_balance > 0.5:
             bill_amount = _parent_balance
         elif _parent_total > 0.5:
@@ -12739,7 +12741,8 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
                         "advance_paid_at": now,
                         "advance_paid_by": user.user_id,
                         "advance_paid_by_name": user.name,
-                        "advance_paid_amount": settled_this_phase,
+                        # plus any advance paid before a restart (top-up bill)
+                        "advance_paid_amount": round(settled_this_phase + float(req.get("advance_paid_before") or 0), 2),
                         "next_payment_phase": "balance",
                     })
                     # Oct 22 2026 — an advance re-paid after a Cashbook

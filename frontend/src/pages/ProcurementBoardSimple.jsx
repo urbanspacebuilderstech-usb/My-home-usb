@@ -2179,10 +2179,12 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
 
   if (!item) return null;
   const selectedVendor = vendors.find(v => v.vendor_id === vendorId);
-  // Oct 22 2026 — Accounts rejected a bill for material already on site:
-  // Approve re-prices it and sends it straight to Accounts (no transit, no
-  // second collection), so delivery timeline and payment mode don't apply.
+  // Oct 22 2026 — Accounts rejected the bill: Approve restarts the order
+  // like a new one (payment mode, advance and delivery date chosen again,
+  // the SE confirms collection again). Money already paid is deducted.
   const onSite = isAccountsRejected(item);
+  const paidBefore = Number(item.advance_paid_amount || 0) + Number(item.balance_paid_amount || 0);
+  const advanceCovered = computedAdvance <= paidBefore + 0.5;
 
   const submit = async () => {
     if (!vendorId) { toast.error('Select a vendor'); return; }
@@ -2196,32 +2198,6 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
     } else {
       if (!price || price <= 0) { toast.error('Enter a valid unit price'); return; }
       if (!qty || qty <= 0) { toast.error('Enter a valid quantity'); return; }
-    }
-    if (onSite) {
-      setSubmitting(true);
-      try {
-        const res = await axios.patch(`${API}/procurement-simple/material-requests/${item.request_id}/assign-vendor`, {
-          vendor_id: vendorId,
-          vendor_name: selectedVendor?.name || selectedVendor?.vendor_name || '',
-          unit_price: isSteelBreakdown ? weightedAvgUnitPrice : price,
-          approved_quantity: isSteelBreakdown ? (steelWeightTotal || qty) : qty,
-          transport_cost: tCost,
-          discount: disc,
-          remarks,
-          ...(isSteelBreakdown ? { steel_pricing: steelItems.map((it, idx) => ({
-            diameter_mm: it.diameter_mm,
-            rod_count: it.rod_count,
-            weight_kg: parseFloat(it.calculated_weight_kg || it.weight_kg) || 0,
-            unit_price: parseFloat(steelPrices[idx]) || 0,
-            line_total: steelLineTotals[idx]?.line_total || 0,
-          })) } : {}),
-        });
-        toast.success(`${res.data?.message || 'Sent to Accounts'}${res.data?.amount_due > 0.5 ? ` — ${fmt(res.data.amount_due)} due` : ''}`);
-        onDone();
-      } catch (err) {
-        toast.error(err.response?.data?.detail || 'Failed to re-approve');
-      } finally { setSubmitting(false); }
-      return;
     }
     // Timeline validation
     if (timelineType === 'date' && !timelineDate) { toast.error('Select expected delivery date'); return; }
@@ -2278,8 +2254,8 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
           line_total: steelLineTotals[idx]?.line_total || 0,
         }));
       }
-      await axios.patch(`${API}/procurement-simple/material-requests/${item.request_id}/assign-vendor`, payload);
-      toast.success('Sent to Site Engineer for collection');
+      const res = await axios.patch(`${API}/procurement-simple/material-requests/${item.request_id}/assign-vendor`, payload);
+      toast.success(res.data?.message || 'Sent to Site Engineer for collection');
       onDone();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to assign vendor');
@@ -2568,16 +2544,15 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
 
           {onSite && (
             <div className="bg-red-50 border border-red-200 rounded p-3 text-xs space-y-1" data-testid="proc-assign-onsite-note">
-              <p className="font-semibold text-red-800">↩ Rejected by Accounts — material already received on site</p>
+              <p className="font-semibold text-red-800">↩ Rejected by Accounts — this restarts the order</p>
               {item.accounts_rejected_reason && <p className="text-red-700 italic">"{item.accounts_rejected_reason}"</p>}
               <p className="text-gray-700">
-                Approve sends this straight to Accounts for payment. No transit and no second collection.
-                Any payment already made on it is deducted from the bill.
+                Set the payment mode, advance and delivery date again. It then runs like a new order, and the Site Engineer confirms collection again.
+                {paidBefore > 0.5 && <> {fmt(paidBefore)} already paid counts toward it: an advance up to that amount raises no new bill, and the final bill is reduced by it.</>}
               </p>
             </div>
           )}
 
-          {!onSite && (<>
           {/* Section — Delivery Timeline */}
           <div className="border-b pb-1.5 mt-3 flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Delivery Timeline</h4></div>
 
@@ -2745,17 +2720,16 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
               </div>
             </div>
           )}
-          </>)}
 
           {/* Section — Remarks / Reason */}
-          <div className="border-b pb-1.5 mt-3 flex items-center gap-1.5"><FileClock className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">{onSite ? 'Notes' : (itemStockInfo && itemStockInfo.stock > 0 ? 'Reason for Planning' : 'Notes for Planning')}</h4></div>
+          <div className="border-b pb-1.5 mt-3 flex items-center gap-1.5"><FileClock className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">{itemStockInfo && itemStockInfo.stock > 0 ? 'Reason for Planning' : 'Notes for Planning'}</h4></div>
           <Textarea
             rows={2}
             value={remarks}
             onChange={(e) => setRemarks(e.target.value)}
             disabled={readOnly}
             className="text-sm"
-            placeholder={onSite ? 'What changed on the bill…' : (itemStockInfo && itemStockInfo.stock > 0 ? 'Enter reason for ordering despite existing stock…' : 'Any notes for Planning…')}
+            placeholder={itemStockInfo && itemStockInfo.stock > 0 ? 'Enter reason for ordering despite existing stock…' : 'Any notes for Planning…'}
             data-testid="proc-assign-remarks"
           />
 
@@ -2839,7 +2813,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
                 </Button>
               )}
               <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={submit} disabled={submitting} data-testid="proc-assign-submit">
-                <Send className="h-3.5 w-3.5 mr-1" /> {submitting ? 'Sending…' : (onSite ? 'Send to Accounts' : (paymentMode === 'advance' ? 'Send for Accountant Approval' : 'Send to Site Engineer'))}
+                <Send className="h-3.5 w-3.5 mr-1" /> {submitting ? 'Sending…' : (paymentMode === 'advance' && !(onSite && paidBefore > 0.5 && advanceCovered) ? 'Send for Accountant Approval' : 'Send to Site Engineer')}
               </Button>
             </>
           )}

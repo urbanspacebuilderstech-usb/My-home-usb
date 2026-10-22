@@ -3121,6 +3121,9 @@ async def initiate_material_receipt(
         "request_id": data.request_id,
         "otp_verified": True,
         "receipt_id": {"$ne": rcpt_dict["receipt_id"]},
+        # Oct 22 2026 — receipts from before a restart after an Accounts
+        # reject (procurement.py _restart_after_accounts_reject) don't count.
+        "superseded_by_restart": {"$ne": True},
     }, {"_id": 0}).to_list(100)
     for r in other_receipts:
         total_received += r.get("received_qty", 0)
@@ -3170,7 +3173,10 @@ async def initiate_material_receipt(
                 "vendor_name": request.get("vendor_name"),
                 "project_id": request.get("project_id"),
                 "material_name": request.get("material_name"),
-                "amount": float(request.get("total_amount") or 0),
+                # Oct 22 2026 — less anything paid before a restart (as advance)
+                "amount": max(0.0, float(request.get("total_amount") or 0)
+                              - float(request.get("advance_paid_amount") or 0)
+                              - float(request.get("balance_paid_amount") or 0)),
                 "credit_days": credit_days,
                 "delivered_at": now_iso,
                 "due_date": due_date,
@@ -3333,7 +3339,8 @@ async def verify_material_receipt_otp(
         other_receipts = await db.material_receipts.find({
             "request_id": receipt["request_id"],
             "otp_verified": True,
-            "receipt_id": {"$ne": data.receipt_id}
+            "receipt_id": {"$ne": data.receipt_id},
+            "superseded_by_restart": {"$ne": True},
         }, {"_id": 0}).to_list(100)
         
         for r in other_receipts:
@@ -3376,7 +3383,9 @@ async def verify_material_receipt_otp(
                     "vendor_name": request.get("vendor_name"),
                     "project_id": request.get("project_id"),
                     "material_name": request.get("material_name"),
-                    "amount": float(request.get("total_amount") or 0),
+                    "amount": max(0.0, float(request.get("total_amount") or 0)
+                                  - float(request.get("advance_paid_amount") or 0)
+                                  - float(request.get("balance_paid_amount") or 0)),
                     "credit_days": credit_days,
                     "delivered_at": now_iso,
                     "due_date": due_date,

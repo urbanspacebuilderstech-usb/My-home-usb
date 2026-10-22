@@ -68,4 +68,4 @@ def test_advance_repaid_after_collection_does_not_reopen_transit():
     assert advance.index(guard) < advance.index('"status": "in_transit"')
     assert advance.index(guard) < advance.index("notify_se_msg =")
     # the stamp itself is written either way
-    assert advance.index('"advance_paid_amount": settled_this_phase') < advance.index(guard)
+    assert advance.index('"advance_paid_amount": round(settled_this_phase') < advance.index(guard)

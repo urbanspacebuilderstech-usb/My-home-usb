@@ -103,7 +103,9 @@ def test_stamp_never_exceeds_the_bill_for_a_single_settlement():
 
 def test_parent_stamps_use_the_settled_amount():
     _, src = _pay_approval()
-    assert '"advance_paid_amount": settled_this_phase,' in src
+    # Oct 22 2026 - plus any advance paid before an Accounts-reject restart
+    # (a top-up advance bill carries it as advance_paid_before).
+    assert '"advance_paid_amount": round(settled_this_phase + float(req.get("advance_paid_before") or 0), 2),' in src
     assert '"balance_paid_amount": settled_this_phase,' in src
     assert '"advance_paid_amount": new_total_paid,' not in src
     assert '"balance_paid_amount": new_total_paid,' not in src
