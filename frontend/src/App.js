@@ -11,6 +11,10 @@ import 'react-day-picker/dist/style.css';
 import '@/hooks/useTheme';
 
 import Login from '@/pages/Login';
+// Oct 23 2026 - public legal pages. Google fetches these ANONYMOUSLY when
+// reviewing the OAuth consent screen, so they must not sit behind
+// ProtectedRoute - /privacy used to fall through to /login.
+import { PrivacyPolicy, TermsOfService } from '@/pages/LegalPage';
 import { installEtagCache, clearEtagCache } from '@/lib/etagCache';
 import { useNewVersionReload } from '@/hooks/useNewVersionReload';
 
@@ -223,6 +227,8 @@ function AppRouter() {
     <Suspense fallback={<PageLoader />}>
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/privacy" element={<PrivacyPolicy />} />
+      <Route path="/terms" element={<TermsOfService />} />
       <Route path="/setup" element={<SetupWizard />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
