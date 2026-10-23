@@ -10279,6 +10279,7 @@ async def reject_material_expense(expense_id: str, payload: LegacyRejectPayload 
                 {"$set": {
                     "status": sent_back_status,
                     "accounts_rejected_by": user.user_id,
+                    "accounts_rejected_by_name": user.name,
                     "accounts_rejected_reason": reason,
                     "accounts_rejected_at": now,
                     "updated_at": now,

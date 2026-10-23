@@ -4895,6 +4895,7 @@ async def accountant_reject_material_request(request_id: str, reason: str = "", 
             {"$set": {
                 "status": target_status,
                 "accounts_rejected_by": user.user_id,
+                "accounts_rejected_by_name": user.name,
                 "accounts_rejected_reason": reason,
                 "accounts_rejected_at": now_iso,
             }}

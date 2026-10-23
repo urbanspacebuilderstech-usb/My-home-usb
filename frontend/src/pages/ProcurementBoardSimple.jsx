@@ -125,6 +125,17 @@ function isAccountsRejected(req) {
   return !req.received_at || String(at) > String(req.received_at);
 }
 
+// Oct 23 2026 — Accounts rejecting an ADVANCE (before transit) sends the
+// request to procurement_revision instead. Tagged the same way until
+// Procurement re-approves it or a later send-back (SE / Planning) takes over
+// (USB-MR2319 came back with no tag at all).
+function isAccountsRejectedAdvance(req) {
+  const at = req.accounts_rejected_at;
+  if (!at || (req.status || '').toLowerCase() !== 'procurement_revision') return false;
+  return [req.procurement_priced_at, req.se_rejected_verification_at, req.revision_requested_at]
+    .every(t => !t || String(at) > String(t));
+}
+
 function bucketForMaterial(req) {
   const status = (req.status || '').toLowerCase();
   if (status === 'planning_initial_pending') return null; // hidden — Planning hasn't reviewed yet
@@ -1476,7 +1487,7 @@ function RequestCard({ req, onClick, stockInfo = null }) {
             <Badge variant="outline" className={`text-[10px] ${cardCfg?.cls || ''}`}>
               {cardCfg?.label || status}
             </Badge>
-            {accountsRejected && (
+            {(accountsRejected || isAccountsRejectedAdvance(req)) && (
               <Badge
                 variant="outline"
                 className="text-[10px] bg-red-50 text-red-700 border-red-300"
@@ -2410,6 +2421,20 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
             <p className="text-[10px] text-orange-700">
               {item.revision_requested_by_name ? `by ${item.revision_requested_by_name}` : ''}
               {item.revision_requested_at ? ` · ${fmtDate(item.revision_requested_at)}` : ''}
+            </p>
+          </div>
+        )}
+
+        {/* Accounts rejected the advance before transit */}
+        {isAccountsRejectedAdvance(item) && (
+          <div className="bg-red-50 border-2 border-red-300 rounded p-3 space-y-1" data-testid="proc-accounts-reject-banner">
+            <p className="text-red-800 text-[10px] uppercase font-bold flex items-center gap-1">
+              <FileClock className="h-3 w-3" /> Accounts rejected the advance — revise and send again
+            </p>
+            {item.accounts_rejected_reason && <p className="text-sm font-medium text-gray-800 italic">"{item.accounts_rejected_reason}"</p>}
+            <p className="text-[10px] text-red-700">
+              {item.accounts_rejected_by_name ? `by ${item.accounts_rejected_by_name}` : ''}
+              {item.accounts_rejected_at ? ` · ${fmtDate(item.accounts_rejected_at)}` : ''}
             </p>
           </div>
         )}

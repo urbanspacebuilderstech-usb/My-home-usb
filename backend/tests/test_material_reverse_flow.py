@@ -91,3 +91,12 @@ def test_requests_already_stuck_in_transit_are_fixed_by_the_queue():
     seg = _seg(PROC, "_heal_transit_without_advance")
     assert '"pulled_back_from_cashbook": True' in seg
     assert "await _heal_transit_without_advance(rows, user)" in _seg(PROC, "procurement_simple_queue")
+
+
+def test_a_rejected_advance_is_tagged_accounts_rejected():
+    board = _read(BOARD)
+    assert "function isAccountsRejectedAdvance(req)" in board
+    assert "{(accountsRejected || isAccountsRejectedAdvance(req)) && (" in board
+    assert 'data-testid="proc-accounts-reject-banner"' in board
+    assert '"accounts_rejected_by_name": user.name,' in _seg(SITE, "accountant_reject_material_request")
+    assert '"accounts_rejected_by_name": user.name,' in _seg(FIN, "reject_material_expense")
