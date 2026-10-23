@@ -433,6 +433,24 @@ export default function Login() {
           </Tabs>
         </div>
       </div>
+
+      {/* Oct 23 2026 - public legal links. Google's OAuth review expects the
+          privacy policy and terms to be reachable WITHOUT signing in, and the
+          login screen is the only page a signed-out visitor ever sees. Both
+          routes are public (see App.js), so these never bounce to /login.
+          `relative z-10` keeps them above the blurred background circles,
+          which are absolutely positioned over the whole screen. */}
+      <div className="absolute bottom-0 left-0 p-4 sm:p-5 z-10">
+        <div className="flex items-center gap-3 text-[11px] sm:text-xs text-slate-400">
+          <Link to="/privacy" className="hover:text-slate-600 hover:underline transition-colors">
+            Privacy Policy
+          </Link>
+          <span aria-hidden="true" className="text-slate-300">|</span>
+          <Link to="/terms" className="hover:text-slate-600 hover:underline transition-colors">
+            Terms of Service
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }

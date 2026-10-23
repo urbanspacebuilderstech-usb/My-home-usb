@@ -92,3 +92,40 @@ def test_they_link_to_each_other_and_back_to_login():
     assert 'to="/privacy"' in src
     assert 'to="/terms"' in src
     assert 'to="/login"' in src
+
+
+# --------------------------------------------------------------------------
+# The login screen must link to them (Oct 23 2026)
+#
+# The login page is the ONLY page a signed-out visitor ever reaches, so it is
+# the only place a link to the policy can do its job - both for Google's
+# review and for a client who wants to read it.
+# --------------------------------------------------------------------------
+
+LOGIN = os.path.join(FRONTEND, "pages", "Login.jsx")
+
+
+@pytest.mark.parametrize("path,label", [("/privacy", "Privacy Policy"),
+                                        ("/terms", "Terms of Service")])
+def test_login_links_to_the_legal_pages(path, label):
+    src = _src(LOGIN)
+    assert 'to="%s"' % path in src
+    assert label in src
+
+
+def test_login_uses_router_links_not_anchors():
+    """A raw <a href> would full-page reload the SPA."""
+    src = _src(LOGIN)
+    block = src[src.index('to="/privacy"') - 400:src.index('to="/terms"') + 400]
+    assert "<Link" in block
+    assert 'href="/privacy"' not in src
+    assert 'href="/terms"' not in src
+
+
+def test_the_links_sit_above_the_background():
+    """The login screen's decorative circles are absolutely positioned across
+    the whole viewport; without a stacking context the links can end up
+    underneath them."""
+    src = _src(LOGIN)
+    block = src[src.index("absolute bottom-0 left-0"):]
+    assert "z-10" in block[:200]
