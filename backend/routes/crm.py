@@ -6005,20 +6005,157 @@ async def get_sheets_credentials(user_id: str) -> Optional[Credentials]:
                 # If Google has revoked the refresh token, mark the connection
                 # as broken so the UI accurately surfaces a "Reconnect" CTA.
                 err_str = str(e)
-                if "invalid_grant" in err_str or "revoked" in err_str.lower() or "expired" in err_str.lower():
-                    key = SHARED_SHEETS_KEY if using_shared else user_id
-                    try:
+                # Oct 23 2026 - the integration drops out on a roughly WEEKLY
+                # cadence and the reason only ever reached the log, so each
+                # report started from scratch. Record Google's own wording and
+                # how long the grant survived; a ~7 day life with invalid_grant
+                # is the signature of an OAuth app still in "Testing"
+                # publishing status, which is a Google Cloud Console setting,
+                # not anything this code can fix by retrying.
+                _now_iso = datetime.now(timezone.utc).isoformat()
+                _err_fields = {
+                    "last_refresh_error": err_str[:500],
+                    "last_refresh_error_at": _now_iso,
+                    "last_refresh_error_token_issued_at": token_doc.get("created_at"),
+                    "last_refresh_error_token_updated_at": token_doc.get("updated_at"),
+                }
+                is_revoked = ("invalid_grant" in err_str
+                              or "revoked" in err_str.lower()
+                              or "expired" in err_str.lower())
+                key = SHARED_SHEETS_KEY if using_shared else user_id
+                try:
+                    if is_revoked:
                         await db.google_sheets_tokens.delete_one({"user_id": key})
-                        await db.google_sheets_config.update_one(
-                            {"user_id": SHARED_SHEETS_KEY},
-                            {"$set": {"is_connected": False, "needs_reconnect": True, "updated_at": datetime.now(timezone.utc).isoformat()}},
-                            upsert=True,
-                        )
-                    except Exception as ce:
-                        logger.error(f"Failed to clear stale sheets token: {ce}")
+                    await db.google_sheets_config.update_one(
+                        {"user_id": SHARED_SHEETS_KEY},
+                        {"$set": ({"is_connected": False, "needs_reconnect": True,
+                                   "updated_at": _now_iso, **_err_fields}
+                                  if is_revoked else _err_fields)},
+                        upsert=True,
+                    )
+                except Exception as ce:
+                    logger.error(f"Failed to clear stale sheets token: {ce}")
                 return None
     
     return creds
+
+
+@router.get("/admin/sheets-connection-health")
+async def sheets_connection_health(user: User = Depends(get_current_user)):
+    """TEMPORARY read-only: why the Google Sheets connection keeps dropping.
+
+    Oct 23 2026 - reported as disconnecting about once a WEEK, needing
+    "Reconnect Google" each time. That cadence is the point: Google expires a
+    refresh token after SEVEN DAYS when the OAuth app's publishing status is
+    "Testing", and both scopes this integration asks for
+    (spreadsheets, drive.file) are sensitive, so a Testing app never keeps a
+    grant longer than that no matter what the code does.
+
+    The code itself already does the right things - access_type=offline,
+    prompt=consent, refresh_token persisted, refresh on expiry, and on
+    invalid_grant it clears the token and raises the Reconnect banner. So
+    this does not re-check the code; it reports how long the grant actually
+    survived and what Google said when it died, which is what separates
+    "Testing mode" from "someone revoked access" or "password change".
+
+    Returns no secrets - only whether each value is present, and timestamps.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    def _age_days(a, b=None):
+        if not a:
+            return None
+        try:
+            t0 = datetime.fromisoformat(str(a).replace("Z", "+00:00"))
+            if t0.tzinfo is None:
+                t0 = t0.replace(tzinfo=timezone.utc)
+            t1 = (datetime.fromisoformat(str(b).replace("Z", "+00:00"))
+                  if b else datetime.now(timezone.utc))
+            if t1.tzinfo is None:
+                t1 = t1.replace(tzinfo=timezone.utc)
+            return round((t1 - t0).total_seconds() / 86400.0, 2)
+        except (ValueError, TypeError):
+            return None
+
+    tok = await db.google_sheets_tokens.find_one({"user_id": SHARED_SHEETS_KEY}, {"_id": 0})
+    cfg = await db.google_sheets_config.find_one({"user_id": SHARED_SHEETS_KEY}, {"_id": 0}) or {}
+    sources = cfg.get("sources") or []
+
+    grant_age = _age_days(cfg.get("last_refresh_error_token_issued_at"),
+                          cfg.get("last_refresh_error_at"))
+
+    findings = []
+    err = cfg.get("last_refresh_error") or ""
+    if not err:
+        findings.append(
+            "No refresh failure has been recorded yet. This field was only added "
+            "on 23 Oct 2026, so it stays empty until the NEXT disconnection - "
+            "check back after the next one and the exact Google error is here.")
+    else:
+        if "invalid_grant" in err:
+            findings.append(
+                "Google answered invalid_grant, which means it threw the refresh "
+                "token away. Nothing in this code can prevent that - the grant "
+                "has to stop being expired at Google's end.")
+        if grant_age is not None and 5.0 <= grant_age <= 9.0:
+            findings.append(
+                "The grant lived %s days before dying. Seven days is exactly how "
+                "long Google keeps a refresh token for an OAuth app whose "
+                "publishing status is still 'Testing'. That is the cause, and it "
+                "is fixed in Google Cloud Console, not here." % grant_age)
+        elif grant_age is not None:
+            findings.append(
+                "The grant lived %s days. That is NOT the 7-day Testing-mode "
+                "pattern, so look at revocation instead: Google account password "
+                "change, access removed at myaccount.google.com/permissions, or "
+                "the OAuth client secret being rotated." % grant_age)
+
+    return fast_json({
+        "write_performed": False,
+        "read_only": True,
+        "connection": {
+            "is_connected": cfg.get("is_connected"),
+            "needs_reconnect": cfg.get("needs_reconnect"),
+            "config_updated_at": cfg.get("updated_at"),
+            "connected_sheet_count": len(sources),
+            "sources": [{"name": s.get("name") or s.get("sheet_name"),
+                         "last_synced": s.get("last_synced")} for s in sources][:20],
+        },
+        "token": {
+            "exists": bool(tok),
+            "has_refresh_token": bool((tok or {}).get("refresh_token")),
+            "has_access_token": bool((tok or {}).get("access_token")),
+            "expires_at": (tok or {}).get("expires_at"),
+            "created_at": (tok or {}).get("created_at"),
+            "updated_at": (tok or {}).get("updated_at"),
+            "access_token_age_days": _age_days((tok or {}).get("updated_at")),
+            "grant_age_days": _age_days((tok or {}).get("created_at")),
+            "note": ("access_token lives ~1 hour and is refreshed silently; only "
+                     "the refresh_token's age matters for these dropouts."),
+        },
+        "last_failure": {
+            "error": cfg.get("last_refresh_error"),
+            "at": cfg.get("last_refresh_error_at"),
+            "grant_was_this_many_days_old": grant_age,
+        },
+        "scopes_requested": GOOGLE_SHEETS_SCOPES,
+        "why_scopes_matter": (
+            "spreadsheets and drive.file are SENSITIVE scopes. An app in "
+            "Testing that asks for them gets a 7-day refresh token; moving the "
+            "app to 'In production' (or User Type 'Internal' for a Workspace "
+            "org, which needs no verification) removes that limit."),
+        "findings": findings,
+        "where_to_check": [
+            "Google Cloud Console > APIs & Services > OAuth consent screen > "
+            "Publishing status. 'Testing' = refresh tokens die after 7 days.",
+            "The same screen's User Type. 'Internal' needs no verification and "
+            "has no 7-day limit, but only works if the account is in your "
+            "Google Workspace organisation.",
+            "myaccount.google.com/permissions on the connected Google account - "
+            "if the app was removed there, every token dies at once.",
+        ],
+    })
 
 
 @router.post("/sheets/disconnect")
