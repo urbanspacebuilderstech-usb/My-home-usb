@@ -351,8 +351,48 @@ export default function REProjectsPage({ embedded = false }) {
   const canEdit = ['planning', 'planning_person', 'super_admin', 'general_manager'].includes(user?.role);
   const canApprove = ['general_manager', 'super_admin'].includes(user?.role);
   const canDelete = canEdit; // Same roles can delete
+  // Oct 23 2026 — who may MOVE someone else's RE. Deliberately excludes
+  // planning_person: they claim their own work via Start Work, and
+  // reassigning another planner's in-progress estimate is a different
+  // authority. Mirrors RE_REASSIGN_ROLES on the server, which enforces it.
+  const canReassign = ['planning', 'super_admin', 'general_manager'].includes(user?.role);
   const [changeLogs, setChangeLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
+  // Reassign-planner dialog
+  const [reassignProject, setReassignProject] = useState(null);
+  const [planners, setPlanners] = useState([]);
+  const [selectedPlanner, setSelectedPlanner] = useState('');
+  const [savingReassign, setSavingReassign] = useState(false);
+
+  const openReassign = async (project) => {
+    setReassignProject(project);
+    setSelectedPlanner(project.prepared_by || '');
+    try {
+      const res = await axios.get(`${API}/crm/re-projects/planners`);
+      setPlanners(res.data?.planners || []);
+    } catch (e) {
+      toast.error('Could not load the planner list');
+      setPlanners([]);
+    }
+  };
+
+  const submitReassign = async () => {
+    if (!reassignProject || !selectedPlanner) return;
+    setSavingReassign(true);
+    try {
+      const res = await axios.post(
+        `${API}/crm/re-projects/${reassignProject.re_project_id}/reassign-planner`,
+        { planner_id: selectedPlanner }
+      );
+      toast.success(res.data?.message || 'Reassigned');
+      setReassignProject(null);
+      fetchData(false);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not reassign this Rough Estimate');
+    } finally {
+      setSavingReassign(false);
+    }
+  };
 
   const handleDeleteREProject = async (project) => {
     const label = project.re_number || project.project_name || project.re_project_id;
@@ -544,9 +584,22 @@ export default function REProjectsPage({ embedded = false }) {
                           {/* Feb 28 2026 — Show which planner has claimed
                               the RE so other planners don't double-work. */}
                           {project.prepared_by_name && project.status !== 're_requested' && (
-                            <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200" data-testid={`re-planner-${project.re_project_id}`}>
-                              <RefreshCw className="h-3 w-3 mr-1" /> {project.prepared_by_name} (Planning Person)
-                            </Badge>
+                            canReassign ? (
+                              <button
+                                type="button"
+                                onClick={() => openReassign(project)}
+                                title="Change who is working on this Rough Estimate"
+                                data-testid={`re-planner-${project.re_project_id}`}
+                                className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 transition-colors"
+                              >
+                                <RefreshCw className="h-3 w-3 mr-1" /> {project.prepared_by_name} (Planning Person)
+                                <Edit2 className="h-3 w-3 ml-1.5 opacity-70" />
+                              </button>
+                            ) : (
+                              <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200" data-testid={`re-planner-${project.re_project_id}`}>
+                                <RefreshCw className="h-3 w-3 mr-1" /> {project.prepared_by_name} (Planning Person)
+                              </Badge>
+                            )
                           )}
                         </div>
                         
@@ -1489,6 +1542,69 @@ export default function REProjectsPage({ embedded = false }) {
               );
             })}
           </div>
+        </DialogContent>
+      </Dialog>
+
+
+      {/* Oct 23 2026 — Reassign a Rough Estimate to a different planner.
+          Only prepared_by changes; status, estimate lines and approval
+          history are untouched, so this hands the work over rather than
+          reopening the RE. */}
+      <Dialog open={!!reassignProject} onOpenChange={(o) => { if (!o) setReassignProject(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Change Planner</DialogTitle>
+            <DialogDescription>
+              {reassignProject?.re_number || 'This Rough Estimate'}
+              {reassignProject?.client_name ? ` — ${reassignProject.client_name}` : ''}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-1">
+            <div className="text-sm text-gray-600">
+              Currently with{' '}
+              <span className="font-semibold text-gray-900">
+                {reassignProject?.prepared_by_name || 'nobody'}
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="re-planner-select">Assign to</Label>
+              <Select value={selectedPlanner} onValueChange={setSelectedPlanner}>
+                <SelectTrigger id="re-planner-select" data-testid="re-planner-select">
+                  <SelectValue placeholder="Select a planner" />
+                </SelectTrigger>
+                <SelectContent>
+                  {planners.map((pl) => (
+                    <SelectItem key={pl.user_id} value={pl.user_id}>
+                      {pl.name} <span className="text-xs text-muted-foreground ml-1">({pl.role_label})</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {planners.length === 0 && (
+                <p className="text-xs text-amber-600">
+                  No active Planning Person or Planning Head found.
+                </p>
+              )}
+            </div>
+            <p className="text-xs text-gray-500">
+              The estimate, its status and its history stay as they are — only the
+              person responsible changes. Both planners are notified.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReassignProject(null)} disabled={savingReassign}>
+              Cancel
+            </Button>
+            <Button
+              onClick={submitReassign}
+              data-testid="re-planner-save"
+              disabled={savingReassign || !selectedPlanner || selectedPlanner === reassignProject?.prepared_by}
+            >
+              {savingReassign ? 'Saving...' : 'Reassign'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

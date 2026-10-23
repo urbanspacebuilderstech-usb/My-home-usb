@@ -4120,6 +4120,132 @@ async def start_re_work(re_project_id: str, user: User = Depends(get_current_use
     return {"message": "RE claimed", **update, "prepared_at": update["prepared_at"].isoformat()}
 
 
+# Oct 23 2026 — Planning > Rough Estimates showed WHO had claimed each RE but
+# gave no way to change it. start_re_work above is self-claim only: a planner
+# takes an unclaimed RE. So when the assigned person was on leave, had left,
+# or the Planning Head simply wanted the work moved, the only route was to
+# edit the database. These two endpoints add the reassignment the board was
+# missing.
+
+RE_PLANNER_ROLES = [UserRole.PLANNING_PERSON.value, UserRole.PLANNING.value]
+# Who may MOVE someone else's work. Deliberately NOT a Planning Person: they
+# claim their own REs through start-work, and letting one planner reassign
+# another's in-progress estimate is a different authority.
+RE_REASSIGN_ROLES = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]
+
+
+@router.get("/crm/re-projects/planners")
+async def list_re_planners(user: User = Depends(get_current_user)):
+    """Everyone an RE can be assigned to: Planning Persons and the Planning Head.
+
+    One endpoint rather than two calls to /users/by-role so the rule for "who
+    can prepare a Rough Estimate" lives in one place on the server.
+    """
+    if user.role not in RE_REASSIGN_ROLES + [UserRole.PLANNING_PERSON]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    rows = await db.users.find(
+        {"role": {"$in": RE_PLANNER_ROLES}, "is_active": {"$ne": False}},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "role": 1},
+    ).sort("name", 1).to_list(500)
+    return {"planners": [{
+        "user_id": r.get("user_id"),
+        "name": r.get("name") or r.get("email") or r.get("user_id"),
+        "email": r.get("email"),
+        "role": r.get("role"),
+        "role_label": ("Planning Head" if r.get("role") == UserRole.PLANNING.value
+                       else "Planning Person"),
+    } for r in rows if r.get("user_id")]}
+
+
+class REReassignRequest(BaseModel):
+    planner_id: str
+
+
+@router.post("/crm/re-projects/{re_project_id}/reassign-planner")
+async def reassign_re_planner(
+    re_project_id: str,
+    payload: REReassignRequest,
+    user: User = Depends(get_current_user),
+):
+    """Move a Rough Estimate to a different Planning Person / Planning Head.
+
+    Only `prepared_by` / `prepared_by_name` change. The RE's status, its
+    estimate lines and its approval history are left exactly as they are -
+    this hands over who is working on it, it does not reopen or reset it.
+    """
+    if user.role not in RE_REASSIGN_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail="Only Super Admin, Planning Head or GM can reassign a Rough Estimate")
+
+    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="RE project not found")
+
+    planner = await db.users.find_one(
+        {"user_id": payload.planner_id, "role": {"$in": RE_PLANNER_ROLES},
+         "is_active": {"$ne": False}},
+        {"_id": 0, "user_id": 1, "name": 1, "role": 1},
+    )
+    if not planner:
+        raise HTTPException(
+            status_code=400,
+            detail="That user is not an active Planning Person or Planning Head")
+
+    previous_id = project.get("prepared_by")
+    previous_name = project.get("prepared_by_name") or ""
+    if previous_id == planner["user_id"]:
+        return {"message": "Already assigned to %s" % (planner.get("name") or ""),
+                "changed": False,
+                "prepared_by": previous_id,
+                "prepared_by_name": previous_name}
+
+    now = datetime.now(timezone.utc)
+    update = {
+        "prepared_by": planner["user_id"],
+        "prepared_by_name": planner.get("name") or "",
+        "reassigned_at": now,
+        "reassigned_by": user.user_id,
+        "reassigned_by_name": user.name,
+        "reassigned_from": previous_id,
+        "reassigned_from_name": previous_name,
+        "updated_at": now,
+    }
+    await db.re_projects.update_one({"re_project_id": re_project_id}, {"$set": update})
+
+    re_label = project.get("re_number") or re_project_id
+    try:
+        await create_notification(
+            planner["user_id"],
+            "Rough Estimate %s (%s) was assigned to you by %s" % (
+                re_label, project.get("client_name") or "", user.name))
+        if previous_id and previous_id != planner["user_id"]:
+            await create_notification(
+                previous_id,
+                "Rough Estimate %s was reassigned to %s by %s" % (
+                    re_label, planner.get("name") or "", user.name))
+    except Exception as e:
+        logger.warning("RE reassign notification failed for %s: %s", re_project_id, e)
+
+    try:
+        await create_audit_log(
+            user.user_id, "re_reassign_planner", "re_project", re_project_id,
+            {"from": previous_id, "from_name": previous_name,
+             "to": planner["user_id"], "to_name": planner.get("name"),
+             "re_number": re_label},
+        )
+    except Exception as e:
+        logger.warning("RE reassign audit log failed for %s: %s", re_project_id, e)
+
+    return {
+        "message": "Rough Estimate reassigned to %s" % (planner.get("name") or ""),
+        "changed": True,
+        "prepared_by": planner["user_id"],
+        "prepared_by_name": planner.get("name") or "",
+        "previous_prepared_by_name": previous_name,
+    }
+
+
 @router.get("/crm/re-projects/search")
 async def search_re_projects(q: str, user: User = Depends(get_current_user)):
     """Search RE projects by RE number (USB-RE0001) or project name"""
