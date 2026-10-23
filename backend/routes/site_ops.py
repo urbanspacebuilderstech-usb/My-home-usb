@@ -3124,6 +3124,9 @@ async def initiate_material_receipt(
         # Oct 22 2026 — receipts from before a restart after an Accounts
         # reject (procurement.py _restart_after_accounts_reject) don't count.
         "superseded_by_restart": {"$ne": True},
+        # Oct 23 2026 — nor one Procurement rejected in verification: the
+        # SE's re-delivery replaces it (procurement_verify_reject).
+        "verify_rejected": {"$ne": True},
     }, {"_id": 0}).to_list(100)
     for r in other_receipts:
         total_received += r.get("received_qty", 0)
@@ -3341,6 +3344,7 @@ async def verify_material_receipt_otp(
             "otp_verified": True,
             "receipt_id": {"$ne": data.receipt_id},
             "superseded_by_restart": {"$ne": True},
+            "verify_rejected": {"$ne": True},
         }, {"_id": 0}).to_list(100)
         
         for r in other_receipts:

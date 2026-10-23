@@ -556,6 +556,10 @@ function RequestsTab({ dateRange, projectFilter }) {
           <div>
             <Label className="text-xs">Reason for rejection *</Label>
             <Textarea rows={3} value={rejectDialog.reason} onChange={(e) => setRejectDialog({ ...rejectDialog, reason: e.target.value })} placeholder="Why is this rejected?" className="mt-1 text-sm" data-testid="proc-reject-reason" />
+            <p className="text-[11px] text-gray-500 mt-1.5">
+              It goes back to Planning.
+              {rejectDialog.req && isAccountsRejected(rejectDialog.req) && ' The delivery is undone (its stock comes out); money already paid stays and is deducted when it is priced again.'}
+            </p>
           </div>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setRejectDialog({ open: false, req: null, reason: '' })} disabled={submitting}>Cancel</Button>
@@ -2552,6 +2556,11 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
               </p>
             </div>
           )}
+          {!onSite && paidBefore > 0.5 && (
+            <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-gray-700" data-testid="proc-assign-paid-note">
+              {fmt(paidBefore)} is already paid on this order and counts toward it: an advance up to that amount raises no new bill, and the final bill is reduced by it.
+            </div>
+          )}
 
           {/* Section — Delivery Timeline */}
           <div className="border-b pb-1.5 mt-3 flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Delivery Timeline</h4></div>
@@ -2807,13 +2816,11 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
           })()}
           {dialogTab === 'details' && !readOnly && (
             <>
-              {!onSite && (
-                <Button variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => onReject(item)} disabled={submitting} data-testid="proc-assign-reject">
-                  <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
-                </Button>
-              )}
+              <Button variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => onReject(item)} disabled={submitting} data-testid="proc-assign-reject">
+                <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
+              </Button>
               <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={submit} disabled={submitting} data-testid="proc-assign-submit">
-                <Send className="h-3.5 w-3.5 mr-1" /> {submitting ? 'Sending…' : (paymentMode === 'advance' && !(onSite && paidBefore > 0.5 && advanceCovered) ? 'Send for Accountant Approval' : 'Send to Site Engineer')}
+                <Send className="h-3.5 w-3.5 mr-1" /> {submitting ? 'Sending…' : (paymentMode === 'advance' && !(paidBefore > 0.5 && advanceCovered) ? 'Send for Accountant Approval' : 'Send to Site Engineer')}
               </Button>
             </>
           )}

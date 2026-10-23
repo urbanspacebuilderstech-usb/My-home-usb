@@ -47,7 +47,7 @@ def test_on_site_rule_matches_the_board():
 
 def test_restart_runs_after_validation_and_before_the_write():
     seg = _seg(PROC, "procurement_simple_assign_vendor")
-    assert "paid_before = await _paid_before_restart(req) if on_site else 0.0" in seg
+    assert "paid_before = await _paid_before_restart(req)\n    restart = on_site or paid_before > 0.5" in seg
     restart = seg.index("restart = await _restart_after_accounts_reject(")
     assert seg.index("# ---- Payment mode ----") < restart
     assert seg.index('"Late delivery reason is required') < restart
@@ -59,7 +59,7 @@ def test_money_paid_before_is_deducted_from_the_new_advance():
     assert "if advance_amount <= paid_before + 0.5:" in seg
     assert "advance_bill_amount = round(advance_amount - paid_before, 2)" in seg
     assert '"advance_paid_before": paid_before,' in seg
-    assert "existing_exp = None if on_site else" in seg
+    assert "existing_exp = None if restart else" in seg
     fin = _read(FIN)
     assert fin.count('- float(req.get("advance_paid_before") or 0))') == 2  # pay context + pay
     assert 'settled_this_phase + float(req.get("advance_paid_before") or 0)' in fin

@@ -2652,7 +2652,13 @@ _RESTART_RECEIPT_FIELDS = ("collected_at", "collected_by", "collected_by_name", 
 
 async def _paid_before_restart(req: dict) -> float:
     """Money already paid on an Accounts-rejected request, from its bills.
-    A part-paid bill is refused rather than guessed at."""
+    A part-paid bill is refused rather than guessed at.
+
+    Oct 23 2026 — a bill holding money counts whatever its status: the
+    Advance flow reuses the paid advance bill as the balance bill, so after
+    Accounts rejects the balance it sits at pending_accounts_approval still
+    holding the advance (₹400 paid read as ₹0 and the restart asked the
+    Accountant for the advance again)."""
     bills = await db.material_expenses.find(
         {"source_request_id": req["request_id"], "status": {"$ne": "superseded"}}, {"_id": 0},
     ).to_list(50)
@@ -2664,7 +2670,8 @@ async def _paid_before_restart(req: dict) -> float:
     if not bills:
         return round(float(req.get("advance_paid_amount") or 0) + float(req.get("balance_paid_amount") or 0), 2)
     return round(sum(float(b.get("paid_amount") or b.get("final_amount") or 0) for b in bills
-                     if (b.get("status") or "").lower() in _RESTART_PAID_BILL), 2)
+                     if (b.get("status") or "").lower() in _RESTART_PAID_BILL
+                     or float(b.get("paid_amount") or 0) > 0.5), 2)
 
 
 async def _restart_after_accounts_reject(req: dict, paid: float, user: User, now: str) -> Dict[str, Any]:
@@ -2679,8 +2686,24 @@ async def _restart_after_accounts_reject(req: dict, paid: float, user: User, now
     - Unpaid bills are superseded; the new order raises its own.
     - Money already paid stays, recorded as advance paid, and is deducted
       from the new order (see assign-vendor's advance block, verify-approve
-      and the credit ledger). Returns the $set / $unset to merge."""
+      and the credit ledger). Returns the $set / $unset to merge.
+
+    Oct 23 2026 — also runs when Procurement re-prices any request that has
+    money paid on it, and when it rejects an Accounts-rejected one to
+    Planning (procurement_simple_reject)."""
     request_id = req["request_id"]
+    # A bill holding money (the paid advance bill reused for the balance) goes
+    # back to the paid advance bill it was instead of being superseded.
+    async for b in db.material_expenses.find(
+        {"source_request_id": request_id, "status": {"$nin": ["superseded", *_RESTART_PAID_BILL]},
+         "paid_amount": {"$gt": 0.5}}, {"_id": 0},
+    ):
+        held = round(float(b["paid_amount"]), 2)
+        await db.material_expenses.update_one({"expense_id": b["expense_id"]}, {"$set": {
+            "status": "paid", "final_amount": held, "estimated_cost": held, "remaining_balance": 0.0,
+            "payment_phase": "advance" if (b.get("payment_mode") or "").lower() == "advance" else b.get("payment_phase"),
+            "updated_at": now,
+        }})
     await db.material_expenses.update_many(
         {"source_request_id": request_id, "status": {"$nin": ["superseded", *_RESTART_PAID_BILL]}},
         {"$set": {"status": "superseded", "superseded_at": now,
@@ -2764,7 +2787,12 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
 
     # Accounts rejected the bill: this restarts the order (see
     # _restart_after_accounts_reject). Refuses a part-paid bill up front.
-    paid_before = await _paid_before_restart(req) if on_site else 0.0
+    # Oct 23 2026 — so does money paid on any request priced again (a paid
+    # advance whose delivery the SE sent back, or a request Procurement
+    # rejected to Planning): it is deducted, not left at
+    # pending_advance_payment with no bill to pay.
+    paid_before = await _paid_before_restart(req)
+    restart = on_site or paid_before > 0.5
 
     # ---- Timeline (date OR days) ----
     timeline_type = (data.get("timeline_type") or "date").lower()
@@ -2903,7 +2931,7 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
         update.pop("transit_started_at", None)
         update.pop("transit_started_by", None)
     restart_unset: Dict[str, str] = {}
-    if on_site:
+    if restart:
         # Checked here as well as below: the restart cannot be undone.
         if int(update.get("delivery_delta_hours") or 0) > 0 and not update.get("late_delivery_reason"):
             raise HTTPException(status_code=400, detail="Late delivery reason is required when delivery exceeds SE's expected timeline")
@@ -2929,7 +2957,7 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
             # receipt-verification mirror further down (~line 3290).
             # A restart superseded the old unpaid bills and must not reuse a paid
             # one (that left it stuck at pending_advance_payment with no bill).
-            existing_exp = None if on_site else await db.material_expenses.find_one(
+            existing_exp = None if restart else await db.material_expenses.find_one(
                 {"source_request_id": request_id}, {"_id": 0, "expense_id": 1, "status": 1},
             )
             if existing_exp and existing_exp.get("status") not in ("partially_paid", "paid", "completed"):
@@ -3053,23 +3081,33 @@ async def procurement_simple_reject(request_id: str, data: dict, user: User = De
     req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
-    if req.get("status") not in ["requested", "pm_approved", "procurement_revision"]:
+    on_site = _accounts_rejected_on_site(req)
+    if req.get("status") not in ["requested", "pm_approved", "procurement_revision"] and not on_site:
         raise HTTPException(status_code=400, detail=f"Cannot reject — current status: {req.get('status')}")
     reason = (data.get("reason") or "").strip()
     if not reason:
         raise HTTPException(status_code=400, detail="Rejection reason is required")
 
     now = datetime.now(timezone.utc).isoformat()
+    update = {
+        "status": "planning_initial_pending",
+        "procurement_rejection_reason": reason,
+        "procurement_rejected_by": user.user_id,
+        "procurement_rejected_by_name": user.name,
+        "procurement_rejected_at": now,
+    }
+    unset: Dict[str, str] = {}
+    if on_site:
+        # Oct 23 2026 — an Accounts-rejected bill can go back to Planning too,
+        # not only be re-approved. The delivery is undone as on a restart
+        # (stock out, receipts and unpaid bills superseded); money already
+        # paid stays as advance paid and is deducted when it is priced again.
+        paid = await _paid_before_restart(req)
+        restart = await _restart_after_accounts_reject(req, paid, user, now)
+        update.update(restart["set"])
+        unset = {k: v for k, v in restart["unset"].items() if k not in update}
     await db.material_requests.update_one(
-        {"request_id": request_id},
-        {"$set": {
-            "status": "planning_initial_pending",
-            "procurement_rejection_reason": reason,
-            "procurement_rejected_by": user.user_id,
-            "procurement_rejected_by_name": user.name,
-            "procurement_rejected_at": now,
-        }},
-    )
+        {"request_id": request_id}, {"$set": update, **({"$unset": unset} if unset else {})})
     planning_users = await db.users.find(
         {"role": {"$in": ["planning", "planning_person", "super_admin"]}, "is_active": {"$ne": False}},
         {"_id": 0, "user_id": 1},
@@ -4023,6 +4061,14 @@ async def procurement_verify_reject(request_id: str, data: dict, user: User = De
         "procurement_verify_rejected_at": now,
         "procurement_verify_rejection_reason": reason,
     }})
+    # Oct 23 2026 — the rejected receipt stops counting toward received qty,
+    # so the SE's re-delivery replaces it instead of adding to it (10 bags
+    # re-received after a reject read as 20 and billed 20). Its stock comes
+    # out of the register below for the same reason.
+    await db.material_receipts.update_many(
+        {"request_id": request_id, "verify_rejected": {"$ne": True}},
+        {"$set": {"verify_rejected": True, "verify_rejected_at": now}},
+    )
     # Notify SE
     if req.get("site_engineer_id"):
         try:
