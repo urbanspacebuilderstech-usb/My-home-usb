@@ -73,7 +73,7 @@ def test_it_tells_people_how_to_revoke_access():
 
 def test_the_pages_carry_a_contact_address():
     src = _src(LEGAL)
-    assert "drawleadit@gmail.com" in src
+    assert "urbanspacebuilderstech@gmail.com" in src
 
 
 def test_the_pages_do_not_require_app_state():

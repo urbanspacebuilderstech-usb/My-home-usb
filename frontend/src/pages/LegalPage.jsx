@@ -14,7 +14,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 
 const UPDATED = '23 October 2026';
-const CONTACT = 'drawleadit@gmail.com';
+const CONTACT = 'urbanspacebuilderstech@gmail.com';
 const COMPANY = 'Urban Space Builders';
 const PRODUCT = 'My Home (My Home USB)';
 
