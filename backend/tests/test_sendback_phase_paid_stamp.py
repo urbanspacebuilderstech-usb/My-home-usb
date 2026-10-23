@@ -49,7 +49,7 @@ def test_both_bill_sendback_paths_clear_the_stamp():
     seg = _seg("send_material_back_to_approvals")
     assert seg.count("await _clear_parent_phase_paid_stamp(") == 2
     # the payment-row branch passes the bill its row points at
-    assert "await _clear_parent_phase_paid_stamp(parent_id)" in seg
+    assert "await _clear_parent_phase_paid_stamp(parent_id, user)" in seg
 
 
 def test_sendback_keeps_the_bill_phase():

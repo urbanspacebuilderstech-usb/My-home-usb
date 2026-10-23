@@ -1947,9 +1947,11 @@ _PHASE_PAID_STAMPS = {
 }
 
 
-async def _clear_parent_phase_paid_stamp(bill_id: Optional[str]) -> None:
+async def _clear_parent_phase_paid_stamp(bill_id: Optional[str], user: User) -> None:
     """After a send-back, drop the parent request's paid stamp for this bill's
-    phase unless the bill is still fully paid by the payments that remain."""
+    phase unless the bill is still fully paid by the payments that remain.
+    An advance taken back before the SE collected also takes the request out
+    of Transit, back to Payment Pending (hold_transit_until_advance_paid)."""
     if not bill_id:
         return
     bill = await db.material_expenses.find_one(
@@ -1963,6 +1965,9 @@ async def _clear_parent_phase_paid_stamp(bill_id: Optional[str]) -> None:
         {"request_id": bill["source_request_id"]},
         {"$unset": {f: "" for f in _PHASE_PAID_STAMPS[phase]}},
     )
+    if phase == "advance":
+        from routes.procurement import hold_transit_until_advance_paid
+        await hold_transit_until_advance_paid(bill["source_request_id"], user)
 
 
 # Feb 28 2026 — "Send Back to Approvals" for Material expense rows.
@@ -2283,7 +2288,7 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
                 {"request_id": src},
                 {"$set": {**set_fields, "next_payment_phase": "full"}, "$unset": unset_fields}
             )
-        await _clear_parent_phase_paid_stamp(found.get("expense_id") or found.get("material_expense_id"))
+        await _clear_parent_phase_paid_stamp(found.get("expense_id") or found.get("material_expense_id"), user)
     elif coll_name == "recorded_expenses":
         # Cashbook mirror of a material release. BEFORE deleting, reverse
         # its cheque/suspense footprint with the same ownership-aware logic
@@ -2362,7 +2367,7 @@ async def send_material_back_to_approvals(record_id: str, user: User = Depends(g
                     )
             # A payment row points at its phase bill, not at the request, so
             # neither reset above reaches the request's own paid stamp.
-            await _clear_parent_phase_paid_stamp(parent_id)
+            await _clear_parent_phase_paid_stamp(parent_id, user)
 
     audit_fields = {"action": "send_back_to_approvals", "record_id": record_id, "from": coll_name, "by": user.user_id, "by_name": user.name}
     await create_audit_log(user.user_id, "send_back", "material_expense", record_id, audit_fields)

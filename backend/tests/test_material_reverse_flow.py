@@ -72,3 +72,22 @@ def test_procurement_can_reject_an_accounts_rejected_bill_to_planning():
     assert "{!onSite && (\n                <Button variant=\"outline\" size=\"sm\" className=\"text-red-600" not in board
     assert 'data-testid="proc-assign-reject"' in board
     assert "!(paidBefore > 0.5 && advanceCovered)" in board
+
+
+FIN = os.path.join(BACKEND, "routes", "financial.py")
+
+
+def test_advance_taken_back_before_collection_goes_back_to_payment_pending():
+    seg = _seg(PROC, "hold_transit_until_advance_paid")
+    assert 'req.get("status") != "in_transit"' in seg
+    assert 'req.get("collected_at") or req.get("received_at")' in seg
+    assert '"status": "pending_advance_payment"' in seg
+    clear = _seg(FIN, "_clear_parent_phase_paid_stamp")
+    assert 'if phase == "advance":' in clear
+    assert "await hold_transit_until_advance_paid(" in clear
+
+
+def test_requests_already_stuck_in_transit_are_fixed_by_the_queue():
+    seg = _seg(PROC, "_heal_transit_without_advance")
+    assert '"pulled_back_from_cashbook": True' in seg
+    assert "await _heal_transit_without_advance(rows, user)" in _seg(PROC, "procurement_simple_queue")

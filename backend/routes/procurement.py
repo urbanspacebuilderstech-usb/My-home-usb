@@ -2489,6 +2489,72 @@ async def _heal_stale_paid_stamps(rows: list, user: User) -> None:
         })
 
 
+async def hold_transit_until_advance_paid(request_id: Optional[str], user: User) -> bool:
+    """Oct 23 2026 — an advance taken back (Cashbook delete / send-back to
+    Approvals) before the SE collected puts the request back at Payment
+    Pending, the step it came from: the material must not be collected on
+    an advance that is no longer paid (USB-MR2319 sat in Transit with
+    "Advance Pending ₹50.50" while its bill was back in Approvals). Once the
+    SE has collected or received it, it stays where it is and the advance
+    is simply unpaid again (pay_approval then leaves transit alone).
+    Returns True when the request was moved."""
+    if not request_id:
+        return False
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if (not req or req.get("status") != "in_transit"
+            or (req.get("payment_mode") or "").lower() != "advance"
+            or req.get("collected_at") or req.get("received_at")
+            or float(req.get("advance_paid_amount") or 0) > 0.5):
+        return False
+    bills = await db.material_expenses.find(
+        {"source_request_id": request_id, "payment_phase": "advance",
+         "status": {"$nin": ["superseded", "paid", "completed"]}},
+        {"_id": 0, "expense_id": 1, "final_amount": 1},
+    ).to_list(10)
+    if not bills:
+        return False
+    await db.material_requests.update_one({"request_id": request_id}, {
+        "$set": {"status": "pending_advance_payment", "next_payment_phase": "advance",
+                 "pending_next_status": "in_transit", "advance_taken_back_at": datetime.now(timezone.utc).isoformat()},
+        "$unset": {"transit_started_at": "", "transit_started_by": ""},
+    })
+    if req.get("site_engineer_id"):
+        try:
+            await create_notification(
+                req["site_engineer_id"],
+                f"Advance taken back — don't collect yet: {req.get('material_name')} → {req.get('vendor_name')}. It is back with the Accountant.",
+            )
+        except Exception:
+            pass
+    await create_audit_log(user.user_id, "advance_taken_back_hold_transit", "material_request", request_id, {
+        "request_number": req.get("request_number"), "advance_bill_ids": [b["expense_id"] for b in bills],
+    })
+    return True
+
+
+async def _heal_transit_without_advance(rows: list, user: User) -> None:
+    """Requests left in Transit by an advance send-back made before
+    hold_transit_until_advance_paid existed. Only rows whose advance bill
+    was pulled back from the Cashbook qualify; moved rows are updated in place."""
+    cands = [r for r in rows if r.get("status") == "in_transit"
+             and (r.get("payment_mode") or "").lower() == "advance"
+             and not (r.get("collected_at") or r.get("received_at"))
+             and float(r.get("advance_paid_amount") or 0) <= 0.5]
+    if not cands:
+        return
+    pulled = {b["source_request_id"] for b in await db.material_expenses.find(
+        {"source_request_id": {"$in": [r["request_id"] for r in cands]}, "payment_phase": "advance",
+         "pulled_back_from_cashbook": True, "status": {"$nin": ["superseded", "paid", "completed"]}},
+        {"_id": 0, "source_request_id": 1},
+    ).to_list(500)}
+    for r in cands:
+        if r["request_id"] in pulled and await hold_transit_until_advance_paid(r["request_id"], user):
+            r.update({"status": "pending_advance_payment", "next_payment_phase": "advance",
+                      "pending_next_status": "in_transit"})
+            r.pop("transit_started_at", None)
+            r.pop("transit_started_by", None)
+
+
 @router.get("/procurement-simple/queue")
 async def procurement_simple_queue(
     queue: str = "pending",  # pending | forwarded | rejected | all
@@ -2520,6 +2586,7 @@ async def procurement_simple_queue(
         {"status": {"$in": target}}, {"_id": 0}
     ).sort("created_at", -1).to_list(500)
     await _heal_stale_paid_stamps(rows, user)
+    await _heal_transit_without_advance(rows, user)
 
     # Enrich project + SE names
     project_ids = list({r.get("project_id") for r in rows if r.get("project_id")})
