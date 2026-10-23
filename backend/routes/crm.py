@@ -6080,7 +6080,12 @@ async def sheets_connection_health(user: User = Depends(get_current_user)):
 
     tok = await db.google_sheets_tokens.find_one({"user_id": SHARED_SHEETS_KEY}, {"_id": 0})
     cfg = await db.google_sheets_config.find_one({"user_id": SHARED_SHEETS_KEY}, {"_id": 0}) or {}
-    sources = cfg.get("sources") or []
+    # Oct 23 2026 - the connected sheets live in their OWN collection keyed by
+    # the individual super admin, NOT in google_sheets_config.sources. Reading
+    # `sources` reported "0 connected sheets" while the Marketing Board banner
+    # correctly said 1, which would have read as "your sheet config is gone"
+    # on a screen whose whole job is to reassure that it is not.
+    sources = await db.connected_sheets.find({}, {"_id": 0}).to_list(100)
 
     grant_age = _age_days(cfg.get("last_refresh_error_token_issued_at"),
                           cfg.get("last_refresh_error_at"))
@@ -6119,7 +6124,10 @@ async def sheets_connection_health(user: User = Depends(get_current_user)):
             "needs_reconnect": cfg.get("needs_reconnect"),
             "config_updated_at": cfg.get("updated_at"),
             "connected_sheet_count": len(sources),
-            "sources": [{"name": s.get("name") or s.get("sheet_name"),
+            "sheets_survive_a_disconnect": True,
+            "sources": [{"name": s.get("sheet_name") or s.get("name"),
+                         "spreadsheet_id": s.get("spreadsheet_id"),
+                         "owner_user_id": s.get("user_id"),
                          "last_synced": s.get("last_synced")} for s in sources][:20],
         },
         "token": {
