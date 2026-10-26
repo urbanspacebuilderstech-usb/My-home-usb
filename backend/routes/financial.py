@@ -18829,3 +18829,47 @@ async def stale_bounce_balance_repair_apply(
         "skipped": skipped,
         "all_verified": all(a["verified"] for a in applied) if applied else True,
     })
+
+
+# Oct 26 2026 - USB-MR1306 (UPVC Window / PLS Windows, Mr Mohan - Sithalapakkam)
+# showed "Total / Paid 1,000.06 / 83,903.52" with Balance 33,903.52 - three
+# figures that cannot all be true. This dumps one bill's raw records so the
+# real figure can be proven before anything is repaired.
+@router.get("/admin/mr-inspect")
+async def mr_inspect(number: str, user: User = Depends(get_current_user)):
+    """READ-ONLY: a material request, its bills, payment rows and audit trail. Writes nothing."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    number = number.strip()
+    reqs = await db.material_requests.find({"request_number": number}, {"_id": 0}).to_list(20)
+    req_ids = [r["request_id"] for r in reqs if r.get("request_id")]
+    bills = await db.material_expenses.find(
+        {"$or": [{"request_number": number}, {"source_request_id": {"$in": req_ids}}]}, {"_id": 0},
+    ).to_list(50)
+    ids = list({*req_ids, *(b["expense_id"] for b in bills if b.get("expense_id"))})
+    payments = await db.recorded_expenses.find(
+        {"$or": [{"request_id": {"$in": ids}}, {"material_request_id": {"$in": ids}},
+                 {"material_expense_id": {"$in": ids}}]}, {"_id": 0},
+    ).sort("created_at", 1).to_list(200)
+    audit = await db.audit_logs.find({"resource_id": {"$in": ids}}, {"_id": 0}).sort("timestamp", 1).to_list(300)
+    live = [p for p in payments if not p.get("is_deleted")
+            and str(p.get("status") or "").lower() not in _PAID_LEG_EXCLUDED_STATUS]
+    return fast_json({
+        "write_performed": False,
+        "number": number,
+        "summary": {
+            "requests": [{k: r.get(k) for k in ("request_id", "status", "total_amount", "estimated_price",
+                          "quantity", "received_quantity", "unit_price", "transport_cost", "discount",
+                          "advance_paid_amount", "balance_amount")} for r in reqs],
+            "bills": [{k: b.get(k) for k in ("expense_id", "status", "payment_phase", "final_amount",
+                       "estimated_cost", "paid_amount", "collected_amount", "total_paid",
+                       "remaining_balance", "last_partial_paid_at")} for b in bills],
+            "live_payment_total": round(sum(_num(p.get("amount")) for p in live), 2),
+            "live_payment_count": len(live),
+            "recalculate_events": [a for a in audit if a.get("action") == "recalculate_amount"],
+        },
+        "material_requests": reqs,
+        "material_expenses": bills,
+        "recorded_expenses": payments,
+        "audit_logs": audit,
+    })
