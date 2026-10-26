@@ -18920,3 +18920,117 @@ async def mr_inspect(number: str, user: User = Depends(get_current_user)):
         "recorded_expenses": payments,
         "audit_logs": audit,
     })
+
+
+# Oct 26 2026 - USB-MR1306 (UPVC Window / PLS Windows). Accounts rejected it at
+# 14:57 IST, before 0affc40f taught the reject to take the bill out of
+# Approvals. The order went back to Purchase Verification but its bill stayed
+# pending_accounts_approval, so Approvals kept a payable Legacy card reading
+# "83,903.52 of 1,000.06 paid, Balance 33,903.52": the paid advance bill the
+# Advance flow reuses as the balance bill, with a stale advance-phase balance.
+#
+# The scan finds every bill left behind like that and proposes what the reject
+# does today (_bills_back_from_accounts): a paid advance goes back to the paid
+# advance it was, an unpaid bill is marked accountant_rejected. A paid figure
+# is only trusted when the bill's live payment rows add up to it.
+_SENT_BACK_PARENT_STATUSES = ("procurement_verifying", "procurement_revision")
+_STRANDED_REJECT_FIELDS = ("status", "final_amount", "estimated_cost", "paid_amount",
+                           "remaining_balance", "payment_phase", "updated_at")
+
+
+def _stranded_reject_decide(bill: Dict[str, Any], parent: Dict[str, Any], live_paid: float) -> Dict[str, Any]:
+    """Pure: the fix for one bill left in Approvals by an Accounts reject, or why not."""
+    rejected_at = str(parent.get("accounts_rejected_at") or "")
+    if not rejected_at:
+        return {"class": "skip", "reason": "parent was never rejected by Accounts"}
+    if str(bill.get("updated_at") or "") >= rejected_at:
+        return {"class": "skip", "reason": "bill was refreshed after the reject - Procurement already re-sent it"}
+    held = round(_num(bill.get("paid_amount")), 2)
+    if held <= 0.5:
+        return {"class": "unpaid", "reason": "unpaid bill - marked rejected like a reject does today",
+                "set": {"status": "accountant_rejected",
+                        "rejection_reason": parent.get("accounts_rejected_reason") or "Rejected by accountant",
+                        "rejected_by": parent.get("accounts_rejected_by"),
+                        "rejected_by_name": parent.get("accounts_rejected_by_name"),
+                        "rejected_at": rejected_at}}
+    if (bill.get("payment_mode") or "").lower() != "advance":
+        return {"class": "manual", "reason": f"{held} paid on a non-advance bill - review by hand"}
+    if abs(live_paid - held) > 0.5:
+        return {"class": "manual", "reason": f"paid_amount {held} but live payment rows add up to {live_paid}"}
+    return {"class": "paid_advance", "reason": "paid advance reused as the balance bill - restored to the paid advance",
+            "set": {"status": "paid", "final_amount": held, "estimated_cost": held,
+                    "remaining_balance": 0.0, "payment_phase": "advance"}}
+
+
+_STRANDED_REJECT_FIXABLE = {"paid_advance", "unpaid"}
+
+
+async def _plan_stranded_reject_scan() -> Dict[str, Any]:
+    bills = await db.material_expenses.find(
+        {"status": "pending_accounts_approval", "source_request_id": {"$nin": [None, ""]}}, {"_id": 0},
+    ).to_list(5000)
+    parents = {p["request_id"]: p for p in await db.material_requests.find(
+        {"request_id": {"$in": list({b["source_request_id"] for b in bills})},
+         "status": {"$in": list(_SENT_BACK_PARENT_STATUSES)}}, {"_id": 0},
+    ).to_list(5000)}
+    bills = [b for b in bills if b["source_request_id"] in parents]
+    legs = await db.recorded_expenses.find(
+        {"request_id": {"$in": [b["expense_id"] for b in bills]}},
+        {"_id": 0, "request_id": 1, "amount": 1, "status": 1, "is_deleted": 1},
+    ).to_list(5000)
+    out = []
+    for b in bills:
+        p = parents[b["source_request_id"]]
+        live_paid = round(sum(_num(l.get("amount")) for l in legs if l.get("request_id") == b["expense_id"]
+                              and not l.get("is_deleted")
+                              and str(l.get("status") or "").lower() not in _PAID_LEG_EXCLUDED_STATUS), 2)
+        d = _stranded_reject_decide(b, p, live_paid)
+        out.append({
+            "request_number": p.get("request_number"), "expense_id": b["expense_id"],
+            "material_name": b.get("material_name"), "vendor_name": b.get("vendor_name"),
+            "project_name": (b.get("project_name") or "").strip(), "parent_status": p.get("status"),
+            "accounts_rejected_at": p.get("accounts_rejected_at"), "live_paid": live_paid,
+            "stored": {k: b.get(k) for k in _STRANDED_REJECT_FIELDS},
+            "class": d["class"], "reason": d["reason"], "fix": d.get("set"),
+        })
+    return {"count": len(out), "fixable": sum(r["class"] in _STRANDED_REJECT_FIXABLE for r in out), "bills": out}
+
+
+@router.get("/admin/stranded-reject-bills-scan")
+async def stranded_reject_bills_scan(user: User = Depends(get_current_user)):
+    """READ-ONLY: bills still payable in Approvals although Accounts sent their
+    order back to Procurement, and the fix the apply would make. Writes nothing."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return fast_json({"write_performed": False, **(await _plan_stranded_reject_scan())})
+
+
+@router.post("/admin/stranded-reject-bills-apply")
+async def stranded_reject_bills_apply(expense_ids: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Fix the bills the scan proves (all of them, or just `expense_ids`).
+    Re-scans first; each write is pinned to the values just read, so a bill
+    paid or re-sent in between is skipped."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    only = {e.strip() for e in (expense_ids or "").split(",") if e.strip()}
+    plan = await _plan_stranded_reject_scan()
+    now = datetime.now(timezone.utc).isoformat()
+    results = []
+    for r in plan["bills"]:
+        if only and r["expense_id"] not in only:
+            continue
+        if r["class"] not in _STRANDED_REJECT_FIXABLE:
+            results.append({"request_number": r["request_number"], "expense_id": r["expense_id"],
+                            "written": False, "reason": r["reason"]})
+            continue
+        res = await db.material_expenses.update_one(
+            {"expense_id": r["expense_id"], **r["stored"]},
+            {"$set": {**r["fix"], "stranded_reject_repaired_at": now, "stranded_reject_repaired_by": user.user_id,
+                      "stranded_reject_repaired_from": r["stored"], "updated_at": now}})
+        written = res.modified_count == 1
+        results.append({"request_number": r["request_number"], "expense_id": r["expense_id"], "class": r["class"],
+                        "written": written, "after": r["fix"] if written else "skipped - the bill changed since it was read"})
+        if written:
+            await create_audit_log(user.user_id, "stranded_reject_bill_repair", "material_expense", r["expense_id"], {
+                "class": r["class"], "reason": r["reason"], "fix": r["fix"], "before": r["stored"]})
+    return fast_json({"write_performed": any(x["written"] for x in results), "results": results})
