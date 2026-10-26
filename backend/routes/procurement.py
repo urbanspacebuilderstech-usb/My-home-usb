@@ -2556,27 +2556,19 @@ async def _heal_transit_without_advance(rows: list, user: User) -> None:
 
 
 async def _heal_completed_with_bounced_bill(rows: list, user: User) -> None:
-    """Requests left Completed by a cheque bounce before
-    reopen_request_after_bill_bounce existed (USB-MR2374: balance cheque
-    #0711 bounced, bill back in Approvals, board still Completed 900 / 900).
-    Only a bill still unpaid after its bounce qualifies; moved rows are
-    updated in place."""
-    cands = {r["request_id"]: r for r in rows if r.get("cheque_bounced") and r.get("request_id")
+    """Completed rows whose bill a cheque bounce sent back to Approvals
+    (financial.heal_completed_with_bounced_bill). The request's own
+    cheque_bounced flag is not required: the Accountant queue had cleared
+    it on USB-MR2374. Moved rows are updated in place."""
+    cands = {r["request_id"]: r for r in rows if r.get("request_id")
              and (r.get("status") or "").lower() in ("delivered", "completed", "paid")}
     if not cands:
         return
-    from routes.financial import reopen_request_after_bill_bounce
-    bills = await db.material_expenses.find(
-        {"source_request_id": {"$in": list(cands)}, "cheque_bounced": True,
-         "status": {"$in": ["pending_accounts_approval", "partially_paid"]}},
-        {"_id": 0, "expense_id": 1, "source_request_id": 1},
-    ).to_list(500)
-    for b in bills:
-        if await reopen_request_after_bill_bounce(b["expense_id"], user):
-            fresh = await db.material_requests.find_one({"request_id": b["source_request_id"]}, {"_id": 0})
-            row = cands[b["source_request_id"]]
-            row.clear()
-            row.update(fresh or {})
+    from routes.financial import heal_completed_with_bounced_bill
+    for rid in await heal_completed_with_bounced_bill(user, list(cands)):
+        fresh = await db.material_requests.find_one({"request_id": rid}, {"_id": 0})
+        cands[rid].clear()
+        cands[rid].update(fresh or {})
 
 
 @router.get("/procurement-simple/queue")
@@ -4595,6 +4587,10 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
     """
     if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Permission denied")
+    # Oct 26 2026 — a request a bounce left Completed (USB-MR2374) comes back
+    # here as Payment Pending before the rows are read.
+    from routes.financial import heal_completed_with_bounced_bill
+    await heal_completed_with_bounced_bill(user)
     rows = await db.material_requests.find(
         {"$or": [
             {"status": {"$in": ["pending_accounts_approval", "pending_balance_payment", "partially_paid"]}},
@@ -4691,7 +4687,11 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
         # 3 separate legs summing to the full ₹1,56,800). Detect it here so
         # already-stuck rows clear immediately on the next read instead of
         # needing another payment action to trigger the write-time fix.
-        if r.get("cheque_bounced") and total_amt > 0.5 and bal <= 0.5:
+        # Oct 26 2026 — not while a bill is still open: stamps the bounce never
+        # cleared read as settled, and USB-MR2374 lost its flag that way.
+        if r.get("cheque_bounced") and total_amt > 0.5 and bal <= 0.5 and not any(
+                m.get("status") in ("pending_accounts_approval", "partially_paid")
+                for m in _mirrors_by_req.get(r.get("request_id"), [])):
             await db.material_requests.update_one(
                 {"request_id": r["request_id"]}, {"$set": {"cheque_bounced": False}}
             )

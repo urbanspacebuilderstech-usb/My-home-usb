@@ -2052,11 +2052,77 @@ async def reopen_request_after_bill_bounce(bill_id: Optional[str], user: User) -
         "status": "pending_balance_payment" if phase == "balance" else "pending_accounts_approval",
         "next_payment_phase": phase,
         "reopened_by_bounce_from_status": parent["status"],
+        "cheque_bounced": True,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }})
     await create_audit_log(user.user_id, "reopen_after_cheque_bounce", "material_request", bill["source_request_id"], {
         "request_number": parent.get("request_number"), "bill_id": bill_id, "from_status": parent["status"]})
     return True
+
+
+async def _bounce_sibling_suspense_legs(primary_leg_id: Optional[str], cheque_id: Optional[str],
+                                        reason: str, now: str) -> float:
+    """Oct 26 2026 — one payment can be a cheque leg plus vendor credit
+    (suspense) applied with it; the credit's row points at the cheque leg as
+    its primary_expense_id. The bounce unpays the whole bill, so the credit
+    goes back to the vendor too: marking its row cheque_bounced drops its
+    debit from _live_vendor_suspense_balance, the same status exclusion
+    _reverse_cheque_material_suspense_and_bills relies on (USB-MR2374: 450
+    = 211.92 by cheque #0711 + 238.08 credit; the bill came back at 450 and
+    the 238.08 stayed spent). Returns the amount handed back."""
+    if not primary_leg_id:
+        return 0.0
+    returned = 0.0
+    async for leg in db.recorded_expenses.find({
+        "primary_expense_id": primary_leg_id, "expense_id": {"$ne": primary_leg_id},
+        "source": "approval_suspense", "is_deleted": {"$ne": True},
+    }, {"_id": 0}):
+        if (leg.get("status") or "").lower() in _PAID_LEG_EXCLUDED_STATUS:
+            continue
+        await db.recorded_expenses.update_one({"expense_id": leg["expense_id"]}, {"$set": {
+            "status": "cheque_bounced", "bounced_at": now, "bounced_by_cheque_id": cheque_id,
+            "bounce_reason": reason, "bounced_with_expense_id": primary_leg_id, "updated_at": now,
+        }})
+        try:
+            from routes.cashflow import reverse_allocation
+            await reverse_allocation(leg["expense_id"], kind="expense")
+        except Exception as e:
+            logger.warning(f"cashflow reverse_allocation failed for {leg['expense_id']}: {e}")
+        returned += float(leg.get("amount") or 0)
+    return round(returned, 2)
+
+
+async def heal_completed_with_bounced_bill(user: User, request_ids: Optional[List[str]] = None) -> List[str]:
+    """Requests left Completed by a cheque bounce before
+    reopen_request_after_bill_bounce existed (USB-MR2374: balance cheque
+    #0711 bounced, bill back in Approvals, Procurement still Completed
+    900 / 900; the Accountant queue had since cleared the request's own
+    cheque_bounced flag, so only the bill's is trusted). Hands back vendor
+    credit paid with the bounced cheque, then reopens the request. Returns
+    the reopened request ids."""
+    q: Dict[str, Any] = {"cheque_bounced": True, "status": {"$in": ["pending_accounts_approval", "partially_paid"]},
+                         "source_request_id": {"$nin": [None, ""]}}
+    if request_ids is not None:
+        q["source_request_id"] = {"$in": list(request_ids)}
+    bills = await db.material_expenses.find(q, {"_id": 0, "expense_id": 1, "source_request_id": 1}).to_list(500)
+    if not bills:
+        return []
+    stuck = {r["request_id"] async for r in db.material_requests.find(
+        {"request_id": {"$in": [b["source_request_id"] for b in bills]}, "status": {"$in": list(_BOUNCE_REOPEN_FROM)}},
+        {"_id": 0, "request_id": 1})}
+    reopened = []
+    now = datetime.now(timezone.utc).isoformat()
+    for b in bills:
+        if b["source_request_id"] not in stuck:
+            continue
+        async for leg in db.recorded_expenses.find(
+                {"request_id": b["expense_id"], "status": "cheque_bounced", "bounced_by_cheque_id": {"$nin": [None, ""]}},
+                {"_id": 0, "expense_id": 1, "bounced_by_cheque_id": 1, "bounce_reason": 1}):
+            await _bounce_sibling_suspense_legs(leg["expense_id"], leg["bounced_by_cheque_id"],
+                                                leg.get("bounce_reason") or "Cheque bounced", now)
+        if await reopen_request_after_bill_bounce(b["expense_id"], user):
+            reopened.append(b["source_request_id"])
+    return reopened
 
 
 # Feb 28 2026 — "Send Back to Approvals" for Material expense rows.
@@ -8551,6 +8617,9 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
             if _lab:
                 reversal_summary["labour_rab_reopened"] = _lab
             if req_id and req_type == "material":
+                # The bill is unpaid in full below, so vendor credit applied
+                # with this cheque goes back to the vendor too.
+                await _bounce_sibling_suspense_legs(expense_id, cheque_id, payload.reason.strip(), now)
                 _reset = {
                     "status": "pending_accounts_approval",
                     "cheque_bounced": True,

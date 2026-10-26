@@ -46,8 +46,25 @@ def test_paying_again_returns_it_to_completed():
     assert '{"$unset": {"reopened_by_bounce_from_status": ""}}' in seg
 
 
-def test_board_heals_requests_left_completed():
+def test_board_and_accountant_queue_heal_requests_left_completed():
     assert "await _heal_completed_with_bounced_bill(rows, user)" in _seg(PROC, "procurement_simple_queue")
-    seg = _seg(PROC, "_heal_completed_with_bounced_bill")
-    assert '"cheque_bounced": True' in seg
-    assert '"status": {"$in": ["pending_accounts_approval", "partially_paid"]}' in seg
+    assert "await heal_completed_with_bounced_bill(user)" in _seg(PROC, "procurement_simple_accountant_queue")
+    board = _seg(PROC, "_heal_completed_with_bounced_bill")
+    assert 'r.get("cheque_bounced")' not in board  # the Accountant queue had cleared it on MR2374
+    seg = _seg(FIN, "heal_completed_with_bounced_bill")
+    assert '"cheque_bounced": True, "status": {"$in": ["pending_accounts_approval", "partially_paid"]}' in seg
+    assert "await _bounce_sibling_suspense_legs(" in seg
+
+
+def test_accountant_queue_keeps_the_flag_while_a_bill_is_open():
+    seg = _seg(PROC, "procurement_simple_accountant_queue")
+    assert 'm.get("status") in ("pending_accounts_approval", "partially_paid")' in seg
+
+
+def test_vendor_credit_paid_with_the_bounced_cheque_goes_back():
+    seg = _seg(FIN, "_bounce_sibling_suspense_legs")
+    assert '"primary_expense_id": primary_leg_id, "expense_id": {"$ne": primary_leg_id}' in seg
+    assert '"source": "approval_suspense"' in seg
+    assert '"status": "cheque_bounced"' in seg
+    assert "await _bounce_sibling_suspense_legs(expense_id, cheque_id, payload.reason.strip(), now)" in _seg(
+        FIN, "bounce_cheque")
