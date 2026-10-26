@@ -2026,6 +2026,39 @@ async def _clear_parent_phase_paid_stamp(bill_id: Optional[str], user: User) -> 
         await hold_transit_until_advance_paid(bill["source_request_id"], user)
 
 
+_BOUNCE_REOPEN_FROM = ("delivered", "completed", "paid")
+
+
+async def reopen_request_after_bill_bounce(bill_id: Optional[str], user: User) -> bool:
+    """Oct 26 2026 — a bounced cheque unpays the bill and puts it back in
+    Approvals, but the request only got a cheque_bounced flag: it stayed
+    Completed with the bounced money still stamped as paid (USB-MR2374,
+    balance 450 by cheque #0711 → Procurement read Completed, 900 / 900).
+    Drops the paid stamp for the bill's phase, as a Cashbook send-back does,
+    and a completed request goes back to Payment Pending. pay_approval puts
+    it back to `reopened_by_bounce_from_status` once it is paid in full."""
+    bill = await db.material_expenses.find_one(
+        {"expense_id": bill_id}, {"_id": 0, "source_request_id": 1, "payment_phase": 1, "status": 1})
+    if not bill or not bill.get("source_request_id") or (bill.get("status") or "").lower() not in (
+            "pending_accounts_approval", "partially_paid"):
+        return False
+    await _clear_parent_phase_paid_stamp(bill_id, user)
+    parent = await db.material_requests.find_one(
+        {"request_id": bill["source_request_id"]}, {"_id": 0, "status": 1, "request_number": 1})
+    if not parent or (parent.get("status") or "").lower() not in _BOUNCE_REOPEN_FROM:
+        return False
+    phase = (bill.get("payment_phase") or "full").lower()
+    await db.material_requests.update_one({"request_id": bill["source_request_id"]}, {"$set": {
+        "status": "pending_balance_payment" if phase == "balance" else "pending_accounts_approval",
+        "next_payment_phase": phase,
+        "reopened_by_bounce_from_status": parent["status"],
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }})
+    await create_audit_log(user.user_id, "reopen_after_cheque_bounce", "material_request", bill["source_request_id"], {
+        "request_number": parent.get("request_number"), "bill_id": bill_id, "from_status": parent["status"]})
+    return True
+
+
 # Feb 28 2026 — "Send Back to Approvals" for Material expense rows.
 # Mirrors the petty_cash send-back behaviour:
 #   1. Reverse the cashflow_ledger allocation.
@@ -8563,6 +8596,7 @@ async def bounce_cheque(cheque_id: str, payload: ChequeBounceRequest, user: User
                             "updated_at": now,
                         }}
                     )
+                    await reopen_request_after_bill_bounce(req_id, user)
             elif req_id and req_type == "labour":
                 await db.labour_expenses.update_one(
                     {"labour_expense_id": req_id},
@@ -9137,6 +9171,7 @@ async def _reverse_cheque_material_suspense_and_bills(
                         "updated_at": now,
                     }},
                 )
+                await reopen_request_after_bill_bounce(expense_id, user)
 
     plan["total_credit_voided"] = sum(float(c["amount"] or 0) for c in plan["credits_voided"])
     plan["total_debit_restored"] = sum(float(d["amount"] or 0) for d in plan["debits_restored"])
@@ -13100,6 +13135,13 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
                             "transit_started_by": user.user_id,
                         })
                         notify_se_msg = f"Advance approved — ready to collect: {parent.get('material_name')} → {parent.get('vendor_name', 'Vendor')}"
+                    # Oct 26 2026 — a bounce reopened a completed request
+                    # (reopen_request_after_bill_bounce): back to it once
+                    # the advance and any balance cover the total again.
+                    elif parent.get("reopened_by_bounce_from_status") and (
+                            parent_update["advance_paid_amount"] + float(parent.get("balance_paid_amount") or 0)
+                            >= float(parent.get("total_amount") or 0) - 0.01):
+                        parent_update["status"] = parent["reopened_by_bounce_from_status"]
                 else:
                     parent_update.update({
                         "balance_paid_at": now,
@@ -13115,9 +13157,14 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
                     if parent.get("status") not in ("in_transit", "procurement_verifying"):
                         parent_update["status"] = "delivered"
                         parent_update["delivered_at"] = now
+                        if parent.get("reopened_by_bounce_from_status"):  # reopened by a bounce
+                            parent_update.update({"status": parent["reopened_by_bounce_from_status"],
+                                                  "delivered_at": parent.get("delivered_at") or now})
                 await db.material_requests.update_one(
                     {"request_id": source_req_id},
-                    {"$set": parent_update},
+                    {"$set": parent_update,
+                     **({"$unset": {"reopened_by_bounce_from_status": ""}}
+                        if parent_update.get("status") and parent.get("reopened_by_bounce_from_status") else {})},
                 )
                 if notify_se_msg and parent.get("site_engineer_id"):
                     try:

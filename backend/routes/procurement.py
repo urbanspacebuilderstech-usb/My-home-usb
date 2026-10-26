@@ -2555,6 +2555,30 @@ async def _heal_transit_without_advance(rows: list, user: User) -> None:
             r.pop("transit_started_by", None)
 
 
+async def _heal_completed_with_bounced_bill(rows: list, user: User) -> None:
+    """Requests left Completed by a cheque bounce before
+    reopen_request_after_bill_bounce existed (USB-MR2374: balance cheque
+    #0711 bounced, bill back in Approvals, board still Completed 900 / 900).
+    Only a bill still unpaid after its bounce qualifies; moved rows are
+    updated in place."""
+    cands = {r["request_id"]: r for r in rows if r.get("cheque_bounced") and r.get("request_id")
+             and (r.get("status") or "").lower() in ("delivered", "completed", "paid")}
+    if not cands:
+        return
+    from routes.financial import reopen_request_after_bill_bounce
+    bills = await db.material_expenses.find(
+        {"source_request_id": {"$in": list(cands)}, "cheque_bounced": True,
+         "status": {"$in": ["pending_accounts_approval", "partially_paid"]}},
+        {"_id": 0, "expense_id": 1, "source_request_id": 1},
+    ).to_list(500)
+    for b in bills:
+        if await reopen_request_after_bill_bounce(b["expense_id"], user):
+            fresh = await db.material_requests.find_one({"request_id": b["source_request_id"]}, {"_id": 0})
+            row = cands[b["source_request_id"]]
+            row.clear()
+            row.update(fresh or {})
+
+
 @router.get("/procurement-simple/queue")
 async def procurement_simple_queue(
     queue: str = "pending",  # pending | forwarded | rejected | all
@@ -2587,6 +2611,7 @@ async def procurement_simple_queue(
     ).sort("created_at", -1).to_list(500)
     await _heal_stale_paid_stamps(rows, user)
     await _heal_transit_without_advance(rows, user)
+    await _heal_completed_with_bounced_bill(rows, user)
 
     # Enrich project + SE names
     project_ids = list({r.get("project_id") for r in rows if r.get("project_id")})
