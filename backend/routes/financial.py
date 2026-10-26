@@ -11455,6 +11455,186 @@ async def usb_mr511_sendback_apply(user: User = Depends(get_current_user)):
     return {"write_performed": bool(result["sent_back"] or result["debit_deleted"]), **result}
 
 
+# ── Oct 26 2026 — USB-MR034: remove the 17,516 handed back twice ──
+# SATHISKUMAR AGENCY's Ledger chip read "#001684 21,378" where the Expense
+# list gives 2,00,000 - 1,96,138 = 3,862. The 17,516 between them is the
+# restore credit se_2499341b08, which repair_usb_mr034_suspense_and_cheque.py
+# inserted on 18 Aug in its "no debit stands" branch: USB-MR034's payment had
+# been deleted along with its debit, so its 17,516 was already back in the
+# pool, and the credit handed it back a second time. The Oct 6 cheque tag
+# then named the credit #001684, and once USB-MR511's 18,963 draw on it was
+# deleted (Oct 12) nothing offset it.
+# On 11 Aug USB-MR034 was paid from exactly #001684's 3,862.40 + #000015's
+# 13,653.60 (80,435.20 + 3,862.40 = 66,781.60 of #000015's bills + 17,516),
+# and both of those remainders already show on their own chips.
+#   - delete the credit (an offsetting debit naming the bill would be found
+#     by a later send-back's stray-debit lookup and deleted, bringing the
+#     duplicate back); the whole entry goes into the audit log;
+#   - a bill still "paid" with no payment row goes back to Approvals like
+#     USB-MR511, so it can be paid from suspense again.
+_MR034 = {"bill_id": "mexp_9e27d6b45119", "restore_entry_id": "se_2499341b08",
+          "restore_tag": "usb_mr034_suspense_restore:mexp_9e27d6b45119",
+          "vendor": "SATHISKUMAR AGENCY", "amount": 17516.0}
+# The Ledger dialog's chips are read through its own route, which checks a role.
+_MR034_REPORT_USER = User(user_id="usb_mr034_restore_plan", email="usb-mr034-plan@example.com",
+                          name="USB-MR034 restore plan", role=UserRole.SUPER_ADMIN,
+                          created_at=datetime(2026, 10, 26, tzinfo=timezone.utc))
+
+
+def _mr034_restore_decide(restore, bill, request, bill_rows_for_request, live_legs,
+                          standing_debits, drew_on_restore, pool_now):
+    """Pure: which steps the repair must take, or why it must not run at all.
+    Steps already done are simply absent, so a re-run plans nothing."""
+    problems, steps = [], []
+    if restore:
+        if (restore.get("vendor_name") or "").strip().lower() != _MR034["vendor"].lower():
+            problems.append("restore credit belongs to '%s'" % restore.get("vendor_name"))
+        if restore.get("type") != "material":
+            problems.append("restore credit type is '%s', expected 'material'" % restore.get("type"))
+        if abs(float(restore.get("amount") or 0) - _MR034["amount"]) > 0.5:
+            problems.append("restore credit is %s, expected 17,516" % restore.get("amount"))
+        if restore.get("restore_tag") != _MR034["restore_tag"]:
+            problems.append("restore credit is not the USB-MR034 repair's (restore_tag '%s')"
+                            % restore.get("restore_tag"))
+        # If MR034's own debit still counted, the credit would be offsetting it.
+        if standing_debits:
+            problems.append("USB-MR034 debit(s) %s still count, so the restore credit is offsetting "
+                            "them and must stay" % ", ".join(standing_debits))
+        if drew_on_restore:
+            problems.append("payment debit(s) %s drew on the restore credit; removing it would leave "
+                            "that spending with no credit behind it" % ", ".join(drew_on_restore))
+        if pool_now - _MR034["amount"] < -0.5:
+            problems.append("SATHISKUMAR AGENCY's suspense is %s; removing 17,516 would take it below zero"
+                            % format(round(pool_now, 2), ","))
+        if not problems:
+            steps.append("remove_restore")
+    if not bill:
+        problems.append("bill %s not found" % _MR034["bill_id"])
+    if live_legs:
+        problems.append("USB-MR034 has live payment row(s) %s; it has been paid again"
+                        % ", ".join(live_legs))
+    status = ((bill or {}).get("status") or "").lower()
+    if bill and not live_legs and status in ("paid", "partially_paid"):
+        # Same guards as the USB-MR511 send-back: the send-back resets EVERY
+        # bill row of the request, so a second row would come back as a
+        # duplicate Approvals card.
+        if not request:
+            problems.append("request %s not found" % bill.get("source_request_id"))
+        elif bill.get("source_request_id") != request.get("request_id"):
+            problems.append("bill's source_request_id is '%s', expected %s"
+                            % (bill.get("source_request_id"), request.get("request_id")))
+        if bill_rows_for_request != 1:
+            problems.append("%s bill rows carry this request, expected exactly 1" % bill_rows_for_request)
+        if not problems:
+            steps.append("send_back")
+    return {"problems": problems, "steps": steps}
+
+
+async def _plan_mr034_restore() -> Dict[str, Any]:
+    restore = await db.suspense_entries.find_one({"entry_id": _MR034["restore_entry_id"]}, {"_id": 0})
+    bill = await db.material_expenses.find_one({"expense_id": _MR034["bill_id"]}, {"_id": 0})
+    rid = (bill or {}).get("source_request_id")
+    request = await db.material_requests.find_one({"request_id": rid}, {"_id": 0}) if rid else None
+    ids = [i for i in (_MR034["bill_id"], rid) if i]
+    bill_rows_for_request = await db.material_expenses.count_documents({"$or": [
+        {"source_request_id": rid}, {"request_id": rid}]}) if rid else 0
+    legs = await db.recorded_expenses.find({"$or": [
+        {"request_id": {"$in": ids}}, {"material_request_id": {"$in": ids}},
+        {"material_expense_id": {"$in": ids}}, {"source_request_id": {"$in": ids}},
+    ]}, {"_id": 0, "expense_id": 1, "amount": 1, "status": 1, "is_deleted": 1}).to_list(50)
+    live_legs = [l["expense_id"] for l in legs
+                 if (l.get("status") or "").lower() not in _PAID_LEG_EXCLUDED_STATUS and not l.get("is_deleted")]
+    # A debit counts only while the payment row it is linked to is live (the
+    # same filter as _live_vendor_suspense_balance); an orphan is ignored by
+    # every balance, so its amount is already back in the pool.
+    debits = await db.suspense_entries.find({"amount": {"$lt": -0.5}, "$or": [
+        {"linked_request_id": {"$in": ids}},
+        {"linked_expense_id": {"$in": ids + [l["expense_id"] for l in legs if l.get("expense_id")]}},
+    ]}, {"_id": 0}).to_list(50)
+    drawn = await db.suspense_entries.find(
+        {"funded_by.entry_id": _MR034["restore_entry_id"]}, {"_id": 0}).to_list(50)
+    linked = {d.get("linked_expense_id") or d.get("expense_id") for d in debits + drawn} - {None}
+    live_ids = {e["expense_id"] for e in await db.recorded_expenses.find(
+        {"expense_id": {"$in": list(linked)}}, {"_id": 0, "expense_id": 1, "status": 1, "is_deleted": 1}
+    ).to_list(100) if (e.get("status") or "").lower() not in _PAID_LEG_EXCLUDED_STATUS and not e.get("is_deleted")}
+
+    def _counts(e):
+        lid = e.get("linked_expense_id") or e.get("expense_id")
+        return not lid or lid in live_ids
+
+    standing = [d.get("entry_id") for d in debits if _counts(d)]
+    drew_on_restore = [d.get("entry_id") for d in drawn if _counts(d)]
+    pool_now = round(await _live_vendor_suspense_balance("material", _MR034["vendor"], {}), 2)
+    from routes.procurement import material_vendor_payment_ledger
+    chips = (await material_vendor_payment_ledger(
+        "name:%s" % _MR034["vendor"].lower(), user=_MR034_REPORT_USER)).get("suspense_by_cheque") or []
+    decision = _mr034_restore_decide(restore, bill, request, bill_rows_for_request, live_legs,
+                                     standing, drew_on_restore, pool_now)
+    removing = "remove_restore" in decision["steps"]
+    return {
+        **decision,
+        "restore_credit": {"entry_id": _MR034["restore_entry_id"], "exists": bool(restore),
+                           "amount": (restore or {}).get("amount"), "created_at": (restore or {}).get("created_at"),
+                           "description": (restore or {}).get("description"),
+                           "after": "deleted (kept in the audit log)" if removing else "unchanged"},
+        "bill": {"expense_id": _MR034["bill_id"], "request_number": (request or {}).get("request_number"),
+                 "material": (bill or {}).get("material_name"), "status": (bill or {}).get("status"),
+                 "after": "pending_accounts_approval — listed in Approvals → Materials for 17,516"
+                          if "send_back" in decision["steps"] else "unchanged"},
+        "request": {"request_id": rid, "status": (request or {}).get("status")},
+        "payment_rows_ever": [{"expense_id": l.get("expense_id"), "amount": l.get("amount"),
+                               "status": l.get("status"), "is_deleted": bool(l.get("is_deleted"))} for l in legs],
+        "mr034_debits": [{"entry_id": d.get("entry_id"), "amount": d.get("amount"),
+                          "counts": d.get("entry_id") in standing} for d in debits],
+        "payments_that_drew_on_restore": [{"entry_id": d.get("entry_id"), "amount": d.get("amount"),
+                                           "counts": d.get("entry_id") in drew_on_restore} for d in drawn],
+        "vendor_suspense": {"now": pool_now,
+                            "after": round(pool_now - _MR034["amount"], 2) if removing else pool_now},
+        "suspense_by_cheque_now": chips,
+        "not_touched": "cheques, every other suspense entry, every other bill, the Cashbook",
+    }
+
+
+@router.get("/admin/usb-mr034-restore-dryrun")
+async def usb_mr034_restore_dryrun(user: User = Depends(get_current_user)):
+    """READ-ONLY: what removing USB-MR034's duplicate 17,516 restore would change."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return {"write_performed": False, **(await _plan_mr034_restore())}
+
+
+@router.post("/admin/usb-mr034-restore-apply")
+async def usb_mr034_restore_apply(user: User = Depends(get_current_user)):
+    """Delete USB-MR034's duplicate restore credit; send the bill back to
+    Approvals if it is stuck "paid". Refuses on any surprise; steps already
+    done are skipped, so re-runs no-op."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    plan = await _plan_mr034_restore()
+    if plan["problems"]:
+        raise HTTPException(status_code=409, detail="; ".join(plan["problems"]))
+    result: Dict[str, Any] = {"restore_deleted": 0, "removed_entry": None, "sent_back": None}
+    if "remove_restore" in plan["steps"]:
+        removed = await db.suspense_entries.find_one({"entry_id": _MR034["restore_entry_id"]}, {"_id": 0})
+        res = await db.suspense_entries.delete_one({
+            "entry_id": _MR034["restore_entry_id"], "restore_tag": _MR034["restore_tag"],
+            "amount": {"$gte": _MR034["amount"] - 0.5, "$lte": _MR034["amount"] + 0.5},
+        })
+        result["restore_deleted"] = res.deleted_count
+        result["removed_entry"] = removed if res.deleted_count else None
+    if "send_back" in plan["steps"]:
+        result["sent_back"] = await send_material_back_to_approvals(_MR034["bill_id"], user)
+    after = await _plan_mr034_restore()
+    result["after"] = {"restore_exists": after["restore_credit"]["exists"],
+                       "bill_status": after["bill"]["status"],
+                       "vendor_suspense": after["vendor_suspense"]["now"],
+                       "suspense_by_cheque": after["suspense_by_cheque_now"]}
+    await create_audit_log(user.user_id, "usb_mr034_restore_removed", "suspense_entry", _MR034["restore_entry_id"],
+                           {"steps": plan["steps"], "vendor_suspense_before": plan["vendor_suspense"]["now"],
+                            **{k: v for k, v in result.items() if k != "sent_back"}})
+    return {"write_performed": bool(result["restore_deleted"] or result["sent_back"]), **result}
+
+
 # ── Oct 20 2026 — USB-MR1255: put back the paid amount that was wiped ──
 # M-Sand / OM MURUGA EARTH (Mr. Muralikannan), bill 16,885. On Oct 8 15,895.37
 # of it was settled from the vendor's suspense (Cashbook: "M-Sand (via Cheque

@@ -20,9 +20,13 @@ B. Return 17,516 to SATHISKUMAR AGENCY's suspense, because that is where the
    script decides from the data rather than assuming:
      - a debit for this bill still stands -> DELETE it. Removing the debit is
        the restoration (pool = credits - debits); no new row, so no duplicate.
-     - no debit stands -> the amount is already back. A credit is inserted
-       ONLY if no prior restoration exists, tagged with the bill id so a
-       re-run can never add a second one.
+     - no debit stands -> the amount is already back. Nothing to do.
+
+   Oct 26 2026 - the second branch used to insert a +17,516 credit anyway
+   (se_2499341b08, 18 Aug). With no debit standing that handed the 17,516
+   back twice, and SATHISKUMAR AGENCY's "#001684" chip read 21,378 where the
+   Expense list gives 3,862. /admin/usb-mr034-restore-apply removes that
+   credit; this script no longer writes one, so a re-run cannot bring it back.
 
 Never creates a payment, never touches another bill, cheque or allocation.
 
@@ -119,9 +123,7 @@ async def main() -> int:
             print(f"  [B] DELETE {len(stale_debits)} standing debit(s) of -{AMOUNT:,.2f} "
                   f"-> pool becomes {pool_before + AMOUNT * len(stale_debits):,.2f}")
         else:
-            plan_b = "insert_credit"
-            print(f"  [B] suspense_entries INSERT credit +{AMOUNT:,.2f} (no debit stands, none "
-                  f"previously restored) -> pool becomes {pool_before + AMOUNT:,.2f}")
+            print("  [B] SKIP suspense — no debit stands for this bill, so its amount is already back.")
 
         print("\n  Not touched: any other bill, cheque, allocation or suspense row. No payment created.")
         if not a.apply:
@@ -142,16 +144,6 @@ async def main() -> int:
         if plan_b == "delete_debit":
             for d in stale_debits:
                 await db.suspense_entries.delete_one({"entry_id": d["entry_id"]})
-        elif plan_b == "insert_credit":
-            await db.suspense_entries.insert_one({
-                "entry_id": f"se_{uuid.uuid4().hex[:10]}",
-                "type": "material", "vendor_name": VENDOR, "amount": AMOUNT,
-                "description": f"Restore {AMOUNT:,.0f} to suspense — USB-MR034 was funded from this "
-                               f"pool (audit 11 Aug: credit_used={AMOUNT:,.0f}, leg_count=0) and the "
-                               f"payment was later deleted.",
-                "linked_request_id": BILL_ID, "restore_tag": RESTORE_TAG,
-                "created_at": now,
-            })
 
         cq2 = await db.cheques.find_one({"cheque_id": CHEQUE_ID}, {"_id": 0})
         cheque_after = (await F.cheque_available_map([cq2]))[CHEQUE_ID]
@@ -168,7 +160,7 @@ async def main() -> int:
         # A re-run legitimately moves nothing, so only require the delta when
         # this run actually performed the suspense step. Otherwise verify the
         # end state alone — "already correct" is success, not failure.
-        moved_suspense = plan_b in ("delete_debit", "insert_credit") and not prior_restore
+        moved_suspense = plan_b == "delete_debit" and not prior_restore
         ok = (abs(cheque_after) <= 0.5
               and already_paid <= 0.5
               and abs((bill_amt - already_paid) - AMOUNT) <= 0.5
