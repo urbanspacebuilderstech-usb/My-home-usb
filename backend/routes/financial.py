@@ -1692,6 +1692,60 @@ async def send_income_back_to_approvals(income_id: str, user: User = Depends(get
     return {"message": "Income sent back to Approvals", "status": "pending_approval"}
 
 
+def _plan_rab_bill_revert(wo: Dict[str, Any], request_id: str) -> Dict[str, Any]:
+    """Pure: which payment_requests a released labour bill covers, and what
+    reverting it does to the stage rollups and the WO paid_amount.
+
+    Oct 26 2026 — A multi-stage RAB is released as ONE payment that marks
+    every sibling `approved` (payment_record.sibling_request_ids). Reverting
+    only the PR the cashbook row points at left the others "approved" with no
+    money behind them: RAB-23 (Rafikul / Mr samsherkhan, 3 stages, 1,13,280)
+    came back for 55,000 while 29,900 + 28,380 stayed "Released". The bill is
+    the release's sibling list; failing that, the PR alone (old behaviour).
+    """
+    target = None
+    for stg in wo.get("stages") or []:
+        for pr in stg.get("payment_requests") or []:
+            if pr.get("request_id") == request_id:
+                target = pr
+    if target is None:
+        return {"request_ids": [], "paid_reduction": 0.0, "stage_ids": []}
+    bill_ids = set((target.get("payment_record") or {}).get("sibling_request_ids") or []) | {request_id}
+    paid_reduction = 0.0
+    stage_ids = []
+    for stg in wo.get("stages") or []:
+        for pr in stg.get("payment_requests") or []:
+            if pr.get("request_id") in bill_ids:
+                if pr.get("status") == "approved":
+                    paid_reduction += float(pr.get("approved_amount") or 0)
+                if stg.get("stage_id") not in stage_ids:
+                    stage_ids.append(stg.get("stage_id"))
+    return {"request_ids": sorted(bill_ids), "paid_reduction": round(paid_reduction, 2), "stage_ids": stage_ids}
+
+
+def _apply_rab_bill_revert(wo: Dict[str, Any], plan: Dict[str, Any], user_id: str, now: str,
+                           extra_paid_reduction: float = 0.0) -> None:
+    """Mutates `wo` in place: bill PRs back to planning_approved (the state
+    just before release), stage rollups recomputed exactly as the release
+    endpoint computes them, paid_amount reduced by what was still counted."""
+    ids = set(plan["request_ids"])
+    for stg in wo.get("stages") or []:
+        for pr in stg.get("payment_requests") or []:
+            if pr.get("request_id") in ids:
+                pr["status"] = "planning_approved"
+                pr["released_at"] = None
+                pr["released_by"] = None
+                pr["reverted_by_accountant_at"] = now
+                pr["reverted_by_accountant_id"] = user_id
+        if stg.get("stage_id") in plan["stage_ids"]:
+            prs = stg.get("payment_requests") or []
+            stg["amount_released"] = sum(p.get("approved_amount", 0) for p in prs if p.get("status") == "approved")
+            stg["amount_pending"] = sum(p.get("amount", 0) for p in prs
+                                        if p.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"])
+    wo["paid_amount"] = max(0.0, round(float(wo.get("paid_amount") or 0)
+                                       - plan["paid_reduction"] - extra_paid_reduction, 2))
+
+
 @router.delete("/cashbook/expense/{expense_type}/{record_id}")
 async def delete_cashbook_expense(expense_type: str, record_id: str, user: User = Depends(get_current_user)):
     """Delete an expense from the cashbook view.
@@ -1754,22 +1808,24 @@ async def delete_cashbook_expense(expense_type: str, record_id: str, user: User 
             # link (work_order_id + stage_id + request_id). We reset the PR
             # to `planning_approved` (the state immediately before release)
             # so accountant can release again with corrected data.
+            # Oct 26 2026 — a multi-stage bill reverts as a whole (every
+            # sibling of the release), with stage rollups and the WO
+            # paid_amount brought back in line; see _plan_rab_bill_revert.
             try:
                 wo_id = existing.get("work_order_id")
                 stage_id = existing.get("stage_id")
                 req_id = existing.get("request_id")
                 if wo_id and stage_id and req_id:
-                    await db.project_work_orders.update_one(
-                        {"work_order_id": wo_id, "stages.stage_id": stage_id, "stages.payment_requests.request_id": req_id},
-                        {"$set": {
-                            "stages.$[s].payment_requests.$[p].status": "planning_approved",
-                            "stages.$[s].payment_requests.$[p].released_at": None,
-                            "stages.$[s].payment_requests.$[p].released_by": None,
-                            "stages.$[s].payment_requests.$[p].reverted_by_accountant_at": datetime.now(timezone.utc).isoformat(),
-                            "stages.$[s].payment_requests.$[p].reverted_by_accountant_id": user.user_id,
-                        }},
-                        array_filters=[{"s.stage_id": stage_id}, {"p.request_id": req_id}],
-                    )
+                    wo_doc = await db.project_work_orders.find_one(
+                        {"work_order_id": wo_id}, {"_id": 0, "stages": 1, "paid_amount": 1})
+                    if wo_doc:
+                        rev_plan = _plan_rab_bill_revert(wo_doc, req_id)
+                        if rev_plan["request_ids"]:
+                            _apply_rab_bill_revert(wo_doc, rev_plan, user.user_id,
+                                                   datetime.now(timezone.utc).isoformat())
+                            await db.project_work_orders.update_one(
+                                {"work_order_id": wo_id},
+                                {"$set": {"stages": wo_doc["stages"], "paid_amount": wo_doc["paid_amount"]}})
             except Exception as e:
                 import logging; logging.getLogger(__name__).warning(f"PR revert skipped: {e}")
             # Feb 20 2026 — Reverse the contractor-suspense debit that was
@@ -11322,6 +11378,107 @@ async def usb_mr511_cheque_tag_apply(user: User = Depends(get_current_user)):
     result = {"bill_updated": r1.modified_count, "restore_credit_updated": r2.modified_count}
     await create_audit_log(user.user_id, "usb_mr511_cheque_tag", "recorded_expense", _MR511["expense_id"], result)
     return {"write_performed": bool(r1.modified_count or r2.modified_count), **result}
+
+
+# ── Oct 26 2026 — RAB-23 / Rafikul / Mr samsherkhan: restore the full bill ──
+# Released 17 Oct as ONE 3-stage payment (1,13,280 = 1,06,507 contractor
+# suspense from cheque 000038 + 6,773 HDFC). 000038 bounced on 24 Oct and both
+# cashbook legs were deleted, but the delete only reverted stage 1 (55,000):
+# stages 2 + 3 (29,900 + 28,380) stayed "approved" with no payment behind
+# them, so Approvals offered 55,000 instead of 1,13,280. The deletes also left
+# all 1,13,280 in the WO paid_amount. Accounts confirmed the 6,773 was never
+# paid. This puts stages 2 + 3 back to planning_approved, recomputes their
+# stage rollups and takes the whole 1,13,280 off paid_amount (stage 1's
+# 55,000 included — the old revert never removed it). Guarded + run-once.
+_RAB23 = {"work_order_id": "wo_013b1197", "primary": "pr_e59e8c10",
+          "siblings": ["pr_85ae688e", "pr_660ddaf7"], "release_at": "2026-10-17T10:13:41.306945+00:00",
+          "marker": "rab23_full_bill_restore_applied"}
+
+
+async def _plan_rab23_restore() -> Dict[str, Any]:
+    wo = await db.project_work_orders.find_one({"work_order_id": _RAB23["work_order_id"]}, {"_id": 0})
+    if not wo:
+        return {"problems": ["work order not found"]}
+    prs = {pr.get("request_id"): (stg, pr) for stg in wo.get("stages") or []
+           for pr in stg.get("payment_requests") or []}
+    problems = []
+    if wo.get(_RAB23["marker"]):
+        problems.append("already applied")
+    primary = (prs.get(_RAB23["primary"]) or (None, {}))[1]
+    if primary.get("status") == "approved":
+        problems.append("stage 1 is approved again — re-check before changing anything")
+    # Stage 1's 55,000 is still in paid_amount only if the old revert ran on
+    # this exact release (reverted after it, never re-released).
+    stage1_still_counted = (primary.get("status") != "approved"
+                            and (primary.get("payment_record") or {}).get("released_at") == _RAB23["release_at"]
+                            and bool(primary.get("reverted_by_accountant_at")))
+    sib_rows = []
+    for rid in _RAB23["siblings"]:
+        stg, pr = prs.get(rid) or (None, {})
+        if not pr:
+            problems.append(f"{rid} not found")
+            continue
+        if (pr.get("payment_record") or {}).get("released_at") != _RAB23["release_at"]:
+            problems.append(f"{rid} was not released by the 17 Oct payment")
+        sib_rows.append({"request_id": rid, "stage": stg.get("name"), "amount": pr.get("amount"),
+                         "status": pr.get("status"), "approved_amount": pr.get("approved_amount"),
+                         "stage_amount_released_before": stg.get("amount_released")})
+    plan = _plan_rab_bill_revert(wo, _RAB23["siblings"][0]) if not problems else None
+    if plan:
+        # Status changes only on stages 2 + 3; stage 1 keeps its 24 Oct revert
+        # stamps. All three stages still get their rollups recomputed.
+        plan = {**plan, "request_ids": [r for r in plan["request_ids"] if r in _RAB23["siblings"]]}
+    extra =float(primary.get("approved_amount") or 0) if stage1_still_counted else 0.0
+    paid_before = float(wo.get("paid_amount") or 0)
+    paid_after = max(0.0, round(paid_before - (plan["paid_reduction"] if plan else 0) - extra, 2))
+    approved_sum = round(sum(float(p.get("approved_amount") or 0) for _, p in prs.values()
+                             if p.get("status") == "approved"), 2)
+    return {"problems": problems, "plan": plan, "stage1": {
+                "request_id": _RAB23["primary"], "status": primary.get("status"), "amount": primary.get("amount"),
+                "reverted_at": primary.get("reverted_by_accountant_at"), "still_in_paid_amount": stage1_still_counted},
+            "siblings": sib_rows,
+            "wo_paid_amount": {"before": paid_before, "after": paid_after,
+                               "reduction": round(paid_before - paid_after, 2),
+                               "approved_requests_total_before": approved_sum,
+                               "approved_requests_total_after": round(approved_sum - (plan["paid_reduction"] if plan else 0), 2)},
+            "expected_release_dialog": "3-stage bill, Approved Amount 1,13,280 (55,000 + 29,900 + 28,380)"}
+
+
+@router.get("/admin/rab23-full-bill-restore-dryrun")
+async def rab23_full_bill_restore_dryrun(user: User = Depends(get_current_user)):
+    """READ-ONLY: what restoring RAB-23 to the full 3-stage bill would change."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return {"write_performed": False, **(await _plan_rab23_restore())}
+
+
+@router.post("/admin/rab23-full-bill-restore-apply")
+async def rab23_full_bill_restore_apply(expect_paid_amount: float, user: User = Depends(get_current_user)):
+    """Apply the dry-run. `expect_paid_amount` must equal the dry-run's
+    wo_paid_amount.before, so a WO that moved in between is refused."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied")
+    p = await _plan_rab23_restore()
+    if p.get("problems"):
+        raise HTTPException(status_code=409, detail="; ".join(p["problems"]))
+    if abs(p["wo_paid_amount"]["before"] - expect_paid_amount) > 0.5:
+        raise HTTPException(status_code=409, detail=(
+            f"WO paid_amount is {p['wo_paid_amount']['before']}, expected {expect_paid_amount} — re-run the dry-run"))
+    wo = await db.project_work_orders.find_one({"work_order_id": _RAB23["work_order_id"]}, {"_id": 0})
+    now = datetime.now(timezone.utc).isoformat()
+    extra = float(p["stage1"]["amount"] or 0) if p["stage1"]["still_in_paid_amount"] else 0.0
+    _apply_rab_bill_revert(wo, p["plan"], user.user_id, now, extra_paid_reduction=extra)
+    res =await db.project_work_orders.update_one(
+        {"work_order_id": _RAB23["work_order_id"], _RAB23["marker"]: {"$exists": False}},
+        {"$set": {"stages": wo["stages"], "paid_amount": wo["paid_amount"], "updated_at": now,
+                  _RAB23["marker"]: {"applied_at": now, "applied_by": user.user_id,
+                                     "paid_amount_before": p["wo_paid_amount"]["before"],
+                                     "paid_amount_after": wo["paid_amount"],
+                                     "reverted_request_ids": p["plan"]["request_ids"]}}})
+    result = {"wo_updated": res.modified_count, "paid_amount_after": wo["paid_amount"],
+              "reverted": p["plan"]["request_ids"]}
+    await create_audit_log(user.user_id, "rab23_full_bill_restore", "work_order", _RAB23["work_order_id"], result)
+    return {"write_performed": bool(res.modified_count), **result}
 
 
 # ── Oct 16 2026 — USB-MR511: put the bill back in Approvals ──

@@ -38,6 +38,16 @@ export default function AccountantLabourPayments() {
       const order = [];
       for (const r of raw) {
         const gid = r.rab_group_id || r.request_id;
+        // Oct 26 2026 — the API now bundles a multi-stage bill into ONE row
+        // with a per-stage breakdown (amount + Released/Pending status). The
+        // rebuild below reset it to single-stage, so RAB-23 showed ₹1,13,280
+        // with no breakdown and no "₹55,000 to release". Keep the server's.
+        if (r.is_multi_stage && (r.stage_breakdown || []).length > 1 && !groups.has(gid)) {
+          order.push(gid);
+          groups.set(gid, { ...r, serverBundled: true });
+          continue;
+        }
+        if (groups.get(gid)?.serverBundled) continue;  // already holds every stage
         if (!groups.has(gid)) {
           order.push(gid);
           groups.set(gid, {
