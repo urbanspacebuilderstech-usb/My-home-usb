@@ -4900,6 +4900,12 @@ async def accountant_reject_material_request(request_id: str, reason: str = "", 
                 "accounts_rejected_at": now_iso,
             }}
         )
+        # Oct 26 2026 — and its bill leaves Approvals until Procurement sends
+        # it again (USB-MR2374's stayed payable there).
+        from routes.procurement import _bills_back_from_accounts
+        await _bills_back_from_accounts(request_id, now_iso, {
+            "status": "accountant_rejected", "rejection_reason": reason or "Rejected by accountant",
+            "rejected_by": user.user_id, "rejected_by_name": user.name, "rejected_at": now_iso})
         proc_users = await db.users.find(
             {"role": {"$in": ["procurement", "super_admin"]}, "is_active": {"$ne": False}},
             {"_id": 0, "user_id": 1},
@@ -4912,8 +4918,7 @@ async def accountant_reject_material_request(request_id: str, reason: str = "", 
             )
         # Oct 22 2026 — the SE's stock-in is no longer reversed here. Accounts
         # rejects the bill, not the delivery: the material stays on site and
-        # Procurement re-approves it straight to Accounts without a second
-        # collection, so nothing would ever put the stock back.
+        # Procurement re-verifies it (Oct 26) without a second collection.
         return {"message": f"Sent back to Procurement ({target_status})", "status": target_status}
 
     await db.material_requests.update_one(

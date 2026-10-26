@@ -9,6 +9,11 @@ paid, an advance it covers raises no bill, a larger one a top-up bill for the
 difference, and the final bill (balance, full or credit) is reduced by it.
 A part-paid bill is refused. The first receipt's stock comes out at the
 restart and that receipt stops counting toward received qty.
+
+Oct 26 2026 — the Procurement board no longer offers that restart for an
+Accounts-rejected delivery: it stays in Purchase Verification and opens
+Verify (see test_accounts_reject_reverify.py). The restart still runs when
+Procurement prices again an order with money paid on it.
 """
 import ast
 import io
@@ -99,19 +104,9 @@ def test_accounts_rejects_leave_stock_until_the_restart():
     assert "_reverse_material_receipt_inventory" not in fin.split('"""', 2)[2]
 
 
-def test_board_opens_the_full_approve_form():
-    board = _read(BOARD)
-    assert "=== 'procurement_verifying' && !isAccountsRejected(r)" in board
-    assert "const isActionable = accountsRejected ||" in board
-    assert "&& !isAccountsRejected(open)" in board
-    assert "this restarts the order" in board
-    assert "{!onSite && (<>" not in board  # timeline + payment mode shown again
-
-
 def test_queue_heals_only_stamps_no_money_backs():
     seg = _seg(PROC, "_heal_stale_paid_stamps")
     assert "if not rb:\n            continue" in seg
     assert '("paid", "completed", "partially_paid")' in seg
     assert "in paid_links" in seg
     assert "await _heal_stale_paid_stamps(rows, user)" in _seg(PROC, "procurement_simple_queue")
-    assert "const splitGone = isAccountsRejected(req) && !advancePaid;" in _read(BOARD)

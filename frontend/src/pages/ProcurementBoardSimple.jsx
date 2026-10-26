@@ -112,13 +112,13 @@ const LIFECYCLE_BUCKETS = [
   { key: 'delivered',           label: 'Completed',              Icon: PackageCheck,  cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
 ];
 
-// Oct 22 2026 — Accounts rejecting a verified bill sends the request back to
-// procurement_verifying (still Procurement's Verify action), but it belongs
-// in New Request with the Accounts Rejected tag so it reads as fresh work,
-// not a routine verification (USB-MR2304: ₹50 advance paid, balance bill
-// rejected). accounts_rejected_at is never cleared, so the reject only
-// counts until the SE logs a newer receipt (a Verification reject →
-// re-collect cycle after it).
+// Accounts rejecting a verified bill sends the request back to
+// procurement_verifying. Oct 26 2026 — it stays in Purchase Verification
+// with the Accounts Rejected tag and opens Verify: the material is already
+// on site, so Procurement corrects qty / price and sends it to Accounts again
+// (USB-MR2374 went to New Request and restarted the order instead).
+// accounts_rejected_at is never cleared, so the reject only counts until the
+// SE logs a newer receipt (a Verification reject → re-collect cycle after it).
 function isAccountsRejected(req) {
   const at = req.accounts_rejected_at;
   if (!at || (req.status || '').toLowerCase() !== 'procurement_verifying') return false;
@@ -146,7 +146,6 @@ function bucketForMaterial(req) {
   // SE marked collected — folds straight into Purchase Verification (no
   // separate "Received Material" tab).
   if (status === 'collected') return 'verifying';
-  if (isAccountsRejected(req)) return 'new_request';
   if (status === 'procurement_verifying') return 'verifying';
   if (['pending_accounts_approval', 'pending_advance_payment', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
   // in_transit, and a verification reject bounced back for SE to re-collect
@@ -411,8 +410,7 @@ function RequestsTab({ dateRange, projectFilter }) {
 
   // Card click handler — open the right dialog based on status
   const openCard = (r) => {
-    // An Accounts-rejected request opens Approve (price & vendor), not Verify.
-    if ((r.status || '').toLowerCase() === 'procurement_verifying' && !isAccountsRejected(r)) {
+    if ((r.status || '').toLowerCase() === 'procurement_verifying') {
       // Compute fallback defaults so the inputs ALWAYS start with a value the
       // user can simply confirm — no more empty Received Qty / Unit Price.
       const orderedQty = Number(r.approved_quantity || r.quantity || 0);
@@ -530,7 +528,7 @@ function RequestsTab({ dateRange, projectFilter }) {
 
       <AssignVendorDialog
         item={open}
-        readOnly={open ? !['requested', 'pm_approved', 'procurement_revision'].includes((open.status || '').toLowerCase()) && !isAccountsRejected(open) : false}
+        readOnly={open ? !['requested', 'pm_approved', 'procurement_revision'].includes((open.status || '').toLowerCase()) : false}
         onClose={() => setOpen(null)}
         onDone={() => { setOpen(null); fetchAll(); }}
         onReject={(req) => { setOpen(null); setRejectDialog({ open: true, req, reason: '' }); }}
@@ -569,7 +567,6 @@ function RequestsTab({ dateRange, projectFilter }) {
             <Textarea rows={3} value={rejectDialog.reason} onChange={(e) => setRejectDialog({ ...rejectDialog, reason: e.target.value })} placeholder="Why is this rejected?" className="mt-1 text-sm" data-testid="proc-reject-reason" />
             <p className="text-[11px] text-gray-500 mt-1.5">
               It goes back to Planning.
-              {rejectDialog.req && isAccountsRejected(rejectDialog.req) && ' The delivery is undone (its stock comes out); money already paid stays and is deducted when it is priced again.'}
             </p>
           </div>
           <DialogFooter>
@@ -596,12 +593,23 @@ function RequestsTab({ dateRange, projectFilter }) {
           {verifyDialog.req && (
             <div className="space-y-3 text-sm">
               {/* Sent back by Accounts — re-verification, not a fresh delivery */}
-              {verifyDialog.req.accounts_rejected_reason && isAccountsRejected(verifyDialog.req) && (
-                <div className="bg-red-50 border border-red-200 rounded p-2.5 text-xs" data-testid="proc-verify-accounts-bounced">
-                  <p className="font-semibold text-red-800">↩ Sent back by Accounts for re-verification</p>
-                  <p className="text-red-700 italic mt-0.5">"{verifyDialog.req.accounts_rejected_reason}"</p>
-                </div>
-              )}
+              {isAccountsRejected(verifyDialog.req) && (() => {
+                const r = verifyDialog.req;
+                const unit = r.unit ? ` ${r.unit}` : '';
+                const seQty = r.se_reported_quantity ?? r.procurement_original_received_qty;
+                return (
+                  <div className="bg-red-50 border border-red-200 rounded p-2.5 text-xs" data-testid="proc-verify-accounts-bounced">
+                    <p className="font-semibold text-red-800">↩ Sent back by Accounts for re-verification</p>
+                    {r.accounts_rejected_reason && <p className="text-red-700 italic mt-0.5">"{r.accounts_rejected_reason}"</p>}
+                    {r.procurement_verified_qty != null && (
+                      <p className="text-gray-700 mt-1">
+                        You verified {r.procurement_verified_qty}{unit} × {fmt(r.procurement_verified_unit_price)} = {fmt(r.procurement_verified_total)}
+                        {seQty != null && Number(seQty) !== Number(r.procurement_verified_qty) && <> · SE received {seQty}{unit}</>}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
               {/* Quick summary — Received Qty AND Unit Price are editable so
                   Procurement can correct either before forwarding to Accountant.
                   Total auto-updates from received_qty × unit_price. */}
@@ -1372,11 +1380,8 @@ function AmountSummary({ req }) {
   const isAdvanceMode = (req.payment_mode || '').toLowerCase() === 'advance';
   const isFinal = ['delivered', 'completed', 'closed'].includes(status);
   const advancePaid = Number(req.advance_paid_amount || 0) > 0;
-  // Oct 22 2026 — an Accounts-rejected request with no advance paid is
-  // re-approved as one bill for the whole amount, so no advance/balance split.
-  const splitGone = isAccountsRejected(req) && !advancePaid;
 
-  if (isAdvanceMode && !isFinal && !splitGone) {
+  if (isAdvanceMode && !isFinal) {
     const advanceAmt = Number(req.advance_amount || 0);
     const balanceAmt = Number(req.balance_amount ?? (total - advanceAmt));
     if (advancePaid) {
@@ -1415,8 +1420,8 @@ function RequestCard({ req, onClick, stockInfo = null }) {
   // material ever moves to the SE — Accountant must release the advance
   // first — so it must not claim SE Received yet.
   const accountsRejected = isAccountsRejected(req);
-  const seReceived = accountsRejected || (status !== 'pending_advance_payment' && ['verifying', 'awaiting_accountant', 'delivered'].includes(bucket));
-  const isActionable = accountsRejected || ['requested', 'pm_approved', 'procurement_revision'].includes(status);
+  const seReceived = status !== 'pending_advance_payment' && ['verifying', 'awaiting_accountant', 'delivered'].includes(bucket);
+  const isActionable = ['requested', 'pm_approved', 'procurement_revision'].includes(status);
   const isVerifying = status === 'procurement_verifying';
   const isNewRequest = ['requested', 'pm_approved'].includes(status);
   const [priorityBusy, setPriorityBusy] = useState(false);
@@ -2106,9 +2111,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
     setDialogTab('details');
     setVendorId(item.vendor_id || '');
     setUnitPrice(String(item.unit_rate || item.unit_price || ''));
-    // On-site re-approval bills what the SE received, not what was ordered.
-    const receivedQty = isAccountsRejected(item) && Number(item.received_quantity) > 0 ? item.received_quantity : null;
-    setApprovedQty(String(receivedQty ?? item.approved_quantity ?? item.quantity ?? ''));
+    setApprovedQty(String(item.approved_quantity ?? item.quantity ?? ''));
     setTransport(String(item.transport_cost || 0));
     setDiscount(String(item.discount || 0));
     setRemarks(item.procurement_remarks || '');
@@ -2194,10 +2197,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
 
   if (!item) return null;
   const selectedVendor = vendors.find(v => v.vendor_id === vendorId);
-  // Oct 22 2026 — Accounts rejected the bill: Approve restarts the order
-  // like a new one (payment mode, advance and delivery date chosen again,
-  // the SE confirms collection again). Money already paid is deducted.
-  const onSite = isAccountsRejected(item);
+  // Money already paid on an order priced again is deducted (Oct 22 2026).
   const paidBefore = Number(item.advance_paid_amount || 0) + Number(item.balance_paid_amount || 0);
   const advanceCovered = computedAdvance <= paidBefore + 0.5;
 
@@ -2571,17 +2571,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
             <span className="text-xl font-bold text-emerald-700">{fmt(total)}</span>
           </div>
 
-          {onSite && (
-            <div className="bg-red-50 border border-red-200 rounded p-3 text-xs space-y-1" data-testid="proc-assign-onsite-note">
-              <p className="font-semibold text-red-800">↩ Rejected by Accounts — this restarts the order</p>
-              {item.accounts_rejected_reason && <p className="text-red-700 italic">"{item.accounts_rejected_reason}"</p>}
-              <p className="text-gray-700">
-                Set the payment mode, advance and delivery date again. It then runs like a new order, and the Site Engineer confirms collection again.
-                {paidBefore > 0.5 && <> {fmt(paidBefore)} already paid counts toward it: an advance up to that amount raises no new bill, and the final bill is reduced by it.</>}
-              </p>
-            </div>
-          )}
-          {!onSite && paidBefore > 0.5 && (
+          {paidBefore > 0.5 && (
             <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-gray-700" data-testid="proc-assign-paid-note">
               {fmt(paidBefore)} is already paid on this order and counts toward it: an advance up to that amount raises no new bill, and the final bill is reduced by it.
             </div>

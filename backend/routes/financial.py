@@ -10353,8 +10353,7 @@ async def reject_material_expense(expense_id: str, payload: LegacyRejectPayload 
                     f"Accounts rejected — sent back for {verb}: {parent_req.get('material_name', exp.get('material_name', 'Unknown'))} — {reason}",
                 )
             # Oct 22 2026 — the SE's stock-in is no longer reversed here: the
-            # material stays on site and Procurement re-approves it straight
-            # to Accounts (see procurement.py _reapprove_on_site).
+            # material stays on site and Procurement re-verifies it (Oct 26).
         elif parent_req:
             upd = await db.material_requests.update_one(
                 {"request_id": src},

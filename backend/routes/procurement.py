@@ -2706,6 +2706,25 @@ def _accounts_rejected_on_site(req: dict) -> bool:
     return not received or str(at) > str(received)
 
 
+async def _bills_back_from_accounts(request_id: str, now: str, unpaid_set: Dict[str, Any]) -> None:
+    """Oct 26 2026 — takes a request's open bill out of the Accountant's lists
+    when the request leaves Accounts unpaid: Approvals lists bills by their
+    own status, so a rejected bill stayed payable while Procurement
+    re-verified it (USB-MR2374). The paid advance bill the Advance flow
+    reuses as the balance bill goes back to the paid advance it was; an
+    unpaid bill gets `unpaid_set`."""
+    async for b in db.material_expenses.find(
+        {"source_request_id": request_id, "status": "pending_accounts_approval"}, {"_id": 0},
+    ):
+        held = round(float(b.get("paid_amount") or 0), 2)
+        if held > 0.5:
+            fields = {"status": "paid", "final_amount": held, "estimated_cost": held, "remaining_balance": 0.0,
+                      "payment_phase": "advance" if (b.get("payment_mode") or "").lower() == "advance" else b.get("payment_phase")}
+        else:
+            fields = dict(unpaid_set)
+        await db.material_expenses.update_one({"expense_id": b["expense_id"]}, {"$set": {**fields, "updated_at": now}})
+
+
 _RESTART_PAID_BILL = {"paid", "completed"}
 _PHASE_STAMP_FIELDS = ("advance_paid_at", "advance_paid_by", "advance_paid_by_name", "advance_paid_amount",
                        "balance_paid_at", "balance_paid_by", "balance_paid_by_name", "balance_paid_amount")
@@ -3669,6 +3688,11 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
         unit_price_override = None
 
     next_status = req.get("pending_next_status") or "pending_accounts_approval"
+    # Oct 26 2026 — a re-verification after Accounts rejected the bill has
+    # nothing stashed (the first verification cleared it). An advance order
+    # goes back to its balance step: USB-MR2374 came back as a "full" bill.
+    if not req.get("pending_next_status") and (req.get("payment_mode") or "").lower() == "advance":
+        next_status = "pending_balance_payment"
     # Jul 7 2026 — If the balance was already released early (from the
     # Approvals → Materials → Partially Collected tab), skip the payment
     # stop entirely: go straight to delivered so the paid bill is never
@@ -3692,9 +3716,6 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
         ]).to_list(1)
         if _mirror_paid:
             _paid_so_far = max(_paid_so_far, float(_mirror_paid[0].get("total") or 0))
-    _req_total = float(req.get("total_amount") or req.get("estimated_price") or 0)
-    if next_status in ("pending_balance_payment", "pending_accounts_approval") and _req_total > 0 and _paid_so_far >= _req_total - 0.01:
-        next_status = "delivered"
     extras = req.get("pending_next_extra") or {}
     update = {
         "status": next_status,
@@ -3734,6 +3755,13 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
     eff_discount = float(req.get("discount") or 0)
     new_total = round(max(0.0, eff_qty * eff_unit + eff_transport - eff_discount), 2)
     current_total = float(req.get("total_amount") or req.get("estimated_price") or 0)
+    # Oct 26 2026 — paid in full against the total as verified, not as
+    # ordered: USB-MR2374 was corrected from 30 to 15 units (₹900 → ₹450)
+    # with its ₹450 advance paid, and Accounts was still sent a ₹450 bill.
+    _req_total = new_total if new_total > 0 else current_total
+    if next_status in ("pending_balance_payment", "pending_accounts_approval") and _req_total > 0 and _paid_so_far >= _req_total - 0.01:
+        next_status = "delivered"
+        update["status"] = next_status
     # Aug 28 2026 — Record what Procurement actually signed off, ALWAYS. These
     # audit fields used to be written only inside the recompute branch below,
     # so a verification that left the total unchanged — the common case, since
@@ -3774,6 +3802,12 @@ async def procurement_verify_approve(request_id: str, data: dict = None, user: U
         update["steel_received_verified"] = [dict(x) for x in steel_corrected]
 
     await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
+    if next_status == "delivered":
+        # Nothing left to pay: a bill reopened by an earlier verification of
+        # this request must not stay in Approvals.
+        await _bills_back_from_accounts(request_id, now, {
+            "status": "superseded", "superseded_at": now,
+            "superseded_reason": "Paid in full once Procurement verified the delivery"})
 
     # Build a freshly-merged view so the mirror below picks up any qty/total
     # correction the Procurement just applied.
