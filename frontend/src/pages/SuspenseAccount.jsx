@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { NumericInput } from '../components/NumericInput';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 // Jul 03 2026 — Full Indian-format amounts (₹3,600 / ₹1,04,000 / ₹4,17,000)
@@ -430,19 +431,28 @@ export default function SuspenseAccountPage() {
   const [vendorSearch, setVendorSearch] = useState('');
   const [vendorDateFrom, setVendorDateFrom] = useState('');
   const [vendorDateTo, setVendorDateTo] = useState('');
-  useEffect(() => {
-    (async () => {
-      setVendorRowsLoading(true);
-      try {
-        const params = {};
-        if (vendorDateFrom) params.date_from = vendorDateFrom;
-        if (vendorDateTo) params.date_to = vendorDateTo;
-        const res = await axios.get(`${API}/material-vendor-payments/summary`, { params });
-        setVendorRows(res.data?.rows || []);
-      } catch { setVendorRows([]); }
-      finally { setVendorRowsLoading(false); }
-    })();
-  }, [vendorDateFrom, vendorDateTo]);
+  const loadVendorRows = async (showLoader = true) => {
+    if (showLoader) setVendorRowsLoading(true);
+    try {
+      const params = {};
+      if (vendorDateFrom) params.date_from = vendorDateFrom;
+      if (vendorDateTo) params.date_to = vendorDateTo;
+      const res = await axios.get(`${API}/material-vendor-payments/summary`, { params });
+      const rows = res.data?.rows || [];
+      setVendorRows(rows);
+      return rows;
+    } catch {
+      if (showLoader) setVendorRows([]);
+      return null;
+    } finally { setVendorRowsLoading(false); }
+  };
+  useEffect(() => { loadVendorRows(); }, [vendorDateFrom, vendorDateTo]);
+  // Oct 27 2026 — this page loaded once and never again. OM MURUGA EARTH's
+  // row kept Suspense ₹1,94,010 after nine bills were paid from it
+  // (₹1,42,975, 3:36-3:38 pm), while the timeline, fetched on click, showed
+  // the #716355 chip at the live ₹51,035. Refresh like the other Accounts
+  // pages, but at a minute: the vendor summary reads every material row.
+  useAutoRefresh((showLoader) => Promise.all([fetchData(showLoader), loadVendorRows(showLoader)]), 60000);
   const filteredVendorRows = vendorRows.filter(r => !vendorSearch.trim() || (r.vendor_name || '').toLowerCase().includes(vendorSearch.trim().toLowerCase()));
 
   const [vendorLedgerDlg, setVendorLedgerDlg] = useState({ open: false, vendor: null, data: [], suspenseByCheque: [], loading: false });
@@ -450,8 +460,14 @@ export default function SuspenseAccountPage() {
     setVendorLedgerDlg({ open: true, vendor: row, data: [], suspenseByCheque: [], loading: true });
     try {
       const key = row._key || row.vendor_id || `name:${(row.vendor_name || '').toLowerCase()}`;
-      const res = await axios.get(`${API}/material-vendor-payments/${encodeURIComponent(key)}/ledger`);
-      setVendorLedgerDlg((s) => ({ ...s, data: res.data?.ledger || [], suspenseByCheque: res.data?.suspense_by_cheque || [], loading: false }));
+      // The header's Total / Paid / Pending / Suspense come from the vendor
+      // row and the chips from the ledger, so read both now.
+      const [res, rows] = await Promise.all([
+        axios.get(`${API}/material-vendor-payments/${encodeURIComponent(key)}/ledger`),
+        loadVendorRows(false),
+      ]);
+      const fresh = (rows || []).find(r => r._key === row._key) || row;
+      setVendorLedgerDlg((s) => ({ ...s, vendor: fresh, data: res.data?.ledger || [], suspenseByCheque: res.data?.suspense_by_cheque || [], loading: false }));
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Failed to load ledger');
       setVendorLedgerDlg({ open: false, vendor: null, data: [], suspenseByCheque: [], loading: false });
