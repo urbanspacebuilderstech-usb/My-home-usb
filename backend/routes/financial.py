@@ -8944,6 +8944,54 @@ async def _reverse_cheque_pooled_suspense_credit(cheque: Dict[str, Any], user: U
     return plan
 
 
+def _suspense_fifo_provenance(entries: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
+    """Which credits each debit drew on: {debit_entry_id: {credit_entry_id: amount}}.
+
+    `entries` is one vendor's suspense ledger, oldest first. A debit that
+    records `funded_by` (pay_approval writes it since Oct 20 2026) draws on
+    exactly those credits; an older debit takes the oldest credit left.
+
+    Oct 27 2026 - USB-MR2402 (Champion Demo Test, 100). Paid at 5:36 and
+    5:45 pm from cheque #8882's 625 of suspense - the payment counts only
+    live credits, and cheque #0002's 4,950 had already bounced. #8882 bounced
+    at 5:47 pm. This replay used to run over EVERY credit, so it gave those
+    100 (and a 200 debit from Oct 22) to #0002's dead credit: nothing was
+    sent back, the bill stayed paid on a bounced cheque, and the vendor's
+    suspense fell to -300.
+    """
+    queue: List[List[Any]] = []  # [entry_id, remaining]
+    consumed: Dict[str, Dict[str, float]] = {}
+    for se in entries:
+        amt = float(se.get("amount") or 0)
+        eid = se.get("entry_id")
+        if amt > 0.5:
+            queue.append([eid, amt])
+            continue
+        if amt >= -0.5:
+            continue
+        remaining = -amt
+        for part in se.get("funded_by") or []:
+            head = next((q for q in queue if q[0] == part.get("entry_id")), None)
+            take = min(remaining, float(part.get("amount") or 0), head[1]) if head else 0.0
+            if take <= 0.005:
+                continue
+            consumed.setdefault(eid, {})
+            consumed[eid][head[0]] = consumed[eid].get(head[0], 0.0) + take
+            head[1] -= take
+            remaining -= take
+        queue = [q for q in queue if q[1] > 0.5]
+        while remaining > 0.5 and queue:
+            head = queue[0]
+            take = min(remaining, head[1])
+            consumed.setdefault(eid, {})
+            consumed[eid][head[0]] = consumed[eid].get(head[0], 0.0) + take
+            head[1] -= take
+            remaining -= take
+            if head[1] <= 0.5:
+                queue.pop(0)
+    return consumed
+
+
 async def _reverse_cheque_material_suspense_and_bills(
     cheque: Dict[str, Any], user: User, now: str, dry_run: bool = False
 ) -> Dict[str, Any]:
@@ -9033,24 +9081,7 @@ async def _reverse_cheque_material_suspense_and_bills(
 
         # True-FIFO replay, tracking provenance (extends the read-only replay
         # in _resolve_suspense_funding_source, which discards this mapping).
-        queue: List[List[Any]] = []  # [entry_id, remaining]
-        consumed: Dict[str, Dict[str, float]] = {}  # debit_entry_id -> {credit_entry_id: amount}
-        for se in entries:
-            amt = float(se.get("amount") or 0)
-            eid = se.get("entry_id")
-            if amt > 0.5:
-                queue.append([eid, amt])
-            elif amt < -0.5:
-                remaining = -amt
-                while remaining > 0.5 and queue:
-                    head = queue[0]
-                    take = min(remaining, head[1])
-                    consumed.setdefault(eid, {})
-                    consumed[eid][head[0]] = consumed[eid].get(head[0], 0.0) + take
-                    head[1] -= take
-                    remaining -= take
-                    if head[1] <= 0.5:
-                        queue.pop(0)
+        consumed = _suspense_fifo_provenance(entries)
 
         bounced_credit_ids = {c["entry_id"] for c in credits if c.get("vendor_name") == vendor_name}
 
@@ -13221,6 +13252,9 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
             "paid_at": now,
             # Clear any cheque-bounce flag once balance is settled afresh
             "cheque_bounced": False,
+            # Oct 27 2026 - a part-payment left the rest here (USB-MR2402:
+            # 90 then 10 read "100 paid, balance 10").
+            "remaining_balance": 0,
         })
     else:
         request_update["status"] = "partially_paid"
@@ -18411,25 +18445,7 @@ async def cheque_bounce_bill_trace(
     # apportioning is reproduced on the same input it saw.
     entries = [e for e in all_entries if e.get("source_type") != "cheque_bounce_reversal"]
     by_id = {e["entry_id"]: e for e in entries if e.get("entry_id")}
-
-    queue: List[List[Any]] = []
-    consumed: Dict[str, Dict[str, float]] = {}
-    for se in entries:
-        amt = _f(se.get("amount"))
-        eid = se.get("entry_id")
-        if amt > 0.5:
-            queue.append([eid, amt])
-        elif amt < -0.5:
-            remaining = -amt
-            while remaining > 0.5 and queue:
-                head = queue[0]
-                take = min(remaining, head[1])
-                consumed.setdefault(eid, {})
-                consumed[eid][head[0]] = consumed[eid].get(head[0], 0.0) + take
-                head[1] -= take
-                remaining -= take
-                if head[1] <= 0.5:
-                    queue.pop(0)
+    consumed = _suspense_fifo_provenance(entries)
 
     bounced_credit_ids = {
         e["entry_id"] for e in entries
@@ -18545,6 +18561,62 @@ async def cheque_bounce_bill_trace(
         } for e in all_entries[-60:]],
     }
     return fast_json(out)
+
+
+@router.get("/admin/bounced-cheque-suspense-scan")
+async def bounced_cheque_suspense_scan(user: User = Depends(get_current_user)):
+    """READ-ONLY: vendor payments still standing on a bounced or deleted
+    cheque's suspense. Writes nothing.
+
+    Oct 27 2026 - USB-MR2402 kept 100 paid from cheque #8882's suspense
+    after #8882 bounced, because the bounce's replay gave those debits to an
+    older dead credit (see _suspense_fifo_provenance). This dry-runs the
+    corrected reversal for every such cheque and lists what it would still
+    send back, so the fallout of earlier bounces can be seen before anything
+    is repaired.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+    cheques = await db.cheques.find(
+        {"status": {"$in": ["bounced", "deleted"]}}, {"_id": 0}).to_list(2000)
+    funded = {cid for e in await db.suspense_entries.find(
+        {"type": "material", "amount": {"$gt": 0.5}, "linked_cheque_ids": {"$in": [c["cheque_id"] for c in cheques]}},
+        {"_id": 0, "linked_cheque_ids": 1}).to_list(5000) for cid in (e.get("linked_cheque_ids") or [])}
+    now = datetime.now(timezone.utc).isoformat()
+    rows, total = [], 0.0
+    for c in cheques:
+        if c["cheque_id"] not in funded:
+            continue
+        plan = await _reverse_cheque_material_suspense_and_bills(c, user, now, dry_run=True)
+        bills = plan["bills_reversed"] + plan["bills_partially_reversed"]
+        if not plan["debits_restored"] and not bills:
+            continue
+        for b in bills:
+            bill = await db.material_expenses.find_one(
+                {"expense_id": b["expense_id"]},
+                {"_id": 0, "source_request_id": 1, "material_name": 1, "project_name": 1, "status": 1, "paid_amount": 1})
+            req = await db.material_requests.find_one(
+                {"request_id": (bill or {}).get("source_request_id")},
+                {"_id": 0, "request_number": 1, "status": 1}) if (bill or {}).get("source_request_id") else None
+            b.update({"request_number": (req or {}).get("request_number"),
+                      "request_status": (req or {}).get("status"),
+                      "material_name": (bill or {}).get("material_name"),
+                      "project_name": (bill or {}).get("project_name"),
+                      "bill_status_now": (bill or {}).get("status"),
+                      "bill_paid_now": (bill or {}).get("paid_amount")})
+        amount = round(sum(float(d.get("amount") or 0) for d in plan["debits_restored"]), 2)
+        total += amount
+        rows.append({"cheque_number": c.get("cheque_number"), "cheque_id": c["cheque_id"],
+                     "cheque_status": c.get("status"), "bounced_at": c.get("bounced_at"),
+                     "vendors": sorted({d.get("vendor_name") for d in plan["debits_restored"] if d.get("vendor_name")}),
+                     "suspense_payments_to_send_back": plan["debits_restored"],
+                     "payment_rows_to_mark_bounced": plan["expense_legs_touched"],
+                     "bills_back_to_accounts": bills,
+                     "amount": amount})
+    return fast_json({"write_performed": False, "read_only": True,
+                      "cheques_checked": len([c for c in cheques if c["cheque_id"] in funded]),
+                      "cheques_with_fallout": len(rows), "total_still_standing": round(total, 2),
+                      "cheques": rows})
 
 
 # --- TEMPORARY DIAGNOSTIC (Oct 8 2026) -------------------------------------
