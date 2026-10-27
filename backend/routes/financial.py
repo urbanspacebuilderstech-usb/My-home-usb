@@ -10677,7 +10677,8 @@ _PAID_LEG_EXCLUDED_STATUS = {"rejected", "accountant_rejected", "accounts_reject
 
 
 def _prior_phase_paid_to_exclude(payment_phase, bill_amount, parent_balance,
-                                 parent_advance_paid):
+                                 parent_advance_paid, bill_part_paid_at=None,
+                                 parent_advance_paid_at=None):
     """Money paid in an EARLIER phase that `balance_amount` has already netted off.
 
     Sep 27 2026 - USB-MR1801 (Anbu Test / Champion Demo Test, RE - Dummy
@@ -10699,10 +10700,19 @@ def _prior_phase_paid_to_exclude(payment_phase, bill_amount, parent_balance,
     the balance phase still counts against the balance. Returns 0 unless the
     bill really is the balance figure, leaving the ordinary flow - where
     procurement creates a fresh balance mirror with paid_amount 0 - untouched.
+
+    Oct 27 2026 - USB-MR2374 (PV Check, 450 advance + 450 balance). After the
+    balance cheque bounced, 213 was paid from vendor suspense: paid_amount 213,
+    remaining 237. Pay & Settle took the 450 advance off that 213 and asked
+    for 450 again. A part-payment made after the advance was paid rewrites
+    paid_amount to this phase's own money (pay_approval stamps
+    last_partial_paid_at), so there is no advance left in it to take out.
     """
     if payment_phase != "balance":
         return 0.0
     if parent_balance <= 0.5 or abs(bill_amount - parent_balance) > 0.5:
+        return 0.0
+    if bill_part_paid_at and parent_advance_paid_at and str(bill_part_paid_at) > str(parent_advance_paid_at):
         return 0.0
     return max(0.0, parent_advance_paid or 0.0)
 
@@ -10779,6 +10789,31 @@ async def recover_wiped_paid_amounts(bills: List[Dict[str, Any]]) -> Dict[str, f
         if paid > 0.5:
             out[b["expense_id"]] = paid
     return out
+
+
+async def stamp_part_paid_on_open_bill(rows: List[Dict[str, Any]]) -> None:
+    """Sets `part_paid_amount` on material requests whose bill is part-paid.
+
+    Oct 27 2026 - USB-MR2374: 213 of the 450 balance was paid, but a
+    part-payment only lands on the bill (pay_approval); the request's
+    advance/balance stamps move when a phase is paid in full. The Procurement
+    and Planning cards read those stamps, so they kept showing 900 / 450 paid
+    and Balance 450 while Accounts showed 663 paid, 237 due. Same figure the
+    Accountant queue adds to its collected amount.
+    """
+    ids = [r["request_id"] for r in rows if r.get("request_id")]
+    if not ids:
+        return
+    paid: Dict[str, float] = {}
+    async for b in db.material_expenses.find(
+            {"status": "partially_paid", "source_request_id": {"$in": ids}},
+            {"_id": 0, "source_request_id": 1, "paid_amount": 1}):
+        rid = b["source_request_id"]
+        paid[rid] = paid.get(rid, 0.0) + _num(b.get("paid_amount"))
+    for r in rows:
+        amt = round(paid.get(r.get("request_id"), 0.0), 2)
+        if amt > 0.5:
+            r["part_paid_amount"] = amt
 
 
 async def _reconciled_already_paid(req: Dict[str, Any]) -> float:
@@ -12432,11 +12467,12 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
     advance_amount = None
     balance_amount = None
     parent_advance_paid = 0.0
+    parent_advance_paid_at = None
     if req_type == "material" and req.get("payment_phase") in ("advance", "balance") and req.get("source_request_id"):
         parent = await db.material_requests.find_one(
             {"request_id": req["source_request_id"]},
             {"_id": 0, "total_amount": 1, "advance_amount": 1, "balance_amount": 1,
-             "advance_paid_amount": 1},
+             "advance_paid_amount": 1, "advance_paid_at": 1},
         )
         if parent:
             payment_phase = req.get("payment_phase")
@@ -12444,6 +12480,7 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
             advance_amount = float(parent.get("advance_amount") or 0)
             balance_amount = float(parent.get("balance_amount") or max(0.0, total_amount - advance_amount))
             parent_advance_paid = float(parent.get("advance_paid_amount") or 0)
+            parent_advance_paid_at = parent.get("advance_paid_at")
             # Aug 18 2026 — `bill_amount` above came from the material_expenses
             # mirror's own `final_amount`, a denormalized copy that
             # recalculate_material_request_amount only re-syncs while the bill
@@ -12494,7 +12531,8 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
     # net of the advance, so advance money still sitting on a shared mirror
     # must not be deducted from it a second time (USB-MR1801).
     already_paid = max(0.0, already_paid - _prior_phase_paid_to_exclude(
-        payment_phase, bill_amount, balance_amount or 0.0, parent_advance_paid))
+        payment_phase, bill_amount, balance_amount or 0.0, parent_advance_paid,
+        req.get("last_partial_paid_at"), parent_advance_paid_at))
     # Oct 20 2026 — was also gated on status == "partially_paid". pay_approval
     # nets already_paid off whatever the status, and the dialog's Net Payable
     # does too, so a part-paid bill sitting in a pending status (USB-MR1255)
@@ -12613,7 +12651,7 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
         _parent = await db.material_requests.find_one(
             {"request_id": req["source_request_id"]},
             {"_id": 0, "total_amount": 1, "advance_amount": 1, "balance_amount": 1,
-             "advance_paid_amount": 1},
+             "advance_paid_amount": 1, "advance_paid_at": 1},
         )
         _parent = _parent or {}
         _parent_total = float(_parent.get("total_amount") or 0)
@@ -12635,7 +12673,8 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
         # the two cannot drift apart (USB-MR1801).
         already_paid = max(0.0, already_paid - _prior_phase_paid_to_exclude(
             _phase, bill_amount, _parent_balance,
-            float(_parent.get("advance_paid_amount") or 0)))
+            float(_parent.get("advance_paid_amount") or 0),
+            req.get("last_partial_paid_at"), _parent.get("advance_paid_at")))
 
     # Feb 28 2026 — Auto-netting of vendor suspense (positive OR negative)
     # against the bill has been disabled at the user's request.

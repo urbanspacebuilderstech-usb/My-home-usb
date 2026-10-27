@@ -172,9 +172,41 @@ def test_both_the_preview_and_the_payment_apply_it():
 
 def test_both_read_the_parents_advance_paid_amount():
     src = _src()
-    assert src.count('"advance_paid_amount": 1}') >= 2, (
+    assert src.count('"advance_paid_amount": 1, "advance_paid_at": 1}') >= 2, (
         "both parent projections must fetch advance_paid_amount or the "
         "exclusion silently computes zero")
+
+
+# --------------------------------------------------------------------------
+# Oct 27 2026 - USB-MR2374: a part-payment after the advance holds no advance
+# --------------------------------------------------------------------------
+
+ADV_AT = "2026-10-26T10:30:07.541493+00:00"
+PART_AT = "2026-10-27T06:46:09.120000+00:00"
+
+
+def test_usb_mr2374_part_paid_balance_asks_only_the_rest():
+    """450 balance, 213 paid from suspense on Oct 27 after the Oct 26 advance:
+    Pay & Settle asked 450 again; it must ask 237."""
+    adjusted = max(0.0, 213.0 - exclude("balance", 450.0, 450.0, 450.0, PART_AT, ADV_AT))
+    assert 450.0 - adjusted == 237.0
+
+
+def test_a_part_payment_before_the_advance_was_paid_still_excludes_it():
+    """An advance paid in two parts leaves its first part's stamp on the
+    shared mirror, older than advance_paid_at: still the MR1801 case."""
+    assert exclude("balance", 500.0, 500.0, 100.0, "2026-09-20T10:00:00+00:00",
+                   "2026-09-21T10:00:00+00:00") == 100.0
+
+
+def test_missing_stamps_keep_the_mr1801_rule():
+    assert exclude("balance", 500.0, 500.0, 100.0, None, ADV_AT) == 100.0
+    assert exclude("balance", 500.0, 500.0, 100.0, PART_AT, None) == 100.0
+
+
+def test_both_paths_pass_the_part_paid_and_advance_stamps():
+    assert 'req.get("last_partial_paid_at"), parent_advance_paid_at))' in _func_segment("get_pay_context")
+    assert 'req.get("last_partial_paid_at"), _parent.get("advance_paid_at")))' in _func_segment("pay_approval")
 
 
 def test_the_adjustment_happens_after_bill_amount_is_settled():

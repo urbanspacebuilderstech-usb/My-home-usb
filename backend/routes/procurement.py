@@ -2604,6 +2604,8 @@ async def procurement_simple_queue(
     await _heal_stale_paid_stamps(rows, user)
     await _heal_transit_without_advance(rows, user)
     await _heal_completed_with_bounced_bill(rows, user)
+    from routes.financial import stamp_part_paid_on_open_bill
+    await stamp_part_paid_on_open_bill(rows)
 
     # Enrich project + SE names
     project_ids = list({r.get("project_id") for r in rows if r.get("project_id")})

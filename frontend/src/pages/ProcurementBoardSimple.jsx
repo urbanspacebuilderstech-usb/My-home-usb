@@ -1380,6 +1380,8 @@ function AmountSummary({ req }) {
   const isAdvanceMode = (req.payment_mode || '').toLowerCase() === 'advance';
   const isFinal = ['delivered', 'completed', 'closed'].includes(status);
   const advancePaid = Number(req.advance_paid_amount || 0) > 0;
+  // Oct 27 2026 — part-paid on the open bill (USB-MR2374: 213 of the 450 balance).
+  const partPaid = Number(req.part_paid_amount || 0);
 
   if (isAdvanceMode && !isFinal) {
     const advanceAmt = Number(req.advance_amount || 0);
@@ -1391,13 +1393,14 @@ function AmountSummary({ req }) {
           <span className="inline-block text-[9px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200 font-medium">
             ✓ Advance {fmt(advanceAmt)} Collected
           </span>
-          <p className="text-sm font-semibold text-emerald-700 mt-0.5">Balance {fmt(balanceAmt)}</p>
+          {partPaid > 0 && <p className="text-[10px] text-yellow-700 mt-0.5">{fmt(partPaid)} of {fmt(balanceAmt)} paid</p>}
+          <p className="text-sm font-semibold text-emerald-700 mt-0.5">Balance {fmt(Math.max(0, balanceAmt - partPaid))}</p>
         </div>
       );
     }
     return (
       <div className="text-right leading-tight">
-        <p className="text-[10px] font-semibold text-amber-700">Advance Pending {fmt(advanceAmt)}</p>
+        <p className="text-[10px] font-semibold text-amber-700">Advance Pending {fmt(Math.max(0, advanceAmt - partPaid))}</p>
         <p className="text-[10px] text-gray-500">Balance on Delivery {fmt(balanceAmt)}</p>
         <p className="text-sm font-semibold text-emerald-700">Total {fmt(total)}</p>
       </div>
@@ -1457,7 +1460,8 @@ function RequestCard({ req, onClick, stockInfo = null }) {
   // advance/balance-split request tracks money actually collected on the
   // parent doc as `advance_paid_amount` / `balance_paid_amount` instead, so
   // a collected advance was showing as ₹0 Paid without this.
-  const paidAmt = Number(req.paid_amount || 0) + Number(req.advance_paid_amount || 0) + Number(req.balance_paid_amount || 0);
+  // `part_paid_amount`: a part-payment still sitting on the open bill.
+  const paidAmt = Number(req.paid_amount || 0) + Number(req.advance_paid_amount || 0) + Number(req.balance_paid_amount || 0) + Number(req.part_paid_amount || 0);
   return (
     <Card
       className={`hover:shadow-md transition-shadow cursor-pointer border-l-[3px] hover:bg-amber-50/30 ${isHighPriority ? 'border-red-400' : ''}`}

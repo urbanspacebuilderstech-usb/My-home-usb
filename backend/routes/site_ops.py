@@ -2709,7 +2709,11 @@ async def get_material_requests_for_planning(
             p = await db.projects.find_one({"project_id": pid}, {"_id": 0, "name": 1})
             project_cache[pid] = p["name"] if p else "Unknown"
         r["project_name"] = project_cache[pid]
-    
+    # Oct 27 2026 — part-payments on the bill, for the Planning card's
+    # Total / Paid and Balance (USB-MR2374).
+    from routes.financial import stamp_part_paid_on_open_bill
+    await stamp_part_paid_on_open_bill(requests)
+
     return requests
 
 
