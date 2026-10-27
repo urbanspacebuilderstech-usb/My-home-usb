@@ -824,6 +824,35 @@ async def _resolve_labour_suspense_cheque_numbers(all_expenses: List[Dict[str, A
             e["cheque_number"] = ", ".join(nums)
 
 
+async def _attach_cheque_split(all_expenses: List[Dict[str, Any]]) -> None:
+    """Sets `cheque_split` ([{cheque_number, amount}]) on a payment row that
+    drew on more than one cheque.
+
+    Oct 27 2026 - GST Agency, USB-MR1113 (M Sand, 16,940): one cheque leg took
+    the 5,882.40 left on another cheque and 11,057.60 from #157662. The
+    Expense list showed only "#7662", so the row read as 16,940 from #157662
+    and that cheque's suspense chip looked 5,882 too high. The draws are the
+    cheque_allocations rows pay_approval writes per cheque; the bulk
+    backfill's leftover rows (source historical_opening) are not draws.
+    """
+    multi = {e["expense_id"]: e for e in all_expenses
+             if e.get("expense_id") and len(e.get("cheque_ids") or []) > 1}
+    if not multi:
+        return
+    split: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    async for a in db.cheque_allocations.find(
+            {"expense_id": {"$in": list(multi)}, "status": "active",
+             "source": {"$ne": "historical_opening"}},
+            {"_id": 0, "expense_id": 1, "cheque_id": 1, "cheque_number": 1, "amount": 1}):
+        per = split.setdefault(a["expense_id"], {})
+        row = per.setdefault(a["cheque_id"], {"cheque_number": a.get("cheque_number"), "amount": 0.0})
+        row["amount"] = round(row["amount"] + _num(a.get("amount")), 2)
+    for eid, per in split.items():
+        if len(per) > 1:
+            order = multi[eid]["cheque_ids"]
+            multi[eid]["cheque_split"] = [per[c] for c in sorted(per, key=lambda c: order.index(c) if c in order else len(order))]
+
+
 async def _resolve_cheque_numbers(all_expenses: List[Dict[str, Any]]) -> None:
     """Aug 11 2026 — `cheque_number` (the printed number) can be missing for
     two different reasons: (1) only `cheque_id`/`cheque_ids` was stored and
@@ -851,6 +880,7 @@ async def _resolve_cheque_numbers(all_expenses: List[Dict[str, Any]]) -> None:
             continue
         ids_needed.update(_candidate_ids(e))
 
+    await _attach_cheque_split(all_expenses)
     if not ids_needed:
         return
     docs = await db.cheques.find(

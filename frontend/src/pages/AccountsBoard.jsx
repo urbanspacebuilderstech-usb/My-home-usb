@@ -337,6 +337,23 @@ function getChequeNumber(e) {
   return e.cheque_number || e.verification?.cheque_number || '';
 }
 
+// Oct 27 2026 — last 4 digits of EVERY cheque on the row. A row paid by two
+// cheques arrives as "123456, 157662" and used to show only "#7662", so all
+// 16,940 of GST Agency's USB-MR1113 read as coming from #157662 when 5,882.40
+// came from another cheque. `cheque_split` (server-side) adds what each paid.
+function ChequeRef({ e }) {
+  const split = e.cheque_split || [];
+  const rows = split.length > 1
+    ? split.map(s => ({ num: String(s.cheque_number || ''), amount: s.amount }))
+    : String(getChequeNumber(e)).split(', ').map(num => ({ num }));
+  return rows.map((r, i) => (
+    <span key={i} className="block text-[10px] text-gray-400 font-normal mt-0.5" title={`Cheque #${r.num}`}>
+      #{r.num.slice(-4)}
+      {r.amount != null && <> · <MaskedValue value={r.amount} className="text-gray-500" /></>}
+    </span>
+  ));
+}
+
 // Sep 15 2026 — Petty Cash "SE Name" column. Two different creation paths
 // land in recorded_expenses under category="petty_cash":
 //   • SE Direct Expense (source="site_engineer_direct", the common case —
@@ -529,9 +546,7 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
                         {MODE_LABELS[classifyMode(e.payment_mode || e.payment_method)] || 'Cash'}
                       </Badge>
                       {classifyMode(e.payment_mode || e.payment_method) === 'cheque' && getChequeNumber(e) && (
-                        <span className="block text-[10px] text-gray-400 font-normal mt-0.5">
-                          #{String(getChequeNumber(e)).slice(-4)}
-                        </span>
+                        <ChequeRef e={e} />
                       )}
                     </td>
                     {type === 'expense' && <td className="px-3 py-2 text-gray-600">{getMaterialId(e) || '-'}</td>}
@@ -5621,9 +5636,7 @@ function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint, onDelete
                         {MODE_LABELS[classifyMode(entry.payment_mode)] || entry.payment_mode}
                       </Badge>
                       {classifyMode(entry.payment_mode) === 'cheque' && getChequeNumber(entry) && (
-                        <span className="block text-[10px] text-gray-400 font-normal mt-0.5">
-                          #{String(getChequeNumber(entry)).slice(-4)}
-                        </span>
+                        <ChequeRef e={entry} />
                       )}
                     </td>
                     <td className="px-3 py-2 font-mono text-[10px]">
