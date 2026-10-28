@@ -417,6 +417,11 @@ export default function PlanningBoard({ embedded = false }) {
   const [scheduleMonth, setScheduleMonth] = useState(new Date().getMonth() + 1);
   const [scheduleYear, setScheduleYear] = useState(new Date().getFullYear());
   const [scheduleSubTab, setScheduleSubTab] = useState('all'); // all | completed | pending
+  // Oct 28 2026 — Top Sheet opens on "All Months" (every payable stage, as on
+  // the CRE Board's Payment Schedule); Prev / Next / This Month zoom into one
+  // month. The Payment Schedule tab always shows a single month.
+  const [topSheetAllMonths, setTopSheetAllMonths] = useState(true);
+  const scheduleWantsAllMonths = dashSubTab === 'top_sheet' && topSheetAllMonths;
   // Sep 29 2026 — Date + Project filters on top of the month/year navigation,
   // narrowing the already-fetched month's entries client-side (date, by
   // Release Date) and by project (fetched separately from GET /projects,
@@ -469,7 +474,9 @@ export default function PlanningBoard({ embedded = false }) {
   const [scheduleError, setScheduleError] = useState('');
   // Until the shown month's request lands, the rows in hand belong to another
   // month (or to none, on first open) and must not be shown as this month's.
-  const scheduleShowsOtherMonth = monthlySchedule.month !== scheduleMonth || monthlySchedule.year !== scheduleYear;
+  const scheduleShowsOtherMonth = scheduleWantsAllMonths
+    ? !monthlySchedule.all_months
+    : (!!monthlySchedule.all_months || monthlySchedule.month !== scheduleMonth || monthlySchedule.year !== scheduleYear);
 
   const [vendorLoading, setVendorLoading] = useState(false);
 
@@ -576,7 +583,7 @@ export default function PlanningBoard({ embedded = false }) {
     if (sub === 'payment_schedule' || sub === 'top_sheet') {
       // The project list is a heavy call. Sent alongside the schedule, the two
       // competed on the server and the schedule came back later, so it waits.
-      fetchMonthlySchedule().finally(() => {
+      fetchMonthlyScheduleFor(scheduleMonth, scheduleYear, sub === 'top_sheet' && topSheetAllMonths).finally(() => {
         if (allProjectsForScheduleFilter.length === 0) {
           axios.get(`${API}/projects`).then(r => setAllProjectsForScheduleFilter(r.data || [])).catch(() => {});
         }
@@ -779,7 +786,7 @@ export default function PlanningBoard({ embedded = false }) {
     }
   };
 
-  const fetchMonthlySchedule = () => fetchMonthlyScheduleFor(scheduleMonth, scheduleYear);
+  const fetchMonthlySchedule = () => fetchMonthlyScheduleFor(scheduleMonth, scheduleYear, scheduleWantsAllMonths);
 
   const fetchMaterials = async () => { try { const r = await axios.get(`${API}/materials?active_only=false`); setMaterials(r.data); } catch {} };
   // Planning-locked package material catalog: { name → variants[{ package_name, brand, unit, estimated_rate }] }
@@ -1245,8 +1252,20 @@ export default function PlanningBoard({ embedded = false }) {
     let y = scheduleYear;
     if (m > 12) { m = 1; y++; }
     if (m < 1) { m = 12; y--; }
+    // On the Top Sheet, Prev / Next leave All Months for a single month.
+    if (dashSubTab === 'top_sheet') setTopSheetAllMonths(false);
     setScheduleMonth(m); setScheduleYear(y);
     fetchMonthlyScheduleFor(m, y);
+  };
+  const showTopSheetThisMonth = () => {
+    const t = new Date();
+    setTopSheetAllMonths(false);
+    setScheduleMonth(t.getMonth() + 1); setScheduleYear(t.getFullYear());
+    fetchMonthlyScheduleFor(t.getMonth() + 1, t.getFullYear());
+  };
+  const showTopSheetAllMonths = () => {
+    setTopSheetAllMonths(true);
+    fetchMonthlyScheduleFor(scheduleMonth, scheduleYear, true);
   };
 
   // Oct 5 2026 — same approach as CRE Board's Payment Schedule. Clicking
@@ -1256,15 +1275,18 @@ export default function PlanningBoard({ embedded = false }) {
   // aborted. Failures used to be swallowed, leaving an empty table that read
   // as "no stages"; they now show an error with Retry.
   const scheduleAbortRef = React.useRef(null);
-  const fetchMonthlyScheduleFor = async (m, y) => {
+  const fetchMonthlyScheduleFor = async (m, y, allMonths = false) => {
     if (scheduleAbortRef.current) scheduleAbortRef.current.abort();
     const controller = new AbortController();
     scheduleAbortRef.current = controller;
     setScheduleLoading(true);
     setScheduleError('');
     try {
-      const r = await axios.get(`${API}/planning/monthly-schedule`, { params: { month: m, year: y, split_by_month: true }, signal: controller.signal });
-      setMonthlySchedule(r.data || { entries: [], summary: {} });
+      // All Months rows have no month_amount / month_received, so they show
+      // the stage totals (see scheduleRowMoney).
+      const params = allMonths ? { all_months: true } : { month: m, year: y, split_by_month: true };
+      const r = await axios.get(`${API}/planning/monthly-schedule`, { params, signal: controller.signal });
+      setMonthlySchedule({ ...(r.data || { entries: [], summary: {} }), all_months: allMonths });
     } catch (err) {
       if (axios.isCancel?.(err) || err.code === 'ERR_CANCELED' || err.name === 'CanceledError') return;
       const msg = err.response?.data?.detail || 'Failed to load payment schedule';
@@ -1890,17 +1912,38 @@ export default function PlanningBoard({ embedded = false }) {
                 <Card>
                   <CardContent className="p-3">
                     <div className="flex items-center justify-between flex-wrap gap-3">
+                      {dashSubTab === 'top_sheet' ? (
+                      // Same bar as the CRE Board's Payment Schedule: All Months,
+                      // with Prev / Next / This Month zooming into one month.
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <Button size="sm" variant="outline" onClick={() => handleScheduleMonthChange(-1)} data-testid="top-sheet-prev-month">‹ Prev</Button>
+                        <div className="text-center min-w-[120px]">
+                          <p className="text-lg font-bold text-gray-900" data-testid="top-sheet-current-month">{topSheetAllMonths ? 'All Months' : `${MONTH_NAMES[scheduleMonth]} ${scheduleYear}`}</p>
+                          <p className="text-xs text-gray-500 inline-flex items-center gap-1">
+                            {scheduleLoading && <Loader2 className="h-3 w-3 animate-spin" />}
+                            {scheduleLoading ? 'Loading…' : 'Top Sheet'}
+                          </p>
+                        </div>
+                        <Button size="sm" variant="outline" onClick={() => handleScheduleMonthChange(1)} data-testid="top-sheet-next-month">Next ›</Button>
+                        {topSheetAllMonths ? (
+                          <Button size="sm" variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50" onClick={showTopSheetThisMonth} data-testid="top-sheet-this-month">This Month</Button>
+                        ) : (
+                          <Button size="sm" variant="outline" className="border-violet-300 text-violet-700 hover:bg-violet-50" onClick={showTopSheetAllMonths} data-testid="top-sheet-all-months">All Months</Button>
+                        )}
+                      </div>
+                      ) : (
                       <div className="flex items-center gap-3">
                         <Button size="sm" variant="outline" onClick={() => handleScheduleMonthChange(-1)} data-testid="schedule-prev-month"><ArrowRight className="h-4 w-4 rotate-180" /></Button>
                         <div className="text-center min-w-[140px]">
                           <p className="text-lg font-bold text-gray-900" data-testid="schedule-current-month">{MONTH_NAMES[scheduleMonth]} {scheduleYear}</p>
                           <p className="text-xs text-gray-500 inline-flex items-center gap-1" data-testid="schedule-subtitle">
                             {scheduleLoading && <Loader2 className="h-3 w-3 animate-spin" />}
-                            {scheduleLoading ? 'Loading…' : dashSubTab === 'top_sheet' ? 'Top Sheet' : 'Payment Schedule'}
+                            {scheduleLoading ? 'Loading…' : 'Payment Schedule'}
                           </p>
                         </div>
                         <Button size="sm" variant="outline" onClick={() => handleScheduleMonthChange(1)} data-testid="schedule-next-month"><ArrowRight className="h-4 w-4" /></Button>
                       </div>
+                      )}
                       <div className="flex items-center gap-2 flex-wrap">
                         <CashbookDateFilter
                           dateFrom={scheduleDateFrom}
@@ -1919,6 +1962,11 @@ export default function PlanningBoard({ embedded = false }) {
                           testId="planning-ps-project-filter"
                           width="w-56"
                         />
+                        {dashSubTab === 'top_sheet' && (
+                          <Button size="sm" variant="outline" onClick={fetchMonthlySchedule} disabled={scheduleLoading} data-testid="top-sheet-refresh">
+                            <RefreshCw className={`h-4 w-4 mr-1 ${scheduleLoading ? 'animate-spin' : ''}`} /> Refresh
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </CardContent>
@@ -1991,7 +2039,7 @@ export default function PlanningBoard({ embedded = false }) {
                           </thead>
                           <tbody className="divide-y">
                             {topSheetProjects.length === 0 ? (
-                              <tr><td colSpan="4" className="p-8 text-center text-gray-400">No {scheduleSubTab === 'all' ? '' : scheduleSubTab + ' '}stages for {MONTH_NAMES[scheduleMonth]} {scheduleYear}.</td></tr>
+                              <tr><td colSpan="4" className="p-8 text-center text-gray-400">No {scheduleSubTab === 'all' ? '' : scheduleSubTab + ' '}stages{topSheetAllMonths ? '' : ` for ${MONTH_NAMES[scheduleMonth]} ${scheduleYear}`}.</td></tr>
                             ) : topSheetProjects.map(p => {
                               const open = !!topSheetOpen[p.key];
                               return (
