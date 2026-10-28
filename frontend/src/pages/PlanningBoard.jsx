@@ -1424,8 +1424,8 @@ export default function PlanningBoard({ embedded = false }) {
                 { key: 'approvals', label: 'Approvals', badge: feApprovalsCount, gated: ['planning', 'super_admin'] },
                 { key: 'labour_summary', label: 'Contractor Summary' },
                 { key: 'rough_estimates', label: 'Rough Estimates', badge: reNewCount },
+                { key: 'top_sheet', label: 'Top Sheet for Payment Schedule' },
                 { key: 'payment_schedule', label: 'Payment Schedule' },
-                { key: 'top_sheet', label: 'Top Sheet' },
                 { key: 'dlr_dpr', label: 'DLR & DPR' },
               ].filter(tab => !tab.gated || tab.gated.includes(user?.role)).map(tab => (
                 <button
