@@ -103,10 +103,58 @@ const addDaysISO = (startISO, days) => {
   const d = new Date(startISO);
   if (isNaN(d)) return '';
   d.setDate(d.getDate() + (Number(days) - 1));
-  const y = d.getFullYear();
+  // Pad the year: while a year is typed digit by digit the date input sends
+  // 0002-, 0020-, … and an unpadded "2-10-30" is not a date the cascade can read.
+  const y = String(d.getFullYear()).padStart(4, '0');
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${dd}`;
+};
+// shiftISO: moves an ISO date by `n` calendar days (n may be negative).
+const shiftISO = (iso, n) => {
+  if (!iso) return '';
+  const d = new Date(String(iso).slice(0, 10));
+  if (isNaN(d)) return '';
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+const diffDaysISO = (fromISO, toISO) =>
+  Math.round((new Date(String(toISO).slice(0, 10)) - new Date(String(fromISO).slice(0, 10))) / 86400000);
+
+// Project Stages schedule cascade. A stage starts the day after the stage above
+// it finishes; on the Actual side a hindrance delay on the stage above adds its
+// days on top (finish 12th + 2-day delay → next stage starts 15th).
+const STAGE_PLANNED = { start: 'start_date', finish: 'target_date', dur: 'duration_days', delay: null };
+const STAGE_ACTUAL = { start: 'actual_start_date', finish: 'actual_finish_date', dur: 'actual_duration_days', delay: 'hindrance_delay_days' };
+const stageNextStart = (s, side) => {
+  if (!s?.[side.finish]) return '';
+  const delay = side.delay ? Math.max(0, parseInt(s[side.delay]) || 0) : 0;
+  return shiftISO(s[side.finish], 1 + delay);
+};
+// rows[idx] has just changed (it was `before`). When its next-start moved, every
+// dated stage below moves by the same number of days, so gaps and overlaps
+// further down are kept; a stage below with no start yet takes the day after the
+// one above it. Section headers are skipped. Unchanged rows keep their identity.
+const cascadeStageDates = (rows, idx, before, side) => {
+  const out = rows.slice();
+  let prevBefore = before;
+  let prevAfter = out[idx];
+  for (let j = idx + 1; j < out.length; j++) {
+    const cur = out[j];
+    if (cur.is_section_header) continue;
+    const oldNext = stageNextStart(prevBefore, side);
+    const newNext = stageNextStart(prevAfter, side);
+    if (!newNext || newNext === oldNext) break;
+    let start;
+    if (!cur[side.start]) start = newNext;
+    else if (oldNext) start = shiftISO(cur[side.start], diffDaysISO(oldNext, newNext));
+    else break; // a start typed before the stage above had a finish — leave it
+    const dur = parseInt(cur[side.dur]) || daysBetween(cur[side.start], cur[side.finish]) || 0;
+    out[j] = { ...cur, [side.start]: start, [side.finish]: dur ? addDaysISO(start, dur) : cur[side.finish] };
+    prevBefore = cur;
+    prevAfter = out[j];
+  }
+  return out;
 };
 const InlineEditRate = ({ initial, onSave, mode = 'percent' }) => {
   const [editing, setEditing] = useState(false);
@@ -262,20 +310,34 @@ const HINDRANCE_TYPE_COLOR = {
 // → quick-pick delay days (1/2/Custom) so Planning can record how many days
 // this hindrance pushed the schedule by. Custom opens a number input.
 // Calls `onChange({hindrance_type, hindrance_reason, hindrances, hindrance_delay_days})`.
-function HindrancePicker({ value, onChange, compact = false }) {
+// The ✓ (shown once a type is picked) calls `onSave` and folds the picker into
+// its badge; the pencil next to the badge opens it again.
+function HindrancePicker({ value, onChange, onSave, compact = false }) {
   const hType = value?.hindrance_type || '';
   const hReason = value?.hindrance_reason || '';
   const hNotes = value?.hindrances || '';
   const hDelay = value?.hindrance_delay_days ?? '';
   const isOthers = hReason === 'Others';
   const delayPresets = [1, 2];
+  const [saved, setSaved] = useState(false);
 
   const clear = () => onChange({ hindrance_type: '', hindrance_reason: '', hindrances: '', hindrance_delay_days: '' });
   const setDelay = (d) => onChange({ hindrance_type: hType, hindrance_reason: hReason, hindrances: hNotes, hindrance_delay_days: d });
 
+  if (saved && hType) {
+    return (
+      <div className="flex items-center gap-1" data-testid="hindrance-saved">
+        <HindranceBadge stage={value} />
+        <button type="button" className="p-1 text-gray-400 hover:text-blue-600" onClick={() => setSaved(false)} title="Edit hindrance" data-testid="hindrance-edit">
+          <Edit className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className={`flex flex-col gap-1 ${compact ? '' : 'min-w-[180px]'}`}>
-      <div className="flex gap-1">
+      <div className="flex items-center gap-1">
         {Object.keys(HINDRANCE_REASONS).map(t => (
           <button
             type="button"
@@ -289,6 +351,17 @@ function HindrancePicker({ value, onChange, compact = false }) {
         ))}
         {(hType || hReason) && (
           <button type="button" className="text-[10px] px-1.5 py-0.5 text-gray-400 hover:text-rose-500" onClick={clear} title="Clear">×</button>
+        )}
+        {hType && (
+          <button
+            type="button"
+            className="h-5 w-5 shrink-0 inline-flex items-center justify-center rounded-full bg-green-600 text-white hover:bg-green-700"
+            onClick={() => { setSaved(true); onSave?.(); }}
+            title="Save hindrance"
+            data-testid="hindrance-save"
+          >
+            <Check className="h-3 w-3" />
+          </button>
         )}
       </div>
       {hType && (
@@ -1097,6 +1170,11 @@ export default function ProjectDetail() {
   // Global Edit Mode — when ON, every row is editable at once (no per-row pencil).
   // Each cell auto-saves via autoSaveStageField on change, so no Save button needed.
   const [globalEditMode, setGlobalEditMode] = useState(false);
+  // Saved-stage date edits (and the stages they cascade into) wait here a
+  // moment and go out together — see queueStageSaves.
+  const stageSaveQueue = useRef({});      // stage_id → fields to PATCH
+  const stageSaveTimer = useRef(null);
+  const stageSaveInFlight = useRef(0);
   const [timelineStage, setTimelineStage] = useState(null);  // null | stage object — opens the Timeline dialog
   const [stagesView, setStagesView] = useState('table'); // 'table' or 'gantt'
   
@@ -1339,7 +1417,9 @@ export default function ProjectDetail() {
       setAdditionSections(projectRes.data?.addition_sections || []);
       setDeductionSections(projectRes.data?.deduction_sections || []);
       if (summaryRes) setPaymentSummary(summaryRes.data);
-      if (stagesRes) setProjectStages(stagesRes.data);
+      // While stage date edits are still saving, the list on screen is newer
+      // than the server's — keep it; flushStageSaves reloads the stages after.
+      if (stagesRes && !stageSaveTimer.current && !stageSaveInFlight.current) setProjectStages(stagesRes.data);
       if (templatesRes) setStageTemplates(templatesRes.data);
       if (filesRes) setProjectFiles(filesRes.data);
       if (designRes) setDesignData(designRes.data || { site_plans: [], design_files: [] });
@@ -3002,7 +3082,7 @@ export default function ProjectDetail() {
   };
   const updateNewStage = (idx, field, value) => {
     setNewStages(prev => {
-      const next = prev.map((s, i) => {
+      let next = prev.map((s, i) => {
         if (i !== idx) return s;
         // Apply the field directly, then re-derive any dependent fields below.
         const merged = { ...s, [field]: value };
@@ -3026,39 +3106,26 @@ export default function ProjectDetail() {
         }
         return merged;
       });
-      // ── Carry-forward: when this row's Actual Finish (or Planned Finish, if
-      // no Actual Finish set yet) advances, push the FOLLOWING non-section
-      // row's Planned Start = finish + 1 day — but only if that next row's
-      // Planned Start is currently empty (don't overwrite manual entries).
-      if ((field === 'actual_finish_date' || field === 'target_date' || field === 'duration_days') && next[idx].target_date) {
-        // Find next non-section row after idx
-        const nextRowIdx = next.findIndex((s, i) => i > idx && !s.is_section_header);
-        if (nextRowIdx !== -1 && !next[nextRowIdx].start_date) {
-          // Prefer Actual Finish, fall back to Planned Finish
-          const anchor = field === 'actual_finish_date' ? value : (next[idx].actual_finish_date || next[idx].target_date);
-          const d = new Date(anchor);
-          if (!isNaN(d)) {
-            d.setDate(d.getDate() + 1);
-            next[nextRowIdx] = { ...next[nextRowIdx], start_date: d.toISOString().split('T')[0] };
-            // If the next row has duration set, recompute its target_date too.
-            const nextDur = parseInt(next[nextRowIdx].duration_days) || 0;
-            if (nextDur > 0) {
-              next[nextRowIdx].target_date = addDaysISO(next[nextRowIdx].start_date, nextDur);
-            }
-          }
-        }
-      }
+      // ── Cascade: when this row's Planned or Actual finish (or its hindrance
+      // delay) moves, every stage below it moves too — see cascadeStageDates.
+      next = cascadeStageDates(next, idx, prev[idx], STAGE_PLANNED);
+      next = cascadeStageDates(next, idx, prev[idx], STAGE_ACTUAL);
       return next;
     });
   };
 
   const handleSaveStages = async () => {
+    const intOrNull = (v) => { const n = parseInt(v); return Number.isFinite(n) ? n : null; };
     const valid = newStages
       .filter(s => s.stage_name.trim())
-      // Use user-entered Duration when present, else derive from Planned dates.
+      // Use user-entered Duration when present, else derive from the dates.
+      // Cleared number boxes hold '' — the backend wants a number or null.
       .map(s => ({
         ...s,
         duration_days: parseInt(s.duration_days) || daysBetween(s.start_date, s.target_date) || null,
+        actual_duration_days: parseInt(s.actual_duration_days) || daysBetween(s.actual_start_date, s.actual_finish_date) || null,
+        progress: intOrNull(s.progress),
+        hindrance_delay_days: intOrNull(s.hindrance_delay_days),
       }));
     if (!valid.length) { toast.error('Add at least one stage'); return; }
     try {
@@ -3116,7 +3183,7 @@ export default function ProjectDetail() {
   // — keeps the user in edit mode, silently PATCHes and refreshes the stage list.
   // Coerces empty-string numeric fields to null so backend Pydantic validation
   // doesn't reject patches like { hindrance_delay_days: "" }.
-  const autoSaveStageField = async (stageId, patch) => {
+  const cleanStagePatch = (patch) => {
     const NUMERIC = new Set(['duration_days', 'actual_duration_days', 'progress', 'hindrance_delay_days']);
     const cleaned = {};
     for (const [k, v] of Object.entries(patch || {})) {
@@ -3127,68 +3194,82 @@ export default function ProjectDetail() {
         cleaned[k] = v === '' ? null : v;
       }
     }
+    return cleaned;
+  };
+  const stageSaveError = (e, fallback) => {
+    const detail = e.response?.data?.detail;
+    return Array.isArray(detail)
+      ? detail.map(d => `${(d.loc || []).slice(-1)[0]}: ${d.msg}`).join(' · ')
+      : (typeof detail === 'string' ? detail : fallback);
+  };
+  const autoSaveStageField = async (stageId, patch) => {
     try {
-      await axios.patch(`${API}/projects/${projectId}/project-stages/${stageId}`, cleaned);
+      await axios.patch(`${API}/projects/${projectId}/project-stages/${stageId}`, cleanStagePatch(patch));
       fetchData(false);
     } catch (e) {
-      const detail = e.response?.data?.detail;
-      const msg = Array.isArray(detail)
-        ? detail.map(d => `${(d.loc || []).slice(-1)[0]}: ${d.msg}`).join(' · ')
-        : (typeof detail === 'string' ? detail : 'Auto-save failed');
-      toast.error(msg);
+      toast.error(stageSaveError(e, 'Auto-save failed'));
     }
   };
 
-  // Cascade-forward (PLANNED side): when this stage's Planned Finish moves,
-  // push the next non-section stage's Planned Start = finish + 1 day (only if
-  // next row's Planned Start is empty). Also recomputes that row's Planned
-  // Finish if a Duration is already saved.
-  const cascadeForwardFromStage = async (currentStageId, newPlannedFinishISO) => {
-    if (!newPlannedFinishISO) return;
-    const idx = projectStages.findIndex(s => s.stage_id === currentStageId);
-    if (idx === -1) return;
-    const next = projectStages.find((s, i) => i > idx && !s.is_section_header);
-    if (!next || next.start_date) return;
-    const d = new Date(newPlannedFinishISO);
-    if (isNaN(d)) return;
-    d.setDate(d.getDate() + 1);
-    const nextStart = d.toISOString().split('T')[0];
-    const nextDur = parseInt(next.duration_days) || 0;
-    const patch = { start_date: nextStart };
-    if (nextDur > 0) patch.target_date = addDaysISO(nextStart, nextDur);
+  // A date edit can move every stage below it, and a duration or year typed
+  // digit by digit changes many times a second — so the PATCHes wait until
+  // the typing stops and go out together. flushStageSaves sends them now and
+  // returns true when everything saved.
+  const queueStageSaves = (saves) => {
+    for (const [id, patch] of Object.entries(saves)) {
+      stageSaveQueue.current[id] = { ...stageSaveQueue.current[id], ...patch };
+    }
+    clearTimeout(stageSaveTimer.current);
+    stageSaveTimer.current = setTimeout(flushStageSaves, 700);
+  };
+  const flushStageSaves = async () => {
+    clearTimeout(stageSaveTimer.current);
+    stageSaveTimer.current = null;
+    const queued = Object.entries(stageSaveQueue.current);
+    stageSaveQueue.current = {};
+    if (!queued.length) return true;
+    let ok = true;
+    stageSaveInFlight.current += 1;
     try {
-      await axios.patch(`${API}/projects/${projectId}/project-stages/${next.stage_id}`, patch);
-      fetchData(false);
-    } catch { /* non-fatal — user can edit manually */ }
+      await Promise.all(queued.map(([id, patch]) => axios.patch(`${API}/projects/${projectId}/project-stages/${id}`, cleanStagePatch(patch))));
+    } catch (e) {
+      ok = false;
+      toast.error(stageSaveError(e, 'Auto-save failed'));
+    } finally {
+      stageSaveInFlight.current -= 1;
+    }
+    // Reload what the server now holds, unless more edits are already waiting.
+    if (!stageSaveTimer.current && !stageSaveInFlight.current) {
+      try {
+        const res = await axios.get(`${API}/projects/${projectId}/project-stages`);
+        if (!stageSaveTimer.current && !stageSaveInFlight.current) setProjectStages(res.data);
+      } catch { /* the next refresh picks it up */ }
+    }
+    return ok;
   };
 
-  // Cascade-forward (ACTUAL side): when Actual Finish or Hindrance Delay moves,
-  // push the next non-section stage's Actual Start = finish + delay days.
-  // ── No hindrance → +1 day (next working day).
-  // ── Hindrance N days → +N days from finish (e.g. finish 12-5 + 3 day hindrance
-  //    means crew resumes on 15-5, so 12 + 3 = 15).
-  // Honours manual entries: skips if next row's Actual Start is already filled.
-  // Pass `forceOverwrite=true` to ignore that guard (used by hindrance edits so
-  // the schedule snaps to the new delay immediately).
-  const cascadeForwardActualFromStage = async (currentStageId, finishISO, delayDays, forceOverwrite = false) => {
-    if (!finishISO) return;
-    const idx = projectStages.findIndex(s => s.stage_id === currentStageId);
-    if (idx === -1) return;
-    const next = projectStages.find((s, i) => i > idx && !s.is_section_header);
-    if (!next) return;
-    if (!forceOverwrite && next.actual_start_date) return;
-    const d = new Date(finishISO);
-    if (isNaN(d)) return;
-    const delay = Math.max(1, parseInt(delayDays) || 1);
-    d.setDate(d.getDate() + delay);
-    const nextStart = d.toISOString().split('T')[0];
-    const nextDur = parseInt(next.actual_duration_days) || 0;
-    const patch = { actual_start_date: nextStart };
-    if (nextDur > 0) patch.actual_finish_date = addDaysISO(nextStart, nextDur);
-    try {
-      await axios.patch(`${API}/projects/${projectId}/project-stages/${next.stage_id}`, patch);
-      fetchData(false);
-    } catch { /* non-fatal */ }
+  // Saved-stage Planned/Actual date or hindrance edit: apply `patch`, carry the
+  // change down the rest of the schedule (cascadeStageDates), show it at once
+  // and queue the saves for this stage and every stage that moved.
+  const patchStageDates = (stage, patch) => {
+    if (!globalEditMode) setEditStageData(d => ({ ...d, ...patch }));
+    const idx = projectStages.findIndex(s => s.stage_id === stage.stage_id);
+    if (idx === -1) { autoSaveStageField(stage.stage_id, patch); return; }
+    const before = projectStages[idx];
+    let next = projectStages.map((s, i) => (i === idx ? { ...s, ...patch } : s));
+    next = cascadeStageDates(next, idx, before, STAGE_PLANNED);
+    next = cascadeStageDates(next, idx, before, STAGE_ACTUAL);
+    setProjectStages(next);
+    const saves = { [stage.stage_id]: patch };
+    next.forEach((s, i) => {
+      if (i <= idx || s === projectStages[i]) return;
+      const moved = {};
+      for (const f of ['start_date', 'target_date', 'actual_start_date', 'actual_finish_date']) {
+        if (s[f] !== projectStages[i][f]) moved[f] = s[f];
+      }
+      saves[s.stage_id] = moved;
+    });
+    queueStageSaves(saves);
   };
 
   // Helpers used by both per-row edit AND global Edit All mode.
@@ -5952,6 +6033,8 @@ export default function ProjectDetail() {
                                           updateNewStage(idx, 'hindrances', patch.hindrances);
                                           updateNewStage(idx, 'remarks', patch.hindrances);
                                         }
+                                        // Delay pushes the Actual Start/Finish of the stages below.
+                                        if (patch.hindrance_delay_days !== undefined) updateNewStage(idx, 'hindrance_delay_days', patch.hindrance_delay_days);
                                       }}
                                       compact
                                     />
@@ -6082,8 +6165,7 @@ export default function ProjectDetail() {
                                   const dur = parseInt(stageEditVal(stage, 'duration_days')) || 0;
                                   const currFinish = stageEditVal(stage, 'target_date');
                                   const newFinish = (v && dur > 0) ? addDaysISO(v, dur) : currFinish;
-                                  patchStageInline(stage, { start_date: v || null, target_date: newFinish || currFinish || null, duration_days: dur || daysBetween(v, newFinish || currFinish) || null });
-                                  if (newFinish) cascadeForwardFromStage(stage.stage_id, newFinish);
+                                  patchStageDates(stage, { start_date: v || null, target_date: newFinish || currFinish || null, duration_days: dur || daysBetween(v, newFinish || currFinish) || null });
                                 }} data-testid={`stage-planned-start-${stage.stage_id}`} />
                               ) : (
                                 <span className="text-sm">{stage.start_date ? new Date(stage.start_date).toLocaleDateString('en-IN') : '-'}</span>
@@ -6112,8 +6194,7 @@ export default function ProjectDetail() {
                                     const startVal = stageEditVal(stage, 'start_date');
                                     const currFinish = stageEditVal(stage, 'target_date');
                                     const newFinish = (startVal && dur > 0) ? addDaysISO(startVal, dur) : currFinish;
-                                    patchStageInline(stage, { duration_days: dur || null, target_date: newFinish || null });
-                                    if (newFinish) cascadeForwardFromStage(stage.stage_id, newFinish);
+                                    patchStageDates(stage, { duration_days: dur || null, target_date: newFinish || null });
                                   }}
                                   data-testid={`stage-duration-${stage.stage_id}`}
                                   placeholder="Days"
@@ -6132,8 +6213,7 @@ export default function ProjectDetail() {
                                   const dur = parseInt(stageEditVal(stage, 'actual_duration_days')) || 0;
                                   const currFinish = stageEditVal(stage, 'actual_finish_date');
                                   const newFinish = (v && dur > 0) ? addDaysISO(v, dur) : currFinish;
-                                  patchStageInline(stage, { actual_start_date: v || null, actual_finish_date: newFinish || null });
-                                  if (newFinish) cascadeForwardActualFromStage(stage.stage_id, newFinish, stageEditVal(stage, 'hindrance_delay_days'));
+                                  patchStageDates(stage, { actual_start_date: v || null, actual_finish_date: newFinish || null });
                                 }} />
                               ) : (
                                 <span className="text-sm">{stage.actual_start_date ? new Date(stage.actual_start_date).toLocaleDateString('en-IN') : '-'}</span>
@@ -6162,8 +6242,7 @@ export default function ProjectDetail() {
                                     const startVal = stageEditVal(stage, 'actual_start_date');
                                     const currFinish = stageEditVal(stage, 'actual_finish_date');
                                     const newFinish = (startVal && dur > 0) ? addDaysISO(startVal, dur) : currFinish;
-                                    patchStageInline(stage, { actual_duration_days: dur || null, actual_finish_date: newFinish || null });
-                                    if (newFinish) cascadeForwardActualFromStage(stage.stage_id, newFinish, stageEditVal(stage, 'hindrance_delay_days'));
+                                    patchStageDates(stage, { actual_duration_days: dur || null, actual_finish_date: newFinish || null });
                                   }}
                                   data-testid={`stage-actual-duration-${stage.stage_id}`}
                                   placeholder="Days"
@@ -6243,15 +6322,9 @@ export default function ProjectDetail() {
                                     hindrances: stageEditVal(stage, 'hindrances') || stageEditVal(stage, 'remarks'),
                                     hindrance_delay_days: stageEditVal(stage, 'hindrance_delay_days'),
                                   }}
-                                  onChange={(patch) => {
-                                    patchStageInline(stage, { ...patch, remarks: patch.hindrances ?? null });
-                                    // If hindrance_delay_days changed AND this stage has an Actual Finish,
-                                    // force-cascade the next row's Actual Start so the schedule snaps.
-                                    if ('hindrance_delay_days' in patch) {
-                                      const finish = stageEditVal(stage, 'actual_finish_date');
-                                      if (finish) cascadeForwardActualFromStage(stage.stage_id, finish, patch.hindrance_delay_days, true);
-                                    }
-                                  }}
+                                  // A delay change moves the Actual dates of the stages below.
+                                  onChange={(patch) => patchStageDates(stage, { ...patch, remarks: patch.hindrances ?? null })}
+                                  onSave={async () => { if (await flushStageSaves()) toast.success('Hindrance saved'); }}
                                   compact
                                 />
                               ) : (

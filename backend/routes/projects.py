@@ -8323,6 +8323,11 @@ async def add_project_stages_bulk(project_id: str, stages: List[ProjectStageCrea
 @router.patch("/projects/{project_id}/project-stages/{stage_id}")
 async def update_project_stage(project_id: str, stage_id: str, data: ProjectStageUpdate, user: User = Depends(get_current_user)):
     updates = {k: v for k, v in data.model_dump().items() if v is not None}
+    # A hindrance can be cleared (× in the Hindrances picker), so these fields
+    # sent explicitly as null are cleared; any other null still means "leave it".
+    for k in {"hindrance_type", "hindrance_reason", "hindrances", "hindrance_delay_days", "remarks"} & data.model_fields_set:
+        if getattr(data, k) is None:
+            updates[k] = None
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     
@@ -8333,6 +8338,7 @@ async def update_project_stage(project_id: str, stage_id: str, data: ProjectStag
         "duration_days": "Duration", "actual_start_date": "Actual Start",
         "actual_finish_date": "Actual Finish", "progress": "Progress", "hindrances": "Hindrance notes",
         "hindrance_type": "Hindrance type", "hindrance_reason": "Hindrance reason",
+        "hindrance_delay_days": "Hindrance delay",
         "depends_on": "Depends on", "status": "Status", "remarks": "Remarks",
         "sl_no": "Sl.No", "section_title": "Section",
     }
