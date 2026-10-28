@@ -350,7 +350,15 @@ function HindrancePicker({ value, onChange, onSave, compact = false }) {
           </button>
         ))}
         {(hType || hReason) && (
-          <button type="button" className="text-[10px] px-1.5 py-0.5 text-gray-400 hover:text-rose-500" onClick={clear} title="Clear">×</button>
+          <button
+            type="button"
+            className="h-5 w-5 shrink-0 inline-flex items-center justify-center rounded-full border border-gray-300 bg-white text-gray-500 hover:bg-rose-50 hover:border-rose-300 hover:text-rose-600"
+            onClick={clear}
+            title="Clear"
+            data-testid="hindrance-clear"
+          >
+            <X className="h-3 w-3" />
+          </button>
         )}
         {hType && (
           <button
