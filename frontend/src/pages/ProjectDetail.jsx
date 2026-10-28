@@ -124,8 +124,11 @@ const diffDaysISO = (fromISO, toISO) =>
 // Project Stages schedule cascade. A stage starts the day after the stage above
 // it finishes; on the Actual side a hindrance delay on the stage above adds its
 // days on top (finish 12th + 2-day delay → next stage starts 15th).
-const STAGE_PLANNED = { start: 'start_date', finish: 'target_date', dur: 'duration_days', delay: null };
-const STAGE_ACTUAL = { start: 'actual_start_date', finish: 'actual_finish_date', dur: 'actual_duration_days', delay: 'hindrance_delay_days' };
+// `snap`: when the stage above gets its first finish (e.g. a row just inserted
+// above), the next stage's existing start snaps to the day after it. Planned
+// only — a recorded Actual Start is a fact and is left alone in that case.
+const STAGE_PLANNED = { start: 'start_date', finish: 'target_date', dur: 'duration_days', delay: null, snap: true };
+const STAGE_ACTUAL = { start: 'actual_start_date', finish: 'actual_finish_date', dur: 'actual_duration_days', delay: 'hindrance_delay_days', snap: false };
 const stageNextStart = (s, side) => {
   if (!s?.[side.finish]) return '';
   const delay = side.delay ? Math.max(0, parseInt(s[side.delay]) || 0) : 0;
@@ -148,13 +151,44 @@ const cascadeStageDates = (rows, idx, before, side) => {
     let start;
     if (!cur[side.start]) start = newNext;
     else if (oldNext) start = shiftISO(cur[side.start], diffDaysISO(oldNext, newNext));
-    else break; // a start typed before the stage above had a finish — leave it
+    else if (side.snap) start = newNext;
+    else break;
     const dur = parseInt(cur[side.dur]) || daysBetween(cur[side.start], cur[side.finish]) || 0;
     out[j] = { ...cur, [side.start]: start, [side.finish]: dur ? addDaysISO(start, dur) : cur[side.finish] };
     prevBefore = cur;
     prevAfter = out[j];
   }
   return out;
+};
+
+// A blank row for the Add Project Stages form. `_key` keeps each React row
+// (and its Hindrances ✓ state) with its own stage when rows are inserted or
+// removed mid-list; the backend ignores it.
+let newStageKeySeq = 0;
+const blankNewStage = (extra = {}) => ({
+  stage_name: '', start_date: '', target_date: '', duration_days: '', status: 'yet_to_start',
+  remarks: '', hindrances: '', sl_no: '', section_title: '', is_section_header: false,
+  actual_start_date: '', actual_finish_date: '', actual_duration_days: '', progress: 0,
+  depends_on: '', hindrance_type: '', hindrance_reason: '', hindrance_delay_days: '',
+  _key: ++newStageKeySeq,
+  ...extra,
+});
+// Next Sl.No after `slNo`, keeping its prefix and zero padding: PO4 → PO5, FW09 → FW10.
+const nextSlNo = (slNo) => {
+  const m = String(slNo || '').match(/^(.*?)(\d+)$/);
+  return m ? m[1] + String(Number(m[2]) + 1).padStart(m[2].length, '0') : '';
+};
+// Add-form row → API payload. Cleared number boxes hold '' — the backend
+// wants a number or null; Duration falls back to the dates when not typed.
+const newStagePayload = (s) => {
+  const intOrNull = (v) => { const n = parseInt(v); return Number.isFinite(n) ? n : null; };
+  return {
+    ...s,
+    duration_days: parseInt(s.duration_days) || daysBetween(s.start_date, s.target_date) || null,
+    actual_duration_days: parseInt(s.actual_duration_days) || daysBetween(s.actual_start_date, s.actual_finish_date) || null,
+    progress: intOrNull(s.progress),
+    hindrance_delay_days: intOrNull(s.hindrance_delay_days),
+  };
 };
 const InlineEditRate = ({ initial, onSave, mode = 'percent' }) => {
   const [editing, setEditing] = useState(false);
@@ -1170,7 +1204,7 @@ export default function ProjectDetail() {
   const [stageTemplates, setStageTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [showAddStages, setShowAddStages] = useState(false);
-  const [newStages, setNewStages] = useState([{ stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '', hindrances: '', sl_no: '', section_title: '', is_section_header: false, actual_start_date: '', actual_finish_date: '', duration_days: '', actual_duration_days: '', progress: 0, depends_on: '', hindrance_type: '', hindrance_reason: '' }]);
+  const [newStages, setNewStages] = useState(() => [blankNewStage()]);
   const [saveTemplateDialog, setSaveTemplateDialog] = useState(false);
   const [templateName, setTemplateName] = useState('');
   const [editingStageId, setEditingStageId] = useState(null);
@@ -3027,7 +3061,7 @@ export default function ProjectDetail() {
     if (!name) return;
     try {
       const res = await axios.get(`${API}/stage-templates/${encodeURIComponent(name)}`);
-      const tmplStages = (res.data.stages || []).map(s => ({
+      const tmplStages = (res.data.stages || []).map(s => blankNewStage({
         stage_name: s.stage_name || '',
         start_date: s.start_date || '',
         target_date: s.target_date || '',
@@ -3046,44 +3080,32 @@ export default function ProjectDetail() {
   };
 
   const addNewStageRow = () => {
-    setNewStages(prev => [...prev, {
-      stage_name: '',
-      start_date: '',
-      target_date: '',
-      status: 'yet_to_start',
-      remarks: '',
-      hindrances: '',
-      sl_no: '',
-      section_title: '',
-      is_section_header: false,
-      actual_start_date: '',
-      actual_finish_date: '',
-      duration_days: '',
-      progress: 0,
-      depends_on: '',
-      hindrance_type: '',
-      hindrance_reason: '',
-    }]);
+    setNewStages(prev => [...prev, blankNewStage()]);
   };
   const addNewTitleRow = () => {
-    setNewStages(prev => [...prev, {
-      stage_name: '',
-      section_title: '',
-      is_section_header: true,
-      status: 'yet_to_start',
-      sl_no: '',
-      start_date: '',
-      target_date: '',
-      actual_start_date: '',
-      actual_finish_date: '',
-      duration_days: '',
-      progress: 0,
-      remarks: '',
-      hindrances: '',
-      depends_on: '',
-      hindrance_type: '',
-      hindrance_reason: '',
-    }]);
+    setNewStages(prev => [...prev, blankNewStage({ is_section_header: true })]);
+  };
+  // "+ Add Row" / "+ Add Title Row" on a section title row: insert at the end
+  // of that section, just before the next title row. A new stage row takes the
+  // next Sl.No in the section (PO4 → PO5) and is planned to start the day
+  // after the stage above it finishes.
+  const insertIntoNewSection = (headerIdx, asTitle) => {
+    setNewStages(prev => {
+      let end = prev.findIndex((s, i) => i > headerIdx && s.is_section_header);
+      if (end === -1) end = prev.length;
+      let row;
+      if (asTitle) {
+        row = blankNewStage({ is_section_header: true });
+      } else {
+        const lastInSection = prev.slice(headerIdx + 1, end).reverse().find(s => !s.is_section_header);
+        const above = prev.slice(0, end).reverse().find(s => !s.is_section_header);
+        row = blankNewStage({
+          sl_no: nextSlNo(lastInSection?.sl_no),
+          start_date: above ? stageNextStart(above, STAGE_PLANNED) : '',
+        });
+      }
+      return [...prev.slice(0, end), row, ...prev.slice(end)];
+    });
   };
   const removeNewStageRow = (idx) => {
     setNewStages(prev => prev.filter((_, i) => i !== idx));
@@ -3123,31 +3145,20 @@ export default function ProjectDetail() {
   };
 
   const handleSaveStages = async () => {
-    const intOrNull = (v) => { const n = parseInt(v); return Number.isFinite(n) ? n : null; };
-    const valid = newStages
-      .filter(s => s.stage_name.trim())
-      // Use user-entered Duration when present, else derive from the dates.
-      // Cleared number boxes hold '' — the backend wants a number or null.
-      .map(s => ({
-        ...s,
-        duration_days: parseInt(s.duration_days) || daysBetween(s.start_date, s.target_date) || null,
-        actual_duration_days: parseInt(s.actual_duration_days) || daysBetween(s.actual_start_date, s.actual_finish_date) || null,
-        progress: intOrNull(s.progress),
-        hindrance_delay_days: intOrNull(s.hindrance_delay_days),
-      }));
+    const valid = newStages.filter(s => s.stage_name.trim()).map(newStagePayload);
     if (!valid.length) { toast.error('Add at least one stage'); return; }
     try {
       await axios.post(`${API}/projects/${projectId}/project-stages/bulk`, valid);
       toast.success(`Added ${valid.length} stages`);
       setShowAddStages(false);
-      setNewStages([{ stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '', hindrances: '', sl_no: '', section_title: '', is_section_header: false, actual_start_date: '', actual_finish_date: '', duration_days: '', progress: 0 }]);
+      setNewStages([blankNewStage()]);
       fetchData(false);
     } catch (error) { toast.error('Failed to add stages'); }
   };
 
   const handleSaveAsTemplate = async () => {
     if (!templateName.trim()) { toast.error('Enter template name'); return; }
-    const valid = newStages.filter(s => s.stage_name.trim());
+    const valid = newStages.filter(s => s.stage_name.trim()).map(newStagePayload);
     if (!valid.length) { toast.error('Add at least one stage'); return; }
     try {
       await axios.post(`${API}/stage-templates`, { template_name: templateName, stages: valid });
@@ -5905,18 +5916,28 @@ export default function ProjectDetail() {
                           <tbody className="divide-y divide-gray-200">
                             {newStages.map((stage, idx) => (
                               stage.is_section_header ? (
-                                <tr key={idx} className="bg-slate-100" data-testid={`new-section-row-${idx}`}>
-                                  <td colSpan={10} className="px-2 py-2">
-                                    <input
-                                      type="text"
-                                      placeholder="SECTION TITLE (e.g. Foundation work)"
-                                      className="w-full bg-transparent text-sm sm:text-base font-bold text-slate-800 uppercase tracking-wide outline-none border-0"
-                                      value={stage.section_title || stage.stage_name || ''}
-                                      onChange={(e) => {
-                                        updateNewStage(idx, 'section_title', e.target.value);
-                                        updateNewStage(idx, 'stage_name', e.target.value);
-                                      }}
-                                    />
+                                <tr key={stage._key ?? idx} className="bg-slate-100" data-testid={`new-section-row-${idx}`}>
+                                  <td colSpan={11} className="px-2 py-2">
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="text"
+                                        placeholder="SECTION TITLE (e.g. Foundation work)"
+                                        className="flex-1 min-w-[200px] bg-transparent text-sm sm:text-base font-bold text-slate-800 uppercase tracking-wide outline-none border-0"
+                                        value={stage.section_title || stage.stage_name || ''}
+                                        onChange={(e) => {
+                                          updateNewStage(idx, 'section_title', e.target.value);
+                                          updateNewStage(idx, 'stage_name', e.target.value);
+                                        }}
+                                        autoFocus={!stage.section_title && !stage.stage_name}
+                                        data-testid={`section-title-input-${idx}`}
+                                      />
+                                      <Button variant="outline" size="sm" className="h-7 px-2 text-xs bg-white whitespace-nowrap" onClick={() => insertIntoNewSection(idx, false)} data-testid={`section-add-row-${idx}`}>
+                                        <Plus className="h-3 w-3 mr-1" /> Add Row
+                                      </Button>
+                                      <Button variant="outline" size="sm" className="h-7 px-2 text-xs bg-white whitespace-nowrap border-slate-400 text-slate-700" onClick={() => insertIntoNewSection(idx, true)} data-testid={`section-add-title-${idx}`}>
+                                        <Plus className="h-3 w-3 mr-1" /> Add Title Row
+                                      </Button>
+                                    </div>
                                   </td>
                                   <td className="px-2 py-2 text-center">
                                     <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => removeNewStageRow(idx)}>
@@ -5925,7 +5946,7 @@ export default function ProjectDetail() {
                                   </td>
                                 </tr>
                               ) : (
-                                <tr key={idx} className="hover:bg-gray-50" data-testid={`new-stage-row-${idx}`}>
+                                <tr key={stage._key ?? idx} className="hover:bg-gray-50" data-testid={`new-stage-row-${idx}`}>
                                   <td className="px-2 py-2">
                                     <input
                                       type="text"
@@ -5943,6 +5964,7 @@ export default function ProjectDetail() {
                                       className="w-full min-w-[160px] border rounded px-2 py-1 text-sm"
                                       value={stage.stage_name}
                                       onChange={(e) => updateNewStage(idx, 'stage_name', e.target.value)}
+                                      autoFocus={!stage.stage_name}
                                       data-testid={`stage-name-input-${idx}`}
                                     />
                                   </td>
@@ -6074,7 +6096,7 @@ export default function ProjectDetail() {
                         <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleSaveStages} data-testid="save-stages-btn">
                           <Check className="h-3 w-3 mr-1" /> Save Stages
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => { setShowAddStages(false); setNewStages([{ stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '', hindrances: '', sl_no: '', section_title: '', is_section_header: false, actual_start_date: '', actual_finish_date: '', duration_days: '', progress: 0 }]); }}>
+                        <Button variant="outline" size="sm" onClick={() => { setShowAddStages(false); setNewStages([blankNewStage()]); }}>
                           Cancel
                         </Button>
                       </div>
@@ -6139,7 +6161,7 @@ export default function ProjectDetail() {
                                 <td className="px-1 py-2 text-center">
                                   {canManage && <DragHandle listeners={listeners} attributes={attributes} />}
                                 </td>
-                                <td colSpan={canManage ? 11 : 10} className="px-3 py-2.5">
+                                <td colSpan={canManage ? 12 : 11} className="px-3 py-2.5">
                                   <div className="flex items-center justify-between gap-2">
                                     <span className="text-sm sm:text-base font-bold text-slate-800 uppercase tracking-wide">
                                       {stage.section_title || stage.stage_name}
