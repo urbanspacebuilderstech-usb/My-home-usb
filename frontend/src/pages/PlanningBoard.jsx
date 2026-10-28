@@ -270,6 +270,33 @@ const isCompletedScheduleEntry = (e) => {
   return balance <= Math.min(1000, Math.abs(amount) * 0.001);
 };
 
+// Payment Schedule: a row's Status badge, derived from the month's figures so
+// the badge, the sub-tab and the cards always agree. Shared by the Payment
+// Schedule table and the read-only Top Sheet.
+const scheduleEntryStatus = (e) => {
+  const { received } = scheduleRowMoney(e);
+  const hasPendingApproval = (e.pending_approval_count || 0) > 0;
+  const isFullyCollected = isCompletedScheduleEntry(e);
+  const effectiveStatus = isFullyCollected ? 'collected' : received > 0 ? 'partial' : 'pending';
+  const stageStatusConfig = {
+    pending:   { label: 'Not Collected',           cls: 'bg-gray-100 text-gray-700' },
+    partial:   { label: 'Partially Collected',    cls: 'bg-amber-100 text-amber-700' },
+    collected: { label: 'Collected',               cls: 'bg-green-100 text-green-700' },
+  };
+  const isCRERejected = e.workflow_status === 'cre_rejected' || (e.cre_rejection_reason && e.workflow_status !== 'requested' && e.workflow_status !== 'collected');
+  const isAccRejected = !!e.accountant_rejection_reason && e.workflow_status === 'requested';
+  const cfg = isCRERejected
+    ? { label: '🔴 CRE Rejected — Edit & Resubmit', cls: 'bg-red-100 text-red-700 border-red-300' }
+    : isAccRejected
+    ? { label: '🔴 Accountant Rejected — Re-collect', cls: 'bg-red-100 text-red-700 border-red-300' }
+    : hasPendingApproval
+    ? { label: 'Pending Accountant Approval', cls: 'bg-orange-100 text-orange-700' }
+    : e.workflow_status === 'requested' && !isFullyCollected
+    ? { label: 'Requested — Awaiting CRE', cls: 'bg-blue-100 text-blue-700' }
+    : (stageStatusConfig[effectiveStatus] || stageStatusConfig.pending);
+  return { cfg, isFullyCollected, isCRERejected, isAccRejected };
+};
+
 export default function PlanningBoard({ embedded = false }) {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -420,6 +447,24 @@ export default function PlanningBoard({ embedded = false }) {
     const balance = scheduleTabEntries.reduce((s, e) => s + scheduleRowMoney(e).balance, 0);
     return { stages: scheduleFilteredEntries.length, planned, received, balance };
   }, [scheduleFilteredEntries, scheduleTabEntries]);
+  // Oct 28 2026 — Top Sheet: the same rows as the Payment Schedule (same
+  // month, filters and sub-tab), one row per project with its stages behind
+  // a dropdown. Read-only.
+  const topSheetProjects = React.useMemo(() => {
+    const byProject = new Map();
+    scheduleTabEntries.forEach(e => {
+      const key = e.project_id || e.project_name;
+      if (!byProject.has(key)) byProject.set(key, { key, name: e.project_name, entries: [], amount: 0, received: 0, balance: 0 });
+      const p = byProject.get(key);
+      const m = scheduleRowMoney(e);
+      p.entries.push(e);
+      p.amount += m.amount;
+      p.received += m.received;
+      p.balance += m.balance;
+    });
+    return [...byProject.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [scheduleTabEntries]);
+  const [topSheetOpen, setTopSheetOpen] = useState({});
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [scheduleError, setScheduleError] = useState('');
   // Until the shown month's request lands, the rows in hand belong to another
@@ -528,7 +573,7 @@ export default function PlanningBoard({ embedded = false }) {
       if (materials.length === 0) fetchMaterials();
       if (packages.length === 0) fetchPackages();
     }
-    if (sub === 'payment_schedule') {
+    if (sub === 'payment_schedule' || sub === 'top_sheet') {
       // The project list is a heavy call. Sent alongside the schedule, the two
       // competed on the server and the schedule came back later, so it waits.
       fetchMonthlySchedule().finally(() => {
@@ -1358,6 +1403,7 @@ export default function PlanningBoard({ embedded = false }) {
                 { key: 'labour_summary', label: 'Contractor Summary' },
                 { key: 'rough_estimates', label: 'Rough Estimates', badge: reNewCount },
                 { key: 'payment_schedule', label: 'Payment Schedule' },
+                { key: 'top_sheet', label: 'Top Sheet' },
                 { key: 'dlr_dpr', label: 'DLR & DPR' },
               ].filter(tab => !tab.gated || tab.gated.includes(user?.role)).map(tab => (
                 <button
@@ -1837,20 +1883,20 @@ export default function PlanningBoard({ embedded = false }) {
               <REProjectsPage embedded />
             )}
 
-            {/* ---- Dashboard > Payment Schedule ---- */}
-            {dashSubTab === 'payment_schedule' && (
+            {/* ---- Dashboard > Payment Schedule / Top Sheet ---- */}
+            {(dashSubTab === 'payment_schedule' || dashSubTab === 'top_sheet') && (
               <div className="space-y-4">
                 {/* Month Navigation */}
                 <Card>
                   <CardContent className="p-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-3">
                       <div className="flex items-center gap-3">
                         <Button size="sm" variant="outline" onClick={() => handleScheduleMonthChange(-1)} data-testid="schedule-prev-month"><ArrowRight className="h-4 w-4 rotate-180" /></Button>
                         <div className="text-center min-w-[140px]">
                           <p className="text-lg font-bold text-gray-900" data-testid="schedule-current-month">{MONTH_NAMES[scheduleMonth]} {scheduleYear}</p>
                           <p className="text-xs text-gray-500 inline-flex items-center gap-1" data-testid="schedule-subtitle">
                             {scheduleLoading && <Loader2 className="h-3 w-3 animate-spin" />}
-                            {scheduleLoading ? 'Loading…' : 'Payment Schedule'}
+                            {scheduleLoading ? 'Loading…' : dashSubTab === 'top_sheet' ? 'Top Sheet' : 'Payment Schedule'}
                           </p>
                         </div>
                         <Button size="sm" variant="outline" onClick={() => handleScheduleMonthChange(1)} data-testid="schedule-next-month"><ArrowRight className="h-4 w-4" /></Button>
@@ -1932,6 +1978,100 @@ export default function PlanningBoard({ embedded = false }) {
                           <Button size="sm" variant="outline" onClick={fetchMonthlySchedule} data-testid="planning-ps-retry">Retry</Button>
                         </div>
                       ) : (<div className="p-8 text-center text-gray-400">Loading...</div>)
+                    ) : dashSubTab === 'top_sheet' ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm" data-testid="top-sheet-table">
+                          <thead className="bg-gray-50 border-y">
+                            <tr>
+                              <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Received</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {topSheetProjects.length === 0 ? (
+                              <tr><td colSpan="4" className="p-8 text-center text-gray-400">No {scheduleSubTab === 'all' ? '' : scheduleSubTab + ' '}stages for {MONTH_NAMES[scheduleMonth]} {scheduleYear}.</td></tr>
+                            ) : topSheetProjects.map(p => {
+                              const open = !!topSheetOpen[p.key];
+                              return (
+                                <React.Fragment key={p.key}>
+                                  <tr
+                                    className={`cursor-pointer hover:bg-gray-50 ${open ? 'bg-indigo-50/40' : ''}`}
+                                    onClick={() => setTopSheetOpen(s => ({ ...s, [p.key]: !s[p.key] }))}
+                                    data-testid={`top-sheet-project-${p.key}`}
+                                  >
+                                    <td className="px-4 py-2.5">
+                                      <div className="flex items-center gap-2">
+                                        {open ? <ChevronDown className="h-4 w-4 text-indigo-600 shrink-0" /> : <ChevronRight className="h-4 w-4 text-gray-400 shrink-0" />}
+                                        <div>
+                                          <p className="font-medium text-sm">{p.name}</p>
+                                          <p className="text-[10px] text-gray-400">{p.entries.length} stage{p.entries.length === 1 ? '' : 's'}</p>
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(p.amount)}</td>
+                                    <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(p.received)}</td>
+                                    <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(p.balance)}</td>
+                                  </tr>
+                                  {open && (
+                                    <tr data-testid={`top-sheet-stages-${p.key}`}>
+                                      <td colSpan="4" className="px-4 py-2 bg-gray-50/70">
+                                        <div className="overflow-x-auto rounded-md border bg-white">
+                                          <table className="w-full min-w-[640px] text-sm">
+                                            <thead className="bg-gray-50 border-b">
+                                              <tr>
+                                                <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-500 uppercase">Stage</th>
+                                                <th className="px-3 py-2 text-right text-[11px] font-medium text-gray-500 uppercase">Amount</th>
+                                                <th className="px-3 py-2 text-right text-[11px] font-medium text-gray-500 uppercase">Received</th>
+                                                <th className="px-3 py-2 text-right text-[11px] font-medium text-gray-500 uppercase">Balance</th>
+                                                <th className="px-3 py-2 text-center text-[11px] font-medium text-gray-500 uppercase whitespace-nowrap">Release Date</th>
+                                                <th className="px-3 py-2 text-center text-[11px] font-medium text-gray-500 uppercase">Status</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody className="divide-y">
+                                              {p.entries.map(e => {
+                                                const { amount: rowAmount, received, balance } = scheduleRowMoney(e);
+                                                const { cfg, isCRERejected, isAccRejected } = scheduleEntryStatus(e);
+                                                const releaseDate = (e.expected_payment_date || '').slice(0, 10);
+                                                const rejectReason = isCRERejected ? e.cre_rejection_reason : isAccRejected ? e.accountant_rejection_reason : '';
+                                                return (
+                                                  <tr key={e.entry_id} data-testid={`top-sheet-stage-${e.entry_id}`}>
+                                                    <td className="px-3 py-2 text-sm">
+                                                      {e.stage_name}
+                                                      {e.is_carryover && (
+                                                        <Badge className="ml-1.5 bg-red-50 text-red-700 border-red-200 text-[10px] align-middle whitespace-nowrap">
+                                                          🔴 Last Month Pending{e.carry_from_month ? ` (${new Date(2000, e.carry_from_month - 1, 1).toLocaleString('en-IN', { month: 'short' })} ${e.carry_from_year})` : ''}
+                                                        </Badge>
+                                                      )}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right font-medium">{formatCurrency(rowAmount)}</td>
+                                                    <td className="px-3 py-2 text-right text-green-600">
+                                                      {formatCurrency(received)}
+                                                      {(e.pending_approval_amount || 0) > 0 && (
+                                                        <p className="text-[10px] text-orange-600">+{formatCurrency(e.pending_approval_amount)} pending</p>
+                                                      )}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right text-red-600">{formatCurrency(balance)}</td>
+                                                    <td className="px-3 py-2 text-center whitespace-nowrap">{releaseDate ? releaseDate.split('-').reverse().join('-') : '—'}</td>
+                                                    <td className="px-3 py-2 text-center">
+                                                      <Badge variant="outline" className={`text-xs ${cfg.cls}`} title={rejectReason ? `Reason: ${rejectReason}` : undefined}>{cfg.label}</Badge>
+                                                    </td>
+                                                  </tr>
+                                                );
+                                              })}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </React.Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm" data-testid="payment-schedule-table">
@@ -1956,25 +2096,7 @@ export default function PlanningBoard({ embedded = false }) {
                               // This month's figures; status is derived from them so the badge,
                               // the sub-tab and the cards always agree.
                               const { amount: rowAmount, received, balance } = scheduleRowMoney(e);
-                              const hasPendingApproval = (e.pending_approval_count || 0) > 0;
-                              const isFullyCollected = isCompletedScheduleEntry(e);
-                              const effectiveStatus = isFullyCollected ? 'collected' : received > 0 ? 'partial' : 'pending';
-                              const stageStatusConfig = {
-                                pending:   { label: 'Not Collected',           cls: 'bg-gray-100 text-gray-700' },
-                                partial:   { label: 'Partially Collected',    cls: 'bg-amber-100 text-amber-700' },
-                                collected: { label: 'Collected',               cls: 'bg-green-100 text-green-700' },
-                              };
-                              const isCRERejected = e.workflow_status === 'cre_rejected' || (e.cre_rejection_reason && e.workflow_status !== 'requested' && e.workflow_status !== 'collected');
-                              const isAccRejected = !!e.accountant_rejection_reason && e.workflow_status === 'requested';
-                              const cfg = isCRERejected
-                                ? { label: '🔴 CRE Rejected — Edit & Resubmit', cls: 'bg-red-100 text-red-700 border-red-300' }
-                                : isAccRejected
-                                ? { label: '🔴 Accountant Rejected — Re-collect', cls: 'bg-red-100 text-red-700 border-red-300' }
-                                : hasPendingApproval
-                                ? { label: 'Pending Accountant Approval', cls: 'bg-orange-100 text-orange-700' }
-                                : e.workflow_status === 'requested' && !isFullyCollected
-                                ? { label: 'Requested — Awaiting CRE', cls: 'bg-blue-100 text-blue-700' }
-                                : (stageStatusConfig[effectiveStatus] || stageStatusConfig.pending);
+                              const { cfg, isFullyCollected, isCRERejected, isAccRejected } = scheduleEntryStatus(e);
                               const releaseDate = (e.expected_payment_date || '').slice(0, 10);
                               // A past month's row keeps the balance that month ended on;
                               // the Release Date (a new payment request) is about the stage
