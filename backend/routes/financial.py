@@ -29,6 +29,7 @@ from services.expense_engine import (
     carry_forward_expense,
     carry_forward_income,
     fetch_expense_source_docs,
+    EXPENSE_FETCH_LIMIT,
 )
 
 logger = logging.getLogger(__name__)
@@ -18267,6 +18268,84 @@ async def cash_movement_since_close(
             "above, in Close Books, then close. Do not change any transaction."
         ),
     })
+
+
+# --- TEMPORARY DIAGNOSTIC (Oct 28 2026) ------------------------------------
+# Close Books > CASH has carried "Surplus 18,963" since the Oct 6 close (Oct 3
+# matched to the paisa). The figures in that dialog are rebuilt from records
+# that have changed since - modes repaired, rows deleted, rules redeployed - so
+# the only way to prove where the 18,963 came from is to replay those records
+# as they stood at each close. This hands over the raw records (and the audit
+# trail of every change made to them) for that replay. Remove once the
+# surplus has been traced and cleared.
+
+_CASH_EVIDENCE_TEXT_CAP = 500
+
+
+def _cash_evidence_trim(v):
+    """Cap long strings (base64 bills, notes) so the file stays small."""
+    if isinstance(v, str):
+        return v if len(v) <= _CASH_EVIDENCE_TEXT_CAP else v[:_CASH_EVIDENCE_TEXT_CAP] + "…"
+    if isinstance(v, dict):
+        return {k: _cash_evidence_trim(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_cash_evidence_trim(x) for x in v]
+    return v
+
+
+@router.get("/admin/cash-surplus-evidence")
+async def cash_surplus_evidence(user: User = Depends(get_current_user)):
+    """TEMPORARY read-only: download the records behind the CASH book and the
+    Close Books "+ Add Suspense" figure, plus the audit trail, as one file.
+
+    Reads only. No writes.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+
+    audit_window = {"$gte": "2026-09-25", "$lte": "2026-10-09"}
+    (closings, lock_doc, suspense, labour_ledger, petty, recorded, labour,
+     material_requests, material_expenses, income, projects, audit) = await asyncio.gather(
+        db.daily_closings.find({}, {"_id": 0}).to_list(5000),
+        db.closing_balances.find_one({"_id": CLOSING_BALANCE_DOC_ID}, {"_id": 0}),
+        db.suspense_entries.find({}, {"_id": 0}).to_list(50000),
+        db.contractor_suspense_ledger.find({}, {"_id": 0}).to_list(50000),
+        db.petty_cash.find({}, {"_id": 0}).to_list(50000),
+        db.recorded_expenses.find({}, {"_id": 0}).to_list(EXPENSE_FETCH_LIMIT),
+        db.labour_expenses.find({}, {"_id": 0}).to_list(EXPENSE_FETCH_LIMIT),
+        db.material_requests.find({}, {"_id": 0}).to_list(EXPENSE_FETCH_LIMIT),
+        db.material_expenses.find({}, {"_id": 0}).to_list(EXPENSE_FETCH_LIMIT),
+        db.income.find({}, {"_id": 0}).to_list(50000),
+        db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1, "status": 1,
+                              "planning_status": 1, "created_at": 1}).to_list(5000),
+        # Every audit entry around the Oct 3 - Oct 7 closes, plus every
+        # repair that touched suspense or USB-MR511/MR034 at any time.
+        db.audit_logs.find({"$or": [
+            {"timestamp": audit_window},
+            {"created_at": audit_window},
+            {"action": {"$regex": "suspense|mr511|mr034|cheque_tag|sendback|daily_closing", "$options": "i"}},
+        ]}, {"_id": 0}).to_list(100000),
+    )
+
+    payload = _cash_evidence_trim({
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "read_only": True,
+        "daily_closings": closings,
+        "closing_balance_lock": lock_doc,
+        "suspense_entries": suspense,
+        "contractor_suspense_ledger": labour_ledger,
+        "petty_cash": petty,
+        "recorded_expenses": recorded,
+        "labour_expenses": labour,
+        "material_requests": material_requests,
+        "material_expenses": material_expenses,
+        "income": income,
+        "projects": projects,
+        "audit_logs": audit,
+    })
+    resp = fast_json(payload)
+    resp.headers["Content-Disposition"] = 'attachment; filename="cash-surplus-evidence.json"'
+    return resp
 
 
 # --- TEMPORARY DIAGNOSTIC (Oct 8 2026) -------------------------------------
