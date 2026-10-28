@@ -2019,6 +2019,15 @@ export default function PlanningBoard({ embedded = false }) {
                                       <td colSpan="4" className="px-4 py-2 bg-gray-50/70">
                                         <div className="overflow-x-auto rounded-md border bg-white">
                                           <table className="w-full min-w-[640px] text-sm">
+                                            {/* Fixed shares, so the Stage column doesn't take all the spare width. */}
+                                            <colgroup>
+                                              <col className="w-[32%]" />
+                                              <col className="w-[11%]" />
+                                              <col className="w-[11%]" />
+                                              <col className="w-[11%]" />
+                                              <col className="w-[12%]" />
+                                              <col className="w-[23%]" />
+                                            </colgroup>
                                             <thead className="bg-gray-50 border-b">
                                               <tr>
                                                 <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-500 uppercase">Stage</th>
