@@ -4882,18 +4882,28 @@ async def accountant_reject_material_request(request_id: str, reason: str = "", 
         re-assignment instead (Jul 27 2026 — this used to stay terminal,
         which was wrong: an advance-mode reject was landing in Purchase
         Verification when routed through the legacy expense-reject path,
-        implying a delivery existed to re-check when none ever happened)."""
+        implying a delivery existed to re-check when none ever happened).
+
+    Oct 29 2026 — a bounced advance goes to New Request too, at any stage
+    (USB-MR2449: full advance paid, delivered, cheque #1111 bounced, the
+    reject sent it to Purchase Verification). A bounced post-payment or
+    balance cheque still goes to Purchase Verification. The bounce flag is
+    cleared so the request leaves the Accountant queue, which lists bounced
+    requests at any status (a second Reject there ended it at accounts_rejected)."""
     if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Accountant can reject")
 
-    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0, "status": 1, "material_name": 1})
+    request = await db.material_requests.find_one(
+        {"request_id": request_id}, {"_id": 0, "request_id": 1, "status": 1, "material_name": 1, "cheque_bounced": 1})
     if not request:
         raise HTTPException(status_code=404, detail="Request not found")
 
     now_iso = datetime.now(timezone.utc).isoformat()
     current_status = request.get("status")
-    if current_status in ("pending_accounts_approval", "pending_balance_payment", "pending_advance_payment"):
-        target_status = "procurement_revision" if current_status == "pending_advance_payment" else "procurement_verifying"
+    if current_status in ("pending_accounts_approval", "pending_balance_payment", "pending_advance_payment") or (
+            request.get("cheque_bounced") and current_status == "procurement_verifying"):
+        from routes.procurement import _rejecting_the_advance
+        target_status = "procurement_revision" if await _rejecting_the_advance(request) else "procurement_verifying"
         await db.material_requests.update_one(
             {"request_id": request_id},
             {"$set": {
@@ -4902,7 +4912,10 @@ async def accountant_reject_material_request(request_id: str, reason: str = "", 
                 "accounts_rejected_by_name": user.name,
                 "accounts_rejected_reason": reason,
                 "accounts_rejected_at": now_iso,
-            }}
+                "cheque_bounced": False,
+            },
+             # paying the new order must not jump back to the bounced one's Completed
+             **({"$unset": {"reopened_by_bounce_from_status": ""}} if target_status == "procurement_revision" else {})}
         )
         # Oct 26 2026 — and its bill leaves Approvals until Procurement sends
         # it again (USB-MR2374's stayed payable there).

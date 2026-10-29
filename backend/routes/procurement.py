@@ -2717,11 +2717,20 @@ def _accounts_rejected_on_site(req: dict) -> bool:
     """Oct 22 2026 — Accounts rejecting a delivered bill parks the request at
     procurement_verifying with accounts_rejected_at. Same rule as the
     Procurement board's isAccountsRejected: the reject counts until the SE
-    logs a newer receipt (a Verification reject → re-collect cycle)."""
+    logs a newer receipt (a Verification reject → re-collect cycle).
+
+    Oct 29 2026 — a rejected bounced advance goes to New Request
+    (procurement_revision) even when the material is on site (USB-MR2449,
+    full advance, cheque #1111 bounced after delivery), so re-approving it
+    restarts the order. Counts until a later SE or Planning send-back, as on
+    the board's isAccountsRejectedAdvance."""
     at = req.get("accounts_rejected_at")
+    received = req.get("received_at")
+    if at and received and req.get("status") == "procurement_revision":
+        return all(not t or str(at) > str(t) for t in (
+            received, req.get("se_rejected_verification_at"), req.get("revision_requested_at")))
     if not at or req.get("status") != "procurement_verifying":
         return False
-    received = req.get("received_at")
     return not received or str(at) > str(received)
 
 
@@ -2742,6 +2751,20 @@ async def _bills_back_from_accounts(request_id: str, now: str, unpaid_set: Dict[
         else:
             fields = dict(unpaid_set)
         await db.material_expenses.update_one({"expense_id": b["expense_id"]}, {"$set": {**fields, "updated_at": now}})
+
+
+async def _rejecting_the_advance(req: dict) -> bool:
+    """Oct 29 2026 — what Accounts rejects is the advance: still owed before
+    transit, or unpaid again by a bounced cheque at any later stage
+    (USB-MR2449). Both go back to New Request; a post-payment or balance
+    bill goes back to Purchase Verification. Read before the bills leave
+    Accounts (_bills_back_from_accounts)."""
+    if req.get("status") == "pending_advance_payment":
+        return True
+    return bool(await db.material_expenses.find_one({
+        "source_request_id": req["request_id"], "payment_phase": "advance", "cheque_bounced": True,
+        "status": {"$nin": ["superseded", "paid", "completed"]},
+    }, {"_id": 1}))
 
 
 _RESTART_PAID_BILL = {"paid", "completed"}
