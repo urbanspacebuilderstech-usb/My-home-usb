@@ -4889,7 +4889,8 @@ async def accountant_reject_material_request(request_id: str, reason: str = "", 
     reject sent it to Purchase Verification). A bounced post-payment or
     balance cheque still goes to Purchase Verification. The bounce flag is
     cleared so the request leaves the Accountant queue, which lists bounced
-    requests at any status (a second Reject there ended it at accounts_rejected)."""
+    requests at any status (a second Reject there ended it at accounts_rejected,
+    which Procurement's board does not list; such a request comes back too)."""
     if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Accountant can reject")
 
@@ -4901,7 +4902,7 @@ async def accountant_reject_material_request(request_id: str, reason: str = "", 
     now_iso = datetime.now(timezone.utc).isoformat()
     current_status = request.get("status")
     if current_status in ("pending_accounts_approval", "pending_balance_payment", "pending_advance_payment") or (
-            request.get("cheque_bounced") and current_status == "procurement_verifying"):
+            request.get("cheque_bounced") and current_status in ("procurement_verifying", "accounts_rejected")):
         from routes.procurement import _rejecting_the_advance
         target_status = "procurement_revision" if await _rejecting_the_advance(request) else "procurement_verifying"
         await db.material_requests.update_one(

@@ -41,7 +41,7 @@ def test_bounced_advance_goes_to_new_request():
 def test_reject_clears_the_bounce_and_takes_the_stuck_state():
     seg = _seg(SITE, "accountant_reject_material_request")
     assert '"cheque_bounced": False,' in seg
-    assert 'request.get("cheque_bounced") and current_status == "procurement_verifying"' in seg
+    assert 'request.get("cheque_bounced") and current_status in ("procurement_verifying", "accounts_rejected")' in seg
     assert '{"$unset": {"reopened_by_bounce_from_status": ""}} if target_status == "procurement_revision"' in seg
 
 
