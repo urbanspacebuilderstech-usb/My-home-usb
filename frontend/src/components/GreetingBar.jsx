@@ -123,21 +123,37 @@ export default function GreetingBar({ user }) {
     setFeedback({ happy: yes, text: yes ? q.yes : q.no });
   };
 
+  // Desktop keeps the quote under the greeting, left of the question; phones
+  // put it on its own line below the greeting + question row.
+  const quoteLine = (className) => quote && (
+    <p className={`mt-0.5 text-xs sm:text-sm italic text-gray-500 dark:text-gray-400 ${className}`} data-testid="greeting-quote">
+      “{quote}”
+    </p>
+  );
+
   return (
-    <div data-testid="greeting">
-      <div className="flex items-center gap-1.5 sm:gap-4 min-h-9" data-testid="greeting-bar">
-        <span className="min-w-0 truncate text-[13px] sm:text-lg font-semibold text-gray-800 dark:text-gray-100">
-          {/* Phones drop the icon while a question or reply shares the row, so the name fits. */}
-          <span className={question || feedback ? 'hidden sm:inline' : ''}>{PERIOD_ICON[period]} </span>
-          Good {period}, <span className="text-amber-600">{firstName(user.name)}</span>
-        </span>
+    <div
+      className="rounded-lg border border-amber-200/70 bg-amber-50 px-2.5 py-2 sm:px-4 sm:py-2.5 dark:border-amber-900/50 dark:bg-amber-950/30"
+      data-testid="greeting"
+    >
+      <div className="flex items-center gap-1.5 sm:gap-4 sm:justify-between min-h-9" data-testid="greeting-bar">
+        <div className="min-w-0 sm:flex-1">
+          <div className="truncate text-[13px] sm:text-lg font-semibold text-gray-800 dark:text-gray-100">
+            {/* Phones drop the icon while a question or reply shares the row, so the name fits. */}
+            <span className={question || feedback ? 'hidden sm:inline' : ''}>{PERIOD_ICON[period]} </span>
+            Good {period}, <span className="text-amber-600">{firstName(user.name)}</span>
+          </div>
+          {quoteLine('hidden sm:block')}
+        </div>
         {question && (
           <span
             className="inline-flex shrink-0 items-center gap-1 sm:gap-2 animate-in fade-in zoom-in-95"
             data-testid={`greeting-ask-${question.id}`}
           >
             <span className="text-[11px] sm:text-sm font-medium text-sky-800 whitespace-nowrap dark:text-sky-200">
-              {question.icon} <span className="sm:hidden">{question.short}</span><span className="hidden sm:inline">{question.text}</span>
+              {/* The icon gives way on the narrowest phones (360px) so the name fits. */}
+              <span className="max-[369px]:hidden">{question.icon} </span>
+              <span className="sm:hidden">{question.short}</span><span className="hidden sm:inline">{question.text}</span>
             </span>
             <button
               type="button"
@@ -169,11 +185,7 @@ export default function GreetingBar({ user }) {
           </span>
         )}
       </div>
-      {quote && (
-        <p className="mt-0.5 text-xs sm:text-sm italic text-gray-500 dark:text-gray-400" data-testid="greeting-quote">
-          “{quote}”
-        </p>
-      )}
+      {quoteLine('sm:hidden')}
     </div>
   );
 }
