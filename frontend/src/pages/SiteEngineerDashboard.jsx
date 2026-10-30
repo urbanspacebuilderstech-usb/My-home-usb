@@ -2079,7 +2079,7 @@ export default function SiteEngineerDashboard() {
               </div>
             </div>
             
-            {/* Segmented pill tabs — Cash in Hand | Expenses | Exp Waiting A/C | Pending Req | Waiting Approval */}
+            {/* Summary boxes (square since Oct 30 2026, were pills) — Cash in Hand | Expenses | Exp Waiting A/C | Pending Req | Waiting Approval */}
             {(() => {
               const balance = Math.max(0, (pettyCashSummary.total_cash_in_hand || 0) - (pettyCashSummary.total_expenses || 0) - (pettyCashSummary.expense_waiting_accountant_amount || 0));
               const pills = [
@@ -2115,7 +2115,7 @@ export default function SiteEngineerDashboard() {
                         key={p.key}
                         onClick={p.onClick || undefined}
                         disabled={!clickable}
-                        className={`rounded-full border-2 px-3 py-2 text-center transition-all shadow-sm ${isActive ? tones.active + ' shadow-md scale-[1.02]' : tones.base + ' ' + tones.hover} ${clickable ? 'cursor-pointer' : 'cursor-default'}`}
+                        className={`rounded-md border-2 px-3 py-2 text-center transition-all shadow-sm ${isActive ? tones.active + ' shadow-md scale-[1.02]' : tones.base + ' ' + tones.hover} ${clickable ? 'cursor-pointer' : 'cursor-default'}`}
                         data-testid={p.testId}
                       >
                         <p className={`text-[10px] uppercase tracking-wide font-semibold ${isActive ? 'opacity-90' : 'opacity-80'}`}>{p.label}</p>
