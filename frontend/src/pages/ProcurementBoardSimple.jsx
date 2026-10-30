@@ -41,7 +41,8 @@ import {
   ChevronDown,
   Check,
   Search,
-  Undo2
+  Undo2,
+  MapPin
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
@@ -66,6 +67,8 @@ const fmt = (n) => {
 // here is the figure assign-vendor / change-vendor will store.
 const toPaise = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
+// Photo upload time — same format as the SE's photo tiles.
+const fmtDateTime = (s) => { try { return new Date(s).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }); } catch { return s || '—'; } };
 // Plain grouped number — for quantities, where `fmt`'s currency symbol and
 // 0-decimal rounding would both be wrong.
 const num = (n) => Number(n).toLocaleString('en-IN');
@@ -726,6 +729,25 @@ function RequestsTab({ dateRange, projectFilter }) {
                     <div><span className="text-gray-500">Total:</span> <strong className="text-fuchsia-700" data-testid="verify-live-total">{fmt(liveTotalFinal)}</strong></div>
                     <div><span className="text-gray-500">Payment Mode:</span> <strong>{verifyDialog.req.payment_mode || '—'}</strong></div>
                     <div><span className="text-gray-500">Vehicle Number:</span> <strong>{verifyDialog.req.vehicle_number || '—'}</strong></div>
+                    {verifyDialog.req.receipt_gps_latitude != null && verifyDialog.req.receipt_gps_longitude != null && (() => {
+                      const lat = Number(verifyDialog.req.receipt_gps_latitude);
+                      const lng = Number(verifyDialog.req.receipt_gps_longitude);
+                      return (
+                        <div className="col-span-2 flex items-center gap-1 flex-wrap">
+                          <span className="text-gray-500">Site Location:</span>
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 font-semibold text-blue-700 underline hover:text-blue-900"
+                            data-testid="verify-gps-link"
+                          >
+                            <MapPin className="h-3.5 w-3.5" />Open in Google Maps
+                          </a>
+                          <span className="text-gray-400">({lat.toFixed(6)}, {lng.toFixed(6)})</span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })()}
@@ -891,6 +913,11 @@ function RequestsTab({ dateRange, projectFilter }) {
                       <a key={p.label} href={`${API}/files/${p.id}/download`} target="_blank" rel="noopener noreferrer" className="block border rounded overflow-hidden hover:border-fuchsia-400">
                         <img src={`${API}/files/${p.id}/download`} alt={p.label} className="w-full h-28 object-cover" />
                         <p className="text-[10px] uppercase font-semibold text-fuchsia-700 bg-fuchsia-50 py-0.5 px-2">{p.label}</p>
+                        {verifyDialog.req.photo_uploaded_at?.[p.id] && (
+                          <p className="text-[10px] text-gray-600 bg-fuchsia-50 pb-0.5 px-2" data-testid={`verify-photo-time-${p.label}`}>
+                            {fmtDateTime(verifyDialog.req.photo_uploaded_at[p.id])}
+                          </p>
+                        )}
                       </a>
                     ))}
                   </div>
@@ -1610,7 +1637,10 @@ function RequestCard({ req, onClick, stockInfo = null }) {
               </div>
               <PhotoLightbox
                 open={photoPreview.open}
-                photos={photos.map(p => ({ src: `${API}/files/${p.id}/download`, label: p.label }))}
+                photos={photos.map(p => ({
+                  src: `${API}/files/${p.id}/download`,
+                  label: req.photo_uploaded_at?.[p.id] ? `${p.label} · ${fmtDateTime(req.photo_uploaded_at[p.id])}` : p.label,
+                }))}
                 index={photoPreview.index}
                 onClose={() => setPhotoPreview({ open: false, index: 0 })}
                 onIndexChange={(idx) => setPhotoPreview({ open: true, index: idx })}
