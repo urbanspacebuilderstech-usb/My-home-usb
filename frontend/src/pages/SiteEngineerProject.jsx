@@ -92,20 +92,20 @@ function materialStageIndex(status) {
   return 0; // planning_initial_pending / rejected / anything unrecognized — just Requested
 }
 
+// Oct 30 2026 — every stage is a pill (done = green, still ahead = grey) in a
+// plain wrapping row; the "-" separators used to start a wrapped line.
 const MaterialStageFlow = ({ status }) => {
   const current = materialStageIndex(status);
   return (
-    <div className="flex items-center flex-wrap gap-x-1 gap-y-0.5 mt-1.5" data-testid="se-mat-stage-flow">
+    <div className="flex flex-wrap items-center gap-1 mt-2" data-testid="se-mat-stage-flow">
       {MATERIAL_STAGE_FLOW.map((label, idx) => (
-        <span key={label} className="flex items-center gap-1">
-          {idx > 0 && <span className="text-gray-300 text-[10px]">-</span>}
-          {idx <= current ? (
-            <span className="px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200 text-[9px] font-medium">
-              {label}
-            </span>
-          ) : (
-            <span className="text-[9px] text-gray-400">{label}</span>
-          )}
+        <span
+          key={label}
+          className={`px-1.5 py-0.5 rounded-full border text-[9px] font-medium ${
+            idx <= current ? 'bg-green-50 text-green-700 border-green-200' : 'bg-white text-gray-400 border-gray-200'
+          }`}
+        >
+          {label}
         </span>
       ))}
     </div>
@@ -1829,62 +1829,6 @@ export default function SiteEngineerProject() {
                                     </span>
                                   )}
                                 </div>
-                                <div className="text-xs text-gray-600 space-y-0.5">
-                                  <p><strong>ID:</strong> {req.request_number || req.order_id || req.request_id}</p>
-                                  <p><strong>Qty:</strong> {req.quantity} {req.unit}</p>
-                                  {req.brand && (
-                                    <p className="text-blue-600"><strong>Brand:</strong> {req.brand}</p>
-                                  )}
-                                  {/* Steel multi-item breakdown — render every row from
-                                      steel_specs.items[] so SE/Planning see the complete
-                                      composition in a single card (was previously one
-                                      card per item which was noisy). Falls back to the
-                                      legacy single-row display for older requests. */}
-                                  {req.steel_specs?.items?.length > 0 ? (
-                                    <div className="mt-1 border border-amber-300 rounded bg-amber-50 p-1.5" data-testid={`se-mat-steel-${req.request_id}`}>
-                                      <p className="text-[10px] font-semibold text-amber-800 uppercase mb-1">
-                                        ⚙ Steel — {req.steel_specs.total_items} item{req.steel_specs.total_items === 1 ? '' : 's'} · {req.steel_specs.total_rods} rods · {req.steel_specs.total_weight_kg} kg
-                                      </p>
-                                      <table className="w-full text-[10px]">
-                                        <thead className="text-gray-500 uppercase">
-                                          <tr><th className="text-left">#</th><th className="text-left">Diameter</th><th className="text-right">Rods (40 ft)</th><th className="text-right">Weight</th></tr>
-                                        </thead>
-                                        <tbody>
-                                          {req.steel_specs.items.map((it, ii) => (
-                                            <tr key={ii} className="border-t border-amber-200">
-                                              <td>{ii + 1}</td>
-                                              <td className="font-semibold text-slate-800">Ø {it.diameter_mm} mm</td>
-                                              <td className="text-right">{it.rod_count}</td>
-                                              <td className="text-right font-semibold text-amber-700">{it.calculated_weight_kg} kg</td>
-                                            </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  ) : req.steel_specs ? (
-                                    <p className="text-[11px] text-amber-700"><strong>Steel:</strong> Ø{req.steel_specs.diameter_mm}mm × {req.steel_specs.rod_count} rods = {req.steel_specs.calculated_weight_kg} kg</p>
-                                  ) : null}
-                                  {(req.assigned_vendor_name || req.vendor_name) && (
-                                    // Aug 6 2026 — was a flex row with the label and value as
-                                    // separate flex items; a long vendor name had nowhere to go
-                                    // but its own line below an empty "Vendor:" line. Plain text
-                                    // flow keeps the label glued to the start of the value.
-                                    <p className="text-blue-700">
-                                      <strong className="font-medium">Vendor:</strong> {req.vendor_name || req.assigned_vendor_name}
-                                      {req.po_id && <Badge variant="outline" className="text-[9px] ml-1 border-green-300 text-green-700 align-middle">PO: {req.po_id}</Badge>}
-                                    </p>
-                                  )}
-                                  {req.payment_mode && (
-                                    <p className="text-purple-700"><strong>Payment:</strong> {req.payment_mode}</p>
-                                  )}
-                                  {(req.status || '').toLowerCase() === 'planning_initial_rejected' && (
-                                    <p className="text-rose-700" data-testid={`se-mat-planning-rejected-${req.request_id}`}>
-                                      <strong>Planning rejected{req.planning_initial_rejected_by_name ? ` (${req.planning_initial_rejected_by_name})` : ''}:</strong>{' '}
-                                      {req.planning_initial_rejection_reason ? `"${req.planning_initial_rejection_reason}"` : '—'}
-                                    </p>
-                                  )}
-                                </div>
-                                <MaterialStageFlow status={req.status} />
                               </div>
                               <div className="flex items-center gap-1 flex-shrink-0">
                                 {/* High Priority toggle — visible in every bucket so SE can flag
@@ -1976,6 +1920,69 @@ export default function SiteEngineerProject() {
                                 </button>
                               </div>
                             </div>
+                            {/* Oct 30 2026 — details sit below the title row so they get the card's
+                                full width: ID / Qty on the left, Vendor / Payment on the right, and
+                                the stage tags wrap across the whole card. */}
+                            <div className="mt-1 grid grid-cols-2 gap-x-3 text-xs text-gray-600">
+                              <div className="min-w-0 space-y-0.5">
+                                <p><strong>ID:</strong> {req.request_number || req.order_id || req.request_id}</p>
+                                <p><strong>Qty:</strong> {req.quantity} {req.unit}</p>
+                                {req.brand && (
+                                  <p className="text-blue-600"><strong>Brand:</strong> {req.brand}</p>
+                                )}
+                              </div>
+                              <div className="min-w-0 space-y-0.5 text-right break-words">
+                                {(req.assigned_vendor_name || req.vendor_name) && (
+                                  // Aug 6 2026 — plain text flow keeps the label glued to the start
+                                  // of a long vendor name instead of leaving an empty "Vendor:" line.
+                                  <p className="text-blue-700">
+                                    <strong className="font-medium">Vendor:</strong> {req.vendor_name || req.assigned_vendor_name}
+                                    {req.po_id && <Badge variant="outline" className="text-[9px] ml-1 border-green-300 text-green-700 align-middle">PO: {req.po_id}</Badge>}
+                                  </p>
+                                )}
+                                {req.payment_mode && (
+                                  <p className="text-purple-700"><strong>Payment:</strong> {req.payment_mode}</p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              {/* Steel multi-item breakdown — render every row from
+                                  steel_specs.items[] so SE/Planning see the complete
+                                  composition in a single card (was previously one
+                                  card per item which was noisy). Falls back to the
+                                  legacy single-row display for older requests. */}
+                              {req.steel_specs?.items?.length > 0 ? (
+                                <div className="mt-1 border border-amber-300 rounded bg-amber-50 p-1.5" data-testid={`se-mat-steel-${req.request_id}`}>
+                                  <p className="text-[10px] font-semibold text-amber-800 uppercase mb-1">
+                                    ⚙ Steel — {req.steel_specs.total_items} item{req.steel_specs.total_items === 1 ? '' : 's'} · {req.steel_specs.total_rods} rods · {req.steel_specs.total_weight_kg} kg
+                                  </p>
+                                  <table className="w-full text-[10px]">
+                                    <thead className="text-gray-500 uppercase">
+                                      <tr><th className="text-left">#</th><th className="text-left">Diameter</th><th className="text-right">Rods (40 ft)</th><th className="text-right">Weight</th></tr>
+                                    </thead>
+                                    <tbody>
+                                      {req.steel_specs.items.map((it, ii) => (
+                                        <tr key={ii} className="border-t border-amber-200">
+                                          <td>{ii + 1}</td>
+                                          <td className="font-semibold text-slate-800">Ø {it.diameter_mm} mm</td>
+                                          <td className="text-right">{it.rod_count}</td>
+                                          <td className="text-right font-semibold text-amber-700">{it.calculated_weight_kg} kg</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : req.steel_specs ? (
+                                <p className="text-[11px] text-amber-700"><strong>Steel:</strong> Ø{req.steel_specs.diameter_mm}mm × {req.steel_specs.rod_count} rods = {req.steel_specs.calculated_weight_kg} kg</p>
+                              ) : null}
+                              {(req.status || '').toLowerCase() === 'planning_initial_rejected' && (
+                                <p className="mt-0.5 text-rose-700" data-testid={`se-mat-planning-rejected-${req.request_id}`}>
+                                  <strong>Planning rejected{req.planning_initial_rejected_by_name ? ` (${req.planning_initial_rejected_by_name})` : ''}:</strong>{' '}
+                                  {req.planning_initial_rejection_reason ? `"${req.planning_initial_rejection_reason}"` : '—'}
+                                </p>
+                              )}
+                            </div>
+                            <MaterialStageFlow status={req.status} />
                           </CardContent>
                         </Card>
                       );
