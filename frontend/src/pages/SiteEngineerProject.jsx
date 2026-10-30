@@ -244,6 +244,8 @@ export default function SiteEngineerProject() {
   const [vehicleSideImageId, setVehicleSideImageId] = useState(null);
   const [materialImageId, setMaterialImageId] = useState(null);
   const [dpCopyImageId, setDpCopyImageId] = useState(null);
+  // Upload time per photo type, shown under "Uploaded" on each tile.
+  const [uploadedAt, setUploadedAt] = useState({});
   const [uploadingImage, setUploadingImage] = useState(null);
   // Daily Progress state
   const [dailyProgressDialog, setDailyProgressDialog] = useState(false);
@@ -924,6 +926,7 @@ export default function SiteEngineerProject() {
     setVehicleSideImageId(null);
     setMaterialImageId(null);
     setDpCopyImageId(null);
+    setUploadedAt({});
   };
 
   const handleImageUpload = async (file, type) => {
@@ -945,6 +948,8 @@ export default function SiteEngineerProject() {
         dp_copy: setDpCopyImageId,
       };
       setters[type]?.(res.data.file_id);
+      // Server time from the upload record; the phone clock only as a fallback.
+      setUploadedAt(prev => ({ ...prev, [type]: res.data.created_at || new Date().toISOString() }));
       const labels = { vehicle_front: 'Vehicle Front View', vehicle_side: 'Vehicle Side View', material: 'Material', dp_copy: 'DP Copy' };
       toast.success(`${labels[type] || 'Image'} uploaded`);
     } catch (err) {
@@ -1037,6 +1042,7 @@ export default function SiteEngineerProject() {
       setVehicleSideImageId(null);
       setMaterialImageId(null);
       setDpCopyImageId(null);
+      setUploadedAt({});
       setGpsLocation(null);
       setReceiveForm({ received_qty: '', vehicle_number: '', remarks: '', receive_date: new Date().toISOString().split('T')[0], receive_time: new Date().toTimeString().slice(0,5) });
       setReceivedSteelItems([]);
@@ -2428,6 +2434,11 @@ export default function SiteEngineerProject() {
                         <div className="bg-green-50 border border-green-200 rounded-lg p-2 text-center">
                           <CheckCircle className="h-4 w-4 text-green-600 mx-auto" />
                           <p className="text-xs text-green-700 mt-1">Uploaded</p>
+                          {uploadedAt[type] && (
+                            <p className="text-[11px] text-green-600 mt-0.5" data-testid={`${testId}-time`}>
+                              {new Date(uploadedAt[type]).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                            </p>
+                          )}
                         </div>
                       ) : (
                         <label className="flex flex-col items-center gap-1 p-3 border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-50 transition-colors" data-testid={testId}>
