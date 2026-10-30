@@ -152,6 +152,44 @@ async def update_hr_settings(data: HRSettingsUpdate, user: User = Depends(get_cu
     return {"status": "updated"}
 
 
+# ==================== DAILY QUOTES ====================
+# Oct 30 2026 — HR keeps one quote per day of the month (1–31); every user
+# sees today's under the greeting line. Day 31 only comes up in 31-day months.
+
+DAILY_QUOTE_DAYS = 31
+
+
+class DailyQuotesUpdate(BaseModel):
+    quotes: List[str]  # index 0 = day 1
+
+
+@router.get("/hr/daily-quotes")
+async def get_daily_quotes(user: User = Depends(get_current_user)):
+    """All 31 quotes. Open to every signed-in user — the greeting shows today's."""
+    doc = await db.hr_settings.find_one({"settings_id": "daily_quotes"}, {"_id": 0, "quotes": 1})
+    quotes = list((doc or {}).get("quotes") or [])
+    return {"quotes": (quotes + [""] * DAILY_QUOTE_DAYS)[:DAILY_QUOTE_DAYS]}
+
+
+@router.put("/hr/daily-quotes")
+async def update_daily_quotes(data: DailyQuotesUpdate, user: User = Depends(get_current_user)):
+    if user.role not in HR_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    if len(data.quotes) != DAILY_QUOTE_DAYS:
+        raise HTTPException(status_code=400, detail=f"Send exactly {DAILY_QUOTE_DAYS} quotes")
+    quotes = [(q or "").strip()[:500] for q in data.quotes]
+    await db.hr_settings.update_one(
+        {"settings_id": "daily_quotes"},
+        {"$set": {
+            "quotes": quotes,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": user.user_id,
+        }},
+        upsert=True,
+    )
+    return {"quotes": quotes}
+
+
 # ==================== EMPLOYEE CHECK-IN/CHECK-OUT ====================
 
 @router.post("/hr/check-in")

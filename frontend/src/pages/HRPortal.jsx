@@ -17,9 +17,10 @@ import {
   Shield, Key, UserCheck, ChevronDown, ChevronUp, X, Check,
   Clock, MapPin, CheckCircle2, XCircle, ChevronLeft, ChevronRight,
   Download, Calculator, Settings, AlertCircle, Timer, TrendingUp,
-  UserX, Laptop, RefreshCcw, UserCog
+  UserX, Laptop, RefreshCcw, UserCog, Quote
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import { setDailyQuotes } from '../components/GreetingBar';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 
@@ -638,6 +639,7 @@ export default function HRPortal() {
             <TabsTrigger value="credentials" data-testid="tab-credentials"><Shield className="h-4 w-4 mr-1" />Roles & Credentials</TabsTrigger>
             <TabsTrigger value="users" data-testid="tab-users"><UserCog className="h-4 w-4 mr-1" />Users</TabsTrigger>
             <TabsTrigger value="attendance" data-testid="tab-attendance"><Calendar className="h-4 w-4 mr-1" />Attendance</TabsTrigger>
+            <TabsTrigger value="quote" data-testid="tab-quote"><Quote className="h-4 w-4 mr-1" />Quote</TabsTrigger>
             <TabsTrigger value="leave" data-testid="tab-leave"><FileText className="h-4 w-4 mr-1" />Leave</TabsTrigger>
             <TabsTrigger value="payroll" data-testid="tab-payroll"><Calculator className="h-4 w-4 mr-1" />Payroll</TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings"><Settings className="h-4 w-4 mr-1" />Settings</TabsTrigger>
@@ -986,6 +988,11 @@ export default function HRPortal() {
             <AttendanceTab monthlyAtt={monthlyAtt} attMonth={attMonth} attYear={attYear} setAttMonth={setAttMonth} setAttYear={setAttYear}
               onMarkClick={(staffId, date) => { setMarkData({ staff_id: staffId, date, status: 'P', remarks: '' }); setMarkDialog(true); }}
               lateReport={lateReport} />
+          </TabsContent>
+
+          {/* ===== QUOTE TAB ===== */}
+          <TabsContent value="quote">
+            <QuotesTab />
           </TabsContent>
 
           {/* ===== LEAVE TAB ===== */}
@@ -1772,6 +1779,80 @@ function AttendanceTab({ monthlyAtt, attMonth, attYear, setAttMonth, setAttYear,
 }
 
 // ==================== LEAVE TAB ====================
+// Oct 30 2026 — one quote per day of the month. Every user sees today's under
+// their greeting (components/GreetingBar.jsx).
+function QuotesTab() {
+  const [quotes, setQuotes] = useState(null);
+  const [saved, setSaved] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    axios.get(`${API}/hr/daily-quotes`)
+      .then((r) => { setQuotes(r.data.quotes); setSaved(r.data.quotes); })
+      .catch(() => toast.error('Could not load quotes'));
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await axios.put(`${API}/hr/daily-quotes`, { quotes });
+      setQuotes(r.data.quotes);
+      setSaved(r.data.quotes);
+      setDailyQuotes(r.data.quotes);
+      toast.success('Quotes saved');
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not save quotes');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!quotes) return <div className="py-10 text-center text-sm text-gray-500">Loading quotes…</div>;
+
+  const today = new Date().getDate();
+  const dirty = quotes.some((q, i) => q !== saved[i]);
+  const saveButton = (
+    <Button onClick={save} disabled={!dirty || saving} className="bg-amber-600 hover:bg-amber-700 shrink-0" data-testid="quotes-save">
+      {saving ? 'Saving…' : 'Save'}
+    </Button>
+  );
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+        <div>
+          <CardTitle className="text-base">Quote of the Day</CardTitle>
+          <p className="text-xs text-gray-500 mt-1">
+            Quote 1 shows on the 1st of every month, quote 2 on the 2nd, and so on — under everyone's greeting.
+            Quotes 29–31 show only in months that have those days.
+          </p>
+        </div>
+        {saveButton}
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {quotes.map((q, i) => (
+          <div key={i} className="flex items-start gap-2 sm:gap-3" data-testid={`quote-row-${i + 1}`}>
+            <div className="w-10 shrink-0 pt-2 text-right leading-tight">
+              <span className={`text-sm font-semibold ${i + 1 === today ? 'text-amber-600' : 'text-gray-500'}`}>{i + 1}</span>
+              {i + 1 === today && <span className="block text-[10px] font-medium text-amber-600">Today</span>}
+            </div>
+            <Textarea
+              rows={2}
+              maxLength={500}
+              value={q}
+              onChange={(e) => setQuotes((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))}
+              placeholder={`Quote for day ${i + 1}`}
+              className={`min-h-0 ${i + 1 === today ? 'border-amber-400' : ''}`}
+              data-testid={`quote-input-${i + 1}`}
+            />
+          </div>
+        ))}
+        <div className="flex justify-end pt-2">{saveButton}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function LeaveTab({ requests, filter, setFilter, onAction }) {
   return (
     <div className="space-y-4">
