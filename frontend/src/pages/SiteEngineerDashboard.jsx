@@ -1188,7 +1188,7 @@ export default function SiteEngineerDashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header — Dashboard only (per user request: no extra buttons/menus) */}
-      <AppHeader user={user} />
+      <AppHeader user={user} greetingClass="max-w-5xl mx-auto px-4 sm:px-6" />
 
       <div className="max-w-5xl mx-auto px-4 py-4 sm:px-6 sm:py-6">
         {/* Header */}

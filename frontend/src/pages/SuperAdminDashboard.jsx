@@ -532,7 +532,7 @@ export default function SuperAdminDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50" data-testid="super-admin-dashboard-page">
-      <AppHeader user={user} unreadNotifs={unreadNotifs} />
+      <AppHeader user={user} unreadNotifs={unreadNotifs} greetingClass="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8" />
       <main className="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-10">
         {/* ── Title + filter row: one row above everything it scopes ── */}
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">

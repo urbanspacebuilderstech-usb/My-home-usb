@@ -66,7 +66,7 @@ export default function QCDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50" data-testid="qc-dashboard">
-      <AppHeader user={user} />
+      <AppHeader user={user} greetingClass="max-w-6xl mx-auto px-4 sm:px-6" />
       <main className="max-w-6xl mx-auto px-4 py-4 sm:px-6">
         {/* Title */}
         <div className="mb-4">

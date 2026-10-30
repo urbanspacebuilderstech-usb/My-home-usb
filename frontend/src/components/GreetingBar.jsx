@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 
-// Oct 30 2026 — a friendly line above the Procurement board's tabs:
+// Oct 30 2026 — a friendly first line on every page (rendered by AppHeader):
 // "Good Morning, <name>" plus a water check every clock hour and a lunch
 // check once between 12 and 3 pm. Each check goes away once answered, after
 // a smile (Yes) or an angry face (No). Answers are remembered per user in
-// this browser only — it's a nudge, not a record.
+// this browser only — it's a nudge, not a record. Always one row: phones get
+// the short question and the name truncates before anything wraps.
 
 const QUESTIONS = {
-  lunch: { icon: '🍱', text: 'Did you eat lunch?', yes: 'Good! Hope it was tasty', no: 'Go eat your lunch now!' },
-  water: { icon: '💧', text: 'Did you drink water?', yes: 'Great, keep it up!', no: 'Go drink water right now!' },
+  lunch: { icon: '🍱', text: 'Did you eat lunch?', short: 'Had lunch?', yes: 'Hope it was tasty!', no: 'Go eat lunch now!' },
+  water: { icon: '💧', text: 'Did you drink water?', short: 'Had water?', yes: 'Great, keep it up!', no: 'Go drink water now!' },
 };
 
 const PERIOD_ICON = { Morning: '🌅', Afternoon: '☀️', Evening: '🌇' };
@@ -64,20 +65,24 @@ export default function GreetingBar({ user }) {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 min-h-9" data-testid="greeting-bar">
-      <span className="text-base sm:text-lg font-semibold text-gray-800 whitespace-nowrap dark:text-gray-100">
-        {PERIOD_ICON[period]} Good {period}, <span className="text-amber-600">{firstName(user.name)}</span>
+    <div className="flex items-center gap-1.5 sm:gap-4 min-h-9" data-testid="greeting-bar">
+      <span className="min-w-0 truncate text-[13px] sm:text-lg font-semibold text-gray-800 dark:text-gray-100">
+        {/* Phones drop the icon while a question or reply shares the row, so the name fits. */}
+        <span className={question || feedback ? 'hidden sm:inline' : ''}>{PERIOD_ICON[period]} </span>
+        Good {period}, <span className="text-amber-600">{firstName(user.name)}</span>
       </span>
       {question && (
         <span
-          className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 py-1 pl-3 pr-1 animate-in fade-in zoom-in-95 dark:border-sky-800 dark:bg-sky-950"
+          className="inline-flex shrink-0 items-center gap-1 sm:gap-2 rounded-full border border-sky-200 bg-sky-50 py-0.5 sm:py-1 pl-2 sm:pl-3 pr-0.5 sm:pr-1 animate-in fade-in zoom-in-95 dark:border-sky-800 dark:bg-sky-950"
           data-testid={`greeting-ask-${question.id}`}
         >
-          <span className="text-sm font-medium text-sky-800 whitespace-nowrap dark:text-sky-200">{question.icon} {question.text}</span>
+          <span className="text-[11px] sm:text-sm font-medium text-sky-800 whitespace-nowrap dark:text-sky-200">
+            {question.icon} <span className="sm:hidden">{question.short}</span><span className="hidden sm:inline">{question.text}</span>
+          </span>
           <button
             type="button"
             onClick={() => answer(question, true)}
-            className="h-7 rounded-full bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-700"
+            className="h-6 sm:h-7 rounded-full bg-emerald-600 px-2 sm:px-3 text-[11px] sm:text-xs font-semibold text-white hover:bg-emerald-700"
             data-testid="greeting-yes"
           >
             Yes
@@ -85,7 +90,7 @@ export default function GreetingBar({ user }) {
           <button
             type="button"
             onClick={() => answer(question, false)}
-            className="h-7 rounded-full border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+            className="h-6 sm:h-7 rounded-full border border-gray-300 bg-white px-2 sm:px-3 text-[11px] sm:text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
             data-testid="greeting-no"
           >
             No
@@ -94,12 +99,12 @@ export default function GreetingBar({ user }) {
       )}
       {feedback && (
         <span
-          className={`inline-flex items-center gap-1.5 text-sm font-semibold whitespace-nowrap ${
+          className={`inline-flex shrink-0 items-center gap-1.5 text-xs sm:text-sm font-semibold whitespace-nowrap ${
             feedback.happy ? 'text-emerald-700 animate-in zoom-in-50 dark:text-emerald-400' : 'text-red-600 animate-shake dark:text-red-400'
           }`}
           data-testid="greeting-feedback"
         >
-          <span className="text-2xl leading-none">{feedback.happy ? '😊' : '😠'}</span>
+          <span className="text-xl sm:text-2xl leading-none">{feedback.happy ? '😊' : '😠'}</span>
           {feedback.text}
         </span>
       )}

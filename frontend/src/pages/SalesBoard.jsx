@@ -145,7 +145,7 @@ export default function SalesBoard() {
 
   return (
     <div className="min-h-screen bg-gray-50" data-testid="sales-masterview-page">
-      <AppHeader user={user} unreadNotifs={unreadNotifs} />
+      <AppHeader user={user} unreadNotifs={unreadNotifs} greetingClass="px-4 sm:px-6 lg:px-10" />
       <div className="w-full px-4 sm:px-6 lg:px-10 py-5">
         <div className="flex items-center justify-between mb-4">
           <div>

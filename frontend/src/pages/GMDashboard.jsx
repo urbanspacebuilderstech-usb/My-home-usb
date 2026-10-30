@@ -432,7 +432,7 @@ const GMDashboard = () => {
       {/* AppHeader rendered with `hideNav` — keeps logo, role badge, notifications,
           user menu but suppresses the role-based top nav. GM users navigate via
           the Final Estimate / Rough Estimate / Planning pill buttons below. */}
-      <AppHeader user={user} hideNav />
+      <AppHeader user={user} hideNav greetingClass="max-w-7xl mx-auto px-3 sm:px-4" />
 
       <main className="max-w-7xl mx-auto px-3 py-4 sm:px-4 sm:py-6">
         {/* Stats Overview — each card is clickable to drill into the underlying list */}

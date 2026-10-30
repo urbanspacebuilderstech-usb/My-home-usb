@@ -7590,7 +7590,7 @@ export default function AccountsBoard() {
     <MaskContext.Provider value={user?.role || 'accountant'}>
     <UnmaskContext.Provider value={globalUnmasked}>
     <div className="min-h-screen bg-gray-50 pb-20 md:pb-4" data-testid="accounts-board">
-      <AppHeader user={user} headerActions={combinedHeaderActions} />
+      <AppHeader user={user} headerActions={combinedHeaderActions} greetingClass="max-w-[1400px] mx-auto px-3 md:px-6" />
       <main className="max-w-[1400px] mx-auto px-3 md:px-6 pt-3 pb-4">
         <Tabs value={mainTab} onValueChange={setMainTab}>
           <TabsContent value="cashbook">

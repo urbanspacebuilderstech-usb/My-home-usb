@@ -1542,7 +1542,7 @@ export default function CRMSales() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <AppHeader user={user} />
+      <AppHeader user={user} greetingClass="max-w-full mx-auto px-4 sm:px-6" />
 
       <div className="max-w-full mx-auto px-4 py-6 sm:px-6">
         {/* All Stages Summary — matches Pre-Sales style, wraps to 2 rows */}

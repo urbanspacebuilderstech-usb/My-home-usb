@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import axios from 'axios';
 import { useTheme } from '../hooks/useTheme';
 import USBLookupBar from './USBLookupBar';
+import GreetingBar from './GreetingBar';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -180,7 +181,7 @@ const ROLE_LABEL_MAP = {
 };
 const roleLabel = (r) => (r ? (ROLE_LABEL_MAP[r] || r.replace(/_/g, ' ')) : '…');
 
-export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange, headerActions, hideNav = false, backTo = null }) {
+export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange, headerActions, hideNav = false, backTo = null, greetingClass = 'max-w-7xl mx-auto px-4 sm:px-6' }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark, toggleTheme } = useTheme();
@@ -297,161 +298,172 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
   const showMainNav = !hasCustomNav || customNavAsSub;
 
   return (
-    <div className="sticky top-0 z-50 bg-white dark:bg-gray-900">
-      {/* Main Header */}
-      <header data-testid="app-header" className="bg-white border-b border-gray-200 shadow-sm dark:bg-gray-900 dark:border-gray-800">
-        <div className="flex items-center justify-between gap-2 lg:gap-0 px-4 lg:px-6 h-14">
-          {/* Left: Logo + Brand (+ optional page Back button). Aug 6 2026 —
-              a page-level "Back" button used to be squeezed in on the right
-              via headerActions, crammed next to the unrelated theme/bell/
-              profile icons with no visual grouping. It now lives on the
-              left, right next to the brand it's returning from — the
-              wordmark text collapses on mobile (icon-only) to make room. */}
-          {/* Sep 30 2026 — the brand text may shorten ("My Home…") on the
-              narrowest phones so the right-hand icons never push the page
-              wider than the screen; the logo and icons keep their size. */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
-            <div className="flex items-center gap-2.5 cursor-pointer min-w-0" onClick={() => navigate(navItems[0]?.path || '/dashboard')} data-testid="header-brand">
-              <img src="/logo.webp" alt="My Home USB" className="h-9 w-9 object-contain shrink-0" style={{ mixBlendMode: 'multiply' }} />
-              <div className={`leading-tight min-w-0 ${backTo ? 'hidden sm:block' : ''}`}>
-                <span className="font-bold text-base text-gray-900 block truncate">My Home USB</span>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600 block truncate">
-                  {roleLabel(role)}
-                </span>
+    <>
+      <div className="sticky top-0 z-50 bg-white dark:bg-gray-900">
+        {/* Main Header */}
+        <header data-testid="app-header" className="bg-white border-b border-gray-200 shadow-sm dark:bg-gray-900 dark:border-gray-800">
+          <div className="flex items-center justify-between gap-2 lg:gap-0 px-4 lg:px-6 h-14">
+            {/* Left: Logo + Brand (+ optional page Back button). Aug 6 2026 —
+                a page-level "Back" button used to be squeezed in on the right
+                via headerActions, crammed next to the unrelated theme/bell/
+                profile icons with no visual grouping. It now lives on the
+                left, right next to the brand it's returning from — the
+                wordmark text collapses on mobile (icon-only) to make room. */}
+            {/* Sep 30 2026 — the brand text may shorten ("My Home…") on the
+                narrowest phones so the right-hand icons never push the page
+                wider than the screen; the logo and icons keep their size. */}
+            <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
+              <div className="flex items-center gap-2.5 cursor-pointer min-w-0" onClick={() => navigate(navItems[0]?.path || '/dashboard')} data-testid="header-brand">
+                <img src="/logo.webp" alt="My Home USB" className="h-9 w-9 object-contain shrink-0" style={{ mixBlendMode: 'multiply' }} />
+                <div className={`leading-tight min-w-0 ${backTo ? 'hidden sm:block' : ''}`}>
+                  <span className="font-bold text-base text-gray-900 block truncate">My Home USB</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600 block truncate">
+                    {roleLabel(role)}
+                  </span>
+                </div>
+              </div>
+              {backTo && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(backTo)}
+                  className="h-8 px-2 sm:px-3 text-xs border-amber-300 text-amber-700 hover:bg-amber-50 gap-1 shrink-0"
+                  data-testid="app-header-back-btn"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" /> Back
+                </Button>
+              )}
+            </div>
+
+            {/* Center: Desktop Nav (hidden when caller passes hideNav) */}
+            <nav className="hidden lg:flex items-center gap-0.5 mx-4 overflow-x-auto" data-testid="header-nav">
+              {hideNav ? null : hasCustomNav && !customNavAsSub ? (
+                customNav.map((item) => (
+                  <button
+                    key={item.value}
+                    data-testid={`nav-${item.value.replace(/_/g, '-')}`}
+                    onClick={() => onCustomNavChange?.(item.value)}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
+                      activeCustomNav === item.value
+                        ? 'bg-amber-50 text-amber-700 font-semibold'
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))
+              ) : showMainNav && navItems.length > 1 ? (
+                navItems.map((item) => (
+                  <button
+                    key={item.path}
+                    data-testid={`nav-${item.label.toLowerCase().replace(/\s/g, '-')}`}
+                    onClick={() => navigate(item.path)}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
+                      isMainActive(item.path)
+                        ? 'bg-amber-50 text-amber-700 font-semibold'
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))
+              ) : null}
+            </nav>
+
+            {/* Right: Theme + Notifs + Profile + User + Logout */}
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+              {role === 'super_admin' && <USBLookupBar />}
+              {headerActions}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleTheme}
+                className="h-9 w-9 text-gray-500 hover:text-amber-500 dark:text-gray-300"
+                data-testid="header-theme-toggle"
+                title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+                aria-label="Toggle theme"
+              >
+                {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => navigate('/notifications')} className="relative h-9 w-9" data-testid="header-notifications">
+                <Bell className="h-4 w-4" />
+                {unreadNotifs > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] rounded-full h-4 w-4 flex items-center justify-center">{unreadNotifs}</span>
+                )}
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => navigate('/profile')} className="h-9 w-9 text-gray-500 hover:text-amber-600" data-testid="header-profile">
+                <UserCircle className="h-5 w-5" />
+              </Button>
+              <div className="hidden lg:flex items-center gap-2 pl-2 border-l border-gray-200">
+                <div className="text-right leading-tight">
+                  <p className="text-sm font-semibold text-gray-900" data-testid="header-username">{effectiveUser?.name || ''}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-gray-400">{roleLabel(role)}</p>
+                </div>
+                <Button variant="ghost" size="icon" onClick={handleLogout} className="h-9 w-9 text-gray-400 hover:text-red-500" data-testid="header-logout">
+                  <LogOut className="h-4 w-4" />
+                </Button>
               </div>
             </div>
-            {backTo && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigate(backTo)}
-                className="h-8 px-2 sm:px-3 text-xs border-amber-300 text-amber-700 hover:bg-amber-50 gap-1 shrink-0"
-                data-testid="app-header-back-btn"
-              >
-                <ArrowLeft className="h-3.5 w-3.5" /> Back
-              </Button>
-            )}
           </div>
+        </header>
 
-          {/* Center: Desktop Nav (hidden when caller passes hideNav) */}
-          <nav className="hidden lg:flex items-center gap-0.5 mx-4 overflow-x-auto" data-testid="header-nav">
-            {hideNav ? null : hasCustomNav && !customNavAsSub ? (
-              customNav.map((item) => (
+        {/* Sub-navigation bar — for super_admin we surface the page's customNav
+            here so the Super Admin shell stays visible at the top. Other roles
+            get the same strip below `lg`, where the header nav that normally
+            carries a page's customNav is hidden (otherwise phones could only
+            ever see the page's first tab). */}
+        {!hideNav && hasCustomNav && (
+          <div className={`bg-gray-50 border-b border-gray-200 px-4 lg:px-6 ${customNavAsSub ? '' : 'lg:hidden'}`} data-testid="sub-nav">
+            <div className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-hide">
+              {customNav.map((item) => (
                 <button
                   key={item.value}
-                  data-testid={`nav-${item.value.replace(/_/g, '-')}`}
+                  data-testid={`subnav-${item.value.replace(/_/g, '-')}`}
                   onClick={() => onCustomNavChange?.(item.value)}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
+                  className={`px-3 py-1 rounded text-xs font-medium whitespace-nowrap transition-colors ${
                     activeCustomNav === item.value
-                      ? 'bg-amber-50 text-amber-700 font-semibold'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                      ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
+                      : 'text-gray-500 hover:text-gray-700 hover:bg-white/60'
                   }`}
                 >
                   {item.label}
                 </button>
-              ))
-            ) : showMainNav && navItems.length > 1 ? (
-              navItems.map((item) => (
-                <button
-                  key={item.path}
-                  data-testid={`nav-${item.label.toLowerCase().replace(/\s/g, '-')}`}
-                  onClick={() => navigate(item.path)}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
-                    isMainActive(item.path)
-                      ? 'bg-amber-50 text-amber-700 font-semibold'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))
-            ) : null}
-          </nav>
-
-          {/* Right: Theme + Notifs + Profile + User + Logout */}
-          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            {role === 'super_admin' && <USBLookupBar />}
-            {headerActions}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleTheme}
-              className="h-9 w-9 text-gray-500 hover:text-amber-500 dark:text-gray-300"
-              data-testid="header-theme-toggle"
-              title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-              aria-label="Toggle theme"
-            >
-              {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </Button>
-            <Button variant="ghost" size="icon" onClick={() => navigate('/notifications')} className="relative h-9 w-9" data-testid="header-notifications">
-              <Bell className="h-4 w-4" />
-              {unreadNotifs > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] rounded-full h-4 w-4 flex items-center justify-center">{unreadNotifs}</span>
-              )}
-            </Button>
-            <Button variant="ghost" size="icon" onClick={() => navigate('/profile')} className="h-9 w-9 text-gray-500 hover:text-amber-600" data-testid="header-profile">
-              <UserCircle className="h-5 w-5" />
-            </Button>
-            <div className="hidden lg:flex items-center gap-2 pl-2 border-l border-gray-200">
-              <div className="text-right leading-tight">
-                <p className="text-sm font-semibold text-gray-900" data-testid="header-username">{effectiveUser?.name || ''}</p>
-                <p className="text-[10px] uppercase tracking-wide text-gray-400">{roleLabel(role)}</p>
-              </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout} className="h-9 w-9 text-gray-400 hover:text-red-500" data-testid="header-logout">
-                <LogOut className="h-4 w-4" />
-              </Button>
+              ))}
             </div>
           </div>
-        </div>
-      </header>
+        )}
 
-      {/* Sub-navigation bar — for super_admin we surface the page's customNav
-          here so the Super Admin shell stays visible at the top. Other roles
-          get the same strip below `lg`, where the header nav that normally
-          carries a page's customNav is hidden (otherwise phones could only
-          ever see the page's first tab). */}
-      {!hideNav && hasCustomNav && (
-        <div className={`bg-gray-50 border-b border-gray-200 px-4 lg:px-6 ${customNavAsSub ? '' : 'lg:hidden'}`} data-testid="sub-nav">
-          <div className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-hide">
-            {customNav.map((item) => (
-              <button
-                key={item.value}
-                data-testid={`subnav-${item.value.replace(/_/g, '-')}`}
-                onClick={() => onCustomNavChange?.(item.value)}
-                className={`px-3 py-1 rounded text-xs font-medium whitespace-nowrap transition-colors ${
-                  activeCustomNav === item.value
-                    ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-white/60'
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
+        {/* Sub-navigation bar (only for roles with sub-menus, hidden when custom nav is active) */}
+        {!hideNav && !hasCustomNav && subItems && subItems.length > 1 && (
+          <div className="bg-gray-50 border-b border-gray-200 px-4 lg:px-6" data-testid="sub-nav">
+            <div className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-hide">
+              {subItems.map((item) => (
+                <button
+                  key={item.path}
+                  data-testid={`subnav-${item.label.toLowerCase().replace(/\s/g, '-')}`}
+                  onClick={() => navigate(item.path)}
+                  className={`px-3 py-1 rounded text-xs font-medium whitespace-nowrap transition-colors ${
+                    isSubActive(item.path)
+                      ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
+                      : 'text-gray-500 hover:text-gray-700 hover:bg-white/60'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
           </div>
+        )}
+      </div>
+
+      {/* Oct 30 2026 — greeting + water / lunch check for every user, as the
+          first line of the page (scrolls away; not part of the sticky header).
+          `greetingClass` lines it up with the page's own content container. */}
+      {effectiveUser && (
+        <div className={`w-full ${greetingClass} pt-3 sm:pt-4`}>
+          <GreetingBar user={effectiveUser} />
         </div>
       )}
-
-      {/* Sub-navigation bar (only for roles with sub-menus, hidden when custom nav is active) */}
-      {!hideNav && !hasCustomNav && subItems && subItems.length > 1 && (
-        <div className="bg-gray-50 border-b border-gray-200 px-4 lg:px-6" data-testid="sub-nav">
-          <div className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-hide">
-            {subItems.map((item) => (
-              <button
-                key={item.path}
-                data-testid={`subnav-${item.label.toLowerCase().replace(/\s/g, '-')}`}
-                onClick={() => navigate(item.path)}
-                className={`px-3 py-1 rounded text-xs font-medium whitespace-nowrap transition-colors ${
-                  isSubActive(item.path)
-                    ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-white/60'
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+    </>
   );
 }

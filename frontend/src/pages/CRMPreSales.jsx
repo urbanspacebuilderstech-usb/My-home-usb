@@ -1025,7 +1025,7 @@ export default function CRMPreSales() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <AppHeader user={user} />
+      <AppHeader user={user} greetingClass="max-w-full mx-auto px-2 sm:px-6" />
 
       <div className="max-w-full mx-auto px-2 py-2 sm:px-6 sm:py-3">
         {/* Stats Cards (clickable to filter the list). Phones: an even 5-column

@@ -622,7 +622,7 @@ export default function HRPortal() {
 
   return (
     <div className="min-h-screen bg-gray-50" data-testid="hr-portal">
-      <AppHeader user={user} />
+      <AppHeader user={user} greetingClass="max-w-[1400px] mx-auto px-4 sm:px-6" />
       <div className="max-w-[1400px] mx-auto px-4 py-6 sm:px-6">
         <div className="flex items-center justify-between mb-6">
           <div>
