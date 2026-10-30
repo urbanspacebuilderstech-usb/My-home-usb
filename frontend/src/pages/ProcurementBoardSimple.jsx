@@ -437,6 +437,11 @@ function RequestsTab({ dateRange, projectFilter }) {
         unit_price_override: dfltUnit ? String(Number(dfltUnit.toFixed(2))) : '',
         steel_overrides: {},
       });
+      // SE's GPS point + photo upload times, per request: the row may come
+      // from either list, and only the queue's first 500 carried them.
+      axios.get(`${API}/procurement-simple/receipt-proof/${r.request_id}`)
+        .then(res => setVerifyDialog(v => (v.req?.request_id === r.request_id ? { ...v, req: { ...v.req, ...res.data } } : v)))
+        .catch(() => {});
     } else {
       setOpen(r);
     }
@@ -1459,6 +1464,15 @@ function RequestCard({ req, onClick, stockInfo = null }) {
   const [priorityBusy, setPriorityBusy] = useState(false);
   const [isHighPriority, setIsHighPriority] = useState(!!req.is_high_priority);
   const [photoPreview, setPhotoPreview] = useState({ open: false, index: 0 });
+  // Photo upload times, fetched the first time the photo viewer opens.
+  const [photoTimes, setPhotoTimes] = useState(null);
+  const openPhoto = (i) => {
+    setPhotoPreview({ open: true, index: i });
+    if (photoTimes) return;
+    axios.get(`${API}/procurement-simple/receipt-proof/${req.request_id}`)
+      .then(res => setPhotoTimes(res.data?.photo_uploaded_at || {}))
+      .catch(() => {});
+  };
   useEffect(() => { setIsHighPriority(!!req.is_high_priority); }, [req.is_high_priority]);
   const togglePriority = async (e) => {
     e.stopPropagation();
@@ -1626,7 +1640,7 @@ function RequestCard({ req, onClick, stockInfo = null }) {
                   <button
                     key={p.label}
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); setPhotoPreview({ open: true, index: i }); }}
+                    onClick={(e) => { e.stopPropagation(); openPhoto(i); }}
                     title={p.label}
                     className="h-9 w-9 shrink-0 rounded-md border border-gray-200 overflow-hidden hover:ring-2 hover:ring-amber-400 transition"
                     data-testid={`proc-card-photo-${req.request_id}-${p.label}`}
@@ -1639,7 +1653,7 @@ function RequestCard({ req, onClick, stockInfo = null }) {
                 open={photoPreview.open}
                 photos={photos.map(p => ({
                   src: `${API}/files/${p.id}/download`,
-                  label: req.photo_uploaded_at?.[p.id] ? `${p.label} · ${fmtDateTime(req.photo_uploaded_at[p.id])}` : p.label,
+                  label: photoTimes?.[p.id] ? `${p.label} · ${fmtDateTime(photoTimes[p.id])}` : p.label,
                 }))}
                 index={photoPreview.index}
                 onClose={() => setPhotoPreview({ open: false, index: 0 })}

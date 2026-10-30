@@ -407,8 +407,9 @@ async def startup_init():
     await _safe_index(startup_db.sheets_auto_sync, [("user_id", 1)])
     await _safe_index(startup_db.connected_sheets, [("user_id", 1)])
     await _safe_index(startup_db.lead_stages, [("stage_type", 1), ("stage_id", 1)])
-    # Every photo download and the Procurement queue's photo-time lookup.
+    # Every photo download and Procurement's receipt-proof lookup.
     await _safe_index(startup_db.files, [("file_id", 1)])
+    await _safe_index(startup_db.material_receipts, [("request_id", 1), ("created_at", -1)])
 
     # Filters that scan today. material_inventory is the worst: the Planning
     # Inventory rollup runs one of these PER PROJECT, so an unindexed

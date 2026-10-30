@@ -2629,7 +2629,7 @@ async def procurement_simple_queue(
     if receipt_targets:
         latest_receipts = await db.material_receipts.find(
             {"request_id": {"$in": receipt_targets}},
-            {"_id": 0, "request_id": 1, "steel_received": 1, "received_qty": 1, "qty_mismatch_reason": 1, "receive_date": 1, "receive_time": 1, "created_at": 1, "gps_latitude": 1, "gps_longitude": 1},
+            {"_id": 0, "request_id": 1, "steel_received": 1, "received_qty": 1, "qty_mismatch_reason": 1, "receive_date": 1, "receive_time": 1, "created_at": 1},
         ).sort("created_at", -1).to_list(2000)
         # Pick the freshest receipt per request_id
         rcpt_by_req = {}
@@ -2643,29 +2643,45 @@ async def procurement_simple_queue(
                 r["steel_received"] = rc["steel_received"]
             if rc and rc.get("qty_mismatch_reason"):
                 r["qty_mismatch_reason"] = rc["qty_mismatch_reason"]
-            # Oct 30 2026 — where the SE stood when recording the delivery;
-            # Verify Delivery links it to Google Maps.
-            if rc and rc.get("gps_latitude") is not None and rc.get("gps_longitude") is not None:
-                r["receipt_gps_latitude"] = rc["gps_latitude"]
-                r["receipt_gps_longitude"] = rc["gps_longitude"]
-
-        # Upload time of each SE delivery photo, keyed by file_id, shown under
-        # every photo in Verify Delivery and on the card's photo viewer.
-        photo_keys = ("vehicle_front_image_id", "vehicle_side_image_id", "material_image_id", "dp_copy_image_id", "lorry_image_id")
-        target_set = set(receipt_targets)
-        photo_ids = list({r[k] for r in rows if r["request_id"] in target_set for k in photo_keys if r.get(k)})
-        if photo_ids:
-            uploaded_at = {f["file_id"]: f.get("created_at") for f in await db.files.find(
-                {"file_id": {"$in": photo_ids}}, {"_id": 0, "file_id": 1, "created_at": 1}
-            ).to_list(len(photo_ids))}
-            for r in rows:
-                if r["request_id"] not in target_set:
-                    continue
-                times = {r[k]: uploaded_at[r[k]] for k in photo_keys if r.get(k) and uploaded_at.get(r[k])}
-                if times:
-                    r["photo_uploaded_at"] = times
 
     return {"count": len(rows), "requests": rows}
+
+
+# Delivery photos the SE attaches when recording a material receipt.
+RECEIPT_PHOTO_KEYS = ("vehicle_front_image_id", "vehicle_side_image_id", "material_image_id", "dp_copy_image_id", "lorry_image_id")
+
+
+@router.get("/procurement-simple/receipt-proof/{request_id}")
+async def receipt_proof(request_id: str, user: User = Depends(get_current_user)):
+    """Oct 30 2026 — where and when the SE recorded a delivery: the GPS point
+    of the latest receipt (Verify Delivery links it to Google Maps) and each
+    delivery photo's upload time, keyed by file_id. Fetched per request when
+    Verify Delivery or the card's photo viewer opens, because the board's rows
+    come from two lists (the queue stops at 500; the rest come from
+    /material-requests) and only this way does every request get it."""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    req = await db.material_requests.find_one(
+        {"request_id": request_id}, {"_id": 0, **{k: 1 for k in RECEIPT_PHOTO_KEYS}}
+    )
+    if req is None:
+        raise HTTPException(status_code=404, detail="Material request not found")
+    rc = await db.material_receipts.find_one(
+        {"request_id": request_id, "gps_latitude": {"$ne": None}, "gps_longitude": {"$ne": None}},
+        {"_id": 0, "gps_latitude": 1, "gps_longitude": 1},
+        sort=[("created_at", -1)],
+    )
+    photo_ids = [req[k] for k in RECEIPT_PHOTO_KEYS if req.get(k)]
+    uploaded_at = {}
+    if photo_ids:
+        async for f in db.files.find({"file_id": {"$in": photo_ids}}, {"_id": 0, "file_id": 1, "created_at": 1}):
+            if f.get("created_at"):
+                uploaded_at[f["file_id"]] = f["created_at"]
+    return {
+        "receipt_gps_latitude": (rc or {}).get("gps_latitude"),
+        "receipt_gps_longitude": (rc or {}).get("gps_longitude"),
+        "photo_uploaded_at": uploaded_at,
+    }
 
 
 @router.get("/procurement-simple/projects-summary")
