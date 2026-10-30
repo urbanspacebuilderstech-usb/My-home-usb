@@ -1017,9 +1017,10 @@ function DashboardTab() {
 
   return (
     <div className="space-y-3" data-testid="proc-dashboard-tab">
-      {/* Sub-tab pill bar + global project + date filter */}
+      {/* Sub-tab pill bar + global project + date filter. Oct 30 2026 — the
+          pills are desktop-only: below `lg` the bottom bar holds these tabs. */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="inline-flex rounded-md border border-gray-200 bg-white p-0.5 flex-wrap" data-testid="proc-subtabs">
+        <div className="hidden lg:inline-flex rounded-md border border-gray-200 bg-white p-0.5 flex-wrap" data-testid="proc-subtabs">
           {[
             { key: 'material_req',     label: 'Material Req' },
             { key: 'credit_management', label: 'Credit Management' },

@@ -243,6 +243,14 @@ const CLIENT_MORE = [
   { label: 'Documents', icon: FileText, path: '/client-portal?tab=documents' },
 ];
 
+// Oct 30 2026 — gives Procurement's bar a More button, which also holds Logout.
+const PROCUREMENT_MORE = [
+  { label: 'Notifications', icon: Bell, path: '/notifications' },
+  { label: 'Profile', icon: User, path: '/profile' },
+];
+
+const ROLE_MORE = { accountant: ACCOUNTANT_MORE, client: CLIENT_MORE, procurement: PROCUREMENT_MORE };
+
 export default function MobileBottomNav({ user }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -260,10 +268,8 @@ export default function MobileBottomNav({ user }) {
   if (embedded) return null;
 
   const isSuperAdmin = user.role === 'super_admin';
-  const isAccountant = user.role === 'accountant';
-  const isClient = user.role === 'client';
   const barItems = isSuperAdmin ? SA_BOTTOM : (OTHER_ROLES[user.role] || DEFAULT_BOTTOM);
-  const baseMore = isSuperAdmin ? SA_MORE_ITEMS : isAccountant ? ACCOUNTANT_MORE : isClient ? CLIENT_MORE : [];
+  const baseMore = isSuperAdmin ? SA_MORE_ITEMS : (ROLE_MORE[user.role] || []);
   // Sep 30 2026 — the desktop header nav is hidden below `lg`, so anything it
   // offers that isn't already on the bar or in More is added to More.
   // Otherwise e.g. an accountant on a phone had no way to reach Suspense A/c.
