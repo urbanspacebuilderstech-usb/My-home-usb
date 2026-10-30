@@ -1,24 +1,44 @@
 import { useEffect, useState } from 'react';
 
 // Oct 30 2026 — a friendly first line on every page (rendered by AppHeader):
-// "Good Morning, <name>" plus a water check every clock hour and a lunch
-// check once between 12 and 3 pm. Each check goes away once answered, after
-// a smile (Yes) or an angry face (No). Answers are remembered per user in
-// this browser only — it's a nudge, not a record. Always one row: phones get
-// the short question and the name truncates before anything wraps.
+// "Good Morning, <name>" plus a water check and, between 12 and 3 pm, a lunch
+// check. Yes gets a smile and the question goes quiet (water for an hour,
+// lunch for the rest of the day); No gets an angry face and the question
+// comes back in REMIND_MS. Always one row: phones get the short question and
+// the name truncates before anything wraps.
+
+const MINUTE = 60 * 1000;
+const REMIND_MS = 15 * MINUTE;
 
 const QUESTIONS = {
   lunch: { icon: '🍱', text: 'Did you eat lunch?', short: 'Had lunch?', yes: 'Hope it was tasty!', no: 'Go eat lunch now!' },
   water: { icon: '💧', text: 'Did you drink water?', short: 'Had water?', yes: 'Great, keep it up!', no: 'Go drink water now!' },
 };
 
+// When to ask again after a Yes.
+const nextAfterYes = {
+  water: (now) => now.getTime() + 60 * MINUTE,
+  lunch: (now) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime(),
+};
+
 const PERIOD_ICON = { Morning: '🌅', Afternoon: '☀️', Evening: '🌇' };
 
-const hourKey = (d) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}-${d.getHours()}`;
-const dayKey = (d) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-
-const readKey = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
-const writeKey = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } };
+// Each question stores the time (ms) it may next be asked, per user. Kept in
+// localStorage and a cookie, so a refresh never re-asks even where one of
+// them isn't kept (the phone app keeps cookies — it signs in with them).
+const readCookie = (k) => {
+  const hit = document.cookie.split('; ').find((c) => c.startsWith(`${k}=`));
+  return hit ? hit.slice(k.length + 1) : null;
+};
+const readNext = (k) => {
+  let local = null;
+  try { local = localStorage.getItem(k); } catch { /* storage blocked */ }
+  return Math.max(Number(local) || 0, Number(readCookie(k)) || 0);
+};
+const writeNext = (k, v) => {
+  try { localStorage.setItem(k, String(v)); } catch { /* storage blocked */ }
+  document.cookie = `${k}=${v}; max-age=${2 * 24 * 3600}; path=/; SameSite=Lax`;
+};
 
 // "Murugan.P" → "Murugan"; initials-first names like "S. Ramya" keep the
 // full name.
@@ -30,13 +50,13 @@ const firstName = (name = '') => {
 export default function GreetingBar({ user }) {
   const [now, setNow] = useState(() => new Date());
   const [feedback, setFeedback] = useState(null);
-  // Same answers as localStorage, for browsers where storage is blocked.
+  // Same times as the stored ones, in case both stores are blocked.
   const [answered, setAnswered] = useState({});
 
   useEffect(() => {
     const tick = () => setNow(new Date());
     const t = setInterval(tick, 30000);
-    // Phones resume old pages — re-check the hour as soon as it's visible.
+    // Phones resume old pages — re-check as soon as it's visible.
     document.addEventListener('visibilitychange', tick);
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', tick); };
   }, []);
@@ -51,16 +71,19 @@ export default function GreetingBar({ user }) {
 
   const h = now.getHours();
   const period = h < 12 ? 'Morning' : h < 15 ? 'Afternoon' : 'Evening';
-  const uid = user.user_id || user.email || user.name;
-  const due = [];
-  if (h >= 12 && h < 15) due.push({ id: 'lunch', key: `mhu_lunch_${uid}`, value: dayKey(now) });
-  due.push({ id: 'water', key: `mhu_water_${uid}`, value: hourKey(now) });
-  const pending = due.find((q) => answered[q.key] !== q.value && readKey(q.key) !== q.value);
-  const question = feedback || !pending ? null : { ...pending, ...QUESTIONS[pending.id] };
+  // Cookie-safe: user ids are letters, digits and _ ; emails get encoded.
+  const uid = encodeURIComponent(user.user_id || user.email || user.name);
+  const ids = h >= 12 && h < 15 ? ['lunch', 'water'] : ['water'];
+  const pendingId = ids.find((id) => {
+    const key = `mhu_${id}_${uid}`;
+    return now.getTime() >= Math.max(readNext(key), answered[key] || 0);
+  });
+  const question = feedback || !pendingId ? null : { id: pendingId, key: `mhu_${pendingId}_${uid}`, ...QUESTIONS[pendingId] };
 
   const answer = (q, yes) => {
-    writeKey(q.key, q.value);
-    setAnswered((a) => ({ ...a, [q.key]: q.value }));
+    const next = yes ? nextAfterYes[q.id](new Date()) : Date.now() + REMIND_MS;
+    writeNext(q.key, next);
+    setAnswered((a) => ({ ...a, [q.key]: next }));
     setFeedback({ happy: yes, text: yes ? q.yes : q.no });
   };
 
