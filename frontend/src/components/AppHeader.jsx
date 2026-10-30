@@ -4,8 +4,13 @@ import { Button } from '@/components/ui/button';
 import axios from 'axios';
 import { useTheme } from '../hooks/useTheme';
 import USBLookupBar from './USBLookupBar';
+import HeaderGreeting, { useHeaderGreeting } from './HeaderGreeting';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+// Roles that get the greeting + water/lunch check in the header. It takes
+// the centre slot on desktop, so only roles with no top nav there.
+const GREETING_ROLES = new Set(['procurement']);
 
 // ═══ ROLE-BASED NAVIGATION ═══
 // Also read by MobileBottomNav, which puts any of these it doesn't already
@@ -184,6 +189,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark, toggleTheme } = useTheme();
+  const greeting = useHeaderGreeting(GREETING_ROLES.has(user?.role) ? user : null);
 
   // Embedded mode: hosted inside Finance Board (or another) iframe.
   // - `?embedded=1` alone → render nothing (parent already has its own header).
@@ -295,6 +301,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
   // visible no matter which inner page they're on.
   const customNavAsSub = role === 'super_admin' && hasCustomNav;
   const showMainNav = !hasCustomNav || customNavAsSub;
+  const showGreeting = !!greeting && !hasCustomNav;
 
   return (
     <div className="sticky top-0 z-50 bg-white dark:bg-gray-900">
@@ -333,40 +340,47 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
             )}
           </div>
 
-          {/* Center: Desktop Nav (hidden when caller passes hideNav) */}
-          <nav className="hidden lg:flex items-center gap-0.5 mx-4 overflow-x-auto" data-testid="header-nav">
-            {hideNav ? null : hasCustomNav && !customNavAsSub ? (
-              customNav.map((item) => (
-                <button
-                  key={item.value}
-                  data-testid={`nav-${item.value.replace(/_/g, '-')}`}
-                  onClick={() => onCustomNavChange?.(item.value)}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
-                    activeCustomNav === item.value
-                      ? 'bg-amber-50 text-amber-700 font-semibold'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))
-            ) : showMainNav && navItems.length > 1 ? (
-              navItems.map((item) => (
-                <button
-                  key={item.path}
-                  data-testid={`nav-${item.label.toLowerCase().replace(/\s/g, '-')}`}
-                  onClick={() => navigate(item.path)}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
-                    isMainActive(item.path)
-                      ? 'bg-amber-50 text-amber-700 font-semibold'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))
-            ) : null}
-          </nav>
+          {/* Center: Desktop Nav (hidden when caller passes hideNav), or the
+              greeting for GREETING_ROLES — its own row below `lg`. */}
+          {showGreeting ? (
+            <div className="hidden lg:flex items-center mx-4 min-w-0">
+              <HeaderGreeting {...greeting} />
+            </div>
+          ) : (
+            <nav className="hidden lg:flex items-center gap-0.5 mx-4 overflow-x-auto" data-testid="header-nav">
+              {hideNav ? null : hasCustomNav && !customNavAsSub ? (
+                customNav.map((item) => (
+                  <button
+                    key={item.value}
+                    data-testid={`nav-${item.value.replace(/_/g, '-')}`}
+                    onClick={() => onCustomNavChange?.(item.value)}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
+                      activeCustomNav === item.value
+                        ? 'bg-amber-50 text-amber-700 font-semibold'
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))
+              ) : showMainNav && navItems.length > 1 ? (
+                navItems.map((item) => (
+                  <button
+                    key={item.path}
+                    data-testid={`nav-${item.label.toLowerCase().replace(/\s/g, '-')}`}
+                    onClick={() => navigate(item.path)}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
+                      isMainActive(item.path)
+                        ? 'bg-amber-50 text-amber-700 font-semibold'
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))
+              ) : null}
+            </nav>
+          )}
 
           {/* Right: Theme + Notifs + Profile + User + Logout */}
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
@@ -404,6 +418,12 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
           </div>
         </div>
       </header>
+
+      {showGreeting && (
+        <div className="lg:hidden bg-amber-50/60 border-b border-amber-100 px-4 py-1.5 dark:bg-gray-900 dark:border-gray-800" data-testid="header-greeting-row">
+          <HeaderGreeting {...greeting} />
+        </div>
+      )}
 
       {/* Sub-navigation bar — for super_admin we surface the page's customNav
           here so the Super Admin shell stays visible at the top. Other roles
