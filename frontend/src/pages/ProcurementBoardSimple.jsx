@@ -16,6 +16,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '../components/ui/popove
 // doesn't have to leave the Procurement board for project / vendor work.
 import Projects from './Projects';
 import VendorMasterManagement from './VendorMasterManagement';
+import GreetingBar from '../components/GreetingBar';
 import {
   Package,
   ClipboardList,
@@ -86,6 +87,9 @@ export default function ProcurementBoardSimple() {
     <div className="min-h-screen bg-gray-50 pb-20" data-testid="procurement-board-simple">
       <AppHeader user={user} />
       <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-5">
+        <div className="mb-3">
+          <GreetingBar user={user} />
+        </div>
         <DashboardTab />
       </div>
       <MobileBottomNav user={user} />
