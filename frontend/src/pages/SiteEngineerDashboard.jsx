@@ -57,10 +57,37 @@ import { AppHeader } from '../components/AppHeader';
 import { StatusPill, pillState } from '../components/StatusPill';
 import { CorrectionDialog } from '../components/CorrectionDialog';
 import SrSERequestsTab from '../components/SrSERequestsTab';
+import PhotoLightbox from '../components/PhotoLightbox';
 
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+
+// Oct 30 2026 — petty cash bill links are an eye icon (was "[bill]" / "View").
+// `onOpen` shows a photo bill in the in-page viewer; with no file on record
+// (filename only) the icon is greyed out.
+const isPdfBill = (filename) => /\.pdf$/i.test(filename || '');
+function BillEye({ fileId, filename, onOpen, testId }) {
+  if (!fileId) {
+    return (
+      <span className="inline-flex h-6 w-6 items-center justify-center text-gray-300" title="Bill file not available">
+        <Eye className="h-3.5 w-3.5" />
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onOpen(); }}
+      title={`View bill${filename ? ` — ${filename}` : ''}`}
+      aria-label="View bill"
+      className="inline-flex h-6 w-6 items-center justify-center rounded text-blue-600 hover:bg-blue-50 hover:text-blue-800"
+      data-testid={testId}
+    >
+      <Eye className="h-3.5 w-3.5" />
+    </button>
+  );
+}
 
 // Fix leaflet default marker icon
 const defaultIcon = L.icon({
@@ -398,6 +425,24 @@ export default function SiteEngineerDashboard() {
   const [pettyCashSummary, setPettyCashSummary] = useState({});
   const [incomeHistory, setIncomeHistory] = useState([]);
   const [directExpensesList, setDirectExpensesList] = useState([]);
+  // Bill photo viewer: { photos: [{ src, label }], index }.
+  const [billPreview, setBillPreview] = useState(null);
+  // `bills` = [{ fileId, filename, label }] — the clicked bill plus its
+  // siblings in the same expense, so the viewer can step between them. A PDF
+  // opens in a new tab instead: phone browsers can't show one in a popup.
+  const openBill = (bills, fileId) => {
+    const clicked = bills.find(b => b.fileId === fileId);
+    if (!clicked) return;
+    if (isPdfBill(clicked.filename)) {
+      window.open(`${API}/files/${fileId}/download`, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    const photos = bills.filter(b => b.fileId && !isPdfBill(b.filename));
+    setBillPreview({
+      photos: photos.map(b => ({ src: `${API}/files/${b.fileId}/download`, label: b.label })),
+      index: Math.max(0, photos.findIndex(b => b.fileId === fileId)),
+    });
+  };
   const [directExpenseDialog, setDirectExpenseDialog] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState(null);
   // Feb 28 2026 — Picked petty_cash bucket the SE wants to record this
@@ -2340,14 +2385,12 @@ export default function SiteEngineerDashboard() {
                                       <td className="px-3 py-2 text-xs text-gray-800 font-medium">{row.expense_name || '—'}</td>
                                       <td className="px-3 py-2 text-xs">
                                         {row.bill_file_id ? (
-                                          <a
-                                            href={`${API}/files/${row.bill_file_id}/download`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-blue-600 underline hover:text-blue-800"
-                                            title={row.bill_filename || 'View bill'}
-                                            data-testid={`req-status-exp-bill-${idx}`}
-                                          >View</a>
+                                          <BillEye
+                                            fileId={row.bill_file_id}
+                                            filename={row.bill_filename}
+                                            testId={`req-status-exp-bill-${idx}`}
+                                            onOpen={() => openBill([{ fileId: row.bill_file_id, filename: row.bill_filename, label: row.expense_name || 'Bill' }], row.bill_file_id)}
+                                          />
                                         ) : (
                                           <span className="text-gray-400">—</span>
                                         )}
@@ -2495,19 +2538,15 @@ export default function SiteEngineerDashboard() {
                                   <Badge variant="outline" className="text-[10px] px-1 py-0">{item.category}</Badge>
                                   <span className="text-gray-700">{item.expense_name}</span>
                                   {item.bill_filename && (
-                                    item.bill_file_id ? (
-                                      <a
-                                        href={`${API}/files/${item.bill_file_id}/download`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        onClick={(e) => e.stopPropagation()}
-                                        title={item.bill_filename}
-                                        className="text-[10px] text-blue-600 underline hover:text-blue-800"
-                                        data-testid={`se-view-bill-${de.expense_id}-${i}`}
-                                      >[bill]</a>
-                                    ) : (
-                                      <span className="text-blue-500 text-[10px]">[bill]</span>
-                                    )
+                                    <BillEye
+                                      fileId={item.bill_file_id}
+                                      filename={item.bill_filename}
+                                      testId={`se-view-bill-${de.expense_id}-${i}`}
+                                      onOpen={() => openBill(
+                                        (de.items || []).map(x => ({ fileId: x.bill_file_id, filename: x.bill_filename, label: `${x.expense_name || 'Bill'} · ₹${Number(x.amount || 0).toLocaleString('en-IN')}` })),
+                                        item.bill_file_id,
+                                      )}
+                                    />
                                   )}
                                   {item.stage_label && item.stage_label !== de.stage_label && (
                                     <span className="text-[9px] text-gray-500 italic">— {item.stage_label}</span>
@@ -2579,14 +2618,12 @@ export default function SiteEngineerDashboard() {
                                   <td className="px-3 py-2 text-xs text-gray-800 font-medium">{row.expense_name || '—'}</td>
                                   <td className="px-3 py-2 text-xs">
                                     {row.bill_file_id ? (
-                                      <a
-                                        href={`${API}/files/${row.bill_file_id}/download`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-blue-600 underline hover:text-blue-800"
-                                        title={row.bill_filename || 'View bill'}
-                                        data-testid={`exp-waiting-bill-${idx}`}
-                                      >View</a>
+                                      <BillEye
+                                        fileId={row.bill_file_id}
+                                        filename={row.bill_filename}
+                                        testId={`exp-waiting-bill-${idx}`}
+                                        onOpen={() => openBill([{ fileId: row.bill_file_id, filename: row.bill_filename, label: row.expense_name || 'Bill' }], row.bill_file_id)}
+                                      />
                                     ) : (
                                       <span className="text-gray-400">—</span>
                                     )}
@@ -3601,6 +3638,14 @@ export default function SiteEngineerDashboard() {
             setPettyCashList(res.data || []);
           } catch (e) { /* noop */ }
         }}
+      />
+
+      <PhotoLightbox
+        open={!!billPreview}
+        photos={billPreview?.photos || []}
+        index={billPreview?.index || 0}
+        onClose={() => setBillPreview(null)}
+        onIndexChange={(i) => setBillPreview(p => ({ ...p, index: i }))}
       />
 
       <MobileBottomNav user={user} />
