@@ -312,7 +312,7 @@ function RequestCard({ req, kind, onMaterialClick }) {
             <span className="font-mono text-xs text-gray-500">{req.request_number || req.request_id}</span>
             <StatusPill status={req.status} />
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-x-2 gap-y-2.5 text-xs">
             <Field label="Date" value={fmtDate(req.requested_at || req.created_at)} />
             <Field label="Material" value={`${req.material_name || '—'}${req.brand ? ` (${req.brand})` : ''}`} />
             <Field label="Qty" value={`${req.quantity || 0} ${req.unit || ''}`} />
@@ -336,7 +336,7 @@ function RequestCard({ req, kind, onMaterialClick }) {
             <span className="font-mono text-xs text-gray-500">{req.rab_number || req.request_id}</span>
             <StatusPill status={req.status} />
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-x-2 gap-y-2.5 text-xs">
             <Field label="Date" value={fmtDate(req.requested_at || req.created_at)} />
             <Field label="Contractor" value={req.contractor_name || '—'} />
             <Field label="Stage" value={req.stage_name || '—'} />
@@ -355,7 +355,7 @@ function RequestCard({ req, kind, onMaterialClick }) {
           <span className="font-mono text-xs text-gray-500">{req.expense_id || req.request_id}</span>
           <StatusPill status={req.status} />
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-x-2 gap-y-2.5 text-xs">
           <Field label="Date" value={fmtDate(req.requested_at || req.created_at)} />
           <Field label="Category" value={req.category || req.expense_category || '—'} />
           <Field label="Amount" value={fmt(req.amount)} />
@@ -370,11 +370,14 @@ function RequestCard({ req, kind, onMaterialClick }) {
   );
 }
 
+// Oct 30 2026 — cards are 3 columns on phones (Date · Material · Qty /
+// Project · SE), so a value wraps rather than truncating; min-w-0 keeps a long
+// one from widening its column past the card.
 function Field({ label, value }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-[9px] text-gray-400 uppercase tracking-wide">{label}</p>
-      <p className="text-xs font-medium text-gray-800 truncate">{value || '—'}</p>
+      <p className="text-xs font-medium text-gray-800 break-words">{value || '—'}</p>
     </div>
   );
 }
