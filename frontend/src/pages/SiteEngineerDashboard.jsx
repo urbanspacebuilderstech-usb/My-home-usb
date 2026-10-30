@@ -1806,7 +1806,7 @@ export default function SiteEngineerDashboard() {
                                 </td>
                                 <td className="px-4 py-3 text-gray-700">{project.client_name || '—'}</td>
                                 <td className="px-4 py-3">
-                                  <Badge variant="outline" className={`text-[11px] font-medium ${phaseTone(project.status)}`}>
+                                  <Badge variant="outline" className={`text-[11px] font-medium whitespace-nowrap ${phaseTone(project.status)}`}>
                                     {(project.status || 'unknown').replace(/_/g, ' ')}
                                   </Badge>
                                 </td>
