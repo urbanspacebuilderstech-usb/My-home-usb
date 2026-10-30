@@ -321,15 +321,20 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
       </tr>
       {isMulti && (
         <tr className="bg-fuchsia-50/40">
-          <td colSpan={7} className="px-3 py-2 border-t border-fuchsia-100">
-            <p className="text-[10px] uppercase font-semibold text-fuchsia-700 mb-1">Stages covered by this bill</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-              {rab.stage_breakdown.map((sb, idx) => (
-                <div key={sb.request_id || idx} className="flex items-center justify-between gap-2 bg-white rounded border border-fuchsia-100 px-2 py-1">
-                  <span className="text-[11px] font-medium text-slate-700 truncate" title={sb.stage_name}>{idx + 1}. {sb.stage_name}</span>
-                  <span className="text-[11px] font-bold text-emerald-700">{inr(sb.requested_amount)}</span>
-                </div>
-              ))}
+          <td colSpan={7} className="p-0 border-t border-fuchsia-100">
+            {/* Oct 30 2026 — the one-line table is wider than a phone, so the
+                breakdown is held to the visible width (100cqw of the scroll
+                box) and pinned left; stage names and amounts stay in view. */}
+            <div className="sticky left-0 w-[100cqw] px-3 py-2">
+              <p className="text-[10px] uppercase font-semibold text-fuchsia-700 mb-1">Stages covered by this bill</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {rab.stage_breakdown.map((sb, idx) => (
+                  <div key={sb.request_id || idx} className="flex items-center justify-between gap-2 bg-white rounded border border-fuchsia-100 px-2 py-1">
+                    <span className="min-w-0 text-[11px] font-medium text-slate-700 truncate" title={sb.stage_name}>{idx + 1}. {sb.stage_name}</span>
+                    <span className="shrink-0 text-[11px] font-bold text-emerald-700">{inr(sb.requested_amount)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </td>
         </tr>
@@ -340,8 +345,10 @@ export default function WORABTab({ projectId, workOrder, onOpenRabView, stageIdF
 
   const renderTable = (list, opts = {}) => (
     list.length === 0 ? null : (
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+      // Oct 30 2026 — every cell stays on one line ("RAB-01", "26 Sept 2026",
+      // "Closing Bal"); on phones the table scrolls sideways instead.
+      <div className="overflow-x-auto [container-type:inline-size]">
+        <table className="w-full text-sm whitespace-nowrap">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase">RAB</th>
