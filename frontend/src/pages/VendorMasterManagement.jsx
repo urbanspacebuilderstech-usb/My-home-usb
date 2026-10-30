@@ -46,6 +46,10 @@ const GST_TYPES = [
   { value: 'composition', label: 'Composition' },
   { value: 'unregistered', label: 'Unregistered' },
 ];
+// Oct 30 2026 — tab labels wrap on phones instead of being cut off
+// ("Brands & Materials", "GST & Payment", "Payment Summary"). Pair with h-auto
+// on the TabsList.
+const TAB_WRAP = 'whitespace-normal leading-tight text-xs sm:text-sm';
 
 export default function VendorMasterManagement({ embedded = false }) {
   const navigate = useNavigate();
@@ -207,7 +211,7 @@ export default function VendorMasterManagement({ embedded = false }) {
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Vendor Management</h1>
+            <h1 className="text-lg sm:text-2xl font-bold text-gray-900">Vendor Management</h1>
             <p className="text-sm text-gray-500">{vendors.length} vendors registered</p>
           </div>
           <Button data-testid="create-vendor-btn" onClick={() => { setForm(emptyForm); setEditingVendor(null); setShowForm(true); }}>
@@ -222,7 +226,7 @@ export default function VendorMasterManagement({ embedded = false }) {
             <Input placeholder="Search vendors..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" data-testid="vendor-search" />
           </div>
           <Select value={filterCategory} onValueChange={setFilterCategory}>
-            <SelectTrigger className="w-48" data-testid="vendor-category-filter">
+            <SelectTrigger className="w-full sm:w-48" data-testid="vendor-category-filter">
               <SelectValue placeholder="All Categories" />
             </SelectTrigger>
             <SelectContent>
@@ -238,14 +242,17 @@ export default function VendorMasterManagement({ embedded = false }) {
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {filtered.map(v => (
-              <Card key={v.vendor_id} data-testid={`vendor-card-${v.vendor_id}`} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => openView(v)}>
+              // Oct 30 2026 — min-w-0 down the card so a long name, email or
+              // address wraps/truncates instead of widening the card (and the
+              // whole page) past a phone screen.
+              <Card key={v.vendor_id} data-testid={`vendor-card-${v.vendor_id}`} className="min-w-0 hover:shadow-md transition-shadow cursor-pointer" onClick={() => openView(v)}>
                 <CardContent className="p-4">
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="flex items-center gap-2">
+                  <div className="flex justify-between items-start gap-2 mb-2">
+                    <div className="flex items-start gap-2 min-w-0">
                       <Building2 className="h-5 w-5 text-blue-600 flex-shrink-0" />
-                      <h3 className="font-semibold text-gray-900 truncate">{v.name}</h3>
+                      <h3 className="font-semibold text-gray-900 min-w-0 break-words leading-snug">{v.name}</h3>
                     </div>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-shrink-0">
                       <Button variant="ghost" size="sm" onClick={e => { e.stopPropagation(); setBookVendor(v); }} data-testid={`vendor-book-${v.vendor_id}`} title="Vendor Book" className="text-amber-700 hover:bg-amber-50">
                         <FileText className="h-3.5 w-3.5" />
                       </Button>
@@ -266,10 +273,10 @@ export default function VendorMasterManagement({ embedded = false }) {
                   </div>
                   {v.vendor_type && <Badge variant="outline" className="mb-2 text-xs">{v.vendor_type}</Badge>}
                   <div className="space-y-1 text-xs text-gray-500">
-                    {v.contact_person && <p>{v.contact_person}</p>}
-                    {v.phone && <p className="flex items-center gap-1"><Phone className="h-3 w-3" />{v.phone}</p>}
-                    {v.email && <p className="flex items-center gap-1"><Mail className="h-3 w-3" />{v.email}</p>}
-                    {v.address && <p className="flex items-center gap-1 truncate"><MapPin className="h-3 w-3 flex-shrink-0" />{v.address}</p>}
+                    {v.contact_person && <p className="break-words">{v.contact_person}</p>}
+                    {v.phone && <p className="flex items-center gap-1"><Phone className="h-3 w-3 flex-shrink-0" />{v.phone}</p>}
+                    {v.email && <p className="flex items-center gap-1 min-w-0"><Mail className="h-3 w-3 flex-shrink-0" /><span className="truncate">{v.email}</span></p>}
+                    {v.address && <p className="flex items-center gap-1 min-w-0"><MapPin className="h-3 w-3 flex-shrink-0" /><span className="truncate">{v.address}</span></p>}
                   </div>
                   {v.brands?.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1">
@@ -279,8 +286,8 @@ export default function VendorMasterManagement({ embedded = false }) {
                       {v.brands.length > 3 && <Badge variant="secondary" className="text-[10px]">+{v.brands.length - 3} more</Badge>}
                     </div>
                   )}
-                  <div className="mt-3 flex items-center justify-between text-xs">
-                    <span className="text-gray-400">{v.payment_cycle?.replace('_', ' ') || v.payment_terms}</span>
+                  <div className="mt-3 flex items-center justify-between gap-2 text-xs">
+                    <span className="text-gray-400 min-w-0 truncate">{v.payment_cycle?.replace('_', ' ') || v.payment_terms}</span>
                     {v.gst_number && <span className="text-green-600 font-mono text-[10px]">GST: {v.gst_number.slice(0, 6)}...</span>}
                   </div>
                 </CardContent>
@@ -297,11 +304,11 @@ export default function VendorMasterManagement({ embedded = false }) {
               <DialogDescription>Fill in vendor details below.</DialogDescription>
             </DialogHeader>
             <Tabs defaultValue="basic" className="mt-2">
-              <TabsList className="grid grid-cols-4 w-full">
-                <TabsTrigger value="basic">Basic</TabsTrigger>
-                <TabsTrigger value="account">Account</TabsTrigger>
-                <TabsTrigger value="brands">Brands</TabsTrigger>
-                <TabsTrigger value="gst">GST & Payment</TabsTrigger>
+              <TabsList className="grid grid-cols-4 w-full h-auto">
+                <TabsTrigger value="basic" className={TAB_WRAP}>Basic</TabsTrigger>
+                <TabsTrigger value="account" className={TAB_WRAP}>Account</TabsTrigger>
+                <TabsTrigger value="brands" className={TAB_WRAP}>Brands</TabsTrigger>
+                <TabsTrigger value="gst" className={TAB_WRAP}>GST & Payment</TabsTrigger>
               </TabsList>
 
               {/* Basic Details */}
@@ -474,16 +481,17 @@ export default function VendorMasterManagement({ embedded = false }) {
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             {viewVendor && (
               <>
-                <DialogHeader>
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <DialogTitle className="text-xl">{viewVendor.name}</DialogTitle>
-                      <DialogDescription className="flex items-center gap-2 mt-1">
+                <DialogHeader className="text-left">
+                  {/* Stacks on phones — side by side, Edit/Delete ran off the popup. */}
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
+                    <div className="min-w-0 pr-6 sm:pr-0">
+                      <DialogTitle className="text-lg sm:text-xl break-words">{viewVendor.name}</DialogTitle>
+                      <DialogDescription className="flex items-center gap-2 mt-1 flex-wrap">
                         {viewVendor.vendor_type && <Badge variant="outline">{viewVendor.vendor_type}</Badge>}
                         {viewVendor.gst_number && <span className="text-xs font-mono">GST: {viewVendor.gst_number}</span>}
                       </DialogDescription>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-shrink-0">
                       <Button variant="outline" size="sm" onClick={() => { setViewVendor(null); openEdit(viewVendor); }}>
                         <Edit className="h-4 w-4 mr-1" /> Edit
                       </Button>
@@ -506,21 +514,21 @@ export default function VendorMasterManagement({ embedded = false }) {
                 </DialogHeader>
 
                 <Tabs defaultValue="details" className="mt-4">
-                  <TabsList className="grid grid-cols-3 w-full">
-                    <TabsTrigger value="details">Details</TabsTrigger>
-                    <TabsTrigger value="brands">Brands & Materials</TabsTrigger>
-                    <TabsTrigger value="summary">Summary</TabsTrigger>
+                  <TabsList className="grid grid-cols-3 w-full h-auto">
+                    <TabsTrigger value="details" className={TAB_WRAP}>Details</TabsTrigger>
+                    <TabsTrigger value="brands" className={TAB_WRAP}>Brands & Materials</TabsTrigger>
+                    <TabsTrigger value="summary" className={TAB_WRAP}>Summary</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="details" className="mt-4">
-                    <div className="grid grid-cols-2 gap-6">
-                      <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                      <div className="space-y-3 min-w-0">
                         <h4 className="font-semibold text-sm text-gray-700">Contact</h4>
                         <div className="space-y-2 text-sm">
                           {viewVendor.contact_person && <p><span className="text-gray-500">Person:</span> {viewVendor.contact_person}</p>}
-                          {viewVendor.phone && <p className="flex items-center gap-1"><Phone className="h-3.5 w-3.5 text-gray-400" />{viewVendor.phone}</p>}
-                          {viewVendor.email && <p className="flex items-center gap-1"><Mail className="h-3.5 w-3.5 text-gray-400" />{viewVendor.email}</p>}
-                          {viewVendor.address && <p className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5 text-gray-400" />{viewVendor.address}</p>}
+                          {viewVendor.phone && <p className="flex items-center gap-1"><Phone className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />{viewVendor.phone}</p>}
+                          {viewVendor.email && <p className="flex items-start gap-1"><Mail className="h-3.5 w-3.5 mt-0.5 text-gray-400 flex-shrink-0" /><span className="min-w-0 break-all">{viewVendor.email}</span></p>}
+                          {viewVendor.address && <p className="flex items-start gap-1"><MapPin className="h-3.5 w-3.5 mt-0.5 text-gray-400 flex-shrink-0" /><span className="min-w-0 break-words">{viewVendor.address}</span></p>}
                         </div>
                       </div>
                       <div className="space-y-3">
@@ -533,9 +541,9 @@ export default function VendorMasterManagement({ embedded = false }) {
                         </div>
                       </div>
                       {viewVendor.bank_name && (
-                        <div className="col-span-2 space-y-3">
+                        <div className="sm:col-span-2 space-y-3 min-w-0">
                           <h4 className="font-semibold text-sm text-gray-700">Bank Details</h4>
-                          <div className="grid grid-cols-2 gap-2 text-sm bg-gray-50 p-3 rounded-lg">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm bg-gray-50 p-3 rounded-lg break-words">
                             <p><span className="text-gray-500">Bank:</span> {viewVendor.bank_name}</p>
                             <p><span className="text-gray-500">A/C No:</span> {viewVendor.account_number}</p>
                             <p><span className="text-gray-500">IFSC:</span> {viewVendor.ifsc_code}</p>
@@ -569,26 +577,26 @@ export default function VendorMasterManagement({ embedded = false }) {
                         {/* Stats Cards */}
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                           <Card><CardContent className="p-3 text-center">
-                            <p className="text-2xl font-bold text-blue-600">{vendorSummary.stats.total_orders}</p>
+                            <p className="text-lg sm:text-2xl font-bold text-blue-600">{vendorSummary.stats.total_orders}</p>
                             <p className="text-xs text-gray-500">Total Orders</p>
                           </CardContent></Card>
                           <Card><CardContent className="p-3 text-center">
-                            <p className="text-2xl font-bold text-green-600">{vendorSummary.stats.total_order_value?.toLocaleString('en-IN')}</p>
+                            <p className="text-lg sm:text-2xl font-bold text-green-600">{vendorSummary.stats.total_order_value?.toLocaleString('en-IN')}</p>
                             <p className="text-xs text-gray-500">Order Value</p>
                           </CardContent></Card>
                           <Card><CardContent className="p-3 text-center">
-                            <p className="text-2xl font-bold text-emerald-600">{vendorSummary.stats.paid_amount?.toLocaleString('en-IN')}</p>
+                            <p className="text-lg sm:text-2xl font-bold text-emerald-600">{vendorSummary.stats.paid_amount?.toLocaleString('en-IN')}</p>
                             <p className="text-xs text-gray-500">Paid</p>
                           </CardContent></Card>
                           <Card><CardContent className="p-3 text-center">
-                            <p className="text-2xl font-bold text-red-600">{vendorSummary.stats.pending_amount?.toLocaleString('en-IN')}</p>
+                            <p className="text-lg sm:text-2xl font-bold text-red-600">{vendorSummary.stats.pending_amount?.toLocaleString('en-IN')}</p>
                             <p className="text-xs text-gray-500">Pending</p>
                           </CardContent></Card>
                         </div>
                         {/* Orders */}
                         <h4 className="font-semibold text-sm text-gray-700 mt-4">Recent Orders</h4>
                         {vendorSummary.orders?.length > 0 ? (
-                          <div className="border rounded-lg overflow-hidden">
+                          <div className="border rounded-lg overflow-x-auto">
                             <table className="w-full text-sm">
                               <thead className="bg-gray-50">
                                 <tr>
@@ -695,10 +703,10 @@ function VendorBookDialog({ vendor, onClose }) {
           <div className="flex justify-center py-10"><div className="animate-spin h-6 w-6 border-2 border-amber-500 border-t-transparent rounded-full" /></div>
         ) : (
           <Tabs value={tab} onValueChange={setTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-3" data-testid="vendor-book-tabs">
-              <TabsTrigger value="orders" data-testid="vb-tab-orders">Orders</TabsTrigger>
-              <TabsTrigger value="credits" data-testid="vb-tab-credits">Credits</TabsTrigger>
-              <TabsTrigger value="summary" data-testid="vb-tab-summary">Payment Summary</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-3 h-auto" data-testid="vendor-book-tabs">
+              <TabsTrigger value="orders" className={TAB_WRAP} data-testid="vb-tab-orders">Orders</TabsTrigger>
+              <TabsTrigger value="credits" className={TAB_WRAP} data-testid="vb-tab-credits">Credits</TabsTrigger>
+              <TabsTrigger value="summary" className={TAB_WRAP} data-testid="vb-tab-summary">Payment Summary</TabsTrigger>
             </TabsList>
 
             {/* Orders */}
@@ -814,23 +822,23 @@ function VendorBookDialog({ vendor, onClose }) {
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   <Card><CardContent className="p-4">
                     <p className="text-xs text-gray-500">Total Orders</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-1" data-testid="vb-summary-total-orders">{data.summary.total_orders}</p>
+                    <p className="text-lg sm:text-2xl font-bold text-gray-900 mt-1" data-testid="vb-summary-total-orders">{data.summary.total_orders}</p>
                   </CardContent></Card>
                   <Card><CardContent className="p-4">
                     <p className="text-xs text-gray-500">Total Value</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-1" data-testid="vb-summary-total-value">{fmt(data.summary.total_value)}</p>
+                    <p className="text-lg sm:text-2xl font-bold text-gray-900 mt-1" data-testid="vb-summary-total-value">{fmt(data.summary.total_value)}</p>
                   </CardContent></Card>
                   <Card><CardContent className="p-4">
                     <p className="text-xs text-gray-500">Delivered Value</p>
-                    <p className="text-2xl font-bold text-emerald-700 mt-1" data-testid="vb-summary-delivered">{fmt(data.summary.delivered_value)}</p>
+                    <p className="text-lg sm:text-2xl font-bold text-emerald-700 mt-1" data-testid="vb-summary-delivered">{fmt(data.summary.delivered_value)}</p>
                   </CardContent></Card>
                   <Card><CardContent className="p-4">
                     <p className="text-xs text-gray-500">Paid</p>
-                    <p className="text-2xl font-bold text-emerald-700 mt-1" data-testid="vb-summary-paid">{fmt(data.summary.paid_amount)}</p>
+                    <p className="text-lg sm:text-2xl font-bold text-emerald-700 mt-1" data-testid="vb-summary-paid">{fmt(data.summary.paid_amount)}</p>
                   </CardContent></Card>
                   <Card><CardContent className="p-4">
                     <p className="text-xs text-gray-500">Outstanding Credit</p>
-                    <p className="text-2xl font-bold text-amber-700 mt-1" data-testid="vb-summary-outstanding">{fmt(data.summary.outstanding_credit)}</p>
+                    <p className="text-lg sm:text-2xl font-bold text-amber-700 mt-1" data-testid="vb-summary-outstanding">{fmt(data.summary.outstanding_credit)}</p>
                   </CardContent></Card>
                   <Card><CardContent className="p-4">
                     <p className="text-xs text-gray-500">Payment Terms</p>
