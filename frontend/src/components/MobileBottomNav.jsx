@@ -29,7 +29,8 @@ import {
   MinusCircle,
   FileCheck,
   ListChecks,
-  Image
+  Image,
+  Store
 } from 'lucide-react';
 import { useState } from 'react';
 import axios from 'axios';
@@ -110,11 +111,14 @@ const OTHER_ROLES = {
     { label: 'Petty Cash', icon: Wallet, path: '/site-engineer?tab=pettycash' },
     { label: 'Attendance', icon: Clock, path: '/site-engineer?tab=attendance' },
   ],
+  // Oct 30 2026 — was Dashboard/Procurement/Alerts/Profile. Dashboard just
+  // redirects to this board and Alerts/Profile are in the header, so the bar
+  // holds the board's four sub-tabs instead (Material Req = no `?subtab=`).
   procurement: [
-    { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-    { label: 'Procurement', icon: ShoppingCart, path: '/procurement-board-v2' },
-    { label: 'Alerts', icon: Bell, path: '/notifications' },
-    { label: 'Profile', icon: User, path: '/profile' },
+    { label: 'Material Req', icon: ClipboardList, path: '/procurement-board-v2' },
+    { label: 'Credit Mgmt', icon: CreditCard, path: '/procurement-board-v2?subtab=credit_management' },
+    { label: 'All Projects', icon: FolderKanban, path: '/procurement-board-v2?subtab=all_projects' },
+    { label: 'Vendors', icon: Store, path: '/procurement-board-v2?subtab=material_vendors' },
   ],
   cre: [
     { label: 'CRE Board', icon: Target, path: '/cre-board' },

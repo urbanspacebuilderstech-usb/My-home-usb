@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -988,10 +989,11 @@ function RequestsTab({ dateRange, projectFilter }) {
 // DASHBOARD WRAPPER — Material Req | Credit Management | All Projects | Material Vendors
 // =====================================================================
 function DashboardTab() {
-  const [subTab, setSubTab] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('subtab') || 'material_req';
-  });
+  // Oct 30 2026 — the sub-tab lives in the router's `?subtab=` (Material Req
+  // = none) so the phone bottom bar, which links to each sub-tab, switches
+  // it and highlights the one that is open.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const subTab = searchParams.get('subtab') || 'material_req';
   const [dateRange, setDateRange] = useState(null); // {from, to, label, preset}
   const [projectFilter, setProjectFilter] = useState('all');
   const [projectOptions, setProjectOptions] = useState([]);
@@ -1008,10 +1010,9 @@ function DashboardTab() {
   }, []);
 
   const setSub = (v) => {
-    setSubTab(v);
-    const url = new URL(window.location);
-    url.searchParams.set('subtab', v);
-    window.history.replaceState({}, '', url);
+    const next = new URLSearchParams(searchParams);
+    if (v === 'material_req') next.delete('subtab'); else next.set('subtab', v);
+    setSearchParams(next, { replace: true });
   };
 
   return (
