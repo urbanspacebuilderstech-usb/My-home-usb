@@ -133,7 +133,7 @@ export default function GreetingBar({ user }) {
         </span>
         {question && (
           <span
-            className="inline-flex shrink-0 items-center gap-1 sm:gap-2 rounded-full border border-sky-200 bg-sky-50 py-0.5 sm:py-1 pl-2 sm:pl-3 pr-0.5 sm:pr-1 animate-in fade-in zoom-in-95 dark:border-sky-800 dark:bg-sky-950"
+            className="inline-flex shrink-0 items-center gap-1 sm:gap-2 animate-in fade-in zoom-in-95"
             data-testid={`greeting-ask-${question.id}`}
           >
             <span className="text-[11px] sm:text-sm font-medium text-sky-800 whitespace-nowrap dark:text-sky-200">
