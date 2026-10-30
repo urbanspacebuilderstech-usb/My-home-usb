@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import axios from 'axios';
 import { toast } from 'sonner';
+import LoginCelebration from '@/components/LoginCelebration';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -121,6 +122,9 @@ export default function Login() {
   useEffect(() => {
     axios.get(`${API}/branding`).then(r => setBranding(r.data)).catch(() => {});
   }, []);
+  // Oct 30 2026 — Diwali mascot + fireworks, only inside the dates set in
+  // HR Portal → Settings → Animation.
+  const loginCardRef = useRef(null);
   const [demoMode, setDemoMode] = useState(false);
 
   // Check if setup is needed
@@ -222,8 +226,11 @@ export default function Login() {
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-amber-50/40 blur-3xl" />
       </div>
 
+      {branding.login_animation?.active && <LoginCelebration cardRef={loginCardRef} />}
+
       {/* Glassmorphism Card */}
       <div
+        ref={loginCardRef}
         data-testid="login-card"
         className="relative z-10 w-full max-w-md rounded-2xl border border-white/40 shadow-2xl [color-scheme:light]"
         style={{

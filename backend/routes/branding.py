@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -39,6 +39,35 @@ _SLOT_TO_FILES = {
     "logo": ["logo.webp"],
     "favicon": ["icon-192.png", "icon-512.png"],
 }
+
+
+# Oct 30 2026 — the Diwali mascot + fireworks on the login page runs only
+# between a start date and a number of days that HR / Super Admin set in
+# HR Portal → Settings → Animation. Dates are India dates (the login page
+# switches at midnight IST, not UTC).
+IST = timezone(timedelta(hours=5, minutes=30))
+LOGIN_ANIMATION_MAX_DAYS = 60
+
+
+def login_animation_window(doc: dict, today: Optional[date] = None) -> dict:
+    """Pure: the configured window and whether it covers `today` (IST)."""
+    start_raw = doc.get("login_animation_start")
+    days = int(doc.get("login_animation_days") or 0)
+    if not start_raw or days < 1:
+        return {"active": False, "start_date": None, "days": 0, "end_date": None}
+    try:
+        start = date.fromisoformat(str(start_raw)[:10])
+    except ValueError:
+        return {"active": False, "start_date": None, "days": 0, "end_date": None}
+    end = start + timedelta(days=days - 1)
+    today = today or datetime.now(IST).date()
+    return {"active": start <= today <= end, "start_date": start.isoformat(),
+            "days": days, "end_date": end.isoformat()}
+
+
+class LoginAnimationPatch(BaseModel):
+    start_date: Optional[str] = None   # "YYYY-MM-DD"; null/empty switches it off
+    days: Optional[int] = None
 
 
 class BrandingPatch(BaseModel):
@@ -71,6 +100,7 @@ def _shape(doc: dict) -> dict:
         "logo_version": lv,
         "favicon_version": fv,
         "updated_at": doc.get("updated_at"),
+        "login_animation": login_animation_window(doc),
     }
 
 
@@ -148,3 +178,30 @@ async def upload_branding_asset(
     )
     doc = await db.branding_settings.find_one({"_id": BRANDING_DOC_ID})
     return _shape(doc)
+
+
+@router.patch("/admin/login-animation")
+async def update_login_animation(payload: LoginAnimationPatch, user: User = Depends(get_current_user)):
+    """Set (or clear) when the login-page animation shows. HR + Super Admin."""
+    if user.role not in (UserRole.SUPER_ADMIN, UserRole.HR):
+        raise HTTPException(status_code=403, detail="Only HR or Super Admin can change the login animation")
+    start = (payload.start_date or "").strip()
+    if not start:
+        updates = {"login_animation_start": None, "login_animation_days": 0}
+    else:
+        try:
+            date.fromisoformat(start)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Start date must be YYYY-MM-DD")
+        days = int(payload.days or 0)
+        if not 1 <= days <= LOGIN_ANIMATION_MAX_DAYS:
+            raise HTTPException(status_code=400, detail=f"Days must be between 1 and {LOGIN_ANIMATION_MAX_DAYS}")
+        updates = {"login_animation_start": start, "login_animation_days": days}
+    now = datetime.now(timezone.utc).isoformat()
+    await db.branding_settings.update_one(
+        {"_id": BRANDING_DOC_ID},
+        {"$set": {**updates, "login_animation_updated_by": user.user_id, "updated_at": now}},
+        upsert=True,
+    )
+    doc = await db.branding_settings.find_one({"_id": BRANDING_DOC_ID})
+    return login_animation_window(doc)

@@ -11,13 +11,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
+import LoginAnimationSettings from '../components/LoginAnimationSettings';
 import {
   Users, UserPlus, Briefcase, Calendar, Edit, Trash2, Eye, EyeOff,
   Phone, Mail, CreditCard, FileText, Search, RefreshCw, Upload,
   Shield, Key, UserCheck, ChevronDown, ChevronUp, X, Check,
   Clock, MapPin, CheckCircle2, XCircle, ChevronLeft, ChevronRight,
   Download, Calculator, Settings, AlertCircle, Timer, TrendingUp,
-  UserX, Laptop, RefreshCcw, UserCog, Quote
+  UserX, Laptop, RefreshCcw, UserCog, Quote, Sparkles
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { setDailyQuotes } from '../components/GreetingBar';
@@ -1007,7 +1008,18 @@ export default function HRPortal() {
 
           {/* ===== SETTINGS TAB ===== */}
           <TabsContent value="settings">
-            <SettingsTab settings={hrSettings} setSettings={setHrSettings} onSave={handleSaveSettings} user={user} />
+            <Tabs defaultValue="general">
+              <TabsList className="mb-4">
+                <TabsTrigger value="general" data-testid="settings-subtab-general">General</TabsTrigger>
+                <TabsTrigger value="animation" data-testid="settings-subtab-animation"><Sparkles className="h-4 w-4 mr-1" />Animation</TabsTrigger>
+              </TabsList>
+              <TabsContent value="general">
+                <SettingsTab settings={hrSettings} setSettings={setHrSettings} onSave={handleSaveSettings} user={user} />
+              </TabsContent>
+              <TabsContent value="animation">
+                <LoginAnimationSettings />
+              </TabsContent>
+            </Tabs>
           </TabsContent>
         </Tabs>
       </div>
