@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { Checkbox } from '../components/ui/checkbox';
 import { Popover, PopoverTrigger, PopoverContent } from '../components/ui/popover';
+import { DatePicker, toDateValue } from '../components/ui/date-picker';
 // Procurement Dashboard sub-tabs embed these two pages so the operator
 // doesn't have to leave the Procurement board for project / vendor work.
 import Projects from './Projects';
@@ -2170,7 +2171,8 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
       setTimelineDays(String(item.timeline_value || ''));
       setTimelineDate('');
     } else {
-      setTimelineDate(item.expected_delivery ? String(item.expected_delivery).slice(0, 10) : (item.timeline_value || ''));
+      // Date only — older quotes saved timeline_value with a time ("…T14:30").
+      setTimelineDate(String(item.expected_delivery || item.timeline_value || '').slice(0, 10));
       setTimelineDays('');
     }
     setPaymentMode(item.payment_mode || 'advance');
@@ -2229,8 +2231,13 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
   const procHours = useMemo(() => {
     if (!item) return null;
     if (timelineType === 'date' && timelineDate) {
-      const ms = new Date(timelineDate).getTime() - Date.now();
-      return Math.max(1, Math.round(ms / 36e5));
+      // Oct 30 2026 — date only (no time): whole days from today × 24, the
+      // same as "Number of Days", so tomorrow = 24h.
+      const [y, m, d] = timelineDate.split('-').map(Number);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const days = Math.round((new Date(y, m - 1, d) - today) / 864e5);
+      return Number.isFinite(days) ? Math.max(1, days * 24) : null;
     }
     if (timelineType === 'days' && timelineDays) {
       return Math.max(1, parseInt(timelineDays) * 24);
@@ -2662,12 +2669,12 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject, onRevis
               >Number of Days</button>
             </div>
             {timelineType === 'date' ? (
-              <Input
-                type="datetime-local"
+              <DatePicker
                 value={timelineDate}
-                onChange={(e) => setTimelineDate(e.target.value)}
+                onChange={setTimelineDate}
                 disabled={readOnly}
-                min={new Date().toISOString().slice(0, 16)}
+                min={toDateValue(new Date())}
+                placeholder="Select delivery date"
                 data-testid="proc-timeline-date"
               />
             ) : (
