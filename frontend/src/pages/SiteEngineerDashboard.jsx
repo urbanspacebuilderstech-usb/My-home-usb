@@ -38,6 +38,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import ProjectFilterCombobox from '@/components/ProjectFilterCombobox';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
+import DashboardMascot from '../components/DashboardMascot';
 import { Label } from '@/components/ui/label';
 import {
   ArrowDownRight,
@@ -3603,6 +3604,7 @@ export default function SiteEngineerDashboard() {
       />
 
       <MobileBottomNav user={user} />
+      <DashboardMascot user={user} />
     </div>
   );
 }
