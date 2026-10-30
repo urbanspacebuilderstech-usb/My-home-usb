@@ -472,7 +472,7 @@ function RequestsTab({ dateRange, projectFilter }) {
       </div>
 
       {/* Lifecycle filter cards */}
-      <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5" data-testid="proc-lifecycle-cards">
+      <div className="grid grid-cols-3 sm:grid-cols-7 gap-1.5" data-testid="proc-lifecycle-cards">
         {LIFECYCLE_BUCKETS.map(b => {
           const Icon = b.Icon;
           const active = bucket === b.key;
