@@ -370,6 +370,15 @@ input[inputmode="numeric"]::-webkit-inner-spin-button {
    * a div with no scroll wrapper; :where() keeps this at zero specificity,
    * so a wrapper's own overflow class (e.g. a card's overflow-hidden) wins. */
   :where(div:has(> table)) { overflow-x: auto; }
+
+  /* Oct 30 2026 — the page itself is never wider than the screen. On
+   * Android Chrome one element sticking out lays the WHOLE page out wider,
+   * so the header, cards and bottom bar were all cut off on the right
+   * (Sr SE dashboard, reported 3 times). `clip` rather than `hidden` keeps
+   * html/body from becoming scroll containers, so the sticky header still
+   * sticks; `hidden` on html is the fallback where clip isn't supported. */
+  html { overflow-x: hidden; overflow-x: clip; }
+  body { overflow-x: clip; }
 }
 
 /* A centred strip that overflows pushes its first tabs off the left edge,
