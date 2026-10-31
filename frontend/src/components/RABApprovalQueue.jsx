@@ -203,18 +203,20 @@ export default function RABApprovalQueue({ role, title }) {
                 </div>
                 <span className="text-[10px] text-gray-500">{fmtDate(item.requested_at)}</span>
               </div>
+              {/* Oct 31 2026 — items-start: a long stage/contractor name wraps
+                  under itself with the icon and label on its first line. */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-0.5 text-xs">
-                <p className="flex items-center gap-1 text-gray-700">
-                  <Building2 className="h-3 w-3" /> <span className="font-medium">{item.project_name}</span>
+                <p className="flex items-start gap-1 text-gray-700">
+                  <Building2 className="h-3 w-3 shrink-0 mt-0.5" /> <span className="font-medium">{item.project_name}</span>
                 </p>
-                <p className="flex items-center gap-1 text-gray-700">
-                  <Hammer className="h-3 w-3" /> {item.contractor_name} <span className="text-gray-400">({item.contractor_type})</span>
+                <p className="flex items-start gap-1 text-gray-700">
+                  <Hammer className="h-3 w-3 shrink-0 mt-0.5" /> {item.contractor_name} <span className="text-gray-400">({item.contractor_type})</span>
                 </p>
-                <p className="flex items-center gap-1 text-gray-700">
-                  <FileText className="h-3 w-3" /> Stage: <span className="font-medium">{item.stage_name}</span>
+                <p className="flex items-start gap-1 text-gray-700">
+                  <FileText className="h-3 w-3 shrink-0 mt-0.5" /> Stage: <span className="font-medium">{item.stage_name}</span>
                 </p>
-                <p className="flex items-center gap-1 text-gray-700">
-                  <UserIcon className="h-3 w-3" /> By {item.requested_by_name}
+                <p className="flex items-start gap-1 text-gray-700">
+                  <UserIcon className="h-3 w-3 shrink-0 mt-0.5" /> By {item.requested_by_name}
                 </p>
               </div>
               {role !== 'quality_check' && (
@@ -249,24 +251,27 @@ export default function RABApprovalQueue({ role, title }) {
                 <p className="text-[10px] text-indigo-700">✓ Planning: {item.planning_approved_by_name} · {fmtDate(item.planning_approved_at)}{item.planning_notes ? ` · "${item.planning_notes}"` : ''}</p>
               )}
               {view === 'new' && (
-                <div className="flex gap-2 pt-1">
+                // Oct 31 2026 — the three buttons were one non-wrapping row,
+                // wider than a phone card (Reject was cut off). Phones: Approve
+                // full width on top, View and Reject side by side below.
+                <div className="grid grid-cols-2 gap-2 pt-1 sm:flex">
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 text-xs"
+                    className="h-8 sm:h-7 text-xs"
                     onClick={() => setRabView({ open: true, projectId: item.project_id, workOrderId: item.work_order_id, requestId: item.request_id })}
                     data-testid={`rab-view-${item.request_id}`}
                   ><Eye className="h-3 w-3 mr-1" /> View</Button>
                   <Button
                     size="sm"
-                    className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700"
+                    className="col-span-2 order-first sm:order-none h-8 sm:h-7 text-xs bg-emerald-600 hover:bg-emerald-700"
                     onClick={() => setDecisionDialog({ open: true, item, mode: 'approve', notes: '', reason: '' })}
                     data-testid={`rab-approve-${item.request_id}`}
                   ><CheckCircle className="h-3 w-3 mr-1" /> Approve → {cfg.nextRole}</Button>
                   <Button
                     size="sm"
                     variant="destructive"
-                    className="h-7 text-xs"
+                    className="h-8 sm:h-7 text-xs"
                     onClick={() => setDecisionDialog({ open: true, item, mode: 'reject', notes: '', reason: '' })}
                     data-testid={`rab-reject-${item.request_id}`}
                   ><XCircle className="h-3 w-3 mr-1" /> Reject</Button>
