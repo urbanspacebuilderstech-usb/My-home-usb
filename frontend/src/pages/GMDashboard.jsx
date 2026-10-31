@@ -1165,13 +1165,13 @@ const GMDashboard = () => {
           {/* ==================== FINAL ESTIMATE TAB ==================== */}
           <TabsContent value="final_estimate" className="space-y-6">
             <Card>
-              <CardHeader>
+              <CardHeader className="p-4 sm:p-6">
                 <CardTitle className="flex items-center gap-2">
-                  <Calculator className="h-5 w-5 text-blue-600" /> Final Estimates — Pending GM Approval
+                  <Calculator className="h-5 w-5 text-blue-600 shrink-0" /> Final Estimates — Pending GM Approval
                 </CardTitle>
                 <p className="text-sm text-gray-500">Review and approve/reject Final Estimates submitted by Planning. Approved FEs move to CRE. Rejections return to Planning with your reason.</p>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
                 <div className="space-y-3">
                   {feProjects.length === 0 ? (
                     <p className="text-center text-gray-400 py-8" data-testid="fe-empty">No Final Estimates pending review.</p>
@@ -1180,11 +1180,15 @@ const GMDashboard = () => {
                       const fe = p.fe || {};
                       const isRejected = fe.status === 'rejected_by_gm';
                       return (
-                        <div key={p.project_id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow" data-testid={`fe-card-${p.project_id}`}>
-                          <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div key={p.project_id} className="border rounded-lg p-3 sm:p-4 hover:shadow-sm transition-shadow" data-testid={`fe-card-${p.project_id}`}>
+                          {/* Oct 31 2026 — phones: details on top, buttons in one
+                              even row below (a lone View FE used to squeeze the
+                              details into a narrow column; three buttons spilled
+                              onto two lines). Side by side from `md`. */}
+                          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <h4 className="font-semibold">{p.name}</h4>
+                                <h4 className="font-semibold break-words">{p.name}</h4>
                                 <Badge variant="outline" className="text-xs">Rev {fe.revision || 0}</Badge>
                                 <Badge className={isRejected ? 'bg-red-100 text-red-700 text-xs' : 'bg-blue-100 text-blue-700 text-xs'}>
                                   {isRejected ? 'Rejected — Awaiting Re-submission' : 'Pending GM Review'}
@@ -1202,15 +1206,15 @@ const GMDashboard = () => {
                                 </div>
                               )}
                             </div>
-                            <div className="flex flex-wrap gap-2">
-                              <Button size="sm" variant="outline" onClick={() => window.open(`/projects/${p.project_id}?tab=scope`, '_blank')} data-testid={`fe-view-${p.project_id}`}>
+                            <div className="flex gap-2 md:shrink-0">
+                              <Button size="sm" variant="outline" className="flex-1 md:flex-none px-2 sm:px-3 text-xs sm:text-sm" onClick={() => window.open(`/projects/${p.project_id}?tab=scope`, '_blank')} data-testid={`fe-view-${p.project_id}`}>
                                 <Eye className="h-3.5 w-3.5 mr-1" /> View FE
                               </Button>
                               {!isRejected && (
                                 <>
                                   <Button
                                     size="sm"
-                                    className="bg-green-600 hover:bg-green-700"
+                                    className="flex-1 md:flex-none px-2 sm:px-3 text-xs sm:text-sm bg-green-600 hover:bg-green-700"
                                     disabled={feBusy}
                                     data-testid={`fe-approve-${p.project_id}`}
                                     onClick={() => setFeApproveDialog({ open: true, project: p, typed: '', autoShare: false, submitting: false })}
@@ -1220,6 +1224,7 @@ const GMDashboard = () => {
                                   <Button
                                     size="sm"
                                     variant="destructive"
+                                    className="flex-1 md:flex-none px-2 sm:px-3 text-xs sm:text-sm"
                                     disabled={feBusy}
                                     data-testid={`fe-reject-${p.project_id}`}
                                     onClick={() => setFeRejectDialog({ open: true, project: p, reason: '' })}
