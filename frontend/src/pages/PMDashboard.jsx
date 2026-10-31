@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -27,7 +28,16 @@ const API = `${BACKEND_URL}/api`;
 export default function PMDashboard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('all_projects');
+  // Oct 31 2026 — the tab lives in the router's `?tab=` (All Projects = none),
+  // so the PM's phone bottom bar, which links to each tab, switches it and
+  // highlights the one that is open.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = ['requests', 'dlrdpr'].includes(searchParams.get('tab')) ? searchParams.get('tab') : 'all_projects';
+  const setActiveTab = (tab) => {
+    const next = new URLSearchParams(searchParams);
+    if (tab === 'all_projects') next.delete('tab'); else next.set('tab', tab);
+    setSearchParams(next, { replace: true });
+  };
 
   // Projects
   const [projects, setProjects] = useState([]);
@@ -332,7 +342,9 @@ export default function PMDashboard() {
       <AppHeader user={user} />
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="bg-white border shadow-sm mb-3 flex-wrap">
+          {/* Oct 31 2026 — desktop only for the PM: below `lg` their bottom
+              bar holds these three tabs (Super Admin's doesn't). */}
+          <TabsList className={`bg-white border shadow-sm mb-3 flex-wrap ${user?.role === 'project_manager' ? 'hidden lg:inline-flex' : ''}`}>
             <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">All Projects</TabsTrigger>
             <TabsTrigger value="requests" className="text-xs sm:text-sm" data-testid="tab-requests">Requests<CountBadge count={requestCount} /></TabsTrigger>
             <TabsTrigger value="dlrdpr" className="text-xs sm:text-sm" data-testid="tab-dlrdpr">DLR & DPR</TabsTrigger>
@@ -1032,7 +1044,7 @@ export default function PMDashboard() {
         </DialogContent>
       </Dialog>
 
-      <MobileBottomNav user={user} />
+      <MobileBottomNav user={user} badges={{ '/pm-dashboard?tab=requests': requestCount }} />
     </div>
   );
 }

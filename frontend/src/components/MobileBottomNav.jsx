@@ -84,11 +84,14 @@ const OTHER_ROLES = {
     { label: 'Labour Advance', icon: Wallet, path: '/gm-dashboard?tab=labour_advance' },
     { label: 'More', icon: Menu, action: 'more' },
   ],
+  // Oct 31 2026 — was Dashboard/Projects/Alerts/Profile. The bar now holds
+  // the PM dashboard's three tabs (All Projects = no `?tab=`); Notifications
+  // and Profile are in More.
   project_manager: [
-    { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-    { label: 'Projects', icon: FolderKanban, path: '/projects' },
-    { label: 'Alerts', icon: Bell, path: '/notifications' },
-    { label: 'Profile', icon: User, path: '/profile' },
+    { label: 'All Projects', icon: FolderKanban, path: '/pm-dashboard' },
+    { label: 'Requests', icon: ClipboardList, path: '/pm-dashboard?tab=requests' },
+    { label: 'DLR & DPR', icon: FileText, path: '/pm-dashboard?tab=dlrdpr' },
+    { label: 'More', icon: Menu, action: 'more' },
   ],
   planning: [
     { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
@@ -273,6 +276,7 @@ const PLANNING_PERSON_MORE = [
 const ROLE_MORE = {
   accountant: ACCOUNTANT_MORE, client: CLIENT_MORE, procurement: ALERTS_PROFILE_MORE,
   planning_person: PLANNING_PERSON_MORE, general_manager: ALERTS_PROFILE_MORE,
+  project_manager: ALERTS_PROFILE_MORE,
 };
 
 // `badges` — optional { [bar item path]: count } from the page, e.g. the GM
