@@ -33,7 +33,9 @@ import {
   Store,
   Package,
   Radio,
-  Building2
+  Building2,
+  ClipboardCheck,
+  Lightbulb
 } from 'lucide-react';
 import { useState } from 'react';
 import axios from 'axios';
@@ -188,10 +190,15 @@ const OTHER_ROLES = {
     { label: 'Contractors', icon: HardHat, path: '/planning-board?tab=labour_contractors' },
     { label: 'More', icon: Menu, action: 'more' },
   ],
+  // Oct 31 2026 — was QC/Alerts/Profile (and the QC page never rendered the
+  // bar). The bar now holds the QC dashboard's four tabs (Pending Requests =
+  // no `?tab=`); Notifications and Profile are in More.
   quality_check: [
-    { label: 'QC', icon: CheckSquare, path: '/qc-dashboard' },
-    { label: 'Alerts', icon: Bell, path: '/notifications' },
-    { label: 'Profile', icon: User, path: '/profile' },
+    { label: 'Billing Summary', icon: Receipt, path: '/qc-dashboard?tab=billing' },
+    { label: 'Pending Requests', icon: FileText, path: '/qc-dashboard' },
+    { label: 'Check List', icon: ClipboardCheck, path: '/qc-dashboard?tab=checklist' },
+    { label: 'Recommender', icon: Lightbulb, path: '/qc-dashboard?tab=recommender' },
+    { label: 'More', icon: Menu, action: 'more' },
   ],
   hr: [
     { label: 'HR', icon: Users, path: '/hr-portal' },
@@ -276,7 +283,7 @@ const PLANNING_PERSON_MORE = [
 const ROLE_MORE = {
   accountant: ACCOUNTANT_MORE, client: CLIENT_MORE, procurement: ALERTS_PROFILE_MORE,
   planning_person: PLANNING_PERSON_MORE, general_manager: ALERTS_PROFILE_MORE,
-  project_manager: ALERTS_PROFILE_MORE,
+  project_manager: ALERTS_PROFILE_MORE, quality_check: ALERTS_PROFILE_MORE,
 };
 
 // `badges` — optional { [bar item path]: count } from the page, e.g. the GM

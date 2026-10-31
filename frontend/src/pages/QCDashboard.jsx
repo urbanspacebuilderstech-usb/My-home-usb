@@ -3,8 +3,9 @@ import axios from 'axios';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
+import MobileBottomNav from '../components/MobileBottomNav';
 import RABApprovalQueue from '../components/RABApprovalQueue';
 import {
   ShieldCheck, FileText, Receipt, ClipboardCheck, Lightbulb, Building2,
@@ -25,7 +26,16 @@ const TABS = [
 export default function QCDashboard() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
-  const [tab, setTab] = useState('pending');
+  // Oct 31 2026 — the tab lives in the router's `?tab=` (Pending Requests =
+  // none), so the QC phone bottom bar, which links to each tab, switches it
+  // and highlights the one that is open.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = TABS.some(t => t.value === searchParams.get('tab')) ? searchParams.get('tab') : 'pending';
+  const setTab = (value) => {
+    const next = new URLSearchParams(searchParams);
+    if (value === 'pending') next.delete('tab'); else next.set('tab', value);
+    setSearchParams(next, { replace: true });
+  };
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -76,8 +86,9 @@ export default function QCDashboard() {
           <p className="text-xs text-gray-500 mt-0.5">Review labour RAB requests, run checklists, and audit assigned project stages.</p>
         </div>
 
-        {/* Round / Pill Tabs */}
-        <div className="flex flex-wrap gap-2 mb-5" data-testid="qc-tabs">
+        {/* Round / Pill Tabs. Oct 31 2026 — desktop only for QC: below `lg`
+            their bottom bar holds these four tabs (Super Admin's doesn't). */}
+        <div className={`${user?.role === 'quality_check' ? 'hidden lg:flex' : 'flex'} flex-wrap gap-2 mb-5`} data-testid="qc-tabs">
           {TABS.map(({ value, label, Icon, color }) => {
             const active = tab === value;
             return (
@@ -157,6 +168,7 @@ export default function QCDashboard() {
           </CardContent>
         </Card>
       </main>
+      <MobileBottomNav user={user} />
     </div>
   );
 }
