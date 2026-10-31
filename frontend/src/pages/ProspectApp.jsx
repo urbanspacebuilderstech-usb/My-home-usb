@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
-import { FileText, Sparkles, PhoneCall, Loader2, Building2, MapPin, Phone, Play } from 'lucide-react';
+import { FileText, Sparkles, PhoneCall, Loader2, Building2, MapPin, Phone, Play, LogOut } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
@@ -19,6 +20,7 @@ function attachQuoteGuard(ref) {
 }
 
 export default function ProspectApp() {
+  const navigate = useNavigate();
   const [tab, setTab] = useState('quote');
   const [me, setMe] = useState(null);
 
@@ -27,6 +29,12 @@ export default function ProspectApp() {
   }, []);
 
   const name = me?.user?.name || 'there';
+
+  const handleLogout = async () => {
+    try { await axios.post(`${API}/auth/logout`, {}, { withCredentials: true }); } catch {}
+    if (window.__clearAuthCache) window.__clearAuthCache();
+    navigate('/login', { replace: true });
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-emerald-50 select-none">
@@ -38,10 +46,21 @@ export default function ProspectApp() {
             <div className="h-9 w-9 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-sm">
               {(name[0] || 'P').toUpperCase()}
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-[11px] text-gray-500 leading-none">Welcome back,</p>
-              <p className="text-sm font-bold text-gray-800 leading-tight">{name}</p>
+              <p className="text-sm font-bold text-gray-800 leading-tight truncate">{name}</p>
             </div>
+            {/* Oct 31 2026 — the prospect app had no way to log out. */}
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="h-9 w-9 shrink-0 flex items-center justify-center rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50"
+              data-testid="prospect-logout"
+              title="Logout"
+              aria-label="Logout"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
           </div>
           <div className="mt-2">
             <p className="text-[11px] text-amber-700 italic">"Let's go through your stress-free construction quote"</p>

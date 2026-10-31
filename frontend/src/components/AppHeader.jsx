@@ -404,6 +404,11 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
               <Button variant="ghost" size="icon" onClick={() => navigate('/profile')} className="h-9 w-9 text-gray-500 hover:text-amber-600" data-testid="header-profile">
                 <UserCircle className="h-5 w-5" />
               </Button>
+              {/* Oct 31 2026 — phones/tablets get Logout right after Profile
+                  (the desktop one sits in the lg-only name block below). */}
+              <Button variant="ghost" size="icon" onClick={handleLogout} className="lg:hidden h-9 w-9 text-gray-400 hover:text-red-500" data-testid="header-logout-mobile" title="Logout" aria-label="Logout">
+                <LogOut className="h-4 w-4" />
+              </Button>
               <div className="hidden lg:flex items-center gap-2 pl-2 border-l border-gray-200">
                 <div className="text-right leading-tight">
                   <p className="text-sm font-semibold text-gray-900" data-testid="header-username">{effectiveUser?.name || ''}</p>
