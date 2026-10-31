@@ -23,6 +23,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
+import LabourAdvanceQueue from '../components/LabourAdvanceQueue';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 

@@ -70,9 +70,11 @@ const SA_MORE_ITEMS = [
 ];
 
 const OTHER_ROLES = {
+  // Oct 31 2026 — Approvals pointed at the standalone /approvals page; it now
+  // opens the Accounts Board's Approvals tab, like the desktop header does.
   accountant: [
     { label: 'Dashboard', icon: Landmark, path: '/accounts-board' },
-    { label: 'Approvals', icon: CheckSquare, path: '/approvals' },
+    { label: 'Approvals', icon: CheckSquare, path: '/accounts-board?tab=approvals' },
     { label: 'HR', icon: IndianRupee, path: '/hr-portal' },
     { label: 'More', icon: Menu, action: 'more' },
   ],

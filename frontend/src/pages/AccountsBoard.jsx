@@ -7505,6 +7505,10 @@ export default function AccountsBoard() {
     const t = params.get('tab');
     if (t && ['cashbook', 'approvals', 'cheques', 'projects', 'carry-forward'].includes(t)) {
       setMainTab(t);
+    } else if (!t) {
+      // Oct 31 2026 — the phone bar's Dashboard (/accounts-board, no ?tab=)
+      // used to leave whichever tab was open, e.g. Approvals.
+      setMainTab('cashbook');
     }
   }, [location.search]);
 
