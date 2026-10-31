@@ -90,6 +90,20 @@ const GMDashboard = () => {
   const [feProjects, setFeProjects] = useState([]);
   const [feRejectDialog, setFeRejectDialog] = useState({ open: false, project: null, reason: '' });
   const [feBusy, setFeBusy] = useState(false);
+  // Oct 31 2026 — on phones/tablets View FE opens the Final Estimate in a
+  // popup (like the RE popup) instead of the project page in a new tab.
+  const [feView, setFeView] = useState({ open: false, project: null, loading: false, scope: [], additions: [], deductions: [], tab: 'scope' });
+  const openFeView = async (p) => {
+    if (window.innerWidth >= 1024) {
+      window.open(`/projects/${p.project_id}?tab=scope`, '_blank');
+      return;
+    }
+    setFeView({ open: true, project: p, loading: true, scope: [], additions: [], deductions: [], tab: 'scope' });
+    const get = (path) => axios.get(`${API}/projects/${p.project_id}/${path}`)
+      .then(res => (Array.isArray(res.data) ? res.data : []), () => []);
+    const [scope, additions, deductions] = await Promise.all([get('scope-items'), get('additional-costs'), get('deductions')]);
+    setFeView(v => (v.project?.project_id === p.project_id ? { ...v, loading: false, scope, additions, deductions } : v));
+  };
   
   // Approval Dialog
   const [approvalDialog, setApprovalDialog] = useState(false);
@@ -1207,7 +1221,7 @@ const GMDashboard = () => {
                               )}
                             </div>
                             <div className="flex gap-2 md:shrink-0">
-                              <Button size="sm" variant="outline" className="flex-1 md:flex-none px-2 sm:px-3 text-xs sm:text-sm" onClick={() => window.open(`/projects/${p.project_id}?tab=scope`, '_blank')} data-testid={`fe-view-${p.project_id}`}>
+                              <Button size="sm" variant="outline" className="flex-1 md:flex-none px-2 sm:px-3 text-xs sm:text-sm" onClick={() => openFeView(p)} data-testid={`fe-view-${p.project_id}`}>
                                 <Eye className="h-3.5 w-3.5 mr-1" /> View FE
                               </Button>
                               {!isRejected && (
@@ -1245,6 +1259,149 @@ const GMDashboard = () => {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* FE View popup (phones/tablets) — totals, then the Final Estimate /
+          Additional / Deductions items as cards, with Approve/Reject. */}
+      <Dialog open={feView.open} onOpenChange={(o) => !o && setFeView(v => ({ ...v, open: false }))}>
+        <DialogContent className="w-[calc(100%-1.5rem)] max-w-3xl rounded-lg p-4 sm:p-6" data-testid="gm-fe-view-dialog">
+          {feView.project && (() => {
+            const p = feView.project;
+            const fe = p.fe || {};
+            const isRejected = fe.status === 'rejected_by_gm';
+            const lastRejection = isRejected ? (fe.gm_rejections || []).slice(-1)[0] : null;
+            const feTotal = feView.scope.reduce((s, i) => s + (i.total_amount || 0), 0);
+            const addTotal = feView.additions.reduce((s, a) => s + (a.estimated_amount || 0), 0);
+            const dedTotal = feView.deductions.reduce((s, d) => s + (d.amount || 0), 0);
+            const sub = (x) => (x.name && x.description && x.description !== x.name ? x.description : null);
+            const rows = {
+              scope: feView.scope.map(i => ({ id: i.scope_id, name: i.item_name, qty: i.quantity, unit: i.unit, rate: i.unit_rate, amount: i.total_amount, remarks: i.remarks })),
+              additions: feView.additions.map(a => ({ id: a.cost_id, name: a.name || a.description, sub: sub(a), qty: a.qty, unit: a.unit, rate: a.price, amount: a.estimated_amount, remarks: a.remarks, status: a.client_approval_status })),
+              deductions: feView.deductions.map(d => ({ id: d.deduction_id, name: d.name || d.description, sub: sub(d), qty: d.qty, unit: d.unit, rate: d.price, amount: d.amount, remarks: d.remarks, status: d.status })),
+            }[feView.tab];
+            const closeThen = (fn) => { setFeView(v => ({ ...v, open: false })); fn(); };
+            return (
+              <>
+                <DialogHeader className="text-left">
+                  <DialogTitle className="flex items-start gap-2 pr-6">
+                    <FileText className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
+                    <span className="break-words">{p.name}</span>
+                  </DialogTitle>
+                  <DialogDescription className="text-left">
+                    Final Estimate{fe.fe_number ? ` · ${fe.fe_number}` : ''} · Rev {fe.revision || 0}
+                    {p.client_name ? ` · ${p.client_name}` : ''}{p.location ? ` · ${p.location}` : ''}
+                  </DialogDescription>
+                  <div>
+                    <Badge className={isRejected ? 'bg-red-100 text-red-700 text-xs' : 'bg-blue-100 text-blue-700 text-xs'}>
+                      {isRejected ? 'Rejected — Awaiting Re-submission' : 'Pending GM Review'}
+                    </Badge>
+                  </div>
+                </DialogHeader>
+
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3" data-testid="gm-fe-view-totals">
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <p className="text-gray-500">Final Estimate</p>
+                      <p className="font-semibold text-gray-900">{formatCurrency(feTotal)}</p>
+                    </div>
+                    <div>
+                      <p className="text-emerald-600">+ Additional</p>
+                      <p className="font-semibold text-emerald-700">{formatCurrency(addTotal)}</p>
+                    </div>
+                    <div>
+                      <p className="text-red-500">− Deductions</p>
+                      <p className="font-semibold text-red-600">{formatCurrency(dedTotal)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-end justify-between gap-2 border-t border-amber-200 mt-2 pt-2">
+                    <span className="text-[11px] text-gray-500">(FE + Additional) − Deductions</span>
+                    <span className="text-xl font-bold text-amber-700">{formatCurrency(feTotal + addTotal - dedTotal)}</span>
+                  </div>
+                </div>
+
+                {lastRejection && (
+                  <div className="p-2 bg-red-50 border border-red-200 rounded text-xs">
+                    <span className="font-semibold text-red-600">Your last rejection:</span> <span className="text-gray-700">{lastRejection.reason}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-3 gap-1 rounded-md border bg-gray-50 p-1">
+                  {[['scope', 'Final Estimate', feView.scope.length], ['additions', 'Additional', feView.additions.length], ['deductions', 'Deductions', feView.deductions.length]].map(([key, label, count]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setFeView(v => ({ ...v, tab: key }))}
+                      className={`rounded px-1 py-1.5 text-xs font-medium leading-tight ${feView.tab === key ? 'bg-white text-amber-700 shadow-sm border' : 'text-gray-600'}`}
+                      data-testid={`gm-fe-view-tab-${key}`}
+                    >
+                      {label} <span className="block text-gray-400">({count})</span>
+                    </button>
+                  ))}
+                </div>
+
+                {feView.loading ? (
+                  <p className="py-8 text-center text-sm text-gray-400">Loading…</p>
+                ) : rows.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-gray-400">No items.</p>
+                ) : (
+                  <div className="divide-y rounded-lg border" data-testid="gm-fe-view-items">
+                    {rows.map((r, idx) => (
+                      <div key={r.id || idx} className="p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="min-w-0 text-sm font-medium text-gray-900 break-words">
+                            <span className="mr-1 text-xs text-gray-400">{idx + 1}.</span>{r.name || '—'}
+                          </p>
+                          <span className="shrink-0 text-sm font-semibold text-amber-700">{formatCurrency(r.amount)}</span>
+                        </div>
+                        {r.sub && <p className="text-xs text-gray-500 break-words">{r.sub}</p>}
+                        {(r.qty || r.rate) ? (
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {r.qty ?? '—'} {r.unit || ''} × {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(r.rate || 0)}
+                          </p>
+                        ) : null}
+                        {r.remarks && <p className="text-xs text-gray-500 mt-0.5 break-words">Remarks: {r.remarks}</p>}
+                        {r.status && <Badge variant="outline" className="mt-1 text-[10px] capitalize">{r.status.replace(/_/g, ' ')}</Badge>}
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between bg-amber-50 px-3 py-2 text-sm font-semibold">
+                      <span>Total</span>
+                      <span>{formatCurrency(rows.reduce((s, r) => s + (r.amount || 0), 0))}</span>
+                    </div>
+                  </div>
+                )}
+
+                <DialogFooter className="flex-row gap-2 sm:space-x-0 border-t pt-3">
+                  <Button size="sm" variant="outline" className="flex-1 sm:flex-none px-2 text-xs sm:text-sm" onClick={() => window.open(`/projects/${p.project_id}?tab=scope`, '_blank')} data-testid="gm-fe-view-full-page">
+                    <Eye className="h-3.5 w-3.5 mr-1" /> Full page
+                  </Button>
+                  {!isRejected && (
+                    <>
+                      <Button
+                        size="sm"
+                        className="flex-1 sm:flex-none px-2 text-xs sm:text-sm bg-green-600 hover:bg-green-700"
+                        disabled={feBusy}
+                        onClick={() => closeThen(() => setFeApproveDialog({ open: true, project: p, typed: '', autoShare: false, submitting: false }))}
+                        data-testid="gm-fe-view-approve"
+                      >
+                        <CheckCircle className="h-3.5 w-3.5 mr-1" /> Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="flex-1 sm:flex-none px-2 text-xs sm:text-sm"
+                        disabled={feBusy}
+                        onClick={() => closeThen(() => setFeRejectDialog({ open: true, project: p, reason: '' }))}
+                        data-testid="gm-fe-view-reject"
+                      >
+                        <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
+                      </Button>
+                    </>
+                  )}
+                </DialogFooter>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
 
       {/* FE Reject Dialog */}
       <Dialog open={feRejectDialog.open} onOpenChange={(o) => !o && setFeRejectDialog({ open: false, project: null, reason: '' })}>
