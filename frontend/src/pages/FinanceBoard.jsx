@@ -6,6 +6,7 @@ import { LineChart, BarChart3, CalendarClock, FolderKanban, Banknote, Wallet } f
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import MobileBottomNav from '../components/MobileBottomNav';
+import GreetingBar from '../components/GreetingBar';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -35,9 +36,14 @@ export default function FinanceBoard() {
       .catch(() => { window.location.href = '/login'; });
   }, []);
 
+  // Oct 31 2026 — the greeting goes below the menus, just above the tab's
+  // summary cards. Tabs with a `navRole` strip (Accounts, Project Wise) draw
+  // it under that strip inside the frame; the others get it under this bar.
+  const greetHere = !TABS.find(t => t.value === active)?.src?.includes('navRole=');
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col" data-testid="finance-board">
-      <AppHeader user={user} greetingClass="px-4 lg:px-6" headerActions={
+      <AppHeader user={user} hideGreeting headerActions={
         <Link to="/cashflow-engine">
           {/* Icon-only on phones, where the header has no room for the label. */}
           <Button size="sm" variant="outline" className="h-9 border-indigo-300 text-indigo-700 hover:bg-indigo-50" data-testid="finance-cashflow-engine-btn" aria-label="Cashflow Engine" title="Cashflow Engine">
@@ -62,6 +68,12 @@ export default function FinanceBoard() {
             ))}
           </TabsList>
         </div>
+
+        {user && greetHere && (
+          <div className="px-4 lg:px-6 pt-3 sm:pt-4">
+            <GreetingBar user={user} />
+          </div>
+        )}
 
         {TABS.map(t => (
           <TabsContent key={t.value} value={t.value} className="flex-1 m-0 p-0">

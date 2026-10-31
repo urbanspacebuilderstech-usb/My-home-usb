@@ -181,7 +181,7 @@ const ROLE_LABEL_MAP = {
 };
 const roleLabel = (r) => (r ? (ROLE_LABEL_MAP[r] || r.replace(/_/g, ' ')) : '…');
 
-export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange, headerActions, hideNav = false, backTo = null, greetingClass = 'max-w-7xl mx-auto px-4 sm:px-6' }) {
+export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange, headerActions, hideNav = false, hideGreeting = false, backTo = null, greetingClass = 'max-w-7xl mx-auto px-4 sm:px-6' }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark, toggleTheme } = useTheme();
@@ -218,6 +218,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
         return tparams.get('tab') === cparams.get('tab');
       };
       return (
+        <>
         <div className="bg-white border-b border-gray-200 px-4 lg:px-6 sticky top-0 z-40 dark:bg-gray-900 dark:border-gray-800" data-testid="embedded-sub-nav">
           <nav className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-hide">
             {embeddedNav.map((item) => {
@@ -241,6 +242,15 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
             })}
           </nav>
         </div>
+        {/* Oct 31 2026 — on the Finance Board (Super Admin) the greeting sits
+            under this strip, just above the page's summary cards; the board
+            leaves it out for these tabs. */}
+        {user && (
+          <div className={`w-full ${greetingClass} pt-3 sm:pt-4`}>
+            <GreetingBar user={user} />
+          </div>
+        )}
+        </>
       );
     }
   }
@@ -459,7 +469,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
       {/* Oct 30 2026 — greeting + water / lunch check for every user, as the
           first line of the page (scrolls away; not part of the sticky header).
           `greetingClass` lines it up with the page's own content container. */}
-      {effectiveUser && (
+      {effectiveUser && !hideGreeting && (
         <div className={`w-full ${greetingClass} pt-3 sm:pt-4`}>
           <GreetingBar user={effectiveUser} />
         </div>
