@@ -30,7 +30,9 @@ import {
   FileCheck,
   ListChecks,
   Image,
-  Store
+  Store,
+  Package,
+  Radio
 } from 'lucide-react';
 import { useState } from 'react';
 import axios from 'axios';
@@ -168,10 +170,15 @@ const OTHER_ROLES = {
     { label: 'Alerts', icon: Bell, path: '/notifications' },
     { label: 'Profile', icon: User, path: '/profile' },
   ],
+  // Oct 31 2026 — was Planning/Alerts/Profile, with the board's six tabs in a
+  // strip under the header. The bar now holds the first four tabs and More the
+  // other two (Dashboard = no `?tab=`); Alerts/Profile are in the header too.
   planning_person: [
-    { label: 'Planning', icon: Calculator, path: '/planning-board' },
-    { label: 'Alerts', icon: Bell, path: '/notifications' },
-    { label: 'Profile', icon: User, path: '/profile' },
+    { label: 'Dashboard', icon: LayoutDashboard, path: '/planning-board' },
+    { label: 'Packages', icon: Package, path: '/planning-board?tab=packages' },
+    { label: 'Vendors', icon: Store, path: '/planning-board?tab=material_vendors' },
+    { label: 'Contractors', icon: HardHat, path: '/planning-board?tab=labour_contractors' },
+    { label: 'More', icon: Menu, action: 'more' },
   ],
   quality_check: [
     { label: 'QC', icon: CheckSquare, path: '/qc-dashboard' },
@@ -249,7 +256,18 @@ const PROCUREMENT_MORE = [
   { label: 'Profile', icon: User, path: '/profile' },
 ];
 
-const ROLE_MORE = { accountant: ACCOUNTANT_MORE, client: CLIENT_MORE, procurement: PROCUREMENT_MORE };
+// Oct 31 2026 — the Planning Board tabs that don't fit on the bar.
+const PLANNING_PERSON_MORE = [
+  { label: 'RE Templates', icon: FileText, path: '/planning-board?tab=re_templates' },
+  { label: 'Live Map', icon: Radio, path: '/planning-board?tab=live_map' },
+  { label: 'Notifications', icon: Bell, path: '/notifications' },
+  { label: 'Profile', icon: User, path: '/profile' },
+];
+
+const ROLE_MORE = {
+  accountant: ACCOUNTANT_MORE, client: CLIENT_MORE, procurement: PROCUREMENT_MORE,
+  planning_person: PLANNING_PERSON_MORE,
+};
 
 export default function MobileBottomNav({ user }) {
   const location = useLocation();
@@ -400,7 +418,10 @@ export default function MobileBottomNav({ user }) {
       >
         <div className="flex items-center justify-around h-14">
           {navItems.map((item) => {
-            const active = item.path ? isActive(item.path) : item.action === 'more' && moreOpen;
+            // Oct 31 2026 — More also lights up while one of its pages is open.
+            const active = item.path
+              ? isActive(item.path)
+              : item.action === 'more' && (moreOpen || moreItems.some(i => isActive(i.path)));
             const Icon = item.icon;
             return (
               <button

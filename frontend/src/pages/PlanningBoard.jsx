@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -54,7 +54,7 @@ import { SortableList, SortableTableRow, DragHandle, arrayMove } from '../compon
 import { AppHeader } from '../components/AppHeader';
 import PlanningRequestsTab from '../components/PlanningRequestsTab';
 import PlanningApprovalsTabs from '../components/PlanningApprovalsTabs';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Circle } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -305,14 +305,19 @@ export default function PlanningBoard({ embedded = false }) {
   const [stageDetailDlg, setStageDetailDlg] = useState({ open: false, stageId: null });
   // Read ?tab=... from URL so deep links from other pages (e.g. ProjectDetail
   // back-nav) land on the correct module tab.
-  const initialTab = (() => {
+  // Oct 31 2026 — outside the GM Dashboard embed the tab lives in the router's
+  // `?tab=` (Dashboard = none), so the Planning Person's phone bottom bar,
+  // which links to each tab, switches it and highlights the one that is open.
+  const PLANNING_TABS = ['dashboard', 'packages', 'material_vendors', 'labour_contractors', 're_templates', 'live_map'];
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [embeddedTab, setEmbeddedTab] = useState(() => {
     try {
       const t = new URLSearchParams(window.location.search).get('tab');
-      const valid = ['dashboard', 'packages', 'material_vendors', 'labour_contractors', 're_templates', 'live_map'];
-      return t && valid.includes(t) ? t : 'dashboard';
+      return t && PLANNING_TABS.includes(t) ? t : 'dashboard';
     } catch { return 'dashboard'; }
-  })();
-  const [activeTab, setActiveTab] = useState(initialTab);
+  });
+  const urlTab = searchParams.get('tab');
+  const activeTab = embedded ? embeddedTab : (PLANNING_TABS.includes(urlTab) ? urlTab : 'dashboard');
   const [dashSubTab, setDashSubTab] = useState('all_projects');
   const [requestSubTab, setRequestSubTab] = useState('site_eng_req');
 
@@ -504,8 +509,13 @@ export default function PlanningBoard({ embedded = false }) {
   // Trigger tab-specific fetches whenever activeTab changes (including initial
   // mount if the URL includes ?tab=...). Without this, deep-linking to
   // /planning-board?tab=labour_contractors leaves the page empty until the
-  // user clicks the tab again.
+  // user clicks the tab again. Oct 31 2026 — the only place tabs fetch now
+  // (handleTabChange used to as well), so a tab opened from the phone bar
+  // loads the same as a click. Dashboard refreshes on return, not on mount.
+  const tabEffectRan = useRef(false);
   useEffect(() => {
+    if (activeTab === 'dashboard' && tabEffectRan.current) handleDashSubTabChange(dashSubTab);
+    tabEffectRan.current = true;
     if (activeTab === 'material_vendors') { fetchVendors(); fetchMaterials(); fetchPackageMaterialCatalog(); }
     if (activeTab === 'labour_contractors') { fetchContractors(); fetchContractorTypes(); }
     if (activeTab === 're_templates') fetchTemplates();
@@ -558,19 +568,15 @@ export default function PlanningBoard({ embedded = false }) {
   };
   useAutoRefresh(fetchData, 60000);
 
+  // Always re-fetch on tab switch (the activeTab effect does it) — checking
+  // length===0 created stale state (e.g. user creates a contractor in another
+  // tab/session, returns here, and the page still shows "0" because the
+  // cached empty array suppresses the fetch).
   const handleTabChange = (tab) => {
-    setActiveTab(tab);
-    if (tab === 'dashboard') {
-      handleDashSubTabChange(dashSubTab);
-    }
-    // Always re-fetch on tab switch — checking length===0 created stale state
-    // (e.g. user creates a contractor in another tab/session, returns here,
-    // and the page still shows "0" because the cached empty array suppresses
-    // the fetch). Re-fetching is cheap and gives the most accurate view.
-    if (tab === 'material_vendors') { fetchVendors(); fetchMaterials(); fetchPackageMaterialCatalog(); }
-    if (tab === 'labour_contractors') { fetchContractors(); fetchContractorTypes(); }
-    if (tab === 're_templates') fetchTemplates();
-    if (tab === 'packages') fetchPackages();
+    if (embedded) { setEmbeddedTab(tab); return; }
+    const next = new URLSearchParams(searchParams);
+    if (tab === 'dashboard') next.delete('tab'); else next.set('tab', tab);
+    setSearchParams(next, { replace: true });
   };
 
   const handleDashSubTabChange = (sub) => {
@@ -1413,7 +1419,8 @@ export default function PlanningBoard({ embedded = false }) {
           { label: 'Labour Contractors', value: 'labour_contractors', icon: 'Users' },
           { label: 'RE Templates', value: 're_templates', icon: 'FileText' },
           { label: 'Live Map', value: 'live_map', icon: 'Radio' },
-        ]} activeCustomNav={activeTab} onCustomNavChange={handleTabChange} />
+        ]} activeCustomNav={activeTab} onCustomNavChange={handleTabChange}
+          subNavOnPhone={user?.role !== 'planning_person'} />
       )}
 
       <div className={embedded ? '' : 'max-w-7xl mx-auto px-4 py-4 sm:px-6'}>

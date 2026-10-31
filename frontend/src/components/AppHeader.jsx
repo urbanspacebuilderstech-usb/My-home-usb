@@ -181,7 +181,7 @@ const ROLE_LABEL_MAP = {
 };
 const roleLabel = (r) => (r ? (ROLE_LABEL_MAP[r] || r.replace(/_/g, ' ')) : '…');
 
-export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange, headerActions, hideNav = false, hideGreeting = false, backTo = null, greetingClass = 'max-w-7xl mx-auto px-4 sm:px-6' }) {
+export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange, headerActions, hideNav = false, subNavOnPhone = true, hideGreeting = false, backTo = null, greetingClass = 'max-w-7xl mx-auto px-4 sm:px-6' }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark, toggleTheme } = useTheme();
@@ -421,8 +421,9 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
             here so the Super Admin shell stays visible at the top. Other roles
             get the same strip below `lg`, where the header nav that normally
             carries a page's customNav is hidden (otherwise phones could only
-            ever see the page's first tab). */}
-        {!hideNav && hasCustomNav && (
+            ever see the page's first tab). Oct 31 2026 — a page whose tabs are
+            already on the phone bottom bar passes subNavOnPhone={false}. */}
+        {!hideNav && hasCustomNav && (customNavAsSub || subNavOnPhone) && (
           <div className={`bg-gray-50 border-b border-gray-200 px-4 lg:px-6 ${customNavAsSub ? '' : 'lg:hidden'}`} data-testid="sub-nav">
             <div className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-hide">
               {customNav.map((item) => (
