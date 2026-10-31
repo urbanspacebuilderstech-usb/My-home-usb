@@ -1501,7 +1501,9 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
           <MaterialAmountSummary req={req} />
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
+        {/* Oct 31 2026 — 3 columns on phones (was 2): Date · Material · Qty /
+            Delivery · Total · Project / Vendor · SE, buttons on their own row. */}
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-xs">
           <div>
             <p className="text-[10px] uppercase font-semibold text-gray-400">Date</p>
             <p className="font-medium">{fmtDate(req.created_at)}</p>
@@ -1540,11 +1542,11 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
             <p className="text-[10px] uppercase font-semibold text-gray-400">SE</p>
             <p className="font-medium truncate">{req.site_engineer_name || '—'}</p>
           </div>
-          <div className="sm:col-span-1 flex items-center gap-1.5">
+          <div className="col-span-3 sm:col-span-1 flex items-center gap-1.5">
             {isActionable ? (
               <Button
                 size="sm"
-                className={`h-8 flex-1 text-xs gap-1 mt-3 sm:mt-0 ${isInitialReview ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'}`}
+                className={`h-8 flex-1 text-xs gap-1 mt-1 sm:mt-0 ${isInitialReview ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'}`}
                 disabled={isProcessing}
                 onClick={(e) => { e.stopPropagation(); onClick(); }}
                 data-testid={`planning-mat-card-approve-${id}`}
@@ -1555,7 +1557,7 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 flex-1 text-xs gap-1 mt-3 sm:mt-0"
+                className="h-8 flex-1 text-xs gap-1 mt-1 sm:mt-0"
                 onClick={(e) => { e.stopPropagation(); onClick(); }}
                 data-testid={`planning-mat-card-view-${id}`}
               >
@@ -1569,7 +1571,7 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 w-8 p-0 mt-3 sm:mt-0 border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                className="h-8 w-8 p-0 mt-1 sm:mt-0 border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700"
                 onClick={(e) => { e.stopPropagation(); onArchive(req); }}
                 data-testid={`planning-mat-card-archive-${id}`}
                 title="Archive"
@@ -1581,7 +1583,7 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 w-8 p-0 mt-3 sm:mt-0 border-emerald-200 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
+                className="h-8 w-8 p-0 mt-1 sm:mt-0 border-emerald-200 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
                 onClick={(e) => { e.stopPropagation(); onUnarchive(req); }}
                 data-testid={`planning-mat-card-unarchive-${id}`}
                 title="Restore from Archive"
@@ -1597,7 +1599,7 @@ function PlanningMaterialCard({ req, onClick, processing, readOnly = false, onDe
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 w-8 p-0 mt-3 sm:mt-0 border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300"
+                className="h-8 w-8 p-0 mt-1 sm:mt-0 border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300"
                 onClick={(e) => { e.stopPropagation(); onDelete(req); }}
                 data-testid={`planning-mat-card-delete-${id}`}
                 title="Delete (Super Admin only)"
