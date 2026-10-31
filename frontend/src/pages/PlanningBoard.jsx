@@ -1341,6 +1341,33 @@ export default function PlanningBoard({ embedded = false }) {
     return <span className={`inline-block text-[11px] font-medium whitespace-nowrap px-2.5 py-1 rounded-full border ${ph.cls}`} data-testid={`phase-badge-${ph.id}`}>{ph.name}</span>;
   };
   const getMaterialName = (id) => materials.find(m => m.material_id === id)?.name || id;
+  // Locked package-tier price chips for a material (Materials table + phone cards)
+  const renderMaterialVariants = (m) => {
+    const variants = packageMaterialCatalog[(m.name || '').toLowerCase()] || [];
+    if (variants.length === 0) return <span className="text-[11px] text-gray-300 italic">Not in any package</span>;
+    return (
+      <div className="flex flex-wrap gap-1.5 max-w-[420px]" data-testid={`mat-variants-${m.material_id}`}>
+        {variants.map((v, i) => (
+          <div
+            key={i}
+            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-[11px]"
+            title={`From package: ${v.package_name}`}
+          >
+            {v.brand && <span className="font-semibold text-amber-900">{v.brand}</span>}
+            <span className="text-amber-700">·</span>
+            <span className="text-amber-700">{v.unit}</span>
+            {v.estimated_rate > 0 && (
+              <>
+                <span className="text-amber-700">·</span>
+                <span className="font-bold text-amber-900">₹{v.estimated_rate.toLocaleString('en-IN')}</span>
+              </>
+            )}
+            <Lock className="h-2.5 w-2.5 text-amber-500 ml-0.5" />
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   const filteredProjects = projects.filter(p => !projectSearch || (p.name || '').toLowerCase().includes(projectSearch.toLowerCase()) || (p.client_name || '').toLowerCase().includes(projectSearch.toLowerCase()));
   const filteredMaterials = materials.filter(m => {
@@ -2700,14 +2727,36 @@ export default function PlanningBoard({ embedded = false }) {
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <CardTitle className="text-base flex items-center gap-2"><Package className="h-4 w-4 text-teal-600" />Materials ({filteredMaterials.length})</CardTitle>
-                    <div className="flex items-center gap-2">
-                      <div className="relative"><Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" /><Input placeholder="Search..." value={materialSearch} onChange={(e) => setMaterialSearch(e.target.value)} className="pl-8 h-8 w-40 text-sm" /></div>
-                      <Button size="sm" onClick={() => openMaterialDialog()} className="bg-teal-600 hover:bg-teal-700" data-testid="add-material-btn"><Plus className="h-4 w-4 mr-1" />Add Material</Button>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <div className="relative flex-1 sm:flex-none"><Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" /><Input placeholder="Search..." value={materialSearch} onChange={(e) => setMaterialSearch(e.target.value)} className="pl-8 h-8 w-full sm:w-40 text-sm" /></div>
+                      <Button size="sm" onClick={() => openMaterialDialog()} className="bg-teal-600 hover:bg-teal-700 flex-shrink-0" data-testid="add-material-btn"><Plus className="h-4 w-4 mr-1" />Add Material</Button>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <div className="overflow-x-auto">
+                  {/* Phones & tablets: one card per material instead of the wide table */}
+                  <div className="lg:hidden divide-y border-t" data-testid="materials-cards">
+                    {filteredMaterials.length === 0 ? (
+                      <p className="p-8 text-center text-sm text-gray-400">No materials found. Click "Add Material" to create one.</p>
+                    ) : filteredMaterials.map(m => (
+                      <div key={m.material_id} className={`p-3 space-y-2 min-w-0 ${!m.is_active ? 'opacity-50' : ''}`} data-testid={`material-card-${m.material_id}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm break-words">{m.name}</p>
+                            <p className="text-xs text-gray-500 capitalize break-words">{[(m.category || '').replace(/_/g, ' '), m.unit, m.hsn_code && `HSN ${m.hsn_code}`].filter(Boolean).join(' · ') || '-'}</p>
+                            {m.description && <p className="text-xs text-gray-400 break-words">{m.description}</p>}
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {m.is_active !== false ? <Badge className="bg-green-100 text-green-700 text-xs">Active</Badge> : <Badge className="bg-gray-100 text-gray-500 text-xs">Hidden</Badge>}
+                            <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => openMaterialDialog(m)}><Edit className="h-3.5 w-3.5" /></Button>
+                            <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => handleToggleMaterial(m)}>{m.is_active !== false ? <EyeOff className="h-3.5 w-3.5 text-gray-500" /> : <Eye className="h-3.5 w-3.5 text-green-600" />}</Button>
+                          </div>
+                        </div>
+                        {renderMaterialVariants(m)}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="hidden lg:block overflow-x-auto">
                     <table className="w-full text-sm" data-testid="materials-table">
                       <thead className="bg-gray-50 border-y">
                         <tr>
@@ -2727,40 +2776,13 @@ export default function PlanningBoard({ embedded = false }) {
                       <tbody className="divide-y">
                         {filteredMaterials.length === 0 ? (
                           <tr><td colSpan="7" className="p-8 text-center text-gray-400">No materials found. Click "Add Material" to create one.</td></tr>
-                        ) : filteredMaterials.map(m => {
-                          const variants = packageMaterialCatalog[(m.name || '').toLowerCase()] || [];
-                          return (
+                        ) : filteredMaterials.map(m => (
                           <tr key={m.material_id} className={`hover:bg-gray-50 ${!m.is_active ? 'opacity-50' : ''}`} data-testid={`material-row-${m.material_id}`}>
                             <td className="px-4 py-2.5"><p className="font-medium">{m.name}</p>{m.description && <p className="text-xs text-gray-400 truncate max-w-[200px]">{m.description}</p>}</td>
                             <td className="px-4 py-2.5 hidden sm:table-cell text-xs capitalize">{(m.category || '').replace(/_/g, ' ')}</td>
                             <td className="px-4 py-2.5 hidden sm:table-cell text-xs">{m.unit || '-'}</td>
                             <td className="px-4 py-2.5 hidden md:table-cell text-xs">{m.hsn_code || '-'}</td>
-                            <td className="px-4 py-2.5">
-                              {variants.length === 0 ? (
-                                <span className="text-[11px] text-gray-300 italic">Not in any package</span>
-                              ) : (
-                                <div className="flex flex-wrap gap-1.5 max-w-[420px]" data-testid={`mat-variants-${m.material_id}`}>
-                                  {variants.map((v, i) => (
-                                    <div
-                                      key={i}
-                                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-[11px]"
-                                      title={`From package: ${v.package_name}`}
-                                    >
-                                      {v.brand && <span className="font-semibold text-amber-900">{v.brand}</span>}
-                                      <span className="text-amber-700">·</span>
-                                      <span className="text-amber-700">{v.unit}</span>
-                                      {v.estimated_rate > 0 && (
-                                        <>
-                                          <span className="text-amber-700">·</span>
-                                          <span className="font-bold text-amber-900">₹{v.estimated_rate.toLocaleString('en-IN')}</span>
-                                        </>
-                                      )}
-                                      <Lock className="h-2.5 w-2.5 text-amber-500 ml-0.5" />
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </td>
+                            <td className="px-4 py-2.5">{renderMaterialVariants(m)}</td>
                             <td className="px-4 py-2.5 text-center">{m.is_active !== false ? <Badge className="bg-green-100 text-green-700 text-xs">Active</Badge> : <Badge className="bg-gray-100 text-gray-500 text-xs">Hidden</Badge>}</td>
                             <td className="px-4 py-2.5">
                               <div className="flex justify-center gap-1">
@@ -2769,8 +2791,7 @@ export default function PlanningBoard({ embedded = false }) {
                               </div>
                             </td>
                           </tr>
-                          );
-                        })}
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -2781,14 +2802,47 @@ export default function PlanningBoard({ embedded = false }) {
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <CardTitle className="text-base flex items-center gap-2"><Truck className="h-4 w-4 text-teal-600" />Material Vendors ({filteredVendors.length})</CardTitle>
-                  <div className="flex items-center gap-2">
-                    <div className="relative"><Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" /><Input placeholder="Search..." value={vendorSearch} onChange={(e) => setVendorSearch(e.target.value)} className="pl-8 h-8 w-40 text-sm" /></div>
-                    <Button size="sm" onClick={() => openVendorDialog()} className="bg-teal-600 hover:bg-teal-700" data-testid="add-vendor-btn"><Plus className="h-4 w-4 mr-1" />Add Vendor</Button>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <div className="relative flex-1 sm:flex-none"><Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" /><Input placeholder="Search..." value={vendorSearch} onChange={(e) => setVendorSearch(e.target.value)} className="pl-8 h-8 w-full sm:w-40 text-sm" /></div>
+                    <Button size="sm" onClick={() => openVendorDialog()} className="bg-teal-600 hover:bg-teal-700 flex-shrink-0" data-testid="add-vendor-btn"><Plus className="h-4 w-4 mr-1" />Add Vendor</Button>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
+                {/* Phones & tablets: one card per vendor instead of the wide table */}
+                <div className="lg:hidden divide-y border-t" data-testid="vendors-cards">
+                  {filteredVendors.length === 0 ? (
+                    <p className="p-8 text-center text-sm text-gray-400">No vendors found</p>
+                  ) : filteredVendors.map((v) => (
+                    <div key={v.vendor_id} className={`p-3 space-y-2 min-w-0 ${!v.is_active ? 'opacity-50' : ''}`} data-testid={`vendor-card-${v.vendor_id}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm break-words">{v.name}</p>
+                          {v.address && <p className="text-xs text-gray-400 break-words">{v.address}</p>}
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {v.is_active !== false ? <Badge className="bg-green-100 text-green-700 text-xs">Active</Badge> : <Badge className="bg-gray-100 text-gray-500 text-xs">Hidden</Badge>}
+                          <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => openVendorDialog(v)}><Edit className="h-3.5 w-3.5" /></Button>
+                          <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => handleToggleVendor(v)}>{v.is_active !== false ? <EyeOff className="h-3.5 w-3.5 text-gray-500" /> : <Eye className="h-3.5 w-3.5 text-green-600" />}</Button>
+                        </div>
+                      </div>
+                      {(v.contact_person || v.phone || v.gst_number) && (
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-600">
+                          {v.contact_person && <span className="break-words">{v.contact_person}</span>}
+                          {v.phone && <a href={`tel:${v.phone}`} className="text-teal-700">{v.phone}</a>}
+                          {v.gst_number && <span className="text-gray-500 break-all">GST {v.gst_number}</span>}
+                        </div>
+                      )}
+                      {(v.materials_supplied || []).length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {v.materials_supplied.slice(0, 4).map(id => <Badge key={id} variant="outline" className="text-xs font-normal">{getMaterialName(id)}</Badge>)}
+                          {v.materials_supplied.length > 4 && <Badge variant="outline" className="text-xs font-normal">+{v.materials_supplied.length - 4}</Badge>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden lg:block overflow-x-auto">
                   <table className="w-full text-sm" data-testid="vendors-table">
                     <thead className="bg-gray-50 border-y">
                       <tr>
