@@ -626,44 +626,48 @@ export default function PMDashboard() {
 
             {dlrDprSubTab === 'dlr' ? (
               <Card>
-                <CardHeader className="pb-3">
+                <CardHeader className="p-4 pb-3 sm:p-6 sm:pb-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <CardTitle className="text-base flex items-center gap-2">DLR & DPR — All Projects</CardTitle>
                       <p className="text-xs text-gray-500 mt-0.5">One line per DLR — works count, amount, and stage for the selected date range.</p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
+                    {/* Oct 31 2026 — phones: search full width, Start and End Date
+                        side by side in one row (labels above). Inline from `sm`. */}
+                    <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 w-full sm:w-auto">
                       <div className="relative">
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
                         <Input
                           placeholder="Search project..."
                           value={dlrDprProjectSearch}
                           onChange={(e) => setDlrDprProjectSearch(e.target.value)}
-                          className="pl-8 h-9 w-44 text-sm"
+                          className="pl-8 h-9 w-full sm:w-44 text-sm"
                           data-testid="dlrdpr-project-search"
                         />
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <Label className="text-xs text-gray-500">Start Date</Label>
-                        <input
-                          type="date"
-                          value={dlrDprStartDate}
-                          max={dlrDprEndDate}
-                          onChange={(e) => setDlrDprStartDate(e.target.value)}
-                          className="h-9 px-2 border rounded-md text-sm"
-                          data-testid="dlrdpr-start-date-picker"
-                        />
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Label className="text-xs text-gray-500">End Date</Label>
-                        <input
-                          type="date"
-                          value={dlrDprEndDate}
-                          min={dlrDprStartDate}
-                          onChange={(e) => setDlrDprEndDate(e.target.value)}
-                          className="h-9 px-2 border rounded-md text-sm"
-                          data-testid="dlrdpr-end-date-picker"
-                        />
+                      <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-1.5 min-w-0">
+                          <Label className="text-xs text-gray-500">Start Date</Label>
+                          <input
+                            type="date"
+                            value={dlrDprStartDate}
+                            max={dlrDprEndDate}
+                            onChange={(e) => setDlrDprStartDate(e.target.value)}
+                            className="h-9 px-2 border rounded-md text-sm w-full min-w-0 sm:w-auto"
+                            data-testid="dlrdpr-start-date-picker"
+                          />
+                        </div>
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-1.5 min-w-0">
+                          <Label className="text-xs text-gray-500">End Date</Label>
+                          <input
+                            type="date"
+                            value={dlrDprEndDate}
+                            min={dlrDprStartDate}
+                            onChange={(e) => setDlrDprEndDate(e.target.value)}
+                            className="h-9 px-2 border rounded-md text-sm w-full min-w-0 sm:w-auto"
+                            data-testid="dlrdpr-end-date-picker"
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -675,15 +679,17 @@ export default function PMDashboard() {
                     { label: 'Skilled', value: filteredDlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0), cls: 'bg-blue-50 border-blue-200 text-blue-700' },
                     { label: 'Semi-Skilled', value: filteredDlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0), cls: 'bg-amber-50 border-amber-200 text-amber-700' },
                     { label: 'Unskilled', value: filteredDlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0), cls: 'bg-gray-50 border-gray-200 text-gray-700' },
-                    { label: 'Total Amount', value: formatCurrency(filteredDlrDprRows.reduce((s, r) => s + (r.amount || 0), 0)), cls: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+                    { label: 'Total Amount', value: formatCurrency(filteredDlrDprRows.reduce((s, r) => s + (r.amount || 0), 0)), cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', valueCls: 'text-sm' },
                     { label: 'DLR Entry Count', value: dlrEntryCount, cls: 'bg-violet-50 border-violet-200 text-violet-700' },
                   ];
+                  // Oct 31 2026 — two rows of three below `lg` (six in one
+                  // row squeezed the labels and cut off Total Amount).
                   return (
-                    <div className="flex gap-1.5 sm:gap-3 px-4 pb-4 overflow-x-auto" data-testid="dlrdpr-summary-pills">
+                    <div className="grid grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 px-4 pb-4" data-testid="dlrdpr-summary-pills">
                       {pills.map(p => (
-                        <div key={p.label} className={`flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${p.cls}`}>
-                          <span className="text-[9px] sm:text-xs font-medium text-center leading-tight">{p.label}</span>
-                          <span className="text-base sm:text-2xl font-bold mt-0.5">{p.value}</span>
+                        <div key={p.label} className={`min-w-0 flex flex-col items-center justify-center rounded-2xl px-1.5 sm:px-2 py-3 sm:py-5 shadow-sm border ${p.cls}`}>
+                          <span className="text-[10px] sm:text-xs font-medium text-center leading-tight">{p.label}</span>
+                          <span className={`${p.valueCls || 'text-base'} sm:text-2xl font-bold mt-0.5 max-w-full text-center break-words`}>{p.value}</span>
                         </div>
                       ))}
                     </div>
@@ -697,7 +703,50 @@ export default function PMDashboard() {
                       {dlrDprProjectSearch ? 'No matching projects.' : 'No projects found for this date range.'}
                     </p>
                   ) : (
-                    <div className="overflow-x-auto" data-testid="dlrdpr-table">
+                    <>
+                    {/* Oct 31 2026 — phones get one card per DLR instead of
+                        the 10-column table, which only scrolled sideways. */}
+                    <div className="md:hidden divide-y border-t" data-testid="dlrdpr-cards">
+                      {filteredDlrDprRows.map((row, idx) => (
+                        <div
+                          key={row.dlr_id || `${row.project_id}-${idx}`}
+                          className="px-4 py-3 hover:bg-orange-50/50 cursor-pointer"
+                          data-testid={`dlrdpr-card-${row.dlr_id || idx}`}
+                          onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="flex items-start gap-1.5 text-sm leading-5 font-medium text-gray-900">
+                                <span className="text-xs leading-5 text-gray-400 shrink-0">{idx + 1}.</span>
+                                {row.dlr_id && <span className="h-2 w-2 mt-1.5 rounded-full bg-green-500 shrink-0" title="Has a DLR entry" />}
+                                <span className="min-w-0 break-words">{row.project_name}</span>
+                              </p>
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                {[
+                                  row.date && new Date(row.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+                                  row.stage_name,
+                                ].filter(Boolean).join(' · ') || 'No DLR in this range'}
+                              </p>
+                              {row.contractor_name && <p className="text-xs text-gray-500">Contractor: {row.contractor_name}</p>}
+                            </div>
+                            <span className="text-sm font-semibold text-gray-900 shrink-0">{formatCurrency(row.amount)}</span>
+                          </div>
+                          <div className="grid grid-cols-4 gap-1.5 mt-2 text-center">
+                            {[['Works', row.works_count], ['Skilled', row.skilled], ['Semi-Skilled', row.semi_skilled], ['Unskilled', row.unskilled]].map(([label, value]) => (
+                              <div key={label} className="rounded-md bg-gray-50 py-1">
+                                <p className="text-[10px] text-gray-500 leading-tight">{label}</p>
+                                <p className="text-sm font-semibold text-gray-800">{value || 0}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between px-4 py-3 bg-gray-50 text-sm font-semibold">
+                        <span>Total · {filteredDlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0)} works</span>
+                        <span>{formatCurrency(filteredDlrDprRows.reduce((s, r) => s + (r.amount || 0), 0))}</span>
+                      </div>
+                    </div>
+                    <div className="hidden md:block overflow-x-auto" data-testid="dlrdpr-table">
                       <table className="w-full text-sm">
                         <thead className="bg-gray-50 border-y">
                           <tr>
@@ -753,6 +802,7 @@ export default function PMDashboard() {
                         </tfoot>
                       </table>
                     </div>
+                    </>
                   )}
                 </CardContent>
               </Card>

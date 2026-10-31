@@ -2344,44 +2344,48 @@ export default function PlanningBoard({ embedded = false }) {
 
                 {dlrDprSubTab === 'dlr' ? (
                   <Card>
-                    <CardHeader className="pb-3">
+                    <CardHeader className="p-4 pb-3 sm:p-6 sm:pb-3">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
                           <CardTitle className="text-base">DLR & DPR — {user?.role === 'planning_person' ? 'My Projects' : 'All Projects'}</CardTitle>
                           <p className="text-xs text-gray-500 mt-0.5">One line per DLR — works count, amount, and stage for the selected date range.</p>
                         </div>
-                        <div className="flex flex-wrap items-center gap-2">
+                        {/* Oct 31 2026 — phones: search full width, Start and End Date
+                            side by side in one row (labels above). Inline from `sm`. */}
+                        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 w-full sm:w-auto">
                           <div className="relative">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
                             <Input
                               placeholder="Search project..."
                               value={dlrDprProjectSearch}
                               onChange={(e) => setDlrDprProjectSearch(e.target.value)}
-                              className="pl-8 h-9 w-44 text-sm"
+                              className="pl-8 h-9 w-full sm:w-44 text-sm"
                               data-testid="dlrdpr-project-search"
                             />
                           </div>
-                          <div className="flex items-center gap-1.5">
-                            <Label className="text-xs text-gray-500">Start Date</Label>
-                            <input
-                              type="date"
-                              value={dlrDprStartDate}
-                              max={dlrDprEndDate}
-                              onChange={(e) => setDlrDprStartDate(e.target.value)}
-                              className="h-9 px-2 border rounded-md text-sm"
-                              data-testid="dlrdpr-start-date-picker"
-                            />
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <Label className="text-xs text-gray-500">End Date</Label>
-                            <input
-                              type="date"
-                              value={dlrDprEndDate}
-                              min={dlrDprStartDate}
-                              onChange={(e) => setDlrDprEndDate(e.target.value)}
-                              className="h-9 px-2 border rounded-md text-sm"
-                              data-testid="dlrdpr-end-date-picker"
-                            />
+                          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-1.5 min-w-0">
+                              <Label className="text-xs text-gray-500">Start Date</Label>
+                              <input
+                                type="date"
+                                value={dlrDprStartDate}
+                                max={dlrDprEndDate}
+                                onChange={(e) => setDlrDprStartDate(e.target.value)}
+                                className="h-9 px-2 border rounded-md text-sm w-full min-w-0 sm:w-auto"
+                                data-testid="dlrdpr-start-date-picker"
+                              />
+                            </div>
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-1.5 min-w-0">
+                              <Label className="text-xs text-gray-500">End Date</Label>
+                              <input
+                                type="date"
+                                value={dlrDprEndDate}
+                                min={dlrDprStartDate}
+                                onChange={(e) => setDlrDprEndDate(e.target.value)}
+                                className="h-9 px-2 border rounded-md text-sm w-full min-w-0 sm:w-auto"
+                                data-testid="dlrdpr-end-date-picker"
+                              />
+                            </div>
                           </div>
                         </div>
                       </div>
