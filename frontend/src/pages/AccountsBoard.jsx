@@ -7092,13 +7092,15 @@ function CarryForwardTab({ userRole }) {
 
       {/* ─── Project-wise Carry Forward Table (Feb 2026) ─────────────── */}
       <Card className="mt-6">
-        <CardHeader className="pb-2 flex flex-row items-center justify-between gap-3">
+        {/* Oct 31 2026 — phones: title, full-width search, then the totals
+            as a small box (side by side they left the title ~60px wide). */}
+        <CardHeader className="p-4 pb-2 sm:p-6 sm:pb-2 flex flex-col md:flex-row md:items-center md:justify-between gap-3 space-y-0">
           <div className="min-w-0">
             <CardTitle className="text-base">Project-wise Carry Forward</CardTitle>
             <p className="text-[11px] text-gray-500">Manual one-time adjustments to align live ledger with offline records.</p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="relative w-56 sm:w-64">
+          <div className="flex flex-col md:flex-row md:items-center gap-3 w-full md:w-auto">
+            <div className="relative w-full md:w-56 lg:w-64">
               <Input
                 type="text"
                 placeholder="Search project…"
@@ -7118,10 +7120,10 @@ function CarryForwardTab({ userRole }) {
               )}
             </div>
             {projectTotals && (
-              <div className="text-right text-[11px] text-gray-600">
-                <div>Total Income: <span className="font-semibold text-emerald-700">₹{projectTotals.grand_income.toLocaleString('en-IN')}</span></div>
-                <div>Total Expense: <span className="font-semibold text-rose-700">₹{projectTotals.grand_expense.toLocaleString('en-IN')}</span></div>
-                <div>Difference: <span className={`font-semibold ${projectTotals.difference >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>₹{projectTotals.difference.toLocaleString('en-IN')}</span></div>
+              <div className="text-[11px] text-gray-600 rounded-md border bg-gray-50 px-3 py-2 space-y-0.5 md:border-0 md:bg-transparent md:p-0 md:text-right" data-testid="cf-project-totals">
+                <div className="flex justify-between gap-3 md:block">Total Income: <span className="font-semibold text-emerald-700">₹{projectTotals.grand_income.toLocaleString('en-IN')}</span></div>
+                <div className="flex justify-between gap-3 md:block">Total Expense: <span className="font-semibold text-rose-700">₹{projectTotals.grand_expense.toLocaleString('en-IN')}</span></div>
+                <div className="flex justify-between gap-3 md:block">Difference: <span className={`font-semibold ${projectTotals.difference >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>₹{projectTotals.difference.toLocaleString('en-IN')}</span></div>
               </div>
             )}
           </div>
@@ -7134,7 +7136,78 @@ function CarryForwardTab({ userRole }) {
           ) : projectRows.length === 0 ? (
             <p className="text-center text-sm text-gray-500 py-8">No projects yet.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+            {/* Oct 31 2026 — phones get one card per project instead of the
+                9-column table. CF Income / CF Expense stay tappable to edit. */}
+            <div className="md:hidden divide-y border-t" data-testid="carry-forward-projects-cards">
+              {(() => {
+                const q = cfRowSearch.trim().toLowerCase();
+                const filtered = projectRows.filter(r => !q || (r.project_name || '').toLowerCase().includes(q));
+                if (filtered.length === 0) {
+                  return <p className="text-center text-sm text-gray-400 py-8">No project matches &quot;{cfRowSearch}&quot;</p>;
+                }
+                return filtered.map((r, idx) => (
+                  <div key={r.project_id} className="px-4 py-3 space-y-2" data-testid={`cf-card-${r.project_id}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 break-words">
+                          <span className="mr-1 text-xs text-gray-400">{idx + 1}.</span>{r.project_name}
+                        </p>
+                        <p className="text-[11px] text-gray-500">Project value ₹{(r.project_value || 0).toLocaleString('en-IN')}</p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-[10px] uppercase text-gray-400">Difference</p>
+                        <p className={`text-sm font-semibold ${r.difference === 0 ? 'text-gray-600' : (r.difference > 0 ? 'text-emerald-700' : 'text-rose-700')}`}>
+                          ₹{(r.difference || 0).toLocaleString('en-IN')}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-md bg-emerald-50/60 px-2 py-1.5">
+                        <p className="text-[10px] uppercase text-gray-500">Total Income</p>
+                        <p className="font-medium text-emerald-700 break-words">₹{(r.total_income || 0).toLocaleString('en-IN')}</p>
+                      </div>
+                      <div className="rounded-md bg-rose-50/60 px-2 py-1.5">
+                        <p className="text-[10px] uppercase text-gray-500">Total Expense</p>
+                        <p className="font-medium text-rose-700 break-words">₹{(r.direct_expense_total || 0).toLocaleString('en-IN')}</p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={!canEdit}
+                        onClick={() => openCfDialog(r, 'income')}
+                        className={`rounded-md border px-2 py-1.5 text-left ${canEdit ? 'border-emerald-200 hover:bg-emerald-50' : 'border-gray-100'}`}
+                        data-testid={`cf-income-card-${r.project_id}`}
+                      >
+                        <p className="text-[10px] uppercase text-gray-500">CF Income</p>
+                        <p className={`font-semibold break-words ${canEdit ? 'text-emerald-700' : 'text-gray-500'}`}>₹{(r.income_carry_forward || 0).toLocaleString('en-IN')}</p>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canEdit}
+                        onClick={() => openCfDialog(r, 'expense')}
+                        className={`rounded-md border px-2 py-1.5 text-left ${canEdit ? 'border-rose-200 hover:bg-rose-50' : 'border-gray-100'}`}
+                        data-testid={`cf-expense-card-${r.project_id}`}
+                      >
+                        <p className="text-[10px] uppercase text-gray-500">CF Expense</p>
+                        <p className={`font-semibold break-words ${canEdit ? 'text-rose-700' : 'text-gray-500'}`}>₹{(r.expense_carry_forward || 0).toLocaleString('en-IN')}</p>
+                      </button>
+                    </div>
+                    {canEdit && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full h-8 text-xs gap-1 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                        onClick={() => askIncomeOrExpense(r)}
+                        data-testid={`cf-card-btn-${r.project_id}`}
+                      >
+                        <Lock className="h-3 w-3" /> Carry Forward
+                      </Button>
+                    )}
+                  </div>
+                ));
+              })()}
+            </div>
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-xs" data-testid="carry-forward-projects-table">
                 <thead className="bg-gray-50 text-gray-700 uppercase text-[10px] tracking-wide">
                   <tr>
@@ -7203,6 +7276,7 @@ function CarryForwardTab({ userRole }) {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </CardContent>
       </Card>
