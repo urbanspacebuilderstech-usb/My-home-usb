@@ -2551,31 +2551,33 @@ export default function PlanningBoard({ embedded = false }) {
                   <div className="space-y-3">
                     {filteredPackages.map(pkg => (
                       <div key={pkg.package_id} className="border rounded-lg p-4 hover:border-amber-300 transition" data-testid={`package-card-${pkg.package_id}`}>
+                        {/* Oct 31 2026 — only the name/rate row sits beside the
+                            edit/delete icons; the rest spans the full card, so
+                            on phones the material tags wrap across the width
+                            instead of stacking one per line in a narrow column. */}
                         <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h4 className="font-semibold text-sm">{pkg.name}</h4>
-                              <Badge variant="outline" className="text-[10px]">{formatCurrency(pkg.base_rate_per_sqft)}/sqft</Badge>
-                            </div>
-                            {pkg.description && <p className="text-xs text-gray-500 mb-2">{pkg.description}</p>}
-                            <div className="flex items-center gap-4 text-xs text-gray-500">
-                              <span>{pkg.scope_items?.length || 0} scope items</span>
-                              <span>{pkg.material_items?.length || 0} materials</span>
-                            </div>
-                            {pkg.material_items?.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5 mt-2">
-                                {pkg.material_items.slice(0, 6).map((m, i) => (
-                                  <Badge key={i} variant="secondary" className="text-[10px]">{m.name}{m.brand ? ` - ${m.brand}` : ''}</Badge>
-                                ))}
-                                {pkg.material_items.length > 6 && <Badge variant="secondary" className="text-[10px]">+{pkg.material_items.length - 6} more</Badge>}
-                              </div>
-                            )}
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 mb-1">
+                            <h4 className="font-semibold text-sm break-words">{pkg.name}</h4>
+                            <Badge variant="outline" className="text-[10px]">{formatCurrency(pkg.base_rate_per_sqft)}/sqft</Badge>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
                             <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openPackageDialog(pkg)} data-testid={`edit-pkg-${pkg.package_id}`}><Edit className="h-3.5 w-3.5" /></Button>
                             <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeletePackage(pkg)} data-testid={`delete-pkg-${pkg.package_id}`}><Trash2 className="h-3.5 w-3.5" /></Button>
                           </div>
                         </div>
+                        {pkg.description && <p className="text-xs text-gray-500 mb-2">{pkg.description}</p>}
+                        <div className="flex items-center gap-4 text-xs text-gray-500">
+                          <span>{pkg.scope_items?.length || 0} scope items</span>
+                          <span>{pkg.material_items?.length || 0} materials</span>
+                        </div>
+                        {pkg.material_items?.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {pkg.material_items.slice(0, 6).map((m, i) => (
+                              <Badge key={i} variant="secondary" className="text-[10px] max-w-full break-words">{m.name}{m.brand ? ` - ${m.brand}` : ''}</Badge>
+                            ))}
+                            {pkg.material_items.length > 6 && <Badge variant="secondary" className="text-[10px]">+{pkg.material_items.length - 6} more</Badge>}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
