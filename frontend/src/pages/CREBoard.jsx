@@ -944,6 +944,42 @@ export default function CREBoard() {
 
   const pendingCount = (pendingApprovals.advance_verified?.length || 0) + (pendingApprovals.pending_income?.length || 0);
 
+  // Oct 31 2026 — the visible tabs (Workflow Master order + the optional
+  // All Projects / Income flags) and their counts, shared by the tab strip
+  // and the CRE phone bottom bar (first four on the bar, the rest in More).
+  const CRE_TABS = {
+    payment_schedule: { label: 'Payment Schedule', icon: Calendar },
+    final_estimate: { label: 'Final Estimate', icon: FileText },
+    pre_construction: { label: 'Pre-Construction', icon: Building2 },
+    cheques: { label: 'Cheque Management', short: 'Cheque Mgmt', icon: CreditCard },
+    dt_requests: { label: 'DT Requests', icon: Banknote },
+    additional_costs: { label: 'Additional Costs', icon: Plus },
+    all_projects: { label: 'All Projects', icon: ClipboardList },
+    income: { label: 'Income', icon: IndianRupee },
+  };
+  const creTabCounts = {
+    payment_schedule: (paymentRequests || []).filter(r => inDateRange(r.requested_at || r.created_at)).length,
+    final_estimate: feProjects.filter(p => p.fe?.status !== 'approved').length,
+    cheques: (chequeEntries || []).length,
+    dt_requests: (additionalPaymentRequests || []).length,
+    additional_costs: (additionalCostsQueue || []).filter(r => r.client_approval_status === 'pending_client' || (r.client_approval_status === 'client_approved' && !r.cre_approved)).length,
+    all_projects: projectsInRange.length,
+    income: (incomeCollected || []).length,
+  };
+  const creTabKeys = (() => {
+    // Use wfMenus order if loaded; otherwise fall back to default order.
+    let ordered = (wfMenus && wfMenus.length > 0)
+      ? wfMenus.filter(m => m.enabled).map(m => m.key)
+      : ['payment_schedule', 'final_estimate', 'pre_construction', 'cheques', 'dt_requests', 'additional_costs', 'all_projects', 'income'];
+    // Force-include optional tabs when Super Admin has toggled them
+    // ON globally — the per-user workflow menu config may not include
+    // newer keys yet, so we must merge instead of relying solely on it.
+    if (showAllProjectsTab && !ordered.includes('all_projects')) ordered = [...ordered, 'all_projects'];
+    if (showIncomeTab && !ordered.includes('income')) ordered = [...ordered, 'income'];
+    return ordered.filter(k => CRE_TABS[k] && (k !== 'all_projects' || showAllProjectsTab) && (k !== 'income' || showIncomeTab));
+  })();
+  const isCreRole = user?.role === 'cre';
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-testid="cre-board">
       <AppHeader user={user} />
@@ -951,7 +987,9 @@ export default function CREBoard() {
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6">
         {/* Main Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+          {/* Oct 31 2026 — desktop only for CRE: below `lg` their bottom bar
+              holds these tabs (Super Admin's / Sales Head's doesn't). */}
+          <div className={`${isCreRole ? 'hidden lg:flex' : 'flex'} items-center justify-between mb-3 gap-3 flex-wrap`}>
             <TabsList className="bg-white border shadow-sm">
               {(() => {
                 // Render tabs in the order saved by Super Admin via Workflow Master.
@@ -1015,20 +1053,7 @@ export default function CREBoard() {
                     </TabsTrigger>
                   ) : null,
                 };
-                // Use wfMenus order if loaded; otherwise fall back to default order.
-                let ordered = (wfMenus && wfMenus.length > 0)
-                  ? wfMenus.filter(m => m.enabled).map(m => m.key)
-                  : ['payment_schedule', 'final_estimate', 'pre_construction', 'cheques', 'dt_requests', 'additional_costs', 'all_projects', 'income'];
-                // Force-include optional tabs when Super Admin has toggled them
-                // ON globally — the per-user workflow menu config may not include
-                // newer keys yet, so we must merge instead of relying solely on it.
-                if (showAllProjectsTab && !ordered.includes('all_projects')) {
-                  ordered = [...ordered, 'all_projects'];
-                }
-                if (showIncomeTab && !ordered.includes('income')) {
-                  ordered = [...ordered, 'income'];
-                }
-                return ordered.map(k => ALL_TAB_DEFS[k]?.()).filter(Boolean);
+                return creTabKeys.map(k => ALL_TAB_DEFS[k]?.()).filter(Boolean);
               })()}
             </TabsList>
           </div>
@@ -1353,28 +1378,76 @@ export default function CREBoard() {
                             : psSubTab === 'partial'   ? partialEntries
                             : psSubTab === 'collected' ? collectedEntries
                             : dateFiltered;
+              // Oct 31 2026 — per-row status / money flags, shared by the
+              // desktop table and the phone cards below (was inline in the
+              // table row).
+              const psRow = (e) => {
+                const { amount: rowAmount, received: rowReceived, balance } = psMoney(e);
+                const pendingApprovalAmt = e.pending_approval_amount || 0;
+                const hasPendingApproval = (e.pending_approval_count || 0) > 0;
+                // "Collected" must require zero balance regardless of stage_status — a
+                // stage may still be flagged `collected` server-side while the
+                // amount_received < amount (e.g. cheque-bounce reduction). Use the
+                // actual money math, not the cached status string.
+                const isCollected = !hasPendingApproval && balance <= 0 && rowReceived >= rowAmount && rowAmount > 0;
+                const isPartial = !hasPendingApproval && rowReceived > 0 && balance > 0;
+                // A past month's row keeps the balance that month ended on,
+                // but Collect is about the stage now: no Collect once it is
+                // fully paid.
+                const stageFullyPaid = (e.amount || 0) > 0 && (e.amount_received || 0) >= (e.amount || 0);
+                // Accountant rejected the last collection: the stage is back at
+                // 'requested' until CRE collects again (which clears the reason).
+                const isAccRejected = !!e.accountant_rejection_reason && e.workflow_status === 'requested'
+                  && !hasPendingApproval && !isCollected && !stageFullyPaid;
+                // Oct 16 2026 — the Accountant rejected one collection of the
+                // stage (e.g. one of several deleted cheques) while others still
+                // wait in Approvals. The rejected money is back with CRE, so
+                // Re-Collect opens for what is not waiting there; the rows still
+                // in Approvals keep their share locked until they are rejected.
+                const reCollectable = Math.round(((e.amount || 0) - (e.amount_received || 0) - pendingApprovalAmt) * 100) / 100;
+                const isAccRejectedBesidePending = hasPendingApproval && !!e.accountant_rejection_reason
+                  && e.workflow_status === 'requested' && !stageFullyPaid && reCollectable > 0.5;
+                const showAccRejected = isAccRejected || isAccRejectedBesidePending;
+                let badge;
+                if (isAccRejectedBesidePending) badge = <Badge className="bg-red-100 text-red-700 border-red-300 text-[11px] whitespace-nowrap">Accountant Rejected</Badge>;
+                else if (hasPendingApproval) badge = <Badge className="bg-orange-100 text-orange-700 text-[11px] whitespace-nowrap">Pending Accountant Approval</Badge>;
+                else if (isCollected) badge = <Badge className="bg-green-100 text-green-700 text-[11px]">Collected</Badge>;
+                else if (isAccRejected) badge = <Badge className="bg-red-100 text-red-700 border-red-300 text-[11px] whitespace-nowrap">Accountant Rejected</Badge>;
+                else if (isPartial) badge = <Badge className="bg-amber-100 text-amber-700 text-[11px]">Partial</Badge>;
+                else if (e.workflow_status === 'requested') badge = <Badge className="bg-purple-100 text-purple-700 text-[11px]">Planning Requested</Badge>;
+                else badge = <Badge className="bg-gray-100 text-gray-700 text-[11px]">Pending</Badge>;
+                return { rowAmount, rowReceived, balance, pendingApprovalAmt, hasPendingApproval, isCollected, stageFullyPaid, reCollectable, isAccRejectedBesidePending, showAccRejected, badge };
+              };
+              const psSelectKey = (e) => e.entry_id || `computed_${e.stage_id}`;
+              const togglePsSelect = (e, checked) => {
+                const next = new Set(psSelected);
+                if (checked) next.add(psSelectKey(e)); else next.delete(psSelectKey(e));
+                setPsSelected(next);
+              };
               return (
                 <div className="space-y-4">
                   {/* Month nav — when psAllMonths is true the centre label
                       shows "All Months" with a "This Month" shortcut; Prev/Next
-                      implicitly zoom into a single month. */}
+                      implicitly zoom into a single month. Oct 31 2026 — phones:
+                      Prev · month · Next on one line, This Month / All Months and
+                      Refresh on the next (the toggle used to run off the screen). */}
                   <Card>
                     <CardContent className="p-3">
-                      <div className="flex items-center justify-between flex-wrap gap-2">
-                        <div className="flex items-center gap-3">
-                          <Button size="sm" variant="outline" onClick={() => shiftPsMonth(-1)} data-testid="ps-prev-month">‹ Prev</Button>
-                          <div className="text-center min-w-[140px]">
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                          <Button size="sm" variant="outline" className="shrink-0" onClick={() => shiftPsMonth(-1)} data-testid="ps-prev-month">‹ Prev</Button>
+                          <div className="text-center flex-1 min-w-0 sm:flex-none sm:min-w-[140px]">
                             <p className="text-lg font-bold text-gray-900" data-testid="ps-current-month">
                               {psAllMonths ? 'All Months' : `${MONTHS[psMonth - 1]} ${psYear}`}
                             </p>
                             <p className="text-xs text-gray-500">CRE Payment Schedule</p>
                           </div>
-                          <Button size="sm" variant="outline" onClick={() => shiftPsMonth(1)} data-testid="ps-next-month">Next ›</Button>
+                          <Button size="sm" variant="outline" className="shrink-0" onClick={() => shiftPsMonth(1)} data-testid="ps-next-month">Next ›</Button>
+                          <div className="basis-full h-0 sm:hidden" aria-hidden="true" />
                           {psAllMonths ? (
                             <Button
                               size="sm"
                               variant="outline"
-                              className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                              className="flex-1 sm:flex-none border-amber-300 text-amber-700 hover:bg-amber-50"
                               onClick={() => {
                                 setPsAllMonths(false);
                                 const t = new Date();
@@ -1389,15 +1462,14 @@ export default function CREBoard() {
                             <Button
                               size="sm"
                               variant="outline"
-                              className="border-violet-300 text-violet-700 hover:bg-violet-50"
+                              className="flex-1 sm:flex-none border-violet-300 text-violet-700 hover:bg-violet-50"
                               onClick={() => setPsAllMonths(true)}
                               data-testid="ps-show-all"
                             >
                               All Months
                             </Button>
                           )}
-                        </div>
-                        <Button size="sm" variant="outline" onClick={() => fetchPaymentSchedule()} data-testid="ps-refresh">
+                        <Button size="sm" variant="outline" className="flex-1 sm:flex-none sm:ml-auto" onClick={() => fetchPaymentSchedule()} data-testid="ps-refresh">
                           <RefreshCw className="h-4 w-4 mr-1" /> Refresh
                         </Button>
                       </div>
@@ -1533,7 +1605,7 @@ export default function CREBoard() {
                         </button>
                       ))}
                       {/* Unified date filter — presets + calendar (matches Cashbook UX) */}
-                      <div className="ml-2" data-testid="ps-date-filter">
+                      <div className="sm:ml-2" data-testid="ps-date-filter">
                         <CashbookDateFilter
                           dateFrom={psDateFrom}
                           dateTo={psDateTo}
@@ -1546,14 +1618,14 @@ export default function CREBoard() {
                         />
                       </div>
                       {/* Inline search box — by project / client / stage */}
-                      <div className="relative ml-1">
+                      <div className="relative w-full sm:w-auto sm:ml-1">
                         <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
                         <input
                           type="text"
                           value={psSearch}
                           onChange={(e) => setPsSearch(e.target.value)}
                           placeholder="Search project, client, stage…"
-                          className="h-8 w-56 pl-7 pr-2 text-xs border border-gray-200 rounded bg-white dark:bg-gray-800 dark:border-gray-700"
+                          className="h-8 w-full sm:w-56 pl-7 pr-2 text-xs border border-gray-200 rounded bg-white dark:bg-gray-800 dark:border-gray-700"
                           data-testid="ps-search"
                         />
                       </div>
@@ -1578,7 +1650,101 @@ export default function CREBoard() {
                       {psLoading ? (
                         <div className="p-8 text-center text-gray-400"><RefreshCw className="h-5 w-5 animate-spin inline mr-2" /> Loading…</div>
                       ) : (
-                        <div className="overflow-x-auto">
+                        <>
+                        {/* Oct 31 2026 — phones get one card per schedule entry
+                            instead of the 9-column table. */}
+                        <div className="md:hidden divide-y" data-testid="cre-payment-schedule-cards">
+                          {entries.length === 0 ? (
+                            <p className="p-8 text-center text-sm text-gray-400">No payments scheduled for {MONTHS[psMonth - 1]} {psYear}.</p>
+                          ) : entries.map((e) => {
+                            const st = psRow(e);
+                            const id = e.entry_id || e.stage_id;
+                            const canCollect = !(st.isCollected || (st.stageFullyPaid && !st.hasPendingApproval)) && !(st.hasPendingApproval && !st.isAccRejectedBesidePending);
+                            return (
+                              <div key={id} className="p-3 space-y-2" data-testid={`ps-card-${id}`}>
+                                <div className="flex items-start gap-2.5">
+                                  <input
+                                    type="checkbox"
+                                    className="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                                    checked={psSelected.has(psSelectKey(e))}
+                                    onChange={(ev) => togglePsSelect(e, ev.target.checked)}
+                                    data-testid={`ps-card-select-${id}`}
+                                  />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <p className="text-sm font-medium break-words">{e.project_name}</p>
+                                        {e.client_name && <p className="text-[11px] text-gray-400 break-words">{e.client_name}</p>}
+                                      </div>
+                                      <div className="shrink-0">{st.badge}</div>
+                                    </div>
+                                    <p className="text-xs text-gray-700 mt-1 break-words">{e.stage_name}</p>
+                                    <p className="text-[11px] text-gray-500 mt-0.5">
+                                      Expected: {e.expected_payment_date ? new Date(e.expected_payment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (e.no_date_set ? <span className="italic text-amber-600">Unscheduled</span> : '-')}
+                                    </p>
+                                    {(e.no_date_set || e.is_carryover) && (
+                                      <div className="flex flex-wrap gap-1 mt-1">
+                                        {e.no_date_set && <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px]">⚠ No Date Set</Badge>}
+                                        {e.is_carryover && (
+                                          <Badge className="bg-red-50 text-red-700 border-red-200 text-[10px]">
+                                            🔴 Carried from {e.carry_from_month ? `${new Date(2000, e.carry_from_month - 1, 1).toLocaleString('en-IN', { month: 'short' })} ${e.carry_from_year}` : 'earlier'}{e.days_overdue > 0 ? ` · ${e.days_overdue}d overdue` : ''}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-3 gap-2 text-xs">
+                                  <div className="rounded-md bg-gray-50 px-2 py-1.5">
+                                    <p className="text-[10px] uppercase text-gray-500">Amount</p>
+                                    <p className="font-medium break-words">{formatCurrency(st.rowAmount)}</p>
+                                  </div>
+                                  <div className="rounded-md bg-green-50/70 px-2 py-1.5">
+                                    <p className="text-[10px] uppercase text-gray-500">Received</p>
+                                    <p className="font-medium text-green-600 break-words">{formatCurrency(st.rowReceived)}</p>
+                                    {st.pendingApprovalAmt > 0 && <p className="text-[10px] text-orange-600">+{formatCurrency(st.pendingApprovalAmt)} pending</p>}
+                                  </div>
+                                  <div className="rounded-md bg-red-50/70 px-2 py-1.5">
+                                    <p className="text-[10px] uppercase text-gray-500">Balance</p>
+                                    <p className="font-medium text-red-600 break-words">{formatCurrency(st.balance)}</p>
+                                  </div>
+                                </div>
+                                {st.showAccRejected && (
+                                  <p className="text-[11px] text-red-600 break-words">
+                                    {e.accountant_rejection_reason}{e.accountant_rejected_by_name ? ` — ${e.accountant_rejected_by_name}` : ''}
+                                  </p>
+                                )}
+                                {st.isAccRejectedBesidePending && (
+                                  <p className="text-[11px] text-orange-600">
+                                    {formatCurrency(st.reCollectable)} to re-collect · {formatCurrency(st.pendingApprovalAmt)} in Approvals
+                                  </p>
+                                )}
+                                {(canCollect || (st.hasPendingApproval && !st.isAccRejectedBesidePending) || (user?.role === 'super_admin' && e.stage_id)) && (
+                                  <div className="flex items-center gap-2">
+                                    {user?.role === 'super_admin' && e.stage_id && (
+                                      <Button size="sm" variant="outline" className="h-8 px-2 text-blue-600" onClick={() => setStageDetailDlg({ open: true, stageId: e.stage_id })} data-testid={`ps-card-view-${id}`}>
+                                        <Eye className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                    {canCollect ? (
+                                      <Button
+                                        size="sm"
+                                        className={`h-8 flex-1 text-xs ${st.showAccRejected ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
+                                        onClick={() => openCollectDialog({ ...e, stage_id: e.stage_id, collect_cap: st.isAccRejectedBesidePending ? st.reCollectable : null })}
+                                        data-testid={`ps-card-collect-${id}`}
+                                      >
+                                        <IndianRupee className="h-3.5 w-3.5 mr-1" /> {st.showAccRejected ? 'Re-Collect' : 'Collect'}
+                                      </Button>
+                                    ) : st.hasPendingApproval && !st.isAccRejectedBesidePending ? (
+                                      <span className="text-[11px] text-orange-600 font-medium">Awaiting approval</span>
+                                    ) : null}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="hidden md:block overflow-x-auto">
                           <table className="w-full text-sm" data-testid="cre-payment-schedule-table">
                             <thead className="bg-gray-50 dark:bg-gray-800/50 border-y">
                               <tr>
@@ -1610,40 +1776,7 @@ export default function CREBoard() {
                               {entries.length === 0 ? (
                                 <tr><td colSpan="9" className="p-8 text-center text-gray-400">No payments scheduled for {MONTHS[psMonth - 1]} {psYear}.</td></tr>
                               ) : entries.map((e) => {
-                                const { amount: rowAmount, received: rowReceived, balance } = psMoney(e);
-                                const pendingApprovalAmt = e.pending_approval_amount || 0;
-                                const hasPendingApproval = (e.pending_approval_count || 0) > 0;
-                                // "Collected" must require zero balance regardless of stage_status — a
-                                // stage may still be flagged `collected` server-side while the
-                                // amount_received < amount (e.g. cheque-bounce reduction). Use the
-                                // actual money math, not the cached status string.
-                                const isCollected = !hasPendingApproval && balance <= 0 && rowReceived >= rowAmount && rowAmount > 0;
-                                const isPartial = !hasPendingApproval && rowReceived > 0 && balance > 0;
-                                // A past month's row keeps the balance that month ended on,
-                                // but Collect is about the stage now: no Collect once it is
-                                // fully paid.
-                                const stageFullyPaid = (e.amount || 0) > 0 && (e.amount_received || 0) >= (e.amount || 0);
-                                // Accountant rejected the last collection: the stage is back at
-                                // 'requested' until CRE collects again (which clears the reason).
-                                const isAccRejected = !!e.accountant_rejection_reason && e.workflow_status === 'requested'
-                                  && !hasPendingApproval && !isCollected && !stageFullyPaid;
-                                // Oct 16 2026 — the Accountant rejected one collection of the
-                                // stage (e.g. one of several deleted cheques) while others still
-                                // wait in Approvals. The rejected money is back with CRE, so
-                                // Re-Collect opens for what is not waiting there; the rows still
-                                // in Approvals keep their share locked until they are rejected.
-                                const reCollectable = Math.round(((e.amount || 0) - (e.amount_received || 0) - pendingApprovalAmt) * 100) / 100;
-                                const isAccRejectedBesidePending = hasPendingApproval && !!e.accountant_rejection_reason
-                                  && e.workflow_status === 'requested' && !stageFullyPaid && reCollectable > 0.5;
-                                const showAccRejected = isAccRejected || isAccRejectedBesidePending;
-                                let badge;
-                                if (isAccRejectedBesidePending) badge = <Badge className="bg-red-100 text-red-700 border-red-300 text-[11px] whitespace-nowrap">Accountant Rejected</Badge>;
-                                else if (hasPendingApproval) badge = <Badge className="bg-orange-100 text-orange-700 text-[11px] whitespace-nowrap">Pending Accountant Approval</Badge>;
-                                else if (isCollected) badge = <Badge className="bg-green-100 text-green-700 text-[11px]">Collected</Badge>;
-                                else if (isAccRejected) badge = <Badge className="bg-red-100 text-red-700 border-red-300 text-[11px] whitespace-nowrap">Accountant Rejected</Badge>;
-                                else if (isPartial) badge = <Badge className="bg-amber-100 text-amber-700 text-[11px]">Partial</Badge>;
-                                else if (e.workflow_status === 'requested') badge = <Badge className="bg-purple-100 text-purple-700 text-[11px]">Planning Requested</Badge>;
-                                else badge = <Badge className="bg-gray-100 text-gray-700 text-[11px]">Pending</Badge>;
+                                const { rowAmount, rowReceived, balance, pendingApprovalAmt, hasPendingApproval, isCollected, stageFullyPaid, reCollectable, isAccRejectedBesidePending, showAccRejected, badge } = psRow(e);
                                 return (
                                   <tr key={e.entry_id || e.stage_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50" data-testid={`ps-row-${e.entry_id || e.stage_id}`}>
                                     <td className="px-3 py-2.5 text-center">
@@ -1742,6 +1875,7 @@ export default function CREBoard() {
                             </tbody>
                           </table>
                         </div>
+                        </>
                       )}
                     </CardContent>
                   </Card>
@@ -2629,7 +2763,16 @@ export default function CREBoard() {
         </DialogContent>
       </Dialog>
 
-      <MobileBottomNav user={user} />
+      <MobileBottomNav
+        user={user}
+        pageTabs={isCreRole ? creTabKeys.map(k => ({
+          label: CRE_TABS[k].short || CRE_TABS[k].label,
+          icon: CRE_TABS[k].icon,
+          path: `/cre-board?tab=${k}`,
+          active: activeTab === k,
+          badge: creTabCounts[k],
+        })) : null}
+      />
       {/* Bulk delete confirmation — typing DELETE (uppercase) is required */}
       <Dialog open={bulkDeleteOpen} onOpenChange={(o) => { if (!o) { setBulkDeleteOpen(false); setBulkConfirmText(''); } }}>
         <DialogContent className="max-w-md" data-testid="bulk-delete-confirm-dialog">

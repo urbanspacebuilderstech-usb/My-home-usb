@@ -136,11 +136,15 @@ const OTHER_ROLES = {
     { label: 'All Projects', icon: FolderKanban, path: '/procurement-board-v2?subtab=all_projects' },
     { label: 'Vendors', icon: Store, path: '/procurement-board-v2?subtab=material_vendors' },
   ],
+  // Oct 31 2026 — was CRE Board/Projects/Alerts/Profile. Holds the CRE
+  // Board's default first four tabs; on the CRE Board itself the page passes
+  // its actual tabs (Workflow Master order) as `pageTabs` instead.
   cre: [
-    { label: 'CRE Board', icon: Target, path: '/cre-board' },
-    { label: 'Projects', icon: FolderKanban, path: '/projects' },
-    { label: 'Alerts', icon: Bell, path: '/notifications' },
-    { label: 'Profile', icon: User, path: '/profile' },
+    { label: 'Payment Schedule', icon: Receipt, path: '/cre-board?tab=payment_schedule' },
+    { label: 'Final Estimate', icon: FileText, path: '/cre-board?tab=final_estimate' },
+    { label: 'Pre-Construction', icon: HardHat, path: '/cre-board?tab=pre_construction' },
+    { label: 'Cheque Mgmt', icon: CreditCard, path: '/cre-board?tab=cheques' },
+    { label: 'More', icon: Menu, action: 'more' },
   ],
   // Aug 6 2026 — Overview/Payments used to both point at the exact same
   // path with no way to tell them apart, and none of the portal's other
@@ -295,11 +299,21 @@ const ROLE_MORE = {
   accountant: ACCOUNTANT_MORE, client: CLIENT_MORE, procurement: ALERTS_PROFILE_MORE,
   planning_person: PLANNING_PERSON_MORE, general_manager: ALERTS_PROFILE_MORE,
   project_manager: ALERTS_PROFILE_MORE, quality_check: ALERTS_PROFILE_MORE,
+  cre: [
+    { label: 'DT Requests', icon: Wallet, path: '/cre-board?tab=dt_requests' },
+    { label: 'Additional Costs', icon: PlusCircle, path: '/cre-board?tab=additional_costs' },
+    { label: 'Projects', icon: FolderKanban, path: '/projects' },
+    ...ALERTS_PROFILE_MORE,
+  ],
 };
 
 // `badges` — optional { [bar item path]: count } from the page, e.g. the GM
 // dashboard's pending approvals, shown as a red count on that bar item.
-export default function MobileBottomNav({ user, badges = {} }) {
+// `pageTabs` — optional [{ label, icon, path, active, badge }] from a page
+// whose tabs vary (CRE Board: Workflow Master order). The first four go on
+// the bar, the rest lead More; role More items pointing at that page's own
+// tabs are dropped so a hidden tab never shows up there.
+export default function MobileBottomNav({ user, badges = {}, pageTabs = null }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -316,8 +330,16 @@ export default function MobileBottomNav({ user, badges = {} }) {
   if (embedded) return null;
 
   const isSuperAdmin = user.role === 'super_admin';
-  const barItems = isSuperAdmin ? SA_BOTTOM : (OTHER_ROLES[user.role] || DEFAULT_BOTTOM);
-  const baseMore = isSuperAdmin ? SA_MORE_ITEMS : (ROLE_MORE[user.role] || []);
+  const pageBase = pageTabs?.length ? pageTabs[0].path.split('?')[0] : null;
+  const barItems = pageBase
+    ? pageTabs.slice(0, 4).concat({ label: 'More', icon: Menu, action: 'more' })
+    : isSuperAdmin ? SA_BOTTOM : (OTHER_ROLES[user.role] || DEFAULT_BOTTOM);
+  const roleMore = isSuperAdmin ? SA_MORE_ITEMS : (ROLE_MORE[user.role] || []);
+  const baseMore = pageBase
+    ? pageTabs.slice(4).concat(roleMore.filter(i => i.path.split('?')[0] !== pageBase))
+    : roleMore;
+  const activeOf = (item) => (item.active !== undefined ? item.active : isActive(item.path));
+  const badgeOf = (item) => item.badge ?? badges[item.path];
   // Sep 30 2026 — the desktop header nav is hidden below `lg`, so anything it
   // offers that isn't already on the bar or in More is added to More.
   // Otherwise e.g. an accountant on a phone had no way to reach Suspense A/c.
@@ -407,7 +429,7 @@ export default function MobileBottomNav({ user, badges = {} }) {
             <div className="px-2 pb-3 space-y-0.5 max-h-[65vh] overflow-y-auto">
               {moreItems.map((item) => {
                 const Icon = item.icon;
-                const active = isActive(item.path);
+                const active = activeOf(item);
                 return (
                   <button
                     key={item.path}
@@ -419,6 +441,11 @@ export default function MobileBottomNav({ user, badges = {} }) {
                   >
                     <Icon className={`h-4.5 w-4.5 ${active ? 'text-amber-600' : 'text-gray-400'}`} />
                     {item.label}
+                    {badgeOf(item) > 0 && (
+                      <span className="ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[10px] font-bold inline-flex items-center justify-center">
+                        {badgeOf(item)}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -450,9 +477,10 @@ export default function MobileBottomNav({ user, badges = {} }) {
           {navItems.map((item) => {
             // Oct 31 2026 — More also lights up while one of its pages is open.
             const active = item.path
-              ? isActive(item.path)
-              : item.action === 'more' && (moreOpen || moreItems.some(i => isActive(i.path)));
+              ? activeOf(item)
+              : item.action === 'more' && (moreOpen || moreItems.some(activeOf));
             const Icon = item.icon;
+            const badge = badgeOf(item);
             return (
               <button
                 key={item.label}
@@ -464,9 +492,9 @@ export default function MobileBottomNav({ user, badges = {} }) {
                 }`}
               >
                 {active && <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-amber-500 rounded-b" />}
-                {badges[item.path] > 0 && (
+                {badge > 0 && (
                   <span className="absolute top-1 left-1/2 ml-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center" data-testid={`mobile-nav-badge-${item.label.toLowerCase().replace(/\s/g, '-')}`}>
-                    {badges[item.path]}
+                    {badge}
                   </span>
                 )}
                 <Icon className="h-5 w-5" />
