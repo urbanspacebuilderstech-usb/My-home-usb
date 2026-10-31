@@ -2355,6 +2355,10 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
     const s = params.get('sub');
     if (s === 'expense' || s === 'income' || s === 'indirect') {
       setSubTab(s);
+    } else if (!s) {
+      // Oct 31 2026 — the phone bar's Cashbook after Expense used to stay on
+      // the expense list (only ?sub=expense was ever read, never its absence).
+      setSubTab('income');
     }
   }, [location.search]);
   // Feb 26 2026 — Cashbook date filter starts EMPTY by default (show

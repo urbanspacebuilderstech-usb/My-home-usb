@@ -70,12 +70,14 @@ const SA_MORE_ITEMS = [
 ];
 
 const OTHER_ROLES = {
-  // Oct 31 2026 — Approvals pointed at the standalone /approvals page; it now
-  // opens the Accounts Board's Approvals tab, like the desktop header does.
+  // Oct 31 2026 — was Dashboard/Approvals/HR/More (Approvals opened the
+  // standalone /approvals page). The bar now holds the first four Accounts
+  // Board header tabs (Cashbook = no `?tab=`); the other four are in More.
   accountant: [
-    { label: 'Dashboard', icon: Landmark, path: '/accounts-board' },
+    { label: 'Cashbook', icon: Landmark, path: '/accounts-board' },
     { label: 'Approvals', icon: CheckSquare, path: '/accounts-board?tab=approvals' },
-    { label: 'HR', icon: IndianRupee, path: '/hr-portal' },
+    { label: 'Expense', icon: Receipt, path: '/accounts-board?tab=cashbook&sub=expense' },
+    { label: 'Cheque Mgmt', icon: CreditCard, path: '/accounts-board?tab=cheques' },
     { label: 'More', icon: Menu, action: 'more' },
   ],
   // Oct 31 2026 — was Command/Projects/Alerts/Profile. The bar now holds the
@@ -252,11 +254,18 @@ const PATH_ICONS = [
 ];
 const iconForPath = (path) => (PATH_ICONS.find(([k]) => path.includes(k)) || [null, LayoutDashboard])[1];
 
+// Oct 31 2026 — the header tabs that don't fit on the bar come first, in
+// header order. The old /cheque-management entry is gone: Cheque Mgmt on the
+// bar opens the Accounts Board's Cheque Management tab, as the header does.
 const ACCOUNTANT_MORE = [
-  { label: 'Cheque Mgmt', icon: CreditCard, path: '/cheque-management' },
-  { label: 'Project Finance', icon: TrendingUp, path: '/accountant-dashboard' },
+  { label: 'Carry Forward', icon: Clock, path: '/accounts-board?tab=carry-forward' },
+  { label: 'Suspense A/c', icon: Wallet, path: '/suspense-account' },
+  { label: 'Other Accounts', icon: Landmark, path: '/other-accounts' },
+  { label: 'Project Wise', icon: FolderKanban, path: '/accounts-board?tab=projects' },
   { label: 'HR Portal', icon: Users, path: '/hr-portal' },
+  { label: 'Project Finance', icon: TrendingUp, path: '/accountant-dashboard' },
   { label: 'Notifications', icon: Bell, path: '/notifications' },
+  { label: 'Profile', icon: User, path: '/profile' },
 ];
 
 const CLIENT_MORE = [

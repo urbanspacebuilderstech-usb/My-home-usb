@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
+import MobileBottomNav from '../components/MobileBottomNav';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -339,6 +340,9 @@ export default function OtherAccounts() {
           )}
         </DialogContent>
       </Dialog>
+      {/* Oct 31 2026 — the page had no phone bar, so More → Other Accounts
+          was a dead end on a phone. */}
+      <MobileBottomNav user={user} />
     </div>
   );
 }
