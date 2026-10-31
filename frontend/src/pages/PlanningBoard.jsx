@@ -2393,15 +2393,17 @@ export default function PlanningBoard({ embedded = false }) {
                         { label: 'Skilled', value: filteredDlrDprRows.reduce((s, r) => s + (r.skilled || 0), 0), cls: 'bg-blue-50 border-blue-200 text-blue-700' },
                         { label: 'Semi-Skilled', value: filteredDlrDprRows.reduce((s, r) => s + (r.semi_skilled || 0), 0), cls: 'bg-amber-50 border-amber-200 text-amber-700' },
                         { label: 'Unskilled', value: filteredDlrDprRows.reduce((s, r) => s + (r.unskilled || 0), 0), cls: 'bg-gray-50 border-gray-200 text-gray-700' },
-                        { label: 'Total Amount', value: formatCurrency(filteredDlrDprRows.reduce((s, r) => s + (r.amount || 0), 0)), cls: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+                        { label: 'Total Amount', value: formatCurrency(filteredDlrDprRows.reduce((s, r) => s + (r.amount || 0), 0)), cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', valueCls: 'text-sm' },
                         { label: 'DLR Entry Count', value: dlrEntryCount, cls: 'bg-violet-50 border-violet-200 text-violet-700' },
                       ];
+                      // Oct 31 2026 — two rows of three below `lg` (six in one
+                      // row squeezed the labels and cut off Total Amount).
                       return (
-                        <div className="flex gap-1.5 sm:gap-3 px-4 pb-4 overflow-x-auto" data-testid="dlrdpr-summary-pills">
+                        <div className="grid grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 px-4 pb-4" data-testid="dlrdpr-summary-pills">
                           {pills.map(p => (
-                            <div key={p.label} className={`flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${p.cls}`}>
-                              <span className="text-[9px] sm:text-xs font-medium text-center leading-tight">{p.label}</span>
-                              <span className="text-base sm:text-2xl font-bold mt-0.5">{p.value}</span>
+                            <div key={p.label} className={`min-w-0 flex flex-col items-center justify-center rounded-2xl px-1.5 sm:px-2 py-3 sm:py-5 shadow-sm border ${p.cls}`}>
+                              <span className="text-[10px] sm:text-xs font-medium text-center leading-tight">{p.label}</span>
+                              <span className={`${p.valueCls || 'text-base'} sm:text-2xl font-bold mt-0.5 max-w-full text-center break-words`}>{p.value}</span>
                             </div>
                           ))}
                         </div>
@@ -2415,7 +2417,50 @@ export default function PlanningBoard({ embedded = false }) {
                           {dlrDprProjectSearch ? 'No matching projects.' : 'No projects found for this date range.'}
                         </p>
                       ) : (
-                        <div className="overflow-x-auto" data-testid="dlrdpr-table">
+                        <>
+                        {/* Oct 31 2026 — phones get one card per DLR instead of
+                            the 10-column table, which only scrolled sideways. */}
+                        <div className="md:hidden divide-y border-t" data-testid="dlrdpr-cards">
+                          {filteredDlrDprRows.map((row, idx) => (
+                            <div
+                              key={row.dlr_id || `${row.project_id}-${idx}`}
+                              className="px-4 py-3 hover:bg-indigo-50/50 cursor-pointer"
+                              data-testid={`dlrdpr-card-${row.dlr_id || idx}`}
+                              onClick={() => window.location.href = `/site-engineer/project/${row.project_id}`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="flex items-start gap-1.5 text-sm leading-5 font-medium text-gray-900">
+                                    <span className="text-xs leading-5 text-gray-400 shrink-0">{idx + 1}.</span>
+                                    {row.dlr_id && <span className="h-2 w-2 mt-1.5 rounded-full bg-green-500 shrink-0" title="Has a DLR entry" />}
+                                    <span className="min-w-0 break-words">{row.project_name}</span>
+                                  </p>
+                                  <p className="text-xs text-gray-500 mt-0.5">
+                                    {[
+                                      row.date && new Date(row.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+                                      row.stage_name,
+                                    ].filter(Boolean).join(' · ') || 'No DLR in this range'}
+                                  </p>
+                                  {row.contractor_name && <p className="text-xs text-gray-500">Contractor: {row.contractor_name}</p>}
+                                </div>
+                                <span className="text-sm font-semibold text-gray-900 shrink-0">{formatCurrency(row.amount)}</span>
+                              </div>
+                              <div className="grid grid-cols-4 gap-1.5 mt-2 text-center">
+                                {[['Works', row.works_count], ['Skilled', row.skilled], ['Semi-Skilled', row.semi_skilled], ['Unskilled', row.unskilled]].map(([label, value]) => (
+                                  <div key={label} className="rounded-md bg-gray-50 py-1">
+                                    <p className="text-[10px] text-gray-500 leading-tight">{label}</p>
+                                    <p className="text-sm font-semibold text-gray-800">{value || 0}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                          <div className="flex items-center justify-between px-4 py-3 bg-gray-50 text-sm font-semibold">
+                            <span>Total · {filteredDlrDprRows.reduce((s, r) => s + (r.works_count || 0), 0)} works</span>
+                            <span>{formatCurrency(filteredDlrDprRows.reduce((s, r) => s + (r.amount || 0), 0))}</span>
+                          </div>
+                        </div>
+                        <div className="hidden md:block overflow-x-auto" data-testid="dlrdpr-table">
                           <table className="w-full text-sm">
                             <thead className="bg-gray-50 border-y">
                               <tr>
@@ -2471,6 +2516,7 @@ export default function PlanningBoard({ embedded = false }) {
                             </tfoot>
                           </table>
                         </div>
+                        </>
                       )}
                     </CardContent>
                   </Card>
