@@ -32,7 +32,8 @@ import {
   Image,
   Store,
   Package,
-  Radio
+  Radio,
+  Building2
 } from 'lucide-react';
 import { useState } from 'react';
 import axios from 'axios';
@@ -73,11 +74,15 @@ const OTHER_ROLES = {
     { label: 'HR', icon: IndianRupee, path: '/hr-portal' },
     { label: 'More', icon: Menu, action: 'more' },
   ],
+  // Oct 31 2026 — was Command/Projects/Alerts/Profile. The bar now holds the
+  // GM dashboard's four tabs (Rough Estimate = no `?tab=`); Notifications,
+  // Profile and the header pages are in More.
   general_manager: [
-    { label: 'Command', icon: Shield, path: '/gm-dashboard' },
-    { label: 'Projects', icon: FolderKanban, path: '/projects' },
-    { label: 'Alerts', icon: Bell, path: '/notifications' },
-    { label: 'Profile', icon: User, path: '/profile' },
+    { label: 'Final Estimate', icon: FileText, path: '/gm-dashboard?tab=final_estimate' },
+    { label: 'Rough Estimate', icon: Calculator, path: '/gm-dashboard' },
+    { label: 'Planning', icon: Building2, path: '/gm-dashboard?tab=planning_board' },
+    { label: 'Labour Advance', icon: Wallet, path: '/gm-dashboard?tab=labour_advance' },
+    { label: 'More', icon: Menu, action: 'more' },
   ],
   project_manager: [
     { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
@@ -251,7 +256,8 @@ const CLIENT_MORE = [
 ];
 
 // Oct 30 2026 — gives Procurement's bar a More button, which also holds Logout.
-const PROCUREMENT_MORE = [
+// Oct 31 2026 — the General Manager's More starts with the same two.
+const ALERTS_PROFILE_MORE = [
   { label: 'Notifications', icon: Bell, path: '/notifications' },
   { label: 'Profile', icon: User, path: '/profile' },
 ];
@@ -265,11 +271,13 @@ const PLANNING_PERSON_MORE = [
 ];
 
 const ROLE_MORE = {
-  accountant: ACCOUNTANT_MORE, client: CLIENT_MORE, procurement: PROCUREMENT_MORE,
-  planning_person: PLANNING_PERSON_MORE,
+  accountant: ACCOUNTANT_MORE, client: CLIENT_MORE, procurement: ALERTS_PROFILE_MORE,
+  planning_person: PLANNING_PERSON_MORE, general_manager: ALERTS_PROFILE_MORE,
 };
 
-export default function MobileBottomNav({ user }) {
+// `badges` — optional { [bar item path]: count } from the page, e.g. the GM
+// dashboard's pending approvals, shown as a red count on that bar item.
+export default function MobileBottomNav({ user, badges = {} }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -428,13 +436,19 @@ export default function MobileBottomNav({ user }) {
                 key={item.label}
                 data-testid={`mobile-nav-${item.label.toLowerCase().replace(/\s/g, '-')}`}
                 onClick={() => handleNav(item)}
-                className={`flex flex-col items-center justify-center flex-1 h-full transition-colors relative ${
+                // Top-aligned so icons stay in one row when a label wraps.
+                className={`flex flex-col items-center justify-start pt-2 flex-1 min-w-0 h-full transition-colors relative ${
                   active ? 'text-amber-600' : 'text-gray-400 hover:text-gray-600'
                 }`}
               >
                 {active && <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-amber-500 rounded-b" />}
+                {badges[item.path] > 0 && (
+                  <span className="absolute top-1 left-1/2 ml-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center" data-testid={`mobile-nav-badge-${item.label.toLowerCase().replace(/\s/g, '-')}`}>
+                    {badges[item.path]}
+                  </span>
+                )}
                 <Icon className="h-5 w-5" />
-                <span className="text-[10px] mt-0.5 font-medium">{item.label}</span>
+                <span className="text-[10px] mt-0.5 font-medium text-center leading-tight">{item.label}</span>
               </button>
             );
           })}

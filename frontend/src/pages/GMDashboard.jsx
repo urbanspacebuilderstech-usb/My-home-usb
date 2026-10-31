@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
@@ -59,7 +60,17 @@ const API = process.env.REACT_APP_BACKEND_URL + '/api';
 const GMDashboard = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('planning');  // Default to Rough Estimate
+  // Oct 31 2026 — the tab lives in the router's `?tab=` (Rough Estimate =
+  // 'planning' = none), so the GM's phone bottom bar, which links to each
+  // tab, switches it and highlights the one that is open.
+  const GM_TABS = ['overview', 'planning', 'projects', 'site_engineer', 'accountant', 'design', 'final_estimate', 'planning_board', 'labour_advance'];
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = GM_TABS.includes(searchParams.get('tab')) ? searchParams.get('tab') : 'planning';  // Default to Rough Estimate
+  const setActiveTab = (tab) => {
+    const next = new URLSearchParams(searchParams);
+    if (tab === 'planning') next.delete('tab'); else next.set('tab', tab);
+    setSearchParams(next, { replace: true });
+  };
   const lastActiveTabRef = React.useRef('overview');
 
   // Project Drill-down dialog (opened when a stats card is clicked)
@@ -526,7 +537,9 @@ const GMDashboard = () => {
           const isPlanningBoard = activeTab === 'planning_board';
           return (
             // Phones: an even 2×2 grid; wider screens: one pill row.
-            <div className="bg-white border shadow-sm p-1 rounded-md grid grid-cols-2 sm:inline-flex gap-1 sm:flex-wrap mb-4" data-testid="gm-main-tabs">
+            // Oct 31 2026 — the GM gets them on desktop only: below `lg` the
+            // GM's bottom bar holds these four tabs (Super Admin's doesn't).
+            <div className={`bg-white border shadow-sm p-1 rounded-md gap-1 mb-4 ${user?.role === 'general_manager' ? 'hidden lg:inline-flex flex-wrap' : 'grid grid-cols-2 sm:inline-flex sm:flex-wrap'}`} data-testid="gm-main-tabs">
               <button
                 onClick={() => setActiveTab('final_estimate')}
                 className={`flex items-center justify-center sm:justify-start gap-2 px-2 sm:px-4 py-2 rounded text-sm font-medium transition-colors ${isFE ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50'}`}
@@ -1978,7 +1991,10 @@ const GMDashboard = () => {
         </DialogContent>
       </Dialog>
 
-      <MobileBottomNav user={user} />
+      <MobileBottomNav user={user} badges={{
+        '/gm-dashboard?tab=final_estimate': stats.pendingFEApprovals,
+        '/gm-dashboard': stats.pendingREApprovals,
+      }} />
     </div>
   );
 };
