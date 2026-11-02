@@ -5005,7 +5005,105 @@ async def payment_pending_check(
     w("")
     w("Reasons (Accounts cards Planning does not count): "
       + ("; ".join(f"{k}: {v}" for k, v in sorted(reasons.items(), key=lambda kv: -kv[1])) or "none"))
+
+    # 4. The history of every row above, so the cause can be read off the
+    #    live data: the request's dated stamps, all its bills, the payments
+    #    released on them and the audit trail.
+    detail_rids = [rid for rid in dict.fromkeys(
+        [q.get("request_id") for q in a_only] + [b["source_request_id"] for b in b_only] + p_only) if rid]
+    if detail_rids or orphan:
+        await _write_mismatch_history(w, detail_rids, orphan, by_id, _name)
     return PlainTextResponse("\n".join(out))
+
+
+def _ist(v) -> str:
+    try:
+        d = v if isinstance(v, datetime) else datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        return (d + timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return str(v)[:16]
+
+
+def _stamps(doc: dict) -> List[tuple]:
+    """(time, field, who, reason) for every dated field on a request or bill."""
+    out = []
+    for k, v in doc.items():
+        if not v or not isinstance(v, (str, datetime)) or not (k.endswith("_at") or k.endswith("_since")):
+            continue
+        stem = k[:-3] if k.endswith("_at") else k[:-6]
+        out.append((_ist(v), k, doc.get(f"{stem}_by_name") or "", doc.get(f"{stem}_reason") or ""))
+    return sorted(out)
+
+
+async def _write_mismatch_history(w, rids: List[str], orphan: List[dict], by_id: dict, name) -> None:
+    def _n(v):
+        return f"{float(v or 0):,.2f}"
+
+    full = {r["request_id"]: r for r in await db.material_requests.find(
+        {"request_id": {"$in": rids}}, {"_id": 0}).to_list(None)}
+    bills = await db.material_expenses.find({"$or": [
+        {"source_request_id": {"$in": rids}},
+        {"expense_id": {"$in": [b["expense_id"] for b in orphan]}},
+    ]}, {"_id": 0}).to_list(None)
+    bills_by: Dict[str, list] = {}
+    for m in bills:
+        bills_by.setdefault(m.get("source_request_id") or m["expense_id"], []).append(m)
+    link_ids = rids + [m["expense_id"] for m in bills]
+    legs = await db.recorded_expenses.find(
+        {"request_id": {"$in": link_ids}},
+        {"_id": 0, "expense_id": 1, "request_id": 1, "amount": 1, "payment_method": 1, "status": 1,
+         "is_deleted": 1, "created_at": 1, "recorded_by_name": 1, "pulled_back_from_cashbook": 1},
+    ).to_list(None)
+    audits = await db.audit_logs.find(
+        {"$or": [{"resource_id": {"$in": link_ids}}, {"entity_id": {"$in": link_ids}}]}, {"_id": 0},
+    ).to_list(None)
+    users = {u["user_id"]: u.get("name") for u in await db.users.find(
+        {"user_id": {"$in": list({a.get("user_id") for a in audits if a.get("user_id")})}},
+        {"_id": 0, "user_id": 1, "name": 1}).to_list(None)}
+
+    w("")
+    w(f"== HISTORY OF THE {len(rids) + len(orphan)} ROWS ABOVE (IST, oldest first) ==")
+    for key in [*rids, *(b["expense_id"] for b in orphan)]:
+        r = full.get(key)
+        own = bills_by.get(key, [])
+        ids = {key, *(m["expense_id"] for m in own)}
+        w("")
+        if r:
+            w(f"### {name(r)}")
+            w(f"  request: status '{r.get('status')}', mode {r.get('payment_mode') or '-'}, total {_n(r.get('total_amount'))}, "
+              f"advance {_n(r.get('advance_amount'))} (paid {_n(r.get('advance_paid_amount'))}), "
+              f"balance paid {_n(r.get('balance_paid_amount'))}, linked bill {r.get('expense_id') or '-'}, "
+              f"next phase {r.get('next_payment_phase') or '-'}, pending next {r.get('pending_next_status') or '-'}"
+              + (", BOUNCED" if r.get("cheque_bounced") else "") + (", ARCHIVED" if r.get("is_archived") else ""))
+            for t, k, who, why in _stamps(r):
+                w(f"    {t}  {k}" + (f" by {who}" if who else "") + (f" - {why}" if why else ""))
+        else:
+            w(f"### bill {key} (no material request)")
+        w(f"  bills ({len(own)}):")
+        for m in sorted(own, key=lambda m: str(m.get("created_at") or "")):
+            w(f"  - {m['expense_id']} {m.get('payment_phase') or '-'} '{m.get('status')}' mode {m.get('payment_mode') or '-'} "
+              f"amount {_n(m.get('final_amount') or m.get('estimated_cost'))} paid {_n(m.get('paid_amount'))} "
+              f"left {_n(m.get('remaining_balance'))}"
+              + (" PULLED-BACK" if m.get("pulled_back_from_cashbook") else "")
+              + (" BOUNCED" if m.get("cheque_bounced") else "")
+              + (f" by {m.get('created_by_name') or m.get('site_engineer_name')}" if (m.get("created_by_name") or m.get("site_engineer_name")) else ""))
+            w("      " + "; ".join(f"{k} {t}" + (f" ({who})" if who else "") for t, k, who, _ in _stamps(m)))
+        mine = sorted((l for l in legs if l.get("request_id") in ids), key=lambda l: str(l.get("created_at") or ""))
+        w(f"  payments ({len(mine)}):")
+        for l in mine:
+            w(f"  - {_ist(l.get('created_at'))} {_n(l.get('amount'))} {l.get('payment_method') or '-'} '{l.get('status')}' "
+              f"on {l.get('request_id')} by {l.get('recorded_by_name') or '-'}"
+              + (" DELETED" if l.get("is_deleted") else "") + (" PULLED-BACK" if l.get("pulled_back_from_cashbook") else ""))
+        trail = sorted((a for a in audits if (a.get("resource_id") or a.get("entity_id")) in ids),
+                       key=lambda a: str(a.get("timestamp") or a.get("created_at") or ""))
+        w(f"  audit ({len(trail)}):")
+        for a in trail[-30:]:
+            det = a.get("details") or a.get("changes") or {}
+            w(f"  - {_ist(a.get('timestamp') or a.get('created_at'))} {a.get('action')} by "
+              f"{users.get(a.get('user_id')) or a.get('user_id') or '-'} on {a.get('resource_id') or a.get('entity_id')} "
+              f"{json.dumps(det, default=str)[:300]}")
 
 
 @router.post("/procurement-simple/material-requests/{request_id}/prepare-balance-bill")
