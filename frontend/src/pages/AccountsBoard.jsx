@@ -4668,6 +4668,10 @@ function ApprovalsTab() {
     petty_cash_total: filteredPettyCash.reduce((sum, x) => sum + (x.amount_requested || x.amount_issued || 0), 0),
   };
   const totalPending = fSummary.income_count + fSummary.material_count + fSummary.labour_count + fSummary.vendor_count + fSummary.petty_cash_count + filteredRecordedExpenses.length;
+  // Petty Cash sub-tab = Req Petty Cash + Record Expense. Expense Approvals
+  // is the sum of its three sub-tabs (vendor rows have no tab of their own).
+  const pettyCashTabCount = fSummary.petty_cash_count + filteredRecordedExpenses.length;
+  const expenseTabCount = fSummary.material_count + fSummary.labour_count + pettyCashTabCount;
   // Keep s in scope for any downstream usage (e.g., non-filtered pieces)
   void s;
 
@@ -4795,7 +4799,7 @@ function ApprovalsTab() {
             <ArrowDownRight className="h-3.5 w-3.5" /> Income Approvals ({fSummary.income_count})
           </TabsTrigger>
           <TabsTrigger value="expense" className="text-xs sm:text-sm data-[state=active]:bg-red-100 data-[state=active]:text-red-800 gap-1" data-testid="approval-expense-tab">
-            <ArrowUpRight className="h-3.5 w-3.5" /> Expense Approvals ({fSummary.material_count + fSummary.labour_count + fSummary.vendor_count})
+            <ArrowUpRight className="h-3.5 w-3.5" /> Expense Approvals ({expenseTabCount})
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -4811,7 +4815,7 @@ function ApprovalsTab() {
               <Wallet className="h-3.5 w-3.5" /> Labour Work Order ({fSummary.labour_count})
             </TabsTrigger>
             <TabsTrigger value="vendor" className="text-xs sm:text-sm data-[state=active]:bg-orange-100 data-[state=active]:text-orange-800 gap-1">
-              <CreditCard className="h-3.5 w-3.5" /> Petty Cash ({fSummary.petty_cash_count + filteredRecordedExpenses.length})
+              <CreditCard className="h-3.5 w-3.5" /> Petty Cash ({pettyCashTabCount})
             </TabsTrigger>
           </TabsList>
         </Tabs>
