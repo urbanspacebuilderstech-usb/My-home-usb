@@ -79,7 +79,7 @@ import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import AccountantLabourPayments from '../components/AccountantLabourPayments';
 import ProjectLabourDetailDialog from '../components/ProjectLabourDetailDialog';
-import AccountantMaterialPayments from '../components/AccountantMaterialPayments';
+import AccountantMaterialPayments, { groupMaterialCards, materialCardsSummary } from '../components/AccountantMaterialPayments';
 import AccountantCreditSettlements from '../components/AccountantCreditSettlements';
 import IssueCashDialog from '../components/IssueCashDialog';
 import DailyClosingDialog from '../components/DailyClosingDialog';
@@ -4360,12 +4360,23 @@ function ApprovalsTab() {
   const [statusFilter, setStatusFilter] = useState('pending');
   // Project filter — applies to BOTH Income & Expense approval queues
   const [appProjectFilter, setAppProjectFilter] = useState('');
-  // Projects reported back by AccountantMaterialPayments' own queue fetch
-  // (/procurement-simple/accountant/queue) — broader than /approvals/unified's
-  // "pending" status set (e.g. Partially Collected rows), so a project only
-  // visible there wasn't showing up in the header's project search. See
-  // AccountantMaterialPayments' onProjectsChange callback.
-  const [liveMaterialQueueProjects, setLiveMaterialQueueProjects] = useState([]);
+  // Nov 2 2026 — the material payments queue (/procurement-simple/accountant/queue)
+  // is loaded here with /approvals/unified, so the Materials chip / box /
+  // Total Pending count the very cards the Materials tab shows (they used to
+  // count only the pending bills: 186 against Pending 161 + Partially
+  // Collected 44).
+  const [materialQueue, setMaterialQueue] = useState([]);
+  // Projects in that queue — broader than /approvals/unified's "pending"
+  // status set (e.g. Partially Collected rows), so a project only visible
+  // there wasn't showing up in the header's project search.
+  const liveMaterialQueueProjects = React.useMemo(() => {
+    const seen = new Map();
+    materialQueue.forEach(req => {
+      const pid = req.project_id || req.project_name;
+      if (pid && !seen.has(pid)) seen.set(pid, { project_id: pid, name: req.project_name || pid });
+    });
+    return Array.from(seen.values());
+  }, [materialQueue]);
   // Sep 25 2026 — the dropdown previously only listed projects that had at
   // least one row in the currently-loaded approval queues, so a project with
   // nothing pending right now (e.g. Mr. Vinoth — brand new, nothing raised
@@ -4390,12 +4401,14 @@ function ApprovalsTab() {
   const fetchApprovals = useCallback(async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true);
-      const [unifiedRes, woRes] = await Promise.all([
+      const [unifiedRes, woRes, queueRes] = await Promise.all([
         axios.get(`${API}/approvals/unified`, { params: { status_filter: statusFilter } }),
         axios.get(`${API}/accountant/labour-payments?status=pending`).catch(() => ({ data: { requests: [] } })),
+        axios.get(`${API}/procurement-simple/accountant/queue`).catch(() => ({ data: { requests: [] } })),
       ]);
       setData(unifiedRes.data);
       setWoStagePayments(woRes.data?.requests || []);
+      setMaterialQueue(queueRes.data?.requests || []);
     } catch {
       toast.error('Failed to load approvals');
     } finally {
@@ -4638,11 +4651,14 @@ function ApprovalsTab() {
     });
     return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [data, woStagePayments, liveMaterialQueueProjects, allProjectsList]);
+  // Same cards the Materials tab draws (Pending + Partially Collected), and
+  // the ₹ is the sum of the amounts shown on those cards.
+  const materialCards = materialCardsSummary(groupMaterialCards(materialQueue, filteredMaterials, appProjectFilter));
   const fSummary = {
     income_count: filteredIncome.length,
     income_total: filteredIncome.reduce((sum, x) => sum + (x.amount || 0), 0),
-    material_count: filteredMaterials.length,
-    material_total: filteredMaterials.reduce((sum, x) => sum + (x.estimated_cost || x.final_amount || 0), 0),
+    material_count: materialCards.count,
+    material_total: materialCards.total,
     labour_count: filteredLabour.length + filteredWoStagePayments.length,
     labour_total: filteredLabour.reduce((sum, x) => sum + (x.total_amount || 0), 0)
                  + filteredWoStagePayments.reduce((sum, x) => sum + (x.amount || 0), 0),
@@ -4928,7 +4944,7 @@ function ApprovalsTab() {
           {/* Procurement → Planning → Accountant material payments (full / advance / balance).
               Uses the unified PayApprovalDialog with cheque suspense + CRE-opened cheque picker. */}
           <div className="mb-3" data-testid="approvals-procurement-materials">
-            <AccountantMaterialPayments onRefresh={() => fetchApprovals(false)} legacyExpenses={filteredMaterials} projectFilter={appProjectFilter} onProjectsChange={setLiveMaterialQueueProjects} />
+            <AccountantMaterialPayments onRefresh={() => fetchApprovals(false)} legacyExpenses={filteredMaterials} projectFilter={appProjectFilter} queue={materialQueue} />
           </div>
           {/* Vendor credit ledger settlements awaiting accountant release */}
           <div className="mb-3" data-testid="approvals-credit-settlements">

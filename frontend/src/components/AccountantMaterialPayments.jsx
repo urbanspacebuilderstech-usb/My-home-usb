@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
@@ -47,6 +47,66 @@ const bouncedChequeLabel = (r, fmtFn) => {
   return nums.length === 1 ? `${joined} · ${fmtFn(r?.bounced_from_cheque_amount)}` : joined;
 };
 
+// Nov 2 2026 — which cards Approvals > Materials shows, decided in ONE place.
+// The board's Materials chip / box / Expense Approvals / Total Pending used to
+// count pending bills from /approvals/unified, while the cards come from the
+// accountant queue plus any in-range bill no queue row links to. Part-paid and
+// bounced requests (bill no longer "pending") were cards but not in the count,
+// so the chip read 186 against Pending 161 + Partially Collected 44. The board
+// now counts these same groups.
+const isPartialRequest = (req) => req.status === 'partially_paid' || !!req.last_partial_paid_at || !!req.partially_collected;
+// Oct 20 2026 — `collected_amount` is set by /approvals/unified when the
+// stored paid_amount was wiped but the bill's payment row survives
+// (USB-MR1255: 15,895.37 paid, card read "0 paid" and sat in Pending).
+const legacyPaid = (exp) => exp.collected_amount || exp.total_paid || exp.paid_amount || 0;
+const legacyBillAmount = (exp) => exp.final_amount || exp.estimated_cost || exp.estimated_price || 0;
+const isLegacyPartial = (exp) => {
+  const paid = legacyPaid(exp);
+  return paid > 0 && paid < legacyBillAmount(exp);
+};
+
+export function groupMaterialCards(queue = [], bills = [], projectFilter = '') {
+  // Project filter (from Approvals header) — applies to live queue rows; the
+  // bills arrive already filtered by the board.
+  const items = !projectFilter ? queue : queue.filter(r => (r.project_id || r.project_name) === projectFilter);
+  // Legacy material_expenses (no live material_request parent). Dedupe by
+  // expense_id against live items so we don't show the same row twice when
+  // both collections are populated.
+  const liveExpenseIds = new Set(items.map(i => i.expense_id).filter(Boolean));
+  const legacy = bills.filter(e => e.expense_id && !liveExpenseIds.has(e.expense_id));
+  return {
+    legacy,
+    partialItems: items.filter(isPartialRequest),
+    pendingItems: items.filter(r => !isPartialRequest(r)),
+    partialLegacy: legacy.filter(isLegacyPartial),
+    pendingLegacy: legacy.filter(e => !isLegacyPartial(e)),
+  };
+}
+
+// The amount at the top right of a queue card.
+const requestCardAmount = (req) => {
+  const phase = req.next_payment_phase || 'full';
+  const total = req.total_amount || req.estimated_price || 0;
+  const paid = req.collected_amount ?? req.paid_amount ?? 0;
+  const due = phase === 'balance' ? Math.max(0, total - paid) : (phase === 'advance' ? (req.advance_amount || 0) : total);
+  return req.balance_due > 0 ? req.balance_due : (req.remaining_balance > 0 ? req.remaining_balance : due);
+};
+// The amount at the top right of a legacy bill card.
+const legacyCardAmount = (exp) => {
+  const isPartial = exp.status === 'partially_paid' || !!exp.last_partial_paid_at;
+  return isPartial && exp.remaining_balance > 0 ? exp.remaining_balance : legacyBillAmount(exp);
+};
+
+// Count and ₹ of every card, Pending + Partially Collected together.
+export function materialCardsSummary(groups) {
+  const reqs = [...groups.pendingItems, ...groups.partialItems];
+  const bills = [...groups.pendingLegacy, ...groups.partialLegacy];
+  return {
+    count: reqs.length + bills.length,
+    total: reqs.reduce((s, r) => s + requestCardAmount(r), 0) + bills.reduce((s, e) => s + legacyCardAmount(e), 0),
+  };
+}
+
 /**
  * Accountant queue for material payments coming from the new Procurement flow.
  * Shows requests with status:
@@ -57,13 +117,9 @@ const bouncedChequeLabel = (r, fmtFn) => {
  * CRE-opened cheque picker + auto excess-to-suspense). Each material_request
  * carries an `expense_id` back-link to its mirrored material_expenses row.
  */
-export default function AccountantMaterialPayments({ onRefresh, legacyExpenses = [], projectFilter = '', onProjectsChange }) {
-  const [rawItems, setRawItems] = useState([]);
-  // Project filter (from Approvals header) — applies to live queue rows.
-  const items = !projectFilter
-    ? rawItems
-    : rawItems.filter(r => (r.project_id || r.project_name) === projectFilter);
-  const [loading, setLoading] = useState(true);
+export default function AccountantMaterialPayments({ onRefresh, legacyExpenses = [], projectFilter = '', queue = [] }) {
+  // Nov 2 2026 — the queue (/procurement-simple/accountant/queue) is loaded by
+  // the board, which counts the same cards; onRefresh reloads it.
   const [payDialog, setPayDialog] = useState({ open: false, requestId: '' });
   const [rejectDialog, setRejectDialog] = useState({ open: false, exp: null, kind: '', reason: '', busy: false });
   // Jul 10 2026 — SE-uploaded collection photos (lorry / material), shown as
@@ -80,35 +136,6 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
     if (!photos.length && req.lorry_image_id) photos.push({ label: 'Lorry Photo', file_id: req.lorry_image_id });
     return photos.map(p => ({ ...p, uploaded_at: req.photo_uploaded_at?.[p.file_id] || null }));
   };
-
-  const fetchQueue = useCallback(async () => {
-    setLoading(true);
-    try {
-      const r = await axios.get(`${API}/procurement-simple/accountant/queue`);
-      const requests = r.data?.requests || [];
-      setRawItems(requests);
-      // Sep 25 2026 — this queue (esp. Partially Collected rows: advance
-      // paid, balance still in transit/verification) is fetched independently
-      // of the Approvals header's project dropdown, which only knew about
-      // projects present in /approvals/unified's narrower "pending" status
-      // set. A project whose only live material row was Partially Collected
-      // (e.g. Mrs Pushpalatha / USB-MR1730) never made it into that dropdown
-      // even though its card was visibly rendered here. Report our own
-      // projects up so the parent can include them too.
-      if (onProjectsChange) {
-        const seen = new Map();
-        requests.forEach(req => {
-          const pid = req.project_id || req.project_name;
-          if (pid && !seen.has(pid)) seen.set(pid, { project_id: pid, name: req.project_name || pid });
-        });
-        onProjectsChange(Array.from(seen.values()));
-      }
-    } catch {
-      setRawItems([]);
-    } finally { setLoading(false); }
-  }, [onProjectsChange]);
-
-  useEffect(() => { fetchQueue(); }, [fetchQueue]);
 
   const openPayDialog = async (req) => {
     // Jul 7 2026 — Partially Collected mid-flow rows (advance paid, request
@@ -138,7 +165,6 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
       const r = await axios.post(`${API}/procurement-simple/material-requests/${req.request_id}/recalculate-amount`);
       if (r.data?.changed) {
         toast.success(`Amount corrected to ${fmt(r.data.total_amount)}`);
-        fetchQueue();
         if (onRefresh) onRefresh();
       } else {
         toast.success('Amount already matches received qty × unit price');
@@ -156,7 +182,6 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
     try {
       await axios.post(`${API}/approvals/material/${exp.expense_id}/reopen-to-procurement`);
       toast.success('Sent back to Procurement for re-verification');
-      fetchQueue();
       if (onRefresh) onRefresh();
     } catch (e) {
       toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Reopen failed');
@@ -183,7 +208,6 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
       }
       toast.success('Material request rejected');
       setRejectDialog({ open: false, exp: null, kind: '', reason: '', busy: false });
-      fetchQueue();
       if (onRefresh) onRefresh();
     } catch (e) {
       toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Reject failed');
@@ -191,11 +215,8 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
     }
   };
 
-  // Legacy material_expenses (no live material_request parent). Dedupe by
-  // expense_id against live items so we don't show the same row twice when
-  // both collections are populated.
-  const liveExpenseIds = new Set(items.map(i => i.expense_id).filter(Boolean));
-  const legacyToShow = (legacyExpenses || []).filter(e => e.expense_id && !liveExpenseIds.has(e.expense_id));
+  const { legacy: legacyToShow, partialItems, pendingItems, partialLegacy, pendingLegacy } =
+    groupMaterialCards(queue, legacyExpenses || [], projectFilter);
 
   // Oct 14 2026 — Legacy cards aren't in the queue, so they don't carry the
   // queue's vendor_suspense_balance. Fetch the same figure for their vendors.
@@ -213,20 +234,6 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
   // Jul 7 2026 — "Partially Collected" sub-tab: separates partially-paid
   // entries from fresh pending ones. Same payment modes & actions in both.
   const [subTab, setSubTab] = useState('pending');
-  const isPartial = (req) => req.status === 'partially_paid' || !!req.last_partial_paid_at || !!req.partially_collected;
-  // Oct 20 2026 — `collected_amount` is set by /approvals/unified when the
-  // stored paid_amount was wiped but the bill's payment row survives
-  // (USB-MR1255: 15,895.37 paid, card read "0 paid" and sat in Pending).
-  const legacyPaid = (exp) => exp.collected_amount || exp.total_paid || exp.paid_amount || 0;
-  const isLegacyPartial = (exp) => {
-    const amt = exp.final_amount || exp.estimated_cost || exp.estimated_price || 0;
-    const paid = legacyPaid(exp);
-    return paid > 0 && paid < amt;
-  };
-  const partialItems = items.filter(isPartial);
-  const pendingItems = items.filter(r => !isPartial(r));
-  const partialLegacy = legacyToShow.filter(isLegacyPartial);
-  const pendingLegacy = legacyToShow.filter(e => !isLegacyPartial(e));
   const rawShowItems = subTab === 'partial' ? partialItems : pendingItems;
   const showItems = useMemo(() => {
     return [...(rawShowItems || [])].sort((a, b) => {
@@ -239,8 +246,6 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
   const showLegacy = subTab === 'partial' ? partialLegacy : pendingLegacy;
   const pendingCount = pendingItems.length + pendingLegacy.length;
   const partialCount = partialItems.length + partialLegacy.length;
-
-  if (loading) return <p className="text-center text-xs text-gray-400 py-6">Loading material payments…</p>;
 
   return (
     <>
@@ -279,7 +284,6 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
           // writes to the mirror — so reading it alone showed "₹0 paid" on
           // bills that were genuinely part-settled.
           const paid = req.collected_amount ?? req.paid_amount ?? 0;
-          const due = phase === 'balance' ? Math.max(0, total - paid) : (phase === 'advance' ? (req.advance_amount || 0) : total);
           const phaseColor = phase === 'advance' ? 'orange' : phase === 'balance' ? 'cyan' : 'blue';
           return (
             <div key={req.request_id} className="relative">
@@ -350,7 +354,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                       <Badge variant="outline" className="text-[10px] font-mono border-violet-300 text-violet-700 bg-violet-50">{req.request_number || req.order_id}</Badge>
                     )}
                   </div>
-                  <span className="text-base font-bold text-emerald-700">{fmt(req.balance_due > 0 ? req.balance_due : (req.remaining_balance > 0 ? req.remaining_balance : due))}</span>
+                  <span className="text-base font-bold text-emerald-700">{fmt(requestCardAmount(req))}</span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
                   <div>
@@ -494,7 +498,6 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
           // the live material_requests card above, which already handles
           // this correctly.
           const isPartial = exp.status === 'partially_paid' || !!exp.last_partial_paid_at;
-          const headlineAmt = isPartial && exp.remaining_balance > 0 ? exp.remaining_balance : amt;
           return (
             <Card key={`legacy-${exp.expense_id}`} className={`hover:shadow-md transition-shadow border-l-4 ${isPartial ? 'ring-1 ring-yellow-200' : ''}`} style={{ borderLeftColor: isPartial ? '#eab308' : '#6b7280' }}>
               <CardContent className="p-3 sm:p-4">
@@ -529,7 +532,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                       <Badge variant="outline" className="text-[10px] font-mono border-violet-300 text-violet-700 bg-violet-50">{exp.request_number}</Badge>
                     )}
                   </div>
-                  <span className="text-base font-bold text-emerald-700">{fmt(headlineAmt)}</span>
+                  <span className="text-base font-bold text-emerald-700">{fmt(legacyCardAmount(exp))}</span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
                   <div>
@@ -598,7 +601,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
         onOpenChange={(o) => !o && setPayDialog({ open: false, requestId: '' })}
         reqType="material"
         requestId={payDialog.requestId}
-        onPaid={() => { setPayDialog({ open: false, requestId: '' }); fetchQueue(); if (onRefresh) onRefresh(); }}
+        onPaid={() => { setPayDialog({ open: false, requestId: '' }); if (onRefresh) onRefresh(); }}
       />
 
       <Dialog open={rejectDialog.open} onOpenChange={(o) => !o && !rejectDialog.busy && setRejectDialog({ open: false, exp: null, kind: '', reason: '', busy: false })}>
