@@ -2699,22 +2699,24 @@ async def get_material_requests_for_planning(
     if status:
         query["status"] = status
     
-    requests = await db.material_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
-    
-    # Enrich with project name
-    project_cache = {}
+    # Nov 2 2026 — was .to_list(1000): with 1,984 requests, Planning and
+    # Procurement only ever saw the newest 1000, so 59 older requests still
+    # waiting for payment (USB-MR027, MR034, MR123…) were missing from
+    # Payment Pending (147 shown, 200 real) while Accounts showed them.
+    requests = await db.material_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(None)
+
+    # Enrich with project name (one query, not one per project)
+    pids = list({r.get("project_id") for r in requests if r.get("project_id")})
+    names = {p["project_id"]: p.get("name") for p in await db.projects.find(
+        {"project_id": {"$in": pids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(None)} if pids else {}
     for r in requests:
-        pid = r.get("project_id")
-        if pid not in project_cache:
-            p = await db.projects.find_one({"project_id": pid}, {"_id": 0, "name": 1})
-            project_cache[pid] = p["name"] if p else "Unknown"
-        r["project_name"] = project_cache[pid]
+        r["project_name"] = names.get(r.get("project_id"), "Unknown")
     # Oct 27 2026 — part-payments on the bill, for the Planning card's
     # Total / Paid and Balance (USB-MR2374).
     from routes.financial import stamp_part_paid_on_open_bill
     await stamp_part_paid_on_open_bill(requests)
 
-    return requests
+    return fast_json(requests)
 
 
 @router.patch("/material-requests/{request_id}/planning-action")

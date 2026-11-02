@@ -4881,8 +4881,8 @@ async def payment_pending_check(
     user: User = Depends(get_current_user),
 ):
     """Nov 2 2026 — plain-text comparison of Planning > Requests > Material >
-    Payment Pending (one row per request, by status, from the newest 1000
-    requests /material-requests returns) with Accounts > Approvals >
+    Payment Pending (one row per request, by status, from every request
+    /material-requests returns) with Accounts > Approvals >
     Materials (queue cards + pending bills no queue row links to, bills in
     the date range). Lists every request or bill counted on only one side,
     with the reason. Loads the same data as opening the two pages."""
@@ -4904,15 +4904,14 @@ async def payment_pending_check(
     legacy = [b for b in bills if b.get("expense_id") and b["expense_id"] not in queue_bill_ids]
     queue_req_ids = {q.get("request_id") for q in queue}
 
-    # Planning side: /material-requests returns the newest 1000 only.
+    # Planning side: /material-requests returns every request (it was capped
+    # at the newest 1000 until Nov 2 2026).
     all_reqs = await db.material_requests.find(
         {}, {"_id": 0, "request_id": 1, "request_number": 1, "status": 1, "is_archived": 1, "created_at": 1,
              "material_name": 1, "vendor_name": 1, "project_id": 1, "cheque_bounced": 1},
     ).sort("created_at", -1).to_list(None)
-    loaded_ids = {r["request_id"] for r in all_reqs[:1000] if r.get("request_id")}
     by_id = {r.get("request_id"): r for r in all_reqs}
-    planning_pp = {r["request_id"] for r in all_reqs[:1000] if _planning_bucket(r) == "payment_pending"}
-    planning_pp_uncapped = {r["request_id"] for r in all_reqs if _planning_bucket(r) == "payment_pending"}
+    planning_pp = {r["request_id"] for r in all_reqs if _planning_bucket(r) == "payment_pending"}
 
     projects = {p["project_id"]: p.get("name") for p in await db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(2000)}
 
@@ -4924,8 +4923,6 @@ async def payment_pending_check(
         r = by_id.get(rid)
         if not r:
             return "request not found"
-        if rid not in loaded_ids:
-            return f"older than the newest 1000 requests, never loaded in Planning (status '{r.get('status')}')"
         b = _planning_bucket(r)
         if b is None:
             return f"hidden in Planning: status '{r.get('status')}' has no tab"
@@ -4937,9 +4934,7 @@ async def payment_pending_check(
     w(f"PLANNING PAYMENT PENDING vs ACCOUNTS MATERIALS   bills dated {date_from} .. {date_to}, all projects")
     w("")
     w(f"Material requests in the database               {len(all_reqs)}")
-    w(f"Loaded by Planning (newest 1000)                {min(1000, len(all_reqs))}")
-    w(f"Planning Payment Pending (as shown)             {len(planning_pp)}")
-    w(f"Planning Payment Pending if all were loaded     {len(planning_pp_uncapped)}")
+    w(f"Planning Payment Pending                        {len(planning_pp)}")
     w(f"Accounts Materials cards                        {cards}  (request cards {len(queue)} + bill cards {len(legacy)})")
     w("")
 
