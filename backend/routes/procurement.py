@@ -4853,6 +4853,166 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
     return {"count": len(rows), "requests": rows}
 
 
+def _planning_bucket(r: dict) -> Optional[str]:
+    """Planning > Requests > Material lifecycle bucket — mirrors
+    bucketForMaterial() in PlanningRequestsTab.jsx."""
+    if r.get("is_archived"):
+        return "archive"
+    s = (r.get("status") or "").lower()
+    if s == "planning_initial_pending":
+        return "new_request"
+    if s in ("requested", "pm_approved", "procurement_priced"):
+        return "purchase"
+    if s in ("collected", "procurement_verifying"):
+        return "purchase_verification"
+    if s == "in_transit":
+        return "transit"
+    if s in ("pending_accounts_approval", "pending_advance_payment", "pending_balance_payment", "accounts_approved", "payment_approved"):
+        return "payment_pending"
+    if s in ("delivered", "completed", "closed"):
+        return "completed"
+    return None
+
+
+@router.get("/procurement-simple/accountant/payment-pending-check")
+async def payment_pending_check(
+    date_from: str = "2026-01-01",
+    date_to: str = "2026-12-31",
+    user: User = Depends(get_current_user),
+):
+    """Nov 2 2026 — plain-text comparison of Planning > Requests > Material >
+    Payment Pending (one row per request, by status, from the newest 1000
+    requests /material-requests returns) with Accounts > Approvals >
+    Materials (queue cards + pending bills no queue row links to, bills in
+    the date range). Lists every request or bill counted on only one side,
+    with the reason. Loads the same data as opening the two pages."""
+    from fastapi.responses import PlainTextResponse
+    from routes.financial import get_unified_approvals
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    def _day(v):
+        if not v:
+            return ""
+        return v[:10] if isinstance(v, str) else v.isoformat()[:10]
+
+    # Accounts side, exactly as AccountsBoard + AccountantMaterialPayments build it.
+    unified = await get_unified_approvals(status_filter="pending", user=user)
+    bills = [b for b in (unified.get("materials") or []) if date_from <= _day(b.get("created_at")) <= date_to]
+    queue = (await procurement_simple_accountant_queue(user)).get("requests") or []
+    queue_bill_ids = {q.get("expense_id") for q in queue if q.get("expense_id")}
+    legacy = [b for b in bills if b.get("expense_id") and b["expense_id"] not in queue_bill_ids]
+    queue_req_ids = {q.get("request_id") for q in queue}
+
+    # Planning side: /material-requests returns the newest 1000 only.
+    all_reqs = await db.material_requests.find(
+        {}, {"_id": 0, "request_id": 1, "request_number": 1, "status": 1, "is_archived": 1, "created_at": 1,
+             "material_name": 1, "vendor_name": 1, "project_id": 1, "cheque_bounced": 1},
+    ).sort("created_at", -1).to_list(None)
+    loaded_ids = {r["request_id"] for r in all_reqs[:1000] if r.get("request_id")}
+    by_id = {r.get("request_id"): r for r in all_reqs}
+    planning_pp = {r["request_id"] for r in all_reqs[:1000] if _planning_bucket(r) == "payment_pending"}
+    planning_pp_uncapped = {r["request_id"] for r in all_reqs if _planning_bucket(r) == "payment_pending"}
+
+    projects = {p["project_id"]: p.get("name") for p in await db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(2000)}
+
+    def _name(r):
+        return (f"{r.get('request_number') or r.get('request_id')} | {r.get('material_name') or '-'} | "
+                f"{r.get('vendor_name') or '-'} | {projects.get(r.get('project_id'), r.get('project_name') or '-')}")
+
+    def _why_not_planning(rid):
+        r = by_id.get(rid)
+        if not r:
+            return "request not found"
+        if rid not in loaded_ids:
+            return f"older than the newest 1000 requests, never loaded in Planning (status '{r.get('status')}')"
+        b = _planning_bucket(r)
+        if b is None:
+            return f"hidden in Planning: status '{r.get('status')}' has no tab"
+        return f"Planning shows it under {b.replace('_', ' ').title()} (status '{r.get('status')}')"
+
+    out = []
+    w = out.append
+    cards = len(queue) + len(legacy)
+    w(f"PLANNING PAYMENT PENDING vs ACCOUNTS MATERIALS   bills dated {date_from} .. {date_to}, all projects")
+    w("")
+    w(f"Material requests in the database               {len(all_reqs)}")
+    w(f"Loaded by Planning (newest 1000)                {min(1000, len(all_reqs))}")
+    w(f"Planning Payment Pending (as shown)             {len(planning_pp)}")
+    w(f"Planning Payment Pending if all were loaded     {len(planning_pp_uncapped)}")
+    w(f"Accounts Materials cards                        {cards}  (request cards {len(queue)} + bill cards {len(legacy)})")
+    w("")
+
+    # 1. Request cards in Accounts that Planning does not count.
+    a_only = [q for q in queue if q.get("request_id") not in planning_pp]
+    reasons: dict = {}
+    w(f"== {len(a_only)} ACCOUNTS REQUEST CARDS NOT IN PLANNING'S PAYMENT PENDING ==")
+    for q in a_only:
+        why = _why_not_planning(q.get("request_id"))
+        key = why.split(" (")[0].split(":")[0]
+        reasons[key] = reasons.get(key, 0) + 1
+        tags = " ".join(t for t, on in (("PARTIAL", q.get("partially_collected") or q.get("status") == "partially_paid"),
+                                         ("BOUNCED", q.get("cheque_bounced"))) if on)
+        w(f"- {_name(q)} {tags}")
+        w(f"    why: {why}")
+    w("")
+
+    # 2. Bill cards in Accounts: whose request Planning does not count, or that
+    #    duplicate a request already carded, or with no request at all.
+    orphan, dup, b_only = [], [], []
+    seen_bill_reqs = set()
+    for b in legacy:
+        rid = b.get("source_request_id")
+        if not rid or rid not in by_id:
+            orphan.append(b)
+        elif rid in queue_req_ids or rid in seen_bill_reqs:
+            dup.append(b)
+        elif rid not in planning_pp:
+            b_only.append(b)
+        seen_bill_reqs.add(rid)
+    w(f"== {len(b_only)} ACCOUNTS BILL CARDS WHOSE REQUEST IS NOT IN PLANNING'S PAYMENT PENDING ==")
+    for b in b_only:
+        why = _why_not_planning(b["source_request_id"])
+        key = why.split(" (")[0].split(":")[0]
+        reasons[key] = reasons.get(key, 0) + 1
+        w(f"- {_name(by_id[b['source_request_id']])} | bill {b.get('expense_id')} {b.get('payment_phase') or '-'} '{b.get('status')}'")
+        w(f"    why: {why}")
+    w("")
+    w(f"== {len(dup)} EXTRA BILL CARDS FOR A REQUEST THAT ALREADY HAS A CARD (Planning counts the request once) ==")
+    for b in dup:
+        r = by_id[b["source_request_id"]]
+        w(f"- {_name(r)} | bill {b.get('expense_id')} {b.get('payment_phase') or '-'} '{b.get('status')}' "
+          f"amount {float(b.get('final_amount') or b.get('estimated_cost') or 0):,.2f} dated {_day(b.get('created_at'))}")
+    w("")
+    w(f"== {len(orphan)} BILL CARDS WITH NO MATERIAL REQUEST (never in Planning) ==")
+    for b in orphan:
+        w(f"- {b.get('request_number') or '-'} | {b.get('material_name') or '-'} | {b.get('vendor_name') or '-'} | "
+          f"{b.get('project_name') or '-'} | bill {b.get('expense_id')} '{b.get('status')}' dated {_day(b.get('created_at'))}")
+    w("")
+
+    # 3. Planning Payment Pending with no Accounts card.
+    carded = queue_req_ids | {b.get("source_request_id") for b in legacy if b.get("source_request_id")}
+    p_only = sorted(planning_pp - carded, key=lambda rid: by_id[rid].get("request_number") or "")
+    w(f"== {len(p_only)} PLANNING PAYMENT PENDING WITH NO ACCOUNTS CARD ==")
+    if p_only:
+        open_bills: dict = {}
+        async for m in db.material_expenses.find(
+            {"source_request_id": {"$in": p_only}},
+            {"_id": 0, "expense_id": 1, "source_request_id": 1, "status": 1, "payment_phase": 1, "created_at": 1},
+        ):
+            open_bills.setdefault(m["source_request_id"], []).append(m)
+        for rid in p_only:
+            r = by_id[rid]
+            bl = open_bills.get(rid, [])
+            w(f"- {_name(r)} | request '{r.get('status')}'")
+            w("    bills: " + (", ".join(f"{m.get('expense_id')} {m.get('payment_phase') or '-'} '{m.get('status')}' "
+                                        f"dated {_day(m.get('created_at'))}" for m in bl) or "none"))
+    w("")
+    w("Reasons (Accounts cards Planning does not count): "
+      + ("; ".join(f"{k}: {v}" for k, v in sorted(reasons.items(), key=lambda kv: -kv[1])) or "none"))
+    return PlainTextResponse("\n".join(out))
+
+
 @router.post("/procurement-simple/material-requests/{request_id}/prepare-balance-bill")
 async def prepare_balance_bill(request_id: str, user: User = Depends(get_current_user)):
     """Jul 7 2026 — Release Payment from the "Partially Collected" tab.
